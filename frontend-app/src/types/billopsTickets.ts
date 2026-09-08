@@ -4,6 +4,10 @@
  * Converted from: billops/tickets.html
  */
 
+import type { TicketEmailDetails } from './ticketEmail';
+
+export type { TicketEmailDetails };
+
 export type TicketStatus = 'OPEN' | 'CLOSED' | 'IN_PROGRESS';
 export type TicketSeverity = 'Low' | 'Medium' | 'Normal' | 'High' | 'Critical' | 'Urgent' | 'Info';
 export type TicketCategory = 'Account and Billing' | 'Technical';
@@ -27,6 +31,13 @@ export interface BillOpsTicket {
   creatorUsername?: string;
   creatorEmail?: string;
   hasUnreadAdminReply?: boolean;  // true = admin replied and user hasn't responded yet
+  /** 'WEB' for tickets raised in the app, 'EMAIL' for ones ingested from the support mailbox. */
+  source?: string;
+  /**
+   * Only set when source is EMAIL, and only on the detail response — the list view sends
+   * `source` alone because the mail details need a per-ticket lookup.
+   */
+  emailDetails?: TicketEmailDetails;
 }
 
 export interface CreateTicketFormData {
@@ -69,6 +80,9 @@ export interface TicketReply {
   message: string;
   authorId: number;
   authorUsername: string;
+  /** Present when the reply arrived by email; absent for replies typed in the app. */
+  authorEmail?: string;
+  fromEmail?: boolean;
   admin: boolean;
   createdAt: string;
   attachmentUrl?: string;

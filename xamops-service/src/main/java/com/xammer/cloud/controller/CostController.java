@@ -236,6 +236,36 @@ public class CostController {
     /**
      * Health check endpoint for cost APIs
      */
+    /**
+     * Refreshes this month's cost data from the Cost and Usage Report only.
+     *
+     * <p>The ordinary refresh already prefers the CUR, so this is not a second way to
+     * get the same data — it is the only way to <em>prove</em> the data came from the
+     * report. The normal path falls back to Cost Explorer on any problem, and a working
+     * fallback is indistinguishable from a working CUR once the numbers are on screen.
+     *
+     * <p>Returns 409 with the reason when the CUR cannot serve the request, and 502 when
+     * the query itself failed, rather than quietly returning Cost Explorer figures.
+     */
+    @PostMapping("/costs/refresh-from-cur")
+    public ResponseEntity<?> refreshFromCur(@RequestParam String accountId) {
+        try {
+            return ResponseEntity.ok(costService.refreshFromCurOnly(accountId));
+        } catch (IllegalStateException e) {
+            // No usable source — a configuration state the operator can act on.
+            return ResponseEntity.status(409).body(Map.of(
+                    "source", "NONE",
+                    "error", "No Cost and Usage Report available",
+                    "detail", String.valueOf(e.getMessage())));
+        } catch (Exception e) {
+            logger.warn("[CUR] Forced refresh failed for {}: {}", accountId, e.getMessage());
+            return ResponseEntity.status(502).body(Map.of(
+                    "source", "NONE",
+                    "error", "Could not read the Cost and Usage Report",
+                    "detail", String.valueOf(e.getMessage())));
+        }
+    }
+
     @GetMapping("/costs/health")
     public ResponseEntity<Map<String, Object>> healthCheck() {
         Map<String, Object> health = new HashMap<>();

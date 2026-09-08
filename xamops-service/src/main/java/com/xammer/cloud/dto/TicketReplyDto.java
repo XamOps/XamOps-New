@@ -12,6 +12,17 @@ public class TicketReplyDto {
     private Long ticketId;
     private Long authorId;
     private String authorUsername;
+
+    /**
+     * Sender address, when the reply arrived by mail from somebody with no account. In that case
+     * {@link #authorId} is null and {@link #authorUsername} carries their display name or
+     * address, so the UI always has a sender to render.
+     */
+    private String authorEmail;
+
+    /** True when this reply came from an email rather than the app. */
+    private boolean fromEmail;
+
     private String message;
     private LocalDateTime createdAt;
     private boolean admin;

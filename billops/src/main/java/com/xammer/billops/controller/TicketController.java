@@ -298,7 +298,10 @@ public class TicketController {
 
             return ticketReplyRepository.findById(replyId).map(reply -> {
                 // Author can delete own message, admin can delete any
-                if (!reply.getAuthor().getId().equals(userId) && !isAdmin) {
+                // A reply ingested from email has no author user, so there is no "own reply" to
+                // compare against — only an admin can remove one.
+                boolean ownReply = reply.getAuthor() != null && reply.getAuthor().getId().equals(userId);
+                if (!ownReply && !isAdmin) {
                     return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
                 }
                 if (reply.isDeleted()) {

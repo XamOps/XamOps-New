@@ -105,12 +105,39 @@ const deleteHeader = (headers: HeadersInit, key: string): HeadersInit => {
  * Enhanced fetch with automatic header injection
  * Mimics the exact behavior of the original fetch interceptor
  */
+/**
+ * Marks a forced cost refresh as wanting Cost Explorer.
+ *
+ * Leaves everything else untouched, so ordinary page loads keep reading whatever the
+ * nightly job stored — which is the report.
+ */
+const withCostSourceForManualRefresh = (url: string | URL): string | URL => {
+  const raw = url.toString();
+  if (!raw.includes('forceRefresh=true')) return url;
+  // The CUR-only button is the one place a forced refresh must NOT mean Cost Explorer.
+  if (raw.includes('/costs/refresh-from-cur')) return url;
+  if (raw.includes('costSource=')) return url;
+  return raw + (raw.includes('?') ? '&' : '?') + 'costSource=CE';
+};
+
 export const apiFetch = async (url: string | URL, options: FetchOptions = {}): Promise<Response> => {
   // Demo mode: return static mock response without hitting the network
   if (isDemoMode()) {
     const mockResponse = resolveDemoResponse(url.toString());
     if (mockResponse) return mockResponse;
   }
+
+  // A manual Refresh means "give me a live figure now", which for cost data means the
+  // Cost Explorer API rather than the Cost and Usage Report.
+  //
+  // Applied here rather than at each call site because one Refresh click fans out to a
+  // dozen cost endpoints across the Dashboard, Cost and FinOps pages, and a new endpoint
+  // would otherwise honour it only if whoever added it remembered to. The backend reads
+  // the parameter once in CostSourceFilter.
+  //
+  // Scheduled refreshes are backend-side and never pass through here, so the nightly job
+  // keeps reading the report. /costs/refresh-from-cur is excluded for the obvious reason.
+  url = withCostSourceForManualRefresh(url);
 
   // Get context from session
   const { tenantId, impersonateId } = getTenantContext();

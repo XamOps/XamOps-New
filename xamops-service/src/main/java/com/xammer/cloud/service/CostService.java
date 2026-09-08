@@ -9,8 +9,12 @@ import com.xammer.cloud.dto.CostForecastDto;
 import com.xammer.cloud.dto.DetailedCostDto;
 import com.xammer.cloud.dto.ForecastDto;
 import com.xammer.cloud.dto.HistoricalCostDto;
+import com.xammer.cloud.domain.CurSource;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.cur.CurAutoRegistrationService;
+import com.xammer.cloud.service.cur.CurCostDataSource;
+import com.xammer.cloud.service.cur.CurSourceResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +56,9 @@ public class CostService {
         private final ObjectMapper objectMapper;
         private final AwsPricingService awsPricingService;
         private final CostDataSnapshotService snapshotService;
+        private final CurSourceResolver curSourceResolver;
+        private final CurCostDataSource curCostDataSource;
+        private final CurAutoRegistrationService curAutoRegistrationService;
 
         @Value("${aws.costexplorer.mock:false}")
         private boolean useMockData;
@@ -65,7 +72,10 @@ public class CostService {
                         CachedDataRepository cachedDataRepository,
                         ObjectMapper objectMapper,
                         AwsPricingService awsPricingService,
-                        CostDataSnapshotService snapshotService) {
+                        CostDataSnapshotService snapshotService,
+                        CurSourceResolver curSourceResolver,
+                        CurCostDataSource curCostDataSource,
+                        CurAutoRegistrationService curAutoRegistrationService) {
                 this.cloudAccountRepository = cloudAccountRepository;
                 this.awsClientProvider = awsClientProvider;
                 this.redisCache = redisCache;
@@ -75,6 +85,9 @@ public class CostService {
                 this.objectMapper = objectMapper;
                 this.awsPricingService = awsPricingService;
                 this.snapshotService = snapshotService;
+                this.curSourceResolver = curSourceResolver;
+                this.curCostDataSource = curCostDataSource;
+                this.curAutoRegistrationService = curAutoRegistrationService;
 
                 logger.info("CostService initialized (Mock Mode: {})", useMockData);
         }
@@ -193,11 +206,28 @@ public class CostService {
                 return CompletableFuture.supplyAsync(() -> {
                         try {
                                 CloudAccount account = getAccount(accountId);
-                                CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
 
                                 LocalDate now = LocalDate.now();
                                 LocalDate start = now.withDayOfMonth(1);
                                 LocalDate end = now.plusDays(1); // End date is exclusive
+
+                                // CUR first. Same per-query fallback as getCostBreakdown — a CUR that
+                                // has not delivered yet for a freshly onboarded account resolves to
+                                // empty and this drops through to Cost Explorer.
+                                Optional<CurSource> curSource = curSourceResolver.resolve(account, start, now);
+                                if (curSource.isPresent()) {
+                                        try {
+                                                double curTotal = curCostDataSource.getTotalCost(
+                                                                curSource.get(), account, start, now);
+                                                cacheMtd(cacheKey, dbKey, curTotal);
+                                                return curTotal;
+                                        } catch (Exception curEx) {
+                                                logger.warn("[CUR] MTD failed for account {} — falling back to Cost Explorer: {}",
+                                                                accountId, curEx.getMessage());
+                                        }
+                                }
+
+                                CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
 
                                 DateInterval interval = DateInterval.builder()
                                                 .start(start.toString())
@@ -217,22 +247,27 @@ public class CostService {
                                                 .mapToDouble(Double::parseDouble)
                                                 .sum();
 
-                                redisCache.put(cacheKey, total, 60 * 24); // Cache for 24 hours
-                                try {
-                                        CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
-                                        snapshot.setCacheKey(dbKey);
-                                        snapshot.setJsonData(objectMapper.writeValueAsString(total));
-                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
-                                        cachedDataRepository.save(snapshot);
-                                } catch (Exception dbEx) {
-                                        logger.warn("Failed to save MTD cost DB snapshot {}: {}", dbKey, dbEx.getMessage());
-                                }
+                                cacheMtd(cacheKey, dbKey, total);
                                 return total;
                         } catch (Exception e) {
                                 logger.error("❌ Error fetching MTD cost for account {}: {}", accountId, e.getMessage());
                                 return 0.0;
                         }
                 });
+        }
+
+        /** Writes an MTD total to Redis and the DB snapshot, shared by the CUR and CE paths. */
+        private void cacheMtd(String cacheKey, String dbKey, double total) {
+                redisCache.put(cacheKey, total, 60 * 24); // Cache for 24 hours
+                try {
+                        CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                        snapshot.setCacheKey(dbKey);
+                        snapshot.setJsonData(objectMapper.writeValueAsString(total));
+                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                        cachedDataRepository.save(snapshot);
+                } catch (Exception dbEx) {
+                        logger.warn("Failed to save MTD cost DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                }
         }
 
         /**
@@ -285,11 +320,29 @@ public class CostService {
                 return CompletableFuture.supplyAsync(() -> {
                         try {
                                 CloudAccount account = getAccount(accountId);
-                                CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
 
                                 LocalDate now = LocalDate.now();
                                 LocalDate start = now.minusMonths(1).withDayOfMonth(1);
                                 LocalDate end = now.withDayOfMonth(1); // First day of current month (exclusive)
+
+                                // CUR first. Last month is closed, so this is the one figure where the
+                                // two sources should agree exactly — it is what the reconciliation
+                                // endpoint compares.
+                                Optional<CurSource> curSource = curSourceResolver.resolve(
+                                                account, start, end.minusDays(1));
+                                if (curSource.isPresent()) {
+                                        try {
+                                                double curTotal = curCostDataSource.getTotalCost(
+                                                                curSource.get(), account, start, end.minusDays(1));
+                                                cacheMtd(cacheKey, dbKey, curTotal);
+                                                return curTotal;
+                                        } catch (Exception curEx) {
+                                                logger.warn("[CUR] Last month spend failed for {} — falling back to CE: {}",
+                                                                accountId, curEx.getMessage());
+                                        }
+                                }
+
+                                CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
 
                                 DateInterval interval = DateInterval.builder()
                                                 .start(start.toString())
@@ -309,16 +362,7 @@ public class CostService {
                                                 .mapToDouble(Double::parseDouble)
                                                 .sum();
 
-                                redisCache.put(cacheKey, total, 60 * 24); // Cache for 24 hours
-                                try {
-                                        CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
-                                        snapshot.setCacheKey(dbKey);
-                                        snapshot.setJsonData(objectMapper.writeValueAsString(total));
-                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
-                                        cachedDataRepository.save(snapshot);
-                                } catch (Exception dbEx) {
-                                        logger.warn("Failed to save last month cost DB snapshot {}: {}", dbKey, dbEx.getMessage());
-                                }
+                                cacheMtd(cacheKey, dbKey, total);
                                 return total;
                         } catch (Exception e) {
                                 logger.error("❌ Error fetching Last Month cost for account {}: {}", accountId,
@@ -396,6 +440,24 @@ public class CostService {
                 }
 
                 CloudAccount account = getAccount(accountId);
+
+                // CUR first. Grouping by two dimensions at once is a single GROUP BY here,
+                // where CE charges for the same nested-group request.
+                List<DetailedCostDto> curCosts = tryCurServiceRegionBreakdown(account, effectiveStart, normalizedEnd);
+                if (curCosts != null) {
+                        redisCache.put(cacheKey, curCosts, 60 * 24);
+                        try {
+                                CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                snapshot.setCacheKey(dbKey);
+                                snapshot.setJsonData(objectMapper.writeValueAsString(curCosts));
+                                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                cachedDataRepository.save(snapshot);
+                        } catch (Exception dbEx) {
+                                logger.warn("Failed to save cost svc/region DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                        }
+                        return CompletableFuture.completedFuture(curCosts);
+                }
+
                 CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
 
                 return CompletableFuture.supplyAsync(() -> {
@@ -450,6 +512,27 @@ public class CostService {
                                 return Collections.emptyList();
                         }
                 });
+        }
+
+        /**
+         * Service-and-region breakdown from a CUR, or null for Cost Explorer.
+         */
+        private List<DetailedCostDto> tryCurServiceRegionBreakdown(CloudAccount account,
+                        LocalDate start, LocalDate end) {
+                try {
+                        Optional<CurSource> source = curSourceResolver.resolve(account, start, end);
+                        if (source.isEmpty()) {
+                                return null;
+                        }
+                        return curCostDataSource.getCostByServiceAndRegion(source.get(), account, start, end)
+                                        .stream()
+                                        .map(c -> new DetailedCostDto(c.service(), c.region(), c.cost()))
+                                        .collect(Collectors.toList());
+                } catch (Exception e) {
+                        logger.warn("[CUR] Service/region breakdown failed for {} — falling back to CE: {}",
+                                        account.getAwsAccountId(), e.getMessage());
+                        return null;
+                }
         }
 
         /**
@@ -527,6 +610,23 @@ public class CostService {
                 }
 
                 CloudAccount account = getAccount(accountId);
+
+                // ── CUR first, Cost Explorer as fallback ────────────────────────────────
+                // This is the single swap point for the cost story: the Dashboard cost card,
+                // the Cost page breakdown and the FinOps billing summary all read through
+                // here (see FinOpsService.getBillingSummary), so moving this one call moves
+                // all three pages together.
+                //
+                // The fallback is per query, not per account. An account backed by a CUR
+                // still routes to CE for ranges the report cannot cover — history before the
+                // report existed, or a granularity it was not created with — and the
+                // resolver decides that, not the caller.
+                List<CostDto> curCosts = tryCurBreakdown(account, groupBy, tag, startDate, normalizedEnd);
+                if (curCosts != null) {
+                        cacheBreakdown(cacheKey, dbKey, curCosts);
+                        return CompletableFuture.completedFuture(curCosts);
+                }
+
                 CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
 
                 return CompletableFuture.supplyAsync(() -> {
@@ -569,17 +669,7 @@ public class CostService {
                                                 .sorted((a, b) -> Double.compare(b.getAmount(), a.getAmount()))
                                                 .collect(Collectors.toList());
 
-                                redisCache.put(cacheKey, costs, 60 * 24);
-                                try {
-                                        CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
-                                        snapshot.setCacheKey(dbKey);
-                                        snapshot.setJsonData(objectMapper.writeValueAsString(costs));
-                                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
-                                        cachedDataRepository.save(snapshot);
-                                        logger.info("✅ Cost breakdown saved to DB snapshot: {}", dbKey);
-                                } catch (Exception e) {
-                                        logger.warn("Failed to save cost DB snapshot {}: {}", dbKey, e.getMessage());
-                                }
+                                cacheBreakdown(cacheKey, dbKey, costs);
                                 logger.info("✅ Cost breakdown fetched: {} items for account {}", costs.size(),
                                                 accountId);
                                 return costs;
@@ -590,6 +680,174 @@ public class CostService {
                                 return Collections.emptyList();
                         }
                 });
+        }
+
+        /**
+         * Attempts the breakdown from a CUR, returning null when Cost Explorer should
+         * be used instead.
+         *
+         * <p>Null rather than an empty list on purpose: an empty result is a real
+         * answer — an account genuinely spent nothing — and collapsing the two would
+         * make every zero-spend account fall through to a second, redundant CE call.
+         *
+         * <p>A CUR read that throws also returns null, so a broken Athena setup
+         * degrades to the previous behaviour rather than emptying the cost pages.
+         */
+        private List<CostDto> tryCurBreakdown(CloudAccount account, String groupBy, String tag,
+                        String startDate, String normalizedEnd) {
+                if (startDate == null || normalizedEnd == null) {
+                        return null;
+                }
+                try {
+                        LocalDate start = LocalDate.parse(startDate);
+                        LocalDate end = LocalDate.parse(normalizedEnd);
+
+                        Optional<CurSource> source = curSourceResolver.resolve(account, start, end);
+                        if (source.isEmpty()) {
+                                return null;
+                        }
+                        return curCostDataSource.getCostBreakdown(source.get(), account, groupBy, tag, start, end);
+                } catch (Exception e) {
+                        logger.warn("[CUR] Breakdown failed for account {} — falling back to Cost Explorer: {}",
+                                        account.getAwsAccountId(), e.getMessage());
+                        return null;
+                }
+        }
+
+        /**
+         * Writes a breakdown to Redis and the DB snapshot.
+         *
+         * <p>Shared by both the CUR and Cost Explorer paths so a result is cached
+         * identically however it was produced — the cache is read by the Dashboard,
+         * Cost and FinOps pages without knowing which source filled it.
+         */
+        /**
+         * Refreshes this month's cost data from the CUR only, refusing to fall back.
+         *
+         * <p>Exists because the normal refresh cannot answer "is this account actually
+         * reading from the report?". That path tries the CUR first and silently drops to
+         * Cost Explorer on any problem — correct for serving a page, useless for
+         * verifying a setup, because a working fallback looks exactly like a working CUR.
+         *
+         * <p>So this one throws where the normal path would degrade. Every reason a query
+         * would have fallen back becomes a message naming it.
+         *
+         * <p>Writes into the same Redis and DB keys the Dashboard, Cost and FinOps pages
+         * read, so a caller can refetch the dashboard afterwards and see genuinely
+         * CUR-derived numbers rather than a separate preview.
+         */
+        public Map<String, Object> refreshFromCurOnly(String accountId) {
+                CloudAccount account = getAccount(accountId);
+
+                LocalDate start = LocalDate.now().withDayOfMonth(1);
+                // End of month, not today, so this matches exactly what the dashboard asks
+                // for — normalizeEndDate stretches a current-month range the same way. A
+                // narrower range here made the button disagree with the page it refreshes
+                // ($964 against $2,254), because the period-spanning fee rows that are
+                // already on the bill fall outside a to-date window.
+                LocalDate today = YearMonth.now().atEndOfMonth();
+
+                // Finish whatever setup is outstanding rather than telling the caller to go
+                // and do it by hand. Onboarding already asked where cost data comes from;
+                // requiring three further API calls to act on that answer is not a
+                // reasonable thing to put in front of someone pressing a refresh button.
+                // Idempotent — an account already wired up just gets its existing source.
+                CurSource source = curAutoRegistrationService.ensureRegistered(account);
+
+                if (curSourceResolver.resolve(account, start, today).isEmpty()) {
+                        // Registered and ACTIVE, yet the resolver still declines. The reason is
+                        // never the setup at this point — it is the flag being off, or the range
+                        // falling outside what the report covers.
+                        throw new IllegalStateException(
+                                        "The report for account " + accountId + " is connected but cannot serve "
+                                        + YearMonth.from(start) + ". Check that xamops.cur.enabled is true, and that"
+                                        + " the report covers this period (it starts at "
+                                        + source.getEarliestBillingPeriod() + ").");
+                }
+
+                // Deliberately not wrapped in try/catch: an Athena failure must surface to
+                // the caller with its own message, which is the whole point of this method.
+                List<CostDto> breakdown = curCostDataSource.getCostBreakdown(
+                                source, account, "SERVICE", null, start, today);
+                double total = breakdown.stream().mapToDouble(CostDto::getAmount).sum();
+
+                // Same keys the shared cache uses, so the pages pick this up. End-of-month
+                // matches normalizeEndDate's behaviour for a current-month range — a
+                // different key here would write a cache entry nothing ever reads.
+                String endKey = YearMonth.now().atEndOfMonth().toString();
+                cacheBreakdown(
+                                "costBreakdown-" + accountId + "-SERVICE--" + start + "-" + endKey,
+                                "AWS_COST_BREAKDOWN::" + accountId + "::SERVICE::::" + start + "::" + endKey,
+                                breakdown);
+                cacheMtd("mtdCost-" + accountId, "AWS_MTD_COST::" + accountId, total);
+
+                logger.info("✅ [CUR] Forced CUR-only refresh for {} — {} services, total {}",
+                                accountId, breakdown.size(), total);
+
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("source", "CUR");
+                result.put("curSourceId", source.getId());
+                result.put("s3Bucket", source.getS3Bucket());
+                result.put("timeUnit", source.getTimeUnit());
+                result.put("monthToDateCost", total);
+                result.put("serviceCount", breakdown.size());
+                result.put("services", breakdown);
+                result.put("period", start + " to " + today);
+                return result;
+        }
+
+        private void cacheBreakdown(String cacheKey, String dbKey, List<CostDto> costs) {
+                redisCache.put(cacheKey, costs, 60 * 24);
+                try {
+                        CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                        snapshot.setCacheKey(dbKey);
+                        snapshot.setJsonData(objectMapper.writeValueAsString(costs));
+                        snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                        cachedDataRepository.save(snapshot);
+                        logger.info("✅ Cost breakdown saved to DB snapshot: {}", dbKey);
+                } catch (Exception e) {
+                        logger.warn("Failed to save cost DB snapshot {}: {}", dbKey, e.getMessage());
+                }
+        }
+
+        /**
+         * Builds the daily historical series from a CUR, or null for Cost Explorer.
+         *
+         * <p>Requires a daily-or-finer report, so the resolver is asked with
+         * {@code requiresDaily}: a MONTHLY CUR cannot produce this shape at all and
+         * routes to CE rather than returning a series with one point per month.
+         */
+        private HistoricalCostDto tryCurHistoricalCost(CloudAccount account, String serviceName,
+                        String regionName, int days) {
+                try {
+                        LocalDate end = LocalDate.now();
+                        LocalDate start = end.minusDays(days);
+
+                        Optional<CurSource> source = curSourceResolver.resolve(account, start, end, true);
+                        if (source.isEmpty()) {
+                                return null;
+                        }
+
+                        Map<LocalDate, Double> daily = curCostDataSource.getDailyTrend(
+                                        source.get(), account, start, end, serviceName, regionName);
+
+                        // Walk the calendar, not the rows: a day with no usage has no rows in the
+                        // CUR, and skipping it would shorten the series and shift every later point.
+                        // CE cannot hit this because it returns a bucket per day regardless.
+                        List<String> labels = new ArrayList<>();
+                        List<Double> costs = new ArrayList<>();
+                        for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
+                                labels.add(d.format(DateTimeFormatter.ISO_LOCAL_DATE));
+                                costs.add(daily.getOrDefault(d, 0.0));
+                        }
+                        logger.info("✅ [CUR] Historical cost ({} days) for account {}", days,
+                                        account.getAwsAccountId());
+                        return new HistoricalCostDto(labels, costs);
+                } catch (Exception e) {
+                        logger.warn("[CUR] Historical cost failed for account {} — falling back to Cost Explorer: {}",
+                                        account.getAwsAccountId(), e.getMessage());
+                        return null;
+                }
         }
 
         /**
@@ -753,6 +1011,25 @@ public class CostService {
                                 accountId, serviceName, regionName, days);
 
                 CloudAccount account = getAccount(accountId);
+
+                // CUR first. This endpoint is the one the snapshot layer above can only
+                // partially serve — a service- or region-filtered request always fell
+                // through to a CE call, and CUR answers those at the same cost as any other.
+                HistoricalCostDto curHistory = tryCurHistoricalCost(account, serviceName, regionName, days);
+                if (curHistory != null) {
+                        redisCache.put(cacheKey, curHistory, 60 * 24);
+                        try {
+                                CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+                                snapshot.setCacheKey(dbKey);
+                                snapshot.setJsonData(objectMapper.writeValueAsString(curHistory));
+                                snapshot.setLastUpdated(java.time.LocalDateTime.now());
+                                cachedDataRepository.save(snapshot);
+                        } catch (Exception dbEx) {
+                                logger.warn("Failed to save historical cost DB snapshot {}: {}", dbKey, dbEx.getMessage());
+                        }
+                        return CompletableFuture.completedFuture(curHistory);
+                }
+
                 CostExplorerClient ceClient = awsClientProvider.getCostExplorerClient(account);
 
                 return CompletableFuture.supplyAsync(() -> {
@@ -1770,11 +2047,27 @@ public class CostService {
                 return CompletableFuture.supplyAsync(() -> {
                         try {
                                 CloudAccount account = getAccount(accountId);
-                                CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
 
                                 LocalDate now = LocalDate.now();
                                 LocalDate start = now.withDayOfMonth(1);
                                 LocalDate end = now.plusDays(1);
+
+                                // CUR first. Credits are a line item type, so this is a WHERE clause
+                                // rather than the separate filtered CE request below.
+                                Optional<CurSource> curSource = curSourceResolver.resolve(account, start, now);
+                                if (curSource.isPresent()) {
+                                        try {
+                                                double curCredits = curCostDataSource.getCreditsApplied(
+                                                                curSource.get(), account, start, now);
+                                                cacheMtd(cacheKey, dbKey, curCredits);
+                                                return curCredits;
+                                        } catch (Exception curEx) {
+                                                logger.warn("[CUR] Credits applied failed for {} — falling back to CE: {}",
+                                                                accountId, curEx.getMessage());
+                                        }
+                                }
+
+                                CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
 
                                 Expression creditFilter = Expression.builder()
                                         .dimensions(DimensionValues.builder()

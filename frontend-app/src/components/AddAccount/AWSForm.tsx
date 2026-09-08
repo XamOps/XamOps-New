@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from '@iconify/react';
 import { roleNameFor } from '../../hooks/useAddAccount';
+import CurSourceSelector, { type CurSourceSelection } from './CurSourceSelector';
 import type { AccessType, AutoConnectStatus, VerificationDetails } from '../../types/addAccount';
 
 interface AWSFormProps {
@@ -18,6 +19,8 @@ interface AWSFormProps {
   onLaunchStack: () => void;
   onVerifyAccount: () => void;
   onOpenPolicyModal: () => void;
+  curSource: CurSourceSelection;
+  onCurSourceChange: (selection: CurSourceSelection) => void;
 }
 
 const inputCls = 'w-full px-3.5 py-2.5 text-[13px] border border-[rgba(0,0,0,0.12)] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-[rgba(0,0,0,0.25)] transition-colors placeholder:text-[rgba(0,0,0,0.3)]';
@@ -29,6 +32,7 @@ const AWSForm: React.FC<AWSFormProps> = ({
   verificationDetails, verificationError,
   onAccountNameChange, onAccessTypeChange, onVerificationDetailsChange,
   onLaunchStack, onVerifyAccount, onOpenPolicyModal,
+  curSource, onCurSourceChange,
 }) => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -234,6 +238,12 @@ const AWSForm: React.FC<AWSFormProps> = ({
               </div>
             </label>
           </div>
+        </div>
+
+        {/* Cost data source — decides the CurS3Bucket parameter on the stack below, so it
+            has to be answered before launching rather than after connecting. */}
+        <div className="pt-2 border-t border-[rgba(0,0,0,0.06)]">
+          <CurSourceSelector value={curSource} onChange={onCurSourceChange} />
         </div>
 
         {/* IAM Policies */}

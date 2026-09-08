@@ -1,8 +1,10 @@
 package com.xammer.billops.service;
 
 import com.xammer.billops.dto.CreditRequestDto;
+import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.CreditRequestRepository;
 import com.xammer.billops.repository.UserRepository;
+import com.xammer.cloud.domain.CreditRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -10,15 +12,21 @@ import org.mockito.MockitoAnnotations;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for CreditRequestService.applyAccountFilter() — the account
- * scoping logic. Other methods require DB and email, so they are integration concerns.
+ * scoping logic — and for the stage an admin moves a request to. Other methods require DB and
+ * email, so they are integration concerns.
  */
 class CreditRequestServiceTest {
 
@@ -26,6 +34,7 @@ class CreditRequestServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private EmailService emailService;
     @Mock private AccountAccessHelper accountAccessHelper;
+    @Mock private CloudAccountRepository cloudAccountRepository;
 
     private CreditRequestService service;
 
@@ -38,6 +47,7 @@ class CreditRequestServiceTest {
         org.springframework.test.util.ReflectionTestUtils.setField(service, "userRepository", userRepository);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "emailService", emailService);
         org.springframework.test.util.ReflectionTestUtils.setField(service, "accountAccessHelper", accountAccessHelper);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "cloudAccountRepository", cloudAccountRepository);
     }
 
     // ── applyAccountFilter ─────────────────────────────────────────────────
@@ -121,11 +131,71 @@ class CreditRequestServiceTest {
         assertThat(service.applyAccountFilter(Collections.emptyList())).isEmpty();
     }
 
+    // ── updateRequestStatus ───────────────────────────────────────────────────
+
+    @Test
+    void updateRequestStatus_knownStage_isStored() {
+        CreditRequest stored = storedRequest("submitted");
+
+        CreditRequestDto result = service.updateRequestStatus(1L, "business_approval");
+
+        assertThat(stored.getStatus()).isEqualTo("business_approval");
+        assertThat(result.getStatus()).isEqualTo("business_approval");
+    }
+
+    @Test
+    void updateRequestStatus_preRenameStage_isTranslated() {
+        // Clients that still send the old stage land on the one that replaced it
+        CreditRequest stored = storedRequest("documentation_review");
+
+        CreditRequestDto result = service.updateRequestStatus(1L, "technical_verification");
+
+        assertThat(stored.getStatus()).isEqualTo("business_approval");
+        assertThat(result.getStatus()).isEqualTo("business_approval");
+    }
+
+    @Test
+    void updateRequestStatus_unknownStage_isRejectedAndNotStored() {
+        assertThatThrownBy(() -> service.updateRequestStatus(1L, "in_progress"))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verify(creditRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void listedRequests_preRenameStoredStage_areReadBackAsBusinessApproval() {
+        // Rows written before the rename are never rewritten, so the read path translates them
+        CreditRequest stored = new CreditRequest();
+        stored.setId(1L);
+        stored.setAwsAccountId("111111111111");
+        stored.setStatus("technical_verification");
+        when(creditRequestRepository.findByUserId(7L)).thenReturn(List.of(stored));
+        when(cloudAccountRepository.findByAnyCloudIdIn(any())).thenReturn(Collections.emptyList());
+
+        List<CreditRequestDto> result = service.getCreditRequestsByUserIdAndCache(7L);
+
+        assertThat(result).singleElement()
+                .extracting(CreditRequestDto::getStatus)
+                .isEqualTo("business_approval");
+    }
+
     // ── Helper ────────────────────────────────────────────────────────────────
 
     private CreditRequestDto request(String accountId) {
         CreditRequestDto dto = new CreditRequestDto();
         dto.setAwsAccountId(accountId);
         return dto;
+    }
+
+    /** A persisted request at the given stage, wired into the repository mock as id 1. */
+    private CreditRequest storedRequest(String status) {
+        CreditRequest creditRequest = new CreditRequest();
+        creditRequest.setId(1L);
+        creditRequest.setAwsAccountId("111111111111");
+        creditRequest.setStatus(status);
+        when(creditRequestRepository.findById(1L)).thenReturn(Optional.of(creditRequest));
+        when(creditRequestRepository.save(any(CreditRequest.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        return creditRequest;
     }
 }

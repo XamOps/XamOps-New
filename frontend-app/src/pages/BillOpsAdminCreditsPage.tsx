@@ -5,7 +5,8 @@
  *
  * Admin interface for managing all credit requests:
  * - View all credit requests across all accounts
- * - Update request status (submitted, documentation_review, technical_verification, approved, rejected)
+ * - Move a request along the pipeline: Credit Requested -> Documentation -> Business Approval
+ *   -> Approved or Rejected
  * - Real-time status updates
  * - Background refresh with visual indicator
  *
@@ -33,10 +34,11 @@ const FILE_ICONS: Record<AttachmentKind, string> = {
   file: 'fas fa-file',
 };
 
+/** The review pipeline, in order: an admin ends a request at Approved or Rejected. */
 const STATUS_OPTIONS: { value: AdminCreditStatus; label: string }[] = [
-  { value: 'submitted', label: 'Submitted' },
-  { value: 'documentation_review', label: 'Documentation Review' },
-  { value: 'technical_verification', label: 'Technical Verification' },
+  { value: 'submitted', label: 'Credit Requested' },
+  { value: 'documentation_review', label: 'Documentation' },
+  { value: 'business_approval', label: 'Business Approval' },
   { value: 'approved', label: 'Approved' },
   { value: 'rejected', label: 'Rejected' },
 ];
@@ -207,7 +209,7 @@ const BillOpsAdminCreditsPage: React.FC = () => {
     const colorMap: Record<AdminCreditStatus, string> = {
       submitted: 'bg-blue-100 text-blue-700',
       documentation_review: 'bg-cyan-100 text-cyan-700',
-      technical_verification: 'bg-amber-100 text-amber-700',
+      business_approval: 'bg-amber-100 text-amber-700',
       approved: 'bg-green-100 text-green-700',
       rejected: 'bg-red-100 text-red-700',
     };

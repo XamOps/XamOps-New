@@ -71,6 +71,8 @@ public class TicketService {
     private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
     @Autowired
     private CloudAccountRepository cloudAccountRepository;
+    @Autowired
+    private com.xammer.billops.repository.TicketEmailMessageRepository ticketEmailMessageRepository;
 
     @Transactional
     public TicketDto createTicket(TicketDto ticketDto) {
@@ -123,7 +125,7 @@ public class TicketService {
         // 5. Evict Cache (Includes the specific category)
         evictTicketCaches(savedTicket.getCategory());
 
-        return convertToDto(savedTicket, true);
+        return attachEmailDetails(convertToDto(savedTicket, true), savedTicket);
     }
 
     /**
@@ -194,7 +196,7 @@ public class TicketService {
         }
 
         evictTicketCaches(savedTicket.getCategory());
-        return convertToDto(savedTicket, true);
+        return attachEmailDetails(convertToDto(savedTicket, true), savedTicket);
     }
 
     /**
@@ -376,7 +378,7 @@ public class TicketService {
         if (ticket == null) {
             throw new RuntimeException("Ticket not found");
         }
-        TicketDto dto = convertToDto(ticket, isAdmin);
+        TicketDto dto = attachEmailDetails(convertToDto(ticket, isAdmin), ticket);
         // Run the single ticket through the list scoping so fetching by ID cannot
         // bypass it. Same response as a missing ticket — don't confirm the ID exists.
         if (applyAccountFilter(java.util.Collections.singletonList(dto)).isEmpty()) {
@@ -558,7 +560,7 @@ public class TicketService {
         // Evict Cache for this specific category + Admin list
         evictTicketCaches(updatedTicket.getCategory());
 
-        return convertToDto(updatedTicket, true);
+        return attachEmailDetails(convertToDto(updatedTicket, true), updatedTicket);
     }
 
     @Transactional
@@ -587,7 +589,7 @@ public class TicketService {
             logger.error("Failed to send ticket-closed email for ticket {}", ticket.getId(), e);
         }
 
-        return convertToDto(updatedTicket, true);
+        return attachEmailDetails(convertToDto(updatedTicket, true), updatedTicket);
     }
 
     @Transactional
@@ -606,7 +608,7 @@ public class TicketService {
 
         evictTicketCaches(updatedTicket.getCategory());
 
-        return convertToDto(updatedTicket, true);
+        return attachEmailDetails(convertToDto(updatedTicket, true), updatedTicket);
     }
 
     @Transactional
@@ -1444,6 +1446,9 @@ public class TicketService {
         }
         dto.setHasUnreadUserReply(ticket.isHasNewUserReply());
         dto.setHasUnreadAdminReply(!ticket.isHasNewUserReply() && ticket.getChatStartedAt() != null);
+        // Source only — the full mail details need a per-ticket lookup, which the list cannot
+        // afford. It is enough to mark which rows arrived by email.
+        dto.setSource(ticket.getSource());
         // Replies intentionally omitted for list view performance
         return dto;
     }
@@ -1464,6 +1469,10 @@ public class TicketService {
         dto.setChatStartedAt(ticket.getChatStartedAt());
         dto.setAssignedToId(ticket.getAssignedToId());
         dto.setAssignedToUsername(ticket.getAssignedToUsername());
+
+        // Source only. The mail behind the ticket costs a query, and this converter also runs
+        // over every row of the cached category listing — see attachEmailDetails.
+        dto.setSource(ticket.getSource());
 
         if (ticket.getClient() != null) {
             dto.setClientId(ticket.getClient().getId());
@@ -1488,6 +1497,63 @@ public class TicketService {
         return dto;
     }
 
+    /**
+     * Adds the mail behind an email-sourced ticket to a DTO, and returns it.
+     *
+     * <p>Called only on single-ticket paths. The category listing converts every ticket it
+     * returns, so doing this lookup inside the shared converter would be one query per email
+     * ticket on every list load. Lists get {@code source} alone, which is enough to mark the row
+     * as having arrived by mail.
+     */
+    private TicketDto attachEmailDetails(TicketDto dto, Ticket ticket) {
+        com.xammer.billops.dto.TicketEmailDetailsDto details = emailDetailsFor(ticket);
+        if (details == null) {
+            return dto;
+        }
+        dto.setEmailDetails(details);
+        if (dto.getCreatorId() == null) {
+            // An email ticket from an unrecognised sender has no creator user. Showing the
+            // sender keeps "Raised By" meaningful instead of blank, and gives the agent
+            // somewhere to reply to.
+            String fromName = details.getFromName();
+            dto.setCreatorUsername(fromName != null && !fromName.isBlank()
+                    ? fromName
+                    : details.getFromAddress());
+            dto.setCreatorEmail(details.getFromAddress());
+        }
+        return dto;
+    }
+
+    /**
+     * The mail a ticket was raised from, or null for a ticket raised through the app.
+     *
+     * <p>Looked up rather than joined so the WEB tickets — which are all of the existing ones —
+     * cost nothing extra.
+     */
+    private com.xammer.billops.dto.TicketEmailDetailsDto emailDetailsFor(Ticket ticket) {
+        if (!Ticket.SOURCE_EMAIL.equals(ticket.getSource()) || ticket.getId() == null) {
+            return null;
+        }
+        return ticketEmailMessageRepository
+                .findFirstByTicket_IdAndStatusOrderByIdAsc(
+                        ticket.getId(), com.xammer.cloud.domain.TicketEmailMessage.STATUS_TICKET_CREATED)
+                .map(message -> {
+                    com.xammer.billops.dto.TicketEmailDetailsDto details =
+                            new com.xammer.billops.dto.TicketEmailDetailsDto();
+                    details.setFromAddress(message.getFromAddress());
+                    details.setFromName(message.getFromName());
+                    details.setToAddresses(message.getToAddresses());
+                    details.setCcAddresses(message.getCcAddresses());
+                    details.setMailboxAddress(message.getMailboxAddress());
+                    details.setSubject(message.getSubject());
+                    details.setSentAt(message.getSentAt());
+                    details.setReceivedAt(message.getReceivedAt());
+                    details.setMatchMethod(message.getMatchMethod());
+                    return details;
+                })
+                .orElse(null);
+    }
+
     private TicketReplyDto convertReplyToDto(TicketReply reply, boolean viewerIsAdmin) {
         TicketReplyDto dto = new TicketReplyDto();
         dto.setId(reply.getId());
@@ -1495,6 +1561,12 @@ public class TicketService {
         dto.setMessage(reply.getMessage());
         dto.setCreatedAt(reply.getCreatedAt());
         dto.setInternal(reply.isInternal());
+
+        dto.setAuthorEmail(reply.getAuthorEmail());
+        // A reply carrying a sender address arrived by mail. Replies typed in the app never set
+        // one, so this distinguishes the two without a separate column.
+        dto.setFromEmail(reply.getAuthorEmail() != null && !reply.getAuthorEmail().isBlank());
+
         if (reply.getAuthor() != null) {
             dto.setAuthorId(reply.getAuthor().getId());
 
@@ -1509,6 +1581,11 @@ public class TicketService {
             } else {
                 dto.setAuthorUsername(reply.getAuthor().getUsername());
             }
+        } else {
+            // Mail from somebody with no account. displayAuthor() falls back name → address, so
+            // the UI always has a sender to show; such a reply is never from an admin.
+            dto.setAuthorUsername(reply.displayAuthor());
+            dto.setAdmin(false);
         }
 
         if (reply.getAttachmentKey() != null) {

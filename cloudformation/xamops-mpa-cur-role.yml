@@ -1,0 +1,155 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  XamOps MPA CUR Read Role: lets the XamOps platform read the Cost and Usage Report held in
+  THIS management/payer account. Deploy this in every XamOps payer account EXCEPT the one the
+  XamOps application itself runs in, which reaches its own bucket with its instance credentials.
+
+# =====================================================================================
+# WHEN THIS IS NEEDED
+#
+# XamOps can operate more than one management/payer account. Every member account under a
+# payer is covered by that payer's single CUR, and XamOps reads it directly — no stack is
+# deployed into the member accounts for cost data at all.
+#
+# But "XamOps-owned" does not imply "reachable". The application's own credentials only work
+# in the account it runs in; a second payer account is a separate AWS account. Without a role
+# here, every query against that payer's report fails, XamOps silently falls back to the Cost
+# Explorer API, and nothing in the UI explains why.
+#
+# Register the role ARN this stack outputs as `assumeRoleArn` on the CUR source.
+# =====================================================================================
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "XamOps Platform"
+        Parameters:
+          - XamOpsAccountId
+          - ExternalId
+      - Label:
+          default: "Report Location"
+        Parameters:
+          - CurS3Bucket
+          - AthenaResultsPrefix
+    ParameterLabels:
+      XamOpsAccountId:
+        default: "XamOps AWS Account ID"
+      ExternalId:
+        default: "Unique External ID"
+      CurS3Bucket:
+        default: "CUR S3 Bucket Name"
+      AthenaResultsPrefix:
+        default: "Athena Results Prefix"
+
+Parameters:
+  XamOpsAccountId:
+    Type: String
+    Description: The 12-digit AWS Account ID the XamOps application runs in.
+    AllowedPattern: '^\d{12}$'
+    ConstraintDescription: Must be a 12-digit AWS Account ID.
+
+  ExternalId:
+    Type: String
+    MinLength: 10
+    Description: >
+      A unique secret tying this role to one XamOps CUR source. Register the same value as
+      the source's assumeRoleExternalId.
+
+  CurS3Bucket:
+    Type: String
+    Description: Name of the S3 bucket in this account holding the Cost and Usage Report.
+    AllowedPattern: '^[a-z0-9][a-z0-9\-\.]{1,61}[a-z0-9]$'
+
+  AthenaResultsPrefix:
+    Type: String
+    Default: 'xamops-athena-results'
+    Description: >
+      Key prefix Athena writes query results under. Must match the source's
+      athenaResultsLocation. Athena has no mode that avoids writing results, so this is the
+      one object write the role needs.
+
+Resources:
+
+  XamOpsCurReadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'XamOpsCurReadRole'
+      Description: Lets XamOps read this payer account's Cost and Usage Report.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${XamOpsAccountId}:role/XamOps-App-EC2-Role'
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+      Policies:
+        - PolicyName: XamOpsCurReadPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Scoped to the CUR bucket alone. This role exists for one report and grants
+              # nothing else in the account — unlike the member-account onboarding roles,
+              # it carries no inventory, security or optimization permissions.
+              - Sid: CurBucketRead
+                Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:ListBucket'
+                  - 's3:GetBucketLocation'
+                Resource:
+                  - !Sub 'arn:aws:s3:::${CurS3Bucket}'
+                  - !Sub 'arn:aws:s3:::${CurS3Bucket}/*'
+
+              - Sid: AthenaQuery
+                Effect: Allow
+                Action:
+                  - 'athena:StartQueryExecution'
+                  - 'athena:StopQueryExecution'
+                  - 'athena:GetQueryExecution'
+                  - 'athena:GetQueryResults'
+                  - 'athena:GetWorkGroup'
+                Resource: '*'
+
+              # Athena describes the report through a Glue table, which XamOps builds from
+              # the report's own manifest rather than by running a crawler. The table is
+              # metadata over objects already in this bucket — dropping an EXTERNAL table
+              # deletes no data — but creating it needs these writes. It is recreated on
+              # each validation, because a CUR gains columns over time.
+              - Sid: GlueCatalog
+                Effect: Allow
+                Action:
+                  - 'glue:GetDatabase'
+                  - 'glue:GetDatabases'
+                  - 'glue:GetTable'
+                  - 'glue:GetTables'
+                  - 'glue:GetPartition'
+                  - 'glue:GetPartitions'
+                  - 'glue:CreateDatabase'
+                  - 'glue:CreateTable'
+                  - 'glue:DeleteTable'
+                  - 'glue:BatchCreatePartition'
+                Resource: '*'
+
+              - Sid: AthenaResultsWrite
+                Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                  - 's3:AbortMultipartUpload'
+                Resource: !Sub 'arn:aws:s3:::${CurS3Bucket}/${AthenaResultsPrefix}/*'
+
+Outputs:
+  CurReadRoleArn:
+    Description: Register this as `assumeRoleArn` on the XamOps CUR source for this payer account.
+    Value: !GetAtt XamOpsCurReadRole.Arn
+
+  ExternalIdUsed:
+    Description: Register this as `assumeRoleExternalId` on the same CUR source.
+    Value: !Ref ExternalId
+
+  AthenaResultsLocation:
+    Description: Register this as `athenaResultsLocation` on the same CUR source.
+    Value: !Sub 's3://${CurS3Bucket}/${AthenaResultsPrefix}/'

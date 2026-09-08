@@ -6,9 +6,26 @@
  * Defines all data structures for credit requests and management
  */
 
-export type CreditStatus = 'submitted' | 'documentation_review' | 'technical_verification' | 'approved' | 'rejected';
+/**
+ * Stages a request moves through: submitted → documentation_review → business_approval →
+ * approved / rejected. The requester sees the approved stage as "Credited"; the admin, who
+ * decides it, sees "Approved".
+ */
+export type CreditStatus = 'submitted' | 'documentation_review' | 'business_approval' | 'approved' | 'rejected';
 export type CreditPriority = 'low' | 'medium' | 'high';
 export type CreditFilter = 'all' | CreditStatus;
+
+/** "Technical Verification" was renamed to "Business Approval". */
+const LEGACY_STATUSES: Record<string, CreditStatus> = {
+  technical_verification: 'business_approval',
+};
+
+/**
+ * Translates the pre-rename stage. The API already does this, so it only matters for rows
+ * served from a cache written before the rename — the admin list keeps one in localStorage.
+ */
+export const normalizeCreditStatus = (status: string): CreditStatus =>
+  LEGACY_STATUSES[status] ?? (status as CreditStatus);
 
 /**
  * Supporting document attached to a credit request.

@@ -1,6 +1,7 @@
 package com.xammer.cloud.config;
 
 import com.xammer.cloud.config.multitenancy.TenantContext;
+import com.xammer.cloud.service.cur.CostSourceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -21,19 +22,28 @@ public class AsyncConfig implements AsyncConfigurer {
     private static final Logger log = LoggerFactory.getLogger(AsyncConfig.class);
 
     /**
-     * Captures the current tenant ID AND MDC context map before a task is submitted
-     * to any async executor, and restores both inside the worker thread.
-     * MDC propagation ensures every log line from async threads carries [tenant=customerX].
+     * Captures the current tenant ID, MDC context map AND cost-source preference before a
+     * task is submitted to any async executor, and restores all three inside the worker
+     * thread. MDC propagation ensures every log line from async threads carries
+     * [tenant=customerX].
+     *
+     * <p>The cost-source preference rides along for the same reason as tenant: almost all
+     * cost work runs on the awsTaskExecutor pool, so a preference set on the request
+     * thread would otherwise be lost exactly where it needs to be read.
      */
     @Bean
     public TaskDecorator tenantTaskDecorator() {
         return runnable -> {
             String tenant = TenantContext.getCurrentTenant();
             Map<String, String> mdcContext = MDC.getCopyOfContextMap();
+            CostSourceContext costSource = CostSourceContext.peek();
             return () -> {
                 try {
                     if (tenant != null) {
                         TenantContext.setCurrentTenant(tenant);
+                    }
+                    if (costSource != null) {
+                        CostSourceContext.set(costSource);
                     }
                     if (mdcContext != null) {
                         MDC.setContextMap(mdcContext);
@@ -44,6 +54,7 @@ public class AsyncConfig implements AsyncConfigurer {
                     runnable.run();
                 } finally {
                     TenantContext.clear();
+                    CostSourceContext.clear();
                     MDC.clear();
                 }
             };

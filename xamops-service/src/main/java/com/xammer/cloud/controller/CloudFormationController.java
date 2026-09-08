@@ -32,6 +32,17 @@ public class CloudFormationController {
     private final DynamoDbClient dynamoDbClient;
     private final StsClient stsClient;
 
+    /**
+     * Hosted location of xamops-cur-report.yml, per environment.
+     *
+     * <p>Configured rather than a constant like the AutoSpotting template above,
+     * because each environment points at its own copy in the template bucket —
+     * the same arrangement as cloudformation.template.s3.url for the role stacks.
+     * Empty means the option is not offered rather than producing a broken link.
+     */
+    @org.springframework.beans.factory.annotation.Value("${cloudformation.template.s3.cur.url:}")
+    private String curTemplateUrl;
+
     // XamOps/AutoSpotting Main Account Configuration
     private static final String MAIN_ACCOUNT_ID = "982534352845";
     private static final String MAIN_REGION = "ap-south-1";
@@ -255,6 +266,58 @@ public class CloudFormationController {
             return ResponseEntity.internalServerError().body(Map.of(
                     "error", "Failed to generate deploy URL",
                     "message", e.getMessage()));
+        }
+    }
+
+    /**
+     * Quick-create URL for the Cost and Usage Report stack.
+     *
+     * <p>Separate from {@code /deploy-url} because this stack cannot be deployed
+     * anywhere else: {@code AWS::CUR::ReportDefinition} is only supported in
+     * us-east-1, so the region is pinned rather than taken from a parameter. The
+     * role-stack URL builders deliberately leave the region open, and reusing one
+     * here would drop the customer into whichever region their console last used,
+     * where stack creation fails with an unhelpful error.
+     *
+     * <p>Only needed for accounts that keep their own report. An account under a
+     * XamOps payer account is already covered by that payer's report and deploys
+     * nothing.
+     */
+    @GetMapping("/cur-deploy-url")
+    public ResponseEntity<Map<String, Object>> getCurDeployUrl(
+            @RequestParam(required = false) String bucketName) {
+
+        if (curTemplateUrl == null || curTemplateUrl.isBlank()) {
+            return ResponseEntity.status(503).body(Map.of(
+                    "error", "No CUR template is configured",
+                    "message", "Set cloudformation.template.s3.cur.url to the hosted "
+                            + "xamops-cur-report.yml before offering this option."));
+        }
+
+        try {
+            StringBuilder url = new StringBuilder();
+            url.append("https://us-east-1.console.aws.amazon.com/cloudformation/home");
+            url.append("?region=us-east-1");
+            url.append("#/stacks/create/review");
+            url.append("?templateURL=")
+               .append(URLEncoder.encode(curTemplateUrl, StandardCharsets.UTF_8));
+            url.append("&stackName=XamOps-Cost-Reporting");
+            if (bucketName != null && !bucketName.isBlank()) {
+                url.append("&param_BucketName=")
+                   .append(URLEncoder.encode(bucketName, StandardCharsets.UTF_8));
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("url", url.toString());
+            response.put("stackName", "XamOps-Cost-Reporting");
+            response.put("deployRegion", "us-east-1");
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("❌ Error generating CUR deploy URL", e);
+            return ResponseEntity.internalServerError().body(Map.of(
+                    "error", "Failed to generate CUR deploy URL",
+                    "message", String.valueOf(e.getMessage())));
         }
     }
 

@@ -36,6 +36,28 @@ public class TicketDto {
     private boolean hasUnreadUserReply;
     private boolean hasUnreadAdminReply;
 
+    /** WEB when raised through the app, EMAIL when ingested from the support mailbox. */
+    private String source;
+
+    /** Populated only for EMAIL tickets — the mail that opened this ticket. */
+    private TicketEmailDetailsDto emailDetails;
+
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(String source) {
+        this.source = source;
+    }
+
+    public TicketEmailDetailsDto getEmailDetails() {
+        return emailDetails;
+    }
+
+    public void setEmailDetails(TicketEmailDetailsDto emailDetails) {
+        this.emailDetails = emailDetails;
+    }
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getSubject() { return subject; }

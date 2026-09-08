@@ -72,6 +72,8 @@ public class TicketService {
     private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
     @Autowired
     private CloudAccountRepository cloudAccountRepository;
+    @Autowired
+    private com.xammer.cloud.repository.TicketEmailMessageRepository ticketEmailMessageRepository;
 
     /**
      * True when the user can see at least one cloud account (AWS account, GCP
@@ -215,7 +217,7 @@ public class TicketService {
         }
 
         broadcastTicketChange();
-        return convertToDto(savedTicket);
+        return attachEmailDetails(convertToDto(savedTicket), savedTicket);
     }
 
     @Transactional(readOnly = true)
@@ -280,7 +282,7 @@ public class TicketService {
     public TicketDto getTicketById(Long id) {
         Ticket ticket = ticketRepository.findByIdWithRepliesAndAuthors(id)
                 .orElseThrow(() -> new RuntimeException("Ticket not found"));
-        return convertToDto(ticket);
+        return attachEmailDetails(convertToDto(ticket), ticket);
     }
 
     /**
@@ -295,7 +297,7 @@ public class TicketService {
             // Same response as a missing ticket — don't confirm that the ID exists.
             throw new RuntimeException("Ticket not found");
         }
-        return convertToDto(ticket, viewerIsAdmin);
+        return attachEmailDetails(convertToDto(ticket, viewerIsAdmin), ticket);
     }
 
     /**
@@ -471,7 +473,7 @@ public class TicketService {
         }
 
         broadcastTicketChange();
-        return convertToDto(updatedTicket);
+        return attachEmailDetails(convertToDto(updatedTicket), updatedTicket);
     }
 
     @Transactional
@@ -504,7 +506,7 @@ public class TicketService {
             logger.error("Failed to send ticket-closed email for ticket {}", ticket.getId(), e);
         }
 
-        return convertToDto(updatedTicket);
+        return attachEmailDetails(convertToDto(updatedTicket), updatedTicket);
     }
 
     @Transactional
@@ -526,7 +528,7 @@ public class TicketService {
         Ticket updatedTicket = ticketRepository.save(ticket);
         evictCountCache(updatedTicket.getCategory());
         broadcastTicketChange();
-        return convertToDto(updatedTicket);
+        return attachEmailDetails(convertToDto(updatedTicket), updatedTicket);
     }
 
     // User-scoped cache key: tickets are filtered per user so each user gets their own Redis entry.
@@ -611,6 +613,10 @@ public class TicketService {
         dto.setAssignedToId(ticket.getAssignedToId());
         dto.setAssignedToUsername(ticket.getAssignedToUsername());
 
+        // Source only. The mail behind the ticket costs a query, and this converter also runs
+        // over every row of the list endpoints — see attachEmailDetails.
+        dto.setSource(ticket.getSource());
+
         if (ticket.getClient() != null) {
             dto.setClientId(ticket.getClient().getId());
         }
@@ -638,11 +644,21 @@ public class TicketService {
         dto.setMessage(reply.getMessage());
         dto.setCreatedAt(reply.getCreatedAt());
         dto.setInternal(reply.isInternal());
+        dto.setAuthorEmail(reply.getAuthorEmail());
+        // A reply carrying a sender address arrived by mail. Replies typed in the app never set
+        // one, so this distinguishes the two without a separate column.
+        dto.setFromEmail(reply.getAuthorEmail() != null && !reply.getAuthorEmail().isBlank());
+
         if (reply.getAuthor() != null) {
             dto.setAuthorId(reply.getAuthor().getId());
             dto.setAuthorUsername(reply.getAuthor().getUsername());
             boolean isAdmin = reply.getAuthor().getRole() != null && reply.getAuthor().getRole().contains("ADMIN");
             dto.setAdmin(isAdmin);
+        } else {
+            // Mail from somebody with no account. displayAuthor() falls back name → address, so
+            // the UI always has a sender to show; such a reply is never from an admin.
+            dto.setAuthorUsername(reply.displayAuthor());
+            dto.setAdmin(false);
         }
 
         // Build attachments list: prefer new JSON field, fall back to legacy single-file columns
@@ -684,6 +700,61 @@ public class TicketService {
         return dto;
     }
 
+    /**
+     * Adds the mail behind an email-sourced ticket to a DTO, and returns it.
+     *
+     * <p>Called only on single-ticket paths. The list endpoints return every ticket without
+     * pagination, so doing this lookup inside the shared converter would be one query per
+     * email ticket on every list load. Lists get {@code source} alone, which is enough to mark
+     * the row as having arrived by mail.
+     */
+    private TicketDto attachEmailDetails(TicketDto dto, Ticket ticket) {
+        com.xammer.cloud.dto.TicketEmailDetailsDto details = emailDetailsFor(ticket);
+        if (details == null) {
+            return dto;
+        }
+        dto.setEmailDetails(details);
+        if (dto.getCreatorId() == null) {
+            // An email ticket from an unrecognised sender has no creator user. Showing the
+            // sender keeps "Raised By" meaningful instead of blank.
+            String fromName = details.getFromName();
+            dto.setCreatorUsername(fromName != null && !fromName.isBlank()
+                    ? fromName
+                    : details.getFromAddress());
+        }
+        return dto;
+    }
+
+    /**
+     * The mail a ticket was raised from, or null for a ticket raised through the app.
+     *
+     * <p>Looked up rather than joined so the WEB tickets — which are all of the existing ones —
+     * cost nothing extra.
+     */
+    private com.xammer.cloud.dto.TicketEmailDetailsDto emailDetailsFor(Ticket ticket) {
+        if (!Ticket.SOURCE_EMAIL.equals(ticket.getSource()) || ticket.getId() == null) {
+            return null;
+        }
+        return ticketEmailMessageRepository
+                .findFirstByTicket_IdAndStatusOrderByIdAsc(
+                        ticket.getId(), com.xammer.cloud.domain.TicketEmailMessage.STATUS_TICKET_CREATED)
+                .map(message -> {
+                    com.xammer.cloud.dto.TicketEmailDetailsDto details =
+                            new com.xammer.cloud.dto.TicketEmailDetailsDto();
+                    details.setFromAddress(message.getFromAddress());
+                    details.setFromName(message.getFromName());
+                    details.setToAddresses(message.getToAddresses());
+                    details.setCcAddresses(message.getCcAddresses());
+                    details.setMailboxAddress(message.getMailboxAddress());
+                    details.setSubject(message.getSubject());
+                    details.setSentAt(message.getSentAt());
+                    details.setReceivedAt(message.getReceivedAt());
+                    details.setMatchMethod(message.getMatchMethod());
+                    return details;
+                })
+                .orElse(null);
+    }
+
     /** Viewer-aware reply conversion — masks admin usernames for non-admin viewers */
     private TicketReplyDto convertReplyToDto(TicketReply reply, boolean viewerIsAdmin) {
         TicketReplyDto dto = convertReplyToDto(reply);
@@ -710,6 +781,8 @@ public class TicketService {
         dto.setChatStartedAt(ticket.getChatStartedAt());
         dto.setAssignedToId(ticket.getAssignedToId());
         dto.setAssignedToUsername(ticket.getAssignedToUsername());
+
+        dto.setSource(ticket.getSource());
 
         if (ticket.getClient() != null) {
             dto.setClientId(ticket.getClient().getId());
@@ -769,7 +842,9 @@ public class TicketService {
                 .forEach(reply -> {
                     boolean isAdminAuthor = reply.getAuthor() != null && reply.getAuthor().getRole() != null
                             && reply.getAuthor().getRole().contains("ADMIN");
-                    String displayName = isAdminAuthor ? "Support Team" : (reply.getAuthor() != null ? reply.getAuthor().getUsername() : "Unknown");
+                    // displayAuthor() covers replies ingested from mail, whose sender has no
+                    // account — naming them beats printing "Unknown" in a thread sent to a customer.
+                    String displayName = isAdminAuthor ? "Support Team" : reply.displayAuthor();
                     String bgColor = isAdminAuthor ? "#eef2ff" : "#f8fafc";
                     String borderColor = isAdminAuthor ? "#818cf8" : "#e2e8f0";
                     sb.append("<div style='border:1px solid ").append(borderColor)

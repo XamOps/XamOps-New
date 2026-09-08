@@ -28,6 +28,26 @@ public class EmailService {
     }
 
     public void sendHtmlEmail(String to, String subject, String htmlBody) {
+        sendHtmlEmail(to, subject, htmlBody, java.util.Map.of());
+    }
+
+    /**
+     * As {@link #sendHtmlEmail(String, String, String)}, with extra RFC 5322 headers.
+     *
+     * <p>Exists for the acknowledgement sent when a mail becomes a ticket, which needs two
+     * things a plain send cannot express:
+     *
+     * <ul>
+     *   <li>{@code In-Reply-To} / {@code References} naming the customer's original message, so
+     *       the acknowledgement lands inside their thread and their next reply carries that
+     *       Message-ID onward — which is how ingestion recognises it as belonging to the same
+     *       ticket.</li>
+     *   <li>{@code Auto-Submitted: auto-generated} (RFC 3834), so the recipient's vacation
+     *       responder does not answer it and start a loop.</li>
+     * </ul>
+     */
+    public void sendHtmlEmail(String to, String subject, String htmlBody,
+                              java.util.Map<String, String> headers) {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
@@ -35,6 +55,11 @@ public class EmailService {
             helper.setTo(to);
             helper.setSubject(subject);
             helper.setText(htmlBody, true); // true indicates this is HTML
+            for (var header : headers.entrySet()) {
+                if (header.getValue() != null && !header.getValue().isBlank()) {
+                    message.setHeader(header.getKey(), header.getValue());
+                }
+            }
             mailSender.send(message);
         } catch (Exception e) {
             throw new RuntimeException("Failed to send HTML email", e);

@@ -33,6 +33,9 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
     // MODIFIED: Changed return type to List<CloudAccount>
     List<CloudAccount> findByAwsAccountId(String awsAccountId);
 
+    /** Accounts served by one CUR — many when the report belongs to a XamOps MPA. */
+    List<CloudAccount> findByCurSourceId(Long curSourceId);
+
     List<CloudAccount> findByClientId(Long clientId);
 
     List<CloudAccount> findByClientIdIn(List<Long> clientIds);

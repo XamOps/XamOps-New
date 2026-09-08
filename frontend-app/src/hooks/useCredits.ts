@@ -22,6 +22,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { apiFetch } from '../utils/apiClient';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAuth } from '../contexts/AuthContext';
+import { normalizeCreditStatus } from '../types/credits';
 import type {
   CreditRequest,
   NewCreditRequest,
@@ -73,7 +74,9 @@ export const useCredits = (): UseCreditsReturn => {
       const data: CreditRequest[] = await response.json();
 
       if (isMountedRef.current) {
-        setCreditRequests(data);
+        // Requests served from a cache entry written before the Business Approval rename still
+        // carry the old stage; translate it so the progress tracker lands on the right step.
+        setCreditRequests(data.map((req) => ({ ...req, status: normalizeCreditStatus(req.status) })));
         setError(null);
       }
     } catch (err) {

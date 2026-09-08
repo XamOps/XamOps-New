@@ -54,8 +54,20 @@ const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = (
 };
 
 const CostPage: React.FC = () => {
-  const { selectedAccountIds } = useAccounts();
+  const { selectedAccountIds, accounts } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds.join(',') : null;
+
+  /**
+   * Account the CUR reload applies to, or null to hide the button. A CUR belongs to a
+   * single AWS account, so a multi-account selection or a GCP/Azure account has nothing
+   * to reload — hiding beats offering a button that can only error.
+   */
+  const curAccountId = React.useMemo(() => {
+    if (selectedAccountIds.length !== 1) return null;
+    const account = accounts.find(a => a.id === selectedAccountIds[0]);
+    return (account?.provider ?? 'AWS') === 'AWS' ? selectedAccountIds[0] : null;
+  }, [selectedAccountIds, accounts]);
+
 
   // Labels for the label cost filter
   const [allLabels, setAllLabels] = useState<ResourceLabel[]>([]);
@@ -305,6 +317,7 @@ const CostPage: React.FC = () => {
       <CostHeader
         isLoading={isRefreshing}
         onRefresh={handleRefresh}
+        curAccountId={curAccountId}
       />
 
       <div className="flex-1 p-8 space-y-8">

@@ -1,13 +1,20 @@
 import React from 'react';
 import { useTopbar } from '../../contexts/TopbarContext';
 import { useTheme } from '../../contexts/ThemeContext';
+import RefreshFromCurButton from '../Shared/RefreshFromCurButton';
 
 interface CostHeaderProps {
   isLoading: boolean;
   onRefresh: () => void;
+  /**
+   * Single AWS account to offer a CUR-only reload for, or null to hide the button.
+   * A CUR belongs to one account, so a multi-account or non-AWS selection has nothing
+   * to reload.
+   */
+  curAccountId?: string | null;
 }
 
-const CostHeader: React.FC<CostHeaderProps> = ({ isLoading, onRefresh }) => {
+const CostHeader: React.FC<CostHeaderProps> = ({ isLoading, onRefresh, curAccountId = null }) => {
   const { setActions, clearActions } = useTopbar();
   const { theme } = useTheme();
   const dark = theme === 'dark';
@@ -28,10 +35,15 @@ const CostHeader: React.FC<CostHeaderProps> = ({ isLoading, onRefresh }) => {
           <i className={`fas fa-sync-alt text-[10px] ${isLoading ? 'animate-spin' : ''}`} />
           {isLoading ? 'Refreshing…' : 'Refresh'}
         </button>
+
+        {/* Same reload as the button above, but from the Cost and Usage Report with no
+            Cost Explorer fallback — so it also answers whether this account is really
+            reading the report, which the ordinary Refresh cannot. */}
+        <RefreshFromCurButton accountId={curAccountId} onRefreshed={onRefresh} dark={dark} />
       </div>
     );
     return () => clearActions();
-  }, [isLoading, onRefresh, setActions, clearActions, dark]);
+  }, [isLoading, onRefresh, curAccountId, setActions, clearActions, dark]);
 
   return null;
 };

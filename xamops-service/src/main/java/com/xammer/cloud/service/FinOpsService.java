@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.CurSource;
 import com.xammer.cloud.dto.CostDto;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.DashboardData.BudgetDetails;
@@ -11,6 +12,8 @@ import com.xammer.cloud.dto.FinOpsReportDto;
 import com.xammer.cloud.dto.ResourceDto;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.cur.CurCostDataSource;
+import com.xammer.cloud.service.cur.CurSourceResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.xammer.cloud.config.multitenancy.TenantContextUtil;
@@ -72,6 +75,8 @@ public class FinOpsService {
     private final CostDataSnapshotService snapshotService;
     private final EmailService emailService;
     private final BudgetEmailBuilder budgetEmailBuilder;
+    private final CurSourceResolver curSourceResolver;
+    private final CurCostDataSource curCostDataSource;
 
     @Value("${aws.costexplorer.mock:false}")
     private boolean useMockData;
@@ -93,7 +98,9 @@ public class FinOpsService {
             @Lazy CostService costService,
             CostDataSnapshotService snapshotService,
             EmailService emailService,
-            BudgetEmailBuilder budgetEmailBuilder) {
+            BudgetEmailBuilder budgetEmailBuilder,
+            CurSourceResolver curSourceResolver,
+            CurCostDataSource curCostDataSource) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.cloudListService = cloudListService;
@@ -110,8 +117,180 @@ public class FinOpsService {
         this.snapshotService = snapshotService;
         this.emailService = emailService;
         this.budgetEmailBuilder = budgetEmailBuilder;
+        this.curSourceResolver = curSourceResolver;
+        this.curCostDataSource = curCostDataSource;
 
         logger.info("FinOpsService initialized (Mock Mode: {})", useMockData);
+    }
+
+    /**
+     * Builds the Cost Trend series from a CUR, or returns null when Cost Explorer
+     * should be used.
+     *
+     * <p>Two branches matching the CE path below: an explicit date range gives a
+     * daily series, no range gives six months of monthly totals. Both go through
+     * the resolver, which rejects a daily request against a MONTHLY report and a
+     * six-month request against a report that does not reach back that far.
+     */
+    private DashboardData.CostHistory tryCurCostHistory(CloudAccount account, String startDate, String endDate) {
+        try {
+            if (startDate != null && endDate != null) {
+                LocalDate start = LocalDate.parse(startDate);
+                LocalDate end = LocalDate.parse(endDate);
+
+                Optional<CurSource> source = curSourceResolver.resolve(account, start, end, true);
+                if (source.isEmpty()) {
+                    return null;
+                }
+
+                Map<LocalDate, Double> daily = curCostDataSource.getDailyTrend(source.get(), account, start, end);
+
+                List<String> labels = new ArrayList<>();
+                List<Double> costs = new ArrayList<>();
+                List<Boolean> anomalies = new ArrayList<>();
+                // Walk the calendar rather than the result rows: a day with no usage has no
+                // rows in the CUR at all, and skipping it would shorten the series and shift
+                // every later point left. The CE path cannot hit this because CE returns a
+                // bucket per day regardless.
+                for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
+                    labels.add(d.format(DateTimeFormatter.ofPattern("MMM dd")));
+                    costs.add(daily.getOrDefault(d, 0.0));
+                    anomalies.add(false);
+                }
+                return new DashboardData.CostHistory(labels, costs, anomalies);
+            }
+
+            YearMonth currentYm = YearMonth.now();
+            YearMonth from = currentYm.minusMonths(5);
+
+            Optional<CurSource> source = curSourceResolver.resolve(account, from.atDay(1),
+                    currentYm.atEndOfMonth());
+            if (source.isEmpty()) {
+                return null;
+            }
+
+            Map<YearMonth, Double> monthly = curCostDataSource.getMonthlyTrend(source.get(), account,
+                    from, currentYm);
+
+            List<String> labels = new ArrayList<>();
+            List<Double> costs = new ArrayList<>();
+            List<Boolean> anomalies = new ArrayList<>();
+            for (int i = 5; i >= 0; i--) {
+                YearMonth ym = currentYm.minusMonths(i);
+                labels.add(ym.atDay(1).format(DateTimeFormatter.ofPattern("MMM uuuu")));
+                costs.add(monthly.getOrDefault(ym, 0.0));
+            }
+            // Same >20% month-on-month rule, and the same $100 floor, as the CE path —
+            // the flag has to mean the same thing whichever source filled the series.
+            for (int i = 0; i < costs.size(); i++) {
+                boolean isAnomaly = false;
+                if (i > 0 && costs.get(i - 1) > 100) {
+                    double changePercent = ((costs.get(i) - costs.get(i - 1)) / costs.get(i - 1)) * 100;
+                    isAnomaly = changePercent > 20;
+                }
+                anomalies.add(isAnomaly);
+            }
+            return new DashboardData.CostHistory(labels, costs, anomalies);
+
+        } catch (Exception e) {
+            logger.warn("[CUR] Cost history failed for account {} — falling back to Cost Explorer: {}",
+                    account.getAwsAccountId(), e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Month-to-date cost grouped by a cost allocation tag, from a CUR, or null for
+     * Cost Explorer.
+     *
+     * <p>Returns null when the tag has no column in this report. A tag only becomes a
+     * CUR column once it is activated in Billing → Cost allocation tags, and only from
+     * that point forward — so a tag the customer activated yesterday is a legitimate
+     * CE query, not an error.
+     */
+    private List<Map<String, Object>> tryCurCostByTag(CloudAccount account, String tagKey) {
+        try {
+            LocalDate start = LocalDate.now().withDayOfMonth(1);
+            LocalDate end = LocalDate.now();
+
+            Optional<CurSource> source = curSourceResolver.resolve(account, start, end);
+            if (source.isEmpty()) {
+                return null;
+            }
+
+            return curCostDataSource.getCostBreakdown(source.get(), account, "TAG", tagKey, start, end)
+                    .stream()
+                    .map(c -> {
+                        Map<String, Object> m = new HashMap<>();
+                        m.put("tagValue", c.getName());
+                        m.put("cost", c.getAmount());
+                        return m;
+                    })
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            logger.warn("[CUR] Cost by tag '{}' failed for account {} — falling back to Cost Explorer: {}",
+                    tagKey, account.getAwsAccountId(), e.getMessage());
+            return null;
+        }
+    }
+
+    /** Cost grouped by region from a CUR, or null for Cost Explorer. */
+    private List<Map<String, Object>> tryCurCostByRegion(CloudAccount account, String startDate, String endDate) {
+        try {
+            LocalDate start = startDate != null
+                    ? LocalDate.parse(startDate)
+                    : LocalDate.now().withDayOfMonth(1);
+            LocalDate end = endDate != null ? LocalDate.parse(endDate) : LocalDate.now();
+
+            Optional<CurSource> source = curSourceResolver.resolve(account, start, end);
+            if (source.isEmpty()) {
+                return null;
+            }
+
+            return curCostDataSource.getCostBreakdown(source.get(), account, "REGION", null, start, end)
+                    .stream()
+                    .map(c -> {
+                        Map<String, Object> m = new HashMap<>();
+                        // The CE path labels an empty region "Unknown"; match it so the two
+                        // sources cannot produce two different labels for the same charge.
+                        m.put("region", "Other".equals(c.getName()) ? "Unknown" : c.getName());
+                        m.put("cost", c.getAmount());
+                        return m;
+                    })
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            logger.warn("[CUR] Cost by region failed for account {} — falling back to Cost Explorer: {}",
+                    account.getAwsAccountId(), e.getMessage());
+            return null;
+        }
+    }
+
+    /** Caches a list-of-maps result, shared by the CUR and Cost Explorer paths. */
+    private void cacheMapList(String cacheKey, String dbKey, List<Map<String, Object>> value) {
+        redisCache.put(cacheKey, value, 60 * 24);
+        try {
+            CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+            snapshot.setCacheKey(dbKey);
+            snapshot.setJsonData(objectMapper.writeValueAsString(value));
+            snapshot.setLastUpdated(java.time.LocalDateTime.now());
+            cachedDataRepository.save(snapshot);
+        } catch (Exception e) {
+            logger.warn("Failed to save DB snapshot {}: {}", dbKey, e.getMessage());
+        }
+    }
+
+    /** Caches a cost history result, shared by the CUR and Cost Explorer paths. */
+    private void cacheCostHistory(String cacheKey, String dbKey, DashboardData.CostHistory history) {
+        redisCache.put(cacheKey, history, 60 * 24);
+        try {
+            CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+            snapshot.setCacheKey(dbKey);
+            snapshot.setJsonData(objectMapper.writeValueAsString(history));
+            snapshot.setLastUpdated(java.time.LocalDateTime.now());
+            cachedDataRepository.save(snapshot);
+        } catch (Exception e) {
+            logger.warn("Failed to save cost history DB snapshot {}: {}", dbKey, e.getMessage());
+        }
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -738,6 +917,17 @@ public class FinOpsService {
         }
 
         CloudAccount account = getAccount(accountId);
+
+        // ── CUR first ───────────────────────────────────────────────────────────────
+        // Tags are where CUR is strictly better than Cost Explorer: each activated cost
+        // allocation tag is its own resource_tags_user_* column, so grouping is an
+        // ordinary GROUP BY rather than a billed CE request with a single TAG dimension.
+        List<Map<String, Object>> curByTag = tryCurCostByTag(account, tagKey);
+        if (curByTag != null) {
+            cacheMapList(cacheKey, dbKey, curByTag);
+            return CompletableFuture.completedFuture(curByTag);
+        }
+
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
         logger.info("Fetching month-to-date cost by tag: {} for account {}", tagKey, accountId);
         try {
@@ -846,6 +1036,13 @@ public class FinOpsService {
             } catch (Exception snapEx) {
                 logger.debug("getCostByRegion snapshot check failed: {}", snapEx.getMessage());
             }
+        }
+
+        // ── CUR first ───────────────────────────────────────────────────────────────
+        List<Map<String, Object>> curByRegion = tryCurCostByRegion(account, startDate, normalizedEndRegion);
+        if (curByRegion != null) {
+            cacheMapList(cacheKey, dbKey, curByRegion);
+            return CompletableFuture.completedFuture(curByRegion);
         }
 
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
@@ -999,6 +1196,17 @@ public class FinOpsService {
             DashboardData.CostHistory mockResult = costMockService.getMockCostHistory(account, startDate, endDate);
             redisCache.put(cacheKey, mockResult, 60 * 24);
             return CompletableFuture.completedFuture(mockResult);
+        }
+
+        // ── CUR first for the Cost Trend chart ──────────────────────────────────────
+        // Per-query fallback: a MONTHLY report cannot serve the daily branch, and a
+        // report that does not reach back far enough cannot serve the 6-month branch.
+        // The resolver decides both, and returning null here drops through to the
+        // Cost Explorer code below unchanged.
+        DashboardData.CostHistory curHistory = tryCurCostHistory(account, startDate, endDate);
+        if (curHistory != null) {
+            cacheCostHistory(cacheKey, dbKey, curHistory);
+            return CompletableFuture.completedFuture(curHistory);
         }
 
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);

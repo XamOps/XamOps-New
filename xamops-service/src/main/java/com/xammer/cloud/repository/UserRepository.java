@@ -43,4 +43,20 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * without the ROLE_ prefix.
      */
     List<User> findByRoleContainingIgnoreCase(String roleFragment);
+
+    /**
+     * Case-insensitive sender lookup for inbound support email.
+     *
+     * <p>{@link #findByEmail} matches exactly, which is wrong for an address off a mail header:
+     * addresses are stored however the user typed them at signup and arrive however the sender's
+     * client cased them. Returns a list rather than an Optional because nothing stops two rows
+     * sharing an address, and a duplicate must not throw on the ingest path.
+     */
+    List<User> findByEmailIgnoreCaseOrderByIdAsc(String email);
+
+    /**
+     * Users at a given mail domain, for tying an unregistered sender to the client their
+     * colleagues belong to. Pass the suffix including the "@".
+     */
+    List<User> findByEmailEndingWithIgnoreCaseOrderByIdAsc(String domainSuffix);
 }

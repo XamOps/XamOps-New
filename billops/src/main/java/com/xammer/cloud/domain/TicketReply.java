@@ -14,9 +14,24 @@ public class TicketReply {
     @JoinColumn(name = "ticket_id", nullable = false)
     private Ticket ticket;
 
+    /**
+     * Null when the reply arrived by mail from an address that belongs to no user — a
+     * customer's colleague, a vendor, anyone CC'd onto the thread. {@link #authorEmail} carries
+     * who it actually was in that case.
+     *
+     * <p>Written by the ingestion in xamops-service, which shares this table.
+     */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false)
+    @JoinColumn(name = "user_id")
     private User author;
+
+    /** Sender address, when the reply came from mail and matched no user. */
+    @Column(name = "author_email", length = 320)
+    private String authorEmail;
+
+    /** Display name off the mail's From header, when it had one. */
+    @Column(name = "author_name")
+    private String authorName;
 
     @Lob
     @Column(nullable = false)
@@ -57,6 +72,26 @@ public class TicketReply {
 
     public Ticket getTicket() { return ticket; }
     public void setTicket(Ticket ticket) { this.ticket = ticket; }
+
+    public String getAuthorEmail() { return authorEmail; }
+    public void setAuthorEmail(String authorEmail) { this.authorEmail = authorEmail; }
+
+    public String getAuthorName() { return authorName; }
+    public void setAuthorName(String authorName) { this.authorName = authorName; }
+
+    /**
+     * What to show as the sender: the account username when there is one, otherwise the name or
+     * address off the mail. Never null, so the UI always has something to render.
+     */
+    public String displayAuthor() {
+        if (author != null) {
+            return author.getUsername();
+        }
+        if (authorName != null && !authorName.isBlank()) {
+            return authorName;
+        }
+        return authorEmail != null && !authorEmail.isBlank() ? authorEmail : "Unknown sender";
+    }
 
     public User getAuthor() { return author; }
     public void setAuthor(User author) { this.author = author; }

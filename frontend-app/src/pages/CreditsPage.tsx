@@ -26,8 +26,8 @@ const FILTER_TABS: { id: CreditFilter | 'all'; label: string; activeClass: strin
   { id: 'all', label: 'All Requests', activeClass: 'bg-[rgba(0,0,0,0.88)] text-white' },
   { id: 'submitted', label: 'Submitted', activeClass: 'bg-blue-600 text-white' },
   { id: 'documentation_review', label: 'Documentation', activeClass: 'bg-cyan-600 text-white' },
-  { id: 'technical_verification', label: 'Verification', activeClass: 'bg-amber-500 text-white' },
-  { id: 'approved', label: 'Approved', activeClass: 'bg-emerald-600 text-white' },
+  { id: 'business_approval', label: 'Business Approval', activeClass: 'bg-amber-500 text-white' },
+  { id: 'approved', label: 'Credited', activeClass: 'bg-emerald-600 text-white' },
   { id: 'rejected', label: 'Rejected', activeClass: 'bg-red-600 text-white' },
 ];
 
@@ -85,9 +85,9 @@ const CreditsPage: React.FC = () => {
   const getStatusDisplayName = (status: string): string => {
     const statusMap: Record<string, string> = {
       submitted: 'Submitted',
-      documentation_review: 'Documentation Review',
-      technical_verification: 'Technical Verification',
-      approved: 'Approved',
+      documentation_review: 'Documentation',
+      business_approval: 'Business Approval',
+      approved: 'Credited',
       rejected: 'Rejected',
     };
     return statusMap[status] || status;
@@ -449,7 +449,7 @@ const CreditRequestCard: React.FC<{ request: CreditRequest }> = ({ request }) =>
   };
 
   const isStageCompleted = (stage: string): boolean => {
-    const stages = ['submitted', 'documentation_review', 'technical_verification', 'approved'];
+    const stages = ['submitted', 'documentation_review', 'business_approval', 'approved'];
     const currentIndex = stages.indexOf(request.status);
     const stageIndex = stages.indexOf(stage);
     return currentIndex >= stageIndex || request.status === 'rejected';
@@ -573,29 +573,29 @@ const CreditRequestCard: React.FC<{ request: CreditRequest }> = ({ request }) =>
                 />
                 <ProgressStep
                   icon="mdi:file-search-outline"
-                  title="Documentation Review"
+                  title="Documentation"
                   description="Our financial analysts are reviewing the submitted details."
                   status={isStageActive('documentation_review') ? 'active' : isStageCompleted('documentation_review') ? 'completed' : 'pending'}
                   isCompleted={isStageCompleted('documentation_review')}
                   isRejected={request.status === 'rejected' && isStageActive('documentation_review')}
                 />
                 <ProgressStep
-                  icon="mdi:shield-check-outline"
-                  title="Technical Verification"
-                  description="Validating technical requirements and cloud account status."
-                  status={isStageActive('technical_verification') ? 'active' : isStageCompleted('technical_verification') ? 'completed' : 'pending'}
-                  isCompleted={isStageCompleted('technical_verification')}
-                  isRejected={request.status === 'rejected' && isStageActive('technical_verification')}
+                  icon="mdi:account-check-outline"
+                  title="Business Approval"
+                  description="Your request is with the business team for sign-off."
+                  status={isStageActive('business_approval') ? 'active' : isStageCompleted('business_approval') ? 'completed' : 'pending'}
+                  isCompleted={isStageCompleted('business_approval')}
+                  isRejected={request.status === 'rejected' && isStageActive('business_approval')}
                 />
                 <ProgressStep
                   icon={request.status === 'approved' ? 'mdi:check-circle-outline' : request.status === 'rejected' ? 'mdi:close-circle-outline' : 'mdi:flag-checkered'}
-                  title={request.status === 'approved' ? 'Credits Approved' : request.status === 'rejected' ? 'Request Declined' : 'Final Decision'}
+                  title={request.status === 'rejected' ? 'Request Declined' : 'Credited'}
                   description={
                     request.status === 'approved'
                       ? 'Approved credits have been provisioned to your account.'
                       : request.status === 'rejected'
                         ? 'This request does not meet the necessary criteria.'
-                        : 'Pending final validation for credit approval.'
+                        : 'Credits are applied to your account once the request is approved.'
                   }
                   status={request.status === 'approved' || request.status === 'rejected' ? 'completed' : 'pending'}
                   isCompleted={request.status === 'approved'}

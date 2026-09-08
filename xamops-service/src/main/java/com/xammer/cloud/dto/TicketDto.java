@@ -37,6 +37,12 @@ public class TicketDto {
     private Long creatorId; // Added to pass the creator's ID
     // --- END: MODIFIED SECTION ---
 
+    /** WEB when raised through the app, EMAIL when ingested from the support mailbox. */
+    private String source;
+
+    /** Populated only for EMAIL tickets — the mail that opened this ticket. */
+    private TicketEmailDetailsDto emailDetails;
+
     // --- Manually added getter/setter for creatorId ---
     public Long getCreatorId() {
         return creatorId;

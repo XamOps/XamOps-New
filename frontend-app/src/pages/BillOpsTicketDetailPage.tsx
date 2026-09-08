@@ -20,6 +20,7 @@ import { useTopbarActions } from '../contexts/TopbarContext';
 import { getSlaStatus, getResponseSlaLabel } from '../utils/timeUtils';
 import { sanitizeRichText, htmlToPlainText, escapeHtml } from '../utils/sanitizeHtml';
 import CannedResponsesPicker from '../components/tickets/CannedResponsesPicker';
+import TicketEmailDetails from '../components/tickets/TicketEmailDetails';
 import TicketCallButton from '../components/calls/TicketCallButton';
 import TicketCallHistory from '../components/calls/TicketCallHistory';
 import Quill from 'quill';
@@ -1196,6 +1197,11 @@ const BillOpsTicketDetailPage: React.FC = () => {
       >
         <div className="w-full p-5 lg:p-8 pb-20 space-y-6">
 
+          {/* Source mail — only on tickets that arrived by email */}
+          {ticket.emailDetails && (
+            <TicketEmailDetails details={ticket.emailDetails} isAdmin={isAdmin} />
+          )}
+
           {/* Original Ticket + Metadata Card — the anchor of the page: black left
               edge + a slightly lifted shadow so it reads above the activity feed. */}
           <div className="bg-white border border-[#e5e7eb] border-l-[3px] border-l-[rgba(0,0,0,0.88)] rounded-xl p-6 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_28px_-16px_rgba(0,0,0,0.18)]">
@@ -1210,9 +1216,21 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.35)] uppercase tracking-widest">Original Issue Description</span>
                   <span className="text-[11px] text-[rgba(0,0,0,0.35)]">Request #{ticket.id}</span>
                 </div>
-                <div className="text-[14px] text-[rgba(0,0,0,0.6)] leading-relaxed whitespace-pre-wrap break-words">
-                  {ticket.description || <span className="text-[rgba(0,0,0,0.35)] italic text-sm">No description provided.</span>}
-                </div>
+                {/* An email ticket's description is the mail body, which is HTML — already
+                    sanitised server-side, and passed through the client sanitiser as well
+                    because that is the rule for everything reaching dangerouslySetInnerHTML.
+                    A web ticket's description is plain text typed into a form and must stay
+                    escaped, with whitespace-pre-wrap doing the line breaks. */}
+                {ticket.source === 'EMAIL' && ticket.description ? (
+                  <div
+                    className="text-[14px] text-[rgba(0,0,0,0.6)] leading-relaxed break-words prose-chat"
+                    dangerouslySetInnerHTML={{ __html: sanitizeRichText(ticket.description) }}
+                  />
+                ) : (
+                  <div className="text-[14px] text-[rgba(0,0,0,0.6)] leading-relaxed whitespace-pre-wrap break-words">
+                    {ticket.description || <span className="text-[rgba(0,0,0,0.35)] italic text-sm">No description provided.</span>}
+                  </div>
+                )}
 
                 <div className="flex flex-wrap gap-x-5 gap-y-2 pt-4 border-t border-[rgba(0,0,0,0.06)]">
                   {ticket.accountId && (

@@ -77,11 +77,25 @@ public final class TicketAttachmentPolicy {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Attachment is empty");
         }
-        if (file.getSize() > MAX_BYTES) {
+        validate(file.getOriginalFilename(), file.getContentType(), file.getSize());
+    }
+
+    /**
+     * The same rules for an attachment that did not arrive as an upload — a file pulled off an
+     * inbound support email, which reaches a support agent's browser by exactly the same route
+     * and so needs exactly the same allowlist.
+     *
+     * @throws IllegalArgumentException if the file may not be attached. The message is safe to
+     *                                  return to the caller.
+     */
+    public static void validate(String name, String contentType, long sizeBytes) {
+        if (sizeBytes <= 0) {
+            throw new IllegalArgumentException("Attachment is empty");
+        }
+        if (sizeBytes > MAX_BYTES) {
             throw new IllegalArgumentException("Attachment exceeds the 25 MB limit");
         }
 
-        String name = file.getOriginalFilename();
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("Attachment has no filename");
         }
@@ -100,7 +114,6 @@ public final class TicketAttachmentPolicy {
                             + "and Office documents.");
         }
 
-        String contentType = file.getContentType();
         if (contentType != null) {
             // Strip any parameters, e.g. "text/plain; charset=utf-8".
             String bare = contentType.split(";")[0].trim().toLowerCase(Locale.ROOT);

@@ -68,8 +68,20 @@ const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = (
 };
 
 export const FinOpsPage: React.FC = () => {
-  const { selectedAccountIds } = useAccounts();
+  const { selectedAccountIds, accounts } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
+
+  /**
+   * Account the CUR reload applies to, or null to hide the button. A CUR belongs to a
+   * single AWS account, so a multi-account selection or a GCP/Azure account has nothing
+   * to reload — hiding beats offering a button that can only error.
+   */
+  const curAccountId = React.useMemo(() => {
+    if (selectedAccountIds.length !== 1) return null;
+    const account = accounts.find(a => a.id === selectedAccountIds[0]);
+    return (account?.provider ?? 'AWS') === 'AWS' ? selectedAccountIds[0] : null;
+  }, [selectedAccountIds, accounts]);
+
 
   // Date filter state - initialized to match Cost page defaults
   const [dateFilter, setDateFilter] = useState<DateFilter>(getInitialDates());
@@ -175,6 +187,7 @@ export const FinOpsPage: React.FC = () => {
         onApplyDateFilter={applyDateFilter}
         onClearDateFilter={clearDateFilter}
         onRefresh={() => loadReport(true)}
+        curAccountId={curAccountId}
       />
 
       {/* No Account State */}

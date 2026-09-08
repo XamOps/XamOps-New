@@ -68,6 +68,21 @@ public class CreditRequestService {
     private static final Set<String> ALLOWED_PRIORITIES = Set.of("low", "medium", "high");
     private static final String DEFAULT_PRIORITY = "medium";
 
+    /**
+     * The stages a credit request moves through: submitted -> documentation_review ->
+     * business_approval -> approved / rejected. Requesters see the approved stage as "Credited".
+     */
+    private static final Set<String> ALLOWED_STATUSES = Set.of(
+            "submitted", "documentation_review", "business_approval", "approved", "rejected");
+
+    /**
+     * "Technical Verification" became "Business Approval". Rows written before the rename still
+     * carry the old value, so both reads and writes translate it to the stage that replaced it -
+     * no backfill is required for existing requests.
+     */
+    private static final Map<String, String> LEGACY_STATUSES = Map.of(
+            "technical_verification", "business_approval");
+
     /** Requests are submitted with a free-form id, e.g. "GCP: my-project (011DDB-9E3A99)". */
     private static final Pattern PROVIDER_PREFIX = Pattern.compile("^(aws|gcp|google|azure)\\s*[:\\-]\\s*",
             Pattern.CASE_INSENSITIVE);
@@ -137,9 +152,10 @@ public class CreditRequestService {
     @Transactional
     @CacheEvict(value = "creditRequests", allEntries = true)
     public CreditRequestDto updateRequestStatus(Long id, String status) {
+        String normalizedStatus = normalizeStatus(status);
         CreditRequest creditRequest = creditRequestRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Credit Request not found"));
-        creditRequest.setStatus(status);
+        creditRequest.setStatus(normalizedStatus);
         CreditRequest updatedRequest = creditRequestRepository.save(creditRequest);
         return convertToDto(updatedRequest, resolveAccounts(updatedRequest));
     }
@@ -337,6 +353,31 @@ public class CreditRequestService {
         return ALLOWED_PRIORITIES.contains(value) ? value : DEFAULT_PRIORITY;
     }
 
+    /**
+     * Validates a stage an admin is moving a request to, translating the pre-rename value on the
+     * way in. Anything outside the known stages is rejected rather than stored - the column is a
+     * free-form string, and a value neither interface can render would strand the request.
+     */
+    private static String normalizeStatus(String rawStatus) {
+        String value = (rawStatus == null) ? "" : rawStatus.trim().toLowerCase();
+        value = LEGACY_STATUSES.getOrDefault(value, value);
+        if (!ALLOWED_STATUSES.contains(value)) {
+            throw new IllegalArgumentException("Unknown credit request status: " + rawStatus);
+        }
+        return value;
+    }
+
+    /**
+     * Stage as the clients should see it. Only the pre-rename value is translated; any other
+     * stored value is passed through untouched rather than guessed at.
+     */
+    private static String resolveStatus(String storedStatus) {
+        if (storedStatus == null) {
+            return null;
+        }
+        return LEGACY_STATUSES.getOrDefault(storedStatus.trim().toLowerCase(), storedStatus);
+    }
+
     private static String providerHint(String rawAccountId) {
         if (rawAccountId == null) {
             return null;
@@ -356,7 +397,7 @@ public class CreditRequestService {
         dto.setExpectedCredits(creditRequest.getExpectedCredits());
         dto.setServices(creditRequest.getServices());
         dto.setUseCase(creditRequest.getUseCase());
-        dto.setStatus(creditRequest.getStatus());
+        dto.setStatus(resolveStatus(creditRequest.getStatus()));
         dto.setPriority(creditRequest.getPriority());
         dto.setSubmittedDate(creditRequest.getSubmittedDate());
         if (creditRequest.getUser() != null) {

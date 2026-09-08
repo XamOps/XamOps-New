@@ -19,6 +19,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch } from '../utils/apiClient';
+import { normalizeCreditStatus } from '../types/credits';
 import type {
   AdminCreditRequest,
   AdminCreditStatus,
@@ -26,6 +27,15 @@ import type {
 } from '../types/billopsAdminCredits';
 
 const CACHE_KEY = 'admin_credits_list';
+
+/**
+ * Newest first, with any pre-rename stage translated — the localStorage cache can outlive the
+ * rename, and a stage the status dropdown has no option for would render as an empty select.
+ */
+const prepare = (data: AdminCreditRequest[]): AdminCreditRequest[] =>
+  [...data]
+    .map((request) => ({ ...request, status: normalizeCreditStatus(request.status) as AdminCreditStatus }))
+    .sort((a, b) => b.id - a.id);
 
 export const useBillOpsAdminCredits = (): UseBillOpsAdminCreditsReturn => {
   const [requests, setRequests] = useState<AdminCreditRequest[]>([]);
@@ -46,8 +56,7 @@ export const useBillOpsAdminCredits = (): UseBillOpsAdminCreditsReturn => {
         const { data } = JSON.parse(cached);
         if (data && Array.isArray(data)) {
           console.log('Found cached admin credits. Displaying and refreshing.');
-          const sortedData = [...data].sort((a, b) => b.id - a.id);
-          setRequests(sortedData);
+          setRequests(prepare(data));
           setLoading(false);
           return true;
         }
@@ -126,7 +135,7 @@ export const useBillOpsAdminCredits = (): UseBillOpsAdminCreditsReturn => {
       console.log('Received fresh admin credits.');
 
       if (isMountedRef.current) {
-        const sortedData = [...data].sort((a, b) => b.id - a.id);
+        const sortedData = prepare(data);
         setRequests(sortedData);
         saveToCache(sortedData);
         setError(null);
@@ -172,8 +181,7 @@ export const useBillOpsAdminCredits = (): UseBillOpsAdminCreditsReturn => {
       // Try server-side cache
       const cachedData = await fetchCachedData();
       if (cachedData) {
-        const sortedData = [...cachedData].sort((a, b) => b.id - a.id);
-        setRequests(sortedData);
+        setRequests(prepare(cachedData));
         setLoading(false);
         fetchFreshData(); // Background refresh
         return;

@@ -56,6 +56,22 @@ public class Ticket {
     private Long assignedToId;
     private String assignedToUsername;
 
+    /**
+     * How the ticket was raised: {@code WEB} through the app, {@code EMAIL} from a mail that
+     * mentioned one of the support group addresses. Agents need the distinction because an
+     * EMAIL ticket's customer may never log in to read the answer.
+     *
+     * <p>The column definition carries its own DEFAULT because environments that manage schema
+     * with {@code ddl-auto=update} rather than Flyway (local, and prod as a second pass) generate
+     * a bare {@code ADD COLUMN ... NOT NULL}, which Postgres rejects on a table that already has
+     * rows. Without the default the column is never created and every ticket query fails.
+     */
+    @Column(name = "source", columnDefinition = "varchar(16) not null default 'WEB'")
+    private String source = SOURCE_WEB;
+
+    public static final String SOURCE_WEB = "WEB";
+    public static final String SOURCE_EMAIL = "EMAIL";
+
     /** True when the latest non-internal reply is from a user (not admin) — drives READ/UNREAD indicator */
     @Column(name = "has_new_user_reply", nullable = false)
     private boolean hasNewUserReply = false;
@@ -207,4 +223,7 @@ public class Ticket {
 
     public LocalDateTime getReminderSentAt() { return reminderSentAt; }
     public void setReminderSentAt(LocalDateTime reminderSentAt) { this.reminderSentAt = reminderSentAt; }
+
+    public String getSource() { return source; }
+    public void setSource(String source) { this.source = source; }
 }

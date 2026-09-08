@@ -509,8 +509,18 @@ public class ProactiveCacheRefreshService {
 
     // ===================================================================================
     // 2:30 AM -> Cost Management (Data Intensive)
+    //
+    // WED/SUN rather than daily because Cost Explorer bills $0.01 per request and this
+    // job makes several per account. That constraint disappears for accounts backed by a
+    // CUR — reading one costs Athena scan volume, a fraction of a cent for a
+    // partition-pruned aggregate — which is why GCP (BigQuery export) already refreshes
+    // daily and Azure every six hours.
+    //
+    // The cron is therefore configurable, defaulting to the existing WED/SUN so nothing
+    // changes until an environment has CUR sources actually delivering. Set
+    // xamops.cost.refresh-cron to a daily expression once xamops.cur.enabled is on.
     // ===================================================================================
-    @Scheduled(cron = "0 30 2 * * WED,SUN")
+    @Scheduled(cron = "${xamops.cost.refresh-cron:0 30 2 * * WED,SUN}")
     public void refreshCostData() {
         logger.info("--- [2:30 AM] Starting Cost Data Refresh (cost.html) ---");
         String startDate = LocalDate.now().withDayOfMonth(1).toString(); // Start of month

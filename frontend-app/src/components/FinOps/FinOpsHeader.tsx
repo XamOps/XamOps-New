@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTopbar } from '../../contexts/TopbarContext';
+import RefreshFromCurButton from '../Shared/RefreshFromCurButton';
 import type { DateFilter } from '../../types/finops';
 
 interface FinOpsHeaderProps {
@@ -9,9 +10,15 @@ interface FinOpsHeaderProps {
   onApplyDateFilter: () => void;
   onClearDateFilter: () => void;
   onRefresh: () => void;
+  /**
+   * Single AWS account to offer a CUR-only reload for, or null to hide the button.
+   * A CUR belongs to one account, so a multi-account or non-AWS selection has nothing
+   * to reload.
+   */
+  curAccountId?: string | null;
 }
 
-const FinOpsHeader: React.FC<FinOpsHeaderProps> = ({ dateFilter, isRefreshing, onDateFilterChange, onApplyDateFilter, onClearDateFilter, onRefresh }) => {
+const FinOpsHeader: React.FC<FinOpsHeaderProps> = ({ dateFilter, isRefreshing, onDateFilterChange, onApplyDateFilter, onClearDateFilter, onRefresh, curAccountId = null }) => {
   const today = new Date().toISOString().split('T')[0];
   const { setActions, clearActions } = useTopbar();
 
@@ -78,6 +85,11 @@ const FinOpsHeader: React.FC<FinOpsHeaderProps> = ({ dateFilter, isRefreshing, o
           </svg>
           {isRefreshing ? 'Refreshing…' : 'Refresh'}
         </button>
+
+        {/* Same reload as the button above, but from the Cost and Usage Report with no
+            Cost Explorer fallback — so it also answers whether this account is really
+            reading the report, which the ordinary Refresh cannot. */}
+        <RefreshFromCurButton accountId={curAccountId} onRefreshed={onRefresh} />
       </div>
     );
     return () => clearActions();

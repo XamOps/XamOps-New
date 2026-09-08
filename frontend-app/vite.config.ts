@@ -194,6 +194,11 @@ export default defineConfig({
       '/api/azure': { target: authTarget, changeOrigin: true, secure: false },
       '/api/aws': { target: authTarget, changeOrigin: true, secure: false },
       '/api/gcp': { target: authTarget, changeOrigin: true, secure: false },
+      // CloudFormationController (xamops-service). Without this entry the dev server
+      // answers these calls itself with index.html, so the fetch "succeeds" with HTML —
+      // which is why the CUR launch button and the Spot Automation deploy link both
+      // silently did nothing in dev while working in every deployed environment.
+      '/api/cloudformation': { target: authTarget, changeOrigin: true, secure: false },
 
       // --- 5. SPECIFIC SERVICE ENDPOINTS ---
       // Admin & Billops API requests always go to 8082 (billops-service)

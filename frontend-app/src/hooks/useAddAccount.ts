@@ -17,6 +17,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { apiFetch } from '../utils/apiClient';
+import type { CurSourceSelection } from '../components/AddAccount/CurSourceSelector';
 import type {
   Provider,
   AccessType,
@@ -78,6 +79,8 @@ interface UseAddAccountReturn {
   isPolicyModalOpen: boolean;
   verificationError: string;
   verificationDetails: VerificationDetails;
+  /** Where this account's cost data will be read from. */
+  curSource: CurSourceSelection;
   azureDetails: AzureDetails;
   jenkinsDetails: JenkinsDetails;
 
@@ -87,6 +90,7 @@ interface UseAddAccountReturn {
   setAccessType: (type: AccessType) => void;
   setIsPolicyModalOpen: (open: boolean) => void;
   setVerificationDetails: (details: Partial<VerificationDetails>) => void;
+  setCurSource: (selection: CurSourceSelection) => void;
   setAzureDetails: (details: Partial<AzureDetails>) => void;
   setJenkinsDetails: (details: Partial<JenkinsDetails>) => void;
 
@@ -107,6 +111,17 @@ export function useAddAccount(): UseAddAccountReturn {
   const [provider, setProvider] = useState<Provider>('aws');
   const [accountName, setAccountName] = useState('');
   const [accessType, setAccessType] = useState<AccessType>('read-only');
+
+  /**
+   * Where this account's cost data will come from.
+   *
+   * Defaults to COST_EXPLORER_ONLY, which is what every account did before CUR support
+   * existed — so someone who ignores the section entirely gets the previous behaviour
+   * rather than an account pointed at a report that does not contain it.
+   */
+  const [curSource, setCurSource] = useState<CurSourceSelection>({
+    billingSource: 'COST_EXPLORER_ONLY',
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [autoConnectStatus, setAutoConnectStatus] = useState<AutoConnectStatus>('idle');
@@ -226,6 +241,25 @@ export function useAddAccount(): UseAddAccountReturn {
       return;
     }
 
+    // What the stack's CurS3Bucket parameter gets. Blank means "attach no CUR
+    // permissions", which is right for an account under a XamOps payer account and for
+    // one with no report at all.
+    //
+    // 'AUTO' rather than a computed name for the create-a-report case: the customer's AWS
+    // account id is not known until verification, and the template runs in their account
+    // so it can derive xamops-cur-<account> itself.
+    const curBucketParam =
+      curSource.billingSource === 'OWN_CUR'
+        ? 'AUTO'
+        : curSource.billingSource === 'EXISTING_CUR'
+          ? (curSource.bucket ?? '').trim()
+          : '';
+
+    if (curSource.billingSource === 'EXISTING_CUR' && !curBucketParam) {
+      alert('Enter the S3 bucket holding the existing Cost and Usage Report.');
+      return;
+    }
+
     setIsLoading(true);
     try {
       const res = await apiFetch('/api/xamops/account-manager/generate-stack-url', {
@@ -235,6 +269,7 @@ export function useAddAccount(): UseAddAccountReturn {
           accountName: accountName.trim(),
           awsAccountId: '',
           accessType,
+          curS3Bucket: curBucketParam,
         }),
       });
 
@@ -279,7 +314,7 @@ export function useAddAccount(): UseAddAccountReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [accountName, accessType, setVerificationDetails, stopPolling, startPolling]);
+  }, [accountName, accessType, curSource, setVerificationDetails, stopPolling, startPolling]);
 
   /**
    * Verify AWS Account connection
@@ -457,6 +492,7 @@ export function useAddAccount(): UseAddAccountReturn {
     verificationDetails,
     azureDetails,
     jenkinsDetails,
+    curSource,
 
     // Setters
     setProvider,
@@ -466,6 +502,7 @@ export function useAddAccount(): UseAddAccountReturn {
     setVerificationDetails,
     setAzureDetails,
     setJenkinsDetails,
+    setCurSource,
 
     // Actions
     launchStack,

@@ -1,0 +1,184 @@
+{
+  "Version": "2012-10-17",
+  "Comment": [
+    "Permissions required by the human (or CI principal) who DEPLOYS the XamOps",
+    "CloudFormation stacks. This is not granted to XamOps and is not part of any stack —",
+    "it is what the deploying identity needs in order to create the resources.",
+    "",
+    "Derived from every resource type used across xamops-cur-report.yml,",
+    "xamops-mpa-cur-role.yml, the readonly/readwrite role templates and the nested",
+    "inventory-events template.",
+    "",
+    "Note the read actions (Get*, Describe*, List*). CloudFormation calls them during",
+    "create AND during rollback, and its newer pre-deployment validation calls them to",
+    "check whether a resource already exists. Missing a read action fails the stack just",
+    "as hard as missing a write one, and additionally breaks rollback — which is how a",
+    "stack ends up stuck in ROLLBACK_FAILED with orphaned resources."
+  ],
+  "Statement": [
+    {
+      "Sid": "CloudFormationItself",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:CreateStack",
+        "cloudformation:UpdateStack",
+        "cloudformation:DeleteStack",
+        "cloudformation:DescribeStacks",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStackResource",
+        "cloudformation:DescribeStackResources",
+        "cloudformation:ListStacks",
+        "cloudformation:ListStackResources",
+        "cloudformation:GetTemplate",
+        "cloudformation:GetTemplateSummary",
+        "cloudformation:ValidateTemplate",
+        "cloudformation:CreateChangeSet",
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:ExecuteChangeSet",
+        "cloudformation:DeleteChangeSet",
+        "cloudformation:TagResource",
+        "cloudformation:UntagResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IamRolesAndPolicies",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:GetRole",
+        "iam:UpdateRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:CreatePolicy",
+        "iam:DeletePolicy",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicyVersion",
+        "iam:ListPolicyVersions",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:TagPolicy",
+        "iam:PassRole",
+        "iam:CreateServiceLinkedRole"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CostAndUsageReport",
+      "Effect": "Allow",
+      "Action": "cur:*",
+      "Resource": "*",
+      "Comment": [
+        "cur:* rather than an enumerated list. The whole cur service is six actions, all of",
+        "them about report definitions, and CloudFormation calls several of them during a",
+        "single create — PutReportDefinition, then DescribeReportDefinitions and",
+        "ListTagsForResource to read the resource back. Enumerating them is how the",
+        "ListTagsForResource failure happened in the first place.",
+        "",
+        "Resource must be * : cur:DescribeReportDefinitions is a list operation and does not",
+        "accept a resource ARN."
+      ]
+    },
+    {
+      "Sid": "S3BucketForTheReport",
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::xamops-cur-*",
+        "arn:aws:s3:::xamops-cur-*/*"
+      ],
+      "Comment": [
+        "Scoped by RESOURCE rather than by action, deliberately.",
+        "",
+        "The AWS::S3::Bucket handler reads back every sub-resource after creating a bucket —",
+        "versioning, logging, notifications, CORS, replication, ownership controls, object",
+        "lock, intelligent tiering, analytics, metrics, inventory — even though this template",
+        "sets none of them. Enumerating those ~20 Get* actions correctly is guesswork, and",
+        "each one missed is another failed stack plus a broken rollback.",
+        "",
+        "s3:* confined to the xamops-cur-* buckets is both more reliable AND tighter than a",
+        "long action list on Resource \"*\": it cannot touch any other bucket in the account,",
+        "whereas the enumerated version could have edited the policy of every one of them."
+      ]
+    },
+    {
+      "Sid": "S3BucketListing",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListAllMyBuckets",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": "*",
+      "Comment": [
+        "Account-level operations that cannot be scoped to a bucket ARN."
+      ]
+    },
+    {
+      "Sid": "InventoryEventsNestedStack",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:DeleteFunction",
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:AddPermission",
+        "lambda:RemovePermission",
+        "lambda:GetPolicy",
+        "lambda:TagResource",
+        "lambda:UntagResource",
+        "lambda:ListTags",
+        "lambda:InvokeFunction",
+
+        "events:CreateEventBus",
+        "events:DeleteEventBus",
+        "events:DescribeEventBus",
+        "events:PutPermission",
+        "events:RemovePermission",
+        "events:PutRule",
+        "events:DeleteRule",
+        "events:DescribeRule",
+        "events:EnableRule",
+        "events:DisableRule",
+        "events:PutTargets",
+        "events:RemoveTargets",
+        "events:ListTargetsByRule",
+        "events:TagResource",
+        "events:UntagResource",
+        "events:ListTagsForResource",
+
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:DescribeLogGroups",
+        "logs:PutRetentionPolicy",
+        "logs:TagResource",
+        "logs:ListTagsForResource",
+
+        "cloudwatch:PutMetricAlarm",
+        "cloudwatch:DeleteAlarms",
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:TagResource",
+        "cloudwatch:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadTemplatesFromTheXamOpsBucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::xamopscftemplate/*"
+    }
+  ]
+}

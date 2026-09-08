@@ -1,0 +1,240 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  XamOps Cost Reporting Stack: creates an S3 bucket and a Cost and Usage Report in THIS
+  account, so XamOps can read detailed billing data instead of the Cost Explorer API.
+  Deploy this ONLY in us-east-1, and only if this account is not under a XamOps payer account.
+
+# =====================================================================================
+# WHY THIS IS A SEPARATE STACK FROM xamops-readonly-role.yml
+#
+#   1. AWS::CUR::ReportDefinition is only supported in us-east-1. The read-only role
+#      stack deploys wherever the customer already works, so bundling this would force
+#      every account onto us-east-1.
+#   2. It is payer-scoped, not account-scoped. In an organisation ONE report covers every
+#      member account; bundling it into the per-account role stack would have N stacks
+#      each trying to create the same report.
+#   3. It creates and writes resources. The role stack's entire proposition is that it is
+#      read-only, and that is a different conversation with a security team.
+#   4. It is skippable. Customers under a XamOps payer account need nothing here, and
+#      customers who already have a CUR should point XamOps at it rather than pay to
+#      store a second copy.
+# =====================================================================================
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Report Configuration"
+        Parameters:
+          - ReportName
+          - BucketName
+      - Label:
+          default: "Data Detail"
+        Parameters:
+          - TimeUnit
+          - IncludeResourceIds
+          - IncludeSplitCostAllocationData
+    ParameterLabels:
+      ReportName:
+        default: "Report Name"
+      BucketName:
+        default: "S3 Bucket Name"
+      TimeUnit:
+        default: "Granularity"
+      IncludeResourceIds:
+        default: "Include Resource IDs"
+      IncludeSplitCostAllocationData:
+        default: "Include Container (EKS/ECS) Cost Allocation"
+
+Parameters:
+  ReportName:
+    Type: String
+    Default: 'xamops-cur'
+    Description: Name of the Cost and Usage Report. Must be unique within this account.
+    AllowedPattern: '^[A-Za-z0-9_\-]{1,256}$'
+
+  BucketName:
+    Type: String
+    Default: ''
+    Description: >
+      (Optional) Name for the new S3 bucket. Leave blank to use xamops-cur-<this account id>,
+      which is what XamOps assumes — only set this if you need a different name, and tell
+      XamOps what you used.
+    AllowedPattern: '^$|^[a-z0-9][a-z0-9\-\.]{1,61}[a-z0-9]$'
+    ConstraintDescription: Must be blank or a valid S3 bucket name (lowercase, 3-63 chars).
+
+  TimeUnit:
+    Type: String
+    Default: 'HOURLY'
+    AllowedValues: ['HOURLY', 'DAILY', 'MONTHLY']
+    Description: >
+      HOURLY is recommended and is the default. It costs no more to generate than DAILY,
+      and it is the only setting that can later support hour-of-day cost patterns and
+      scheduling analysis. Granularity cannot be changed on an existing report — changing
+      it means creating a new one and losing history, so choosing HOURLY now is
+      significantly cheaper than choosing it later.
+
+  IncludeResourceIds:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Adds the individual resource ID to every line item, enabling per-resource cost views
+      and unlimited-history cost attribution. This makes the report substantially larger
+      (S3 storage in this account), which is the trade-off. Cannot be enabled retroactively.
+
+  IncludeSplitCostAllocationData:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Adds per-pod (EKS) and per-task (ECS) cost attribution. Only useful if you run
+      containers; leave false otherwise.
+
+Conditions:
+  # A blank BucketName means "use the predictable name". Deriving it here rather than
+  # asking is what lets the read-only role stack be launched BEFORE this one: that stack
+  # needs the bucket name as a parameter, and an IAM policy may name a bucket that does
+  # not exist yet — it simply grants nothing until it does. Without a predictable name the
+  # two stacks would have to be deployed in a strict order, and anyone who got it wrong
+  # would have to go back and update the role stack.
+  UseDefaultBucketName: !Equals [!Ref BucketName, '']
+
+  WithResourceIds: !Equals [!Ref IncludeResourceIds, 'true']
+  WithSplitCostData: !Equals [!Ref IncludeSplitCostAllocationData, 'true']
+  WithBoth: !And
+    - !Condition WithResourceIds
+    - !Condition WithSplitCostData
+
+Resources:
+
+  # ---------------------------------------------------------------------------------
+  # Destination bucket.
+  #
+  # Reports are the only thing written here, and they are rewritten in place up to three
+  # times a day for the open month, so versioning is deliberately left off — it would
+  # retain every superseded copy of a large dataset at full storage cost.
+  # ---------------------------------------------------------------------------------
+  CurBucket:
+    Type: AWS::S3::Bucket
+    # Retained on stack delete: the bucket holds historical billing records that cannot be
+    # regenerated. A legacy CUR does not backfill, so deleting it discards history for good.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !If
+        - UseDefaultBucketName
+        - !Sub 'xamops-cur-${AWS::AccountId}'
+        - !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          # Athena query results are scratch: XamOps reads each result once and caches the
+          # aggregate. Without expiry they accumulate indefinitely.
+          - Id: ExpireAthenaResults
+            Status: Enabled
+            Prefix: 'xamops-athena-results/'
+            ExpirationInDays: 7
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+  # ---------------------------------------------------------------------------------
+  # Bucket policy required by the billing service.
+  #
+  # These exact actions are what CUR delivery validates against at report-creation time;
+  # without them the CUR::ReportDefinition below fails to create rather than failing later.
+  # ---------------------------------------------------------------------------------
+  CurBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CurBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowBillingReportsGetBucketAcl
+            Effect: Allow
+            Principal:
+              Service: billingreports.amazonaws.com
+            Action:
+              - 's3:GetBucketAcl'
+              - 's3:GetBucketPolicy'
+            Resource: !GetAtt CurBucket.Arn
+            Condition:
+              StringEquals:
+                'aws:SourceAccount': !Ref 'AWS::AccountId'
+                'aws:SourceArn': !Sub 'arn:aws:cur:us-east-1:${AWS::AccountId}:definition/*'
+
+          - Sid: AllowBillingReportsPutObject
+            Effect: Allow
+            Principal:
+              Service: billingreports.amazonaws.com
+            Action: 's3:PutObject'
+            Resource: !Sub '${CurBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                'aws:SourceAccount': !Ref 'AWS::AccountId'
+                'aws:SourceArn': !Sub 'arn:aws:cur:us-east-1:${AWS::AccountId}:definition/*'
+
+  # ---------------------------------------------------------------------------------
+  # The report itself.
+  #
+  # Parquet + OVERWRITE_REPORT is chosen over CSV + versioned delivery deliberately:
+  # Parquet is columnar, so an aggregate over two columns reads only those columns and the
+  # Athena scan cost stays in fractions of a cent. Overwrite keeps exactly one current copy
+  # rather than accumulating a new full copy on every one of the ~3 daily refreshes.
+  #
+  # RefreshClosedReports is on because credits, refunds and RI/SP true-ups land after a
+  # month closes; without it a closed month keeps whatever it had on closing day and
+  # silently disagrees with the invoice.
+  # ---------------------------------------------------------------------------------
+  CurReportDefinition:
+    Type: AWS::CUR::ReportDefinition
+    DependsOn: CurBucketPolicy
+    Properties:
+      ReportName: !Ref ReportName
+      TimeUnit: !Ref TimeUnit
+      Format: Parquet
+      Compression: Parquet
+      S3Bucket: !Ref CurBucket
+      S3Prefix: 'cur'
+      S3Region: us-east-1
+      ReportVersioning: OVERWRITE_REPORT
+      RefreshClosedReports: true
+      AdditionalSchemaElements: !If
+        - WithBoth
+        - ['RESOURCES', 'SPLIT_COST_ALLOCATION_DATA']
+        - !If
+          - WithResourceIds
+          - ['RESOURCES']
+          - !If
+            - WithSplitCostData
+            - ['SPLIT_COST_ALLOCATION_DATA']
+            - []
+
+Outputs:
+  CurBucketName:
+    Description: Enter this as the "CUR S3 Bucket Name" parameter on the XamOps read-only role stack.
+    Value: !Ref CurBucket
+
+  CurReportName:
+    Description: Report name — give this to XamOps when connecting the account.
+    Value: !Ref ReportName
+
+  CurS3Prefix:
+    Description: Key prefix — give this to XamOps when connecting the account.
+    Value: 'cur'
+
+  FirstDeliveryNotice:
+    Description: When to expect data.
+    Value: >
+      AWS delivers the first report within 24 hours, then refreshes up to 3 times a day.
+      Until then XamOps continues to serve cost data from the Cost Explorer API.
+      Note that this report starts from the current month and does not backfill history.

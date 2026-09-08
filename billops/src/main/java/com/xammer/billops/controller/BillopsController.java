@@ -504,6 +504,9 @@ public class BillopsController {
         }
         try {
             return ResponseEntity.ok(creditRequestService.updateRequestStatus(id, status));
+        } catch (IllegalArgumentException e) {
+            logger.warn("Rejected status update for credit request {}: {}", id, e.getMessage());
+            return ResponseEntity.badRequest().build();
         } catch (RuntimeException e) {
             logger.error("Error updating credit request status for ID {}: {}", id, e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();

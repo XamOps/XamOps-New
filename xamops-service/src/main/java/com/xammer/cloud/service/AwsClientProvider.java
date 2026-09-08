@@ -309,6 +309,91 @@ public class AwsClientProvider {
     }
 
     /**
+     * Athena client for the HOST account, used to query a CUR that lives in a
+     * XamOps-owned bucket.
+     *
+     * <p>Separate from {@link #getAthenaClient(CloudAccount, String)} because an
+     * MPA CUR is XamOps' own data: there is no customer role to assume and no
+     * customer account to attribute the call to. The permission interceptor is
+     * deliberately not attached — it exists to tell a customer which of *their*
+     * grants is missing, and a denial here is a XamOps deployment problem, not a
+     * customer one.
+     */
+    public AthenaClient getHostAthenaClient(String region) {
+        String cacheKey = String.format("HOST:%s:%s", AthenaClient.class.getSimpleName(), region);
+        return (AthenaClient) clientCache.computeIfAbsent(cacheKey, k -> {
+            logger.info("🚀 [AwsClientProvider] Creating NEW HOST AthenaClient in region {}", region);
+            return AthenaClient.builder()
+                    .region(Region.of(region))
+                    .credentialsProvider(DefaultCredentialsProvider.create())
+                    .build();
+        });
+    }
+
+    /**
+     * S3 client for the HOST account, used to read CUR manifests from a
+     * XamOps-owned bucket. Same reasoning as {@link #getHostAthenaClient}.
+     */
+    public S3Client getHostS3Client(String region) {
+        String cacheKey = String.format("HOST:%s:%s", S3Client.class.getSimpleName(), region);
+        return (S3Client) clientCache.computeIfAbsent(cacheKey, k -> {
+            logger.info("🚀 [AwsClientProvider] Creating NEW HOST S3Client in region {}", region);
+            return S3Client.builder()
+                    .region(Region.of(region))
+                    .credentialsProvider(DefaultCredentialsProvider.create())
+                    .build();
+        });
+    }
+
+    /**
+     * Athena client for an arbitrary XamOps-controlled role.
+     *
+     * <p>Needed because XamOps can operate more than one management/payer account:
+     * only the MPA the application itself runs in is reachable with host
+     * credentials, and every other one is a separate AWS account requiring a role.
+     * Distinct from {@link #getAthenaClient(CloudAccount, String)}, which is keyed
+     * on a customer account and carries the permission interceptor — a denial here
+     * is a XamOps configuration problem, not a customer's missing grant.
+     */
+    public AthenaClient getRoleAthenaClient(String roleArn, String externalId, String region) {
+        return AthenaClient.builder()
+                .region(Region.of(region))
+                .credentialsProvider(getRoleCredentialsProvider(roleArn, externalId))
+                .build();
+    }
+
+    /** S3 client for an arbitrary XamOps-controlled role. See {@link #getRoleAthenaClient}. */
+    public S3Client getRoleS3Client(String roleArn, String externalId, String region) {
+        return S3Client.builder()
+                .region(Region.of(region))
+                .credentialsProvider(getRoleCredentialsProvider(roleArn, externalId))
+                .build();
+    }
+
+    /**
+     * Credentials for a role identified only by ARN, with no CloudAccount behind it.
+     *
+     * <p>Cached on the ARN because {@link StsAssumeRoleCredentialsProvider} starts a
+     * background refresh thread per instance — building one per call would leak a
+     * thread on every query.
+     */
+    private AwsCredentialsProvider getRoleCredentialsProvider(String roleArn, String externalId) {
+        String cacheKey = "ROLE_CREDS:" + roleArn + ":" + (externalId == null ? "" : externalId);
+        return (AwsCredentialsProvider) clientCache.computeIfAbsent(cacheKey, k -> {
+            logger.info("🚀 [AwsClientProvider] Creating credentials provider for role {}", roleArn);
+            return StsAssumeRoleCredentialsProvider.builder()
+                    .stsClient(stsClient)
+                    .refreshRequest(req -> {
+                        req.roleArn(roleArn).roleSessionName("xamops-cur-session");
+                        if (externalId != null && !externalId.isBlank()) {
+                            req.externalId(externalId);
+                        }
+                    })
+                    .build();
+        });
+    }
+
+    /**
      * Returns the AWS Account ID of the host/main account where XamOps runs.
      */
     public String getHostAccount() {

@@ -37,6 +37,8 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.PersistenceException;
 import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -104,6 +106,17 @@ public class AwsAccountService {
 
     public Map<String, Object> generateCloudFormationUrl(String accountName, String awsAccountId, String accessType,
             Long clientId) throws Exception {
+        return generateCloudFormationUrl(accountName, awsAccountId, accessType, clientId, null);
+    }
+
+    /**
+     * @param curS3Bucket bucket holding this account's Cost and Usage Report, or null/blank
+     *                    when it has none. Blank makes the template's HasCurBucket condition
+     *                    false, so no CUR permissions are attached at all — which is what an
+     *                    account under a XamOps payer account, or one with no report, needs.
+     */
+    public Map<String, Object> generateCloudFormationUrl(String accountName, String awsAccountId, String accessType,
+            Long clientId, String curS3Bucket) throws Exception {
         Client client = clientRepository.findById(clientId)
                 .orElseThrow(() -> new RuntimeException("Client not found with id: " + clientId));
 
@@ -133,9 +146,17 @@ public class AwsAccountService {
                 ? "&param_" + cfnCallbackParamName + "=" + cfnCallbackParamValue
                 : "";
 
+        // The bucket may not exist yet: for an account that still has to deploy the CUR
+        // stack, this names the bucket that stack will create. An IAM policy can reference
+        // a bucket before it exists — it simply grants nothing until it does — which is what
+        // lets the two stacks be launched in either order.
+        String curBucketParam = (curS3Bucket != null && !curS3Bucket.isBlank())
+                ? "&param_CurS3Bucket=" + URLEncoder.encode(curS3Bucket.trim(), StandardCharsets.UTF_8)
+                : "";
+
         String urlString = String.format(
-                "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=%s&stackName=%s&param_XamOpsAccountId=%s&param_ExternalId=%s%s",
-                templateUrl, stackName, xamopsAccountId, externalId, callbackParam);
+                "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=%s&stackName=%s&param_XamOpsAccountId=%s&param_ExternalId=%s%s%s",
+                templateUrl, stackName, xamopsAccountId, externalId, callbackParam, curBucketParam);
 
         return Map.of(
                 "url", new URL(urlString),

@@ -15,6 +15,10 @@ Metadata:
           default: "Amazon EKS Configuration"
         Parameters:
           - EKSClusterNames
+      - Label:
+          default: "Cost and Usage Report (Optional)"
+        Parameters:
+          - CurS3Bucket
     ParameterLabels:
       XamOpsAccountId:
         default: "XamOps AWS Account ID"
@@ -22,6 +26,8 @@ Metadata:
         default: "Unique External ID"
       EKSClusterNames:
         default: "EKS Cluster Names (Optional)"
+      CurS3Bucket:
+        default: "CUR S3 Bucket Name (leave blank if under a XamOps payer account)"
 
 Parameters:
   XamOpsAccountId:
@@ -51,13 +57,26 @@ Parameters:
   # -------------------------------------------------------------------
   EnableInventoryEvents:
     Type: String
-    Default: 'true'
+    # Defaults to 'false' in LOCAL only — the live and UAT templates keep 'true'.
+    #
+    # The nested stack creates account-wide singletons: the xamops-inventory-hub event bus,
+    # XamOpsInventoryForwardRole-<account>, and two fixed-name Lambdas. Only one stack per
+    # account can own them. Local development re-onboards the same account repeatedly, so
+    # the default of 'true' made every attempt after the first fail on a name conflict —
+    # and the failure surfaced as an opaque nested-stack validation error rather than
+    # anything naming the real cause.
+    #
+    # Turning it off costs near-real-time discovery: resources appear via 60s polling
+    # instead of within seconds. That is an acceptable trade locally and nowhere else.
+    Default: 'false'
     AllowedValues: ['true', 'false']
     Description: >
       Forward resource change events to XamOps so new resources appear within
       seconds instead of up to a minute. Creates an EventBridge bus, rules in
       each of your enabled regions, and one small Lambda. Cost is typically
       under $0.10/month.
+      Defaults to false on local because these resources are account-wide singletons
+      and would collide with an existing XamOps deployment in the same account.
 
   IncludeSecurityFindings:
     Type: String
@@ -82,10 +101,44 @@ Parameters:
     Description: S3 URL of the nested inventory-events template.
     Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-inventory-events-nested.yaml'
 
+  # -------------------------------------------------------------------
+  # Cost and Usage Report (CUR)
+  #
+  # Only needed when this account keeps its OWN CUR — a standalone account, or
+  # a member account whose payer XamOps does not manage. Accounts that sit under
+  # a XamOps management/payer account are covered by that MPA's own CUR, which
+  # XamOps reads from its own bucket with its own credentials, so they leave
+  # this blank and no CUR permission is added to this role at all.
+  #
+  # Blank also covers the case where no CUR is obtainable: a member account whose
+  # payer never enabled linked-account access to billing data cannot create one,
+  # and XamOps serves that account from the Cost Explorer API instead.
+  # -------------------------------------------------------------------
+  CurS3Bucket:
+    Type: String
+    Default: ''
+    Description: >
+      (Optional) Name of the S3 bucket holding this account's Cost and Usage Report.
+      Leave blank if this account is under a XamOps payer account, or if you have no CUR.
+      Use AUTO if you are also deploying the XamOps cost reporting stack, which creates
+      xamops-cur-<this account id>.
+
 Conditions:
   # Guards the nested stack. With inventory events off, nothing below is created
   # and the account simply relies on 60s polling.
   DeployInventoryEvents: !Equals [!Ref EnableInventoryEvents, 'true']
+
+  # No CUR bucket named means no CUR permissions are attached. Keeping the grant
+  # off entirely — rather than scoped to a wildcard — is what lets an account under
+  # a XamOps MPA deploy this stack with the same permission surface it had before
+  # CUR support existed.
+  HasCurBucket: !Not [!Equals [!Ref CurS3Bucket, '']]
+
+  # 'AUTO' means the CUR stack has not run yet and will create xamops-cur-<this account>.
+  # Derived here rather than passed in, because the onboarding UI does not know the account
+  # id when it builds this launch URL. An IAM policy may name a bucket that does not exist
+  # yet — it grants nothing until it does — so the two stacks can be launched in any order.
+  AutoCurBucket: !Equals [!Ref CurS3Bucket, 'AUTO']
 
 Resources:
   # =================================================================
@@ -263,6 +316,90 @@ Resources:
                   - 's3:PutObject'
                   - 's3:DeleteObject'
                 Resource: 'arn:aws:s3:::*/xamops-mediaops/*'
+
+              # ------------------------------------------------------------------
+              # Cost and Usage Report access
+              #
+              # Attached only when CurS3Bucket is set, i.e. when the CUR lives in
+              # THIS account. Accounts under a XamOps payer account get nothing here.
+              #
+              # Most of what a CUR read needs is already granted by the
+              # ReadOnlyAccess managed policy above (s3:GetObject, glue:Get*,
+              # athena:GetQueryExecution/GetQueryResults). The two grants that are
+              # genuinely new are athena:StartQueryExecution — a write action, so
+              # absent from ReadOnlyAccess — and the s3:PutObject below.
+              #
+              # Athena has no mode that avoids writing query results, so reading a
+              # CUR requires one object write. It is scoped to a dedicated prefix
+              # rather than the bucket, following the same pattern as the MediaOps
+              # carve-out above: the role can create only the objects XamOps itself
+              # wrote, and stays read-only for every other object in the bucket.
+              # Keep this prefix in sync with CurSource.athenaResultsLocation.
+              # ------------------------------------------------------------------
+              - !If
+                - HasCurBucket
+                - Sid: 'XamOpsCurBucketRead'
+                  Effect: Allow
+                  Action:
+                    - 's3:GetObject'
+                    - 's3:ListBucket'
+                    - 's3:GetBucketLocation'
+                  Resource:
+                    - !If [AutoCurBucket, !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}', !Sub 'arn:aws:s3:::${CurS3Bucket}']
+                    - !If [AutoCurBucket, !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/*', !Sub 'arn:aws:s3:::${CurS3Bucket}/*']
+                - !Ref 'AWS::NoValue'
+
+              - !If
+                - HasCurBucket
+                - Sid: 'XamOpsCurAthenaQuery'
+                  Effect: Allow
+                  Action:
+                    - 'athena:StartQueryExecution'
+                    - 'athena:StopQueryExecution'
+                    - 'athena:GetQueryExecution'
+                    - 'athena:GetQueryResults'
+                    - 'athena:GetWorkGroup'
+                  Resource: '*'
+                - !Ref 'AWS::NoValue'
+
+              - !If
+                - HasCurBucket
+                - Sid: 'XamOpsCurGlueCatalog'
+                  Effect: Allow
+                  Action:
+                    - 'glue:GetDatabase'
+                    - 'glue:GetDatabases'
+                    - 'glue:GetTable'
+                    - 'glue:GetTables'
+                    - 'glue:GetPartition'
+                    - 'glue:GetPartitions'
+                    # Athena describes a CUR through a Glue table, and XamOps builds that
+                    # table from the report's own manifest rather than running a crawler.
+                    # The table is pure metadata over objects already in this account —
+                    # dropping an EXTERNAL table deletes no data — but creating it needs
+                    # these writes. It is recreated on each validation because a CUR gains
+                    # columns over time as AWS adds product attributes and cost allocation
+                    # tags are activated.
+                    - 'glue:CreateDatabase'
+                    - 'glue:CreateTable'
+                    - 'glue:DeleteTable'
+                    - 'glue:BatchCreatePartition'
+                  Resource: '*'
+                - !Ref 'AWS::NoValue'
+
+              - !If
+                - HasCurBucket
+                - Sid: 'XamOpsCurAthenaResultsWrite'
+                  Effect: Allow
+                  Action:
+                    - 's3:PutObject'
+                    - 's3:AbortMultipartUpload'
+                  Resource: !If
+                    - AutoCurBucket
+                    - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/xamops-athena-results/*'
+                    - !Sub 'arn:aws:s3:::${CurS3Bucket}/xamops-athena-results/*'
+                - !Ref 'AWS::NoValue'
+
 
   # =================================================================
   # 2. IAM Role for the EKS Automation Lambda

@@ -76,6 +76,25 @@ public class CloudAccount {
     @JoinColumn(name = "csp_billing_config_id")
     private CspBillingConfig cspBillingConfig;
 
+    /**
+     * Where this AWS account's cost data is read from. Independent of
+     * {@link #billingSource}, which is GCP-only — the two providers source cost
+     * data from unrelated systems and sharing one column would make every read
+     * path branch on provider before it could trust the value.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "aws_billing_source", length = 32)
+    private AwsBillingSource awsBillingSource;
+
+    /**
+     * The CUR this account's rows live in. Many accounts share one source when
+     * they sit under the same XamOps MPA, so this is a reference rather than
+     * bucket/prefix columns on the account.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cur_source_id")
+    private CurSource curSource;
+
     @Column(name = "billing_data_available")
     private Boolean billingDataAvailable;
 
@@ -229,6 +248,20 @@ public class CloudAccount {
             return this.billingSource;
         }
         return this.cspManaged ? BillingSource.XAMMER_CSP_DATASET : BillingSource.OWN_EXPORT;
+    }
+
+    /**
+     * AWS cost source for accounts predating the column, where it is still null.
+     *
+     * <p>Falls back to {@link AwsBillingSource#COST_EXPLORER_ONLY} — the source
+     * every AWS account read from before CUR support existed. Defaulting the
+     * other way would point an unmigrated account at a CUR that does not contain
+     * it, which reads zero rather than failing.
+     */
+    public AwsBillingSource resolveAwsBillingSource() {
+        return this.awsBillingSource != null
+                ? this.awsBillingSource
+                : AwsBillingSource.COST_EXPLORER_ONLY;
     }
 
 }

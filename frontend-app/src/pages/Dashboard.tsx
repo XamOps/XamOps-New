@@ -93,6 +93,16 @@ export const Dashboard: React.FC = () => {
   });
 
   const [lastUpdateTime, setLastUpdateTime] = useState<string>('Connected');
+  /**
+   * Account the CUR reload applies to, or null to hide the button. A CUR belongs to a
+   * single AWS account, so a multi-account selection or a GCP/Azure account has nothing
+   * to reload.
+   */
+  const curAccountId = React.useMemo(() => {
+    if (multiAccountMode || selectedAccountIds.length !== 1) return null;
+    const account = accounts.find(a => a.id === selectedAccountIds[0]);
+    return (account?.provider ?? 'AWS') === 'AWS' ? selectedAccountIds[0] : null;
+  }, [multiAccountMode, selectedAccountIds, accounts]);
   const timePreset: TimePreset = '30d';
   const [visibleWidgets, setVisibleWidgets] = useState<Record<string, boolean>>(loadWidgets);
   const [customizerOpen, setCustomizerOpen] = useState(false);
@@ -185,6 +195,7 @@ export const Dashboard: React.FC = () => {
         isRefreshing={isRefreshing}
         lastUpdateTime={lastUpdateTime}
         onRefresh={refreshDashboard}
+        curAccountId={curAccountId}
         onSaveLayout={saveLayout}
         getLink={getLink}
       />

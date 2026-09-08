@@ -115,11 +115,39 @@ Parameters:
     Description: S3 URL of the nested inventory-events template.
     Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-inventory-events-nested.yaml'
 
+  # -------------------------------------------------------------------
+  # Cost and Usage Report (CUR)
+  #
+  # Only needed when this account keeps its OWN CUR — a standalone account, or
+  # a member account whose payer XamOps does not manage. Accounts that sit under
+  # a XamOps management/payer account are covered by that MPA's own CUR, which
+  # XamOps reads from its own bucket, so they leave this blank and no CUR
+  # permission is added to this role at all.
+  # -------------------------------------------------------------------
+  CurS3Bucket:
+    Type: String
+    Default: ''
+    Description: >
+      (Optional) Name of the S3 bucket holding this account's Cost and Usage Report.
+      Leave blank if this account is under a XamOps payer account, or if you have no CUR.
+      Use AUTO if you are also deploying the XamOps cost reporting stack, which creates
+      xamops-cur-<this account id>.
+
 Conditions:
   IsAutoSpottingEnabled: !Equals [!Ref EnableAutoSpotting, 'true']
 
   # Guards the nested stack. With inventory events off, nothing below is created
   # and the account simply relies on 60s polling.
+  # No CUR bucket named means no CUR permissions are attached, so an account under
+  # a XamOps payer account keeps exactly the permission surface it had before.
+  HasCurBucket: !Not [!Equals [!Ref CurS3Bucket, '']]
+
+  # 'AUTO' means the CUR stack has not run yet and will create xamops-cur-<this account>.
+  # Derived here rather than passed in, because the onboarding UI does not know the account
+  # id when it builds this launch URL. An IAM policy may name a bucket that does not exist
+  # yet — it grants nothing until it does — so the two stacks can be launched in any order.
+  AutoCurBucket: !Equals [!Ref CurS3Bucket, 'AUTO']
+
   DeployInventoryEvents: !Equals [!Ref EnableInventoryEvents, 'true']
 
 Resources:
@@ -744,6 +772,65 @@ Resources:
         - !Ref XamOpsPolicyStorageManage
         - !Ref XamOpsPolicyCostManage
       Policies:
+        # ------------------------------------------------------------------
+        # Cost and Usage Report access. Attached only when CurS3Bucket is set,
+        # i.e. when the CUR lives in THIS account.
+        #
+        # The genuinely new grants are athena:StartQueryExecution — a write
+        # action, so absent from the ReadOnlyAccess managed policy above — and
+        # the s3:PutObject below. Athena has no mode that avoids writing query
+        # results, so reading a CUR requires one object write; it is scoped to a
+        # dedicated prefix so the role can only create objects XamOps wrote.
+        # Keep this prefix in sync with CurSource.athenaResultsLocation.
+        # ------------------------------------------------------------------
+        - !If
+          - HasCurBucket
+          - PolicyName: XamOpsCurReadPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Sid: XamOpsCurBucketRead
+                  Effect: Allow
+                  Action:
+                    - 's3:GetObject'
+                    - 's3:ListBucket'
+                    - 's3:GetBucketLocation'
+                  Resource:
+                    - !If [AutoCurBucket, !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}', !Sub 'arn:aws:s3:::${CurS3Bucket}']
+                    - !If [AutoCurBucket, !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/*', !Sub 'arn:aws:s3:::${CurS3Bucket}/*']
+                - Sid: XamOpsCurAthenaQuery
+                  Effect: Allow
+                  Action:
+                    - 'athena:StartQueryExecution'
+                    - 'athena:StopQueryExecution'
+                    - 'athena:GetQueryExecution'
+                    - 'athena:GetQueryResults'
+                    - 'athena:GetWorkGroup'
+                  Resource: '*'
+                - Sid: XamOpsCurGlueCatalog
+                  Effect: Allow
+                  Action:
+                    - 'glue:GetDatabase'
+                    - 'glue:GetDatabases'
+                    - 'glue:GetTable'
+                    - 'glue:GetTables'
+                    - 'glue:GetPartition'
+                    - 'glue:GetPartitions'
+                    - 'glue:CreateDatabase'
+                    - 'glue:CreateTable'
+                    - 'glue:DeleteTable'
+                    - 'glue:BatchCreatePartition'
+                  Resource: '*'
+                - Sid: XamOpsCurAthenaResultsWrite
+                  Effect: Allow
+                  Action:
+                    - 's3:PutObject'
+                    - 's3:AbortMultipartUpload'
+                  Resource: !If
+                    - AutoCurBucket
+                    - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/xamops-athena-results/*'
+                    - !Sub 'arn:aws:s3:::${CurS3Bucket}/xamops-athena-results/*'
+          - !Ref 'AWS::NoValue'
         # Resource Explorer service-linked role. Without it Search returns only
         # PARTIAL results (missing untagged resources created before Oct 2025).
         # Condition-scoped so this can create no other service-linked role.

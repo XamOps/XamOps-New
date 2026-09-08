@@ -1803,7 +1803,7 @@ export const demoBillopsUserInvoices = [
 export const demoBillopsUserCredits = [
   { id: 1, awsAccountId: 'demo-aws-001', expectedCredits: 500,  services: 'EC2, RDS',               useCase: 'Service disruption compensation for March us-east-1 outage (3h downtime on 2026-03-18)',     priority: 'high',   userId: 1, submittedDate: '2026-04-15T10:00:00Z', status: 'approved'               },
   { id: 2, awsAccountId: 'demo-aws-001', expectedCredits: 250,  services: 'S3, CloudFront',          useCase: 'Upgrade testing environment to mirror production storage for load testing in Q2',             priority: 'medium', userId: 1, submittedDate: '2026-04-10T14:30:00Z', status: 'documentation_review'  },
-  { id: 3, awsAccountId: 'demo-gcp-001', expectedCredits: 1000, services: 'GCP Compute, BigQuery',   useCase: 'Startup program eligibility — requested GCP credits to offset data pipeline migration costs', priority: 'high',   userId: 1, submittedDate: '2026-03-20T09:00:00Z', status: 'technical_verification' },
+  { id: 3, awsAccountId: 'demo-gcp-001', expectedCredits: 1000, services: 'GCP Compute, BigQuery',   useCase: 'Startup program eligibility — requested GCP credits to offset data pipeline migration costs', priority: 'high',   userId: 1, submittedDate: '2026-03-20T09:00:00Z', status: 'business_approval' },
   { id: 4, awsAccountId: 'demo-aws-002', expectedCredits: 150,  services: 'Lambda, API Gateway',     useCase: 'Serverless workshop — credits to run architecture proof-of-concept in staging',               priority: 'low',    userId: 1, submittedDate: '2026-02-28T11:00:00Z', status: 'rejected'               },
 ];
 

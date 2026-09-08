@@ -4,6 +4,7 @@ import type { Tenant, TenantUser, UserRole } from '../../types/auth';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTopbarActions } from '../../contexts/TopbarContext';
 import { useTheme } from '../../contexts/ThemeContext';
+import RefreshFromCurButton from '../Shared/RefreshFromCurButton';
 
 interface DashboardHeaderProps {
   hasAnyRole: (roles: UserRole | UserRole[]) => boolean;
@@ -16,6 +17,12 @@ interface DashboardHeaderProps {
   isRefreshing: boolean;
   lastUpdateTime: string;
   onRefresh: () => void;
+  /**
+   * Single AWS account to offer a CUR-only reload for, or null to hide the button —
+   * a CUR belongs to one account, so a multi-account or non-AWS selection has nothing
+   * to reload.
+   */
+  curAccountId?: string | null;
   onSaveLayout: () => void;
   getLink: (path: string) => string;
 }
@@ -31,6 +38,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   isRefreshing,
   lastUpdateTime,
   onRefresh,
+  curAccountId = null,
   onSaveLayout,
   getLink,
 }) => {
@@ -150,13 +158,20 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           <i className={`fas fa-sync-alt text-[10px] ${isRefreshing ? 'animate-spin' : ''}`}></i>
           {isRefreshing ? 'Refreshing…' : 'Refresh'}
         </button>
+
+        <RefreshFromCurButton
+          accountId={curAccountId}
+          onRefreshed={onRefresh}
+          dark={dark}
+        />
       </div>
     );
     return () => clearActions();
   }, [
     setActions, clearActions, hasAnyRole, selectedTenant, impersonateUser,
     tenantList, tenantUsers, selectedAccountIds, layoutChanged,
-    isRefreshing, lastUpdateTime, onRefresh, onSaveLayout, getLink, theme, dark,
+    isRefreshing, lastUpdateTime, onRefresh, curAccountId,
+    onSaveLayout, getLink, theme, dark,
   ]);
 
   return null;

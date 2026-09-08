@@ -24,6 +24,7 @@ import { formatIST, getSlaStatus, getResponseSlaLabel } from '../utils/timeUtils
 import { sanitizeRichText, htmlToPlainText, escapeHtml } from '../utils/sanitizeHtml';
 import TicketCallButton from '../components/calls/TicketCallButton';
 import TicketCallHistory from '../components/calls/TicketCallHistory';
+import TicketEmailDetails, { TicketEmailDetails as TicketEmailDetailsData } from '../components/tickets/TicketEmailDetails';
 import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 
@@ -43,6 +44,9 @@ interface TicketReply {
   message: string;
   authorId: number;
   authorUsername: string;
+  /** Present when the reply arrived by email; null for replies typed in the app. */
+  authorEmail?: string;
+  fromEmail?: boolean;
   admin: boolean;
   isInternal?: boolean;
   createdAt: string;
@@ -71,6 +75,10 @@ interface Ticket {
   assignedToId?: number;
   assignedToUsername?: string;
   creatorUsername?: string;
+  /** 'WEB' for tickets raised in the app, 'EMAIL' for ones ingested from the support mailbox. */
+  source?: string;
+  /** Only set when source is EMAIL — the mail that opened the ticket. */
+  emailDetails?: TicketEmailDetailsData;
   replies: TicketReply[];
 }
 
@@ -535,6 +543,11 @@ const TicketDetailPage: React.FC = () => {
       <div ref={chatContainerRef} className="flex-1 overflow-y-auto custom-scrollbar bg-[rgba(0,0,0,0.02)]">
         <div className="max-w-4xl mx-auto p-6 lg:p-10 space-y-8">
 
+          {/* Source mail — only on tickets that arrived by email */}
+          {ticket.emailDetails && (
+            <TicketEmailDetails details={ticket.emailDetails} isAdmin={isAdmin} />
+          )}
+
           {/* Header Card */}
           <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
             <div className="relative flex gap-6">
@@ -550,7 +563,17 @@ const TicketDetailPage: React.FC = () => {
                     {formatIST(ticket.createdAt)}
                   </span>
                 </div>
-                <div className="text-[13px] text-[rgba(0,0,0,0.7)] leading-relaxed whitespace-pre-wrap">{ticket.description}</div>
+                {/* An email ticket's description is the mail body — HTML, sanitised server-side
+                    and again here, as everything reaching dangerouslySetInnerHTML must be. A web
+                    ticket's is plain text from a form and stays escaped. */}
+                {ticket.source === 'EMAIL' && ticket.description ? (
+                  <div
+                    className="text-[13px] text-[rgba(0,0,0,0.7)] leading-relaxed prose-chat"
+                    dangerouslySetInnerHTML={{ __html: sanitizeRichText(ticket.description) }}
+                  />
+                ) : (
+                  <div className="text-[13px] text-[rgba(0,0,0,0.7)] leading-relaxed whitespace-pre-wrap">{ticket.description}</div>
+                )}
                 <div className="flex flex-wrap gap-4 pt-4 border-t border-[rgba(0,0,0,0.06)] text-[10px] font-semibold uppercase tracking-widest text-[rgba(0,0,0,0.4)]">
                   <div>Region: <span className="text-[rgba(0,0,0,0.7)] font-semibold">{ticket.region || 'Global'}</span></div>
                   <div>Severity: <span className={`font-semibold ${getSeverityClass(ticket.severity)}`}>{ticket.severity}</span></div>
@@ -640,6 +663,17 @@ const TicketDetailPage: React.FC = () => {
                         {!isMe(reply) && (
                           <span className="text-[10px] font-semibold text-[rgba(0,0,0,0.88)]">
                             {reply.admin && !isAdmin ? 'Support Team' : reply.authorUsername}
+                          </span>
+                        )}
+                        {/* Replies that came in over mail: the sender may have no account, and
+                            anything sent back reaches them by mail rather than in the app. */}
+                        {reply.fromEmail && (
+                          <span
+                            className="inline-flex items-center gap-1 text-indigo-600"
+                            title={reply.authorEmail ? `Received by email from ${reply.authorEmail}` : 'Received by email'}
+                          >
+                            <Icon icon="mdi:email-outline" width={11} />
+                            <span className="font-semibold uppercase tracking-wider">Email</span>
                           </span>
                         )}
                         <span>{formatIST(reply.createdAt)}</span>

@@ -14,7 +14,7 @@ export type { CreditAttachment };
 export type AdminCreditStatus =
   | 'submitted'
   | 'documentation_review'
-  | 'technical_verification'
+  | 'business_approval'
   | 'approved'
   | 'rejected';
 

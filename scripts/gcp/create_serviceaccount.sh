@@ -262,8 +262,15 @@ bind_role() {
 
         IAM_BIND_ERROR="$BIND_OUTPUT"
 
-        # Permission and org-policy denials will never succeed on retry.
-        if echo "$BIND_OUTPUT" | grep -qiE "PERMISSION_DENIED|does not have permission|violates constraint|Policy update access denied"; then
+        # Deterministic failures never succeed on retry — fail fast so the
+        # user sees the real cause in seconds instead of minutes of backoff.
+        #   * permission / org-policy denials
+        #   * conditional-binding prompt (policy already has conditional
+        #     bindings and gcloud needs a --condition answer; older gcloud
+        #     without --condition support hits this and cannot be answered
+        #     non-interactively)
+        #   * unsupported flag / bad invocation
+        if echo "$BIND_OUTPUT" | grep -qiE "PERMISSION_DENIED|does not have permission|violates constraint|Policy update access denied|Cannot prompt during non-interactive|specify a condition|condition is required|bindings with conditions|unrecognized arguments"; then
             return 1
         fi
 
@@ -325,19 +332,37 @@ FAILED_ROLE_ERRORS=()
 FAILED_OPTIONAL_ROLES=()
 
 echo "  Binding ${#ALL_ROLES[@]} IAM roles to $SERVICE_ACCOUNT_EMAIL..."
+
+# Circuit breaker: if several roles in a row fail, the cause is systemic
+# (permissions, org policy, conditional-binding prompt) rather than specific
+# to one role. Stop immediately instead of working through all 27 roles.
+CONSECUTIVE_FAILS=0
+SYSTEMIC_ABORT=0
+ROLES_ATTEMPTED=0
+
 for role in "${ALL_ROLES[@]}"; do
+    ROLES_ATTEMPTED=$((ROLES_ATTEMPTED + 1))
     if bind_role "$role"; then
-        :
+        CONSECUTIVE_FAILS=0
     else
         FAILED_ROLES+=("$role")
         FAILED_ROLE_ERRORS+=("$IAM_BIND_ERROR")
+        CONSECUTIVE_FAILS=$((CONSECUTIVE_FAILS + 1))
+        if [ "$CONSECUTIVE_FAILS" -ge 3 ]; then
+            SYSTEMIC_ABORT=1
+            break
+        fi
     fi
 done
 
 if [ ${#FAILED_ROLES[@]} -gt 0 ]; then
     echo ""
     echo "❌ ERROR: Failed to grant ${#FAILED_ROLES[@]} of ${#ALL_ROLES[@]} IAM role(s) to $SERVICE_ACCOUNT_EMAIL"
-    echo "   (each was attempted 4 times with backoff)"
+    if [ "$SYSTEMIC_ABORT" -eq 1 ]; then
+        echo "   Stopped early: 3 roles failed in a row, so the cause affects"
+        echo "   every role rather than a specific one. The remaining"
+        echo "   $((${#ALL_ROLES[@]} - ROLES_ATTEMPTED)) role(s) were not attempted."
+    fi
     echo ""
     FAILED_INDEX=0
     for role in "${FAILED_ROLES[@]}"; do
@@ -363,6 +388,12 @@ if [ ${#FAILED_ROLES[@]} -gt 0 ]; then
     echo ""
     echo "  * 'There were concurrent policy changes' / RESOURCE_EXHAUSTED"
     echo "      Transient. Re-run the script."
+    echo ""
+    echo "  * 'bindings with conditions' / 'specify a condition'"
+    echo "      The project already has conditional IAM bindings and your gcloud"
+    echo "      is too old to support '--condition=None'. Update gcloud"
+    echo "      ('gcloud components update'), or bind roles manually adding"
+    echo "      '--condition=None' to each command."
     echo ""
     echo "Aborting WITHOUT generating a key — connecting a key with no IAM"
     echo "roles to XamOps would result in an empty dashboard with no error."
