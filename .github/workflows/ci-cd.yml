@@ -282,9 +282,17 @@ jobs:
             # actuator sits behind Spring Security, so a 401 still proves the app is
             # bound and running its filter chain. Only 000 (connection refused) means
             # nothing is listening.
+            # 12 minutes. billops reaches "Tomcat initialized" in ~5s but does not accept
+            # connections until Hibernate, the Eureka registry fetch and cache warming
+            # finish, which has been observed taking over 5 minutes -- a 5 minute budget
+            # failed the deploy on a service that then came up fine moments later.
+            #
+            # A long timeout is safe because the RestartCount guard below catches genuine
+            # failures within about a minute: a service that cannot start exits and is
+            # restarted, so this budget only ever accommodates slow-but-healthy startup.
             echo "⏳ waiting for billops-service to become ready..."
             ready=0
-            for i in $(seq 1 30); do
+            for i in $(seq 1 72); do
               # curl's %{http_code} already prints 000 on a refused connection, so no
               # '|| echo 000' fallback: appending one concatenated to "000000", which is
               # not equal to "000" and silently passed the check.
@@ -534,9 +542,12 @@ jobs:
             # Host-side probe for the same reasons as billops: no curl/wget in the JRE
             # image, and a 401 from the security-protected actuator still proves the app
             # is up. 000 means nothing is listening.
+            # 12 minutes, matching billops -- see the note there on why a long budget is
+            # safe alongside the RestartCount guard. xamops-service is the larger of the
+            # two (1059 source files) and has been seen taking ~3 minutes to serve.
             echo "⏳ waiting for xamops-service to become ready..."
             ready=0
-            for i in $(seq 1 42); do
+            for i in $(seq 1 72); do
               # Matched against a real status code rather than "not 000" -- see the note
               # on the billops probe for why the negative test was unsafe.
               code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' http://localhost:8080/actuator/health 2>/dev/null)
