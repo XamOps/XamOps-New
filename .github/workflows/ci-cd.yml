@@ -285,11 +285,16 @@ jobs:
             echo "⏳ waiting for billops-service to become ready..."
             ready=0
             for i in $(seq 1 30); do
-              code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' http://localhost:8082/actuator/health 2>/dev/null || echo 000)
-              if [ "$code" != "000" ]; then
-                echo "billops-service responding (HTTP $code)"
-                ready=1; break
-              fi
+              # curl's %{http_code} already prints 000 on a refused connection, so no
+              # '|| echo 000' fallback: appending one concatenated to "000000", which is
+              # not equal to "000" and silently passed the check.
+              code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' http://localhost:8082/actuator/health 2>/dev/null)
+              case "$code" in
+                [1-5][0-9][0-9])
+                  echo "billops-service responding (HTTP $code)"
+                  ready=1; break
+                  ;;
+              esac
               # Detect a container that is restarting rather than merely slow to boot.
               restarts=$(docker inspect -f '{{.RestartCount}}' billops-service 2>/dev/null || echo 0)
               if [ "${restarts:-0}" -ge 3 ]; then
@@ -532,11 +537,15 @@ jobs:
             echo "⏳ waiting for xamops-service to become ready..."
             ready=0
             for i in $(seq 1 42); do
-              code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' http://localhost:8080/actuator/health 2>/dev/null || echo 000)
-              if [ "$code" != "000" ]; then
-                echo "xamops-service responding (HTTP $code)"
-                ready=1; break
-              fi
+              # Matched against a real status code rather than "not 000" -- see the note
+              # on the billops probe for why the negative test was unsafe.
+              code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' http://localhost:8080/actuator/health 2>/dev/null)
+              case "$code" in
+                [1-5][0-9][0-9])
+                  echo "xamops-service responding (HTTP $code)"
+                  ready=1; break
+                  ;;
+              esac
               restarts=$(docker inspect -f '{{.RestartCount}}' xamops-service 2>/dev/null || echo 0)
               if [ "${restarts:-0}" -ge 3 ]; then
                 echo "❌ xamops-service is crash-looping (${restarts} restarts)"
