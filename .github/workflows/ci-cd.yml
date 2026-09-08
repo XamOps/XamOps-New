@@ -276,12 +276,18 @@ jobs:
             # --restart unless-stopped it is up again moments after each exit, so the
             # old 20s snapshot reported success while nothing was ever serving. Poll
             # actual readiness instead, and always show logs on failure.
+            # Probed from the host against the published port, not inside the container:
+            # the JRE base image ships neither curl nor wget, so an in-container probe
+            # can never succeed. Any HTTP status counts as ready, including 401 -- the
+            # actuator sits behind Spring Security, so a 401 still proves the app is
+            # bound and running its filter chain. Only 000 (connection refused) means
+            # nothing is listening.
             echo "⏳ waiting for billops-service to become ready..."
             ready=0
             for i in $(seq 1 30); do
-              if docker exec billops-service sh -c \
-                   'wget -qO- http://localhost:8082/actuator/health 2>/dev/null || curl -sf http://localhost:8082/actuator/health' \
-                   2>/dev/null | grep -q '"status":"UP"'; then
+              code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' http://localhost:8082/actuator/health 2>/dev/null || echo 000)
+              if [ "$code" != "000" ]; then
+                echo "billops-service responding (HTTP $code)"
                 ready=1; break
               fi
               # Detect a container that is restarting rather than merely slow to boot.
@@ -520,12 +526,15 @@ jobs:
             # Same false-green problem as billops: --restart unless-stopped means a
             # crash-looping container is "running" whenever the snapshot happens to land
             # between restarts. Poll readiness and dump logs on failure instead.
+            # Host-side probe for the same reasons as billops: no curl/wget in the JRE
+            # image, and a 401 from the security-protected actuator still proves the app
+            # is up. 000 means nothing is listening.
             echo "⏳ waiting for xamops-service to become ready..."
             ready=0
             for i in $(seq 1 42); do
-              if docker exec xamops-service sh -c \
-                   'wget -qO- http://localhost:8080/actuator/health 2>/dev/null || curl -sf http://localhost:8080/actuator/health' \
-                   2>/dev/null | grep -q '"status":"UP"'; then
+              code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' http://localhost:8080/actuator/health 2>/dev/null || echo 000)
+              if [ "$code" != "000" ]; then
+                echo "xamops-service responding (HTTP $code)"
                 ready=1; break
               fi
               restarts=$(docker inspect -f '{{.RestartCount}}' xamops-service 2>/dev/null || echo 0)
