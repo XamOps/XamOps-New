@@ -46,6 +46,16 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED"
 
+          # A change to this workflow changes how every service is built and deployed,
+          # so treat it as touching all of them. Without this, an edit to the deploy or
+          # readiness logic can only be exercised by piggy-backing on an unrelated
+          # source change -- which is how a health check that never actually checked
+          # health survived for as long as it did.
+          if echo "$CHANGED" | grep -q "^\.github/workflows/"; then
+            echo "CI workflow changed -> treating all services as changed"
+            CHANGED=$(printf '%s\nbillops/\nxamops-service/\nfrontend-app/\nmedia-ops-service/\nxamops-agent/\n' "$CHANGED")
+          fi
+
           if echo "$CHANGED" | grep -q "^billops/"; then
             echo "billops=true" >> $GITHUB_OUTPUT
           else
@@ -262,13 +272,35 @@ jobs:
               -e "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health,metrics,info" \
               ghcr.io/xamops/billops:latest
 
-            sleep 20
-            if docker ps --filter "name=billops-service" --filter "status=running" | grep -q billops-service; then
-              echo "✅ billops-service is running"
+            # A crash-looping container passes "docker ps --status running": with
+            # --restart unless-stopped it is up again moments after each exit, so the
+            # old 20s snapshot reported success while nothing was ever serving. Poll
+            # actual readiness instead, and always show logs on failure.
+            echo "⏳ waiting for billops-service to become ready..."
+            ready=0
+            for i in $(seq 1 30); do
+              if docker exec billops-service sh -c \
+                   'wget -qO- http://localhost:8082/actuator/health 2>/dev/null || curl -sf http://localhost:8082/actuator/health' \
+                   2>/dev/null | grep -q '"status":"UP"'; then
+                ready=1; break
+              fi
+              # Detect a container that is restarting rather than merely slow to boot.
+              restarts=$(docker inspect -f '{{.RestartCount}}' billops-service 2>/dev/null || echo 0)
+              if [ "${restarts:-0}" -ge 3 ]; then
+                echo "❌ billops-service is crash-looping (${restarts} restarts)"
+                break
+              fi
+              sleep 10
+            done
+
+            if [ "$ready" = "1" ]; then
+              echo "✅ billops-service is up and healthy"
               docker ps --filter "name=billops-service"
             else
-              echo "❌ billops-service failed to start"
-              docker logs --tail=50 billops-service
+              echo "❌ billops-service failed to become ready"
+              echo "─── restart count: $(docker inspect -f '{{.RestartCount}}' billops-service 2>/dev/null) ───"
+              echo "─── last 120 log lines ───"
+              docker logs --tail=120 billops-service 2>&1 || true
               exit 1
             fi
 
@@ -485,13 +517,33 @@ jobs:
               -e CALLS_WS_TOKEN_SECRET=${{ secrets.CALLS_WS_TOKEN_SECRET }} \
               ghcr.io/xamops/xamops-new:latest
 
-            sleep 20
-            if docker ps --filter "name=xamops-service" --filter "status=running" | grep -q xamops-service; then
-              echo "✅ xamops-service is running"
+            # Same false-green problem as billops: --restart unless-stopped means a
+            # crash-looping container is "running" whenever the snapshot happens to land
+            # between restarts. Poll readiness and dump logs on failure instead.
+            echo "⏳ waiting for xamops-service to become ready..."
+            ready=0
+            for i in $(seq 1 42); do
+              if docker exec xamops-service sh -c \
+                   'wget -qO- http://localhost:8080/actuator/health 2>/dev/null || curl -sf http://localhost:8080/actuator/health' \
+                   2>/dev/null | grep -q '"status":"UP"'; then
+                ready=1; break
+              fi
+              restarts=$(docker inspect -f '{{.RestartCount}}' xamops-service 2>/dev/null || echo 0)
+              if [ "${restarts:-0}" -ge 3 ]; then
+                echo "❌ xamops-service is crash-looping (${restarts} restarts)"
+                break
+              fi
+              sleep 10
+            done
+
+            if [ "$ready" = "1" ]; then
+              echo "✅ xamops-service is up and healthy"
               docker ps --filter "name=xamops-service"
             else
-              echo "❌ xamops-service failed to start"
-              docker logs --tail=50 xamops-service
+              echo "❌ xamops-service failed to become ready"
+              echo "─── restart count: $(docker inspect -f '{{.RestartCount}}' xamops-service 2>/dev/null) ───"
+              echo "─── last 120 log lines ───"
+              docker logs --tail=120 xamops-service 2>&1 || true
               exit 1
             fi
 
