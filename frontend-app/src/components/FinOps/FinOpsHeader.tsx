@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTopbar } from '../../contexts/TopbarContext';
 import RefreshFromCurButton from '../Shared/RefreshFromCurButton';
+import { setCostSourceMode } from '../../utils/apiClient';
 import type { DateFilter } from '../../types/finops';
 
 interface FinOpsHeaderProps {
@@ -76,7 +77,7 @@ const FinOpsHeader: React.FC<FinOpsHeaderProps> = ({ dateFilter, isRefreshing, o
 
         {/* Refresh */}
         <button
-          onClick={onRefresh}
+          onClick={() => { setCostSourceMode('CE'); onRefresh(); }}
           disabled={isRefreshing}
           className="flex items-center gap-1.5 text-[12px] font-medium text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)] transition-colors disabled:opacity-40"
         >

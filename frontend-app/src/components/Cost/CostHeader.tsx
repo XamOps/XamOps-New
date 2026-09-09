@@ -2,6 +2,7 @@ import React from 'react';
 import { useTopbar } from '../../contexts/TopbarContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import RefreshFromCurButton from '../Shared/RefreshFromCurButton';
+import { setCostSourceMode } from '../../utils/apiClient';
 
 interface CostHeaderProps {
   isLoading: boolean;
@@ -29,7 +30,7 @@ const CostHeader: React.FC<CostHeaderProps> = ({ isLoading, onRefresh, curAccoun
           </span>
         </div>
         <button
-          onClick={onRefresh}
+          onClick={() => { setCostSourceMode('CE'); onRefresh(); }}
           className={`flex items-center gap-1.5 text-[12px] font-medium transition-colors ${dark ? 'text-[rgba(255,255,255,0.5)] hover:text-white' : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)]'}`}
         >
           <i className={`fas fa-sync-alt text-[10px] ${isLoading ? 'animate-spin' : ''}`} />

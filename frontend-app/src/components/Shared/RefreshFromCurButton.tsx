@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { apiFetch } from '../../utils/apiClient';
+import { apiFetch, setCostSourceMode } from '../../utils/apiClient';
 
 /**
  * Reloads this month's costs from the Cost and Usage Report only, with no Cost
@@ -68,6 +68,11 @@ export const RefreshFromCurButton: React.FC<RefreshFromCurButtonProps> = ({
           `Bucket: ${body.s3Bucket}\n` +
           `Granularity: ${body.timeUnit ?? 'unknown'}`,
       );
+      // The report figures are already in the shared cache, so this reload only has to
+      // re-read it. Switching the mode first stops the page's forced refresh being tagged
+      // as Cost Explorer — without it the reload overwrote what was just written and the
+      // button silently undid its own work.
+      setCostSourceMode('CUR');
       await onRefreshed();
     } catch (e) {
       window.alert(`Could not read the Cost and Usage Report\n\n${(e as Error).message}`);

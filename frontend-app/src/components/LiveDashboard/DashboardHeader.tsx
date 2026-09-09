@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useTopbarActions } from '../../contexts/TopbarContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import RefreshFromCurButton from '../Shared/RefreshFromCurButton';
+import { setCostSourceMode } from '../../utils/apiClient';
 
 interface DashboardHeaderProps {
   hasAnyRole: (roles: UserRole | UserRole[]) => boolean;
@@ -151,7 +152,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 
         {/* Refresh */}
         <button
-          onClick={onRefresh}
+          onClick={() => { setCostSourceMode('CE'); onRefresh(); }}
           disabled={isRefreshing}
           className={`flex items-center gap-1.5 text-[12px] font-medium transition-colors disabled:opacity-40 ${dark ? 'text-[rgba(255,255,255,0.5)] hover:text-white' : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)]'}`}
         >

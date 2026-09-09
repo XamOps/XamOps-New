@@ -106,17 +106,40 @@ const deleteHeader = (headers: HeadersInit, key: string): HeadersInit => {
  * Mimics the exact behavior of the original fetch interceptor
  */
 /**
- * Marks a forced cost refresh as wanting Cost Explorer.
+ * Which source a *forced* cost refresh should read from.
  *
- * Leaves everything else untouched, so ordinary page loads keep reading whatever the
- * nightly job stored — which is the report.
+ * A sticky mode, not a scoped window. The first attempt at this wrapped the CUR button's
+ * reload in a suppression scope, which cannot work: refreshDashboard is fire-and-forget
+ * and defers its fetches with setTimeout(0), so the scope had already closed by the time
+ * any request was issued — the CUR figures landed and Cost Explorer overwrote them
+ * seconds later.
+ *
+ * Modelling it as "what the user last asked for" removes the timing dependency entirely.
+ * Only forced refreshes consult it; ordinary page loads are untouched and keep reading
+ * whatever the nightly job stored.
+ */
+export type CostSourceMode = 'CE' | 'CUR';
+
+let costSourceMode: CostSourceMode = 'CE';
+
+/** Called by whichever refresh control the user pressed, before it triggers the reload. */
+export const setCostSourceMode = (mode: CostSourceMode): void => {
+  costSourceMode = mode;
+};
+
+/**
+ * Tags a forced cost refresh with the source the user asked for.
+ *
+ * CUR needs no parameter — the backend prefers the report by default, so omitting it is
+ * how "use the report" is expressed.
  */
 const withCostSourceForManualRefresh = (url: string | URL): string | URL => {
   const raw = url.toString();
   if (!raw.includes('forceRefresh=true')) return url;
-  // The CUR-only button is the one place a forced refresh must NOT mean Cost Explorer.
+  // The CUR-only endpoint is never a Cost Explorer request.
   if (raw.includes('/costs/refresh-from-cur')) return url;
   if (raw.includes('costSource=')) return url;
+  if (costSourceMode !== 'CE') return url;
   return raw + (raw.includes('?') ? '&' : '?') + 'costSource=CE';
 };
 
