@@ -28,6 +28,7 @@ public class AwsAccountService {
     private final ClientRepository clientRepository;
     public final AwsClientProvider awsClientProvider;
     private final CacheService cacheService;
+    private final CurIngestionService curIngestionService;
 
     @Value("${cloudformation.template.s3.url}")
     private String cloudFormationTemplateUrl;
@@ -38,12 +39,14 @@ public class AwsAccountService {
             ClientRepository clientRepository,
             AwsClientProvider awsClientProvider,
             StsClient stsClient,
-            CacheService cacheService) {
+            CacheService cacheService,
+            CurIngestionService curIngestionService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.clientRepository = clientRepository;
         this.awsClientProvider = awsClientProvider;
         this.configuredRegion = System.getenv().getOrDefault("AWS_REGION", "us-east-1");
         this.cacheService = cacheService;
+        this.curIngestionService = curIngestionService;
 
         String tmpAccountId;
         try {
@@ -110,7 +113,32 @@ public class AwsAccountService {
             throw new RuntimeException(
                     "Role assumption failed. Please check the role ARN, trust policy, and external ID.", e);
         }
+
+        detectCurExport(account);
+
         return cloudAccountRepository.save(account);
+    }
+
+    /**
+     * Records the CUR export location if the onboarding stack created one.
+     *
+     * Runs only after the role has been verified, and is deliberately non-fatal:
+     * a customer who disabled EnableCurExport, or who connected a linked account
+     * where an org-wide export is not available, must still onboard successfully —
+     * BillOps just keeps reconciling their invoices from Cost Explorer instead.
+     */
+    private void detectCurExport(CloudAccount account) {
+        try {
+            curIngestionService.detectCurConfig(account).ifPresent(config -> {
+                account.setCurS3Bucket(config[0]);
+                account.setCurReportPath(config[1]);
+                logger.info("CUR export detected for account {} — BillOps will reconcile invoices from s3://{}/{}",
+                        account.getAwsAccountId(), config[0], config[1]);
+            });
+        } catch (Exception e) {
+            logger.warn("CUR export detection skipped for account {}: {}",
+                    account.getAccountName(), e.getMessage());
+        }
     }
 
     public void clearAllCaches() {

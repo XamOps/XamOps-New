@@ -10,5 +10,8 @@
   "devDependencies": {
     "newman": "6.2.2",
     "newman-reporter-htmlextra": "1.23.1"
+  },
+  "overrides": {
+    "handlebars": "^4.7.9"
   }
 }

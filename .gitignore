@@ -44,8 +44,14 @@ logs/
 
 # AI/Session files
 .claude/
+# NOTE: this repo has core.ignorecase=true (macOS), which makes gitignore patterns
+# case-insensitive -- so [A-Z_] also matches lowercase and this rule ignores EVERY .md
+# file starting with a letter, not just the uppercase agent files it was written for.
+# Deliberate documentation is therefore un-ignored below rather than by narrowing the
+# pattern, which cannot work while matching is case-insensitive.
 [A-Z_]*.md
 !CONTRIBUTING.md
+!docs/**/*.md
 
 # Backups and temporary files
 *.html.bak

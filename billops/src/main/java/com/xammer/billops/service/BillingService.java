@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -46,8 +47,14 @@ public class BillingService {
     private static final String BILLING_DASHBOARD_DB_PREFIX = "BILLOPS_BILLING_DASHBOARD::";
     private static final String BILLING_DETAILED_DB_PREFIX = "BILLOPS_BILLING_DETAILED::";
 
+    /** Values for the {@code dataSource} field surfaced to the UI. */
+    public static final String SRC_CUR = "CUR";
+    public static final String SRC_CE = "COST_EXPLORER";
+    public static final String SRC_MIXED = "MIXED";
+
     private final BillOpsCachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper;
+    private final CurIngestionService curIngestionService;
 
     public BillingService(CostService costService,
             GcpCostService gcpCostService,
@@ -56,7 +63,8 @@ public class BillingService {
             RedisCacheService redisCache,
             BillOpsCachedDataRepository cachedDataRepository,
             ObjectMapper objectMapper,
-            CacheManager cacheManager) {
+            CacheManager cacheManager,
+            CurIngestionService curIngestionService) {
         this.costService = costService;
         this.gcpCostService = gcpCostService;
         this.azureCostService = azureCostService;
@@ -65,6 +73,36 @@ public class BillingService {
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
         this.cacheManager = cacheManager;
+        this.curIngestionService = curIngestionService;
+    }
+
+    // ── CUR preference ───────────────────────────────────────────────────────────
+    //
+    // CUR is authoritative but only for CLOSED months: AWS does not finalise a
+    // billing period until roughly 72 hours after it ends, so the current month's
+    // export is partial by definition and Cost Explorer remains the better estimate
+    // for it. Everything below therefore asks two questions before using CUR —
+    // is the month closed, and did ingestion complete for it — and answers "no" by
+    // falling through to the pre-existing Cost Explorer path untouched.
+
+    /**
+     * True when reconciled CUR data should be preferred for this account and month.
+     * A null year/month means "current month", which is never CUR-eligible.
+     */
+    private boolean useCur(String accountId, Integer year, Integer month) {
+        if (accountId == null || year == null || month == null) {
+            return false;
+        }
+        try {
+            YearMonth ym = YearMonth.of(year, month);
+            if (!ym.isBefore(YearMonth.now())) {
+                return false; // current or future month — not final yet
+            }
+            return curIngestionService.hasCurData(accountId, ym);
+        } catch (Exception e) {
+            logger.debug("CUR eligibility check failed for {} {}/{}: {}", accountId, year, month, e.getMessage());
+            return false;
+        }
     }
 
     /**
@@ -81,6 +119,17 @@ public class BillingService {
      */
     public List<ServiceCostDetailDto> getMonthlySnapshotReport(String accountId, int year, int month) {
         String ym = java.time.YearMonth.of(year, month).toString(); // "YYYY-MM"
+
+        // 0. Most preferred: reconciled CUR data. This is the source AWS generates the
+        //    invoice from, so for a closed month it is the only figure guaranteed to
+        //    match the customer's actual bill. Falls through to the CE snapshots below
+        //    when CUR is not configured or not yet ingested for this period.
+        List<ServiceCostDetailDto> curReport = getCurDetailedReport(accountId, year, month);
+        if (!curReport.isEmpty()) {
+            logger.info("✅ [InvoiceGen] Using reconciled CUR data for {} {} ({} services)",
+                    accountId, ym, curReport.size());
+            return curReport;
+        }
 
         // 1. Preferred: service × region breakdown (matches cost page's detailed view)
         String svcRgnKey = "AWS_MONTHLY_SVC_REGION::" + accountId + "::" + ym;
@@ -155,6 +204,160 @@ public class BillingService {
         }
 
         return Collections.emptyList();
+    }
+
+    /**
+     * Builds the detailed service/region/usage breakdown from reconciled CUR data.
+     *
+     * Returns an empty list when CUR is unavailable for this account and month, which
+     * every caller treats as "fall back to Cost Explorer".
+     *
+     * Worth noting this is strictly richer than the Cost Explorer equivalent: because
+     * the CUR aggregate keeps region on each usage-type row, resources can be nested
+     * under their real region. The CE snapshot path drops region at that level, which
+     * is why CostService.getCostByResource has to ignore its region argument when
+     * reading from a snapshot.
+     */
+    private List<ServiceCostDetailDto> getCurDetailedReport(String accountId, Integer year, Integer month) {
+        if (!useCur(accountId, year, month)) {
+            return Collections.emptyList();
+        }
+        try {
+            YearMonth ym = YearMonth.of(year, month);
+            List<com.xammer.billops.dto.cur.CurAggregates.SvcRegionEntry> svcRegion =
+                    curIngestionService.readSvcRegion(accountId, ym).orElse(Collections.emptyList());
+            if (svcRegion.isEmpty()) {
+                return Collections.emptyList();
+            }
+            List<com.xammer.billops.dto.cur.CurAggregates.SvcUsageEntry> svcUsage =
+                    curIngestionService.readSvcUsage(accountId, ym).orElse(Collections.emptyList());
+
+            // Index usage rows by service + region once, rather than rescanning the
+            // whole list per region — a busy month has tens of thousands of them.
+            Map<String, List<com.xammer.billops.dto.cur.CurAggregates.SvcUsageEntry>> usageBySvcRegion =
+                    svcUsage.stream().collect(Collectors.groupingBy(
+                            u -> nullSafe(u.getService()) + "\u0000" + nullSafe(u.getRegion())));
+
+            Map<String, ServiceCostDetailDto> byService = new LinkedHashMap<>();
+            for (com.xammer.billops.dto.cur.CurAggregates.SvcRegionEntry entry : svcRegion) {
+                String service = nullSafe(entry.getService());
+                String region = nullSafe(entry.getRegion());
+                double cost = entry.getCost();
+
+                // Credits and refunds are negative line items. They belong in the
+                // invoice total, but a zero-cost service row adds nothing to the
+                // breakdown, so only exact zeros are dropped here.
+                if (cost == 0.0) continue;
+
+                ServiceCostDetailDto svc = byService.computeIfAbsent(service, s -> {
+                    ServiceCostDetailDto d = new ServiceCostDetailDto();
+                    d.setServiceName(s);
+                    d.setCost(0.0);
+                    d.setTotalCost(0.0);
+                    d.setRegionCosts(new ArrayList<>());
+                    d.setDataSource(SRC_CUR);
+                    return d;
+                });
+
+                RegionCostDto rgn = new RegionCostDto();
+                rgn.setRegion(region);
+                rgn.setRegionName(region);
+                rgn.setCost(cost);
+                rgn.setResources(mapCurUsageToResources(
+                        usageBySvcRegion.get(service + "\u0000" + region)));
+
+                svc.getRegionCosts().add(rgn);
+                svc.setCost(svc.getCost() + cost);
+                svc.setTotalCost(svc.getTotalCost() + cost);
+            }
+
+            // Round the per-service sums. Adding two already-stored costs
+            // (100.50 + 46.08) yields 146.57999999999998 in binary floating point,
+            // and a figure presented as reconciled against an AWS invoice should not
+            // carry that into the response. Six places matches the rounding applied
+            // when the aggregate was written.
+            byService.values().forEach(svc -> {
+                svc.setCost(roundCost(svc.getCost()));
+                svc.setTotalCost(roundCost(svc.getTotalCost()));
+            });
+
+            return byService.values().stream()
+                    .sorted(Comparator.comparing(ServiceCostDetailDto::getTotalCost).reversed())
+                    .collect(Collectors.toList());
+
+        } catch (Exception e) {
+            logger.warn("Failed to build CUR detailed report for {} {}/{}: {}", accountId, year, month, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /** Turns CUR usage-type rows into the resource shape the UI already renders. */
+    private List<ResourceCostDto> mapCurUsageToResources(
+            List<com.xammer.billops.dto.cur.CurAggregates.SvcUsageEntry> entries) {
+        if (entries == null || entries.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return entries.stream()
+                .filter(u -> u.getCost() != 0.0)
+                .map(u -> {
+                    String usageType = nullSafe(u.getUsageType());
+                    ResourceCostDto dto = new ResourceCostDto(
+                            usageType,
+                            formatUsageType(usageType),
+                            u.getQuantity(),
+                            u.getCost(),
+                            usageType);
+                    dto.setQuantity(u.getQuantity());
+                    dto.setUnit(nullSafe(u.getUnit()));
+                    return dto;
+                })
+                .sorted(Comparator.comparing(ResourceCostDto::getCost).reversed())
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Service-level breakdown from CUR, for the billing summary card.
+     * Empty when CUR is unavailable, meaning "use Cost Explorer".
+     */
+    private List<BillingDashboardDto.ServiceBreakdown> getCurServiceBreakdown(
+            String accountId, Integer year, Integer month) {
+        if (!useCur(accountId, year, month)) {
+            return Collections.emptyList();
+        }
+        try {
+            YearMonth ym = YearMonth.of(year, month);
+            List<com.xammer.billops.dto.cur.CurAggregates.SvcRegionEntry> svcRegion =
+                    curIngestionService.readSvcRegion(accountId, ym).orElse(Collections.emptyList());
+            if (svcRegion.isEmpty()) {
+                return Collections.emptyList();
+            }
+            Map<String, Double> byService = new HashMap<>();
+            for (com.xammer.billops.dto.cur.CurAggregates.SvcRegionEntry e : svcRegion) {
+                byService.merge(nullSafe(e.getService()), e.getCost(), Double::sum);
+            }
+            return byService.entrySet().stream()
+                    .filter(e -> e.getValue() != 0.0)
+                    .map(e -> new BillingDashboardDto.ServiceBreakdown(e.getKey(), roundCost(e.getValue())))
+                    .sorted(Comparator.comparing(BillingDashboardDto.ServiceBreakdown::getCost).reversed())
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            logger.warn("Failed to build CUR service breakdown for {} {}/{}: {}",
+                    accountId, year, month, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private static String nullSafe(String s) {
+        return s == null ? "" : s;
+    }
+
+    /**
+     * Rounds a re-aggregated cost to six decimal places, matching the rounding
+     * CurIngestionService applies when writing the aggregate. Keeps binary
+     * floating-point noise out of invoice figures without losing sub-cent precision.
+     */
+    private static double roundCost(double v) {
+        return Math.round(v * 1_000_000d) / 1_000_000d;
     }
 
     private double toDoubleSafe(Object o) {
@@ -351,27 +554,74 @@ public class BillingService {
 
     private BillingDashboardDto fetchAwsBillingSummary(CloudAccount account, Integer year, Integer month, boolean forceRefresh) {
         BillingDashboardDto dto = new BillingDashboardDto();
+        String accountId = account.getAwsAccountId();
 
-        // Fetch Cost History
+        // Fetch Cost History (Cost Explorer / CE snapshots)
         List<Map<String, Object>> costHistoryRaw = costService.getCostHistory(account, year, month, forceRefresh);
         List<BillingDashboardDto.CostHistory> costHistory = costHistoryRaw.stream()
                 .map(item -> new BillingDashboardDto.CostHistory(
                         (String) item.get("date"),
                         ((Number) Optional.ofNullable(item.get("cost")).orElse(0.0)).doubleValue()))
                 .collect(Collectors.toList());
+
+        // Overlay reconciled CUR totals onto any month in the history that has them.
+        // The history spans six months, so it is normally a mix: closed months come
+        // from CUR, the current month stays on Cost Explorer. Overlaying per-month
+        // rather than replacing wholesale is what lets the chart be as accurate as
+        // the available data allows instead of all-or-nothing.
+        boolean anyCurInHistory = overlayCurHistory(accountId, costHistory);
         dto.setCostHistory(costHistory);
 
-        // Fetch Service Breakdown
-        List<Map<String, Object>> serviceBreakdownRaw = costService.getCostByDimension(account, "SERVICE", year,
-                month, forceRefresh);
-        List<BillingDashboardDto.ServiceBreakdown> serviceBreakdown = serviceBreakdownRaw.stream()
-                .map(item -> new BillingDashboardDto.ServiceBreakdown(
-                        (String) item.get("name"),
-                        ((Number) Optional.ofNullable(item.get("cost")).orElse(0.0)).doubleValue()))
-                .collect(Collectors.toList());
-        dto.setServiceBreakdown(serviceBreakdown);
+        // Service Breakdown — prefer CUR for a closed month, else Cost Explorer.
+        List<BillingDashboardDto.ServiceBreakdown> curBreakdown =
+                getCurServiceBreakdown(accountId, year, month);
+
+        if (!curBreakdown.isEmpty()) {
+            dto.setServiceBreakdown(curBreakdown);
+            dto.setDataSource(anyCurInHistory ? SRC_CUR : SRC_MIXED);
+            logger.info("✅ Billing summary for {} {}/{} served from reconciled CUR ({} services)",
+                    accountId, year, month, curBreakdown.size());
+        } else {
+            List<Map<String, Object>> serviceBreakdownRaw = costService.getCostByDimension(account, "SERVICE", year,
+                    month, forceRefresh);
+            List<BillingDashboardDto.ServiceBreakdown> serviceBreakdown = serviceBreakdownRaw.stream()
+                    .map(item -> new BillingDashboardDto.ServiceBreakdown(
+                            (String) item.get("name"),
+                            ((Number) Optional.ofNullable(item.get("cost")).orElse(0.0)).doubleValue()))
+                    .collect(Collectors.toList());
+            dto.setServiceBreakdown(serviceBreakdown);
+            dto.setDataSource(anyCurInHistory ? SRC_MIXED : SRC_CE);
+        }
 
         return dto;
+    }
+
+    /**
+     * Replaces cost-history points with reconciled CUR totals where they exist.
+     * Returns true if at least one point was replaced.
+     */
+    private boolean overlayCurHistory(String accountId, List<BillingDashboardDto.CostHistory> history) {
+        if (accountId == null || history == null || history.isEmpty()) {
+            return false;
+        }
+        boolean replaced = false;
+        for (BillingDashboardDto.CostHistory point : history) {
+            String date = point.getDate();
+            if (date == null || date.length() < 7) continue;
+            try {
+                YearMonth ym = YearMonth.parse(date.substring(0, 7));
+                if (!ym.isBefore(YearMonth.now())) continue; // open month stays on CE
+                if (!curIngestionService.hasCurData(accountId, ym)) continue;
+                Optional<Double> curTotal = curIngestionService.readTotal(accountId, ym);
+                if (curTotal.isPresent()) {
+                    point.setCost(curTotal.get());
+                    replaced = true;
+                }
+            } catch (Exception e) {
+                logger.debug("CUR history overlay skipped for {} {}: {}", accountId, date, e.getMessage());
+            }
+        }
+        return replaced;
     }
 
     /**
@@ -551,6 +801,19 @@ public class BillingService {
 
     private List<ServiceCostDetailDto> fetchSingleAccountDetails(CloudAccount account, Integer year, Integer month, boolean forceRefresh) {
         List<ServiceCostDetailDto> accountDetails = new ArrayList<>();
+
+        // Reconciled CUR first for closed months. Besides being the invoice-accurate
+        // figure, this replaces a fan-out of Cost Explorer calls — the CE path below
+        // issues one call per service and another per service/region pair, each
+        // billable — with a single read of one pre-aggregated row.
+        List<ServiceCostDetailDto> curDetails =
+                getCurDetailedReport(account.getAwsAccountId(), year, month);
+        if (!curDetails.isEmpty()) {
+            logger.info("✅ Detailed breakdown for {} {}/{} served from reconciled CUR ({} services)",
+                    account.getAwsAccountId(), year, month, curDetails.size());
+            return curDetails;
+        }
+
         try {
             List<Map<String, Object>> services = costService.getCostByDimension(account, "SERVICE", year, month, forceRefresh);
 
@@ -589,7 +852,9 @@ public class BillingService {
                 }
 
                 if (!regionsDto.isEmpty()) {
-                    accountDetails.add(new ServiceCostDetailDto(serviceName, totalServiceCost, regionsDto));
+                    ServiceCostDetailDto svcDto = new ServiceCostDetailDto(serviceName, totalServiceCost, regionsDto);
+                    svcDto.setDataSource(SRC_CE);
+                    accountDetails.add(svcDto);
                 }
             }
         } catch (Exception e) {
@@ -625,7 +890,25 @@ public class BillingService {
                 .sorted(Comparator.comparing(BillingDashboardDto.ServiceBreakdown::getCost).reversed())
                 .collect(Collectors.toList()));
 
+        merged.setDataSource(mergeDataSource(d1.getDataSource(), d2.getDataSource()));
+
         return merged;
+    }
+
+    /**
+     * Combines the provenance labels of two aggregated dashboards.
+     *
+     * A multi-account request can span accounts where some have CUR configured and
+     * some do not, so the aggregate is only honestly labelled "CUR" when every
+     * contributor was. Anything else degrades to MIXED (or stays CE), because
+     * presenting a partly-estimated total as reconciled is the one outcome that
+     * would actively mislead.
+     */
+    private String mergeDataSource(String a, String b) {
+        if (a == null) return b;
+        if (b == null) return a;
+        if (a.equals(b)) return a;
+        return SRC_MIXED;
     }
 
     private ServiceCostDetailDto mergeServiceDetails(List<ServiceCostDetailDto> dtos) {
@@ -638,10 +921,15 @@ public class BillingService {
         double totalCost = dtos.stream().mapToDouble(ServiceCostDetailDto::getTotalCost).sum();
 
         List<RegionCostDto> allRegions = dtos.stream()
+                .filter(d -> d.getRegionCosts() != null)
                 .flatMap(d -> d.getRegionCosts().stream())
                 .collect(Collectors.toList());
 
-        return new ServiceCostDetailDto(first.getServiceName(), totalCost, allRegions);
+        ServiceCostDetailDto merged = new ServiceCostDetailDto(first.getServiceName(), totalCost, allRegions);
+        merged.setDataSource(dtos.stream()
+                .map(ServiceCostDetailDto::getDataSource)
+                .reduce(null, this::mergeDataSource));
+        return merged;
     }
 
     private List<ResourceCostDto> mapResourcesToDto(List<Map<String, Object>> resources) {

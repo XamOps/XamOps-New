@@ -46,8 +46,14 @@ public class AwsClientProvider {
         logger.info("✅ AwsClientProvider initialized with permission tracking");
     }
 
-    @SuppressWarnings("unchecked")
-    private <T> T getClient(CloudAccount account, String region, Class<T> clientClass) {
+    /**
+     * Assumes the customer's onboarding role and returns a credentials provider for it.
+     *
+     * Extracted so the CUR reader can build a region-pinned S3 client (see
+     * {@link #getS3Client(CloudAccount, String)}) without duplicating the
+     * assume-role and failure-recording behaviour below.
+     */
+    private StaticCredentialsProvider assumeRoleCredentials(CloudAccount account) {
         StsClient stsClient = StsClient.builder().region(Region.of("us-east-1")).build();
 
         AssumeRoleRequest assumeRoleRequest = AssumeRoleRequest.builder()
@@ -69,11 +75,16 @@ public class AwsClientProvider {
         }
         Credentials credentials = assumeRoleResponse.credentials();
 
-        StaticCredentialsProvider credentialsProvider = StaticCredentialsProvider.create(
+        return StaticCredentialsProvider.create(
                 AwsSessionCredentials.create(
                         credentials.accessKeyId(),
                         credentials.secretAccessKey(),
                         credentials.sessionToken()));
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T> T getClient(CloudAccount account, String region, Class<T> clientClass) {
+        StaticCredentialsProvider credentialsProvider = assumeRoleCredentials(account);
 
         if (clientClass.equals(CostExplorerClient.class)) {
             return (T) CostExplorerClient.builder().region(Region.of(region)).credentialsProvider(credentialsProvider)
@@ -158,6 +169,24 @@ public class AwsClientProvider {
 
     public S3Client getS3Client(CloudAccount account) {
         return getClient(account, "us-east-1", S3Client.class);
+    }
+
+    /**
+     * S3 client pinned to an explicit region.
+     *
+     * The no-region {@link #getS3Client(CloudAccount)} above is left exactly as it
+     * was — MediaOps and the legacy invoice path depend on its current behaviour —
+     * but CUR reads need the bucket's own region: a cross-region GetObject against
+     * a region-pinned client fails with a 301 redirect the SDK will not follow, and
+     * the CUR bucket lives wherever the customer deployed their onboarding stack.
+     */
+    public S3Client getS3Client(CloudAccount account, String region) {
+        String resolved = (region == null || region.isBlank()) ? "us-east-1" : region;
+        return S3Client.builder()
+                .region(Region.of(resolved))
+                .credentialsProvider(assumeRoleCredentials(account))
+                .overrideConfiguration(trackingConfig(account, "S3Client", resolved))
+                .build();
     }
 
     public LightsailClient getLightsailClient(CloudAccount account, String region) {

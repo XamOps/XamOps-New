@@ -21,6 +21,10 @@ Metadata:
           default: "Cost and Usage Report (Optional)"
         Parameters:
           - CurS3Bucket
+      - Label:
+          default: "Billing (CUR 2.0 Export)"
+        Parameters:
+          - EnableCurExport
     ParameterLabels:
       XamOpsAccountId:
         default: "XamOps AWS Account ID"
@@ -32,6 +36,8 @@ Metadata:
         default: "EKS Cluster Names (Optional)"
       CurS3Bucket:
         default: "CUR S3 Bucket Name (leave blank if under a XamOps payer account)"
+      EnableCurExport:
+        default: "Enable BillOps CUR Export"
 
 Parameters:
   XamOpsAccountId:
@@ -124,6 +130,37 @@ Parameters:
       Leave blank if this account is under a XamOps payer account, or if you have no CUR.
       Use AUTO if you are also deploying the XamOps cost reporting stack, which creates
       xamops-cur-<this account id>.
+  # CUR 2.0 Data Export (billing reconciliation for BillOps invoicing)
+  #
+  # On by default, same reasoning as EnableInventoryEvents: an opt-in flag
+  # buried in a stack parameter is one almost nobody would ever turn on, and
+  # without it BillOps invoices stay reconciled from Cost Explorer instead of
+  # AWS's own billing source. Cost to this account is a few cents a month
+  # (S3 storage + requests only — Data Exports itself has no AWS charge) and
+  # is purged automatically after 90 days.
+  #
+  # Only produces org-wide consolidated data when deployed into a management
+  # (payer) account — a linked/member account's export contains only that
+  # account's own data. Harmless either way (BillOps falls back to Cost
+  # Explorer wherever a CUR export isn't present), so left on by default
+  # rather than requiring the customer to know their account's role in an
+  # Organization before answering this.
+  # -------------------------------------------------------------------
+  EnableCurExport:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Set up an AWS Cost and Usage Report (CUR 2.0) export to a dedicated S3
+      bucket in this account, so BillOps can reconcile invoices from AWS's
+      billing source of truth instead of Cost Explorer's aggregated totals.
+      Creates one S3 bucket and one Data Export. Cost is typically a few
+      cents a month.
+
+  XamOpsCurExportTemplateUrl:
+    Type: String
+    Description: S3 URL of the nested CUR export template.
+    Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-cur-export-nested.yaml'
 
 Conditions:
   # Guards the nested stack. With inventory events off, nothing below is created
@@ -141,6 +178,9 @@ Conditions:
   # id when it builds this launch URL. An IAM policy may name a bucket that does not exist
   # yet — it grants nothing until it does — so the two stacks can be launched in any order.
   AutoCurBucket: !Equals [!Ref CurS3Bucket, 'AUTO']
+  # Guards the CUR export nested stack. With this off, BillOps simply keeps
+  # reconciling this account's invoices from Cost Explorer.
+  DeployCurExport: !Equals [!Ref EnableCurExport, 'true']
 
 Resources:
   # =================================================================
@@ -419,6 +459,24 @@ Resources:
                     - !Sub 'arn:aws:s3:::${CurS3Bucket}/xamops-athena-results/*'
                 - !Ref 'AWS::NoValue'
 
+              # BillOps CUR read access
+              #
+              # Scoped to the dedicated xamops-cur-{accountId} bucket created by
+              # the nested XamOpsCurExport stack — not a wildcard — so this role
+              # never gains read access to any bucket the customer owns for their
+              # own purposes. Granted unconditionally: harmless when the CUR
+              # export is disabled or the bucket doesn't exist (the role simply
+              # never has anything to read there), and avoids a second stack
+              # update if the customer later turns the export back on.
+              # ------------------------------------------------------------------
+              - Sid: 'XamOpsCurReadAccess'
+                Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:ListBucket'
+                Resource:
+                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}'
+                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/*'
 
   # =================================================================
   # 2. IAM Role for the Automation Lambda Function
@@ -718,6 +776,23 @@ Resources:
         XamOpsRegion: !Ref XamOpsInventoryRegion
         IncludeSecurityFindings: !Ref IncludeSecurityFindings
 
+  # =================================================================
+  # 9. CUR 2.0 Data Export (nested)
+  #
+  # Nested for the same reason as inventory events: keeps the S3 bucket,
+  # bucket policy, and BCMDataExports::Export resources out of the base
+  # read-only role definition so they can be reused/updated independently
+  # and skipped entirely when disabled.
+  # =================================================================
+  XamOpsCurExport:
+    Type: AWS::CloudFormation::Stack
+    Condition: DeployCurExport
+    Properties:
+      TemplateURL: !Ref XamOpsCurExportTemplateUrl
+      TimeoutInMinutes: 15
+      Parameters:
+        XamOpsAccountId: !Ref XamOpsAccountId
+
 Outputs:
   XamOpsRoleArn:
     Description: The ARN of the IAM role created for the XamOps platform.
@@ -746,3 +821,25 @@ Outputs:
       - DeployInventoryEvents
       - !GetAtt XamOpsInventoryEvents.Outputs.RegionCount
       - '0'
+
+  CurExportEnabled:
+    Description: Whether a CUR 2.0 Data Export was configured for BillOps.
+    Value: !Ref EnableCurExport
+
+  CurBucketName:
+    Description: >
+      S3 bucket receiving CUR 2.0 exports. Feed this into CloudAccount.curS3Bucket
+      during account verification so BillOps can locate the export.
+    Value: !If
+      - DeployCurExport
+      - !GetAtt XamOpsCurExport.Outputs.CurBucketName
+      - 'disabled — BillOps will use Cost Explorer instead'
+
+  CurReportPrefix:
+    Description: >
+      S3 key prefix under which CUR 2.0 files are delivered. Feed this into
+      CloudAccount.curReportPath during account verification.
+    Value: !If
+      - DeployCurExport
+      - !GetAtt XamOpsCurExport.Outputs.CurReportPrefix
+      - 'disabled'

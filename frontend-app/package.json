@@ -103,6 +103,7 @@
     "tailwind-merge": "^3.5.0"
   },
   "overrides": {
-    "d3-color": "^3.1.0"
+    "d3-color": "^3.1.0",
+    "websocket-driver": "^0.7.5"
   }
 }
