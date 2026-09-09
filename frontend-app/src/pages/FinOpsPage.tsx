@@ -211,7 +211,7 @@ export const FinOpsPage: React.FC = () => {
               ))}
             </div>
           ) : reportData && (
-            <FinOpsKPISection kpis={reportData.kpis} />
+            <FinOpsKPISection kpis={reportData.kpis} curAccountId={curAccountId} />
           )}
 
           {/* Charts Grid — shows when cost-history + cost-by-region resolve */}

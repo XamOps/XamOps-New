@@ -184,6 +184,137 @@ public class CurAdvancedMetricsService {
         return byService;
     }
 
+    // ── Charges by service, invoice style ───────────────────────────────────────
+
+    /**
+     * Line items as the AWS bill presents them: description, usage quantity, and amount.
+     *
+     * <p>Reproduces the "Charges by service" section of the AWS invoice, which Cost
+     * Explorer cannot: CE reports dollars, and the usage quantity it exposes cannot be
+     * lined up against the same rows. Here quantity and cost sit on every line already.
+     *
+     * <p>Rows are grouped by service, description and unit rather than by service alone,
+     * because that is the granularity a bill is read at — "EBS gp3 storage, 1,024 GB-Mo,
+     * $81.92" answers a question that "EBS, $340" does not.
+     *
+     * <p>Usable on the CURRENT month, unlike the period comparisons: it describes what has
+     * been billed so far rather than comparing two spans of different length.
+     */
+    public List<ServiceCharge> getChargesByService(CurSource source, CloudAccount account,
+                                                   LocalDate start, LocalDate end) {
+        String cost = CurSql.numericExpr(source, "line_item_unblended_cost");
+        String qty = CurSql.numericExpr(source, "line_item_usage_amount");
+
+        String sql = "SELECT product_product_name AS service,"
+                + " product_region AS region,"
+                + " line_item_line_item_description AS description,"
+                + " line_item_usage_type AS usage_type,"
+                + " pricing_unit AS unit,"
+                + " SUM(" + qty + ") AS quantity,"
+                + " SUM(" + cost + ") AS cost"
+                + " FROM " + source.qualifiedTable()
+                + " WHERE " + accountPredicate(account)
+                + " AND " + CurSql.partitionPredicate(source, start, end)
+                + " AND " + CurSql.usageDatePredicate(source, start, end)
+                + " GROUP BY product_product_name, product_region,"
+                + " line_item_line_item_description, line_item_usage_type, pricing_unit"
+                // A bill lists what was charged, so rows that net to nothing are dropped —
+                // but credits and refunds are negative and must survive the filter.
+                + " HAVING ABS(SUM(" + cost + ")) > 0.001"
+                + " ORDER BY cost DESC";
+
+        List<ServiceCharge> charges = new ArrayList<>();
+        for (Map<String, String> row : athena.query(source, account, sql)) {
+            charges.add(new ServiceCharge(
+                    blankTo(row.get("service"), "Other"),
+                    // Region-less charges — tax, support, some Marketplace items — are what
+                    // the AWS invoice files under "Global", so the same label is used here.
+                    blankTo(row.get("region"), "Global"),
+                    // Description is blank on some line types (tax, certain fees); the usage
+                    // type is the next most specific thing a reader can act on.
+                    blankTo(row.get("description"), blankTo(row.get("usage_type"), "—")),
+                    blankTo(row.get("usage_type"), ""),
+                    blankTo(row.get("unit"), ""),
+                    parse(row.get("quantity")),
+                    parse(row.get("cost"))));
+        }
+
+        logger.info("✅ [CUR] Charges by service — {} rows for account {} ({} to {})",
+                charges.size(), account.getAwsAccountId(), start, end);
+        return charges;
+    }
+
+    // ── Data transfer and network costs ─────────────────────────────────────────
+
+    /**
+     * Network spend, split into the categories that actually drive it.
+     *
+     * <p>Routinely the largest cost nobody can see: a service breakdown files NAT gateway
+     * charges under EC2 and cross-AZ traffic under whichever service moved the bytes, so
+     * the total never appears anywhere as a single number.
+     *
+     * <p>NAT Gateway deliberately includes its HOURLY fee alongside data processing. The
+     * two are billed separately and the hourly one is the smaller — on this account
+     * $40.32 in hours against $172.16 processed — so reporting only the hours (as a
+     * service breakdown does) understates a NAT gateway roughly five-fold. The category is
+     * "what this gateway costs", not "bytes moved".
+     */
+    public List<TransferCharge> getDataTransferCosts(CurSource source, CloudAccount account,
+                                                     LocalDate start, LocalDate end) {
+        String cost = CurSql.numericExpr(source, "line_item_unblended_cost");
+        String qty = CurSql.numericExpr(source, "line_item_usage_amount");
+
+        // Ordered: the first match wins, so the more specific patterns come first. A NAT
+        // gateway's bytes also match the generic transfer patterns below it.
+        String category =
+                "CASE"
+                + " WHEN line_item_usage_type LIKE '%NatGateway%' THEN 'NAT Gateway'"
+                + " WHEN line_item_usage_type LIKE '%Regional-Bytes%'"
+                + "   OR line_item_usage_type LIKE '%-AZ-%' THEN 'Cross-AZ'"
+                + " WHEN line_item_usage_type LIKE '%AWS-Out%'"
+                + "   OR line_item_usage_type LIKE '%AWS-In%' THEN 'Inter-region'"
+                + " WHEN line_item_usage_type LIKE '%DataTransfer-Out%'"
+                + "   OR line_item_usage_type LIKE '%-Out-Bytes%' THEN 'Internet egress'"
+                + " WHEN line_item_usage_type LIKE '%DataTransfer-In%'"
+                + "   OR line_item_usage_type LIKE '%-In-Bytes%' THEN 'Internet ingress'"
+                + " ELSE 'Other network' END";
+
+        String sql = "SELECT " + category + " AS category,"
+                + " product_product_name AS service,"
+                + " line_item_usage_type AS usage_type,"
+                + " pricing_unit AS unit,"
+                + " SUM(" + qty + ") AS quantity,"
+                + " SUM(" + cost + ") AS cost"
+                + " FROM " + source.qualifiedTable()
+                + " WHERE " + accountPredicate(account)
+                + " AND " + CurSql.partitionPredicate(source, start, end)
+                + " AND " + CurSql.usageDatePredicate(source, start, end)
+                + " AND (line_item_usage_type LIKE '%DataTransfer%'"
+                + "   OR line_item_usage_type LIKE '%NatGateway%'"
+                + "   OR line_item_usage_type LIKE '%Bytes%')"
+                + " GROUP BY " + category + ", product_product_name,"
+                + " line_item_usage_type, pricing_unit"
+                // Ingress is almost always free; a long tail of $0.00 rows would bury the
+                // handful that cost real money.
+                + " HAVING SUM(" + cost + ") > 0.001"
+                + " ORDER BY cost DESC";
+
+        List<TransferCharge> charges = new ArrayList<>();
+        for (Map<String, String> row : athena.query(source, account, sql)) {
+            charges.add(new TransferCharge(
+                    blankTo(row.get("category"), "Other network"),
+                    blankTo(row.get("service"), "Other"),
+                    blankTo(row.get("usage_type"), ""),
+                    blankTo(row.get("unit"), ""),
+                    parse(row.get("quantity")),
+                    parse(row.get("cost"))));
+        }
+
+        logger.info("✅ [CUR] Data transfer — {} rows for account {} ({} to {})",
+                charges.size(), account.getAwsAccountId(), start, end);
+        return charges;
+    }
+
     // ── Charge type breakdown ───────────────────────────────────────────────────
 
     /**
@@ -303,6 +434,10 @@ public class CurAdvancedMetricsService {
         return "line_item_usage_account_id = '" + accountId + "'";
     }
 
+    private String blankTo(String value, String fallback) {
+        return (value == null || value.isBlank()) ? fallback : value;
+    }
+
     private double parse(String raw) {
         if (raw == null || raw.isBlank()) {
             return 0.0;
@@ -325,6 +460,16 @@ public class CurAdvancedMetricsService {
     public record PriceVolumeChange(String service, double priorCost, double currentCost,
                                     double costChange, double priorQuantity, double currentQuantity,
                                     double priceEffect, double volumeEffect) {
+    }
+
+    /** One billed line as the invoice shows it. */
+    public record ServiceCharge(String service, String region, String description,
+                                String usageType, String unit, double quantity, double cost) {
+    }
+
+    /** One network charge, categorised by what drives it. */
+    public record TransferCharge(String category, String service, String usageType,
+                                 String unit, double quantity, double cost) {
     }
 
     /** Spend attributable to one line item type. */

@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { apiFetch, setCostSourceMode } from '../../utils/apiClient';
+import { invalidateCurInsights } from '../../hooks/useCurInsight';
 
 /**
  * Reloads this month's costs from the Cost and Usage Report only, with no Cost
@@ -73,6 +74,11 @@ export const RefreshFromCurButton: React.FC<RefreshFromCurButtonProps> = ({
       // as Cost Explorer — without it the reload overwrote what was just written and the
       // button silently undid its own work.
       setCostSourceMode('CUR');
+      // The insight sections cache for 30 minutes, which is right for page navigation and
+      // wrong here: this refresh rewrote the figures they read, so without dropping the
+      // cache they would keep showing pre-refresh numbers on a page that just said it
+      // reloaded.
+      invalidateCurInsights();
       await onRefreshed();
     } catch (e) {
       window.alert(`Could not read the Cost and Usage Report\n\n${(e as Error).message}`);

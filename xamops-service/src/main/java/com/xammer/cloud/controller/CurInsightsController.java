@@ -51,6 +51,33 @@ public class CurInsightsController {
                 metricsService.getEffectiveSavingsRate(source, account, start, end));
     }
 
+    /**
+     * Charges by service, as the AWS bill lists them: description, usage quantity, amount.
+     *
+     * <p>Defaults to the current month. Unlike the period comparisons this is meaningful
+     * mid-month — it describes what has been billed so far rather than comparing two spans
+     * of different length.
+     */
+    @GetMapping("/charges-by-service/{accountId}")
+    public ResponseEntity<?> chargesByService(@PathVariable String accountId,
+                                              @RequestParam(required = false) String period) {
+        return withSource(accountId, period, (source, account, start, end) ->
+                metricsService.getChargesByService(source, account, start, end));
+    }
+
+    /**
+     * Data transfer and network costs, grouped by what drives them.
+     *
+     * <p>Defaults to the current month — a breakdown of what has been billed, so it is
+     * meaningful mid-month.
+     */
+    @GetMapping("/data-transfer/{accountId}")
+    public ResponseEntity<?> dataTransfer(@PathVariable String accountId,
+                                          @RequestParam(required = false) String period) {
+        return withSource(accountId, period, (source, account, start, end) ->
+                metricsService.getDataTransferCosts(source, account, start, end));
+    }
+
     /** Charge type split — usage vs tax vs credits vs refunds vs fees. */
     @GetMapping("/charge-types/{accountId}")
     public ResponseEntity<?> chargeTypes(@PathVariable String accountId,
@@ -148,9 +175,22 @@ public class CurInsightsController {
         }
     }
 
-    /** The current month ends today, not on its last day — later days have no data yet. */
+    /**
+     * The full month, including the current one — deliberately not capped at today.
+     *
+     * <p>Capping looks right ("later days have no data yet") and is wrong. Not every line
+     * item is dated on the day the charge is incurred: reservation and Savings Plan fees,
+     * support and subscriptions carry usage dates spanning the whole billing period from
+     * the day it opens, and they are already on the bill.
+     *
+     * <p>Measured on a live report for September: capping at today gave $1,107 against
+     * $2,367 for the same account and month — the $1,260 difference being period-spanning
+     * rows, not charges that had yet to happen. It also made this endpoint disagree with
+     * the cost pages, which reach the same figure through
+     * {@code CostService.normalizeEndDate} stretching to end-of-month.
+     */
     private LocalDate endOf(YearMonth month) {
-        return month.equals(YearMonth.now()) ? LocalDate.now() : month.atEndOfMonth();
+        return month.atEndOfMonth();
     }
 
     private ResponseEntity<Map<String, String>> noCurSource(String accountId) {

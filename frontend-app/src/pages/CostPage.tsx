@@ -29,6 +29,9 @@ import type { LabelCostResponse } from '../services/resourceLabelsApi';
 import CostHeader from '../components/Cost/CostHeader';
 import CostKPICards from '../components/Cost/CostKPICards';
 import CostBreakdownSection from '../components/Cost/CostBreakdownSection';
+import PriceVsVolumeSection from '../components/Cost/PriceVsVolumeSection';
+import ChargesByServiceSection from '../components/Cost/ChargesByServiceSection';
+import DataTransferSection from '../components/Cost/DataTransferSection';
 import HistoricalTrendChart from '../components/Cost/HistoricalTrendChart';
 import CostForecastChart from '../components/Cost/CostForecastChart';
 import CostBudgetDashboard from '../components/Cost/CostBudgetDashboard';
@@ -355,6 +358,26 @@ const CostPage: React.FC = () => {
                   onDeleteBudget={handleDeleteBudget}
                 />
               )}
+            </RevealSection>
+
+            {/* Charges by service, invoice style. Above "why did it change" because the
+                first question is what was billed; the comparison explains it afterwards. */}
+            <RevealSection>
+              <ChargesByServiceSection accountId={curAccountId} />
+            </RevealSection>
+
+            {/* Network costs, directly under the invoice. They are scattered across every
+                service in the table above — NAT gateway under EC2, cross-AZ under whatever
+                moved the bytes — so this is the only place the total is visible. */}
+            <RevealSection>
+              <DataTransferSection accountId={curAccountId} />
+            </RevealSection>
+
+            {/* Why spend changed — sits directly above the breakdown, because that is where
+                someone lands after noticing a number moved. Renders nothing when the
+                account has no Cost and Usage Report. */}
+            <RevealSection>
+              <PriceVsVolumeSection accountId={curAccountId} />
             </RevealSection>
 
             {/* Cost Breakdown Section */}
