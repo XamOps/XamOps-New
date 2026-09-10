@@ -12,6 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -26,6 +27,9 @@ class CurAdvancedMetricsServiceTest {
     @Mock
     private CurAthenaQueryService athena;
 
+    @Mock
+    private CurTagColumns tagColumns;
+
     private CurAdvancedMetricsService service;
     private CurSource source;
     private CloudAccount account;
@@ -35,7 +39,7 @@ class CurAdvancedMetricsServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CurAdvancedMetricsService(athena);
+        service = new CurAdvancedMetricsService(athena, tagColumns);
 
         source = new CurSource();
         source.setId(1L);
@@ -153,6 +157,54 @@ class CurAdvancedMetricsServiceTest {
                 service.getUnusedCommitment(source, account, start, end);
 
         assertEquals(200.0, unused.total(), 0.0001);
+    }
+
+    @Test
+    @DisplayName("Top resources carries the Name tag when the report has it")
+    void topResourcesReadsTheNameTag() {
+        when(tagColumns.resourceNameExpr(any(), any()))
+                .thenReturn(Optional.of("resource_tags_user_name"));
+        when(athena.query(any(), any(), contains("MAX(resource_tags_user_name) AS resource_name")))
+                .thenReturn(List.of(Map.of(
+                        "resource_id", "i-089ccf1b5a839880a",
+                        "resource_name", "prod-api-01",
+                        "service", "Amazon Elastic Compute Cloud",
+                        "region", "ap-south-1",
+                        "instance_type", "m7i.xlarge",
+                        "cost", "32.03",
+                        "total_cost", "2367.27",
+                        "group_count", "431")));
+
+        CurAdvancedMetricsService.TopResources top =
+                service.getTopResources(source, account, start, end);
+
+        assertEquals("prod-api-01", top.resources().get(0).name());
+        assertEquals(431L, top.groupCount());
+    }
+
+    @Test
+    @DisplayName("A report without the tag activated still returns resources, just unnamed")
+    void topResourcesOmitsTheNameColumnWhenAbsent() {
+        when(tagColumns.resourceNameExpr(any(), any())).thenReturn(Optional.empty());
+        // Selecting a column the table does not have fails the whole query in Athena, so
+        // the absent case must leave it out of the SQL entirely rather than select null.
+        when(athena.query(any(), any(), anyString())).thenAnswer(invocation -> {
+            assertTrue(!invocation.getArgument(2, String.class).contains("resource_name"),
+                    "no name column should be referenced when the report has none");
+            return List.of(Map.of(
+                    "resource_id", "i-089ccf1b5a839880a",
+                    "service", "Amazon Elastic Compute Cloud",
+                    "region", "ap-south-1",
+                    "cost", "32.03",
+                    "total_cost", "2367.27",
+                    "group_count", "431"));
+        });
+
+        CurAdvancedMetricsService.TopResources top =
+                service.getTopResources(source, account, start, end);
+
+        assertEquals("", top.resources().get(0).name());
+        assertEquals("i-089ccf1b5a839880a", top.resources().get(0).resourceId());
     }
 
     @Test

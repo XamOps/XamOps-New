@@ -38,9 +38,11 @@ public class CurAdvancedMetricsService {
     private static final int MAX_RESOURCES = 500;
 
     private final CurAthenaQueryService athena;
+    private final CurTagColumns tagColumns;
 
-    public CurAdvancedMetricsService(CurAthenaQueryService athena) {
+    public CurAdvancedMetricsService(CurAthenaQueryService athena, CurTagColumns tagColumns) {
         this.athena = athena;
+        this.tagColumns = tagColumns;
     }
 
     // ── Effective savings rate ──────────────────────────────────────────────────
@@ -273,13 +275,21 @@ public class CurAdvancedMetricsService {
         String cost = CurSql.numericExpr(source, "line_item_unblended_cost");
         String resourceId = "COALESCE(NULLIF(line_item_resource_id, ''), '')";
 
+        // Absent unless the Name tag reaches this report — see CurTagColumns. MAX because
+        // the name has to survive the grouping; a resource renamed mid-month has two, and
+        // either is a better label than its id.
+        String nameExpr = tagColumns.resourceNameExpr(source, account).orElse(null);
+        String nameInner = nameExpr == null ? "" : " MAX(" + nameExpr + ") AS resource_name,";
+        String nameOuter = nameExpr == null ? "" : " resource_name,";
+
         // The window functions run after grouping and before the limit, so they describe
         // every resource in the month rather than the page being returned. That is what
         // lets the caller say "top 50 of 431, $2,367 in total" honestly — computing the
         // total from the returned rows alone would silently understate it by the tail.
-        String sql = "SELECT resource_id, service, region, instance_type, cost,"
+        String sql = "SELECT resource_id," + nameOuter + " service, region, instance_type, cost,"
                 + " total_cost, group_count FROM ("
                 + "SELECT " + resourceId + " AS resource_id,"
+                + nameInner
                 + " product_product_name AS service,"
                 + " product_region AS region,"
                 + " MAX(product_instance_type) AS instance_type,"
@@ -299,6 +309,7 @@ public class CurAdvancedMetricsService {
         for (Map<String, String> row : athena.query(source, account, sql)) {
             resources.add(new ResourceCost(
                     blankTo(row.get("resource_id"), ""),
+                    blankTo(row.get("resource_name"), ""),
                     blankTo(row.get("service"), "Other"),
                     blankTo(row.get("region"), "Global"),
                     blankTo(row.get("instance_type"), ""),
@@ -541,8 +552,13 @@ public class CurAdvancedMetricsService {
      *
      * <p>An empty {@code resourceId} marks a charge that belongs to no resource — tax,
      * support, subscriptions — which the caller groups separately rather than hiding.
+     *
+     * @param name the resource's {@code Name} tag, or empty when the report does not carry
+     *             it. Empty is the normal case for an account that never activated the tag
+     *             for cost allocation, so callers fall back to the id rather than treating
+     *             it as missing data.
      */
-    public record ResourceCost(String resourceId, String service, String region,
+    public record ResourceCost(String resourceId, String name, String service, String region,
                                String instanceType, double cost) {
     }
 

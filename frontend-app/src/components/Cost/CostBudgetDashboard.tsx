@@ -245,7 +245,9 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
   }
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl overflow-hidden">
+    // No overflow-hidden on this card: it would clip the chart tooltips and the last
+    // row's actions menu. Corner rounding is handled by the last row instead.
+    <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl">
       {/* ─── Top: Chart + Summary Panel ─── */}
       <div className="flex border-b border-[rgba(0,0,0,0.06)]">
         {/* Bar Chart */}
@@ -271,6 +273,12 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
                 // same way as a future month keeps the chart honest instead of implying spend.
                 const isFuture = month.spent === 0 && !month.isCurrent;
                 const isUnknown = !month.hasData;
+                // The tooltip sits beside the column, vertically centred on the plot area,
+                // so it stays inside the card and never covers the bar it describes.
+                // Bars past the halfway mark flip to the left so the last months don't
+                // push the tooltip out over the summary panel.
+                const tooltipSide = idx < monthlyData.length / 2 ? 'left-full ml-2' : 'right-full mr-2';
+                const tooltipClass = `absolute top-1/2 -translate-y-1/2 ${tooltipSide} z-50 pointer-events-none bg-white border border-[rgba(0,0,0,0.12)] rounded-lg shadow-lg p-3`;
 
                 return (
                   <div
@@ -308,13 +316,13 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
 
                     {/* Tooltip on hover */}
                     {hoveredBar === idx && isUnknown && (
-                      <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white border border-[rgba(0,0,0,0.12)] rounded-lg shadow-lg p-3 z-50 min-w-[160px]">
+                      <div className={`${tooltipClass} min-w-[160px]`}>
                         <p className="text-[11px] font-bold text-black mb-1">{month.label}</p>
                         <p className="text-[11px] text-[rgba(0,0,0,0.5)]">No spend recorded for this month.</p>
                       </div>
                     )}
                     {hoveredBar === idx && month.spent > 0 && !isUnknown && (
-                      <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-white border border-[rgba(0,0,0,0.12)] rounded-lg shadow-lg p-3 z-50 min-w-[180px]">
+                      <div className={`${tooltipClass} min-w-[180px]`}>
                         <p className="text-[11px] font-bold text-black mb-2">{month.label}</p>
                         <div className="space-y-1.5 text-[11px]">
                           <div className="flex justify-between"><span className="text-[rgba(0,0,0,0.5)]">Budget</span><span className="font-semibold">{fmt(month.budget)}</span></div>
@@ -493,7 +501,7 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
           return (
             <div
               key={budget.budgetName}
-              className={`grid grid-cols-[1fr_120px_1fr_80px_40px] items-center px-5 py-4 transition-colors ${
+              className={`grid grid-cols-[1fr_120px_1fr_80px_40px] items-center px-5 py-4 transition-colors last:rounded-b-xl ${
                 hoveredRow === idx ? 'bg-[rgba(0,0,0,0.015)]' : ''
               }`}
               onMouseEnter={() => setHoveredRow(idx)}

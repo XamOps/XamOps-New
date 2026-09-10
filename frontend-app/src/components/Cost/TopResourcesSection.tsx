@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { fetchTopResources, type ResourceCost } from '../../api/curInsightsApi';
 import { useCurInsight } from '../../hooks/useCurInsight';
@@ -10,6 +10,18 @@ import { useCurInsight } from '../../hooks/useCurInsight';
  * retains fourteen days, so until now the product could say "S3 cost $2,527" and not which
  * bucket. Everything here comes from {@code line_item_resource_id}, which exists only
  * because the report was created with resource ids enabled.
+ *
+ * <p>Resources are grouped under their service and the groups start collapsed, matching the
+ * drill-down in {@code ChargesByServiceSection}. A flat ranking put the top spender's
+ * resources first and buried every other service below the fold — on the account this was
+ * built against, ten Kiro rows pushed EC2 off the screen. The reader picks the service they
+ * came to look at, then opens it.
+ *
+ * <p>Rows are labelled by the resource's {@code Name} tag where the report carries one — a
+ * CUR only includes tags activated for cost allocation, so it often does not. Failing that
+ * the label is the id's own tail, which is at least the part of an ARN that identifies the
+ * thing. The full id stays on the row either way, because that is what gets pasted into a
+ * console or a ticket.
  *
  * <p>Charges belonging to no resource — tax, support, subscriptions — are shown in their
  * own group rather than dropped. Hiding them would make this section's total disagree with
@@ -40,8 +52,15 @@ const money = (v: number): string =>
   (v < 0 ? '-$' : '$') +
   Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** How many rows before the list stops being scannable. */
+/** How many rows inside one open service before the list stops being scannable. */
 const PAGE = 20;
+
+/** Resources of one service, costliest first. */
+interface ServiceGroup {
+  service: string;
+  cost: number;
+  resources: ResourceCost[];
+}
 
 /**
  * An icon for the resource, chosen from its service.
@@ -77,12 +96,44 @@ const shorten = (id: string, max = 52): string => {
   return `${id.slice(0, head)}…${id.slice(id.length - (max - head - 1))}`;
 };
 
+/**
+ * The last segment of an ARN — what the console calls the resource.
+ *
+ * `arn:aws:aoss:ap-south-1:605…:account/SearchOCU` is unreadable at a glance and
+ * "SearchOCU" is the part the reader came for. Falls back to the id unchanged when there
+ * is no tail to take, which is the case for a bare id like `i-089ccf1b5a839880a`.
+ */
+const arnTail = (id: string): string => {
+  const slash = id.lastIndexOf('/');
+  if (slash >= 0 && slash < id.length - 1) return id.slice(slash + 1);
+  // An ARN with no path still ends in its name, e.g. arn:aws:s3:::my-bucket.
+  if (id.startsWith('arn:')) {
+    const colon = id.lastIndexOf(':');
+    if (colon >= 0 && colon < id.length - 1) return id.slice(colon + 1);
+  }
+  return id;
+};
+
+/**
+ * The best label a resource has, and whether it is a real name.
+ *
+ * The `Name` tag when the report carries it — that is the thing the reader recognises.
+ * Otherwise the id's own tail, which is an identifier rather than a name, and is rendered
+ * as one.
+ */
+const labelFor = (r: ResourceCost): { text: string; isTag: boolean } =>
+  r.name ? { text: r.name, isTag: true } : { text: arnTail(r.resourceId), isTag: false };
+
 const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) => {
   const months = useMemo(monthOptions, []);
   const [period, setPeriod] = useState(months[0].value);
   const [service, setService] = useState('all');
+  const [region, setRegion] = useState('all');
   const [search, setSearch] = useState('');
-  const [expanded, setExpanded] = useState(false);
+  /** Services the reader has drilled into. */
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  /** Services showing past the first {@link PAGE} rows. */
+  const [showAll, setShowAll] = useState<Set<string>>(new Set());
 
   // Cached across mounts, so returning to this page does not re-scan the report.
   const { data, isPending, isError } = useCurInsight(
@@ -106,24 +157,88 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
     [resources],
   );
 
+  // Both option lists come from every resource rather than from what the other filter
+  // leaves standing, so a selection can never go stale and leave a select showing a value
+  // it no longer offers. A combination that matches nothing is handled by the empty state.
+  const regions = useMemo(
+    () => Array.from(new Set(resources.map((r) => r.region))).sort((a, b) => a.localeCompare(b)),
+    [resources],
+  );
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return resources.filter(
       (r) =>
         (service === 'all' || r.service === service) &&
+        (region === 'all' || r.region === region) &&
         (term === '' ||
           r.resourceId.toLowerCase().includes(term) ||
+          (r.name ?? '').toLowerCase().includes(term) ||
           r.instanceType.toLowerCase().includes(term)),
     );
-  }, [resources, service, search]);
+  }, [resources, service, region, search]);
 
-  const shown = expanded ? filtered : filtered.slice(0, PAGE);
-  // The largest in the current view, so the bars rescale when a filter narrows it —
+  // Grouped by service, costliest service first. The API returns resources already sorted
+  // by cost, and grouping preserves that order, so each group is sorted too.
+  const groups: ServiceGroup[] = useMemo(() => {
+    const byService = new Map<string, ResourceCost[]>();
+    for (const r of filtered) {
+      const list = byService.get(r.service);
+      if (list) list.push(r);
+      else byService.set(r.service, [r]);
+    }
+    return [...byService.entries()]
+      .map(([svc, list]) => ({
+        service: svc,
+        cost: list.reduce((sum, r) => sum + r.cost, 0),
+        resources: list,
+      }))
+      .sort((a, b) => b.cost - a.cost);
+  }, [filtered]);
+
+  // The largest group in the current view, so the bars rescale when a filter narrows it —
   // against the global maximum every bar in a filtered list would be a sliver.
-  const max = shown.length > 0 ? Math.max(...shown.map((r) => Math.abs(r.cost))) : 0;
+  const maxGroup = groups.length > 0 ? Math.max(...groups.map((g) => Math.abs(g.cost))) : 0;
+
+  /**
+   * Which groups the current filters imply should be open:
+   * a search opens every service that still has a match, because a match hidden inside a
+   * collapsed group looks like no match at all; picking one service from the dropdown is
+   * itself the drill-down; neither leaves the collapsed overview.
+   *
+   * <p>Depends on {@code filtered} rather than on the open set, so opening and closing a
+   * group by hand afterwards sticks — this only re-runs when the filters or the month's
+   * data actually change.
+   */
+  useEffect(() => {
+    if (search.trim() !== '') setOpen(new Set(filtered.map((r) => r.service)));
+    else if (service !== 'all') setOpen(new Set([service]));
+    else setOpen(new Set());
+  }, [search, service, filtered]);
+
+  const toggle = (svc: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(svc)) next.delete(svc);
+      else next.add(svc);
+      return next;
+    });
+
+  const toggleShowAll = (svc: string) =>
+    setShowAll((prev) => {
+      const next = new Set(prev);
+      if (next.has(svc)) next.delete(svc);
+      else next.add(svc);
+      return next;
+    });
+
+  // A CUR only carries the tags that were activated for cost allocation, so "no names
+  // anywhere" is a setting rather than a bug — and worth saying, since the reader is
+  // otherwise left wondering why every row is an id.
+  const anyNamed = resources.some((r) => Boolean(r.name));
 
   const accountLevelTotal = accountLevel.reduce((sum, r) => sum + r.cost, 0);
-  const isFiltered = service !== 'all' || search.trim() !== '';
+  const isFiltered = service !== 'all' || region !== 'all' || search.trim() !== '';
   const filteredTotal = filtered.reduce((sum, r) => sum + r.cost, 0);
 
   // No report for this account — the section does not belong on the page at all.
@@ -138,6 +253,7 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
           <h3 className="text-[15px] font-bold text-black">Top resources</h3>
           <p className="text-[12px] text-[rgba(0,0,0,0.45)] mt-0.5">
             What each individual resource cost — not just which service it belongs to.
+            Click a service to see its resources.
           </p>
         </div>
 
@@ -183,14 +299,34 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
               value={service}
               onChange={(e) => {
                 setService(e.target.value);
-                setExpanded(false);
+                setShowAll(new Set());
               }}
+              aria-label="Service"
               className="text-[12px] border border-[rgba(0,0,0,0.15)] rounded-lg px-2.5 py-1.5 bg-white text-black focus:outline-none focus:ring-1 focus:ring-[#4285F4]"
             >
               <option value="all">All services</option>
               {services.map((s) => (
                 <option key={s} value={s}>
                   {s}
+                </option>
+              ))}
+            </select>
+
+            {/* Region codes rather than display names, because the codes are what the rows
+                show and what anyone scanning this list is matching against. */}
+            <select
+              value={region}
+              onChange={(e) => {
+                setRegion(e.target.value);
+                setShowAll(new Set());
+              }}
+              aria-label="Region"
+              className="text-[12px] border border-[rgba(0,0,0,0.15)] rounded-lg px-2.5 py-1.5 bg-white text-black focus:outline-none focus:ring-1 focus:ring-[#4285F4]"
+            >
+              <option value="all">All regions</option>
+              {regions.map((rg) => (
+                <option key={rg} value={rg}>
+                  {rg}
                 </option>
               ))}
             </select>
@@ -206,9 +342,9 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
-                  setExpanded(false);
+                  setShowAll(new Set());
                 }}
-                placeholder="Find a resource by id or instance type…"
+                placeholder="Find a resource by name, id or instance type…"
                 className="w-full text-[12px] border border-[rgba(0,0,0,0.15)] rounded-lg pl-7 pr-2.5 py-1.5 bg-white text-black placeholder:text-[rgba(0,0,0,0.3)] focus:outline-none focus:ring-1 focus:ring-[#4285F4]"
               />
             </div>
@@ -226,23 +362,19 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
               Nothing matches that filter.
             </p>
           ) : (
-            <div className="space-y-0.5">
-              {shown.map((r) => (
-                <ResourceRow key={`${r.resourceId}-${r.service}-${r.region}`} r={r} max={max} />
+            <div className="divide-y divide-[rgba(0,0,0,0.05)]">
+              {groups.map((g) => (
+                <ServiceGroupRow
+                  key={g.service}
+                  group={g}
+                  max={maxGroup}
+                  open={open.has(g.service)}
+                  showAll={showAll.has(g.service)}
+                  onToggle={() => toggle(g.service)}
+                  onToggleShowAll={() => toggleShowAll(g.service)}
+                />
               ))}
             </div>
-          )}
-
-          {filtered.length > PAGE && (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="mt-2 text-[12px] font-medium text-[#1A56C4] hover:underline"
-            >
-              {expanded
-                ? 'Show less'
-                : `Show all ${filtered.length} resources`}
-            </button>
           )}
 
           {accountLevel.length > 0 && (
@@ -273,10 +405,20 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
             </div>
           )}
 
+          {!anyNamed && resources.length > 0 && (
+            <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-3 leading-relaxed">
+              Names come from each resource's <span className="font-mono">Name</span> tag, and
+              this report carries none. A CUR only includes tags activated for cost allocation
+              — activate <span className="font-mono">Name</span> in the payer account's billing
+              console and it will appear here from the next report.
+            </p>
+          )}
+
           {result && result.groupCount > all.length && (
             <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-3 leading-relaxed">
               Showing the {all.length} costliest of {result.groupCount.toLocaleString('en-US')}{' '}
-              resources. The total above covers all of them.
+              resources. The total above covers all of them; each service total covers only
+              the resources listed under it.
             </p>
           )}
         </>
@@ -285,27 +427,110 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
   );
 };
 
-/** One resource, with a bar sized against the largest in the current view. */
+/**
+ * One service, collapsed to a total until it is opened.
+ *
+ * The group total is the sum of the resources listed under it. Where the report was
+ * truncated (see the note at the foot of the section) that is the costliest slice of the
+ * service rather than everything it spent — "Charges by service" is the number that
+ * reconciles to the invoice.
+ */
+const ServiceGroupRow: React.FC<{
+  group: ServiceGroup;
+  max: number;
+  open: boolean;
+  showAll: boolean;
+  onToggle: () => void;
+  onToggleShowAll: () => void;
+}> = ({ group, max, open, showAll, onToggle, onToggleShowAll }) => {
+  const share = max > 0 ? (Math.abs(group.cost) / max) * 100 : 0;
+  const rows = showAll ? group.resources : group.resources.slice(0, PAGE);
+  // Within an open service the bars rescale to that service, so a $26 OpenSearch resource
+  // is not a sliver just because an unrelated service spent $200.
+  const maxInGroup =
+    group.resources.length > 0 ? Math.max(...group.resources.map((r) => Math.abs(r.cost))) : 0;
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="w-full flex items-center gap-3 px-2 py-2 text-left rounded-lg hover:bg-[rgba(0,0,0,0.02)] transition-colors"
+      >
+        <Icon
+          icon={open ? 'mdi:chevron-down' : 'mdi:chevron-right'}
+          width={14}
+          className="text-[rgba(0,0,0,0.35)] flex-shrink-0"
+        />
+        <Icon
+          icon={iconFor(group.service)}
+          width={16}
+          className="text-[rgba(0,0,0,0.45)] flex-shrink-0"
+        />
+
+        <div className="flex-1 min-w-0">
+          <p className="text-[12.5px] font-semibold text-black truncate">{group.service}</p>
+          <p className="text-[10.5px] text-[rgba(0,0,0,0.4)]">
+            {group.resources.length} {group.resources.length === 1 ? 'resource' : 'resources'}
+          </p>
+        </div>
+
+        <div className="w-[70px] flex-shrink-0 hidden sm:block">
+          <div className="h-1 bg-[rgba(0,0,0,0.05)] rounded-full overflow-hidden">
+            <div className="h-full rounded-full bg-[#4285F4]" style={{ width: `${share}%` }} />
+          </div>
+        </div>
+
+        <span className="text-[12.5px] font-bold text-black text-right w-[88px] flex-shrink-0">
+          {money(group.cost)}
+        </span>
+      </button>
+
+      {open && (
+        <div className="ml-[15px] pl-3 border-l border-[rgba(0,0,0,0.07)] pb-1.5">
+          {rows.map((r) => (
+            <ResourceRow key={`${r.resourceId}-${r.region}`} r={r} max={maxInGroup} />
+          ))}
+
+          {group.resources.length > PAGE && (
+            <button
+              type="button"
+              onClick={onToggleShowAll}
+              className="ml-2 mt-1 text-[11.5px] font-medium text-[#1A56C4] hover:underline"
+            >
+              {showAll
+                ? 'Show less'
+                : `Show all ${group.resources.length} in ${group.service}`}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/** One resource, with a bar sized against the largest in its service. */
 const ResourceRow: React.FC<{ r: ResourceCost; max: number }> = ({ r, max }) => {
   const share = max > 0 ? (Math.abs(r.cost) / max) * 100 : 0;
+  const label = labelFor(r);
 
   return (
     <div className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-[rgba(0,0,0,0.02)] transition-colors">
-      <Icon
-        icon={iconFor(r.service)}
-        width={16}
-        className="text-[rgba(0,0,0,0.45)] flex-shrink-0"
-      />
-
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2">
-          {/* The full id on hover: the shortened form is for scanning, not for copying
-              into a console. */}
+          {/* The full id on hover: the label is for scanning, not for copying into a
+              console. A tagged name is prose and set as such; an id fragment stays
+              monospaced, so the two are never mistaken for each other. */}
           <span
             title={r.resourceId}
-            className="font-mono text-[11.5px] text-black truncate"
+            className={
+              label.isTag
+                ? 'text-[12px] font-medium text-black truncate'
+                : 'font-mono text-[11.5px] text-black truncate'
+            }
           >
-            {shorten(r.resourceId)}
+            {shorten(label.text)}
           </span>
           {r.instanceType && (
             <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.6)] flex-shrink-0">
@@ -313,11 +538,21 @@ const ResourceRow: React.FC<{ r: ResourceCost; max: number }> = ({ r, max }) => 
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-[10.5px] text-[rgba(0,0,0,0.4)] truncate">
-            {r.service}
-            {r.region !== 'Global' && ` · ${r.region}`}
+        {/* The service is on the group header above, so only the region is added here —
+            and the id itself where the label above replaced it, since that is what gets
+            pasted into a console or a ticket. */}
+        <div className="flex items-center gap-2 mt-0.5 min-w-0">
+          <span className="text-[10.5px] text-[rgba(0,0,0,0.4)] flex-shrink-0">
+            {r.region === 'Global' ? 'Global' : r.region}
           </span>
+          {label.text !== r.resourceId && (
+            <span
+              title={r.resourceId}
+              className="font-mono text-[10.5px] text-[rgba(0,0,0,0.35)] truncate"
+            >
+              {shorten(r.resourceId, 46)}
+            </span>
+          )}
         </div>
       </div>
 

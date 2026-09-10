@@ -159,6 +159,12 @@ export const fetchDataTransferCosts = async (
 export interface ResourceCost {
   /** e.g. "i-0a3f2b1c8d4e5f6a7", or "" for tax, support and other resource-less charges. */
   resourceId: string;
+  /**
+   * The resource's `Name` tag, or "" when the report does not carry it — normal for an
+   * account that never activated the tag for cost allocation, so callers fall back to
+   * the id rather than treating it as missing data.
+   */
+  name: string;
   service: string;
   region: string;
   /** Instance type where the resource has one; empty otherwise. */
