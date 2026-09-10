@@ -284,10 +284,100 @@ export interface NetworkNode {
   count: number;
 }
 
+/** Sensor coverage for one workload type within an account. */
+export interface CoverageWorkloadType {
+  subCategory: string;
+  total: number;
+  sensor: number;
+  cloudScanner: number;
+  /** Explicitly reported as unprotected. */
+  unprotected: number;
+  /** No protection verdict was reported — unknown, not uncovered. */
+  unknown: number;
+}
+
+export type CoverageStatus = 'FULL' | 'PARTIAL' | 'MINIMAL' | 'NO_SENSOR' | 'NO_WORKLOADS';
+
+export interface SensorCoverageAccount {
+  cloudAccountId: string;
+  accountName: string;
+  /** Compute assets — the things a runtime sensor can protect. */
+  workloads: number;
+  sensorProtected: number;
+  cloudScannerOnly: number;
+  unprotected: number;
+  unknown: number;
+  totalAssets: number;
+  /** Assets with no sensor to run (storage, identity, and so on). */
+  nonWorkloadAssets: number;
+  /** Over workloads only. Null when there are no workloads to measure. */
+  coveragePercent: number | null;
+  status: CoverageStatus;
+  workloadTypes: CoverageWorkloadType[];
+}
+
+/**
+ * Runtime coverage per account.
+ *
+ * Distinct from onboarding status on purpose: an account can be CONNECTED and have zero sensors,
+ * which means its configuration is scanned but nothing watches its workloads at runtime.
+ */
+export interface SensorCoverage {
+  accounts: SensorCoverageAccount[];
+}
+
+/** One asset in the configuration graph. */
+export interface TopologyNode {
+  /** Upwind asset id (uwr-…), or `vpc:<id>` / `subnet:<id>` when synthetic. */
+  id: string;
+  /** Upwind asset label, e.g. aws_ec2_instance. */
+  type: string | null;
+  name: string;
+  category?: string | null;
+  subCategory?: string | null;
+  region?: string | null;
+  cloudAccountId?: string | null;
+  /** Canonical (join-safe) resource id — see UpwindAssetIds on the backend. */
+  resourceId?: string | null;
+  cidrBlock?: string | null;
+  /** Upwind's internet_exposure_type, e.g. "wide". Null when not exposed or not analysed. */
+  exposure?: string | null;
+  /**
+   * Inferred rather than inventoried. True for every subnet (Upwind does not model subnets as
+   * assets) and for VPCs referenced from outside the accounts we walked.
+   */
+  synthetic?: boolean;
+}
+
+export type TopologyEdgeKind = 'in-vpc' | 'in-subnet' | 'attached-to';
+
+export interface TopologyEdge {
+  source: string;
+  target: string;
+  kind: TopologyEdgeKind;
+}
+
+/**
+ * Configuration topology — provider-declared containment, NOT observed traffic.
+ *
+ * Upwind's Runtime map is sensor telemetry (direction, ports, protocol, volume, a 24h timeline)
+ * and no API endpoint serves it, so this graph deliberately shows something narrower: what
+ * contains what. Do not label it as traffic in the UI.
+ */
+export interface ConfigGraph {
+  nodes: TopologyNode[];
+  edges: TopologyEdge[];
+  /** The walk hit its time budget; the graph is incomplete. */
+  truncated: boolean;
+  source: 'configuration';
+}
+
 export interface NetworkTopology {
   accountId: string | null;
   accounts: number;
+  /** Retained sub-category counts, kept so older consumers keep working. */
   nodes: NetworkNode[];
+  graph?: ConfigGraph | null;
 }
 
 export interface ApiEndpoint {
@@ -725,20 +815,29 @@ export interface FrameworkControls {
 /**
  * Provider-native relationships for one asset, e.g. SecurityGroups -> ["sg-0df6..."].
  *
- * Only available per asset: the asset search omits the relationship fields the inventory schema
- * declares, and nested conditions are rejected, so there is no estate-wide topology to fetch.
+ * Per asset only. The v2 relationship search does traverse the graph, but it filters by
+ * relationship without returning which related entity matched, so one asset's own neighbours
+ * still have to come from the asset-detail payload.
  */
 export interface AssetRelationship {
   field: string;
   label: string;
   references: string[];
   count: number;
+  /**
+   * Asset label this points at (e.g. aws_security_group), from Upwind's inventory schema.
+   * Null when the provider-native key has no schema counterpart — "type unknown", not
+   * "not a relationship".
+   */
+  relatedType?: string | null;
 }
 
 export interface AssetRelationships {
   assetId: string;
   resourceType?: string | null;
   relationships: AssetRelationship[];
+  /** How many relationships the schema declares for this asset type. */
+  declaredEdgeCount?: number;
 }
 
 /** One CI build from Upwind's shift-left stream. */

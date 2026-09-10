@@ -28,6 +28,24 @@
             <artifactId>spring-context</artifactId>
         </dependency>
 
+        <!-- RestClient, for the outbound SMS/WhatsApp provider in com.xammer.cloud.messaging.
+             spring-web is the client library only; it does not make this module serve HTTP
+             and pulls in no servlet container. The alert and report senders live in
+             xamops-service while the support auto-ping lives in billops, so the provider
+             client sits here rather than being implemented twice. -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+        </dependency>
+
+        <!-- @ConfigurationProperties binding for MessagingProperties. Available transitively
+             via the Redis starter, but declared explicitly because this module depends on it
+             directly. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot</artifactId>
+        </dependency>
+
         <!-- Shared store, so a gap seen by a background refresh on one service is
              visible to an API request served by another. -->
         <dependency>

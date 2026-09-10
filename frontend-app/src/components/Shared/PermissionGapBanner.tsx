@@ -7,11 +7,26 @@
 
 import React, { useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
+import { useLocation } from 'react-router-dom';
 import { useTheme } from '../../contexts/ThemeContext';
 import { usePermissionGapContext } from '../../contexts/PermissionGapContext';
 import { AccountPermissionStatus } from '../../types/permissions';
 
 const DISMISS_KEY = 'permissionGapDismissed';
+
+/**
+ * Routes whose data does not come through the XamOps read-only role, so a role or IAM gap says
+ * nothing about whether they can load.
+ *
+ * This banner is mounted once in App.tsx and therefore renders on every route, which made it
+ * claim "Account unreachable … No data can be loaded for this account" on top of pages that were
+ * loading perfectly well. XamSecure reads synced Upwind data out of our own database; it never
+ * calls STS or an AWS data API for the selected account, so the role being broken has no bearing
+ * on it. Showing the alert there is a false alarm that undermines the alert everywhere else.
+ *
+ * Add a prefix here only when a page genuinely has no dependency on the role.
+ */
+const ROLE_INDEPENDENT_PREFIXES = ['/xamsecure'];
 
 /** Dismissals are keyed by what is actually wrong, so a NEW gap re-surfaces. */
 const signatureOf = (impacted: AccountPermissionStatus[]): string =>
@@ -31,6 +46,7 @@ const readDismissed = (): string[] => {
 const PermissionGapBanner: React.FC = () => {
   const { theme } = useTheme();
   const { impacted, recheck } = usePermissionGapContext();
+  const { pathname } = useLocation();
   const [expanded, setExpanded] = useState(false);
   const [dismissed, setDismissed] = useState<string[]>(readDismissed);
   const [notice, setNotice] = useState<string | null>(null);
@@ -39,8 +55,12 @@ const PermissionGapBanner: React.FC = () => {
   const dark = theme === 'dark';
   const signature = useMemo(() => signatureOf(impacted), [impacted]);
   const isDismissed = signature.length > 0 && dismissed.includes(signature);
+  const roleIndependent = useMemo(
+    () => ROLE_INDEPENDENT_PREFIXES.some(
+      p => pathname === p || pathname.startsWith(`${p}/`)),
+    [pathname]);
 
-  if (impacted.length === 0 || isDismissed) return null;
+  if (impacted.length === 0 || isDismissed || roleIndependent) return null;
 
   const unreachable = impacted.some(account => account.health === 'UNREACHABLE');
   const primary = impacted[0];

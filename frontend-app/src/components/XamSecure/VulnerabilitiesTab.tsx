@@ -494,7 +494,7 @@ const CveDrill: React.FC<{
               <td className="px-3 py-2 whitespace-nowrap">
                 {r.functionsInUse ? (
                   <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500 text-white"
-                        title="Upwind observed the vulnerable functions executing">
+                        title="Vulnerable functions observed executing">
                     Functions running
                   </span>
                 ) : r.activeCommunication ? (
@@ -563,7 +563,7 @@ const RuntimeExposure: React.FC<{
     { label: 'Exposed and running', value: data.exposedAndInUse,
       hint: 'Both of the above — reachable and actually loaded' },
     { label: 'Active communication', value: data.activeCommunication,
-      hint: 'Upwind observed live inbound traffic' },
+      hint: 'Live inbound traffic observed' },
     { label: 'Vulnerable functions executing', value: data.functionsInUse,
       hint: 'The vulnerable code paths themselves were observed running' },
   ];

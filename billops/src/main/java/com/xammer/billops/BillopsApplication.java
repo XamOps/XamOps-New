@@ -16,7 +16,10 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 @EnableMethodSecurity(prePostEnabled = true)
 // com.xammer.cloud.permissions is the shared permission-gap tracker; without it
 // BillOps would record nothing when a customer's IAM role loses cost access.
-@ComponentScan(basePackages = { "com.xammer.billops", "com.xammer.cloud.permissions" })
+// com.xammer.cloud.messaging is the shared SMS/WhatsApp provider client, used here by
+// SupportAutoNotificationScheduler and in xamops-service by the alert and report senders.
+@ComponentScan(basePackages = { "com.xammer.billops", "com.xammer.cloud.permissions",
+        "com.xammer.cloud.messaging" })
 @EntityScan(basePackages = { "com.xammer.billops", "com.xammer.cloud.domain" }) // 2. ADD THIS LINE
 public class BillopsApplication {
 

@@ -203,13 +203,8 @@ const PostureFindingDrawer: React.FC<Props> = ({
         </PanelBlock>
       ),
     },
-    {
-      id: 'rule-query', label: 'Rule query', icon: 'mdi:code-braces',
-      available: false,
-      unavailableReason:
-        'Upwind does not expose the underlying policy expression through the API.',
-      render: () => null,
-    },
+    // NOTE: a "Rule query" section is intentionally absent — the underlying policy expression is
+    // not available to us. Removed rather than shown disabled with the reason on hover.
   ];
 
   return (

@@ -108,8 +108,7 @@ const InventoryAssetDrawer: React.FC<Props> = ({
     {
       id: 'risk', label: 'Risk', icon: 'mdi:shield-alert-outline', group: 'Asset',
       available: hasRisk,
-      unavailableReason:
-        'Upwind reported no risk rollup for this asset. It may predate the catalog sync.',
+      unavailableReason: 'No risk data for this asset yet.',
       render: () => (
         <>
           <PanelBlock title="Exposure and privilege">
@@ -164,7 +163,7 @@ const InventoryAssetDrawer: React.FC<Props> = ({
     {
       id: 'technologies', label: 'Technologies', icon: 'mdi:cog-outline', group: 'Asset',
       available: !!asset.technologies,
-      unavailableReason: 'Upwind identified no technologies on this asset.',
+      unavailableReason: 'No technologies identified on this asset.',
       render: () => (
         <>
           {asset.hasEolTechnology && (
@@ -195,8 +194,7 @@ const InventoryAssetDrawer: React.FC<Props> = ({
     {
       id: 'relationships', label: 'Relationships', icon: 'mdi:graph-outline', group: 'Asset',
       available: !!loadRelationships && !!asset.upwindId,
-      unavailableReason:
-        'Relationships are read per asset from Upwind on demand, and this asset has no Upwind id.',
+      unavailableReason: 'Relationships are not available for this asset.',
       render: () => (
         <RelationshipsBody assetId={asset.upwindId!} load={loadRelationships!}
                            onOpenResource={onOpenResource} />
@@ -287,7 +285,7 @@ const RelationshipsBody: React.FC<{
   if (state === 'error') {
     return (
       <p className="text-xs text-gray-500">
-        Upwind did not return relationships for this asset.
+        Relationships could not be loaded for this asset.
       </p>
     );
   }
@@ -308,8 +306,7 @@ const RelationshipsBody: React.FC<{
         <p className="flex items-start gap-1.5 rounded-lg border border-gray-200 bg-gray-50 p-2.5
                       text-[11px] leading-relaxed text-gray-500">
           <Icon icon="mdi:information-outline" width={13} className="mt-0.5 flex-shrink-0" />
-          References the cloud provider itself records on this resource. Runtime connections
-          (who actually talks to whom) come from sensor telemetry, which the API does not expose.
+          References the cloud provider records on this resource.
         </p>
       </PanelBlock>
       {rels.map((r) => (

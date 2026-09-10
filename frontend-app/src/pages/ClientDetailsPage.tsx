@@ -14,6 +14,12 @@ interface BillOpsAccount {
     provider: string;
     consumption: number;
     creditsApplied?: number;
+    /** CONNECTED | PENDING | NOT_CONNECTED, or absent where onboarding does not apply (non-AWS). */
+    upwindStatus?: string | null;
+    /** Workloads under management on this account. */
+    upwindWorkloads?: number;
+    /** Of those, how many a runtime sensor covers. */
+    upwindSensorWorkloads?: number;
 }
 
 interface BillOpsUser {
@@ -41,10 +47,114 @@ interface ClientDetails {
      * renders an entitled client as restricted.
      */
     xamSecureOnboardingEnabled?: boolean;
+
+    /**
+     * Upwind estate, for the admin team. All optional: a stale cached list predates these fields,
+     * and the backend clears them rather than sending zeros if the lookup fails — so absent must
+     * render as "unknown", never as "nothing onboarded".
+     */
+    upwindConnectedAccounts?: number;
+    upwindPendingAccounts?: number;
+    /** AWS accounts, i.e. those that COULD be onboarded. */
+    upwindEligibleAccounts?: number;
+    upwindWorkloads?: number;
+    /** Sensor-covered workloads — the licence-consumption proxy. */
+    upwindSensorWorkloads?: number;
 }
 
 const CACHE_KEY = 'billops_clients_cache';
 const PAGE_SIZE = 10;
+
+/**
+ * Upwind onboarding state and licence consumption for one client, for the internal admin team.
+ *
+ * Shows onboarded accounts as a fraction of ELIGIBLE accounts rather than of all accounts: only
+ * AWS can be self-service onboarded, so "1/1" on a client with three GCP projects is complete, not
+ * a third done.
+ *
+ * The licence figure is sensor-covered workloads. Upwind exposes no usage or entitlement API, so
+ * this is metered locally and is an indicator to reconcile against their invoice — hence the
+ * wording in the tooltip rather than a bare "licences" label pretending to be authoritative.
+ */
+const UpwindAdminCell: React.FC<{ client: ClientDetails }> = ({ client }) => {
+    const eligible = client.upwindEligibleAccounts ?? 0;
+    const connected = client.upwindConnectedAccounts ?? 0;
+    const pending = client.upwindPendingAccounts ?? 0;
+    const licences = client.upwindSensorWorkloads;
+    const workloads = client.upwindWorkloads;
+
+    // No AWS account: onboarding genuinely does not apply, so say so rather than showing 0/0.
+    if (eligible === 0) {
+        return (
+            <div className="text-right min-w-[92px]" title="No AWS accounts — security onboarding does not apply">
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest leading-none">
+                    Security
+                </p>
+                <p className="text-[11px] text-gray-300 mt-1 leading-none">n/a</p>
+            </div>
+        );
+    }
+
+    const state = connected > 0
+        ? (connected === eligible ? 'full' : 'partial')
+        : (pending > 0 ? 'pending' : 'none');
+    const tone = {
+        full: 'text-emerald-600',
+        partial: 'text-amber-600',
+        pending: 'text-blue-500',
+        none: 'text-gray-300',
+    }[state];
+    const icon = {
+        full: 'fa-circle-check',
+        partial: 'fa-circle-half-stroke',
+        pending: 'fa-clock',
+        none: 'fa-circle-minus',
+    }[state];
+    const label = state === 'pending' && connected === 0
+        ? `${pending} pending`
+        : `${connected}/${eligible}`;
+
+    return (
+        <div className="flex items-center gap-4">
+            <div
+                className="text-right min-w-[92px]"
+                title={
+                    state === 'none'
+                        ? `Not onboarded on Upwind. ${eligible} AWS account(s) eligible.`
+                        : `${connected} of ${eligible} eligible AWS account(s) connected`
+                          + (pending > 0 ? `, ${pending} awaiting confirmation` : '')
+                }
+            >
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest leading-none">
+                    Upwind
+                </p>
+                <p className={`text-[11px] font-semibold mt-1 leading-none flex items-center justify-end gap-1 ${tone}`}>
+                    <i className={`fas ${icon} text-[9px]`}></i>
+                    {label}
+                </p>
+            </div>
+            <div
+                className="text-right min-w-[76px]"
+                title={
+                    licences == null
+                        ? 'Licence usage unavailable'
+                        : `${licences} sensor-covered workload(s) of ${workloads ?? 0} under management. `
+                          + 'Metered locally — Upwind exposes no usage API, so reconcile against their invoice.'
+                }
+            >
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest leading-none">
+                    Licences
+                </p>
+                <p className="text-base font-semibold text-gray-800 mt-1 leading-none">
+                    {licences == null ? <span className="text-gray-300 text-[11px]">—</span> : licences}
+                    {licences != null && workloads != null && workloads > licences && (
+                        <span className="text-[10px] font-normal text-gray-400"> /{workloads}</span>
+                    )}
+                </p>
+            </div>
+        </div>
+    );
+};
 
 const ClientDetailsPage: React.FC = () => {
     const [clients, setClients] = useState<ClientDetails[]>([]);
@@ -251,6 +361,10 @@ const ClientDetailsPage: React.FC = () => {
         accounts: clients.reduce((sum, c) => sum + c.accounts.length, 0),
         users: clients.reduce((sum, c) => sum + c.users.length, 0),
         spend: clients.reduce((sum, c) => sum + clientTotal(c), 0),
+        // Estate-wide Upwind totals: how many clients are actually onboarded, and the licence
+        // figure to reconcile against Upwind's invoice.
+        upwindClients: clients.filter(c => (c.upwindConnectedAccounts ?? 0) > 0).length,
+        licences: clients.reduce((sum, c) => sum + (c.upwindSensorWorkloads ?? 0), 0),
     }), [clients, clientTotal]);
 
     const availableProviders = useMemo(() => {
@@ -280,6 +394,13 @@ const ClientDetailsPage: React.FC = () => {
         else if (sortBy === 'name-desc') result = [...result].sort((a, b) => b.name.localeCompare(a.name));
         else if (sortBy === 'spend-desc') result = [...result].sort((a, b) => clientTotal(b) - clientTotal(a));
         else if (sortBy === 'spend-asc') result = [...result].sort((a, b) => clientTotal(a) - clientTotal(b));
+        else if (sortBy === 'licences-desc')
+            result = [...result].sort((a, b) => (b.upwindSensorWorkloads ?? 0) - (a.upwindSensorWorkloads ?? 0));
+        // Onboarding gaps: eligible for Upwind, nothing connected. The work queue for the admin
+        // team, so it is worth being one click away rather than something to eyeball down the list.
+        else if (sortBy === 'upwind-gap')
+            result = result.filter(c => (c.upwindEligibleAccounts ?? 0) > 0
+                && (c.upwindConnectedAccounts ?? 0) === 0);
 
         return result;
     }, [clients, search, filterProvider, sortBy, clientTotal]);
@@ -316,7 +437,7 @@ const ClientDetailsPage: React.FC = () => {
         <div className="p-5 space-y-3" style={{ background: '#ffffff', minHeight: '100%' }}>
             {/* Stats Summary */}
             {!isLoading && clients.length > 0 && (
-                <div className="bg-white rounded-md border border-gray-200 shadow-sm divide-x divide-gray-100 grid grid-cols-2 md:grid-cols-4 animate-premium-fade-in">
+                <div className="bg-white rounded-md border border-gray-200 shadow-sm divide-x divide-gray-100 grid grid-cols-2 md:grid-cols-6 animate-premium-fade-in">
                     <div className="p-4 flex items-center gap-3">
                         <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center flex-shrink-0">
                             <i className="fas fa-building text-gray-500 text-xs"></i>
@@ -351,6 +472,33 @@ const ClientDetailsPage: React.FC = () => {
                         <div>
                             <p className="text-xl font-bold text-gray-900 leading-none">${stats.spend.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
                             <p className="text-[11px] text-gray-400 mt-0.5">Total Spend</p>
+                        </div>
+                    </div>
+                    {/* Upwind estate. Two figures the admin team needs at a glance: how many
+                        customers are actually protected, and the licence count to reconcile
+                        against Upwind's invoice. */}
+                    <div className="p-4 flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <i className="fas fa-shield-halved text-gray-500 text-xs"></i>
+                        </div>
+                        <div>
+                            <p className="text-xl font-bold text-gray-900 leading-none">
+                                {stats.upwindClients}
+                                <span className="text-xs font-normal text-gray-400">/{stats.clients}</span>
+                            </p>
+                            <p className="text-[11px] text-gray-400 mt-0.5">On Upwind</p>
+                        </div>
+                    </div>
+                    <div
+                        className="p-4 flex items-center gap-3"
+                        title="Sensor-covered workloads across all clients. Metered locally — Upwind exposes no usage API, so reconcile against their invoice."
+                    >
+                        <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <i className="fas fa-id-card text-gray-500 text-xs"></i>
+                        </div>
+                        <div>
+                            <p className="text-xl font-bold text-gray-900 leading-none">{stats.licences}</p>
+                            <p className="text-[11px] text-gray-400 mt-0.5">Licences Used</p>
                         </div>
                     </div>
                 </div>
@@ -398,6 +546,8 @@ const ClientDetailsPage: React.FC = () => {
                     <option value="name-desc">Name Z → A</option>
                     <option value="spend-desc">Spend: High → Low</option>
                     <option value="spend-asc">Spend: Low → High</option>
+                    <option value="licences-desc">Licences: High → Low</option>
+                    <option value="upwind-gap">Not on Upwind (eligible)</option>
                 </select>
             </div>
 
@@ -468,6 +618,12 @@ const ClientDetailsPage: React.FC = () => {
                                         {client.users.length} Users
                                     </div>
                                 </div>
+                                <div className="w-px h-8 bg-gray-100 hidden md:block"></div>
+                                {/* Upwind onboarding + licence consumption, for the admin team.
+                                    Two separate facts on purpose: a client can be connected and
+                                    consuming nothing (no sensor deployed), which is the case worth
+                                    chasing and is invisible if the two are merged. */}
+                                <UpwindAdminCell client={client} />
                                 {/* XamSecure onboarding entitlement. Shield icon rather than a
                                     switch: it sits in a dense row of badges, and the on/off state
                                     has to be legible at a glance across a long client list.
@@ -565,6 +721,33 @@ const ClientDetailsPage: React.FC = () => {
                                                         </div>
                                                     )}
                                                     <p className="text-[10px] text-gray-400 mt-2 font-mono bg-gray-50 p-1.5 rounded-md border border-gray-100">{acc.providerAccountId}</p>
+                                                    {/* Per-account Upwind state. Only rendered when
+                                                        onboarding applies, so GCP/Azure cards stay
+                                                        unchanged rather than gaining an empty row. */}
+                                                    {acc.upwindStatus && (
+                                                        <div className="mt-2 flex items-center justify-between border-t border-gray-100 pt-2">
+                                                            <span className={`text-[10px] font-semibold flex items-center gap-1 ${
+                                                                acc.upwindStatus === 'CONNECTED' ? 'text-emerald-600'
+                                                                    : acc.upwindStatus === 'PENDING' ? 'text-blue-500'
+                                                                        : 'text-gray-400'}`}>
+                                                                <i className={`fas ${
+                                                                    acc.upwindStatus === 'CONNECTED' ? 'fa-shield-halved'
+                                                                        : acc.upwindStatus === 'PENDING' ? 'fa-clock'
+                                                                            : 'fa-circle-minus'} text-[9px]`}></i>
+                                                                {acc.upwindStatus === 'CONNECTED' ? 'Protected'
+                                                                    : acc.upwindStatus === 'PENDING' ? 'Pending'
+                                                                        : 'Not onboarded'}
+                                                            </span>
+                                                            {(acc.upwindWorkloads ?? 0) > 0 && (
+                                                                <span
+                                                                    className="text-[10px] text-gray-500"
+                                                                    title={`${acc.upwindSensorWorkloads ?? 0} of ${acc.upwindWorkloads} workload(s) sensor-covered`}
+                                                                >
+                                                                    {acc.upwindSensorWorkloads ?? 0}/{acc.upwindWorkloads} covered
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             ))}
                                             {client.accounts.length === 0 && (

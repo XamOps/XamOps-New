@@ -4,8 +4,12 @@ import com.xammer.billops.domain.SupportMessage;
 import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.SupportMessageRepository;
 import com.xammer.cloud.domain.AppUser;
+import com.xammer.cloud.messaging.MessageKind;
+import com.xammer.cloud.messaging.MobileNotificationDispatcher;
+import com.xammer.cloud.messaging.NotificationChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,7 +18,10 @@ import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Component
 public class SupportAutoNotificationScheduler {
@@ -27,13 +34,20 @@ public class SupportAutoNotificationScheduler {
     private final SupportMessageRepository messageRepository;
     private final AppUserRepository appUserRepository;
     private final EmailService emailService;
+    private final MobileNotificationDispatcher mobileNotificationDispatcher;
+
+    /** Same property the Slack/Teams/Google Chat reply buttons use, so links stay consistent. */
+    @Value("${messaging.portal.base-url:https://app.xamops.com}")
+    private String portalBaseUrl;
 
     public SupportAutoNotificationScheduler(SupportMessageRepository messageRepository,
                                             AppUserRepository appUserRepository,
-                                            EmailService emailService) {
+                                            EmailService emailService,
+                                            MobileNotificationDispatcher mobileNotificationDispatcher) {
         this.messageRepository = messageRepository;
         this.appUserRepository = appUserRepository;
         this.emailService = emailService;
+        this.mobileNotificationDispatcher = mobileNotificationDispatcher;
     }
 
     /**
@@ -99,7 +113,12 @@ public class SupportAutoNotificationScheduler {
         String subject = "Reminder: Unread support message from XamOps – " + accountName;
         String body = buildEmailBody(user.getUsername(), accountName);
 
-        if (channels.contains("EMAIL") && user.getEmail() != null && !user.getEmail().isBlank()) {
+        // Exact parse of the stored CSV. The previous String.contains() checks also matched any
+        // channel name containing another's, and gave no list of what was actually supported.
+        Set<NotificationChannel> selected = NotificationChannel.fromCsv(channels);
+
+        if (selected.contains(NotificationChannel.EMAIL)
+                && user.getEmail() != null && !user.getEmail().isBlank()) {
             try {
                 emailService.sendHtmlEmail(user.getEmail(), subject, body);
                 log.info("Auto-ping email sent to {} for account {}", user.getEmail(), accountName);
@@ -108,14 +127,19 @@ public class SupportAutoNotificationScheduler {
             }
         }
 
-        if (channels.contains("WHATSAPP") && user.getContact() != null && !user.getContact().isBlank()) {
-            // TODO: integrate WhatsApp Business API / Twilio WhatsApp
-            log.info("Auto-ping WhatsApp stub — would send to {} for account {}", user.getContact(), accountName);
-        }
+        // WhatsApp and SMS both reach the same number and are both selected from the same CSV,
+        // so one dispatcher call covers them; which channels actually fire is decided by
+        // xamops.messaging.* configuration. The recipient's number is never logged in full.
+        boolean wantsMobile = selected.contains(NotificationChannel.WHATSAPP)
+                || selected.contains(NotificationChannel.SMS);
 
-        if (channels.contains("SMS") && user.getContact() != null && !user.getContact().isBlank()) {
-            // TODO: integrate Twilio SMS / AWS SNS
-            log.info("Auto-ping SMS stub — would send to {} for account {}", user.getContact(), accountName);
+        if (wantsMobile && user.getContact() != null && !user.getContact().isBlank()) {
+            Map<String, String> variables = new LinkedHashMap<>();
+            variables.put("var1", user.getUsername());
+            variables.put("var2", accountName);
+            variables.put("var3", portalBaseUrl + "/billops/support");
+
+            mobileNotificationDispatcher.dispatch(user.getContact(), variables, MessageKind.SUPPORT, selected);
         }
     }
 

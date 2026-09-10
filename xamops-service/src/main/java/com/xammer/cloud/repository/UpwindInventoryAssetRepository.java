@@ -56,6 +56,26 @@ public interface UpwindInventoryAssetRepository extends JpaRepository<UpwindInve
     List<Object[]> countBySubCategory(@Param("accountIds") List<String> accountIds,
                                       @Param("category") String category);
 
+    /**
+     * Sensor coverage: which protection mechanism covers each asset, per account and sub-category.
+     *
+     * Rows are {@code [cloudAccountId, assetSubCategory, protectedBy, count]}. {@code protectedBy}
+     * is nullable and the null case matters — it means the catalog carried no verdict for that
+     * asset, which is NOT the same as the explicit {@code none}. Measured 2026-09-07 across three
+     * accounts: {@code sensor}, {@code cloud_scanner}, {@code none} and null all occur, and null
+     * is the majority on accounts with no sensor deployed. Callers must keep the two apart or
+     * they will report unscanned assets as deliberately unprotected.
+     *
+     * Grouped rather than counted per combination so one query answers the whole view.
+     */
+    @Query("SELECT a.cloudAccountId, a.assetSubCategory, a.protectedBy, COUNT(a) "
+           + "FROM UpwindInventoryAsset a "
+           + "WHERE a.cloudAccountId IN :accountIds AND a.status = 'ACTIVE' "
+           + "AND (:category IS NULL OR a.assetCategory = :category) "
+           + "GROUP BY a.cloudAccountId, a.assetSubCategory, a.protectedBy")
+    List<Object[]> coverageBreakdown(@Param("accountIds") List<String> accountIds,
+                                     @Param("category") String category);
+
     @Transactional
     @Modifying
     @Query("UPDATE UpwindInventoryAsset a SET a.status = 'RESOLVED' " +

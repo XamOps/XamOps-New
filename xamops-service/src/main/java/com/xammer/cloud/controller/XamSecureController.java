@@ -210,6 +210,18 @@ public class XamSecureController {
         return ResponseEntity.ok(xamSecureService.getNetworkTopology(user.getClientId(), accountId));
     }
 
+    /**
+     * Sensor coverage per account — whether the workloads in each connected account are actually
+     * being protected, rather than merely connected.
+     *
+     * Served from synced inventory, so it costs nothing upstream.
+     */
+    @GetMapping("/sensor-coverage")
+    public ResponseEntity<?> sensorCoverage(@AuthenticationPrincipal ClientUserDetails user,
+                                           @RequestParam(required = false) String accountId) {
+        return ResponseEntity.ok(xamSecureService.getSensorCoverage(user.getClientId(), accountId));
+    }
+
     @GetMapping("/inventory")
     public ResponseEntity<?> inventory(@AuthenticationPrincipal ClientUserDetails user,
                                        @RequestParam(required = false) String accountId,

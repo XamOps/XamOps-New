@@ -574,6 +574,186 @@ public class UpwindApiClient {
         return items;
     }
 
+    // ── Inventory graph: the schema (edge catalogue) and relationship traversal ──────────────
+    //
+    // These two routes are what make Upwind's Inventory → Graph tab reproducible. Both were
+    // verified live 2026-09-07 on our existing credential, after an earlier audit wrongly
+    // concluded no graph capability existed — that audit tested nested conditions against the
+    // CATALOG search, which does not support them, rather than against this route.
+    //
+    // What is still NOT possible: Inventory → Runtime map. There is no connections endpoint
+    // (six candidate paths all return 401 with no trace-id, the signature of a route that does
+    // not exist), so nothing here carries traffic, direction, ports or a time dimension.
+
+    /** One declared relationship on an asset label: the field to query, and what it points at. */
+    public record AssetEdge(String field, String relatedLabel) { }
+
+    /**
+     * Field types the schema uses for plain values. Anything else names another asset label and
+     * is therefore an edge — e.g. {@code aws_ec2_instance.security_groups : aws_security_group}.
+     * Matched case-insensitively: the published spec capitalises these ("String", "Numeric") and
+     * the live API does not ("string", "numeric"). Reading the spec's casing is how an earlier
+     * probe mistook every string field for an edge and tested traversal against {@code arn}.
+     */
+    private static final java.util.Set<String> SCHEMA_PRIMITIVES = java.util.Set.of(
+            "string", "numeric", "number", "integer", "int", "float", "double",
+            "date", "datetime", "timestamp", "boolean", "bool");
+
+    /** Schema pages cap at 100 (verified: 320 labels arrive in 4 pages). */
+    static final int SCHEMA_PAGE_SIZE = 100;
+
+    /**
+     * The schema is a description of Upwind's data model, not of our estate — it changes when
+     * they ship support for new resource types, not when our inventory changes. Caching it for
+     * the process lifetime with a long refresh keeps a topology build from re-walking 4 pages.
+     */
+    private volatile java.util.Map<String, List<AssetEdge>> cachedSchema;
+    private volatile Instant schemaExpiry = Instant.EPOCH;
+    private static final java.time.Duration SCHEMA_TTL = java.time.Duration.ofHours(12);
+
+    /**
+     * The edge catalogue: asset label to its declared relationships.
+     *
+     * Measured 2026-09-07: 320 labels, 224 of them declaring at least one edge, 621 edge fields,
+     * 165 distinct related types. This replaces guessing at relationships by regex-matching AWS
+     * id shapes, and it covers Azure, GCP and Kubernetes labels that a regex over AWS id
+     * prefixes never could.
+     *
+     * Returns an empty map rather than throwing: a topology that degrades to nodes-without-edges
+     * is worth more than a failed request, and the caller cannot fix a schema fetch.
+     */
+    public java.util.Map<String, List<AssetEdge>> fetchInventorySchema() {
+        java.util.Map<String, List<AssetEdge>> cached = cachedSchema;
+        if (cached != null && Instant.now().isBefore(schemaExpiry)) return cached;
+
+        java.util.Map<String, List<AssetEdge>> byLabel = new java.util.LinkedHashMap<>();
+        String base = apiBaseUrl + "/v2/organizations/" + orgId
+                + "/inventory/schema?limit=" + SCHEMA_PAGE_SIZE;
+        String url = base;
+        int pages = 0;
+        try {
+            while (url != null && pages < 20) {
+                ResponseEntity<String> resp = exchangeWithRetry(
+                        URI.create(url), HttpMethod.GET, new HttpEntity<>(authHeaders()));
+                JsonNode json = objectMapper.readTree(resp.getBody());
+                for (JsonNode item : json.path("items")) {
+                    String label = item.path("label").asText(null);
+                    if (label == null || label.isBlank()) continue;
+                    byLabel.put(label, edgesOf(item));
+                }
+                pages++;
+                String cursor = json.path("metadata").path("next_cursor").asText(null);
+                url = (cursor != null && !cursor.isEmpty()) ? base + "&cursor=" + cursor : null;
+            }
+        } catch (Exception e) {
+            log.warn("[Upwind] inventory schema fetch failed after {} page(s): {}",
+                    pages, e.getMessage());
+            // Keep a previously good schema rather than replacing it with a partial one.
+            if (cached != null) return cached;
+            if (byLabel.isEmpty()) return java.util.Map.of();
+        }
+        log.info("[Upwind] inventory schema: {} labels, {} with edges, {} edge fields",
+                byLabel.size(),
+                byLabel.values().stream().filter(v -> !v.isEmpty()).count(),
+                byLabel.values().stream().mapToInt(List::size).sum());
+        cachedSchema = java.util.Map.copyOf(byLabel);
+        schemaExpiry = Instant.now().plus(SCHEMA_TTL);
+        return cachedSchema;
+    }
+
+    /** Edge fields declared on one schema item, in declaration order. */
+    private static List<AssetEdge> edgesOf(JsonNode item) {
+        List<AssetEdge> edges = new ArrayList<>();
+        JsonNode fields = item.path("fields");
+        if (!fields.isArray()) fields = item.path("schema").path("fields");
+        for (JsonNode f : fields) {
+            String name = f.path("name").asText(null);
+            String type = f.path("type").asText(null);
+            if (name == null || type == null || type.isBlank()) continue;
+            if (SCHEMA_PRIMITIVES.contains(type.toLowerCase())) continue;
+            edges.add(new AssetEdge(name, type));
+        }
+        return List.copyOf(edges);
+    }
+
+    /**
+     * Declared edges for one label, or empty when the label is unknown to the schema.
+     *
+     * Not every label a topology wants exists: {@code aws_subnet} returns 404 from the per-label
+     * schema route and zero from a label search, because Upwind does not model subnets as
+     * assets. Callers that need a subnet tier have to synthesise it from the {@code subnet_id}
+     * that network interfaces carry.
+     */
+    public List<AssetEdge> edgesFor(String label) {
+        if (label == null || label.isBlank()) return List.of();
+        return fetchInventorySchema().getOrDefault(label, List.of());
+    }
+
+    /**
+     * v2 relationship search — {@code POST /v2/{org}/inventory/assets/search}, cursor-paged.
+     *
+     * This is NOT a thinner version of the catalog search, which is what we assumed when we
+     * stopped calling it. It is the graph route: conditions may carry a nested {@code
+     * conditions} array, which is evaluated against the RELATED entity, and nesting can go more
+     * than one hop deep (verified 2-hop, 200).
+     *
+     * <pre>
+     * {"conditions":[
+     *   {"field":"label","operator":"eq","value":["aws_ec2_instance"]},
+     *   {"field":"security_groups","operator":"exists",
+     *    "conditions":[{"field":"cloud_account_id","operator":"eq","value":["605134457560"]}]}]}
+     * </pre>
+     *
+     * Two things to know before relying on it:
+     *
+     * 1. {@code operator} is mandatory on every condition, including one that only carries
+     *    nested conditions — omitting it is a 400 ("Condition operator cannot be null").
+     * 2. The response returns the matching assets and NOTHING about the relationship that
+     *    matched. There is no nested value on the items, so this filters by edge without
+     *    projecting the edge: you can ask which instances sit behind a security group in an
+     *    account, but not which security group each instance matched. An estate-wide adjacency
+     *    list cannot be reconstructed from it — see docs/2026-09-07-upwind-api-access-for-ui-parity.md.
+     *
+     * The payload is also complementary to the catalog's rather than a subset: it carries the
+     * provider-native detail (instance_type, private_ip/public_ip, vpc_id, subnet_id,
+     * cidr_block) that the catalog omits, while the catalog carries the severity rollups and
+     * technologies this omits. Only 7 fields overlap.
+     */
+    public List<JsonNode> searchAssetGraph(java.util.List<java.util.Map<String, Object>> conditions,
+                                           int maxItems) {
+        List<JsonNode> items = new ArrayList<>();
+        String base = apiBaseUrl + "/v2/organizations/" + orgId
+                + "/inventory/assets/search?limit=" + SEARCH_PAGE_SIZE;
+        String url = base;
+        try {
+            String body = objectMapper.writeValueAsString(
+                    java.util.Map.of("conditions", conditions));
+            while (url != null && items.size() < maxItems) {
+                ResponseEntity<String> resp = exchangeWithRetry(
+                        URI.create(url), HttpMethod.POST, new HttpEntity<>(body, authHeaders()));
+                JsonNode json = objectMapper.readTree(resp.getBody());
+                for (JsonNode item : json.path("items")) items.add(item);
+                String cursor = json.path("metadata").path("next_cursor").asText(null);
+                url = (cursor != null && !cursor.isEmpty()) ? base + "&cursor=" + cursor : null;
+            }
+        } catch (Exception e) {
+            // Non-fatal by design: the topology this feeds is assembled from several label
+            // walks, and losing one label should narrow the graph rather than empty it.
+            log.warn("[Upwind] relationship search failed ({} items read): {}",
+                    items.size(), e.getMessage());
+        }
+        return items;
+    }
+
+    /** Every asset of one label in one cloud account, via the relationship search. */
+    public List<JsonNode> searchAssetsByLabel(String label, String cloudAccountId, int maxItems) {
+        return searchAssetGraph(java.util.List.of(
+                java.util.Map.of("field", "label", "operator", "eq",
+                        "value", java.util.List.of(label)),
+                java.util.Map.of("field", "cloud_account_id", "operator", "eq",
+                        "value", java.util.List.of(cloudAccountId))), maxItems);
+    }
+
     /**
      * v2 threat-stories search (cursor paging), newest first. {@code conditions} is the
      * request body's "conditions" array (e.g. a cloud_account_id filter for tenancy).

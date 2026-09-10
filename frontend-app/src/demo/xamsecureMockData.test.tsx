@@ -164,10 +164,12 @@ describe('XamSecure demo data renders in every tab', () => {
       findings.counts.introduced > 0
         ? `${findings.counts.introduced} introduced` : 'Nothing introduced').length)
       .toBeGreaterThan(0);
-    expect(panel.getByText(/deploy recommendation. That verdict is computed/))
-      .toBeInTheDocument();
+    // The panel used to explain that the deploy verdict is computed upstream and absent from the
+    // payload. That is an internal integration detail, not something a customer needs, so it must
+    // NOT be rendered.
+    expect(panel.queryByText(/verdict is computed/)).not.toBeInTheDocument();
 
-    // Resolved CVEs are a real bucket Upwind shows in its diff, so the panel reports it.
+    // Resolved CVEs are a real bucket in the diff, so the panel reports it.
     expect(panel.getByText('Resolved CVEs')).toBeInTheDocument();
   });
 
@@ -304,8 +306,10 @@ describe('XamSecure demo data renders in every tab', () => {
     expect(iacTab).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByText(`${iac} scans`)).toBeInTheDocument();
 
-    // The two columns Upwind has and the API does not are named, not left blank.
-    expect(screen.getByText(/deploy recommendation per scan/)).toBeInTheDocument();
+    // The tab used to name two columns an upstream console has and the API does not. Removed:
+    // it advertised a data gap to the customer. What remains is the actionable instruction.
+    expect(screen.queryByText(/deploy recommendation per scan/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Open a scan to see its introduced/)).toBeInTheDocument();
   });
 
   it('Code says it is withheld rather than showing an empty table', () => {
@@ -348,13 +352,17 @@ describe('XamSecure demo data renders in every tab', () => {
       .toBeGreaterThan(0);
   });
 
-  it('Threats leaves Investigation disabled, since we sync detections and not events', () => {
+  it('Threats does not render an Investigation tab at all', () => {
     draw(
       <ThreatsSection threats={demo.demoThreatsPage('?page=0&size=50')} policies={demo.demoThreatPolicies}
                       stories={demo.demoThreatStories} overview={demo.demoThreatOverview}
                       isLoading={false} onPage={noop} onArchive={asyncNoop as never} />
     );
-    expect(screen.getByRole('button', { name: /Investigation/ })).toBeDisabled();
+    // Previously rendered as a permanently disabled tab whose tooltip explained the missing
+    // data source. A tab that can never be enabled advertises the gap, so it is not rendered.
+    expect(screen.queryByRole('button', { name: /Investigation/ })).not.toBeInTheDocument();
+    // The tabs that do work are still there.
+    expect(screen.getByRole('button', { name: /Detections/ })).toBeInTheDocument();
   });
 
   it('Vulnerabilities shows the CVE totals', () => {
@@ -457,8 +465,11 @@ describe('XamSecure demo data renders in every tab', () => {
     const rels = demo.demoAssetRelationships(asset.upwindId!);
     expect(await screen.findByText(/Security Groups · 2/)).toBeInTheDocument();
     expect(screen.getByText(rels.relationships[0].references[0])).toBeInTheDocument();
-    // Runtime edges are not in this payload, and the panel must not imply otherwise.
-    expect(screen.getByText(/come from sensor telemetry/)).toBeInTheDocument();
+    // The panel used to caveat that runtime connections come from sensor telemetry the API does
+    // not expose. Removed: it explained an upstream limitation to the customer. The heading still
+    // scopes the section to provider-recorded references.
+    expect(screen.queryByText(/sensor telemetry/)).not.toBeInTheDocument();
+    expect(screen.getByText(/References the cloud provider records/)).toBeInTheDocument();
   });
 
   it('APIs lists discovered endpoints', () => {

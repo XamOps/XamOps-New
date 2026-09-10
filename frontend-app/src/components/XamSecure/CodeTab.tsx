@@ -178,7 +178,7 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
         <p className="mt-3 text-sm font-semibold text-gray-700">Code scans not shown</p>
         <p className="mt-1 mx-auto max-w-md text-xs text-gray-500 leading-relaxed">
           {data.unavailableReason
-            ?? 'Code scan history is reported for the whole Upwind organization.'}
+            ?? 'Code scan history is reported across the whole organization.'}
         </p>
       </div>
     );
@@ -186,11 +186,11 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
 
   return (
     <div className="space-y-4">
-      {/* Organization-wide, and said so explicitly.
-          Every other XamSecure tab is scoped to the account picker; this one cannot be. Upwind's
-          CI scan events carry no cloud_account_id at all — they belong to a source repository,
-          not a cloud account — so the stream is the whole organization's or nothing. Without this
-          notice, seeing repositories while a single account is selected reads as a data leak. */}
+      {/* Organization-wide, and said so explicitly. Every other XamSecure tab is scoped to the
+          account picker; this one cannot be, because CI scan events belong to a source repository
+          rather than a cloud account. Without this notice, seeing repositories while a single
+          account is selected reads as a data leak. Keep it: it is a tenancy clarification, not a
+          statement about any upstream API. */}
       <div className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
         <Icon icon="mdi:office-building-outline" width={14}
               className="text-gray-400 mt-0.5 flex-shrink-0" />
@@ -313,7 +313,7 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
                   <tr key={`${s.fingerprint ?? 'nofp'}-${s.commitSha ?? i}`}
                       className={`border-b border-gray-50 ${
                         openable ? 'hover:bg-gray-50 cursor-pointer' : 'opacity-70'}`}
-                      title={openable ? undefined : 'This scan has no fingerprint, so Upwind reports no findings for it'}
+                      title={openable ? undefined : 'This scan has no fingerprint, so no findings are available for it'}
                       onClick={openable ? () => setSelected(s) : undefined}>
                     <td className="px-5 py-3">
                       <span className="flex items-center gap-1.5 min-w-0">
@@ -376,7 +376,7 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-5 py-12 text-center text-gray-400">
-                    No CI scans reported by Upwind.
+                    No CI scans reported.
                   </td>
                 </tr>
               )}
@@ -386,13 +386,8 @@ const CodeTab: React.FC<Props> = ({ data, isLoading, loadFindings }) => {
         <Pager page={page} totalPages={totalPages} total={total} onPage={setPage} unit="scans" />
       </div>
 
-      {/* Two columns Upwind's console shows that this API does not carry. Saying so is better than
-          a blank column or a number we made up. */}
       <p className="px-1 text-[10px] leading-relaxed text-gray-400">
-        Upwind's console also shows a deploy recommendation per scan and a new-versus-existing CVE
-        breakdown in the list. Neither is in the API: the scan event carries no verdict, and the
-        counts come from the per-scan findings route, which is one request per scan. Open a scan to
-        see its introduced, pre-existing and resolved CVEs.
+        Open a scan to see its introduced, pre-existing and resolved CVEs.
       </p>
 
       {selected?.fingerprint && (

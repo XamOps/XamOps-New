@@ -4,6 +4,7 @@ import type {
   XamSecureSummary, ThreatDetection, VulnerabilityFinding, PostureFinding,
   ComplianceFramework, OnboardingAccount, PageResp, InventoryAsset, ApiEndpoint, SbomComponent,
   ThreatPolicy, Workflow,
+  SensorCoverage,
   IssueSummary, IssueDetail, ThreatStoriesSummary, ThreatStoryDetail, ThreatOverview,
   VulnGroupPage, VulnGroupDimension, ThreatGroups, ThreatGroupDimension,
   CodeScansResponse, CodeScanFindings, FrameworkControls, AssetRelationships,
@@ -58,6 +59,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
   const [inventoryCategories, setInventoryCategories] = useState<InventoryCategory[] | null>(null);
   const [inventoryRisk, setInventoryRisk] = useState<InventoryRisk | null>(null);
   const [networkTopology, setNetworkTopology] = useState<NetworkTopology | null>(null);
+  const [sensorCoverage, setSensorCoverage] = useState<SensorCoverage | null>(null);
   const [compliance, setCompliance] = useState<ComplianceFramework[] | null>(null);
   const [configDashboard, setConfigDashboard] = useState<ConfigurationsDashboard | null>(null);
   const [apiSecurity, setApiSecurity] = useState<ApiEndpoint[] | null>(null);
@@ -311,6 +313,18 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     saveCache(key, data);
   }, [acct, selectedAccountId]);
 
+  /** Sensor coverage per account — whether connected accounts are actually protected. */
+  const loadSensorCoverage = useCallback(async (force = false) => {
+    const key = xamSecureCacheKey('sensor_coverage', selectedAccountId);
+    if (!force) {
+      const cached = loadCache<SensorCoverage>(key);
+      if (cached) { setSensorCoverage(cached); return; }
+    }
+    const data = await apiClient.get<SensorCoverage>(`/api/xamsecure/sensor-coverage?${acct}`);
+    setSensorCoverage(data);
+    saveCache(key, data);
+  }, [acct, selectedAccountId]);
+
   const loadNetworkTopology = useCallback(async (force = false) => {
     const key = xamSecureCacheKey('inventory_network', selectedAccountId);
     if (!force) {
@@ -441,7 +455,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
         }
         else if (activeTab === 'inventory') {
           await Promise.all([loadInventory(), loadInventoryCategories(), loadInventoryRisk(),
-            loadNetworkTopology()]);
+            loadNetworkTopology(), loadSensorCoverage()]);
         }
         else if (activeTab === 'compliance') await loadCompliance();
         else if (activeTab === 'api-security') await loadApiSecurity();
@@ -474,7 +488,8 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       loadIssues, loadAttackSurface, loadSummary, loadThreats, loadStories,
       loadVulnerabilities, loadVulnDashboard, loadVulnByCve, loadPosture, loadInventory, loadInventoryCategories,
       loadInventoryRisk,
-      loadNetworkTopology, loadCompliance, loadConfigDashboard, loadApiSecurity, loadComponents,
+      loadNetworkTopology, loadSensorCoverage, loadCompliance, loadConfigDashboard,
+      loadApiSecurity, loadComponents,
       loadIdentities, loadThreatPolicies, loadWorkflows, loadOnboarding, loadThreatOverview,
       loadCodeScans]);
 
@@ -499,7 +514,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       }
       else if (activeTab === 'inventory') {
         await Promise.all([loadInventory(0, '', true), loadInventoryCategories(true),
-          loadInventoryRisk(true), loadNetworkTopology(true)]);
+          loadInventoryRisk(true), loadNetworkTopology(true), loadSensorCoverage(true)]);
       }
       else if (activeTab === 'compliance') await loadCompliance(true);
       else if (activeTab === 'api-security') await loadApiSecurity(true);
@@ -516,14 +531,14 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     }
   }, [activeTab, loadIssues, loadAttackSurface, loadSummary, loadThreats, loadStories, loadVulnerabilities,
       loadVulnDashboard, loadVulnByCve, loadPosture, loadInventory, loadInventoryCategories,
-      loadInventoryRisk, loadNetworkTopology,
+      loadInventoryRisk, loadNetworkTopology, loadSensorCoverage,
       loadCompliance, loadConfigDashboard, loadApiSecurity, loadComponents, loadIdentities,
       loadThreatPolicies, loadWorkflows, loadOnboarding, loadThreatOverview, loadCodeScans]);
 
   return {
     summary, issues, attackSurface, threats, vulnerabilities, vulnDashboard, vulnByCve, posture, inventory,
     noAccountSelected,
-    inventoryCategories, inventoryRisk, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
+    inventoryCategories, inventoryRisk, networkTopology, sensorCoverage, compliance, configDashboard, onboarding, apiSecurity, components,
     threatPolicies, workflows, stories, threatOverview, loadThreatOverview, identities,
     vulnGroups, loadVulnGroups, threatGroups, loadThreatGroups,
     codeScans, loadCodeScanFindings, loadFrameworkControls, loadAssetRelationships,

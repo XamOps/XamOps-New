@@ -126,8 +126,8 @@ const ExposureMap: React.FC<Props> = ({ data }) => {
           })}
         </svg>
         <p className="px-4 pb-2 text-[10px] text-gray-400">
-          Internet-exposed resources by kind (real attack-surface data). Node colour = highest severity;
-          click a node for its findings. Live traffic/connections require Upwind runtime-sensor access.
+          Internet-exposed resources by kind. Node colour is the highest severity seen; click a
+          node for its findings.
         </p>
       </div>
 

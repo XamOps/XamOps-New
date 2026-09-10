@@ -153,13 +153,8 @@ const StoryDrawer: React.FC<Props> = ({ story, isLoading, onClose, onOpenResourc
         </div>
       ),
     },
-    {
-      id: 'investigation', label: 'Investigation', icon: 'mdi:magnify-scan', group: 'Story',
-      available: false,
-      unavailableReason:
-        'Upwind’s Investigation view needs the runtime event stream, which has no API endpoint.',
-      render: () => null,
-    },
+    // NOTE: an "Investigation" section is intentionally absent — it needs a raw event stream we
+    // do not hold. Removed rather than shown disabled, so the panel does not advertise the gap.
   ] : [];
 
   return (

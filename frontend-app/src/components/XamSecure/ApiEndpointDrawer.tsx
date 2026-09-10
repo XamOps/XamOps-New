@@ -57,14 +57,10 @@ const ApiEndpointDrawer: React.FC<Props> = ({ endpoint, onClose }) => {
             <PanelRow label="Last seen" value={fmt(endpoint.lastSeenTime)} />
           </PanelBlock>
           <PanelBlock title="Served by">
-            {/* Upwind's endpoint resource_id is an internal API-resource id, not a cloud
-                resource id, so this is shown as a reference rather than a link that would
-                open an empty resource view. */}
+            {/* Shown as a reference, not a link: this id belongs to the API catalog and does
+                not resolve against the cloud resource inventory, so a link would open an
+                empty resource view. Kept internal — not surfaced to the user as a caveat. */}
             <PanelRow label="API resource id" value={endpoint.resourceId} mono />
-            <p className="mt-1 text-[10px] text-gray-400">
-              Upwind identifies the hosting resource with its own API-resource id, which cannot
-              be joined to the cloud resource inventory.
-            </p>
           </PanelBlock>
         </>
       ),
@@ -99,8 +95,8 @@ const ApiEndpointDrawer: React.FC<Props> = ({ endpoint, onClose }) => {
           {auth !== 'AUTHENTICATED' && auth !== 'UNAUTHENTICATED' && (
             <p className="flex items-start gap-1.5 text-[10px] text-gray-400">
               <Icon icon="mdi:information-outline" width={12} className="mt-0.5 flex-shrink-0" />
-              Upwind has not seen enough traffic to classify the auth state. Absent is not the
-              same as unauthenticated.
+              Not enough observed traffic to classify the authentication state. Unclassified is
+              not the same as unauthenticated.
             </p>
           )}
         </>
@@ -113,7 +109,7 @@ const ApiEndpointDrawer: React.FC<Props> = ({ endpoint, onClose }) => {
         <>
           {sensitive.length === 0 ? (
             <p className="text-xs text-gray-500">
-              Upwind has not observed PII, PHI, PCI or secrets in this endpoint's traffic.
+              No PII, PHI, PCI or secrets observed in this endpoint's traffic.
             </p>
           ) : (
             <PanelBlock>
@@ -164,26 +160,17 @@ const ApiEndpointDrawer: React.FC<Props> = ({ endpoint, onClose }) => {
           </PanelBlock>
           <p className="flex items-start gap-1.5 text-[10px] text-gray-400">
             <Icon icon="mdi:information-outline" width={12} className="mt-0.5 flex-shrink-0" />
-            Codes Upwind's sensor actually saw. A 401 alongside a 200 means the endpoint both
+            Status codes observed in live traffic. A 401 alongside a 200 means the endpoint both
             accepts and rejects requests, which is normal; a 000 means connections failed.
           </p>
         </>
       ),
     },
-    {
-      id: 'owasp', label: 'API vulnerabilities', icon: 'mdi:bug-outline', group: 'Security',
-      available: false,
-      unavailableReason:
-        'Upwind shows OWASP API Top-10 and CWE categories per endpoint in its console, but '
-        + 'neither the v1 nor v2 endpoint payload exposes them.',
-      render: () => null,
-    },
-    {
-      id: 'tests', label: 'Tests', icon: 'mdi:test-tube', group: 'Security',
-      available: false,
-      unavailableReason: 'Upwind\u2019s API security tests have no API endpoint.',
-      render: () => null,
-    },
+    // NOTE: "API vulnerabilities" (OWASP API Top-10 / CWE per endpoint) and "Tests" sections
+    // were removed rather than rendered as permanently disabled nav items. A greyed-out entry
+    // whose tooltip explains an upstream data gap advertises the gap to the customer and can
+    // never become available without a provider change. Re-add them here if the data source
+    // arrives; tracked in docs/upwind-api-requests-2026-09-07.md.
   ];
 
   return (

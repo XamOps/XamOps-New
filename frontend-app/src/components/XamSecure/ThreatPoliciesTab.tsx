@@ -61,7 +61,7 @@ const ThreatPoliciesTab: React.FC<Props> = ({ data, isLoading }) => {
         <Stat value={totals.enabled} label="Enabled" accent="text-emerald-600" />
         <Stat value={totals.openIssues} label="Open issues" accent="text-red-600" />
         <Stat value={totals.modern} label="Policies (v2)" accent="text-indigo-600"
-              hint="Upwind's newer policy set, separate from Classic Policies" />
+              hint="Current policy set, separate from Classic Policies" />
       </div>
 
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">

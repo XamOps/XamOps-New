@@ -3,6 +3,8 @@ package com.xammer.cloud.service;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DiskAlertState;
 import com.xammer.cloud.dto.AlertDto;
+import com.xammer.cloud.messaging.MessageKind;
+import com.xammer.cloud.messaging.MobileNotificationDispatcher;
 import com.xammer.cloud.repository.DiskAlertStateRepository;
 import com.xammer.cloud.repository.FinOpsReportScheduleRepository;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +35,8 @@ public class DiskAlertService {
     private final DiskAlertStateRepository        diskAlertStateRepository;
     private final AlertEmailBuilder               alertEmailBuilder;
     private final EmailService                    emailService;
+    private final AlertTextBuilder                alertTextBuilder;
+    private final MobileNotificationDispatcher    mobileNotificationDispatcher;
 
     public void runAlertScan() {
         List<CloudAccount> accounts = scheduleRepository.findDistinctActiveAccounts();
@@ -153,6 +157,38 @@ public class DiskAlertService {
             } catch (Exception e) {
                 logger.error("[DiskAlert] Failed to send alert to {}: {}", email, e.getMessage());
             }
+        }
+
+        sendMobileAlerts(account, alerts);
+    }
+
+    /**
+     * Mirrors the alert digest onto SMS / WhatsApp for recipients who have a mobile number.
+     *
+     * <p>Additive: email remains the channel of record and runs first, so a provider outage or a
+     * missing template changes nothing about existing behaviour. The extra recipient query is
+     * skipped entirely when no mobile channel is configured.
+     *
+     * <p>Only a summary and a portal link go out — see {@link AlertTextBuilder} for why the
+     * affected volume IDs stay in the email.
+     */
+    private void sendMobileAlerts(CloudAccount account, List<AlertDto> alerts) {
+        if (!mobileNotificationDispatcher.isActive()) return;
+
+        try {
+            List<String> contacts = scheduleRepository.findActiveContactsByAccountId(account.getId());
+            if (contacts.isEmpty()) return;
+
+            mobileNotificationDispatcher.dispatchAll(
+                    contacts,
+                    alertTextBuilder.buildAlertVariables(alerts, account.getAccountName()),
+                    MessageKind.ALERT,
+                    "account " + account.getProviderAccountId());
+        } catch (Exception e) {
+            // The dispatcher already swallows per-message failures; this guards the query and
+            // variable build so a mobile problem can never cost the email that already went out.
+            logger.error("[DiskAlert] Mobile alert dispatch failed for account {}: {}",
+                    account.getProviderAccountId(), e.getMessage());
         }
     }
 

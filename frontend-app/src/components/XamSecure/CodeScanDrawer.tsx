@@ -119,14 +119,14 @@ const CodeScanDrawer: React.FC<Props> = ({ scan, load, onClose }) => {
               {'. '}
               {counts ? (
                 <>
-                  Upwind compared it against the default branch and reported{' '}
+                  Compared against the default branch, reporting{' '}
                   <strong className="font-semibold">{total}</strong>{' '}
                   {total === 1 ? 'CVE' : 'CVEs'} —{' '}
                   <strong className="font-semibold">{counts.introduced}</strong> introduced by this
                   build and <strong className="font-semibold">{counts.noChange}</strong> already
                   present.
                 </>
-              ) : 'Upwind reported no comparison for this scan.'}
+              ) : 'No comparison reported for this scan.'}
             </p>
           </PanelBlock>
 
@@ -155,11 +155,6 @@ const CodeScanDrawer: React.FC<Props> = ({ scan, load, onClose }) => {
                            sub="This build" tone="green" />
               )}
             </div>
-            <p className="mt-1 text-[10px] leading-relaxed text-gray-400">
-              Upwind ends this path on its own deploy recommendation. That verdict is computed in
-              their console and is absent from both API payloads, so this ends on what the scan
-              measured rather than on advice we would be guessing at.
-            </p>
           </PanelBlock>
 
           <PanelBlock title="Comparison and diff">
@@ -201,7 +196,7 @@ const CodeScanDrawer: React.FC<Props> = ({ scan, load, onClose }) => {
       count: counts?.highImpact,
       render: () => (
         <PanelBlock>
-          {cveList(findings?.cves.highImpact ?? [], 'Upwind flagged none as high impact.')}
+          {cveList(findings?.cves.highImpact ?? [], 'None flagged as high impact.')}
         </PanelBlock>
       ),
     },
@@ -297,8 +292,8 @@ const CodeScanDrawer: React.FC<Props> = ({ scan, load, onClose }) => {
       sections={sections}
       emptyState={!loading && !findings ? (
         <p className="text-xs text-gray-500 max-w-sm text-center">
-          Upwind returned no findings for this scan. Its route answers 200 for unknown
-          fingerprints, so this may mean the scan has expired rather than that it was clean.
+          No findings are available for this scan. This can mean the scan has expired rather
+          than that it was clean.
         </p>
       ) : undefined}
     />

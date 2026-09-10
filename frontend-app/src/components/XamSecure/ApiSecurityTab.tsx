@@ -86,14 +86,14 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
         <Stat icon="mdi:api" label="Endpoints" value={stats.total} accent="text-gray-900" />
         <Stat icon="mdi:swap-horizontal" label="Ingress observed" value={stats.exposed}
               accent="text-gray-900"
-              hint="Endpoints Upwind has seen inbound traffic on. The payload carries a last-seen timestamp only, not an exposure verdict, so this is not a count of internet-facing endpoints." />
+              hint="Endpoints with observed inbound traffic. Based on last-seen activity, so this is not a count of internet-facing endpoints." />
         <Stat icon="mdi:lock-check" label="Authenticated" value={stats.authed} accent="text-emerald-600" />
         <Stat icon="mdi:lock-open-alert" label="Unauthenticated" value={stats.unauth} accent="text-orange-600" />
         <Stat icon="mdi:shield-account-outline" label="Sensitive data" value={stats.sensitive}
               accent="text-purple-600"
-              hint="Endpoints where Upwind observed PII, PHI, PCI or secrets in traffic" />
+              hint="Endpoints where PII, PHI, PCI or secrets were observed in traffic" />
         <Stat icon="mdi:help-circle-outline" label="Unclassified" value={stats.unclassified} accent="text-gray-500"
-              hint="Upwind hasn't observed enough traffic to classify auth state" />
+              hint="Not enough observed traffic to classify the authentication state" />
       </div>
 
       {/* Sensitive data in traffic is the thing worth acting on; called out when non-zero. */}
@@ -180,7 +180,7 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
               ? 'No classification synced yet. These endpoint rows carry neither sensitive-data '
                 + 'nor status-code fields, both of which arrive only on the v2 payload, so they '
                 + 'predate the v2 switch and will populate on the next full sync.'
-              : 'Upwind has not observed PII, PHI, PCI or secrets on these endpoints.'}
+              : 'No PII, PHI, PCI or secrets observed on these endpoints.'}
           </p>
         )}
       </div>

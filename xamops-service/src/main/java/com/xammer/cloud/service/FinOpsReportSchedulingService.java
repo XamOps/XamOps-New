@@ -3,6 +3,8 @@ package com.xammer.cloud.service;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.FinOpsReportSchedule;
 import com.xammer.cloud.dto.DetailedCostDto;
+import com.xammer.cloud.messaging.MessageKind;
+import com.xammer.cloud.messaging.MobileNotificationDispatcher;
 import com.xammer.cloud.repository.FinOpsReportScheduleRepository;
 import com.xammer.cloud.service.gcp.GcpCostService;
 import org.slf4j.Logger;
@@ -33,17 +35,23 @@ public class FinOpsReportSchedulingService {
     private final GcpCostService gcpCostService;
     private final EmailService emailService;
     private final FinOpsReportEmailBuilder emailBuilder;
+    private final FinOpsReportTextBuilder textBuilder;
+    private final MobileNotificationDispatcher mobileNotificationDispatcher;
 
     public FinOpsReportSchedulingService(FinOpsReportScheduleRepository scheduleRepository,
             CostService costService,
             GcpCostService gcpCostService,
             EmailService emailService,
-            FinOpsReportEmailBuilder emailBuilder) {
+            FinOpsReportEmailBuilder emailBuilder,
+            FinOpsReportTextBuilder textBuilder,
+            MobileNotificationDispatcher mobileNotificationDispatcher) {
         this.scheduleRepository = scheduleRepository;
         this.costService = costService;
         this.gcpCostService = gcpCostService;
         this.emailService = emailService;
         this.emailBuilder = emailBuilder;
+        this.textBuilder = textBuilder;
+        this.mobileNotificationDispatcher = mobileNotificationDispatcher;
     }
 
     // Scheduled report time: 6:00 PM IST (12:30 UTC)
@@ -310,9 +318,43 @@ public class FinOpsReportSchedulingService {
                     }
                 }
 
+                // --- STEP 4: Mirror a summary onto SMS / WhatsApp ---
+                sendMobileReport(account, reportData, frequency, dateRange);
+
             } catch (Exception e) {
                 logger.error("Failed to process schedules for account {}: {}", accountId, e.getMessage(), e);
             }
+        }
+    }
+
+    /**
+     * Sends the report summary to recipients who have a mobile number on file.
+     *
+     * <p>The emailed report is an inline HTML cost table, which has no text equivalent, so this
+     * carries total spend for the period plus a deep link — see {@link FinOpsReportTextBuilder}.
+     * Email stays the channel of record and {@code lastSent} is still driven by the email loop
+     * above, so a provider failure never suppresses or re-triggers a report.
+     *
+     * <p>Note this runs inside the caller's transaction, as the existing SMTP send already does.
+     * The provider client carries explicit connect and read timeouts precisely so this cannot
+     * hold a pooled connection open indefinitely the way an untimed call could.
+     */
+    private void sendMobileReport(CloudAccount account, List<DetailedCostDto> reportData,
+                                  String frequency, String dateRange) {
+        if (!mobileNotificationDispatcher.isActive()) return;
+
+        try {
+            List<String> contacts = scheduleRepository.findActiveContactsByAccountId(account.getId());
+            if (contacts.isEmpty()) return;
+
+            mobileNotificationDispatcher.dispatchAll(
+                    contacts,
+                    textBuilder.buildReportVariables(reportData, account.getAccountName(), frequency, dateRange),
+                    MessageKind.REPORT,
+                    frequency + " report for " + account.getProviderAccountId());
+        } catch (Exception e) {
+            logger.error("Mobile {} report dispatch failed for account {}: {}",
+                    frequency, account.getProviderAccountId(), e.getMessage());
         }
     }
 
