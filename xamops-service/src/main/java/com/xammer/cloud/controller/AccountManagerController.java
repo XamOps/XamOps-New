@@ -88,6 +88,43 @@ public class AccountManagerController {
         }
     }
 
+    /**
+     * What it takes to bring an already-connected account onto the current template.
+     *
+     * <p>Returns instructions rather than a link because CloudFormation quick-create links
+     * cannot update an existing stack — see
+     * {@link com.xammer.cloud.service.AwsAccountService#generateStackUpdateGuide}. Nothing
+     * is written and no ExternalId is re-issued.
+     */
+    @PostMapping("/accounts/{id}/upgrade-stack-url")
+    public ResponseEntity<?> generateStackUpdateGuide(@PathVariable Long id,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        try {
+            CloudAccount account = cloudAccountRepository.findById(id)
+                    .orElseThrow(() -> new IllegalArgumentException("Account not found: " + id));
+
+            // The guide names a role and a stack in a specific AWS account; handing one to
+            // the wrong tenant would walk them through changing somebody else's connection.
+            if (account.getClient() == null
+                    || !account.getClient().getId().equals(userDetails.getClientId())) {
+                return ResponseEntity.status(403).body(Map.of("error", "Account does not belong to this client"));
+            }
+            if (!"AWS".equalsIgnoreCase(account.getProvider())) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Only AWS accounts have a CloudFormation stack to update"));
+            }
+
+            return ResponseEntity.ok(awsAccountService.generateStackUpdateGuide(account));
+        } catch (IllegalStateException e) {
+            // No template configured for this environment — not the caller's fault.
+            return ResponseEntity.status(503).body(Map.of("error", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Could not prepare the update guide",
+                            "message", String.valueOf(e.getMessage())));
+        }
+    }
+
     @PostMapping("/eventbridge-callback")
     public ResponseEntity<?> eventBridgeCallback(@RequestBody Map<String, String> payload) {
         String externalId = payload.get("externalId");

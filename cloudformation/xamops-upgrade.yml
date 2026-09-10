@@ -1,0 +1,294 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  XamOps upgrade — adds a Cost and Usage Report, and the permissions to read it, to an
+  account that was connected before either existed. Launch this in an account that already
+  has a XamOps connection stack; it does not replace that stack and does not touch the
+  role's trust policy, so the existing connection cannot be broken by running it.
+
+# =====================================================================================
+# Why this is a second stack rather than an update to the first one
+#
+# A one-click console link can only CREATE a stack — AWS documents quick-create links for
+# creation only, with no pre-filled equivalent for update. Re-running the full connection
+# template under a new stack name is not an option either: it would try to create
+# XamOpsReadOnlyRole a second time and fail on the name already being taken.
+#
+# So the upgrade is additive. It creates what an old stack lacks and attaches the new
+# permissions to the role that stack already made, by name. Two consequences worth knowing:
+#
+#   - The customer's ExternalId is never re-issued. An update to the original stack would
+#     rewrite the role's trust policy, and a new ExternalId there silently disconnects the
+#     account from XamOps — the failure mode this design removes entirely.
+#   - A failed upgrade cannot break a working connection. Nothing here modifies the
+#     original stack, so a rollback leaves the account exactly as it was.
+#
+# The cost is that the account ends up with two XamOps stacks. Converging them is a later
+# migration; keeping a paying customer connected is today's requirement.
+# =====================================================================================
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Existing XamOps connection
+        Parameters:
+          - XamOpsRoleName
+      - Label:
+          default: Cost and Usage Report
+        Parameters:
+          - CurBucketName
+          - IncludeResourceIds
+          - IncludeSplitCostAllocationData
+      - Label:
+          default: Advanced
+        Parameters:
+          - CurTemplateUrl
+    ParameterLabels:
+      XamOpsRoleName:
+        default: Name of the role your XamOps connection stack created
+      CurBucketName:
+        default: Bucket for the report (leave blank for the default name)
+
+Parameters:
+
+  XamOpsRoleName:
+    Type: String
+    Default: 'XamOpsReadOnlyRole'
+    Description: >
+      The IAM role your existing XamOps connection stack created. The new report-reading
+      permissions are attached to it. Leave the default unless you deployed a modified
+      template — the name is hardcoded in the standard one.
+    AllowedPattern: '[\w+=,.@-]{1,64}'
+    ConstraintDescription: Must be a valid IAM role name.
+
+  CurBucketName:
+    Type: String
+    Default: ''
+    Description: >
+      Leave blank to use xamops-cur-<your account id>, which is the name XamOps expects
+      and the one the rest of the platform assumes. Set it only if you need the report in
+      a specific bucket.
+
+  IncludeResourceIds:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Include the resource id on every line. Leave true — without it the report cannot say
+      which bucket or which instance a charge belongs to, which disables per-resource cost,
+      tag coverage and cost allocation.
+
+  IncludeSplitCostAllocationData:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Include per-pod and per-task container costs. Only useful if you run EKS or ECS, and
+      it makes the report substantially larger.
+
+  CreateRoleIfMissing:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Leave false if the role above already exists — the normal case, and the stack simply
+      adds permissions to it. Set true only if the stack failed with "role cannot be found",
+      which means this account has no connection for the XamOps environment you are
+      upgrading from. Setting true when the role does exist fails with "role already
+      exists", so it is not a safe default.
+
+  XamOpsAccountId:
+    Type: String
+    Default: ''
+    Description: >
+      Only used when creating the role. The XamOps AWS account allowed to assume it —
+      XamOps fills this in.
+
+  ExternalId:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: >
+      Only used when creating the role. The shared secret that authorises XamOps to assume
+      it — XamOps fills this in with the value it already holds for this account, so the
+      connection keeps working.
+
+  CurTemplateUrl:
+    Type: String
+    Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-cur-report.yml'
+    Description: >
+      Hosted location of the XamOps report template. Do not change unless XamOps tells you
+      to.
+
+Conditions:
+
+  # CloudFormation is declarative and cannot ask IAM whether a role exists, so this is a
+  # choice rather than a detection. The default assumes the role is there, because for the
+  # case this stack exists to serve — an account connected long ago — it always is.
+  ShouldCreateRole: !Equals [!Ref CreateRoleIfMissing, 'true']
+
+Resources:
+
+  # -----------------------------------------------------------------------------------
+  # 1. The report itself.
+  #
+  # Nested rather than inlined so this stack cannot drift from the template new accounts
+  # deploy — there is exactly one definition of what a XamOps report looks like, and both
+  # paths use it.
+  #
+  # Note the region: AWS::CUR::ReportDefinition exists only in us-east-1, so this whole
+  # stack must be launched there. The XamOps console link pins it.
+  #
+  # If this stack ever rolls back AFTER this nested stack has completed, the bucket
+  # survives: it is declared DeletionPolicy: Retain, because it holds billing records that
+  # cannot be regenerated — a CUR does not backfill. Retrying then fails on the bucket
+  # name already being taken, and the fix is to delete the retained (and at that point
+  # empty) bucket before launching again. Worth knowing before assuming the second failure
+  # is a new bug.
+  # -----------------------------------------------------------------------------------
+  XamOpsCurReport:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Ref CurTemplateUrl
+      TimeoutInMinutes: 15
+      Parameters:
+        BucketName: !Ref CurBucketName
+        IncludeResourceIds: !Ref IncludeResourceIds
+        IncludeSplitCostAllocationData: !Ref IncludeSplitCostAllocationData
+
+  # -----------------------------------------------------------------------------------
+  # 2. Permission to read it.
+  #
+  # Attached to the role the original stack created, by name. The bucket ARNs come from
+  # the nested stack's output rather than being rebuilt from the parameter, which both
+  # keeps the two in step and orders the deployment correctly: CloudFormation cannot
+  # create this policy until the bucket exists.
+  #
+  # Every statement here is copied from the current connection template's CUR section. An
+  # account that somehow already has them ends up with the grant twice, which is harmless
+  # — IAM unions allows. Missing them is not harmless: it is the entire symptom.
+  # -----------------------------------------------------------------------------------
+  # -----------------------------------------------------------------------------------
+  # 1b. The role, only when it does not already exist.
+  #
+  # Each XamOps environment's connection template creates its own role — suffixed -local
+  # and -uat, unsuffixed for production — so one AWS account can hold connections to
+  # several environments without the names colliding. An account connected through one
+  # environment therefore has no role for another, and the upgrade fails with "role cannot
+  # be found" until one is made.
+  #
+  # Deliberately the same shape as the connection template's role: AWS ReadOnlyAccess for
+  # the monitoring XamOps does everywhere, plus the report permissions below. It is not a
+  # full replacement for the connection stack — features needing writes or EKS access still
+  # want that — but it is a working, assumable role rather than a CUR-only stub.
+  #
+  # The ExternalId is the one XamOps already holds for this account, not a fresh one, so
+  # creating this role connects rather than replaces.
+  # -----------------------------------------------------------------------------------
+  XamOpsUpgradeRole:
+    Type: AWS::IAM::Role
+    Condition: ShouldCreateRole
+    Properties:
+      RoleName: !Ref XamOpsRoleName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${XamOpsAccountId}:role/XamOps-App-EC2-Role'
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+
+  XamOpsCurAccessPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      # Single-quoted and on one line, not a '>' folded block. IAM validates this field
+      # against [\p{L}\p{M}\p{Z}\p{S}\p{N}\p{P}]* — letters, marks, separators, symbols,
+      # numbers and punctuation. A folded block keeps one trailing newline, and \n is a
+      # control character (Cc), not a separator (Z), so the whole stack fails on it.
+      Description: 'Lets the XamOps platform read this account Cost and Usage Report through Athena. Added by the XamOps upgrade stack.'
+      # Referencing the resource when this stack creates it, so CloudFormation orders the
+      # role before the policy that attaches to it. !Ref on an IAM::Role returns its name,
+      # so both branches produce the same thing.
+      Roles:
+        - !If [ShouldCreateRole, !Ref XamOpsUpgradeRole, !Ref XamOpsRoleName]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+
+          - Sid: 'XamOpsCurBucketRead'
+            Effect: Allow
+            Action:
+              - 's3:GetObject'
+              - 's3:ListBucket'
+              - 's3:GetBucketLocation'
+            Resource:
+              - !Sub 'arn:aws:s3:::${XamOpsCurReport.Outputs.CurBucketName}'
+              - !Sub 'arn:aws:s3:::${XamOpsCurReport.Outputs.CurBucketName}/*'
+
+          - Sid: 'XamOpsCurAthenaQuery'
+            Effect: Allow
+            Action:
+              - 'athena:StartQueryExecution'
+              - 'athena:StopQueryExecution'
+              - 'athena:GetQueryExecution'
+              - 'athena:GetQueryResults'
+              - 'athena:GetWorkGroup'
+            Resource: '*'
+
+          - Sid: 'XamOpsCurGlueCatalog'
+            Effect: Allow
+            Action:
+              - 'glue:GetDatabase'
+              - 'glue:GetDatabases'
+              - 'glue:GetTable'
+              - 'glue:GetTables'
+              - 'glue:GetPartition'
+              - 'glue:GetPartitions'
+              # Athena describes a CUR through a Glue table, and XamOps builds that table
+              # from the report's own manifest rather than running a crawler. The table is
+              # pure metadata over objects already in this account — dropping an EXTERNAL
+              # table deletes no data — but creating it needs these writes. It is recreated
+              # on each validation because a CUR gains columns over time as AWS adds
+              # product attributes and cost allocation tags are activated.
+              - 'glue:CreateDatabase'
+              - 'glue:CreateTable'
+              - 'glue:DeleteTable'
+              - 'glue:BatchCreatePartition'
+            Resource: '*'
+
+          # Athena has no mode that avoids writing results, so this is the one write a
+          # CUR-reading role needs. Scoped to its own prefix inside the report bucket.
+          - Sid: 'XamOpsCurAthenaResultsWrite'
+            Effect: Allow
+            Action:
+              - 's3:PutObject'
+              - 's3:AbortMultipartUpload'
+            Resource: !Sub 'arn:aws:s3:::${XamOpsCurReport.Outputs.CurBucketName}/xamops-athena-results/*'
+
+Outputs:
+
+  CurBucketName:
+    Description: Bucket now holding this account's Cost and Usage Report.
+    Value: !GetAtt XamOpsCurReport.Outputs.CurBucketName
+
+  CurReportName:
+    Description: Report name. XamOps discovers this automatically.
+    Value: !GetAtt XamOpsCurReport.Outputs.CurReportName
+
+  AttachedToRole:
+    Description: The existing XamOps role these permissions were added to.
+    Value: !Ref XamOpsRoleName
+
+  WhenDataAppears:
+    Description: When to expect cost data.
+    Value: >
+      AWS delivers the first report within 24 hours, then refreshes it up to three times a
+      day. Until then XamOps continues to serve cost data from the Cost Explorer API. The
+      report starts from the current month and does not backfill, so earlier months stay
+      unavailable at this level of detail.
