@@ -154,3 +154,42 @@ export const fetchDataTransferCosts = async (
   if (!res.ok) return null;
   return (await res.json()) as TransferCharge[];
 };
+
+/** One resource's cost for a month. An empty `resourceId` is an account-level charge. */
+export interface ResourceCost {
+  /** e.g. "i-0a3f2b1c8d4e5f6a7", or "" for tax, support and other resource-less charges. */
+  resourceId: string;
+  service: string;
+  region: string;
+  /** Instance type where the resource has one; empty otherwise. */
+  instanceType: string;
+  cost: number;
+}
+
+export interface TopResources {
+  resources: ResourceCost[];
+  /** Every resource in the period, not only the returned ones. */
+  totalCost: number;
+  /** How many there were in total, so the caller can say what it is not showing. */
+  groupCount: number;
+}
+
+/**
+ * What each individual resource cost, most expensive first.
+ *
+ * Has no Cost Explorer equivalent: CE's resource-level view covers EC2 alone and retains
+ * fourteen days, so this is the only way to answer "which bucket is the $2,527".
+ *
+ * Null means "no report for this account" — the caller should omit the section.
+ */
+export const fetchTopResources = async (
+  accountId: string,
+  period?: string,
+): Promise<TopResources | null> => {
+  const query = period ? `?period=${encodeURIComponent(period)}` : '';
+  const res = await apiFetch(
+    `/api/xamops/cur-insights/top-resources/${encodeURIComponent(accountId)}${query}`,
+  );
+  if (!res.ok) return null;
+  return (await res.json()) as TopResources;
+};

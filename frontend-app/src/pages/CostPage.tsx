@@ -32,6 +32,7 @@ import CostBreakdownSection from '../components/Cost/CostBreakdownSection';
 import PriceVsVolumeSection from '../components/Cost/PriceVsVolumeSection';
 import ChargesByServiceSection from '../components/Cost/ChargesByServiceSection';
 import DataTransferSection from '../components/Cost/DataTransferSection';
+import TopResourcesSection from '../components/Cost/TopResourcesSection';
 import HistoricalTrendChart from '../components/Cost/HistoricalTrendChart';
 import CostForecastChart from '../components/Cost/CostForecastChart';
 import CostBudgetDashboard from '../components/Cost/CostBudgetDashboard';
@@ -364,6 +365,12 @@ const CostPage: React.FC = () => {
                 first question is what was billed; the comparison explains it afterwards. */}
             <RevealSection>
               <ChargesByServiceSection accountId={curAccountId} />
+            </RevealSection>
+
+            {/* Per-resource cost, immediately under the invoice it drills into: the table
+                above stops at "S3 — $2,527", and this says which bucket. */}
+            <RevealSection>
+              <TopResourcesSection accountId={curAccountId} />
             </RevealSection>
 
             {/* Network costs, directly under the invoice. They are scattered across every

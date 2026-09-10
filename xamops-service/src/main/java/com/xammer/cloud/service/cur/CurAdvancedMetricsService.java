@@ -27,6 +27,16 @@ public class CurAdvancedMetricsService {
 
     private static final Logger logger = LoggerFactory.getLogger(CurAdvancedMetricsService.class);
 
+    /**
+     * Ceiling on resources returned in one response.
+     *
+     * <p>Grouping by resource id is by far the widest aggregation here — an account with
+     * heavy S3 or Lambda use produces thousands of groups — and every one of them crosses
+     * the wire and renders. Ordered by cost, the tail beyond this is rounding; the true
+     * total travels separately so nothing is misreported.
+     */
+    private static final int MAX_RESOURCES = 500;
+
     private final CurAthenaQueryService athena;
 
     public CurAdvancedMetricsService(CurAthenaQueryService athena) {
@@ -242,6 +252,65 @@ public class CurAdvancedMetricsService {
         logger.info("✅ [CUR] Charges by service — {} rows for account {} ({} to {})",
                 charges.size(), account.getAwsAccountId(), start, end);
         return charges;
+    }
+
+    // ── Cost per resource ───────────────────────────────────────────────────────
+
+    /**
+     * What each individual resource cost — the bucket, the instance, the volume.
+     *
+     * <p>No Cost Explorer equivalent exists. Its resource-level view covers EC2 alone and
+     * retains fourteen days, so "which of my buckets is the $2,527" has, until now, been
+     * unanswerable from the product: the service breakdown stops at "S3".
+     *
+     * <p>Charges with no resource — tax, support, some transfer — come back as rows with an
+     * empty id rather than being dropped. Filtering them would make this section's total
+     * disagree with the invoice, which is the same class of error as clamping the end date
+     * to today: defensible-looking, and wrong by a wide margin.
+     */
+    public TopResources getTopResources(CurSource source, CloudAccount account,
+                                        LocalDate start, LocalDate end) {
+        String cost = CurSql.numericExpr(source, "line_item_unblended_cost");
+        String resourceId = "COALESCE(NULLIF(line_item_resource_id, ''), '')";
+
+        // The window functions run after grouping and before the limit, so they describe
+        // every resource in the month rather than the page being returned. That is what
+        // lets the caller say "top 50 of 431, $2,367 in total" honestly — computing the
+        // total from the returned rows alone would silently understate it by the tail.
+        String sql = "SELECT resource_id, service, region, instance_type, cost,"
+                + " total_cost, group_count FROM ("
+                + "SELECT " + resourceId + " AS resource_id,"
+                + " product_product_name AS service,"
+                + " product_region AS region,"
+                + " MAX(product_instance_type) AS instance_type,"
+                + " SUM(" + cost + ") AS cost,"
+                + " SUM(SUM(" + cost + ")) OVER () AS total_cost,"
+                + " COUNT(*) OVER () AS group_count"
+                + " FROM " + source.qualifiedTable()
+                + " WHERE " + accountPredicate(account)
+                + " AND " + CurSql.partitionPredicate(source, start, end)
+                + " AND " + CurSql.usageDatePredicate(source, start, end)
+                + " GROUP BY " + resourceId + ", product_product_name, product_region"
+                + ") ORDER BY cost DESC LIMIT " + MAX_RESOURCES;
+
+        List<ResourceCost> resources = new ArrayList<>();
+        double totalCost = 0;
+        long groupCount = 0;
+        for (Map<String, String> row : athena.query(source, account, sql)) {
+            resources.add(new ResourceCost(
+                    blankTo(row.get("resource_id"), ""),
+                    blankTo(row.get("service"), "Other"),
+                    blankTo(row.get("region"), "Global"),
+                    blankTo(row.get("instance_type"), ""),
+                    parse(row.get("cost"))));
+            // Identical on every row — the window is unpartitioned.
+            totalCost = parse(row.get("total_cost"));
+            groupCount = (long) parse(row.get("group_count"));
+        }
+
+        logger.info("✅ [CUR] Top resources — {} of {} rows, ${} total for account {} ({} to {})",
+                resources.size(), groupCount, totalCost, account.getAwsAccountId(), start, end);
+        return new TopResources(resources, totalCost, groupCount);
     }
 
     // ── Data transfer and network costs ─────────────────────────────────────────
@@ -465,6 +534,25 @@ public class CurAdvancedMetricsService {
     /** One billed line as the invoice shows it. */
     public record ServiceCharge(String service, String region, String description,
                                 String usageType, String unit, double quantity, double cost) {
+    }
+
+    /**
+     * One resource's cost for the period.
+     *
+     * <p>An empty {@code resourceId} marks a charge that belongs to no resource — tax,
+     * support, subscriptions — which the caller groups separately rather than hiding.
+     */
+    public record ResourceCost(String resourceId, String service, String region,
+                               String instanceType, double cost) {
+    }
+
+    /**
+     * A page of resources plus the totals needed to say what it leaves out.
+     *
+     * @param totalCost  every resource in the period, not just the returned ones
+     * @param groupCount how many there were in total
+     */
+    public record TopResources(List<ResourceCost> resources, double totalCost, long groupCount) {
     }
 
     /** One network charge, categorised by what drives it. */

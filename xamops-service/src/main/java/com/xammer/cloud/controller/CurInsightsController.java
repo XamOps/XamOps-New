@@ -66,6 +66,19 @@ public class CurInsightsController {
     }
 
     /**
+     * What each individual resource cost, most expensive first.
+     *
+     * <p>Capped server-side; the response carries the full total and count so a client can
+     * say what it is not showing.
+     */
+    @GetMapping("/top-resources/{accountId}")
+    public ResponseEntity<?> topResources(@PathVariable String accountId,
+                                          @RequestParam(required = false) String period) {
+        return withSource(accountId, period, (source, account, start, end) ->
+                metricsService.getTopResources(source, account, start, end));
+    }
+
+    /**
      * Data transfer and network costs, grouped by what drives them.
      *
      * <p>Defaults to the current month — a breakdown of what has been billed, so it is
