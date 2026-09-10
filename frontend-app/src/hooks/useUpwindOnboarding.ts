@@ -106,3 +106,95 @@ export async function fetchSensorCommand(): Promise<{ command: string; target: s
   return apiClient.post<{ command: string; target: string }>(
     '/api/xamsecure/onboarding/sensor-command');
 }
+
+export interface KubernetesSurveyCommand {
+  command: string;
+  target: 'kubernetes';
+  /** Always 'survey': the survey emits the install command, tailored to the cluster it inspects. */
+  phase: string;
+  cloudAccountId: string;
+  clusterName: string;
+  cloudProvider: string;
+  requiresKubernetesJobs: boolean;
+}
+
+export interface EcsVpcCandidate {
+  vpcId: string;
+  name: string | null;
+  cidrBlock: string | null;
+  region: string | null;
+  isDefault: boolean;
+  subnets: string[];
+  /** Account-level, not per VPC — NAT gateways carry no VPC reference upstream. */
+  accountHasNatGateway: boolean;
+}
+
+export type EcsLaunchType = 'EC2' | 'FARGATE';
+
+export interface EcsDeployment {
+  cloudAccountId: string;
+  launchType: EcsLaunchType;
+  clusters: string[];
+  vpcs: EcsVpcCandidate[];
+  /** Pre-resolved template parameters, including the sensor credential. */
+  parameters: Record<string, string>;
+  /** Empty until Upwind gives us the published ECS template URL for this launch type. */
+  templateUrl: string;
+  /** What the stack deploys. EC2 and Fargate are different stacks, not one stack with a flag. */
+  components: string[];
+  /** Cluster-manager ingress ports needed from the VPC CIDR. */
+  securityGroupPorts: number[];
+  notes: string[];
+}
+
+/**
+ * Resolved CloudFormation parameters for the ECS sensor stack on one account.
+ *
+ * POST, and the response embeds a shared credential — do not cache it.
+ */
+export async function fetchEcsDeployment(
+  cloudAccountId: string, launchType: EcsLaunchType,
+): Promise<EcsDeployment> {
+  return apiClient.post<EcsDeployment>(
+    '/api/xamsecure/onboarding/ecs-deployment', { cloudAccountId, launchType });
+}
+
+export interface EcsLaunch {
+  launchUrl: string;
+  stackName: string;
+  launchType: EcsLaunchType;
+  region: string;
+  clusterName: string;
+}
+
+/**
+ * Pre-filled CloudFormation quick-create URL for the ECS sensor stack.
+ *
+ * The URL carries the shared Sensor credential in its query string, so it is a credential: never
+ * hold it in state longer than the click needs, and never put it in an href that survives a render.
+ */
+export async function fetchEcsLaunchUrl(args: {
+  cloudAccountId: string;
+  launchType: EcsLaunchType;
+  clusterName: string;
+  vpcId: string;
+  vpcCidr: string;
+  subnets: string[];
+  region: string;
+}): Promise<EcsLaunch> {
+  return apiClient.post<EcsLaunch>('/api/xamsecure/onboarding/ecs-launch-url', args);
+}
+
+/**
+ * Kubernetes sensor survey command for one account and cluster.
+ *
+ * Parameterized, unlike the host script — the cluster name and provider go into the command — so
+ * this takes arguments and is a POST. The response embeds a shared credential, so callers must not
+ * cache it or hold it longer than the copy action needs.
+ */
+export async function fetchKubernetesCommand(
+  cloudAccountId: string, clusterName: string,
+): Promise<KubernetesSurveyCommand> {
+  return apiClient.post<KubernetesSurveyCommand>(
+    '/api/xamsecure/onboarding/kubernetes-command', { cloudAccountId, clusterName });
+}

@@ -70,6 +70,23 @@ public class UpwindOnboardingService {
     private String upwindRegion;
 
     /**
+     * Upwind's ECS sensor CloudFormation template for the EC2 launch type.
+     *
+     * Empty by default and deliberately not guessed. The account-onboarding template has a known
+     * published URL; the ECS ones have not been given to us, and self-hosting a copy is the wrong
+     * answer — the templates pin {@code registry.upwind.io/images/agent:0.130.3} and
+     * {@code cluster-agent:0.64.4}, so a saved copy silently deploys an ageing sensor. When the
+     * URL is set, the UI can offer a pre-filled quick-create link; until then it shows the
+     * resolved parameters for the customer to paste into Upwind's own console.
+     */
+    @Value("${upwind.onboarding.ecs-template-url:}")
+    private String ecsTemplateUrl;
+
+    /** Upwind's ECS template for the Fargate launch type — a different stack, not a parameter. */
+    @Value("${upwind.onboarding.ecs-fargate-template-url:}")
+    private String ecsFargateTemplateUrl;
+
+    /**
      * Region the stack is deployed into.
      *
      * Upwind's template sources its onboarding Lambda from
@@ -158,8 +175,10 @@ public class UpwindOnboardingService {
      * engineered: the flag names, the {@code scanner-v2=true} extra config and the pipe-to-bash
      * shape are Upwind's, not ours to invent. It is NOT parameterized per account or cluster —
      * unlike the CloudFormation stack, the same script is correct for every host, so there is
-     * nothing here to key by cloud account id. Kubernetes/ECS sensor deployment uses a different
-     * (Helm) command this does not cover.
+     * nothing here to key by cloud account id.
+     *
+     * <p>Kubernetes uses a different command and IS parameterized — see
+     * {@link #renderKubernetesSurveyCommand}.
      *
      * <p>The credential is embedded directly rather than exported once and referenced, matching
      * what the console itself renders — Upwind's own template exports {@code CLIENT_SECRET} as a
@@ -180,6 +199,367 @@ public class UpwindOnboardingService {
                 + "UPWIND_CLIENT_SECRET=\"$CLIENT_SECRET\" \\\n"
                 + "UPWIND_AGENT_EXTRA_CONFIG=\"scanner-v2=true\" \\\n"
                 + "bash -s";
+    }
+
+    /**
+     * Upwind's {@code --cloud-provider} token per provider we hold accounts for.
+     *
+     * Only {@code aws} is VERIFIED — it is what the console emitted in the Kubernetes survey
+     * command we copied. The other two are inferred from Upwind's own vocabulary elsewhere in the
+     * API ({@code cloud_provider} values, credential {@code provider.name}) and should be
+     * confirmed against the console before being offered to a customer. Anything not listed is
+     * rejected rather than guessed: a wrong provider flag produces a sensor that silently attaches
+     * telemetry to the wrong cloud.
+     */
+    private static final Map<String, String> K8S_PROVIDER_FLAG = Map.of(
+            "AWS", "aws",
+            "AZURE", "azure",
+            "GCP", "gcp");
+
+    /**
+     * Cluster names we will interpolate into a shell command.
+     *
+     * The customer types this and then runs the result in their own terminal, so an unvalidated
+     * value is a command-injection vector we would be handing them ready-made. Kubernetes object
+     * names are already restricted to this shape, so rejecting anything else costs nothing.
+     */
+    private static final java.util.regex.Pattern CLUSTER_NAME =
+            java.util.regex.Pattern.compile("^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$");
+
+    /**
+     * Resolves the CloudFormation parameters Upwind's ECS sensor stack needs, for one of the
+     * caller's own accounts.
+     *
+     * <p>Upwind's ECS template ("Connect an AWS ECS cluster" -> EC2 launch type) asks for
+     * {@code ClusterName}, {@code VPCID}, {@code VPCCIDRBlock} and {@code Subnets} on top of the
+     * sensor credential. Three of those four are the reason this deployment fails: the template's
+     * own Rules reject an empty ClusterName or VPCID, {@code VPCCIDRBlock} has no default and
+     * feeds the security-group ingress rule, and {@code Subnets} must be PRIVATE subnets with NAT
+     * access or the cluster manager's ENI comes up with no route out. A customer filling those in
+     * by hand, from memory, in a console they visit once, is where the time goes.
+     *
+     * <p>So this reads them out of the inventory instead. The candidates come from the live
+     * relationship search rather than our synced catalog because the catalog does not carry
+     * {@code cidr_block} or {@code subnet_id} — only the relationship endpoint returns those.
+     *
+     * <p><b>What this deliberately does NOT claim:</b> which subnets are private. Route-table
+     * associations are not exposed in the inventory (route tables carry no VPC reference at all),
+     * so private-ness cannot be determined and guessing it would produce a stack that deploys and
+     * then silently fails to report. Subnets are listed per VPC for the customer to choose from,
+     * and whether the VPC has a NAT gateway at all IS reported, since that much is knowable.
+     *
+     * <p><b>The response contains the shared Sensor client secret.</b> Same handling as the
+     * CloudFormation launch URL and the Kubernetes command.
+     */
+    public Map<String, Object> resolveEcsDeployment(Long clientId, String cloudAccountId,
+                                                    String launchType) {
+        if (!isSensorConfigured()) {
+            throw new IllegalStateException(
+                    "Sensor deployment is not configured: set upwind.sensor.client-id and "
+                    + "upwind.sensor.client-secret (type 'Sensor' credentials from the Upwind "
+                    + "console — not the Cloud account or API credentials).");
+        }
+        requireAllowed(clientId);
+        CloudAccount account = ownedAccount(clientId, cloudAccountId);
+        if (!"AWS".equalsIgnoreCase(account.getProvider())) {
+            throw new IllegalArgumentException(
+                    "ECS runs on AWS only; this account is " + account.getProvider() + ".");
+        }
+        String launch = launchType == null || launchType.isBlank()
+                ? "EC2" : launchType.trim().toUpperCase();
+        if (!"EC2".equals(launch) && !"FARGATE".equals(launch)) {
+            throw new IllegalArgumentException("launchType must be EC2 or FARGATE.");
+        }
+        boolean fargate = "FARGATE".equals(launch);
+
+        // Clusters, VPCs (for the CIDR) and network interfaces (for subnet ids), from the one
+        // endpoint that returns those fields. Failures degrade to an empty candidate list rather
+        // than an error: the customer can still fill the form in by hand.
+        List<String> clusters = new java.util.ArrayList<>();
+        List<Map<String, Object>> vpcs = new java.util.ArrayList<>();
+        try {
+            for (JsonNode c : apiClient.searchAssetsByLabel("aws_ecs_cluster", cloudAccountId, 500)) {
+                String name = c.path("name").asText(null);
+                if (name != null && !name.isBlank()) clusters.add(name);
+            }
+            // subnet ids and NAT presence per VPC
+            Map<String, java.util.Set<String>> subnetsByVpc = new LinkedHashMap<>();
+            for (JsonNode e : apiClient.searchAssetsByLabel(
+                    "aws_elastic_network_interface", cloudAccountId, 5000)) {
+                String vpc = e.path("vpc_id").asText(null);
+                String subnet = e.path("subnet_id").asText(null);
+                if (vpc == null || subnet == null || vpc.isBlank() || subnet.isBlank()) continue;
+                subnetsByVpc.computeIfAbsent(vpc, k -> new java.util.LinkedHashSet<>()).add(subnet);
+            }
+            boolean anyNat = !apiClient.searchAssetsByLabel(
+                    "aws_nat_gateway", cloudAccountId, 200).isEmpty();
+
+            for (JsonNode v : apiClient.searchAssetsByLabel("aws_vpc", cloudAccountId, 500)) {
+                String vpcId = UpwindAssetIds.canonicalResourceId(
+                        v.path("cloud_resource_id").asText(null));
+                if (vpcId == null) continue;
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("vpcId", vpcId);
+                row.put("name", v.path("name").asText(null));
+                row.put("cidrBlock", v.path("cidr_block").asText(null));
+                row.put("region", v.path("region").asText(null));
+                row.put("isDefault", v.path("is_default").asBoolean(false));
+                row.put("subnets", new java.util.ArrayList<>(
+                        subnetsByVpc.getOrDefault(vpcId, java.util.Set.of())));
+                // Account-level, not per VPC: NAT gateways carry no VPC reference, so this says
+                // "this account has NAT somewhere", which is weaker than it looks and is labelled
+                // as such rather than presented as a per-VPC verdict.
+                row.put("accountHasNatGateway", anyNat);
+                vpcs.add(row);
+            }
+        } catch (Exception e) {
+            log.warn("[Upwind] ECS parameter resolution failed for account {}: {}",
+                    cloudAccountId, e.getMessage());
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("cloudAccountId", cloudAccountId);
+        out.put("launchType", launch);
+        out.put("clusters", clusters);
+        out.put("vpcs", vpcs);
+
+        // Template parameters the customer does not have to work out.
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("UpwindClientId", sensorClientId);
+        params.put("UpwindClientSecret", sensorClientSecret);
+        // Upwind's region (us|eu|me|ap), NOT the AWS stack region — the template's Region
+        // parameter selects which auth/agent endpoints the sensor talks to, and passing an AWS
+        // region here would fail its AllowedValues check.
+        params.put("Region", upwindRegion == null || upwindRegion.isBlank() ? "us" : upwindRegion);
+        out.put("parameters", params);
+        out.put("templateUrl", (fargate ? ecsFargateTemplateUrl : ecsTemplateUrl) == null
+                ? "" : (fargate ? ecsFargateTemplateUrl : ecsTemplateUrl));
+
+        // What the stack actually deploys. The two launch types are genuinely different stacks,
+        // not one stack with a flag, and the difference decides what telemetry the customer gets.
+        //
+        // EC2 runs a privileged sensor and a scanner as DAEMON services on the container
+        // instances, plus a cluster manager. Fargate cannot run a privileged host daemon at all,
+        // so its template deploys ONLY the cluster manager, with a tracer sidecar sharing the task
+        // and SYS_PTRACE. Saying so matters: someone expecting per-host runtime coverage on
+        // Fargate will not get it in the shape EC2 gives it.
+        out.put("components", fargate
+                ? List.of("Cluster manager (Fargate task, with tracer sidecar)")
+                : List.of("Sensor (DAEMON on every container instance, privileged)",
+                          "Scanner (DAEMON, vulnerability scanning — can be disabled)",
+                          "Cluster manager (one task)"));
+        // Security-group ingress the cluster manager needs from the VPC CIDR. EC2 additionally
+        // needs 8444 because its sensors report over grpcs; Fargate's tracer path uses 8082 only.
+        out.put("securityGroupPorts", fargate ? List.of(8082) : List.of(8082, 8444));
+
+        List<String> notes = new java.util.ArrayList<>();
+        notes.add("Subnets must be PRIVATE subnets with NAT gateway access — the cluster "
+                + "manager's network interface needs a route out.");
+        notes.add("The template pins container image versions, so use Upwind's current template "
+                + "rather than a saved copy.");
+        if (fargate) {
+            notes.add("Fargate deploys the cluster manager only. There is no per-host sensor or "
+                    + "scanner, because Fargate does not permit a privileged host daemon — so "
+                    + "runtime coverage on Fargate tasks differs from EC2.");
+            notes.add("ClusterManagerCPUArchitecture must match your tasks: X86_64 or ARM64.");
+            notes.add("MultiCluster=true lets one cluster manager read several ECS clusters, but "
+                    + "it widens the task role's ecs:DescribeTasks permission to every cluster in "
+                    + "the account. Leave it false unless you need it.");
+        } else {
+            notes.add("The sensor runs privileged with SYS_ADMIN and NET_ADMIN and mounts the "
+                    + "Docker socket on each container instance — worth knowing before approval.");
+            notes.add("ScannerEnabled=false skips the vulnerability scanner if you only want "
+                    + "runtime detection.");
+        }
+        out.put("notes", notes);
+        return out;
+    }
+
+    /** CloudFormation stack names allow letters, digits and hyphens, and must start with a letter. */
+    private static String ecsStackName(String prefix, String clusterName) {
+        String safe = clusterName.replaceAll("[^A-Za-z0-9-]", "-");
+        // ECS cluster names permit underscores; stack names do not, so the substitution above is
+        // required rather than cosmetic — an underscore fails stack creation outright.
+        return (prefix + "-" + safe).replaceAll("-{2,}", "-");
+    }
+
+    /**
+     * Pre-filled CloudFormation quick-create URL for the ECS sensor stack.
+     *
+     * <p>Built server-side for the same reason as the account-onboarding link: the query string
+     * carries the shared Sensor credential, so it is a credential itself — handed to the
+     * authenticated customer over TLS, never logged, never persisted.
+     *
+     * <p>Everything the customer chose is validated before it goes into a URL. {@code Subnets} is a
+     * {@code List<String>} in the template, which quick-create passes as a comma-separated value.
+     *
+     * @param launchType EC2 or FARGATE — two different templates, not one with a flag
+     */
+    public Map<String, Object> ecsLaunchUrl(Long clientId, String cloudAccountId, String launchType,
+                                            String clusterName, String vpcId, String vpcCidr,
+                                            List<String> subnets, String region) {
+        if (!isSensorConfigured()) {
+            throw new IllegalStateException("Sensor deployment is not configured.");
+        }
+        requireAllowed(clientId);
+        CloudAccount account = ownedAccount(clientId, cloudAccountId);
+        if (!"AWS".equalsIgnoreCase(account.getProvider())) {
+            throw new IllegalArgumentException("ECS runs on AWS only.");
+        }
+        boolean fargate = "FARGATE".equalsIgnoreCase(launchType);
+        String template = fargate ? ecsFargateTemplateUrl : ecsTemplateUrl;
+        if (template == null || template.isBlank()) {
+            throw new IllegalStateException(
+                    "The ECS " + (fargate ? "Fargate" : "EC2") + " template URL is not configured "
+                    + "(upwind.onboarding.ecs" + (fargate ? "-fargate" : "") + "-template-url).");
+        }
+
+        String cluster = clusterName == null ? "" : clusterName.trim();
+        if (!CLUSTER_NAME.matcher(cluster).matches()) {
+            throw new IllegalArgumentException("Cluster name is not a valid ECS cluster name.");
+        }
+        if (vpcId == null || !VPC_ID.matcher(vpcId.trim()).matches()) {
+            throw new IllegalArgumentException("VPC id must look like vpc-0123456789abcdef.");
+        }
+        String cidr = vpcCidr == null ? "" : vpcCidr.trim();
+        if (!CIDR.matcher(cidr).matches()) {
+            throw new IllegalArgumentException("VPC CIDR must look like 10.0.0.0/16.");
+        }
+        List<String> subnetIds = subnets == null ? List.of() : subnets.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+        if (subnetIds.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "At least one private subnet with NAT access is required.");
+        }
+        for (String s : subnetIds) {
+            if (!SUBNET_ID.matcher(s).matches()) {
+                throw new IllegalArgumentException(
+                        "Subnet id must look like subnet-0123456789abcdef: " + s);
+            }
+        }
+
+        String stackName = ecsStackName(fargate ? "upwind-ecs-fargate" : "upwind-ecs-sensor", cluster);
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("stackName", stackName);
+        params.put("param_ClusterName", cluster);
+        params.put("param_VPCID", vpcId.trim());
+        params.put("param_VPCCIDRBlock", cidr);
+        params.put("param_Subnets", String.join(",", subnetIds));
+        params.put("param_UpwindClientId", sensorClientId);
+        params.put("param_UpwindClientSecret", sensorClientSecret);
+        params.put("param_Region", upwindRegion == null || upwindRegion.isBlank()
+                ? "us" : upwindRegion);
+
+        // The stack must be created in the region the cluster is in, not our default onboarding
+        // region: the ECS service, the VPC and the subnets are all regional, and a stack in the
+        // wrong region cannot see any of them. CloudAccount carries no region, so this comes from
+        // the VPC the customer selected — the inventory reports a region per VPC.
+        String stackIn = region == null || !AWS_REGION.matcher(region.trim()).matches()
+                ? stackRegion : region.trim();
+
+        StringBuilder q = new StringBuilder();
+        q.append("templateURL=").append(enc(template));
+        params.forEach((k, v) -> q.append('&').append(k).append('=').append(enc(v)));
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("launchUrl", "https://" + stackIn + ".console.aws.amazon.com/cloudformation/home"
+                + "?region=" + enc(stackIn) + "#/stacks/quickcreate?" + q);
+        out.put("stackName", stackName);
+        out.put("launchType", fargate ? "FARGATE" : "EC2");
+        out.put("region", stackIn);
+        out.put("clusterName", cluster);
+        log.info("[Upwind] ECS {} launch URL built for client {} account {} cluster {}",
+                out.get("launchType"), clientId, cloudAccountId, cluster);
+        return out;
+    }
+
+    /** e.g. ap-south-1, us-east-2. Rejected values fall back to the configured stack region. */
+    private static final java.util.regex.Pattern AWS_REGION =
+            java.util.regex.Pattern.compile("^[a-z]{2}(-[a-z]+)+-\\d$");
+
+    private static final java.util.regex.Pattern VPC_ID =
+            java.util.regex.Pattern.compile("^vpc-[0-9a-f]{6,}$");
+    private static final java.util.regex.Pattern SUBNET_ID =
+            java.util.regex.Pattern.compile("^subnet-[0-9a-f]{6,}$");
+    /** Enough to reject a wrong value; CloudFormation validates the rest. */
+    private static final java.util.regex.Pattern CIDR =
+            java.util.regex.Pattern.compile("^\\d{1,3}(\\.\\d{1,3}){3}/\\d{1,2}$");
+
+    /**
+     * Renders Upwind's Kubernetes sensor SURVEY command for one of the caller's own accounts.
+     *
+     * <p>Copied from the Upwind console ("Connect Kubernetes Cluster" -> Automatic survey), with
+     * the shared Sensor credential injected server-side. Flag names and the
+     * {@code upwindctl.sh ... kubernetes survey} shape are Upwind's.
+     *
+     * <p>This is deliberately the SURVEY command rather than an install command. Upwind's flow is
+     * two-phase: the survey inspects the cluster — proxy and metadata-service restrictions, core
+     * count — and then emits an install command carrying resource limits and a replica count
+     * tailored to that cluster. We cannot compute those numbers from outside the cluster, and
+     * guessing them is how a sensor daemonset gets OOM-killed or under-replicated on a large
+     * estate. So we hand over the survey and let Upwind's own tooling generate the install step.
+     *
+     * <p><b>The returned string contains the shared Sensor client secret.</b> Same handling as the
+     * CloudFormation launch URL: straight to the authenticated customer over TLS, never logged,
+     * never persisted.
+     *
+     * @throws AccessDeniedException    if the account does not belong to this client
+     * @throws IllegalArgumentException on an unsupported provider or a malformed cluster name
+     */
+    public Map<String, Object> renderKubernetesSurveyCommand(
+            Long clientId, String cloudAccountId, String clusterName) {
+        if (!isSensorConfigured()) {
+            throw new IllegalStateException(
+                    "Sensor deployment is not configured: set upwind.sensor.client-id and "
+                    + "upwind.sensor.client-secret (type 'Sensor' credentials from the Upwind "
+                    + "console — not the Cloud account or API credentials).");
+        }
+        requireAllowed(clientId);
+        // Tenancy: resolve through the client's own accounts rather than trusting the id on the
+        // request, exactly as createLaunchUrl does.
+        CloudAccount account = ownedAccount(clientId, cloudAccountId);
+
+        String provider = account.getProvider() == null ? "" : account.getProvider().toUpperCase();
+        String providerFlag = K8S_PROVIDER_FLAG.get(provider);
+        if (providerFlag == null) {
+            throw new IllegalArgumentException(
+                    "Kubernetes sensor deployment is not available for provider '"
+                    + account.getProvider() + "'. Supported: "
+                    + String.join(", ", K8S_PROVIDER_FLAG.keySet()) + ".");
+        }
+        String cluster = clusterName == null ? "" : clusterName.trim();
+        if (!CLUSTER_NAME.matcher(cluster).matches()) {
+            throw new IllegalArgumentException(
+                    "Cluster name must start with a letter or digit and contain only letters, "
+                    + "digits, dots, dashes or underscores.");
+        }
+
+        String command = "curl -s https://get.upwind.io/upwindctl.sh | bash -s -- \\\n"
+                + "  kubernetes survey \\\n"
+                + "  --client-id=" + sensorClientId + " \\\n"
+                + "  --client-secret=" + sensorClientSecret + " \\\n"
+                + "  --cloud-provider=" + providerFlag + " \\\n"
+                + "  --cloud-account-id=" + cloudAccountId + " \\\n"
+                + "  --cluster-name=" + cluster;
+
+        // Account id and cluster name only — the command itself carries the secret.
+        log.info("[Upwind] rendered Kubernetes survey command for client {} account {} cluster {}",
+                clientId, cloudAccountId, cluster);
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("command", command);
+        out.put("target", "kubernetes");
+        out.put("phase", "survey");
+        out.put("cloudAccountId", cloudAccountId);
+        out.put("clusterName", cluster);
+        out.put("cloudProvider", providerFlag);
+        // Surfaced so the UI can tell the customer what happens next instead of leaving them at a
+        // copied command: the survey prints an install command, and scan jobs must be permitted.
+        out.put("requiresKubernetesJobs", true);
+        return out;
     }
 
     /**
