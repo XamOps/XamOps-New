@@ -265,7 +265,7 @@ jobs:
               -e APP_IMPERSONATION_SECRET_KEY=${{ secrets.APP_IMPERSONATION_SECRET_KEY }} \
               -e APP_ENCRYPTION_SECRET_KEY=${{ secrets.APP_ENCRYPTION_SECRET_KEY }} \
               -e SPRING_DATASOURCE_URL=jdbc:postgresql://10.30.21.26:5432/xamops_db_uat \
-              -e EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://service-registry:8761/eureka/ \
+              -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ \
               -e SPRING_FLYWAY_OUT_OF_ORDER=true \
               -e MANAGEMENT_HEALTH_DB_ENABLED=false \
               -e MANAGEMENT_HEALTH_REDIS_ENABLED=false \
@@ -522,7 +522,7 @@ jobs:
               -e APP_ENCRYPTION_SECRET_KEY=${{ secrets.APP_ENCRYPTION_SECRET_KEY }} \
               -e APP_REMEMBER_ME_KEY=${{ secrets.APP_REMEMBER_ME_KEY }} \
               -e SPRING_DATASOURCE_URL=jdbc:postgresql://10.30.21.26:5432/xamops_db_uat \
-              -e EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://service-registry:8761/eureka/ \
+              -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ \
               -e SPRING_FLYWAY_OUT_OF_ORDER=true \
               -e UPWIND_SYNC_ENABLED=true \
               -e MANAGEMENT_SERVER_PORT=8080 \
@@ -867,7 +867,7 @@ jobs:
               -e SPRING_DATASOURCE_URL=jdbc:postgresql://10.30.21.26:5432/xamops_db_uat \
               -e REDIS_HOST=redis-uat \
               -e REDIS_PORT=6379 \
-              -e EUREKA_CLIENT_SERVICE_URL_DEFAULT_ZONE=http://service-registry:8761/eureka/ \
+              -e EUREKA_CLIENT_SERVICEURL_DEFAULTZONE=http://service-registry:8761/eureka/ \
               -e SPRING_FLYWAY_TABLE=flyway_schema_history_media_ops \
               -e SPRING_FLYWAY_BASELINE_ON_MIGRATE=true \
               -e SPRING_FLYWAY_BASELINE_VERSION=0 \
