@@ -208,6 +208,163 @@ class CurAdvancedMetricsServiceTest {
     }
 
     @Test
+    @DisplayName("Tag coverage measures dollars, and excludes charges that can carry no tag")
+    void tagCoverageIsCostWeightedAndSkipsAccountLevelCharges() {
+        when(tagColumns.exprsFor(any(), any(), any()))
+                .thenReturn(Map.of("cost-center", "resource_tags_user_cost_center"));
+        when(athena.query(any(), any(), anyString())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(2, String.class);
+            // Tax and support belong to no resource and can never be tagged; scoring them
+            // would put an unfixable floor under the number.
+            assertTrue(sql.contains("<> ''"), sql);
+            return List.of(Map.ofEntries(
+                    Map.entry("resource_id", "nat-0b07847ea0840d03b"),
+                    Map.entry("service", "Amazon Elastic Compute Cloud"),
+                    Map.entry("region", "us-east-1"),
+                    Map.entry("cost", "63.60"),
+                    Map.entry("allocated", "0.0"),
+                    Map.entry("total_cost", "2423.49"),
+                    Map.entry("total_allocated", "1972.29"),
+                    Map.entry("tagged_0", "0.0"),
+                    Map.entry("total_tagged_0", "1972.29"),
+                    Map.entry("untagged_count", "137"),
+                    Map.entry("service_untagged", "300.00"),
+                    Map.entry("service_untagged_count", "42"),
+                    Map.entry("global_rank", "1")));
+        });
+
+        CurAdvancedMetricsService.TagCoverage coverage =
+                service.getTagCoverage(source, account, start, end, List.of("cost-center"));
+
+        // Counted over every resource, not over the folded list — otherwise an account with
+        // more offenders than the cap reports the cap as its finding.
+        assertEquals(137L, coverage.untaggedCount());
+        assertEquals(2423.49, coverage.totalCost(), 0.0001);
+        assertEquals(1972.29, coverage.allocatedCost(), 0.0001);
+        assertEquals(451.20, coverage.byTag().get(0).untaggedCost(), 0.01);
+
+        // The service carries its own complete total, not the sum of the rows listed under
+        // it — one row came back, but it stands for 42.
+        CurAdvancedMetricsService.UntaggedService svc = coverage.untaggedServices().get(0);
+        assertEquals("Amazon Elastic Compute Cloud", svc.service());
+        assertEquals(300.00, svc.cost(), 0.0001);
+        assertEquals(42L, svc.resourceCount());
+        assertEquals(1, svc.resources().size());
+        // The resource is listed against its unattributed spend, not its total.
+        assertEquals(63.60, svc.resources().get(0).cost(), 0.0001);
+        assertEquals(List.of("cost-center"), svc.resources().get(0).missingTags());
+        // Ranked inside the head, so it counts toward "the top 20 are this much of it".
+        assertEquals(63.60, coverage.concentrationCost(), 0.0001);
+    }
+
+    @Test
+    @DisplayName("Window columns sit in the SELECT list, not after the GROUP BY")
+    void tagCoverageBuildsParseableSql() {
+        when(tagColumns.exprsFor(any(), any(), any()))
+                .thenReturn(Map.of("cost-center", "resource_tags_user_cost_center"));
+        when(athena.query(any(), any(), anyString())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(2, String.class);
+            // Athena is mocked here, so nothing else in this class would notice the window
+            // columns being concatenated onto the end of the finished statement — where
+            // they are a syntax error rather than a wrong answer.
+            int windows = sql.indexOf("AS service_untagged");
+            int groupBy = sql.indexOf("GROUP BY");
+            assertTrue(windows > 0 && groupBy > 0, sql);
+            assertTrue(windows < groupBy,
+                    "window columns must precede GROUP BY, got:\n" + sql);
+            // And the ranks they feed must be filtered in the enclosing query, not inline.
+            assertTrue(sql.lastIndexOf("WHERE service_rank") > groupBy, sql);
+            return List.of();
+        });
+
+        service.getTagCoverage(source, account, start, end, List.of("cost-center"));
+    }
+
+    @Test
+    @DisplayName("A resource outside the concentration head does not inflate its figure")
+    void tagCoverageConcentrationCountsOnlyTheHead() {
+        when(tagColumns.exprsFor(any(), any(), any()))
+                .thenReturn(Map.of("cost-center", "resource_tags_user_cost_center"));
+        when(athena.query(any(), any(), anyString())).thenReturn(List.of(
+                row("big", "1", "100.0"),
+                row("small", "97", "3.0")));
+
+        CurAdvancedMetricsService.TagCoverage coverage =
+                service.getTagCoverage(source, account, start, end, List.of("cost-center"));
+
+        assertEquals(100.0, coverage.concentrationCost(), 0.0001);
+        assertEquals(20, coverage.concentrationHead());
+    }
+
+    /** One untagged resource row, at a given global rank. */
+    private Map<String, String> row(String id, String globalRank, String cost) {
+        return Map.ofEntries(
+                Map.entry("resource_id", id),
+                Map.entry("service", "Amazon Elastic Compute Cloud"),
+                Map.entry("region", "ap-south-1"),
+                Map.entry("cost", cost),
+                Map.entry("allocated", "0.0"),
+                Map.entry("total_cost", "2423.49"),
+                Map.entry("total_allocated", "0.0"),
+                Map.entry("untagged_count", "1826"),
+                Map.entry("service_untagged", "2423.49"),
+                Map.entry("service_untagged_count", "1826"),
+                Map.entry("global_rank", globalRank),
+                Map.entry("tagged_0", "0.0"),
+                Map.entry("total_tagged_0", "0.0"));
+    }
+
+    @Test
+    @DisplayName("A tag missing from the report is reported unavailable, not scored as 0%")
+    void tagCoverageSeparatesUnavailableFromUntagged() {
+        when(tagColumns.exprsFor(any(), any(), any())).thenReturn(Map.of());
+        when(tagColumns.availableTagKeys(any(), any())).thenReturn(List.of("name"));
+
+        CurAdvancedMetricsService.TagCoverage coverage =
+                service.getTagCoverage(source, account, start, end, List.of("cost-center", "project"));
+
+        // Claiming 0% compliant would be a statement about the infrastructure when the
+        // truth is a setting in the billing console.
+        assertEquals(List.of("cost-center", "project"), coverage.unavailableTags());
+        assertTrue(coverage.checkedTags().isEmpty());
+        assertTrue(coverage.untaggedServices().isEmpty());
+    }
+
+    @Test
+    @DisplayName("Chargeback covers the same charges as coverage, so the two halves reconcile")
+    void costByTagExcludesAccountLevelCharges() {
+        when(tagColumns.exprsFor(any(), any(), any()))
+                .thenReturn(Map.of("cost-center", "resource_tags_user_cost_center"));
+        when(athena.query(any(), any(), anyString())).thenAnswer(invocation -> {
+            // Without this the split includes tax and support while the coverage total does
+            // not, and every share is computed against a smaller denominator than its own
+            // numerator — which is how a bar reads 103%.
+            assertTrue(invocation.getArgument(2, String.class)
+                    .contains("COALESCE(NULLIF(line_item_resource_id, ''), '') <> ''"));
+            return List.of(Map.of("tag_value", "platform", "cost", "1204.00", "resources", "12"));
+        });
+
+        assertEquals(1, service.getCostByTagValue(source, account, start, end, "cost-center").size());
+    }
+
+    @Test
+    @DisplayName("Chargeback files spend with no tag value under (unassigned) rather than dropping it")
+    void costByTagKeepsUnassignedSpend() {
+        when(tagColumns.exprsFor(any(), any(), any()))
+                .thenReturn(Map.of("cost-center", "resource_tags_user_cost_center"));
+        when(athena.query(any(), any(), contains("(unassigned)"))).thenReturn(List.of(
+                Map.of("tag_value", "platform", "cost", "1204.00", "resources", "12"),
+                Map.of("tag_value", "(unassigned)", "cost", "451.20", "resources", "37")));
+
+        List<CurAdvancedMetricsService.TagValueCost> byValue =
+                service.getCostByTagValue(source, account, start, end, "cost-center");
+
+        assertEquals(2, byValue.size());
+        assertEquals("(unassigned)", byValue.get(1).value());
+        assertEquals(37L, byValue.get(1).resourceCount());
+    }
+
+    @Test
     @DisplayName("A CSV report casts its numeric columns; Parquet does not need to")
     void csvSourcesCastNumerics() {
         source.setFormat("csv");

@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -36,6 +37,34 @@ public class CurAdvancedMetricsService {
      * total travels separately so nothing is misreported.
      */
     private static final int MAX_RESOURCES = 500;
+
+    /**
+     * How many offenders are listed inside one service.
+     *
+     * <p>Small on purpose. A flat list of every untagged resource is a wall rather than a
+     * work queue — the reader cannot act on a thousand rows, and paging through them finds
+     * nothing the first page did not already say. The service totals beside them are
+     * computed over every resource regardless, so nothing is hidden, only folded.
+     */
+    private static final int UNTAGGED_PER_SERVICE = 10;
+
+    /**
+     * How many of the costliest resources the concentration figure covers.
+     *
+     * <p>Reported so the caller can say what fraction of the problem the top of the list
+     * is. On a real bill it is most of it, which is what turns "1,826 untagged resources"
+     * from a hopeless backlog into an afternoon's work.
+     */
+    private static final int CONCENTRATION_HEAD = 20;
+
+    /** Ceiling on a bulk export, which is read by a script rather than by a person. */
+    private static final int MAX_UNTAGGED_EXPORT = 5000;
+
+    /** Ceiling on distinct tag values. A free-text tag can have thousands. */
+    private static final int MAX_TAG_VALUES = 50;
+
+    /** What spend with no value for the tag is filed under. */
+    private static final String UNASSIGNED = "(unassigned)";
 
     private final CurAthenaQueryService athena;
     private final CurTagColumns tagColumns;
@@ -324,6 +353,320 @@ public class CurAdvancedMetricsService {
         return new TopResources(resources, totalCost, groupCount);
     }
 
+    // ── Tag coverage and cost allocation ────────────────────────────────────────
+
+    /**
+     * How much of the bill can be attributed to an owner, and what cannot.
+     *
+     * <p>Deliberately measured in dollars rather than in resources. Counting resources
+     * answers a question nobody is asking: an account with 1,944 untagged AMIs and one
+     * untagged NAT gateway reports 0.1% compliance either way, but the AMIs cost cents and
+     * the gateway costs $63 — so a resource count sends the reader to fix the wrong thing
+     * first, every time. Ranked by spend, the list is a work queue.
+     *
+     * <p>Only tags the report actually carries are checked; see {@link CurTagColumns}. A
+     * required tag that was never activated for cost allocation is reported as
+     * unavailable rather than scored as universally missing, because the second is a claim
+     * about the infrastructure and the truth is a setting in the billing console.
+     *
+     * @param requiredTags the tag keys an owner is expected to carry, in priority order
+     */
+    public TagCoverage getTagCoverage(CurSource source, CloudAccount account,
+                                      LocalDate start, LocalDate end, List<String> requiredTags) {
+        Map<String, String> exprs = tagColumns.exprsFor(source, account, requiredTags);
+        List<String> missingFromReport = requiredTags.stream()
+                .filter(key -> !exprs.containsKey(key))
+                .toList();
+
+        if (exprs.isEmpty()) {
+            logger.info("[CUR] Tag coverage — none of {} are in the report for account {}",
+                    requiredTags, account.getAwsAccountId());
+            return new TagCoverage(List.of(), missingFromReport, 0, 0, List.of(), List.of(), 0,
+                    CONCENTRATION_HEAD, 0, tagColumns.availableTagKeys(source, account));
+        }
+
+        String cost = CurSql.numericExpr(source, "line_item_unblended_cost");
+        List<String> checked = List.copyOf(exprs.keySet());
+        TagPredicates tags = tagPredicates(cost, checked, exprs);
+
+        String nameExpr = tagColumns.resourceNameExpr(source, account).orElse(null);
+        String nameInner = nameExpr == null ? "" : " MAX(" + nameExpr + ") AS resource_name,";
+        String nameOuter = nameExpr == null ? "" : " resource_name,";
+        String untagged = "SUM(" + cost + ") - " + tags.allocated();
+
+        /*
+         * One scan answers three questions at three grains, because the list of offenders
+         * is not the deliverable — a thousand-row table is a wall, not a work queue.
+         *
+         *   - the whole account, from the unpartitioned windows;
+         *   - every service, complete and never truncated, from the windows partitioned by
+         *     service — so a service's total and count describe all of its resources even
+         *     though only its worst few rows come back;
+         *   - the worst few resources inside each service, from the per-service rank.
+         *
+         * The global rank rides along so the caller can say how concentrated the problem
+         * is. That is the number that turns "1,826 untagged resources" from a hopeless
+         * backlog into an afternoon: on a real bill the top twenty are most of the money.
+         */
+        String sql = "SELECT resource_id," + nameOuter + " service, region, cost, allocated,"
+                + " total_cost, total_allocated, untagged_count,"
+                + " service_untagged, service_untagged_count, global_rank,"
+                + tagTotalsSelectList(checked.size())
+                + " FROM ("
+                + resourceLevelSelect(source, account, start, end, cost, nameInner, tags,
+                        windowSelect(untagged))
+                + ") WHERE service_rank <= " + UNTAGGED_PER_SERVICE
+                + " OR global_rank <= " + CONCENTRATION_HEAD
+                + " ORDER BY (cost - allocated) DESC";
+
+        double totalCost = 0;
+        double totalAllocated = 0;
+        long untaggedCount = 0;
+        double headCost = 0;
+        double[] taggedByKey = new double[checked.size()];
+        Map<String, UntaggedServiceBuilder> byService = new LinkedHashMap<>();
+
+        for (Map<String, String> row : athena.query(source, account, sql)) {
+            // Identical on every row — these windows are unpartitioned.
+            totalCost = parse(row.get("total_cost"));
+            totalAllocated = parse(row.get("total_allocated"));
+            untaggedCount = (long) parse(row.get("untagged_count"));
+            for (int i = 0; i < checked.size(); i++) {
+                taggedByKey[i] = parse(row.get("total_tagged_" + i));
+            }
+
+            double unattributed = parse(row.get("cost")) - parse(row.get("allocated"));
+            if (unattributed <= 0.0001) {
+                continue;
+            }
+            if (parse(row.get("global_rank")) <= CONCENTRATION_HEAD) {
+                headCost += unattributed;
+            }
+
+            String service = blankTo(row.get("service"), "Other");
+            UntaggedServiceBuilder group = byService.computeIfAbsent(service, s ->
+                    new UntaggedServiceBuilder(s, parse(row.get("service_untagged")),
+                            (long) parse(row.get("service_untagged_count"))));
+            group.resources().add(new UntaggedResource(
+                    blankTo(row.get("resource_id"), ""),
+                    blankTo(row.get("resource_name"), ""),
+                    service,
+                    blankTo(row.get("region"), "Global"),
+                    unattributed,
+                    missingTagsFor(row, checked)));
+        }
+
+        List<UntaggedService> services = byService.values().stream()
+                .map(UntaggedServiceBuilder::build)
+                .sorted((a, b) -> Double.compare(b.cost(), a.cost()))
+                .toList();
+
+        List<TagKeyCoverage> byKey = new ArrayList<>();
+        for (int i = 0; i < checked.size(); i++) {
+            byKey.add(new TagKeyCoverage(checked.get(i), taggedByKey[i], totalCost - taggedByKey[i]));
+        }
+
+        logger.info("✅ [CUR] Tag coverage — ${} of ${} attributable, {} resources across {}"
+                        + " services with unattributed spend for account {} ({} to {})",
+                totalAllocated, totalCost, untaggedCount, services.size(),
+                account.getAwsAccountId(), start, end);
+        return new TagCoverage(checked, missingFromReport, totalCost, totalAllocated, byKey,
+                services, untaggedCount, CONCENTRATION_HEAD, headCost,
+                tagColumns.availableTagKeys(source, account));
+    }
+
+    /**
+     * Every resource with unattributed spend, for export.
+     *
+     * <p>The panel deliberately shows a handful; this is the same finding as a file, for
+     * the case the list is genuinely worked through in bulk — fed to a tagging script
+     * rather than read. Capped only to keep one query from returning a million rows.
+     */
+    public List<UntaggedResource> getAllUntaggedResources(CurSource source, CloudAccount account,
+                                                          LocalDate start, LocalDate end,
+                                                          List<String> requiredTags) {
+        Map<String, String> exprs = tagColumns.exprsFor(source, account, requiredTags);
+        if (exprs.isEmpty()) {
+            return List.of();
+        }
+
+        String cost = CurSql.numericExpr(source, "line_item_unblended_cost");
+        List<String> checked = List.copyOf(exprs.keySet());
+        TagPredicates tags = tagPredicates(cost, checked, exprs);
+
+        String nameExpr = tagColumns.resourceNameExpr(source, account).orElse(null);
+        String nameInner = nameExpr == null ? "" : " MAX(" + nameExpr + ") AS resource_name,";
+        String nameOuter = nameExpr == null ? "" : " resource_name,";
+
+        String sql = "SELECT resource_id," + nameOuter + " service, region, cost, allocated,"
+                + tagTotalsSelectList(checked.size())
+                + " FROM ("
+                + resourceLevelSelect(source, account, start, end, cost, nameInner, tags, "")
+                + ") WHERE cost - allocated > 0.0001"
+                + " ORDER BY (cost - allocated) DESC LIMIT " + MAX_UNTAGGED_EXPORT;
+
+        List<UntaggedResource> all = new ArrayList<>();
+        for (Map<String, String> row : athena.query(source, account, sql)) {
+            all.add(new UntaggedResource(
+                    blankTo(row.get("resource_id"), ""),
+                    blankTo(row.get("resource_name"), ""),
+                    blankTo(row.get("service"), "Other"),
+                    blankTo(row.get("region"), "Global"),
+                    parse(row.get("cost")) - parse(row.get("allocated")),
+                    missingTagsFor(row, checked)));
+        }
+
+        logger.info("✅ [CUR] Untagged export — {} resources for account {} ({} to {})",
+                all.size(), account.getAwsAccountId(), start, end);
+        return all;
+    }
+
+    /**
+     * Whether a line item carries each required tag, and all of them.
+     *
+     * <p>Cost is attributed at line-item level, not per resource: a tag added mid-month
+     * leaves the same resource partly attributable and partly not, and rounding that to
+     * "tagged" or "untagged" would misstate the very number this exists to report.
+     */
+    private TagPredicates tagPredicates(String cost, List<String> checked, Map<String, String> exprs) {
+        StringBuilder perKey = new StringBuilder();
+        StringBuilder allPresent = new StringBuilder();
+        for (int i = 0; i < checked.size(); i++) {
+            String present = "COALESCE(" + exprs.get(checked.get(i)) + ", '') <> ''";
+            perKey.append(" SUM(CASE WHEN ").append(present).append(" THEN ").append(cost)
+                    .append(" ELSE 0 END) AS tagged_").append(i).append(",")
+                    .append(" SUM(SUM(CASE WHEN ").append(present).append(" THEN ").append(cost)
+                    .append(" ELSE 0 END)) OVER () AS total_tagged_").append(i).append(",");
+            allPresent.append(i == 0 ? "" : " AND ").append(present);
+        }
+        return new TagPredicates(
+                "SUM(CASE WHEN " + allPresent + " THEN " + cost + " ELSE 0 END)",
+                perKey.toString());
+    }
+
+    /**
+     * One row per resource, with the account-wide totals riding along on each.
+     *
+     * @param extraWindows further window columns for the same grain, or "". They belong in
+     *                     the SELECT list, which is why they are threaded through here
+     *                     rather than concatenated onto the finished statement — appending
+     *                     them lands them after the GROUP BY, where they are a syntax error.
+     */
+    private String resourceLevelSelect(CurSource source, CloudAccount account,
+                                       LocalDate start, LocalDate end, String cost,
+                                       String nameInner, TagPredicates tags, String extraWindows) {
+        String resourceId = "COALESCE(NULLIF(line_item_resource_id, ''), '')";
+        return "SELECT " + resourceId + " AS resource_id,"
+                + nameInner
+                + " product_product_name AS service,"
+                + " product_region AS region,"
+                + " SUM(" + cost + ") AS cost,"
+                + " " + tags.allocated() + " AS allocated,"
+                + " SUM(SUM(" + cost + ")) OVER () AS total_cost,"
+                + " SUM(" + tags.allocated() + ") OVER () AS total_allocated,"
+                // Counted across every resource, not just the rows returned: reporting the
+                // length of a capped list as "N resources have untagged spend" states the
+                // cap as a finding on any account that exceeds it.
+                + " SUM(CASE WHEN SUM(" + cost + ") - " + tags.allocated() + " > 0.0001"
+                + " THEN 1 ELSE 0 END) OVER () AS untagged_count,"
+                // Trailing comma comes from the last per-key entry.
+                + tags.perKeySelects().substring(0, tags.perKeySelects().length() - 1)
+                + extraWindows
+                + " FROM " + source.qualifiedTable()
+                + " WHERE " + accountPredicate(account)
+                + " AND " + CurSql.partitionPredicate(source, start, end)
+                + " AND " + CurSql.usageDatePredicate(source, start, end)
+                // Tax, support and other account-level charges belong to no resource and
+                // can carry no tag. Scoring them as untagged would put a permanent,
+                // unfixable floor under the number.
+                + " AND " + resourceId + " <> ''"
+                + " GROUP BY " + resourceId + ", product_product_name, product_region";
+    }
+
+    /**
+     * Per-service totals and the two rankings, layered over the resource-level rows.
+     *
+     * <p>Partitioned by the column rather than by the {@code service} alias, which is not
+     * in scope in the same SELECT that defines it.
+     */
+    private String windowSelect(String untagged) {
+        return ", SUM(" + untagged + ") OVER (PARTITION BY product_product_name) AS service_untagged,"
+                + " SUM(CASE WHEN " + untagged + " > 0.0001 THEN 1 ELSE 0 END)"
+                + " OVER (PARTITION BY product_product_name) AS service_untagged_count,"
+                + " ROW_NUMBER() OVER (PARTITION BY product_product_name"
+                + " ORDER BY " + untagged + " DESC) AS service_rank,"
+                + " ROW_NUMBER() OVER (ORDER BY " + untagged + " DESC) AS global_rank";
+    }
+
+    /** The outer query has to name every per-tag window column the inner one built. */
+    private String tagTotalsSelectList(int keyCount) {
+        StringBuilder columns = new StringBuilder();
+        for (int i = 0; i < keyCount; i++) {
+            columns.append(" tagged_").append(i).append(", total_tagged_").append(i).append(",");
+        }
+        // Trailing comma is consumed by the " FROM (" the caller appends after a column.
+        return columns.substring(0, columns.length() - 1);
+    }
+
+    /** Which of the checked tags this resource is missing spend against. */
+    private List<String> missingTagsFor(Map<String, String> row, List<String> checked) {
+        double resourceCost = parse(row.get("cost"));
+        List<String> missing = new ArrayList<>();
+        for (int i = 0; i < checked.size(); i++) {
+            if (parse(row.get("tagged_" + i)) < resourceCost - 0.0001) {
+                missing.add(checked.get(i));
+            }
+        }
+        return missing;
+    }
+
+    /**
+     * Spend under one tag, by value — the chargeback view.
+     *
+     * <p>Untagged spend is returned as its own entry rather than dropped, because a
+     * showback report that quietly omits what nobody owns adds up to less than the bill,
+     * and the gap is exactly the number the finance team is looking for.
+     */
+    public List<TagValueCost> getCostByTagValue(CurSource source, CloudAccount account,
+                                                LocalDate start, LocalDate end, String tagKey) {
+        Map<String, String> exprs = tagColumns.exprsFor(source, account, List.of(tagKey));
+        String expr = exprs.get(tagKey);
+        if (expr == null) {
+            return List.of();
+        }
+
+        String cost = CurSql.numericExpr(source, "line_item_unblended_cost");
+        String value = "COALESCE(NULLIF(" + expr + ", ''), '" + UNASSIGNED + "')";
+
+        String sql = "SELECT " + value + " AS tag_value,"
+                + " SUM(" + cost + ") AS cost,"
+                + " COUNT(DISTINCT line_item_resource_id) AS resources"
+                + " FROM " + source.qualifiedTable()
+                + " WHERE " + accountPredicate(account)
+                + " AND " + CurSql.partitionPredicate(source, start, end)
+                + " AND " + CurSql.usageDatePredicate(source, start, end)
+                // Same universe as getTagCoverage, and for the same reason: tax and support
+                // belong to no resource and can carry no tag, so including them would file
+                // charges under "(unassigned)" that no amount of tagging could ever move.
+                // It also keeps the two halves of the panel adding up to the same total —
+                // one showing $2,443 beside the other's $2,361 reads as a bug, and is one.
+                + " AND COALESCE(NULLIF(line_item_resource_id, ''), '') <> ''"
+                + " GROUP BY " + value
+                + " ORDER BY cost DESC LIMIT " + MAX_TAG_VALUES;
+
+        List<TagValueCost> values = new ArrayList<>();
+        for (Map<String, String> row : athena.query(source, account, sql)) {
+            values.add(new TagValueCost(
+                    blankTo(row.get("tag_value"), UNASSIGNED),
+                    parse(row.get("cost")),
+                    (long) parse(row.get("resources"))));
+        }
+
+        logger.info("✅ [CUR] Cost by tag '{}' — {} values for account {} ({} to {})",
+                tagKey, values.size(), account.getAwsAccountId(), start, end);
+        return values;
+    }
+
     // ── Data transfer and network costs ─────────────────────────────────────────
 
     /**
@@ -569,6 +912,82 @@ public class CurAdvancedMetricsService {
      * @param groupCount how many there were in total
      */
     public record TopResources(List<ResourceCost> resources, double totalCost, long groupCount) {
+    }
+
+    /**
+     * How much of the bill can be attributed to an owner.
+     *
+     * @param checkedTags       the required tags this report could actually be asked about
+     * @param unavailableTags   required tags absent from the report — not activated for
+     *                          cost allocation, so unknowable rather than missing
+     * @param totalCost         resource spend in the period; excludes tax and other
+     *                          account-level charges, which can carry no tag
+     * @param allocatedCost     spend carrying every checked tag
+     * @param byTag             per tag, the spend that carries it and the spend that does not
+     * @param untaggedServices  unattributed spend by service, complete — each carries its
+     *                          own total and count even though it lists only its worst few
+     * @param untaggedCount     how many resources in total, which the folded lists cannot say
+     * @param concentrationHead how many of the costliest {@code concentrationCost} covers
+     * @param concentrationCost what those costliest few account for, so the caller can say
+     *                          how much of the problem the top of the list actually is
+     * @param availableTagKeys  every tag in the report, for the chargeback picker
+     */
+    public record TagCoverage(List<String> checkedTags, List<String> unavailableTags,
+                              double totalCost, double allocatedCost,
+                              List<TagKeyCoverage> byTag, List<UntaggedService> untaggedServices,
+                              long untaggedCount, int concentrationHead, double concentrationCost,
+                              List<String> availableTagKeys) {
+    }
+
+    /**
+     * One service's unattributed spend.
+     *
+     * @param cost          every untagged resource in the service, not just the listed ones
+     * @param resourceCount likewise
+     * @param resources     the costliest few, for the drill-down
+     */
+    public record UntaggedService(String service, double cost, long resourceCount,
+                                  List<UntaggedResource> resources) {
+    }
+
+    /** Accumulates one service's rows as they arrive, since they are interleaved by cost. */
+    private record UntaggedServiceBuilder(String service, double cost, long resourceCount,
+                                          List<UntaggedResource> resources) {
+
+        UntaggedServiceBuilder(String service, double cost, long resourceCount) {
+            this(service, cost, resourceCount, new ArrayList<>());
+        }
+
+        UntaggedService build() {
+            return new UntaggedService(service, cost, resourceCount, List.copyOf(resources));
+        }
+    }
+
+    /**
+     * The SQL that decides whether a line item carries the required tags.
+     *
+     * @param allocated     spend carrying every one of them
+     * @param perKeySelects one tagged/total pair per key, trailing comma included
+     */
+    private record TagPredicates(String allocated, String perKeySelects) {
+    }
+
+    /** One required tag's share of the bill. */
+    public record TagKeyCoverage(String tagKey, double taggedCost, double untaggedCost) {
+    }
+
+    /**
+     * One resource with spend that belongs to nobody.
+     *
+     * @param cost        the unattributed part of its spend, not its total
+     * @param missingTags which of the checked tags it does not carry
+     */
+    public record UntaggedResource(String resourceId, String name, String service, String region,
+                                   double cost, List<String> missingTags) {
+    }
+
+    /** One tag value's spend — a row of the chargeback report. */
+    public record TagValueCost(String value, double cost, long resourceCount) {
     }
 
     /** One network charge, categorised by what drives it. */

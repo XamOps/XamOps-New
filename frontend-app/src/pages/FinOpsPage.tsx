@@ -241,6 +241,7 @@ export const FinOpsPage: React.FC = () => {
                 taggingCompliance={reportData.taggingCompliance}
                 pagination={taggingPagination}
                 onPaginationChange={(updates) => updatePagination('tagging', updates)}
+                accountId={curAccountId}
               />
             )}
           </RevealSection>

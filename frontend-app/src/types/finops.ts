@@ -50,6 +50,12 @@ export interface UntaggedResource {
   resourceId: string;
   resourceType: string;
   region: string;
+  /**
+   * Which required tags this resource lacks. The scan has always computed it; the type
+   * simply never declared it, so the table could only say "Missing" and leave the reader
+   * to go and find out which.
+   */
+  missingTags?: string[];
 }
 
 export interface TaggingCompliance {

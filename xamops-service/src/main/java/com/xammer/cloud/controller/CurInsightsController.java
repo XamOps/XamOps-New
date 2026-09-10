@@ -7,6 +7,7 @@ import com.xammer.cloud.service.cur.CurAdvancedMetricsService;
 import com.xammer.cloud.service.cur.CurSourceResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -35,12 +36,17 @@ public class CurInsightsController {
     private final CurSourceResolver curSourceResolver;
     private final CurAdvancedMetricsService metricsService;
 
+    /** The tags an owned resource is expected to carry. Shared with the inventory scan. */
+    private final List<String> requiredTags;
+
     public CurInsightsController(CloudAccountRepository cloudAccountRepository,
                                  CurSourceResolver curSourceResolver,
-                                 CurAdvancedMetricsService metricsService) {
+                                 CurAdvancedMetricsService metricsService,
+                                 @Value("${tagging.compliance.required-tags}") List<String> requiredTags) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.curSourceResolver = curSourceResolver;
         this.metricsService = metricsService;
+        this.requiredTags = requiredTags;
     }
 
     /** Effective savings rate: paid vs public on-demand, over a month. */
@@ -76,6 +82,84 @@ public class CurInsightsController {
                                           @RequestParam(required = false) String period) {
         return withSource(accountId, period, (source, account, start, end) ->
                 metricsService.getTopResources(source, account, start, end));
+    }
+
+    /**
+     * How much of the bill can be attributed to an owner, and what cannot.
+     *
+     * <p>The required tags come from configuration rather than the request: they are a
+     * policy the account is held to, and letting a caller pass its own would turn a
+     * compliance number into whatever the caller wanted it to be.
+     */
+    @GetMapping("/tag-coverage/{accountId}")
+    public ResponseEntity<?> tagCoverage(@PathVariable String accountId,
+                                         @RequestParam(required = false) String period) {
+        return withSource(accountId, period, (source, account, start, end) ->
+                metricsService.getTagCoverage(source, account, start, end, requiredTags));
+    }
+
+    /**
+     * Every resource with unattributed spend, as a file.
+     *
+     * <p>The panel folds this list on purpose — a thousand rows is a wall, not a work
+     * queue. But bulk tagging is done by script, not by reading, and a spreadsheet is the
+     * right shape for that, so the full finding is available here rather than paginated
+     * into a table nobody would page through.
+     */
+    @GetMapping(value = "/tag-coverage/{accountId}/untagged.csv", produces = "text/csv")
+    public ResponseEntity<?> untaggedCsv(@PathVariable String accountId,
+                                         @RequestParam(required = false) String period) {
+        ResponseEntity<?> result = withSource(accountId, period, (source, account, start, end) ->
+                toCsv(metricsService.getAllUntaggedResources(source, account, start, end, requiredTags)));
+        if (!result.getStatusCode().is2xxSuccessful()) {
+            return result;
+        }
+        String filename = "untagged-spend-" + accountId + "-"
+                + (period != null ? period : YearMonth.now()) + ".csv";
+        return ResponseEntity.ok()
+                .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
+                .header("Content-Type", "text/csv; charset=UTF-8")
+                .body(result.getBody());
+    }
+
+    /**
+     * Renders the rows as CSV.
+     *
+     * <p>Quotes every field rather than only the ones that need it: a resource name is
+     * free text a customer chose, and one containing a comma would otherwise shift every
+     * column after it — silently, in a file destined for a script.
+     */
+    private String toCsv(List<CurAdvancedMetricsService.UntaggedResource> rows) {
+        StringBuilder csv = new StringBuilder("resource_id,name,service,region,unattributed_cost,missing_tags\n");
+        for (CurAdvancedMetricsService.UntaggedResource r : rows) {
+            csv.append(csvField(r.resourceId())).append(',')
+                    .append(csvField(r.name())).append(',')
+                    .append(csvField(r.service())).append(',')
+                    .append(csvField(r.region())).append(',')
+                    .append(String.format("%.4f", r.cost())).append(',')
+                    .append(csvField(String.join(" ", r.missingTags())))
+                    .append('\n');
+        }
+        return csv.toString();
+    }
+
+    private String csvField(String value) {
+        return "\"" + (value == null ? "" : value.replace("\"", "\"\"")) + "\"";
+    }
+
+    /**
+     * Spend under one tag, by value — the chargeback view.
+     *
+     * <p>Any tag in the report is allowed here, not just the required ones: "what did each
+     * team spend" and "who is failing policy" are different questions, and the second set
+     * of keys is not a useful limit on the first.
+     */
+    @GetMapping("/cost-by-tag/{accountId}")
+    public ResponseEntity<?> costByTag(@PathVariable String accountId,
+                                       @RequestParam String tagKey,
+                                       @RequestParam(required = false) String period) {
+        return withSource(accountId, period, (source, account, start, end) ->
+                metricsService.getCostByTagValue(source, account, start, end, tagKey));
     }
 
     /**

@@ -199,3 +199,109 @@ export const fetchTopResources = async (
   if (!res.ok) return null;
   return (await res.json()) as TopResources;
 };
+
+// ── Tag coverage and cost allocation ─────────────────────────────────────────
+
+/** One required tag's share of the bill. */
+export interface TagKeyCoverage {
+  tagKey: string;
+  taggedCost: number;
+  untaggedCost: number;
+}
+
+/** One resource with spend that belongs to nobody. */
+export interface UntaggedResource {
+  resourceId: string;
+  /** The resource's Name tag, or "" — see ResourceCost.name. */
+  name: string;
+  service: string;
+  region: string;
+  /** The unattributed part of its spend, not its total. */
+  cost: number;
+  missingTags: string[];
+}
+
+/** How much of the bill can be attributed to an owner. */
+export interface TagCoverage {
+  /** The required tags this report could actually be asked about. */
+  checkedTags: string[];
+  /**
+   * Required tags absent from the report — never activated for cost allocation, so
+   * unknowable rather than missing. Scoring these as 0% would be a claim about the
+   * infrastructure when the truth is a setting in the billing console.
+   */
+  unavailableTags: string[];
+  /** Resource spend in the period; excludes tax and other charges that can carry no tag. */
+  totalCost: number;
+  /** Spend carrying every checked tag. */
+  allocatedCost: number;
+  byTag: TagKeyCoverage[];
+  /**
+   * Unattributed spend by service, complete. Each service carries its own total and count
+   * even though it lists only its costliest few resources.
+   */
+  untaggedServices: UntaggedService[];
+  /** How many resources have unattributed spend in total — the folded lists cannot say. */
+  untaggedCount: number;
+  /** How many of the costliest resources `concentrationCost` covers. */
+  concentrationHead: number;
+  /** What those costliest few account for — how much of the problem the top of the list is. */
+  concentrationCost: number;
+  /** Every tag in the report, for the chargeback picker. */
+  availableTagKeys: string[];
+}
+
+/** One service's unattributed spend. */
+export interface UntaggedService {
+  service: string;
+  /** Every untagged resource in the service, not just the listed ones. */
+  cost: number;
+  resourceCount: number;
+  /** The costliest few, for the drill-down. */
+  resources: UntaggedResource[];
+}
+
+/** Where to download every untagged resource as a spreadsheet. */
+export const untaggedCsvUrl = (accountId: string, period?: string): string => {
+  const query = period ? `?period=${encodeURIComponent(period)}` : '';
+  return `/api/xamops/cur-insights/tag-coverage/${encodeURIComponent(accountId)}/untagged.csv${query}`;
+};
+
+/** One tag value's spend — a row of the chargeback report. */
+export interface TagValueCost {
+  value: string;
+  cost: number;
+  resourceCount: number;
+}
+
+/**
+ * How much of the bill can be attributed to an owner, and what cannot.
+ *
+ * Null means "no report for this account" — the caller should omit the section.
+ */
+export const fetchTagCoverage = async (
+  accountId: string,
+  period?: string,
+): Promise<TagCoverage | null> => {
+  const query = period ? `?period=${encodeURIComponent(period)}` : '';
+  const res = await apiFetch(
+    `/api/xamops/cur-insights/tag-coverage/${encodeURIComponent(accountId)}${query}`,
+  );
+  if (!res.ok) return null;
+  return (await res.json()) as TagCoverage;
+};
+
+/** Spend under one tag, by value. Null means no report; empty means the tag is not in it. */
+export const fetchCostByTag = async (
+  accountId: string,
+  tagKey: string,
+  period?: string,
+): Promise<TagValueCost[] | null> => {
+  const params = new URLSearchParams({ tagKey });
+  if (period) params.set('period', period);
+  const res = await apiFetch(
+    `/api/xamops/cur-insights/cost-by-tag/${encodeURIComponent(accountId)}?${params}`,
+  );
+  if (!res.ok) return null;
+  return (await res.json()) as TagValueCost[];
+};
