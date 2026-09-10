@@ -165,6 +165,78 @@ public class AwsAccountService {
                 "roleName", roleName);
     }
 
+    /**
+     * What the customer has to do to bring an already-connected account onto the current
+     * template — the stack they already have, updated in place.
+     *
+     * <p>Returns instructions rather than a one-click link because AWS has none to give:
+     * quick-create links create stacks and cannot update them. The alternative, a second
+     * stack bolted alongside the first, only ever patches what it was told to patch — it
+     * cannot bring the rest of an old role up to date, and it leaves two definitions of
+     * the same connection to drift apart. Four clicks against the real stack beats one
+     * click against a copy of it.
+     *
+     * <p>Nothing here is written and no ExternalId is re-issued. CloudFormation's update
+     * wizard carries existing parameter values forward, so the ExternalId in the role's
+     * trust policy survives untouched as long as nobody edits it — which is why the
+     * returned parameters list names only the two that must change.
+     */
+    public Map<String, Object> generateStackUpdateGuide(CloudAccount account) {
+        boolean readWrite = "read-write".equals(account.getAccessType());
+        String templateUrl = readWrite ? cloudFormationReadWriteTemplateUrl : cloudFormationTemplateUrl;
+        if (templateUrl == null || templateUrl.isBlank()) {
+            throw new IllegalStateException("No connection template is configured for this environment.");
+        }
+
+        // This environment's role name, the same source the connection stack uses:
+        // XamOpsReadOnlyRole-local, -uat, and unsuffixed for preprod and production. Each
+        // environment owns its own role in the customer's account, so one account can hold
+        // connections to several without the names colliding.
+        String roleName = readWrite ? readWriteRoleName : readOnlyRoleName;
+
+        // The name the connection stack was created with. A best guess rather than a fact:
+        // it is derived the same way generateCloudFormationUrl derives it, but an account
+        // onboarded years ago may have been renamed since, so the console link filters
+        // rather than deep-links to one stack.
+        String likelyStackName = "XamOps-Connection-"
+                + String.valueOf(account.getAccountName()).replaceAll("[^a-zA-Z0-9-]", "");
+
+        /*
+         * The two parameters that must be set by hand, and why.
+         *
+         * CurS3Bucket is the one that silently breaks things. It defaults to empty, which
+         * makes the template's HasCurBucket condition false and attaches no report
+         * permissions at all — while EnableCurExport defaults to true and creates the
+         * report anyway. Accept every default and the account ends up with a Cost and Usage
+         * Report that XamOps cannot read, with nothing failing to say so.
+         */
+        List<Map<String, String>> parameters = List.of(
+                Map.of("name", "CurS3Bucket",
+                        "value", "AUTO",
+                        "why", "Grants XamOps read access to the report bucket. Left blank — its"
+                                + " default — the report is created but cannot be read."),
+                Map.of("name", "EnableCurExport",
+                        "value", "true",
+                        "why", "Creates the Cost and Usage Report itself. Already the default;"
+                                + " confirm it has not been set to false."));
+
+        // Filtered rather than deep-linked: the update page needs a stack id, and the role
+        // stack is region-less IAM that may have been created in any region, so neither the
+        // id nor the region is known here.
+        String consoleUrl = "https://console.aws.amazon.com/cloudformation/home"
+                + "#/stacks?filteringText=XamOps-Connection&filteringStatus=active";
+
+        logger.info("Prepared stack update guide for account {} ({}): template {}, role {}",
+                account.getAccountName(), account.getAwsAccountId(), templateUrl, roleName);
+
+        return Map.of(
+                "templateUrl", templateUrl,
+                "consoleUrl", consoleUrl,
+                "likelyStackName", likelyStackName,
+                "roleName", roleName,
+                "parameters", parameters);
+    }
+
     public CloudAccount verifyAccount(VerifyAccountRequest request) {
         CloudAccount account = cloudAccountRepository.findByExternalId(request.getExternalId())
                 .orElseThrow(() -> new RuntimeException("No pending account found for the given external ID."));
