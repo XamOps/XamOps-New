@@ -48,6 +48,8 @@ import {
   buildCytoscapeStyle,
   tagEdgeKinds,
   applyLevelOfDetail,
+  groupOrphanResources,
+  layoutHierarchicalGrid,
   CANVAS_TOKENS,
   type CanvasTheme,
 } from '../components/CloudMap/canvasTheme';
@@ -851,9 +853,14 @@ const CloudMapPage: React.FC = () => {
       return true;
     });
 
+    // Regional services with no VPC get one labelled home instead of being
+    // scattered to the far corners by the force layout. Live mode only: design
+    // mode canvases are user-authored and must not gain synthetic nodes.
+    const prepared = isEditable ? valid : groupOrphanResources(valid as any[]);
+
     cyRef.current = cytoscape({
       container: containerRef.current,
-      elements: valid,
+      elements: prepared as any,
       layout: isEditable
         ? { name: 'preset' }
         // nodeSep clears the 184px card width; the old 60 was sized for 50px squares.
@@ -920,45 +927,16 @@ const CloudMapPage: React.FC = () => {
 
     // Live mode layout — compact fcose for both all-VPCs and single-VPC views
     if (!isEditable) {
-      // Spacing is tuned for the 184x56 resource card, not the old 50x50 square.
-      // A card is ~3.7x wider than tall, so horizontal separation has to lead or
-      // neighbouring cards collide even while their centres look well spread.
-      const vpcRoots = cy.nodes('[type="VPC"]');
-      if (vpcRoots.length > 1) {
-        // All VPCs on one canvas.
-        cy.layout({
-          name: 'fcose',
-          quality: 'default',
-          packComponents: true,
-          tile: true,
-          tilingPaddingVertical: 90,
-          tilingPaddingHorizontal: 150,
-          nodeSeparation: 210,
-          idealEdgeLength: 190,
-          nodeRepulsion: 14000,
-          gravity: 0.2,
-          fit: false,
-          padding: 60,
-        } as any).run();
-        cy.fit(undefined, 60);
-      } else {
-        // Single VPC: wrap resources into a block rather than a long strip.
-        cy.layout({
-          name: 'fcose',
-          quality: 'default',
-          packComponents: true,
-          tile: true,
-          tilingPaddingVertical: 60,
-          tilingPaddingHorizontal: 110,
-          nodeSeparation: 150,
-          idealEdgeLength: 150,
-          nodeRepulsion: 9000,
-          gravity: 0.28,
-          fit: false,
-          padding: 70,
-        } as any).run();
-        cy.fit(undefined, 80);
-      }
+      // Layout options live in canvasTheme so this page and the visual harness
+      // cannot drift apart. fcose settles asynchronously, so fit() has to wait
+      // for layoutstop — fitting immediately measures unpositioned nodes and
+      // lands on an absurd zoom.
+      // Deterministic shelf packing rather than a force layout: every card is
+      // the same size, the meaning is the containment hierarchy, and this is
+      // stable across refreshes instead of jittering.
+      layoutHierarchicalGrid(cy);
+      cy.fit(undefined, 50);
+      applyLevelOfDetail(cy);
     }
 
     // Compound drag-and-drop (design mode — allows drop-to-reparent)

@@ -242,8 +242,19 @@ export function resourceCardUrl(spec: CardSpec): string {
   const borderW = selected ? 2 : 1;
 
   const displayName = ellipsize(name || type, CARD_W - TEXT_X - 24, 6.7);
-  const displayType = ellipsize(type, CARD_W - TEXT_X - 20, 5.2);
-  const displayMeta = meta ? ellipsize(meta, 44, 5.2) : '';
+  /*
+   * The caption line belongs to the type name.
+   *
+   * An earlier pass also right-anchored the region here. In practice it was
+   * noise — a single-VPC view repeats the same region on every card — and it
+   * squeezed the type badly enough that "Auto Scaling Group" and "ElastiCache
+   * Cluster" both clipped. Region now lives on the VPC container label (which
+   * already renders "name (region)") and in the inspector. `meta` is kept for
+   * callers that genuinely span regions.
+   */
+  const captionBudget = CARD_W - TEXT_X - (meta ? 58 : 20);
+  const displayType = ellipsize(type, captionBudget, 5.2);
+  const displayMeta = meta ? ellipsize(meta, 52, 5.0) : '';
 
   // Unique per card so multiple <defs> on one canvas can't collide.
   const uid = `c${Math.abs(hashString(key)).toString(36)}`;
@@ -298,7 +309,7 @@ function hashString(value: string): number {
  * read, the far view drops to icon + status and the near view carries the words —
  * so zooming becomes the way you read the graph.
  */
-export const LOD_ZOOM_THRESHOLD = 0.62;
+export const LOD_ZOOM_THRESHOLD = 0.42;
 
 /** Chip box for the far view. Square so tiling stays predictable. */
 export const CHIP_W = 60;
@@ -466,7 +477,10 @@ export function buildCytoscapeStyle(theme: CanvasTheme, mode: 'live' | 'design')
             name: ele.data('label') || ele.data('id'),
             type: ele.data('type') || 'Resource',
             state: ele.data('state') ?? ele.data('State'),
-            meta: ele.data('region') ?? ele.data('Region'),
+            // Region deliberately omitted: it collided with long type names
+            // ("DynamoDB Table" + "ap-south-1" ran together) and repeats
+            // identically on every card in a single-region view. The VPC
+            // container label and the inspector both carry it.
             theme,
             selected: ele.selected(),
           }),
@@ -790,6 +804,254 @@ export function buildCytoscapeStyle(theme: CanvasTheme, mode: 'live' | 'design')
 function iconLayerUrl(type: string | undefined, theme: CanvasTheme): string {
   if (!type) return typeGlyphUrl('Resource', theme);
   return AWS_ICONS[type] ?? typeGlyphUrl(type, theme);
+}
+
+/** Id of the synthetic container that collects resources with no VPC. */
+export const GLOBAL_SCOPE_ID = '__cm-global-scope';
+
+/**
+ * Gather parentless resources into one synthetic "Global" compound.
+ *
+ * Regional services (S3, SQS, DynamoDB, CloudWatch) legitimately have no VPC, so
+ * CloudMapService emits them with no parent. Left loose they behave badly in two
+ * ways: the force layout flings them to opposite far corners — measured at
+ * x=-928 and x=+928 around a VPC only 1015 wide, which doubled the bounding box
+ * and cost ~30% of the fitted zoom — and, worse, the picture silently implies
+ * they are unrelated strays rather than account-scoped services.
+ *
+ * One labelled box fixes both: the layout keeps it compact, and the diagram now
+ * states why those resources sit outside the VPC.
+ *
+ * Frontend-only on purpose: the backend graph contract is unchanged, so this is
+ * reversible and cannot affect saved blueprints.
+ */
+export function groupOrphanResources<T extends { group?: string; data: any }>(elements: T[]): T[] {
+  const parentIds = new Set<string>();
+  for (const el of elements) {
+    const p = el.data?.parent;
+    if (p) parentIds.add(String(p));
+  }
+
+  const isEdge = (el: T) => el.group === 'edges' || (el.data?.source && el.data?.target);
+
+  const orphans = elements.filter((el) =>
+    !isEdge(el) &&
+    !el.data?.parent &&
+    !parentIds.has(String(el.data?.id)) &&   // not itself a container
+    !el.data?.isContainer &&
+    el.data?.id !== GLOBAL_SCOPE_ID);
+
+  // One lone orphan reads fine on its own; a box around it is just chrome.
+  if (orphans.length < 2) return elements;
+
+  const container = {
+    group: 'nodes',
+    data: {
+      id: GLOBAL_SCOPE_ID,
+      label: 'Global · not in a VPC',
+      type: 'Scope',
+      isContainer: true,
+      containerType: 'region',
+    },
+  } as unknown as T;
+
+  const orphanIds = new Set(orphans.map((o) => String(o.data.id)));
+  return [
+    container,
+    ...elements.map((el) =>
+      orphanIds.has(String(el.data?.id))
+        ? ({ ...el, data: { ...el.data, parent: GLOBAL_SCOPE_ID } } as T)
+        : el),
+  ];
+}
+
+// ─── Deterministic hierarchical layout ───────────────────────────────────────
+
+interface PackItem {
+  id: string;
+  w: number;
+  h: number;
+  /** Assigned during packing: offset of this item's top-left within its parent. */
+  x?: number;
+  y?: number;
+}
+
+/**
+ * Shelf-pack items into rows, targeting a landscape block.
+ *
+ * Rows are filled left to right and wrapped at a width chosen from the total
+ * area, so a container ends up roughly 1.6:1 rather than a long strip or a
+ * column. Non-overlapping by construction.
+ */
+function shelfPack(
+  items: PackItem[],
+  gapX: number,
+  gapY: number,
+  preferredWidth = 0,
+): { w: number; h: number } {
+  if (items.length === 0) return { w: 0, h: 0 };
+
+  const area = items.reduce((sum, it) => sum + (it.w + gapX) * (it.h + gapY), 0);
+  const widest = Math.max(...items.map((it) => it.w));
+  /*
+   * The area heuristic alone gives a bad answer for a handful of wide items: three
+   * 184px cards produced a target of 285px, so they stacked into a single column
+   * under subnets that were already ~1300px wide, leaving a large void beside
+   * them. preferredWidth lets a caller say "you have this much room" so loose
+   * VPC-level resources spread along the width their sibling subnets establish.
+   */
+  const maxWidth = Math.max(widest, preferredWidth, Math.sqrt(area * 1.7));
+
+  let x = 0;
+  let y = 0;
+  let rowH = 0;
+  let usedW = 0;
+
+  for (const it of items) {
+    if (x > 0 && x + it.w > maxWidth) {
+      x = 0;
+      y += rowH + gapY;
+      rowH = 0;
+    }
+    it.x = x;
+    it.y = y;
+    x += it.w + gapX;
+    rowH = Math.max(rowH, it.h);
+    usedW = Math.max(usedW, x - gapX);
+  }
+
+  return { w: usedW, h: y + rowH };
+}
+
+/**
+ * Lay the live topology out deterministically instead of by force simulation.
+ *
+ * Force layout earns its keep when position carries meaning. Here it does not:
+ * every resource is an identical 184x56 card, and the meaning lives entirely in
+ * the containment hierarchy (VPC > subnet > resource) that the backend already
+ * computes. What fcose actually produced was voids — a subnet stretched to
+ * 1115px tall because one Lambda drifted to the bottom, ALB parked in a far
+ * corner of its subnet, and six pairs of cards overlapping outright.
+ *
+ * Shelf packing, bottom-up, gives tidy dense containers, zero overlap by
+ * construction, a stable picture across refreshes (force layouts jitter), and it
+ * is far cheaper on large accounts. Cards are ordered by type then name so the
+ * eye can find things, which is more use to an operator than force placement.
+ */
+export function layoutHierarchicalGrid(cy: any): void {
+  if (!cy) return;
+
+  const GAP_X = 26;
+  const GAP_Y = 20;
+  const COMPOUND_GAP_X = 52;
+  const COMPOUND_GAP_Y = 46;
+  // Matches the 38px style padding, plus headroom for the container label.
+  const PAD = 40;
+  const LABEL_ROOM = 30;
+
+  const sizes = new Map<string, { w: number; h: number }>();
+  const offsets = new Map<string, PackItem[]>();
+
+  const sortLeaves = (a: any, b: any) => {
+    const ta = String(a.data('type') ?? '');
+    const tb = String(b.data('type') ?? '');
+    if (ta !== tb) return ta.localeCompare(tb);
+    return String(a.data('label') ?? a.id()).localeCompare(String(b.data('label') ?? b.id()));
+  };
+
+  /** Bottom-up: measure a node, recording how its children pack inside it. */
+  function measure(node: any): { w: number; h: number } {
+    if (!node.isParent()) {
+      const box = { w: CARD_W, h: CARD_H };
+      sizes.set(node.id(), box);
+      return box;
+    }
+
+    const kids = node.children();
+    const compounds = kids.filter((c: any) => c.isParent()).toArray();
+    const leaves = kids.filter((c: any) => !c.isParent()).toArray().sort(sortLeaves);
+
+    compounds.forEach(measure);
+    leaves.forEach(measure);
+
+    // Child containers pack as one block above the loose cards, so a VPC reads
+    // as "these subnets, plus these VPC-level resources".
+    const compItems: PackItem[] = compounds.map((c: any) => ({ id: c.id(), ...sizes.get(c.id())! }));
+    const leafItems: PackItem[] = leaves.map((l: any) => ({ id: l.id(), ...sizes.get(l.id())! }));
+
+    const compBox = shelfPack(compItems, COMPOUND_GAP_X, COMPOUND_GAP_Y);
+    // Loose resources spread across whatever width the child containers set.
+    const leafBox = shelfPack(leafItems, GAP_X, GAP_Y, compBox.w);
+
+    const innerW = Math.max(compBox.w, leafBox.w);
+    const gapBetween = compItems.length && leafItems.length ? COMPOUND_GAP_Y : 0;
+    const innerH = compBox.h + gapBetween + leafBox.h;
+
+    // Centre each block horizontally within the container.
+    for (const it of compItems) it.x! += (innerW - compBox.w) / 2;
+    for (const it of leafItems) {
+      it.x! += (innerW - leafBox.w) / 2;
+      it.y! += compBox.h + gapBetween;
+    }
+
+    offsets.set(node.id(), [...compItems, ...leafItems]);
+
+    const box = { w: innerW + PAD * 2, h: innerH + PAD * 2 + LABEL_ROOM };
+    sizes.set(node.id(), box);
+    return box;
+  }
+
+  /** Top-down: convert packed offsets into absolute centre positions. */
+  function place(node: any, topLeftX: number, topLeftY: number): void {
+    const size = sizes.get(node.id())!;
+    if (!node.isParent()) {
+      node.position({ x: topLeftX + size.w / 2, y: topLeftY + size.h / 2 });
+      return;
+    }
+    const innerX = topLeftX + PAD;
+    const innerY = topLeftY + PAD + LABEL_ROOM;
+    for (const item of offsets.get(node.id()) ?? []) {
+      place(cy.getElementById(item.id), innerX + item.x!, innerY + item.y!);
+    }
+  }
+
+  const roots = cy.nodes().filter((n: any) => n.ancestors().length === 0);
+  const rootCompounds = roots.filter((n: any) => n.isParent()).toArray();
+  const rootLeaves = roots.filter((n: any) => !n.isParent()).toArray().sort(sortLeaves);
+
+  rootCompounds.forEach(measure);
+  rootLeaves.forEach(measure);
+
+  // The global-scope box is an appendix; keep it last so it lands on the right.
+  const ordered = [
+    ...rootCompounds.filter((n: any) => n.id() !== GLOBAL_SCOPE_ID),
+    ...rootCompounds.filter((n: any) => n.id() === GLOBAL_SCOPE_ID),
+  ];
+
+  const rootItems: PackItem[] = [
+    ...ordered.map((c: any) => ({ id: c.id(), ...sizes.get(c.id())! })),
+    ...rootLeaves.map((l: any) => ({ id: l.id(), ...sizes.get(l.id())! })),
+  ];
+
+  /*
+   * Keep a small number of top-level boxes on one row.
+   *
+   * The area heuristic wrapped a two-item root (one VPC plus the global box) into
+   * a column, making the whole diagram portrait — 872x1033 in a landscape panel,
+   * which cost 20% of the fitted zoom. Canvases are wider than they are tall, so
+   * bias the top level toward a row and only let it wrap once there are enough
+   * VPCs that a single row would be worse.
+   */
+  const rootPreferred = rootItems.length <= 4
+    ? rootItems.reduce((sum, it) => sum + it.w, 0) + COMPOUND_GAP_X * (rootItems.length - 1)
+    : 0;
+  shelfPack(rootItems, COMPOUND_GAP_X, COMPOUND_GAP_Y, rootPreferred);
+
+  cy.batch(() => {
+    for (const item of rootItems) {
+      place(cy.getElementById(item.id), item.x!, item.y!);
+    }
+  });
 }
 
 /**
