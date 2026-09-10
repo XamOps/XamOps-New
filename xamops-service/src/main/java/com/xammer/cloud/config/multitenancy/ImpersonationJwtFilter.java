@@ -8,6 +8,9 @@ import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -39,11 +42,55 @@ import java.util.Collections;
 @Component
 public class ImpersonationJwtFilter extends OncePerRequestFilter {
 
+    private static final Logger log = LoggerFactory.getLogger(ImpersonationJwtFilter.class);
+
     @Value("${app.impersonation.secret-key}")
     private String secretKey;
 
+    /**
+     * Signing key, resolved once instead of per request.
+     *
+     * Null when the configured value is unusable, in which case every impersonation
+     * token is rejected. That is the same outcome as before -- decoding threw per
+     * request and the catch below returned 401 -- but the reason is now stated once at
+     * startup instead of being invisible.
+     *
+     * This key MUST be byte-identical to billops'; the token is minted there and
+     * verified here. The two profiles historically held different values, so
+     * impersonation would have failed with nothing in the logs explaining why. Both
+     * services now read it from the single APP_IMPERSONATION_SECRET_KEY secret, so they
+     * agree by construction -- and if it is ever absent, this says so.
+     */
+    private volatile SecretKey signingKey;
+
     @Autowired
     private UserRepository userRepository;
+
+    @PostConstruct
+    void initSigningKey() {
+        if (secretKey == null || secretKey.isBlank()) {
+            log.error("app.impersonation.secret-key is not set (supplied via "
+                    + "APP_IMPERSONATION_SECRET_KEY). Impersonation will be rejected. "
+                    + "It must be Base64, decode to at least 32 bytes, and match billops "
+                    + "exactly. Generate with: openssl rand -base64 32");
+            return;
+        }
+        try {
+            byte[] decoded = Decoders.BASE64.decode(secretKey.trim());
+            if (decoded.length < 32) {
+                log.error("app.impersonation.secret-key decodes to {} byte(s); HS256 needs at "
+                        + "least 32. Impersonation will be rejected.", decoded.length);
+                return;
+            }
+            this.signingKey = Keys.hmacShaKeyFor(decoded);
+            log.info("Impersonation JWT filter initialised (HS256).");
+        } catch (Exception e) {
+            // Message only -- never the key.
+            log.error("app.impersonation.secret-key is not valid Base64 (supplied via "
+                    + "APP_IMPERSONATION_SECRET_KEY). Impersonation will be rejected: {}",
+                    e.getMessage());
+        }
+    }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -65,8 +112,19 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
         }
 
         String token = header.substring(7);
+
+        // Misconfigured key: reject rather than fall through unauthenticated. Same
+        // response the per-request decode produced, minus the repeated work.
+        SecretKey key = this.signingKey;
+        if (key == null) {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.setContentType("application/json");
+            response.getWriter().write(
+                    "{\"message\":\"Impersonation is not configured on this service\"}");
+            return;
+        }
+
         try {
-            SecretKey key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(secretKey));
             Claims claims = Jwts.parserBuilder()
                     .setSigningKey(key)
                     .requireIssuer("billops")
