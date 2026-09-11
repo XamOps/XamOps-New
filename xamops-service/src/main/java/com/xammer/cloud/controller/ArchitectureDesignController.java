@@ -1,5 +1,8 @@
 package com.xammer.cloud.controller;
 
+import com.xammer.cloud.design.CanvasDesignTranslator;
+import com.xammer.cloud.design.DesignValidator;
+import com.xammer.cloud.design.hcl.HclEmitter;
 import com.xammer.cloud.domain.ArchitectureBlueprint;
 import com.xammer.cloud.repository.ArchitectureBlueprintRepository;
 import com.xammer.cloud.security.ClientUserDetails;
@@ -13,6 +16,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * CloudMap design blueprints, scoped to the caller's tenant.
@@ -48,9 +52,18 @@ public class ArchitectureDesignController {
     private static final int MAX_GRAPH_DATA_BYTES = 8 * 1024 * 1024;
 
     private final ArchitectureBlueprintRepository repository;
+    private final CanvasDesignTranslator translator;
+    private final DesignValidator validator;
+    private final HclEmitter emitter;
 
-    public ArchitectureDesignController(ArchitectureBlueprintRepository repository) {
+    public ArchitectureDesignController(ArchitectureBlueprintRepository repository,
+                                        CanvasDesignTranslator translator,
+                                        DesignValidator validator,
+                                        HclEmitter emitter) {
         this.repository = repository;
+        this.translator = translator;
+        this.validator = validator;
+        this.emitter = emitter;
     }
 
     @GetMapping("/list")
@@ -116,6 +129,76 @@ public class ArchitectureDesignController {
         target.setGraphData(graphData);
 
         return ResponseEntity.ok(repository.save(target));
+    }
+
+    /**
+     * Generate Terraform for a saved design.
+     *
+     * <p>
+     * Additive on purpose. The canvas save format is unchanged, no column was
+     * added, and the existing endpoints keep their contracts — this reads the
+     * {@code graph_data} already stored and derives code from it. Existing
+     * blueprints therefore become generatable with no conversion.
+     *
+     * <p>
+     * Shapes the catalog does not cover are reported in {@code skipped} rather
+     * than failing the request. The design canvas is a general diagramming tool
+     * and must stay one; Terraform is a bonus for the parts that happen to be
+     * real resources.
+     */
+    @PostMapping("/{id}/terraform")
+    public ResponseEntity<GeneratedTerraform> generateTerraform(
+            @PathVariable Long id,
+            @RequestParam(required = false) String region,
+            @AuthenticationPrincipal ClientUserDetails user) {
+
+        ArchitectureBlueprint blueprint = repository
+                .findByIdAndClientId(id, requireClientId(user))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Blueprint not found"));
+
+        CanvasDesignTranslator.Result translated;
+        try {
+            translated = translator.translate(
+                    blueprint.getGraphData(),
+                    blueprint.getName(),
+                    region == null || region.isBlank() ? "us-east-1" : region);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+        }
+
+        DesignValidator.Result validation = validator.validate(translated.design());
+
+        // Emit only when the design is sound. Returning half-valid Terraform would
+        // be worse than returning none: it looks applyable and is not.
+        Map<String, String> files = validation.canGenerate()
+                ? emitter.emit(translated.design())
+                : Map.of();
+
+        return ResponseEntity.ok(new GeneratedTerraform(
+                validation.canGenerate(),
+                translated.resourceCount(),
+                files,
+                validation.findings(),
+                translated.skipped(),
+                translated.notes()));
+    }
+
+    /**
+     * @param generatable    false when errors blocked emission
+     * @param resourceCount  canvas shapes that mapped to a Terraform resource
+     * @param files          filename to contents; empty when not generatable
+     * @param findings       validation errors and warnings, each tied to a node id
+     *                       so the canvas can mark the offending card
+     * @param skipped        shapes deliberately excluded, with the reason
+     * @param notes          decorative connections that carry no Terraform meaning
+     */
+    public record GeneratedTerraform(
+            boolean generatable,
+            int resourceCount,
+            Map<String, String> files,
+            List<DesignValidator.Finding> findings,
+            List<CanvasDesignTranslator.Skipped> skipped,
+            List<String> notes) {
     }
 
     @DeleteMapping("/{id}")
