@@ -13,6 +13,7 @@ import { useAccounts } from '../../contexts/AccountContext';
 import AccountSelector from './AccountSelector';
 import NavItem from './NavItem';
 import NavSection from './NavSection';
+import SubNav from './SubNav';
 import { useTheme } from '../../contexts/ThemeContext';
 import { makeXamTabGate } from '../../constants/xamopsTabs';
 import { XAMSECURE_SIDEBAR_TABS } from '../../constants/xamsecureTabs';
@@ -381,45 +382,35 @@ const Sidebar: React.FC = () => {
                 {isXamTabAllowed('secops-xamsecure') && (
                   <>
                     <NavItem href="/xamsecure/overview" icon="fas fa-user-shield" label="XamSecure" isActive={isActive('/xamsecure')} />
-                    {location.pathname.startsWith('/xamsecure') && (
-                      <div className={clsx(
-                        'ml-3 pl-3 border-l space-y-0.5',
-                        theme === 'dark' ? 'border-[rgba(255,255,255,0.08)]' : 'border-[rgba(0,0,0,0.08)]'
-                      )}>
-                        {XAMSECURE_SIDEBAR_TABS.map((s) => (
-                          <NavItem
-                            key={s.id}
-                            href={`/xamsecure/${s.id}`}
-                            icon={s.icon}
-                            label={s.label}
-                            isActive={location.pathname === `/xamsecure/${s.id}`}
-                          />
-                        ))}
-                      </div>
-                    )}
+                    <SubNav isOpen={location.pathname.startsWith('/xamsecure')} dark={theme === 'dark'}>
+                      {XAMSECURE_SIDEBAR_TABS.map((s) => (
+                        <NavItem
+                          key={s.id}
+                          href={`/xamsecure/${s.id}`}
+                          icon={s.icon}
+                          label={s.label}
+                          isActive={location.pathname === `/xamsecure/${s.id}`}
+                        />
+                      ))}
+                    </SubNav>
                   </>
                 )}
                 {isXamTabAllowed('secops-compliance') && <NavItem href="/complianceops" icon="fas fa-file-contract" label="ComplianceOps" isActive={isActive('/complianceops')} />}
                 {isXamTabAllowed('secops-compliance') && (
                   <>
                     <NavItem href="/soc2-program/overview" icon="fas fa-clipboard-check" label="Program" isActive={isActive('/soc2-program')} />
-                    {location.pathname.startsWith('/soc2-program') && (
-                      <div className={clsx(
-                        'ml-3 pl-3 border-l space-y-0.5',
-                        theme === 'dark' ? 'border-[rgba(255,255,255,0.08)]' : 'border-[rgba(0,0,0,0.08)]'
-                      )}>
-                        {SOC2_SUBTABS.map((s) => (
-                          <NavItem
-                            key={s.id}
-                            href={`/soc2-program/${s.id}`}
-                            icon={s.icon}
-                            label={s.label}
-                            tooltip={s.tooltip}
-                            isActive={location.pathname === `/soc2-program/${s.id}`}
-                          />
-                        ))}
-                      </div>
-                    )}
+                    <SubNav isOpen={location.pathname.startsWith('/soc2-program')} dark={theme === 'dark'}>
+                      {SOC2_SUBTABS.map((s) => (
+                        <NavItem
+                          key={s.id}
+                          href={`/soc2-program/${s.id}`}
+                          icon={s.icon}
+                          label={s.label}
+                          tooltip={s.tooltip}
+                          isActive={location.pathname === `/soc2-program/${s.id}`}
+                        />
+                      ))}
+                    </SubNav>
                   </>
                 )}
                 {isXamTabAllowed('secops-performance') &&<NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-performance' : selectedAccountDisplay.provider === 'Azure' ? '/azure-performance' : '/performance'} icon="fas fa-chart-line" label="Performance Insights" isActive={isActive('/performance') || isActive('/gcp-performance') || isActive('/azure-performance')} />}
