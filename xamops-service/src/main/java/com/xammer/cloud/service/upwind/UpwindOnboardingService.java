@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -487,6 +488,62 @@ public class UpwindOnboardingService {
     /** Enough to reject a wrong value; CloudFormation validates the rest. */
     private static final java.util.regex.Pattern CIDR =
             java.util.regex.Pattern.compile("^\\d{1,3}(\\.\\d{1,3}){3}/\\d{1,2}$");
+
+    /**
+     * Managed Kubernetes clusters in one of the caller's own accounts, for the onboarding picker.
+     *
+     * <p>Upwind's own console offers a cluster dropdown and notes that it is "available only for
+     * connected accounts" — the same constraint applies here, and for the same reason: the list
+     * comes from the inventory, so a cluster only appears once the account is connected and has
+     * been scanned. A free-text cluster name was the alternative, and a typo there produces a
+     * survey that runs against nothing.
+     *
+     * <p>Measured 2026-09-07: {@code aws_eks_cluster} returns 3 clusters for account
+     * 598515435126 with region, Kubernetes version, status and endpoint visibility attached, which
+     * is more than a bare name — enough to tell two similarly named clusters apart, and to warn
+     * before someone re-deploys onto a cluster that already reports a sensor.
+     *
+     * <p>AKS and GKE labels are queried too so this does not need revisiting when Azure and GCP
+     * onboarding lands; both return zero today, which is correct rather than broken.
+     */
+    public Map<String, Object> resolveKubernetesClusters(Long clientId, String cloudAccountId) {
+        requireAllowed(clientId);
+        CloudAccount account = ownedAccount(clientId, cloudAccountId);
+
+        List<Map<String, Object>> clusters = new java.util.ArrayList<>();
+        for (String label : List.of("aws_eks_cluster", "azure_aks_cluster", "gcp_gke_cluster")) {
+            try {
+                for (JsonNode c : apiClient.searchAssetsByLabel(label, cloudAccountId, 500)) {
+                    String name = c.path("name").asText(null);
+                    if (name == null || name.isBlank()) continue;
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("name", name);
+                    row.put("label", label);
+                    row.put("region", c.path("region").asText(null));
+                    row.put("version", c.path("version").asText(null));
+                    row.put("status", c.path("status").asText(null));
+                    // Only claim a sensor when the catalog actually says so. This field is blank
+                    // on most assets, and treating blank as "unprotected" would tell people to
+                    // redeploy onto clusters that are already covered.
+                    String protectedBy = c.path("uw_protected_by").asText(null);
+                    row.put("protectedBy",
+                            protectedBy == null || protectedBy.isBlank() ? null : protectedBy);
+                    row.put("publicEndpoint", c.path("public_endpoint_enabled").asBoolean(false));
+                    clusters.add(row);
+                }
+            } catch (Exception e) {
+                log.warn("[Upwind] {} lookup failed for account {}: {}",
+                        label, cloudAccountId, e.getMessage());
+            }
+        }
+        clusters.sort(Comparator.comparing(m -> String.valueOf(m.get("name"))));
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("cloudAccountId", cloudAccountId);
+        out.put("provider", account.getProvider());
+        out.put("clusters", clusters);
+        return out;
+    }
 
     /**
      * Renders Upwind's Kubernetes sensor SURVEY command for one of the caller's own accounts.

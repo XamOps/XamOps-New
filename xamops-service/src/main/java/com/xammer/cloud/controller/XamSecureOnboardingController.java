@@ -158,6 +158,31 @@ public class XamSecureOnboardingController {
     }
 
     /**
+     * Customer-facing: managed Kubernetes clusters in one of the caller's own accounts.
+     *
+     * Carries no credential, so this one is a plain read — but it is still POST to keep the
+     * account id out of URLs and logs, matching the other onboarding lookups.
+     */
+    @PostMapping("/kubernetes-clusters")
+    public ResponseEntity<?> kubernetesClusters(@AuthenticationPrincipal ClientUserDetails user,
+                                               @RequestBody Map<String, String> body) {
+        if (!onboardingService.isAllowedForClient(user.getClientId())) {
+            return ResponseEntity.status(403).body(Map.of("error",
+                    "Security monitoring is not enabled for this account."));
+        }
+        String cloudAccountId = body.get("cloudAccountId");
+        if (cloudAccountId == null || cloudAccountId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "cloudAccountId is required."));
+        }
+        try {
+            return ResponseEntity.ok(onboardingService.resolveKubernetesClusters(
+                    user.getClientId(), cloudAccountId));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
      * Customer-facing: the Kubernetes sensor survey command for one of the caller's own accounts.
      *
      * POST rather than GET because it is parameterized by account and cluster, and because the

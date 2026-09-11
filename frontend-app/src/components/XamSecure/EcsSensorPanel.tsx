@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { fetchEcsDeployment, fetchEcsLaunchUrl, type EcsDeployment, type EcsLaunchType }
   from '../../hooks/useUpwindOnboarding';
@@ -88,6 +88,15 @@ const EcsSensorPanel: React.FC<Props> = ({ accounts, defaultOpen }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, launchType, cluster, chosenSubnets, vpcId, data]);
 
+  // Discovered on account (or launch-type) selection rather than behind a button, matching how
+  // Upwind's console populates its cluster dropdown. Only runs while the panel is open, so a
+  // collapsed panel costs nothing.
+  useEffect(() => {
+    if (!open || !accountId) return;
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, accountId, launchType]);
+
   const copy = useCallback(async (label: string, value: string) => {
     await navigator.clipboard.writeText(value);
     setCopied(label);
@@ -162,12 +171,13 @@ const EcsSensorPanel: React.FC<Props> = ({ accounts, defaultOpen }) => {
               type="button"
               onClick={load}
               disabled={loading}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5
-                         text-xs font-semibold text-white hover:bg-gray-800 disabled:opacity-50"
+              title="Re-read clusters, VPCs and subnets from the inventory"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3
+                         py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50
+                         disabled:opacity-50"
             >
-              {loading ? <Icon icon="mdi:loading" width={13} className="animate-spin" />
-                : <Icon icon="mdi:magnify" width={13} />}
-              Find my clusters
+              <Icon icon="mdi:refresh" width={13} className={loading ? 'animate-spin' : ''} />
+              {loading ? 'Looking…' : 'Refresh'}
             </button>
           </div>
 

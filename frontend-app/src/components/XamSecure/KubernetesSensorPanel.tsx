@@ -1,6 +1,7 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Icon } from '@iconify/react';
-import { fetchKubernetesCommand } from '../../hooks/useUpwindOnboarding';
+import { fetchKubernetesClusters, fetchKubernetesCommand, type ManagedCluster }
+  from '../../hooks/useUpwindOnboarding';
 import type { OnboardingAccount } from '../../types/xamsecure';
 
 /**
@@ -37,6 +38,30 @@ const KubernetesSensorPanel: React.FC<Props> = ({ accounts, defaultOpen }) => {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(Boolean(defaultOpen));
+  const [clusters, setClusters] = useState<ManagedCluster[] | null>(null);
+  const [manual, setManual] = useState(false);
+
+  // Discovered on account selection, not behind a button: Upwind's console populates its
+  // cluster dropdown the same way, and a free-text name is where typos turn into a survey that
+  // runs against nothing. Only fires once the panel is open, so a collapsed panel costs nothing.
+  useEffect(() => {
+    if (!open || !accountId) return;
+    let live = true;
+    setClusters(null);
+    setCluster('');
+    setManual(false);
+    fetchKubernetesClusters(accountId)
+      .then((r) => {
+        if (!live) return;
+        setClusters(r.clusters);
+        // One cluster is the common case; pre-select it rather than make them pick from a
+        // list of one. Fall back to manual entry when the inventory knows of none.
+        if (r.clusters.length === 1) setCluster(r.clusters[0].name);
+        if (r.clusters.length === 0) setManual(true);
+      })
+      .catch(() => { if (live) { setClusters([]); setManual(true); } });
+    return () => { live = false; };
+  }, [open, accountId]);
 
   const submit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,22 +131,81 @@ const KubernetesSensorPanel: React.FC<Props> = ({ accounts, defaultOpen }) => {
               </label>
               <label className="block">
                 <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-                  Cluster name
+                  Cluster
                 </span>
-                <input
-                  value={cluster}
-                  onChange={(e) => setCluster(e.target.value)}
-                  placeholder="my-production-cluster"
-                  required
-                  // Mirrors the server-side check. The value is interpolated into a shell command
-                  // the customer then runs, so it is validated on both sides rather than trusted.
-                  pattern="[A-Za-z0-9][A-Za-z0-9._\-]{0,99}"
-                  title="Letters, digits, dots, dashes and underscores; must start with a letter or digit."
-                  className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs
-                             focus:border-gray-400 focus:outline-none"
-                />
+                {clusters === null ? (
+                  <p className="rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-gray-400">
+                    Finding clusters…
+                  </p>
+                ) : manual || clusters.length === 0 ? (
+                  <input
+                    value={cluster}
+                    onChange={(e) => setCluster(e.target.value)}
+                    placeholder="my-production-cluster"
+                    required
+                    // Mirrors the server-side check. The value is interpolated into a shell command
+                    // the customer then runs, so it is validated on both sides rather than trusted.
+                    pattern="[A-Za-z0-9][A-Za-z0-9._\-]{0,99}"
+                    title="Letters, digits, dots, dashes and underscores; must start with a letter or digit."
+                    className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs
+                               focus:border-gray-400 focus:outline-none"
+                  />
+                ) : (
+                  <select
+                    value={cluster}
+                    onChange={(e) => setCluster(e.target.value)}
+                    required
+                    className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs
+                               focus:border-gray-400 focus:outline-none"
+                  >
+                    <option value="">Select a cluster…</option>
+                    {clusters.map((c) => (
+                      <option key={`${c.label}:${c.name}`} value={c.name}>
+                        {c.name}
+                        {c.version ? ` · v${c.version}` : ''}
+                        {c.region ? ` · ${c.region}` : ''}
+                        {c.protectedBy ? ' · already protected' : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </label>
             </div>
+
+            {clusters !== null && (
+              <div className="space-y-1">
+                {clusters.length === 0 && (
+                  <p className="text-[10px] leading-relaxed text-gray-500">
+                    No managed clusters found in this account's inventory. A cluster appears here
+                    once the account has been scanned — enter the name manually if you have just
+                    created it.
+                  </p>
+                )}
+                {clusters.length > 0 && !manual && (
+                  <button type="button" onClick={() => { setManual(true); setCluster(''); }}
+                          className="text-[10px] font-medium text-blue-600 hover:text-blue-700">
+                    Cluster not listed? Enter it manually
+                  </button>
+                )}
+                {clusters.length > 0 && manual && (
+                  <button type="button" onClick={() => { setManual(false); setCluster(''); }}
+                          className="text-[10px] font-medium text-blue-600 hover:text-blue-700">
+                    Choose from discovered clusters instead
+                  </button>
+                )}
+                {/* Re-deploying onto an already-covered cluster is wasted effort, so say so before
+                    the command is generated rather than after. */}
+                {(() => {
+                  const hit = clusters.find((c) => c.name === cluster && c.protectedBy);
+                  return hit ? (
+                    <p className="text-[10px] leading-relaxed text-amber-700">
+                      {hit.name} already reports runtime protection. Re-running the survey is
+                      harmless, but it may not be what you intended.
+                    </p>
+                  ) : null;
+                })()}
+              </div>
+            )}
 
             <button
               type="submit"

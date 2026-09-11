@@ -118,6 +118,31 @@ export interface KubernetesSurveyCommand {
   requiresKubernetesJobs: boolean;
 }
 
+export interface ManagedCluster {
+  name: string;
+  /** aws_eks_cluster | azure_aks_cluster | gcp_gke_cluster */
+  label: string;
+  region: string | null;
+  version: string | null;
+  status: string | null;
+  /** Non-null only when the catalog actually reports a protection mechanism. */
+  protectedBy: string | null;
+  publicEndpoint: boolean;
+}
+
+/**
+ * Managed Kubernetes clusters in one account, for the onboarding picker.
+ *
+ * Only lists clusters the inventory already knows about, which means the account must be connected
+ * and scanned — the same constraint Upwind's own console states on its cluster dropdown.
+ */
+export async function fetchKubernetesClusters(
+  cloudAccountId: string,
+): Promise<{ clusters: ManagedCluster[] }> {
+  return apiClient.post<{ clusters: ManagedCluster[] }>(
+    '/api/xamsecure/onboarding/kubernetes-clusters', { cloudAccountId });
+}
+
 export interface EcsVpcCandidate {
   vpcId: string;
   name: string | null;
