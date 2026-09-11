@@ -35,9 +35,11 @@ import DesignTemplatesModal from '../components/CloudMap/DesignTemplatesModal';
 import Tooltip from '../components/CloudMap/Tooltip';
 import ResizeHandles from '../components/CloudMap/ResizeHandles';
 import ConnectionArrows from '../components/CloudMap/ConnectionArrows';
+import ResourceInspector from '../components/CloudMap/ResourceInspector';
+import TerraformPanel from '../components/CloudMap/TerraformPanel';
+import { useTerraformPreview } from '../hooks/useTerraformPreview';
 import {
   ALL_VPCS_VALUE,
-  NODE_TYPE_DATA,
   TAILWIND_COLORS,
   AWS_ICONS,
   type CloudMapMode,
@@ -357,6 +359,18 @@ const CloudMapPage: React.FC = () => {
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [infoPanelOpen, setInfoPanelOpen] = useState(false);
+  /** Node whose neighbourhood is focused, via the inspector's Focus action. */
+  const [isolatedNodeId, setIsolatedNodeId] = useState<string | null>(null);
+
+  // ── Terraform generation (design mode) ───────────────────────────────────
+  const [showTerraform, setShowTerraform] = useState(false);
+  /**
+   * Serialised canvas, refreshed on change while the panel is open.
+   *
+   * Only tracked while the panel is open: serialising the whole graph on every
+   * drag when nobody is reading the output would be waste.
+   */
+  const [designGraphJson, setDesignGraphJson] = useState<string | null>(null);
   const [selectedNodeData, setSelectedNodeData] = useState<NodeData | null>(null);
   const [showEmptyState, setShowEmptyState] = useState(false);
   const [messageOverlay, setMessageOverlay] = useState<{ show: boolean; title: string }>({ show: false, title: '' });
@@ -3040,44 +3054,96 @@ ${xmlEdges}
 
   // ── Info panel (live mode) ────────────────────────────────────────────────
 
-  const renderInfoPanel = () => {
-    if (!selectedNodeData) return null;
-    const typeInfo = NODE_TYPE_DATA[selectedNodeData.type] || { icon: 'cube', color: 'gray' };
-    const gradients: Record<string, string> = {
-      'VPC': 'from-green-500 to-emerald-600',
-      'EC2 Instance': 'from-orange-500 to-red-600',
-      'RDS Instance': 'from-blue-500 to-blue-700',
+  /**
+   * Dim everything more than one hop from the selected resource.
+   *
+   * Tracing "what talks to this box" otherwise means reading overlapping edges by
+   * eye. Dimming rather than hiding keeps the surrounding shape on screen so you
+   * do not lose your bearings.
+   */
+  const handleIsolate = useCallback((nodeId: string) => {
+    const cy = cyRef.current;
+    if (!cy) return;
+
+    if (isolatedNodeId === nodeId) {
+      cy.elements().removeClass('cm-dimmed cm-highlight');
+      setIsolatedNodeId(null);
+      return;
+    }
+
+    const node = cy.getElementById(nodeId);
+    if (!node || node.length === 0) return;
+
+    const neighbourhood = node.closedNeighborhood();
+    // Keep ancestors lit: a resource floating in a dimmed VPC loses its context.
+    const keep = neighbourhood.union(node.ancestors()).union(neighbourhood.ancestors());
+
+    cy.batch(() => {
+      cy.elements().removeClass('cm-highlight').addClass('cm-dimmed');
+      keep.removeClass('cm-dimmed').addClass('cm-highlight');
+    });
+    setIsolatedNodeId(nodeId);
+  }, [isolatedNodeId]);
+
+  const handleCloseInfoPanel = useCallback(() => {
+    setInfoPanelOpen(false);
+    const cy = cyRef.current;
+    if (cy && isolatedNodeId) {
+      cy.elements().removeClass('cm-dimmed cm-highlight');
+      setIsolatedNodeId(null);
+    }
+  }, [isolatedNodeId]);
+
+  /** Reveal and select a node, so a Terraform finding can point at its card. */
+  const focusNodeById = useCallback((nodeId: string) => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const node = cy.getElementById(nodeId);
+    if (!node || node.length === 0) return;
+    cy.elements().unselect();
+    node.select();
+    cy.animate({ center: { eles: node }, duration: 220 } as any);
+  }, []);
+
+  /**
+   * Keep the serialised graph in step with the canvas while the panel is open.
+   *
+   * Cytoscape fires these continuously during a drag, so the work is coalesced
+   * into one frame here and the request is debounced again in the hook.
+   */
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || mode !== 'design' || !showTerraform) return;
+
+    let frame = 0;
+    const capture = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (!cyRef.current) return;
+        try {
+          setDesignGraphJson(JSON.stringify(cyRef.current.elements().jsons()));
+        } catch (err) {
+          console.warn('[CloudMap] could not serialise design for Terraform', err);
+        }
+      });
     };
-    const gradient = gradients[selectedNodeData.type] || 'from-gray-500 to-gray-600';
-    return (
-      <div className={`info-panel ${infoPanelOpen ? 'open' : ''}`}>
-        <button onClick={() => setInfoPanelOpen(false)} className="close-btn"><i className="fas fa-times" /></button>
-        <div className="info-content">
-          <div className="slide-in">
-            <div className={`w-12 h-12 bg-gradient-to-br ${gradient} rounded-xl flex items-center justify-center mb-4`}>
-              <i className={`fas fa-${typeInfo.icon} text-white text-lg`} />
-            </div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">{selectedNodeData.label}</h2>
-            <div className="vpc-badge mb-4 inline-block">{selectedNodeData.type}</div>
-            <p className="text-xs text-gray-400 font-mono break-all mb-4">{selectedNodeData.id}</p>
-            <div className="space-y-3">
-              {Object.entries(selectedNodeData)
-                .filter(([key]) => !['id', 'label', 'parent', 'type', 'source', 'target'].includes(key))
-                .map(([key, value]) => {
-                  if (typeof value === 'object') return null;
-                  return (
-                    <div key={key} className="network-node">
-                      <span className="font-semibold text-gray-700 text-xs">{key}</span>
-                      <span className="font-mono text-gray-900 text-xs">{String(value)}</span>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
+
+    capture();
+    const events = 'add remove data position move';
+    cy.on(events, capture);
+    return () => {
+      cy.off(events, capture);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [mode, showTerraform, graphElements]);
+
+  const terraform = useTerraformPreview({
+    graphData: designGraphJson,
+    name: currentBlueprintName || 'Untitled design',
+    region: 'us-east-1',
+    enabled: mode === 'design' && showTerraform,
+  });
 
   // ── Render ────────────────────────────────────────────────────────────────
   // When rulers are enabled the cytoscape-container is inset 18px from the
@@ -3132,6 +3198,25 @@ ${xmlEdges}
                 <div className="toolbar-separator" />
 
                 {/* ── DRAW ── */}
+                {/* Terraform lives in its own group: it is the only control here
+                    that produces an artifact rather than changing the drawing. */}
+                <div className="toolbar-group">
+                  <span className="toolbar-group-label">Generate</span>
+                  <div className="toolbar-group-buttons">
+                    <Tooltip text={showTerraform ? 'Hide generated Terraform' : 'Show the Terraform for this design'}>
+                      <button
+                        className={`toolbar-button ${showTerraform ? 'toolbar-button-active' : ''}`}
+                        onClick={() => setShowTerraform(v => !v)}
+                        aria-pressed={showTerraform}
+                      >
+                        <i className="fas fa-file-code" />
+                      </button>
+                    </Tooltip>
+                  </div>
+                </div>
+
+                <div className="toolbar-separator" />
+
                 <div className="toolbar-group">
                   <span className="toolbar-group-label">Draw</span>
                   <div className="toolbar-group-buttons">
@@ -4336,7 +4421,15 @@ ${xmlEdges}
         </div>{/* end column wrapper */}
 
         {/* ── Right: Properties Panel (design) | Info Panel (live) ── */}
-        {mode === 'design' ? (
+        {mode === 'design' && showTerraform ? (
+          <TerraformPanel
+            result={terraform}
+            theme={canvasThemeName}
+            designName={currentBlueprintName || 'Untitled design'}
+            onClose={() => setShowTerraform(false)}
+            onFocusNode={focusNodeById}
+          />
+        ) : mode === 'design' ? (
           <DesignPropertiesPanel
             selected={selectedElement}
             onLabelChange={handleLabelChange}
@@ -4385,7 +4478,14 @@ ${xmlEdges}
             onCommentsChange={handleCommentsChange}
           />
         ) : (
-          renderInfoPanel()
+          <ResourceInspector
+            node={selectedNodeData}
+            open={infoPanelOpen}
+            onClose={handleCloseInfoPanel}
+            theme={canvasThemeName}
+            onIsolate={handleIsolate}
+            isolated={!!selectedNodeData && isolatedNodeId === selectedNodeData.id}
+          />
         )}
       </div>
 

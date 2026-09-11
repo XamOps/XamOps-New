@@ -184,6 +184,63 @@ public class ArchitectureDesignController {
     }
 
     /**
+     * Generate Terraform for an unsaved canvas.
+     *
+     * <p>
+     * The {@code /{id}/terraform} variant needs a persisted blueprint, which would
+     * force someone to save before they could see any code. Generation is a pure
+     * function of the graph, so this takes the canvas straight from the request and
+     * persists nothing — that is what lets the editor show HCL updating as the
+     * design is drawn.
+     *
+     * <p>
+     * Still authenticated: it is not public, and requiring a tenant keeps it
+     * consistent with the rest of the controller. There is no id to confuse, so
+     * this carries no cross-tenant surface of its own.
+     */
+    @PostMapping("/terraform/preview")
+    public ResponseEntity<GeneratedTerraform> previewTerraform(
+            @RequestBody PreviewRequest request,
+            @AuthenticationPrincipal ClientUserDetails user) {
+
+        requireClientId(user);
+
+        String graphData = request.graphData();
+        if (graphData != null && graphData.length() > MAX_GRAPH_DATA_BYTES) {
+            throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "Diagram is too large to generate");
+        }
+
+        CanvasDesignTranslator.Result translated;
+        try {
+            translated = translator.translate(
+                    graphData,
+                    request.name() == null || request.name().isBlank() ? "Untitled design" : request.name(),
+                    request.region() == null || request.region().isBlank() ? "us-east-1" : request.region());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+        }
+
+        DesignValidator.Result validation = validator.validate(translated.design());
+        Map<String, String> files = validation.canGenerate()
+                ? emitter.emit(translated.design())
+                : Map.of();
+
+        return ResponseEntity.ok(new GeneratedTerraform(
+                validation.canGenerate(),
+                translated.resourceCount(),
+                files,
+                validation.findings(),
+                translated.skipped(),
+                translated.notes()));
+    }
+
+    /**
+     * @param graphData raw Cytoscape element JSON, as the canvas already serialises it
+     */
+    public record PreviewRequest(String name, String region, String graphData) {
+    }
+
+    /**
      * @param generatable    false when errors blocked emission
      * @param resourceCount  canvas shapes that mapped to a Terraform resource
      * @param files          filename to contents; empty when not generatable
