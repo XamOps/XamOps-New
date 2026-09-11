@@ -1,0 +1,59 @@
+{
+  "tfType": "aws_instance",
+  "displayName": "EC2 Instance",
+  "canvasType": "EC2 Instance",
+  "idAttribute": "id",
+  "attributes": [
+    {
+      "name": "ami",
+      "kind": "STRING",
+      "required": true,
+      "description": "AMI to launch. A later step can prefill this from the inventory plane or resolve it through an aws_ami data source."
+    },
+    {
+      "name": "instance_type",
+      "kind": "INSTANCE_TYPE",
+      "required": true,
+      "defaultValue": "t3.micro",
+      "description": "Instance size. Promoted to a variable so it can be tuned per environment without editing the resource.",
+      "promoteToVariable": true
+    },
+    {
+      "name": "monitoring",
+      "kind": "BOOL",
+      "required": false,
+      "defaultValue": "true",
+      "description": "Detailed CloudWatch monitoring at one-minute resolution."
+    },
+    {
+      "name": "associate_public_ip_address",
+      "kind": "BOOL",
+      "required": false,
+      "defaultValue": "false",
+      "description": "Attach a public IP. Left off by default so an instance is not exposed by accident."
+    },
+    {
+      "name": "tags",
+      "kind": "TAGS",
+      "required": false,
+      "description": "Tags applied to the instance."
+    }
+  ],
+  "references": [
+    {
+      "field": "subnet_id",
+      "targetTfType": "aws_subnet",
+      "via": "CONTAINMENT",
+      "required": true,
+      "list": false
+    },
+    {
+      "field": "vpc_security_group_ids",
+      "targetTfType": "aws_security_group",
+      "via": "EDGE",
+      "required": false,
+      "list": true
+    }
+  ],
+  "outputs": ["id", "private_ip"]
+}
