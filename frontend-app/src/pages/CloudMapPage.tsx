@@ -13,7 +13,7 @@
  * - React save-dialog (no browser prompt)
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbarActions } from '../contexts/TopbarContext';
@@ -38,6 +38,8 @@ import ConnectionArrows from '../components/CloudMap/ConnectionArrows';
 import ResourceInspector from '../components/CloudMap/ResourceInspector';
 import TerraformPanel from '../components/CloudMap/TerraformPanel';
 import { useTerraformPreview } from '../hooks/useTerraformPreview';
+import ResourcePropertiesForm from '../components/CloudMap/ResourcePropertiesForm';
+import { useDesignCatalog } from '../hooks/useDesignCatalog';
 import {
   ALL_VPCS_VALUE,
   TAILWIND_COLORS,
@@ -371,6 +373,21 @@ const CloudMapPage: React.FC = () => {
    * drag when nobody is reading the output would be waste.
    */
   const [designGraphJson, setDesignGraphJson] = useState<string | null>(null);
+
+  /**
+   * Right-panel tab in design mode. The existing style panel is untouched; the
+   * resource form is an additional tab beside it rather than a replacement, so
+   * shapes with no Terraform meaning keep exactly the editor they had.
+   */
+  const [designTab, setDesignTab] = useState<'resource' | 'style'>('resource');
+  /**
+   * Terraform attributes of the selected node, mirrored into state so the form is
+   * controlled. The authority is still the Cytoscape node's data — this is a view
+   * of it, refreshed on selection and on every write.
+   */
+  const [selectedAttrs, setSelectedAttrs] = useState<Record<string, unknown>>({});
+  const [selectedCanvasType, setSelectedCanvasType] = useState<string | null>(null);
+  const [selectedRefCounts, setSelectedRefCounts] = useState<Record<string, number>>({});
   const [selectedNodeData, setSelectedNodeData] = useState<NodeData | null>(null);
   const [showEmptyState, setShowEmptyState] = useState(false);
   const [messageOverlay, setMessageOverlay] = useState<{ show: boolean; title: string }>({ show: false, title: '' });
@@ -3138,6 +3155,95 @@ ${xmlEdges}
     };
   }, [mode, showTerraform, graphElements]);
 
+  const designCatalog = useDesignCatalog(mode === 'design');
+
+  /** Catalog entry for the selected node, or undefined for a shape. */
+  const selectedSpec = useMemo(
+    () => designCatalog.byCanvasType(selectedCanvasType),
+    [designCatalog, selectedCanvasType]);
+
+  /**
+   * Mirror the selected node's Terraform attributes into state.
+   *
+   * Also counts satisfied references by inspecting the canvas: containment from
+   * the node's ancestors, edges from its connected edges. That is what lets the
+   * form explain "place this inside a VPC" instead of just marking a field
+   * missing.
+   */
+  const syncSelectedNode = useCallback((nodeId: string | null) => {
+    const cy = cyRef.current;
+    if (!cy || !nodeId) {
+      setSelectedAttrs({});
+      setSelectedCanvasType(null);
+      setSelectedRefCounts({});
+      return;
+    }
+    const node = cy.getElementById(nodeId);
+    if (!node || node.length === 0 || !node.isNode?.()) {
+      setSelectedAttrs({});
+      setSelectedCanvasType(null);
+      setSelectedRefCounts({});
+      return;
+    }
+
+    const data = { ...node.data() };
+    setSelectedCanvasType(data.type ?? null);
+    setSelectedAttrs(data);
+
+    const spec = designCatalog.byCanvasType(data.type);
+    if (!spec) {
+      setSelectedRefCounts({});
+      return;
+    }
+
+    const counts: Record<string, number> = {};
+    for (const ref of spec.references) {
+      if (ref.via === 'CONTAINMENT') {
+        const ancestorTypes = node.ancestors().map((a: any) => a.data('type'));
+        const target = designCatalog.specs.find(sp => sp.tfType === ref.targetTfType);
+        counts[ref.field] = target && ancestorTypes.includes(target.canvasType) ? 1 : 0;
+      } else {
+        const target = designCatalog.specs.find(sp => sp.tfType === ref.targetTfType);
+        if (!target) { counts[ref.field] = 0; continue; }
+        counts[ref.field] = node.connectedEdges().reduce((total: number, edge: any) => {
+          const other = edge.source().id() === node.id() ? edge.target() : edge.source();
+          return total + (other.data('type') === target.canvasType ? 1 : 0);
+        }, 0);
+      }
+    }
+    setSelectedRefCounts(counts);
+  }, [designCatalog]);
+
+  useEffect(() => {
+    syncSelectedNode(selectedElement?.elementType === 'node' ? selectedElement.id : null);
+  }, [selectedElement, syncSelectedNode]);
+
+  /**
+   * Write an attribute onto the node.
+   *
+   * Stored under the attribute's own name so the existing save path persists it
+   * and CanvasDesignTranslator reads it back — no schema change, and a design from
+   * an older build simply has none set and falls back to catalog defaults.
+   */
+  const handleAttributeChange = useCallback((attributeName: string, value: unknown) => {
+    const cy = cyRef.current;
+    const nodeId = selectedElement?.id;
+    if (!cy || !nodeId) return;
+    const node = cy.getElementById(nodeId);
+    if (!node || node.length === 0) return;
+
+    takeSnapshotRef.current();
+    if (value === undefined) node.removeData(attributeName);
+    else node.data(attributeName, value);
+
+    setSelectedAttrs(prev => {
+      const next = { ...prev };
+      if (value === undefined) delete next[attributeName];
+      else next[attributeName] = value;
+      return next;
+    });
+  }, [selectedElement]);
+
   const terraform = useTerraformPreview({
     graphData: designGraphJson,
     name: currentBlueprintName || 'Untitled design',
@@ -4430,7 +4536,42 @@ ${xmlEdges}
             onFocusNode={focusNodeById}
           />
         ) : mode === 'design' ? (
-          <DesignPropertiesPanel
+          <div className="design-panel-stack">
+            {/* Tabs appear only when the selection has Terraform meaning. For a
+                plain shape there is nothing to configure, so the style editor
+                shows alone exactly as it did before. */}
+            {selectedSpec && (
+              <div className="design-panel-tabs" role="tablist" style={{ background: canvasTokens.card, borderColor: canvasTokens.hairline }}>
+                {(['resource', 'style'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    role="tab"
+                    aria-selected={designTab === tab}
+                    onClick={() => setDesignTab(tab)}
+                    className={`design-panel-tab${designTab === tab ? ' active' : ''}`}
+                    style={{
+                      color: designTab === tab ? canvasTokens.ink : canvasTokens.inkMuted,
+                      borderBottomColor: designTab === tab ? canvasTokens.accent : 'transparent',
+                    }}
+                  >
+                    {tab === 'resource' ? 'Resource' : 'Style'}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {selectedSpec && designTab === 'resource' ? (
+              <div className="design-panel-body" style={{ background: canvasTokens.card, borderColor: canvasTokens.hairline }}>
+                <ResourcePropertiesForm
+                  spec={selectedSpec}
+                  values={selectedAttrs}
+                  onChange={handleAttributeChange}
+                  theme={canvasThemeName}
+                  satisfiedReferences={selectedRefCounts}
+                />
+              </div>
+            ) : (
+            <DesignPropertiesPanel
             selected={selectedElement}
             onLabelChange={handleLabelChange}
             onFillColorChange={handleFillColorChange}
@@ -4477,6 +4618,8 @@ ${xmlEdges}
             onMetadataChange={handleMetadataChange}
             onCommentsChange={handleCommentsChange}
           />
+            )}
+          </div>
         ) : (
           <ResourceInspector
             node={selectedNodeData}

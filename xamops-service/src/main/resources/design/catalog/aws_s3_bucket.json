@@ -1,0 +1,29 @@
+{
+  "tfType": "aws_s3_bucket",
+  "displayName": "S3 Bucket",
+  "canvasType": "S3 Bucket",
+  "idAttribute": "id",
+  "attributes": [
+    {
+      "name": "bucket",
+      "kind": "STRING",
+      "required": true,
+      "description": "Bucket name. Globally unique across all of AWS, lowercase, 3-63 characters."
+    },
+    {
+      "name": "force_destroy",
+      "kind": "BOOL",
+      "required": false,
+      "defaultValue": "false",
+      "description": "Allow Terraform to delete a bucket that still has objects in it. Left off by default because it makes destroy irreversible."
+    },
+    {
+      "name": "tags",
+      "kind": "TAGS",
+      "required": false,
+      "description": "Tags applied to the bucket."
+    }
+  ],
+  "references": [],
+  "outputs": ["id", "arn", "bucket_domain_name"]
+}

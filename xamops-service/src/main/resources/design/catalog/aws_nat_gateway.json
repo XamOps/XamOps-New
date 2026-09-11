@@ -1,0 +1,38 @@
+{
+  "tfType": "aws_nat_gateway",
+  "displayName": "NAT Gateway",
+  "canvasType": "NAT Gateway",
+  "idAttribute": "id",
+  "attributes": [
+    {
+      "name": "connectivity_type",
+      "kind": "ENUM",
+      "required": false,
+      "defaultValue": "public",
+      "description": "A public NAT gateway needs an Elastic IP and reaches the internet; a private one only reaches other VPCs.",
+      "options": ["public", "private"]
+    },
+    {
+      "name": "allocation_id",
+      "kind": "STRING",
+      "required": false,
+      "description": "Elastic IP allocation. Required by AWS when connectivity_type is public; leave blank for a private NAT gateway."
+    },
+    {
+      "name": "tags",
+      "kind": "TAGS",
+      "required": false,
+      "description": "Tags applied to the NAT gateway."
+    }
+  ],
+  "references": [
+    {
+      "field": "subnet_id",
+      "targetTfType": "aws_subnet",
+      "via": "CONTAINMENT",
+      "required": true,
+      "list": false
+    }
+  ],
+  "outputs": ["id"]
+}

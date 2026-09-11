@@ -2,18 +2,22 @@ package com.xammer.cloud.controller;
 
 import com.xammer.cloud.design.CanvasDesignTranslator;
 import com.xammer.cloud.design.DesignValidator;
+import com.xammer.cloud.design.catalog.ResourceCatalog;
+import com.xammer.cloud.design.catalog.ResourceTypeSpec;
 import com.xammer.cloud.design.hcl.HclEmitter;
 import com.xammer.cloud.domain.ArchitectureBlueprint;
 import com.xammer.cloud.repository.ArchitectureBlueprintRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -55,15 +59,41 @@ public class ArchitectureDesignController {
     private final CanvasDesignTranslator translator;
     private final DesignValidator validator;
     private final HclEmitter emitter;
+    private final ResourceCatalog catalog;
 
     public ArchitectureDesignController(ArchitectureBlueprintRepository repository,
                                         CanvasDesignTranslator translator,
                                         DesignValidator validator,
-                                        HclEmitter emitter) {
+                                        HclEmitter emitter,
+                                        ResourceCatalog catalog) {
         this.repository = repository;
         this.translator = translator;
         this.validator = validator;
         this.emitter = emitter;
+        this.catalog = catalog;
+    }
+
+    /**
+     * The resource catalog, for the properties panel to render from.
+     *
+     * <p>
+     * Served rather than duplicated in TypeScript on purpose. The catalog is the
+     * single description of what a resource type has — its attributes, their kinds,
+     * defaults and validation, and which references are legal. A second copy in the
+     * frontend would drift, and the failure mode of drift here is a form that
+     * collects a field the emitter ignores, or omits one it requires.
+     *
+     * <p>
+     * Public within the tenant and safe to cache: this is product metadata, not
+     * customer data. Nothing here varies by client.
+     */
+    @GetMapping("/catalog")
+    public ResponseEntity<List<ResourceTypeSpec>> getCatalog(
+            @AuthenticationPrincipal ClientUserDetails user) {
+        requireClientId(user);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(Duration.ofHours(1)).cachePrivate())
+                .body(List.copyOf(catalog.all()));
     }
 
     @GetMapping("/list")

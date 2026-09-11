@@ -1,0 +1,24 @@
+{
+  "tfType": "aws_internet_gateway",
+  "displayName": "Internet Gateway",
+  "canvasType": "Internet Gateway",
+  "idAttribute": "id",
+  "attributes": [
+    {
+      "name": "tags",
+      "kind": "TAGS",
+      "required": false,
+      "description": "Tags applied to the internet gateway."
+    }
+  ],
+  "references": [
+    {
+      "field": "vpc_id",
+      "targetTfType": "aws_vpc",
+      "via": "CONTAINMENT",
+      "required": true,
+      "list": false
+    }
+  ],
+  "outputs": ["id"]
+}

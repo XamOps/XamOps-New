@@ -2077,3 +2077,284 @@
     transition: none;
   }
 }
+
+/* ==========================================================================
+   Resource properties form
+   ==========================================================================
+   Sits behind a Resource/Style tab pair beside the existing style editor, which
+   is left untouched. Colour arrives from canvasTheme tokens via inline style;
+   this owns layout and type.
+   ========================================================================== */
+
+.design-panel-stack {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.design-panel-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px;
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+  border-left-width: 1px;
+  border-left-style: solid;
+  flex-shrink: 0;
+}
+
+.design-panel-tab {
+  border: none;
+  background: transparent;
+  padding: 10px 12px;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.1px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 160ms ease-out, border-color 160ms ease-out;
+}
+
+.design-panel-tab:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}
+
+/* The style panel manages its own width, so only the resource body is sized. */
+.design-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-left-width: 1px;
+  border-left-style: solid;
+  scrollbar-width: thin;
+}
+
+/* Let the existing style panel fill the stack when it is the active tab. */
+.design-panel-stack > .design-props-panel {
+  flex: 1;
+  min-height: 0;
+  width: auto;
+}
+
+.rp-form {
+  padding: 14px;
+  display: grid;
+  gap: 15px;
+}
+
+/* ── Type header ────────────────────────────────────────────────────────── */
+
+.rp-type {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 11px;
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+}
+
+.rp-type-name {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.1px;
+}
+
+.rp-type-tf {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+}
+
+/* ── Fields ─────────────────────────────────────────────────────────────── */
+
+.rp-field {
+  display: grid;
+  gap: 5px;
+}
+
+.rp-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.rp-required {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.rp-badge {
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: none;
+}
+
+.rp-input {
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: 7px;
+  border-width: 1px;
+  border-style: solid;
+  font-size: 12px;
+  font-family: inherit;
+  /* Identifiers, CIDRs and sizes are all data, so tabular figures line up. */
+  font-variant-numeric: tabular-nums;
+}
+
+.rp-input:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -1px;
+}
+
+select.rp-input {
+  cursor: pointer;
+  appearance: none;
+  background-image: none;
+}
+
+.rp-help,
+.rp-error,
+.rp-unsupported {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.rp-error {
+  font-weight: 600;
+}
+
+.rp-unsupported {
+  font-style: italic;
+}
+
+/* ── Boolean ────────────────────────────────────────────────────────────── */
+
+.rp-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.rp-switch input {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.rp-switch-label {
+  font-size: 11.5px;
+  font-weight: 550;
+}
+
+/* ── Tags ───────────────────────────────────────────────────────────────── */
+
+.rp-tags {
+  display: grid;
+  gap: 6px;
+}
+
+.rp-tag-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) 22px;
+  gap: 5px;
+  align-items: center;
+}
+
+.rp-tag-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+}
+
+.rp-tag-remove {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 10px;
+  display: grid;
+  place-items: center;
+  transition: background-color 150ms ease-out;
+}
+
+.rp-tag-remove:hover:not(:disabled) {
+  background: rgba(127, 127, 127, 0.16);
+}
+
+.rp-tag-remove:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ── References ─────────────────────────────────────────────────────────── */
+
+/*
+ * References are made on the canvas, not in this form. Listing their state is
+ * what turns "vpc_id is required" into "place this inside a vpc".
+ */
+.rp-refs {
+  padding-top: 12px;
+  border-top-width: 1px;
+  border-top-style: solid;
+  display: grid;
+  gap: 7px;
+}
+
+.rp-refs-title {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.rp-ref {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.rp-ref-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transform: translateY(-1px);
+}
+
+.rp-ref-field {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.rp-ref-hint {
+  margin-left: auto;
+  text-align: right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .design-panel-tab,
+  .rp-tag-remove {
+    transition: none;
+  }
+}
