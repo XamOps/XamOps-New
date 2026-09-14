@@ -3,6 +3,7 @@ import { Icon } from '@iconify/react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis,
   AreaChart, Area, Legend as ReLegend } from 'recharts';
 import type { FunnelStage } from '../../types/xamsecure';
+import { ribbonPath, type Point } from './funnelPath';
 import Pager, { usePaged } from './Pager';
 import type {
   PageResp, VulnerabilityDashboard, CveGroupRow, CveResourceFinding, ResourceDetail,
@@ -645,19 +646,10 @@ const RuntimeFunnel: React.FC<{ stages: FunnelStage[] }> = ({ stages }) => {
   const firstEmpty = stages.findIndex((s) => s.value <= 0);
   const drawn = firstEmpty === -1 ? stages : stages.slice(0, firstEmpty + 1);
 
-  const curve = (pts: Array<[number, number]>) => pts.slice(1).reduce((acc, [x1, y1], idx) => {
-    const [x0, y0] = pts[idx];
-    const cx = (x0 + x1) / 2;
-    return `${acc} C ${cx} ${y0}, ${cx} ${y1}, ${x1} ${y1}`;
-  }, '');
-
-  const top: Array<[number, number]> = drawn.map((s, i) => [x(i), midY - h(s.value) / 2]);
-  const bottom: Array<[number, number]> = drawn
-    .map((s, i): [number, number] => [x(i), midY + h(s.value) / 2]).reverse();
-  const d = drawn.length > 1
-    ? `M ${top[0][0]} ${top[0][1]}${curve(top)} L ${bottom[0][0]} ${bottom[0][1]}`
-      + `${curve(bottom)} Z`
-    : '';
+  const d = ribbonPath(
+    drawn.map((s, i) => [x(i), midY - h(s.value) / 2] as Point),
+    drawn.map((s, i) => [x(i), midY + h(s.value) / 2] as Point),
+  );
 
   const banded = stages.some((s) => !!s.bands);
   // Band boundaries per stage, cumulative down from the ribbon's top edge, so the segments always
@@ -671,13 +663,10 @@ const RuntimeFunnel: React.FC<{ stages: FunnelStage[] }> = ({ stages }) => {
     });
     return ys;
   });
-  const bandPath = (slot: number) => {
-    const upper: Array<[number, number]> = drawn.map((_, i) => [x(i), edges[i][slot]]);
-    const lower: Array<[number, number]> = drawn
-      .map((_, i): [number, number] => [x(i), edges[i][slot + 1]]).reverse();
-    return `M ${upper[0][0]} ${upper[0][1]}${curve(upper)} L ${lower[0][0]} ${lower[0][1]}`
-      + `${curve(lower)} Z`;
-  };
+  const bandPath = (slot: number) => ribbonPath(
+    drawn.map((_, i) => [x(i), edges[i][slot]] as Point),
+    drawn.map((_, i) => [x(i), edges[i][slot + 1]] as Point),
+  );
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">

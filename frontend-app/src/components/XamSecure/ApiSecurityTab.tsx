@@ -3,6 +3,7 @@ import { Icon } from '@iconify/react';
 import type { ApiEndpoint } from '../../types/xamsecure';
 import Pager, { usePaged } from './Pager';
 import ApiEndpointDrawer from './ApiEndpointDrawer';
+import { ribbonPath, type Point } from './funnelPath';
 
 interface Props {
   data: ApiEndpoint[] | null;
@@ -285,8 +286,17 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
 
 /**
  * Endpoint narrowing, matching Upwind's APIs funnel: how the full surface reduces to the
- * endpoints that actually warrant attention. Stages are strictly nested subsets, so a
- * narrowing ribbon is an honest encoding rather than decoration.
+ * endpoints that actually warrant attention.
+ *
+ * Drawn with smooth beziers via {@link ribbonPath}. It previously joined the stage points with
+ * straight segments, which put a corner at each boundary and turned the drop into the last stage
+ * into a hard wedge.
+ *
+ * Caveat on the encoding, which this change does not alter: only the first three stages are a
+ * narrowing chain. "Unauthenticated" is not a subset of "Authenticated" — authenticated,
+ * unauthenticated and unclassified partition the surface, and on live data they sum to the
+ * endpoint total — so reading the last step as a further narrowing is wrong. Left as-is because
+ * it mirrors the vendor console's stage order; worth revisiting as a product decision.
  */
 const EndpointsFunnel: React.FC<{
   total: number; exposed: number; authed: number; unauth: number;
@@ -303,12 +313,12 @@ const EndpointsFunnel: React.FC<{
   const max = Math.max(1, total);
   const n = stages.length;
   const x = (i: number) => (i / (n - 1)) * W;
-  const h = (v: number) => Math.max(2, (Math.min(v, max) / max) * maxH);
-  let d = `M ${x(0)} ${midY - h(stages[0].value) / 2}`;
-  for (let i = 1; i < n; i++) d += ` L ${x(i)} ${midY - h(stages[i].value) / 2}`;
-  d += ` L ${x(n - 1)} ${midY + h(stages[n - 1].value) / 2}`;
-  for (let i = n - 2; i >= 0; i--) d += ` L ${x(i)} ${midY + h(stages[i].value) / 2}`;
-  d += ' Z';
+  // A zero stage tapers to an actual point; the floor only keeps a small non-zero stage from
+  // rendering as a hairline.
+  const h = (v: number) => (v <= 0 ? 0 : Math.max(3, (Math.min(v, max) / max) * maxH));
+  const edge = (sign: -1 | 1): Point[] =>
+    stages.map((s, i) => [x(i), midY + sign * (h(s.value) / 2)] as Point);
+  const d = ribbonPath(edge(-1), edge(1));
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
