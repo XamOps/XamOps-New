@@ -320,6 +320,14 @@ const GcpDashboard: React.FC = () => {
 
   const accountId = selectedAccountIds.length === 1 ? selectedAccountIds[0] : null;
 
+  const customizeButton = (
+    <button onClick={() => setCustomizerOpen(true)}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.55)] hover:bg-[rgba(0,0,0,0.04)] hover:text-[rgba(0,0,0,0.8)] transition-colors">
+      <Icon icon="mdi:view-dashboard-edit-outline" width={13} />
+      Customize
+    </button>
+  );
+
   useEffect(() => {
     setActions(
       <div className="flex items-center gap-3">
@@ -389,14 +397,10 @@ const GcpDashboard: React.FC = () => {
 
   return (
     <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
-      {/* Customize */}
-      {selectedAccountIds.length > 0 && (
+      {/* Customize — only as a standalone row when the KPI widget (its usual host) is hidden */}
+      {selectedAccountIds.length > 0 && !show('kpi') && (
         <div className="flex items-center justify-end">
-          <button onClick={() => setCustomizerOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.55)] hover:bg-[rgba(0,0,0,0.04)] transition-colors">
-            <Icon icon="mdi:view-dashboard-edit-outline" width={14} />
-            Customize
-          </button>
+          {customizeButton}
         </div>
       )}
 
@@ -407,16 +411,20 @@ const GcpDashboard: React.FC = () => {
         onClose={() => setCustomizerOpen(false)}
       />
 
-      {/* KPI Cards */}
+      {/* KPI Cards — wrapper contains KPISection's fragment so its header row and
+          card grid don't become `space-y-5` siblings of the page sections */}
       {show('kpi') && dashboardData && (
-        <KPISection
-          kpiData={dashboardData.kpi as any}
-          costHistory={gcpCostHistory}
-          totalResourcesOverride={totalResources}
-          isLoading={loading.kpi}
-          provider="GCP"
-          accountId={accountId}
-        />
+        <div className="widget">
+          <KPISection
+            kpiData={dashboardData.kpi as any}
+            costHistory={gcpCostHistory}
+            totalResourcesOverride={totalResources}
+            isLoading={loading.kpi}
+            provider="GCP"
+            accountId={accountId}
+            headerAction={customizeButton}
+          />
+        </div>
       )}
 
       {/* Summary Cards */}
