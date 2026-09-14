@@ -599,7 +599,25 @@ const RuntimeExposure: React.FC<{
   );
 };
 
-/** Upwind-style horizontal runtime exploit funnel: stage headers + narrowing red ribbon. */
+/**
+ * Runtime exploit funnel: stage headers above a smoothly narrowing ribbon.
+ *
+ * The edges are cubic beziers with control points on the midpoint x, which is what produces the
+ * curved profile. Joining the stage points with straight `L` segments left visible corners, and
+ * at an empty stage it produced a hard pinch.
+ *
+ * The ribbon stops at the first empty stage. These stages are independent attributes of the same
+ * CVEs rather than nested subsets, so a later one can exceed an earlier one — live data has
+ * Internet exposure 0 followed by Known exploit 1. Drawing that literally collapsed the ribbon to
+ * a point and flared it out again, reading as though a CVE had come back after being filtered
+ * away. Nothing downstream of an empty stage can be a subset of it, so the ribbon ends there. The
+ * headers above still report every true value, including any after the stop.
+ *
+ * Deliberately not carrying a CVSS legend: the ribbon encodes CVE counts, not severity. It
+ * previously showed Critical/High/Other dots next to a single-colour ribbon, which implied a
+ * breakdown that was never drawn. Segmenting by severity needs a per-stage severity split that
+ * the dashboard query does not currently produce.
+ */
 const RuntimeFunnel: React.FC<{ stages: FunnelStage[] }> = ({ stages }) => {
   if (stages.length === 0) {
     return (
@@ -612,24 +630,37 @@ const RuntimeFunnel: React.FC<{ stages: FunnelStage[] }> = ({ stages }) => {
   const W = 1000, H = 120, midY = H / 2, maxH = H * 0.92;
   const total = Math.max(1, stages[0].value);
   const n = stages.length;
-  const x = (i: number) => (i / (n - 1)) * W;
-  const h = (v: number) => Math.max(2, (Math.min(v, total) / total) * maxH);
-  let d = `M ${x(0)} ${midY - h(stages[0].value) / 2}`;
-  for (let i = 1; i < n; i++) d += ` L ${x(i)} ${midY - h(stages[i].value) / 2}`;
-  d += ` L ${x(n - 1)} ${midY + h(stages[n - 1].value) / 2}`;
-  for (let i = n - 2; i >= 0; i--) d += ` L ${x(i)} ${midY + h(stages[i].value) / 2}`;
-  d += ' Z';
+  const x = (i: number) => (n === 1 ? W : (i / (n - 1)) * W);
+  // Empty stages taper to nothing; a floor keeps a small non-zero stage visible against a
+  // large total instead of rendering as a hairline.
+  const h = (v: number) => (v <= 0 ? 0 : Math.max(3, (Math.min(v, total) / total) * maxH));
+
+  const firstEmpty = stages.findIndex((s) => s.value <= 0);
+  const drawn = firstEmpty === -1 ? stages : stages.slice(0, firstEmpty + 1);
+
+  const curve = (pts: Array<[number, number]>) => pts.slice(1).reduce((acc, [x1, y1], idx) => {
+    const [x0, y0] = pts[idx];
+    const cx = (x0 + x1) / 2;
+    return `${acc} C ${cx} ${y0}, ${cx} ${y1}, ${x1} ${y1}`;
+  }, '');
+
+  const top: Array<[number, number]> = drawn.map((s, i) => [x(i), midY - h(s.value) / 2]);
+  const bottom: Array<[number, number]> = drawn
+    .map((s, i): [number, number] => [x(i), midY + h(s.value) / 2]).reverse();
+  const d = drawn.length > 1
+    ? `M ${top[0][0]} ${top[0][1]}${curve(top)} L ${bottom[0][0]} ${bottom[0][1]}`
+      + `${curve(bottom)} Z`
+    : '';
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
       <div className="flex items-center justify-between mb-4">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Runtime exploit funnel</p>
-        <div className="flex items-center gap-3 text-[10px] text-gray-400">
-          <span>CVSS:</span>
-          <LegendDot color="#dc2626" label="Critical" />
-          <LegendDot color="#f97316" label="High" />
-          <LegendDot color="#3b82f6" label="Other" />
-        </div>
+        {firstEmpty !== -1 && (
+          <p className="text-[10px] text-gray-400">
+            Narrows to nothing at {stages[firstEmpty].label.toLowerCase()}
+          </p>
+        )}
       </div>
       {/* stage headers */}
       <div className="flex justify-between gap-1 mb-1">
@@ -648,10 +679,12 @@ const RuntimeFunnel: React.FC<{ stages: FunnelStage[] }> = ({ stages }) => {
       {/* narrowing ribbon */}
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 110 }}>
         <defs>
-          <linearGradient id="funnelGrad" x1="0" y1="0" x2="1" y2="0">
+          {/* Vertical two-tone: reads as a lit ribbon rather than a flat block, and keeps the
+              taper legible where the shape is only a few pixels tall. */}
+          <linearGradient id="funnelGrad" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#f87171" />
-            <stop offset="60%" stopColor="#ef4444" />
-            <stop offset="100%" stopColor="#b91c1c" />
+            <stop offset="52%" stopColor="#dc2626" />
+            <stop offset="100%" stopColor="#8f1414" />
           </linearGradient>
         </defs>
         <path d={d} fill="url(#funnelGrad)" />
@@ -659,12 +692,6 @@ const RuntimeFunnel: React.FC<{ stages: FunnelStage[] }> = ({ stages }) => {
     </div>
   );
 };
-
-const LegendDot: React.FC<{ color: string; label: string }> = ({ color, label }) => (
-  <span className="flex items-center gap-1">
-    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} />{label}
-  </span>
-);
 
 const Stat: React.FC<{ value: number; label: string }> = ({ value, label }) => (
   <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 text-center">
