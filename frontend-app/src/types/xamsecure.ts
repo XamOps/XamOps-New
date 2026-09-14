@@ -45,6 +45,15 @@ export interface FunnelStage {
   label: string;
   value: number;
   available: boolean;
+  /**
+   * The stage's CVE count split into the CVSS bands the funnel legend shows. Sums to `value` by
+   * construction on the server.
+   *
+   * Optional because the dashboard payload is cached, so for the first few minutes after a
+   * deploy a stage can arrive without it; the ribbon falls back to a single unsegmented band and
+   * hides the legend rather than colouring everything as Critical.
+   */
+  bands?: { CRITICAL: number; HIGH: number; OTHER: number };
 }
 
 export interface VulnerabilityDashboard {

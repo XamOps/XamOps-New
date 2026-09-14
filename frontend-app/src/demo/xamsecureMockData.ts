@@ -765,13 +765,27 @@ const vulnTrends = buildVulnTrends();
  * Each funnel stage is a subset of the one before it, so the ribbon narrows left
  * to right. Clamping here rather than hand-tuning the numbers keeps the shape
  * correct even when the underlying counts move.
+ *
+ * Stages also carry the CVSS bands the ribbon is segmented by, split on the demo's own severity
+ * mix. OTHER absorbs the rounding so the bands sum to the stage total exactly, which is the
+ * invariant the real backend guarantees and the chart relies on.
  */
 const narrowing = (stages: ReadonlyArray<readonly [string, number]>) => {
+  const sevTotal = Object.values(cveSeverityCounts).reduce((a, b) => a + b, 0) || 1;
+  const pCritical = (cveSeverityCounts.CRITICAL ?? 0) / sevTotal;
+  const pHigh = (cveSeverityCounts.HIGH ?? 0) / sevTotal;
   let ceiling = Number.POSITIVE_INFINITY;
   return stages.map(([label, value]) => {
     const clamped = Math.min(value, ceiling);
     ceiling = clamped;
-    return { label, value: clamped, available: true };
+    const CRITICAL = Math.min(clamped, Math.round(clamped * pCritical));
+    const HIGH = Math.min(clamped - CRITICAL, Math.round(clamped * pHigh));
+    return {
+      label,
+      value: clamped,
+      available: true,
+      bands: { CRITICAL, HIGH, OTHER: clamped - CRITICAL - HIGH },
+    };
   });
 };
 

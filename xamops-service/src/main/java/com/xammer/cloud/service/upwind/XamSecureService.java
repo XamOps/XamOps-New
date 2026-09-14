@@ -1898,6 +1898,18 @@ public class XamSecureService {
             double e = parseDoubleSafe((String) r[4]);
             if (e > a.epss) a.epss = e;
             a.firstSeen = earliest(a.firstSeen, (Instant) r[5]);
+            // Columns 7-10: ORed across the CVE's findings — see CveAgg.
+            if (Boolean.TRUE.equals(r[7])) a.packageInUse = true;
+            if (Boolean.TRUE.equals(r[8])) a.internetExposed = true;
+            if (Boolean.TRUE.equals(r[9])) a.functionsInUse = true;
+            if (Boolean.TRUE.equals(r[10])) a.activeCommunication = true;
+        }
+
+        // Fix availability cannot ride the projection above: remediation lives only inside
+        // raw_payload, so it arrives as a separate set of CVE ids and is stamped onto the map.
+        for (String cve : vulnRepo.findCveIdsFixAvailable(ids)) {
+            CveAgg a = cve == null ? null : byCve.get(cve);
+            if (a != null) a.fixAvailable = true;
         }
 
         // Build cumulative series from the new-on-day counts.
@@ -1928,9 +1940,16 @@ public class XamSecureService {
         for (String s : SEVERITY_ORDER) severityCounts.put(s, 0L);
         Map<String, Set<String>> byType = new LinkedHashMap<>();
         int exploitable = 0, epssPrioritized = 0;
+        long exposedAndInUse = 0, activeComm = 0;
         Instant weekAgo = Instant.now().minus(java.time.Duration.ofDays(7));
         Map<String, Long> newBySeverity = new LinkedHashMap<>(Map.of("CRITICAL", 0L, "HIGH", 0L, "OTHER", 0L));
         Map<String, Long> overTime = new LinkedHashMap<>();
+
+        // Funnel stages, each split into the CVSS bands the legend shows. Counted here, off the
+        // one per-CVE map, so a stage's segments always sum to the stage's own total.
+        StageBands fTotal = new StageBands(), fPkg = new StageBands(), fExposed = new StageBands(),
+                fExploit = new StageBands(), fFix = new StageBands(), fEpss = new StageBands(),
+                fFuncs = new StageBands();
 
         for (Map.Entry<String, CveAgg> en : byCve.entrySet()) {
             CveAgg a = en.getValue();
@@ -1940,6 +1959,19 @@ public class XamSecureService {
                     .add(en.getKey());
             if (a.exploitable) exploitable++;
             if (a.epss >= 0.5) epssPrioritized++;
+
+            int band = bandIndex(a.severity);
+            fTotal.add(band);
+            if (a.packageInUse) fPkg.add(band);
+            if (a.internetExposed) fExposed.add(band);
+            if (a.exploitable) fExploit.add(band);
+            if (a.fixAvailable) fFix.add(band);
+            if (a.epss >= 0.5) fEpss.add(band);
+            if (a.functionsInUse) fFuncs.add(band);
+
+            // Not funnel stages, so not banded — these feed the runtime-narrowing cards.
+            if (a.internetExposed && a.packageInUse) exposedAndInUse++;
+            if (a.activeCommunication) activeComm++;
             if (a.firstSeen != null && a.firstSeen.isAfter(weekAgo)) {
                 String bucket = ("CRITICAL".equals(sev) || "HIGH".equals(sev)) ? sev : "OTHER";
                 newBySeverity.merge(bucket, 1L, Long::sum);
@@ -1962,36 +1994,34 @@ public class XamSecureService {
         // used to be hardcoded to unavailable because the sync discarded the fields that
         // carry them; both are real now. "NIST critical sev" remains unsourced — it needs
         // NVD's own severity banding rather than the CVSS v3 severity we store.
+        //
+        // Every stage now comes from the byCve map above rather than from its own
+        // COUNT(DISTINCT) aggregate. The stages are severity-segmented, and SQL would attribute
+        // a CVE to each severity its findings carry while this map gives a CVE one severity, so
+        // sourcing the segments and the total differently let them disagree.
         int totalCves = byCve.size();
-        long packageInUse = vulnRepo.countCvesPackageInUse(ids);
-        long fixAvailable = vulnRepo.countCvesFixAvailable(ids);
-        long internetExposed = 0, exposedAndInUse = 0, functionsInUse = 0, activeComm = 0;
-        List<Object[]> runtime = vulnRepo.countRuntimeExposure(ids);
-        if (!runtime.isEmpty() && runtime.get(0) != null) {
-            Object[] r = runtime.get(0);
-            internetExposed = r[0] == null ? 0 : ((Number) r[0]).longValue();
-            exposedAndInUse = r[1] == null ? 0 : ((Number) r[1]).longValue();
-            functionsInUse = r[2] == null ? 0 : ((Number) r[2]).longValue();
-            activeComm = r[3] == null ? 0 : ((Number) r[3]).longValue();
-        }
         List<Map<String, Object>> funnel = new ArrayList<>();
-        funnel.add(funnelStage("Total", totalCves, true));
-        funnel.add(funnelStage("Package in use", (int) packageInUse, true));
-        funnel.add(funnelStage("Internet exposure", (int) internetExposed, true));
-        funnel.add(funnelStage("Known exploit", exploitable, true));
-        funnel.add(funnelStage("Fix available", (int) fixAvailable, true));
-        funnel.add(funnelStage("NIST critical sev", 0, false));
-        funnel.add(funnelStage("EPSS-prioritized", epssPrioritized, true));
-        funnel.add(funnelStage("Functions in Use", (int) functionsInUse, true));
+        funnel.add(funnelStage("Total", fTotal, true));
+        funnel.add(funnelStage("Package in use", fPkg, true));
+        funnel.add(funnelStage("Internet exposure", fExposed, true));
+        funnel.add(funnelStage("Known exploit", fExploit, true));
+        funnel.add(funnelStage("Fix available", fFix, true));
+        funnel.add(funnelStage("NIST critical sev", new StageBands(), false));
+        funnel.add(funnelStage("EPSS-prioritized", fEpss, true));
+        funnel.add(funnelStage("Functions in Use", fFuncs, true));
 
         // Headline runtime narrowing, surfaced separately from the funnel so the tab can lead
         // with "what is actually reachable and running" instead of the installed total.
+        //
+        // Derived from the same per-CVE map as the funnel. These used to come from their own
+        // COUNT(DISTINCT) aggregate, which meant the card and the funnel stage above it could
+        // print different numbers for the same words — "Internet exposure" appears in both.
         Map<String, Object> runtimeExposure = new LinkedHashMap<>();
-        runtimeExposure.put("internetExposed", internetExposed);
+        runtimeExposure.put("internetExposed", fExposed.total());
         runtimeExposure.put("exposedAndInUse", exposedAndInUse);
         runtimeExposure.put("activeCommunication", activeComm);
-        runtimeExposure.put("functionsInUse", functionsInUse);
-        runtimeExposure.put("packageInUse", packageInUse);
+        runtimeExposure.put("functionsInUse", fFuncs.total());
+        runtimeExposure.put("packageInUse", fPkg.total());
         out.put("runtimeExposure", runtimeExposure);
 
         out.put("totalCves", totalCves);
@@ -2040,12 +2070,43 @@ public class XamSecureService {
         return "Other";
     }
 
-    private static Map<String, Object> funnelStage(String label, int value, boolean available) {
+    private static Map<String, Object> funnelStage(String label, StageBands bands, boolean available) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("label", label);
-        m.put("value", value);
+        m.put("value", (int) bands.total());
         m.put("available", available); // false = we can't source it (shown as 0/—)
+        Map<String, Object> byBand = new LinkedHashMap<>();
+        byBand.put("CRITICAL", bands.n[0]);
+        byBand.put("HIGH", bands.n[1]);
+        byBand.put("OTHER", bands.n[2]);
+        m.put("bands", byBand);
         return m;
+    }
+
+    /**
+     * One funnel stage's CVE count split into the three CVSS bands the funnel legend shows.
+     *
+     * The stage total is the sum of its bands by construction, so the stacked segments can never
+     * add up to something other than the number printed above them.
+     */
+    private static final class StageBands {
+        /** Indexed by {@link #bandIndex}: 0 CRITICAL, 1 HIGH, 2 OTHER. */
+        final long[] n = new long[3];
+
+        void add(int band) {
+            n[band]++;
+        }
+
+        long total() {
+            return n[0] + n[1] + n[2];
+        }
+    }
+
+    /** Band slot for a severity, using the same Critical / High / Other split as {@link #sevBucket}. */
+    private static int bandIndex(String severity) {
+        String b = sevBucket(severity);
+        if ("CRITICAL".equals(b)) return 0;
+        return "HIGH".equals(b) ? 1 : 2;
     }
 
     /**
@@ -2316,13 +2377,24 @@ public class XamSecureService {
         try { return Double.parseDouble(s); } catch (NumberFormatException e) { return 0; }
     }
 
-    /** Per-CVE aggregate for the vulnerabilities dashboard. */
+    /**
+     * Per-CVE aggregate for the vulnerabilities dashboard.
+     *
+     * The runtime flags are ORed across a CVE's findings, matching the rule the repository
+     * documents for its own aggregates: a CVE counts as in-use or exposed if ANY of its findings
+     * is, because one reachable instance of the package is enough to make the CVE reachable.
+     */
     private static final class CveAgg {
         String severity;
         String resourceType;
         boolean exploitable;
         double epss;
         Instant firstSeen;
+        boolean packageInUse;
+        boolean internetExposed;
+        boolean functionsInUse;
+        boolean activeCommunication;
+        boolean fixAvailable;
     }
 
     public Page<UpwindPostureFinding> getPosture(Long clientId, String accountId,

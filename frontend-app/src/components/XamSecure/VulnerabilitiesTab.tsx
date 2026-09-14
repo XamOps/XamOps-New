@@ -613,11 +613,18 @@ const RuntimeExposure: React.FC<{
  * away. Nothing downstream of an empty stage can be a subset of it, so the ribbon ends there. The
  * headers above still report every true value, including any after the stop.
  *
- * Deliberately not carrying a CVSS legend: the ribbon encodes CVE counts, not severity. It
- * previously showed Critical/High/Other dots next to a single-colour ribbon, which implied a
- * breakdown that was never drawn. Segmenting by severity needs a per-stage severity split that
- * the dashboard query does not currently produce.
+ * Each stage is segmented into the three CVSS bands, using the same palette and the same
+ * Critical/High/Other buckets as the severity trend chart on this tab, so the legend describes
+ * what is actually drawn. The server guarantees the bands sum to the stage total, which is what
+ * lets the segment heights be taken as fractions of the stage height.
  */
+/** Stacked top to bottom, most severe first, in the tab's shared severity palette. */
+const BAND_ORDER = [
+  { key: 'CRITICAL', label: 'Critical', color: SEV_COLOR.Critical },
+  { key: 'HIGH', label: 'High', color: SEV_COLOR.High },
+  { key: 'OTHER', label: 'Other', color: SEV_COLOR.Other },
+] as const;
+
 const RuntimeFunnel: React.FC<{ stages: FunnelStage[] }> = ({ stages }) => {
   if (stages.length === 0) {
     return (
@@ -652,15 +659,42 @@ const RuntimeFunnel: React.FC<{ stages: FunnelStage[] }> = ({ stages }) => {
       + `${curve(bottom)} Z`
     : '';
 
+  const banded = stages.some((s) => !!s.bands);
+  // Band boundaries per stage, cumulative down from the ribbon's top edge, so the segments always
+  // fill exactly the stage height however the counts fall.
+  const edges = drawn.map((s) => {
+    const height = h(s.value);
+    const ys = [midY - height / 2];
+    BAND_ORDER.forEach(({ key }) => {
+      const share = s.bands && s.value > 0 ? (s.bands[key] / s.value) * height : 0;
+      ys.push(ys[ys.length - 1] + share);
+    });
+    return ys;
+  });
+  const bandPath = (slot: number) => {
+    const upper: Array<[number, number]> = drawn.map((_, i) => [x(i), edges[i][slot]]);
+    const lower: Array<[number, number]> = drawn
+      .map((_, i): [number, number] => [x(i), edges[i][slot + 1]]).reverse();
+    return `M ${upper[0][0]} ${upper[0][1]}${curve(upper)} L ${lower[0][0]} ${lower[0][1]}`
+      + `${curve(lower)} Z`;
+  };
+
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
       <div className="flex items-center justify-between mb-4">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Runtime exploit funnel</p>
-        {firstEmpty !== -1 && (
-          <p className="text-[10px] text-gray-400">
-            Narrows to nothing at {stages[firstEmpty].label.toLowerCase()}
-          </p>
-        )}
+        <div className="flex items-center gap-3 text-[10px] text-gray-400">
+          {firstEmpty !== -1 && (
+            <span>Narrows to nothing at {stages[firstEmpty].label.toLowerCase()}</span>
+          )}
+          {/* Only shown when the ribbon is actually segmented — see FunnelStage.bands. */}
+          {banded && (
+            <>
+              <span>CVSS:</span>
+              {BAND_ORDER.map((b) => <LegendDot key={b.key} color={b.color} label={b.label} />)}
+            </>
+          )}
+        </div>
       </div>
       {/* stage headers */}
       <div className="flex justify-between gap-1 mb-1">
@@ -679,19 +713,31 @@ const RuntimeFunnel: React.FC<{ stages: FunnelStage[] }> = ({ stages }) => {
       {/* narrowing ribbon */}
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 110 }}>
         <defs>
-          {/* Vertical two-tone: reads as a lit ribbon rather than a flat block, and keeps the
-              taper legible where the shape is only a few pixels tall. */}
+          {/* Fallback fill only, for a cached payload with no bands. */}
           <linearGradient id="funnelGrad" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#f87171" />
             <stop offset="52%" stopColor="#dc2626" />
             <stop offset="100%" stopColor="#8f1414" />
           </linearGradient>
         </defs>
-        <path d={d} fill="url(#funnelGrad)" />
+        {drawn.length > 1 && banded
+          ? BAND_ORDER.map((b, slot) => (
+              // A band that is empty at every drawn stage would be a zero-height sliver.
+              drawn.some((s) => (s.bands?.[b.key] ?? 0) > 0)
+                ? <path key={b.key} d={bandPath(slot)} fill={b.color} />
+                : null
+            ))
+          : <path d={d} fill="url(#funnelGrad)" />}
       </svg>
     </div>
   );
 };
+
+const LegendDot: React.FC<{ color: string; label: string }> = ({ color, label }) => (
+  <span className="flex items-center gap-1">
+    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} />{label}
+  </span>
+);
 
 const Stat: React.FC<{ value: number; label: string }> = ({ value, label }) => (
   <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 text-center">

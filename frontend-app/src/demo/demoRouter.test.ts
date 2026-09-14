@@ -123,6 +123,21 @@ describe('demo router — XamSecure (ROLE_XAMOPS)', () => {
     });
   });
 
+  /**
+   * The stacked ribbon takes each segment's height as its share of the stage height, so bands
+   * that do not sum to the stage total would draw segments that overflow or underfill it.
+   */
+  it('splits every funnel stage into bands that sum to the stage total', async () => {
+    const body = await readDemoBody(`/api/xamsecure/vulnerabilities/dashboard?${acct}`);
+    type Stage = { label: string; value: number; bands: Record<string, number> };
+    body.funnel.forEach((s: Stage) => {
+      expect(s.bands, `${s.label} must carry bands`).toBeTruthy();
+      const { CRITICAL, HIGH, OTHER } = s.bands;
+      [CRITICAL, HIGH, OTHER].forEach((n) => expect(n).toBeGreaterThanOrEqual(0));
+      expect(CRITICAL + HIGH + OTHER, `${s.label} bands must sum to value`).toBe(s.value);
+    });
+  });
+
   it('acknowledges a threat archive without hitting the backend', async () => {
     const body = await readDemoBody('/api/xamsecure/threats/thr-9f21a/status');
     expect(body.success).toBe(true);
