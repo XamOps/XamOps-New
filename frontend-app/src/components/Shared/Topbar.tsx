@@ -109,7 +109,6 @@ const Topbar: React.FC = () => {
     const getPageTitle = (path: string) => {
         if (path === '/' || path === '/unified-dashboard') return 'Unified Command Center';
         if (path === '/my-profile') return 'Account Settings';
-        if (path === '/user-management') return 'User Management';
         if (path === '/dashboard') return 'Dashboard';
         if (path === '/gcp-dashboard') return 'GCP Dashboard';
         if (path === '/azure-dashboard') return 'Azure Dashboard';

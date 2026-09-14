@@ -542,9 +542,10 @@ const Sidebar: React.FC = () => {
             {hasAnyRole(['ROLE_XAMOPS', 'ROLE_BILLOPS', 'ROLE_SUPER_ADMIN']) && (
               <NavItem href="/account-manager" icon="fas fa-cloud" label="Account Management" isActive={isActive('/account-manager')} />
             )}
-            {hasAnyRole(['ROLE_XAMOPS', 'ROLE_BILLOPS', 'ROLE_SUPER_ADMIN']) && (
-              <NavItem href="/user-management" icon="fas fa-users-cog" label="User Management" isActive={isActive('/user-management')} />
-            )}
+            {/* "User Management" (cloud IAM users and roles) was folded into the Security
+                Center's Identity & Access tab, reachable from the Security Center nav item
+                above. /user-management still resolves — it redirects there. Not to be confused
+                with "User Manager" below, which manages XamOps console users. */}
             {(isBillopsAdminAny || hasAnyRole('ROLE_SUPER_ADMIN')) && (!isAdminSubUser || isTabAllowed('user-manager')) && (
               <NavItem href="/billops-admin-user-manager" icon="fas fa-user-cog" label="User Manager" isActive={isActive('/billops-admin-user-manager')} />
             )}

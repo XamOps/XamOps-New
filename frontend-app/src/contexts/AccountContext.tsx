@@ -71,6 +71,12 @@ const PROVIDER_PAGE_MAP: ProviderRoutes[] = [
   { AWS: '/ebs-rightsizing', GCP: '/gcp-disk-rightsizing', Azure: '/azure-disk-rightsizing' },
   { AWS: '/cloudk8s', GCP: '/gcp-cloudk8s', Azure: '/azure-cloudk8s' },
   { AWS: '/xamsecure', GCP: '/gcp-security', Azure: '/azure-security' },
+  // Deliberately after the row above, which also lists /gcp-security and /azure-security.
+  // mapPageToProvider takes the first matching row, so switching away from a GCP or Azure
+  // security page still lands on /xamsecure exactly as before; this row only adds the
+  // previously missing case of switching away from AWS /security, which used to fall through
+  // to the provider dashboard and drop the ?tab= you were on.
+  { AWS: '/security', GCP: '/gcp-security', Azure: '/azure-security' },
   { AWS: '/war', GCP: '/gcp-war', Azure: '/azure-war' },
   { AWS: '/performance', GCP: '/gcp-performance', Azure: '/azure-performance' },
   { AWS: '/alerts', GCP: '/gcp-alerts', Azure: '/azure-alerts' },

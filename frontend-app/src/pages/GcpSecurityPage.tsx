@@ -5,8 +5,12 @@ import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useGcpSecurityData } from '../hooks/useGcpSecurityData';
 import type { GcpSeverityLevel } from '../types/gcpSecurity';
-import { DialogRoot, DialogPanel } from '../components/ui';
+import { DialogRoot, DialogPanel, AriaTabGroup } from '../components/ui';
 import { sanitizeRichText } from '../utils/sanitizeHtml';
+import { IdentityAccessTab } from '../components/Security';
+import { useTabState } from '../hooks/useTabState';
+
+type ActiveTab = 'findings' | 'identity';
 
 const SEVERITY_ICON: Record<GcpSeverityLevel, string> = {
   CRITICAL: 'mdi:alert-circle',
@@ -80,8 +84,16 @@ const GcpSecurityPage: React.FC = () => {
   } = useGcpSecurityData({ selectedAccountId });
 
   const { setActions, clearActions } = useTopbar();
+  const [activeTab, setActiveTab] = useTabState<ActiveTab>('findings');
 
   useEffect(() => {
+    // Findings-scoped, same reasoning as the AWS page: both actions act on the security scan,
+    // not on IAM inventory, so they are hidden on the Identity tab.
+    if (activeTab !== 'findings') {
+      clearActions();
+      return;
+    }
+
     setActions(
       <div className="flex items-center gap-3">
         <button
@@ -103,7 +115,7 @@ const GcpSecurityPage: React.FC = () => {
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, isRefreshing, isExporting, exportData, loadAllData]);
+  }, [setActions, clearActions, activeTab, isRefreshing, isExporting, exportData, loadAllData]);
 
   return (
     <main className="flex-1 flex flex-col min-h-screen bg-gray-50">
@@ -120,8 +132,30 @@ const GcpSecurityPage: React.FC = () => {
           </div>
         )}
 
-        {/* KPI Cards */}
         {selectedAccountId && (
+          <AriaTabGroup
+            variant="neutral"
+            tabs={[
+              { id: 'findings', label: 'Findings', icon: 'mdi:shield-search' },
+              { id: 'identity', label: 'Identity & Access', icon: 'mdi:account-key-outline' },
+            ]}
+            selectedKey={activeTab}
+            onSelectionChange={(key) => setActiveTab(key as ActiveTab)}
+          />
+        )}
+
+        {selectedAccountId && activeTab === 'identity' && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+          >
+            <IdentityAccessTab />
+          </motion.div>
+        )}
+
+        {/* KPI Cards */}
+        {selectedAccountId && activeTab === 'findings' && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {isLoading ? (
               <>
@@ -153,7 +187,7 @@ const GcpSecurityPage: React.FC = () => {
         )}
 
         {/* Category Filter */}
-        {selectedAccountId && !isLoading && filteredFindings.length > 0 && (
+        {selectedAccountId && activeTab === 'findings' && !isLoading && filteredFindings.length > 0 && (
           <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm px-5 py-3">
             <div className="flex items-center gap-3">
               <Icon icon="mdi:filter-outline" width={16} color="#6366f1" />
@@ -175,7 +209,7 @@ const GcpSecurityPage: React.FC = () => {
           </div>
         )}
 
-        {selectedAccountId && (
+        {selectedAccountId && activeTab === 'findings' && (
           <div className="space-y-4">
 
             {/* IAM Drift Section */}

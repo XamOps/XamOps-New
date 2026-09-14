@@ -124,6 +124,17 @@ public class DashboardDataService {
     @Autowired(required = false)
     private com.xammer.cloud.service.inventory.InventoryProjectionService inventoryProjection;
 
+    /**
+     * Scores IAM identities for excess permission, feeding the Security Center's Identity tab.
+     *
+     * <p>
+     * Field-injected rather than added to the constructor above, which already takes 28
+     * arguments — following the {@code inventoryProjection} precedent. A 29th parameter would
+     * touch every construction site for no behavioural gain.
+     */
+    @Autowired
+    private com.xammer.cloud.service.security.IamPrivilegeAnalyzer iamPrivilegeAnalyzer;
+
     // Dedicated executor for background data-fetch lambdas (IAM, CloudWatch, etc.)
     // Keeps AWS-Async-* threads free for HTTP-facing requests
     private final TaskExecutor backgroundTaskExecutor;
@@ -2626,9 +2637,37 @@ public class DashboardDataService {
         return CompletableFuture.completedFuture(resources);
     }
 
+    /**
+     * Runs a single AWS lookup, falling back to {@code fallback} if it fails.
+     *
+     * <p>
+     * Exists so one missing IAM permission degrades one field instead of discarding a whole
+     * identity. AccessDenied is logged at debug: on an account whose role lacks a permission it
+     * fires once per user per refresh, and at warn level it buries everything else in the log.
+     */
+    private <T> T quietly(java.util.function.Supplier<T> call, T fallback, String what) {
+        try {
+            return call.get();
+        } catch (software.amazon.awssdk.awscore.exception.AwsServiceException e) {
+            if (e.statusCode() == 403) {
+                logger.debug("Skipped {} — access denied by the account's role.", what);
+            } else {
+                logger.warn("Skipped {} — {}", what, e.getMessage());
+            }
+            return fallback;
+        } catch (Exception e) {
+            logger.warn("Skipped {} — {}", what, e.getMessage());
+            return fallback;
+        }
+    }
+
     @Async("backgroundTaskExecutor")
     public CompletableFuture<DashboardData.IamDetail> getIamDetails(CloudAccount account, boolean forceRefresh) {
-        String cacheKey = "iamDetails-" + account.getAwsAccountId();
+        // Version suffix bumped when permission-risk fields were added. Entries written by the
+        // previous build carry no risk data, and the frontend's staleness guard only checks that
+        // iamDetails exists — so without a new key an hour-old entry would render every identity
+        // as unflagged, which is precisely the false reassurance this feature exists to remove.
+        String cacheKey = "iamDetailsV2-" + account.getAwsAccountId();
         if (!forceRefresh) {
             Optional<DashboardData.IamDetail> cachedData = redisCache.get(cacheKey, DashboardData.IamDetail.class);
             if (cachedData.isPresent()) {
@@ -2639,55 +2678,116 @@ public class DashboardDataService {
         return CompletableFuture.supplyAsync(() -> {
             IamClient iam = awsClientProvider.getIamClient(account);
 
+            // Group policies, resolved once per group and shared across its members.
+            //
+            // Groups are the normal place administrator access is granted, so without these the
+            // permission audit would clear the account's actual administrators. Cached because
+            // membership overlaps heavily — an account with 60 users typically has a handful of
+            // groups, and resolving per user would repeat the same two calls dozens of times.
+            // ConcurrentHashMap because the user mapping below runs on a parallel stream.
+            java.util.Map<String, List<DashboardData.IamPolicyDetail>> groupPolicyCache =
+                    new java.util.concurrent.ConcurrentHashMap<>();
+            java.util.function.Function<String, List<DashboardData.IamPolicyDetail>> policiesForGroup =
+                    groupName -> groupPolicyCache.computeIfAbsent(groupName, g -> {
+                        List<DashboardData.IamPolicyDetail> inherited = new ArrayList<>();
+                        inherited.addAll(quietly(
+                                () -> iam.listAttachedGroupPolicies(r -> r.groupName(g)).attachedPolicies()
+                                        .stream()
+                                        .map(p -> new DashboardData.IamPolicyDetail(
+                                                p.policyName(), p.policyArn(), "Managed", g))
+                                        .collect(Collectors.toList()),
+                                new ArrayList<>(), "attached policies for group " + g));
+                        inherited.addAll(quietly(
+                                () -> iam.listGroupPolicies(r -> r.groupName(g)).policyNames().stream()
+                                        .map(p -> new DashboardData.IamPolicyDetail(p, null, "Inline", g))
+                                        .collect(Collectors.toList()),
+                                new ArrayList<>(), "inline policies for group " + g));
+                        return inherited;
+                    });
+
+            // Each sub-call is guarded separately rather than the identity as a whole. Previously a
+            // single failure — typically AccessDenied, because the read-only onboarding role did
+            // not grant iam:ListAttachedUserPolicies — discarded the user entirely, so an account
+            // missing one permission rendered an empty user list instead of a partial one. Dropping
+            // an identity from a security view is the worst possible failure mode: it reports
+            // "nobody here" rather than "could not read this".
             List<DashboardData.IamUserDetail> users = iam.listUsers().users().parallelStream().map(user -> {
-                try {
-                    List<String> groups = iam.listGroupsForUser(r -> r.userName(user.userName()))
-                            .groups().stream().map(g -> g.groupName()).collect(Collectors.toList());
+                List<String> groups = quietly(
+                        () -> iam.listGroupsForUser(r -> r.userName(user.userName()))
+                                .groups().stream().map(g -> g.groupName()).collect(Collectors.toList()),
+                        new ArrayList<>(), "groups for user " + user.userName());
 
-                    List<DashboardData.IamPolicyDetail> policies = new ArrayList<>();
+                List<DashboardData.IamPolicyDetail> policies = new ArrayList<>();
+                policies.addAll(quietly(
+                        () -> iam.listAttachedUserPolicies(r -> r.userName(user.userName())).attachedPolicies()
+                                .stream()
+                                .map(p -> new DashboardData.IamPolicyDetail(p.policyName(), p.policyArn(), "Managed"))
+                                .collect(Collectors.toList()),
+                        new ArrayList<>(), "attached policies for user " + user.userName()));
+                policies.addAll(quietly(
+                        () -> iam.listUserPolicies(r -> r.userName(user.userName())).policyNames().stream()
+                                .map(p -> new DashboardData.IamPolicyDetail(p, null, "Inline"))
+                                .collect(Collectors.toList()),
+                        new ArrayList<>(), "inline policies for user " + user.userName()));
 
-                    iam.listAttachedUserPolicies(r -> r.userName(user.userName())).attachedPolicies()
-                            .forEach(p -> policies
-                                    .add(new DashboardData.IamPolicyDetail(p.policyName(), p.policyArn(), "Managed")));
-
-                    iam.listUserPolicies(r -> r.userName(user.userName())).policyNames()
-                            .forEach(p -> policies.add(new DashboardData.IamPolicyDetail(p, null, "Inline")));
-
-                    boolean mfaEnabled = !iam.listMFADevices(r -> r.userName(user.userName())).mfaDevices().isEmpty();
-
-                    return new DashboardData.IamUserDetail(
-                            user.userName(), user.userId(), user.arn(),
-                            user.createDate().toString(),
-                            user.passwordLastUsed() != null ? user.passwordLastUsed().toString() : "Never",
-                            groups, policies, mfaEnabled);
-                } catch (Exception e) {
-                    logger.warn("Failed to fetch details for user {}", user.userName());
-                    return null;
+                // Merged into the same list so the analyzer scores effective permission rather
+                // than directly-attached permission. Each carries inheritedFrom, so the card can
+                // still say the grant lives on the group.
+                for (String group : groups) {
+                    policies.addAll(policiesForGroup.apply(group));
                 }
-            }).filter(java.util.Objects::nonNull).collect(Collectors.toList());
+
+                boolean mfaEnabled = quietly(
+                        () -> !iam.listMFADevices(r -> r.userName(user.userName())).mfaDevices().isEmpty(),
+                        false, "MFA devices for user " + user.userName());
+
+                return new DashboardData.IamUserDetail(
+                        user.userName(), user.userId(), user.arn(),
+                        user.createDate().toString(),
+                        user.passwordLastUsed() != null ? user.passwordLastUsed().toString() : "Never",
+                        groups, policies, mfaEnabled);
+            }).collect(Collectors.toList());
 
             List<DashboardData.IamRoleDetail> roles = iam.listRoles().roles().parallelStream()
                     .filter(r -> !r.path().startsWith("/aws-service-role/"))
                     .map(role -> {
-                        try {
-                            List<DashboardData.IamPolicyDetail> policies = new ArrayList<>();
-                            iam.listAttachedRolePolicies(r -> r.roleName(role.roleName())).attachedPolicies()
-                                    .forEach(p -> policies.add(new DashboardData.IamPolicyDetail(p.policyName(),
-                                            p.policyArn(), "Managed")));
+                        List<DashboardData.IamPolicyDetail> policies = new ArrayList<>();
+                        policies.addAll(quietly(
+                                () -> iam.listAttachedRolePolicies(r -> r.roleName(role.roleName()))
+                                        .attachedPolicies().stream()
+                                        .map(p -> new DashboardData.IamPolicyDetail(p.policyName(), p.policyArn(),
+                                                "Managed"))
+                                        .collect(Collectors.toList()),
+                                new ArrayList<>(), "attached policies for role " + role.roleName()));
+                        policies.addAll(quietly(
+                                () -> iam.listRolePolicies(r -> r.roleName(role.roleName())).policyNames().stream()
+                                        .map(p -> new DashboardData.IamPolicyDetail(p, null, "Inline"))
+                                        .collect(Collectors.toList()),
+                                new ArrayList<>(), "inline policies for role " + role.roleName()));
 
-                            iam.listRolePolicies(r -> r.roleName(role.roleName())).policyNames()
-                                    .forEach(p -> policies.add(new DashboardData.IamPolicyDetail(p, null, "Inline")));
-
-                            return new DashboardData.IamRoleDetail(
-                                    role.roleName(), role.roleId(), role.arn(),
-                                    role.createDate().toString(), role.description(), policies);
-                        } catch (Exception e) {
-                            logger.warn("Failed to fetch details for role {}", role.roleName());
-                            return null;
-                        }
-                    }).filter(java.util.Objects::nonNull).collect(Collectors.toList());
+                        return new DashboardData.IamRoleDetail(
+                                role.roleName(), role.roleId(), role.arn(),
+                                role.createDate().toString(), role.description(), policies);
+                    }).collect(Collectors.toList());
 
             DashboardData.IamDetail details = new DashboardData.IamDetail(users, roles);
+
+            // Reuses the client above so the audit shares this scan's credentials and throttle
+            // budget. Wrapped because an audit failure must not cost the customer the inventory
+            // they came for — a list with no risk badges still beats an empty Identity tab.
+            try {
+                var outcome = iamPrivilegeAnalyzer.analyze(iam, users, roles);
+                details.setPermissionAnalysisDegraded(outcome.degraded());
+                details.setPermissionAnalysisNote(outcome.note());
+            } catch (Exception e) {
+                logger.error("IAM privilege analysis failed for account {}; serving inventory without "
+                        + "risk scoring.", account.getAwsAccountId(), e);
+                details.setPermissionAnalysisDegraded(true);
+                details.setPermissionAnalysisNote(
+                        "Permission analysis did not complete for this account, so identities are shown "
+                                + "without a risk assessment.");
+            }
+
             redisCache.put(cacheKey, details, 60);
             return details;
         });

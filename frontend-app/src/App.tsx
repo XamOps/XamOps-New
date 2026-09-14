@@ -186,7 +186,8 @@ const BillOpsClientIntakePage = lazy(() => import('./pages/BillOpsClientIntakePa
 // Settings & Profile
 const TicketsPage = lazy(() => import('./pages/TicketsPage'));
 const TicketDetailPage = lazy(() => import('./pages/TicketDetailPage'));
-const UserManagementPage = lazy(() => import('./pages/UserManagementPage'));
+// /user-management was retired into the Security Center's Identity & Access tab.
+const UserManagementRedirect = lazy(() => import('./pages/UserManagementRedirect'));
 const MyProfilePage = lazy(() => import('./pages/MyProfilePage'));
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -616,7 +617,7 @@ const AppContent: React.FC = () => {
                             <Route path="/billops-client-intake" element={<BillOpsClientIntakePage />} />
                             <Route path="/marketplace-purchases" element={<MarketplacePurchasesPage />} />
                             <Route path="/workspace-licenses" element={<WorkspaceLicensesPage />} />
-                            <Route path="/user-management" element={<UserManagementPage />} />
+                            <Route path="/user-management" element={<UserManagementRedirect />} />
                             <Route path="/my-profile" element={<MyProfilePage />} />
                             <Route path="/complianceops" element={<ComplianceOpsPage />} />
                             <Route path="/soc2-program" element={<Navigate to="/soc2-program/overview" replace />} />
