@@ -667,21 +667,27 @@ function buildHierarchy(graph: ConfigGraph) {
     const subnetId = resolveSubnet(n.id);
     const vpcId = resolveVpc(n.id);
 
-    if (subnetId && byId.has(subnetId)) {
+    // A subnet is only usable as a bucket once we know which VPC it hangs off, because the tree
+    // renders subnets through their VPC and nowhere else. Grouping under a parentless subnet
+    // builds a bucket that is attached to nothing: its members still count towards the VPC total
+    // but appear in no row. Prefer the subnet's own edge, fall back to the VPC of the resource
+    // that led us here, and if neither resolves let the resource fall through to the VPC directly
+    // or to Not placed.
+    const subnetParentId = subnetId ? vpcOf.get(subnetId) ?? vpcId : undefined;
+    const subnetParent = subnetParentId ? ensureVpc(subnetParentId) : null;
+
+    if (subnetId && byId.has(subnetId) && subnetParent) {
       let sg = subnetGroups.get(subnetId);
       if (!sg) {
         sg = { node: byId.get(subnetId)!, members: [] };
         subnetGroups.set(subnetId, sg);
+        subnetParent.subnets.push(sg);
         subnetCount++;
-        const parent = vpcOf.get(subnetId);
-        if (parent) ensureVpc(parent)?.subnets.push(sg);
       }
       sg.members.push(n);
-      const owner = vpcId ?? vpcOf.get(subnetId);
-      if (owner) {
-        const g = ensureVpc(owner);
-        if (g) { g.total++; if (n.exposure) g.exposed++; }
-      }
+      const g = (vpcId ? ensureVpc(vpcId) : null) ?? subnetParent;
+      g.total++;
+      if (n.exposure) g.exposed++;
       continue;
     }
 

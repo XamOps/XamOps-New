@@ -3198,6 +3198,17 @@ public class XamSecureService {
         String subnetId = a.path("subnet_id").asText(null);
         if (subnetId != null && !subnetId.isBlank()) {
             pending.add(new String[]{nodeId, subnetId, "in-subnet"});
+            // Upwind does not model subnets, so the subnet node is synthesised from this
+            // reference and has no parent of its own. Without the edge below every VPC renders
+            // "0 subnet(s)" while still counting the resources inside those subnets, because the
+            // subnet bucket is built and then attached to nothing.
+            //
+            // An asset sitting in both a subnet and a VPC tells us the containment, and in AWS a
+            // subnet belongs to exactly one VPC, so this is a fact rather than a guess. Many
+            // assets in the same subnet each assert it; resolveTopologyEdges dedupes to one edge.
+            if (vpcId != null && !vpcId.isBlank()) {
+                pending.add(new String[]{subnetId, vpcId, "subnet-in-vpc"});
+            }
         }
 
         // Address bookkeeping for attachByAddress. A network interface is a join TARGET (it owns
@@ -3230,6 +3241,10 @@ public class XamSecureService {
      * produce one: Upwind does not model subnets at all, and a VPC in another account or region
      * will not be in our node set. Discarding those would draw the estate as smaller and
      * better-connected than it is, so they are added and flagged instead.
+     *
+     * {@code subnet-in-vpc} is the one kind whose SOURCE is a resource id rather than a node id,
+     * because the subnet it names is itself usually synthetic, so both ends may need creating. It
+     * is emitted as a plain {@code in-vpc} edge.
      */
     private static List<Map<String, Object>> resolveTopologyEdges(
             List<String[]> pending, Map<String, Map<String, Object>> nodesById,
@@ -3237,28 +3252,23 @@ public class XamSecureService {
         Set<String> seen = new HashSet<>();
         List<Map<String, Object>> edges = new ArrayList<>();
         for (String[] p : pending) {
-            String sourceNodeId = p[0];
             String kind = p[2];
+            boolean subnetToVpc = "subnet-in-vpc".equals(kind);
             boolean isSubnet = "in-subnet".equals(kind);
             String targetKey = UpwindAssetIds.canonicalResourceId(p[1]);
             if (targetKey == null) continue;
 
-            String targetNodeId = byResourceId.get(targetKey);
-            if (targetNodeId == null) {
-                targetNodeId = (isSubnet ? "subnet:" : "vpc:") + targetKey;
-                nodesById.computeIfAbsent(targetNodeId, k -> {
-                    Map<String, Object> n = new LinkedHashMap<>();
-                    n.put("id", k);
-                    n.put("type", isSubnet ? "aws_subnet" : "aws_vpc");
-                    n.put("name", targetKey);
-                    n.put("category", "networking");
-                    n.put("subCategory", isSubnet ? "subnet" : "virtual_private_cloud");
-                    n.put("resourceId", targetKey);
-                    n.put("exposure", null);
-                    n.put("synthetic", true);
-                    return n;
-                });
+            String sourceNodeId;
+            if (subnetToVpc) {
+                String sourceKey = UpwindAssetIds.canonicalResourceId(p[0]);
+                if (sourceKey == null) continue;
+                sourceNodeId = topologyContainerNode(sourceKey, true, nodesById, byResourceId);
+                kind = "in-vpc";
+            } else {
+                sourceNodeId = p[0];
             }
+
+            String targetNodeId = topologyContainerNode(targetKey, isSubnet, nodesById, byResourceId);
             if (targetNodeId.equals(sourceNodeId)) continue;
             if (seen.add(sourceNodeId + ">" + targetNodeId + ">" + kind)) {
                 Map<String, Object> e = new LinkedHashMap<>();
@@ -3269,6 +3279,31 @@ public class XamSecureService {
             }
         }
         return edges;
+    }
+
+    /**
+     * Node id for a container referenced only by cloud resource id, synthesising a placeholder if
+     * we never saw it as an asset.
+     */
+    private static String topologyContainerNode(String resourceKey, boolean subnet,
+                                                Map<String, Map<String, Object>> nodesById,
+                                                Map<String, String> byResourceId) {
+        String existing = byResourceId.get(resourceKey);
+        if (existing != null) return existing;
+        String id = (subnet ? "subnet:" : "vpc:") + resourceKey;
+        nodesById.computeIfAbsent(id, k -> {
+            Map<String, Object> n = new LinkedHashMap<>();
+            n.put("id", k);
+            n.put("type", subnet ? "aws_subnet" : "aws_vpc");
+            n.put("name", resourceKey);
+            n.put("category", "networking");
+            n.put("subCategory", subnet ? "subnet" : "virtual_private_cloud");
+            n.put("resourceId", resourceKey);
+            n.put("exposure", null);
+            n.put("synthetic", true);
+            return n;
+        });
+        return id;
     }
 
     /** Asset category holding the things a sensor actually protects. */
