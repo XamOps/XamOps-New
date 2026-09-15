@@ -17,12 +17,32 @@
 
 import React, { useState, useMemo } from 'react';
 import { Icon } from '@iconify/react';
-import type { IamIdentity } from '../../../types/userManagement';
+import type { IamIdentity, IamUser } from '../../../types/userManagement';
 import { identityKey } from '../../../types/userManagement';
 import IdentityCard from './IdentityCard';
+import IdentityAccessGraph from './IdentityAccessGraph';
 import { RISK_TOKENS } from './riskTokens';
 
 type IdentityKind = 'users' | 'roles';
+
+/**
+ * Cards or graph.
+ *
+ * <p>Two views of one dataset rather than a replacement, because they answer different
+ * questions: the cards rank identities worst-first so you know which one to open, the graph
+ * shows how privilege is distributed across groups, roles and users at once. Neither subsumes
+ * the other, and the graph is the default because the shape of an account's access is the first
+ * thing you want on opening the tab.
+ */
+type ViewMode = 'graph' | 'cards';
+
+const LS_VIEW = 'xamops_identity_access_view_v1';
+
+const loadView = (): ViewMode => {
+  try {
+    return localStorage.getItem(LS_VIEW) === 'cards' ? 'cards' : 'graph';
+  } catch { return 'graph'; }
+};
 
 interface RiskCounts {
   critical: number;
@@ -36,6 +56,19 @@ interface RiskCounts {
 interface IdentityAccessCanvasProps {
   users: IamIdentity[];
   roles: IamIdentity[];
+  /**
+   * Every user, before search and the flagged filter.
+   *
+   * <p>The access graph has to rebuild groups from {@code user.groups} and
+   * {@code Policy.inheritedFrom}, because the payload carries no group entity. Those fields
+   * live on the members, so the group only exists for as long as its members are in the list —
+   * and handed the filtered list, searching "Admins" would delete the group named Admins,
+   * since no <em>user</em> matches that term. The graph still filters groups by name itself;
+   * what this prop protects is membership.
+   */
+  allUsers: IamUser[];
+  accountName: string;
+  accountId: string;
   totalUsers: number;
   totalRoles: number;
   isLoading: boolean;
@@ -89,6 +122,9 @@ const CardSkeleton = () => (
 const IdentityAccessCanvas: React.FC<IdentityAccessCanvasProps> = ({
   users,
   roles,
+  allUsers,
+  accountName,
+  accountId,
   totalUsers,
   totalRoles,
   isLoading,
@@ -111,6 +147,12 @@ const IdentityAccessCanvas: React.FC<IdentityAccessCanvasProps> = ({
   isRefreshing,
 }) => {
   const [kind, setKind] = useState<IdentityKind>('users');
+  const [view, setView] = useState<ViewMode>(loadView);
+
+  const changeView = (next: ViewMode) => {
+    setView(next);
+    try { localStorage.setItem(LS_VIEW, next); } catch { /* storage unavailable */ }
+  };
 
   /**
    * Which cards are open, by identity key.
@@ -249,33 +291,61 @@ const IdentityAccessCanvas: React.FC<IdentityAccessCanvasProps> = ({
 
       {/* Controls */}
       <div className="flex flex-col lg:flex-row lg:items-center gap-3">
-        {/* Users / roles switch. A segmented control rather than nested tabs, because the page
-            already spends its tab row on Findings vs Identity and two tab bars stacked read
-            as a hierarchy that is not there. */}
-        <div className="inline-flex p-1 bg-[rgba(0,0,0,0.04)] rounded-lg self-start">
+        {/* Graph / cards switch. */}
+        <div className="inline-flex p-1 bg-[rgba(0,0,0,0.04)] rounded-lg self-start" role="group" aria-label="View">
           {([
-            { id: 'users' as IdentityKind, label: labels.users, icon: 'mdi:account-outline', count: totalUsers },
-            { id: 'roles' as IdentityKind, label: labels.roles, icon: 'mdi:shield-account-outline', count: totalRoles },
+            { id: 'graph' as ViewMode, label: 'Access graph', icon: 'mdi:graph-outline' },
+            { id: 'cards' as ViewMode, label: 'Cards', icon: 'mdi:view-grid-outline' },
           ]).map((option) => (
             <button
               key={option.id}
               type="button"
-              onClick={() => setKind(option.id)}
-              aria-pressed={kind === option.id}
+              onClick={() => changeView(option.id)}
+              aria-pressed={view === option.id}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-                kind === option.id
+                view === option.id
                   ? 'bg-white text-[rgba(0,0,0,0.88)] shadow-sm'
                   : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.75)]'
               }`}
             >
               <Icon icon={option.icon} width={13} />
               {option.label}
-              <span className="text-[10px] px-1.5 py-0.5 bg-[rgba(0,0,0,0.06)] rounded-full font-bold text-[rgba(0,0,0,0.5)]">
-                {option.count}
-              </span>
             </button>
           ))}
         </div>
+
+        {/* Users / roles switch. A segmented control rather than nested tabs, because the page
+            already spends its tab row on Findings vs Identity and two tab bars stacked read
+            as a hierarchy that is not there.
+
+            Cards only: the graph draws both kinds as sibling lanes, so a control that shows one
+            at a time would be asking the user to hide half the picture. */}
+        {view === 'cards' && (
+          <div className="inline-flex p-1 bg-[rgba(0,0,0,0.04)] rounded-lg self-start">
+            {([
+              { id: 'users' as IdentityKind, label: labels.users, icon: 'mdi:account-outline', count: totalUsers },
+              { id: 'roles' as IdentityKind, label: labels.roles, icon: 'mdi:shield-account-outline', count: totalRoles },
+            ]).map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setKind(option.id)}
+                aria-pressed={kind === option.id}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                  kind === option.id
+                    ? 'bg-white text-[rgba(0,0,0,0.88)] shadow-sm'
+                    : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.75)]'
+                }`}
+              >
+                <Icon icon={option.icon} width={13} />
+                {option.label}
+                <span className="text-[10px] px-1.5 py-0.5 bg-[rgba(0,0,0,0.06)] rounded-full font-bold text-[rgba(0,0,0,0.5)]">
+                  {option.count}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="relative flex-1">
           <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
@@ -324,7 +394,24 @@ const IdentityAccessCanvas: React.FC<IdentityAccessCanvasProps> = ({
       </div>
 
       {/* Canvas */}
-      {isLoading ? (
+      {view === 'graph' ? (
+        <IdentityAccessGraph
+          users={users}
+          roles={roles}
+          allUsers={allUsers}
+          accountName={accountName}
+          accountId={accountId}
+          provider={provider}
+          labels={labels}
+          showRisk={riskAnalysisAvailable}
+          searchQuery={searchQuery}
+          flaggedOnly={flaggedOnly}
+          isLoading={isLoading}
+          formatDate={formatDate}
+          isOldDate={isOldDate}
+          onCopy={onCopy}
+        />
+      ) : isLoading ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4">
           {[...Array(6)].map((_, i) => <CardSkeleton key={i} />)}
         </div>

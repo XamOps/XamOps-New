@@ -268,11 +268,23 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
 /**
  * Defaults span more than one category on purpose, and each one is a roll-up of
  * something another widget breaks down rather than a repeat of it:
- *   mtdSpend / forecast   → headline numbers behind the cost trend chart
- *   potentialSavings      → total of the Waste + Rightsizing summary cards
- *   totalResources        → total of the Resource Inventory rows
+ *   mtdSpend / forecast / lastMonth → headline numbers behind the cost trend chart
+ *   potentialSavings                → total of the Waste + Rightsizing summary cards
+ *   totalResources                  → total of the Resource Inventory rows
  *
- * `lastMonth` was dropped because the cost trend already reports the MoM delta.
+ * There are five of them to fill the `xl:grid-cols-5` KPI row. A four-card
+ * default left the fifth column empty directly above the five-card summary row,
+ * which read as a missing widget rather than a deliberate layout.
+ *
+ * `lastMonth` fills that slot because it is the only remaining candidate with
+ * real data on every provider: it comes off `kpiData`, which AWS, Azure and GCP
+ * all populate. The recommendation and per-service resource cards read
+ * `optimization` / `resourceInventory`, and the Azure and GCP dashboards pass
+ * neither (they send `totalResourcesOverride` instead), so those cards would sit
+ * at 0 there forever. The AIOps, DBOps, Platform and CI/CD cards each cost an
+ * extra API round trip on every dashboard load. The cost trend does report the
+ * MoM delta, but as a percentage — the absolute previous-month total is not on
+ * screen anywhere else.
  *
  * `criticalAlerts` is deliberately NOT a default: the backend populates
  * OptimizationSummary.criticalAlertsCount with
@@ -281,7 +293,15 @@ export const ALL_KPI_CARDS: KPICardDef[] = [
  * an alert label. Shipping it beside the CloudGuard-backed Alerts summary card
  * would put two disagreeing "critical" numbers on one screen.
  */
-export const DEFAULT_SELECTED = ['mtdSpend', 'forecast', 'potentialSavings', 'totalResources'];
+export const DEFAULT_SELECTED = ['mtdSpend', 'forecast', 'lastMonth', 'potentialSavings', 'totalResources'];
+
+/**
+ * The pre-`lastMonth` default. A stored selection matching this exactly is an
+ * untouched default rather than a deliberate choice, so `loadKpiCards` migrates
+ * it forward to DEFAULT_SELECTED instead of leaving the fifth column empty for
+ * everyone who already loaded a dashboard once.
+ */
+export const LEGACY_DEFAULT_SELECTED = ['mtdSpend', 'forecast', 'potentialSavings', 'totalResources'];
 export const MIN_SELECTED = 3;
 const CATEGORIES = ['Cost', 'Optimization', 'Alerts', 'Resources', 'AIOps', 'DBOps', 'Platform'] as const;
 const CATEGORY_COLORS: Record<string, string> = {

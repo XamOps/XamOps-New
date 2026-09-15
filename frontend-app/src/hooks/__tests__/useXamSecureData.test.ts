@@ -63,6 +63,44 @@ describe('xamsecure helpers', () => {
   });
 
   /**
+   * The list loaders on Overview, Threats and Vulnerabilities are cached now, so their sections
+   * have to resolve to a stamp rather than falling through to the timer.
+   */
+  it('stamps the tab-level list sections against the right domain', () => {
+    applySyncStamps(syncStatus());
+    const before = {
+      threats: xamSecureCacheKey('threats_0_', '111'),
+      threatGroups: xamSecureCacheKey('threat_groups_threat', '111'),
+      byCve: xamSecureCacheKey('by_cve_0__runtime', '111'),
+      vulnGroups: xamSecureCacheKey('vuln_groups_image_0', '111'),
+    };
+    Object.entries(before).forEach(([name, key]) => {
+      expect(key.endsWith('|t'), `${name} must be stamped, not timer-keyed`).toBe(false);
+    });
+
+    // Detections move on their own 60s poll and must not disturb the vulnerability lists.
+    applySyncStamps(syncStatus({ DETECTIONS: '2026-09-07T00:01:00Z' }));
+    expect(xamSecureCacheKey('threats_0_', '111')).not.toBe(before.threats);
+    expect(xamSecureCacheKey('threat_groups_threat', '111')).not.toBe(before.threatGroups);
+    expect(xamSecureCacheKey('by_cve_0__runtime', '111')).toBe(before.byCve);
+    expect(xamSecureCacheKey('vuln_groups_image_0', '111')).toBe(before.vulnGroups);
+
+    // And the reverse.
+    applySyncStamps(syncStatus({ VULNERABILITIES: '2026-09-07T07:00:00Z' }));
+    expect(xamSecureCacheKey('by_cve_0__runtime', '111')).not.toBe(before.byCve);
+    expect(xamSecureCacheKey('vuln_groups_image_0', '111')).not.toBe(before.vulnGroups);
+  });
+
+  /** threats_ and threat_overview_/threat_groups_ share a prefix run; keep them distinct. */
+  it('does not confuse the threat section prefixes', () => {
+    applySyncStamps(syncStatus());
+    const keys = ['threats_0_', 'threat_overview_7', 'threat_groups_threat']
+      .map((s) => xamSecureCacheKey(s, '111'));
+    expect(new Set(keys).size).toBe(3);
+    keys.forEach((k) => expect(k.endsWith('|t')).toBe(false));
+  });
+
+  /**
    * Live and mixed-source sections have no stamp that describes them, so they stay on the timer.
    * The network graph is the one worth pinning: it sits under inventory_* but is built from live
    * vendor calls, so it must not pick up the INVENTORY stamp.
