@@ -45,6 +45,24 @@ Parameters:
     AllowedValues: ['true', 'false']
     Description: Also forward Security Hub, GuardDuty and Config findings (free)
 
+  ResourceSuffix:
+    Type: String
+    Default: ''
+    Description: >
+      Suffix for every physically-named resource below, so one AWS account can be
+      connected to more than one XamOps environment at once.
+
+      Everything here is account-wide and fixed-name: the hub event bus, the forward
+      role, both Lambdas and the per-region rules. A second environment connecting an
+      already-connected account therefore fails
+      AWS::EarlyValidation::ResourceExistenceCheck on all of them at once, and the
+      parent stack rolls back reporting only "Validation failure detected" - which
+      names none of the four and reads like a template fault.
+
+      Empty by default so production, which was here first and owns the unsuffixed
+      names, is unchanged. Non-production environments pass their own ('-uat').
+    AllowedPattern: '^$|^-[a-z0-9-]{1,20}$'
+
 Resources:
 
   # ===========================================================================
@@ -53,7 +71,7 @@ Resources:
   InventoryHubBus:
     Type: AWS::Events::EventBus
     Properties:
-      Name: xamops-inventory-hub
+      Name: !Sub 'xamops-inventory-hub${ResourceSuffix}'
 
   InventoryHubBusPolicy:
     Type: AWS::Events::EventBusPolicy
@@ -71,7 +89,7 @@ Resources:
   RegionalForwardRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub 'XamOpsInventoryForwardRole-${AWS::AccountId}'
+      RoleName: !Sub 'XamOpsInventoryForwardRole-${AWS::AccountId}${ResourceSuffix}'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -123,7 +141,7 @@ Resources:
   ForwarderFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: xamops-inventory-event-forwarder
+      FunctionName: !Sub 'xamops-inventory-event-forwarder${ResourceSuffix}'
       Description: Forwards resource change events to the XamOps inventory plane
       Runtime: python3.12
       Handler: index.lambda_handler
@@ -478,7 +496,7 @@ Resources:
   HubForwardRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: xamops-inventory-hub-forward
+      Name: !Sub 'xamops-inventory-hub-forward${ResourceSuffix}'
       Description: Forward hub-bus inventory events to the XamOps queue
       EventBusName: !Ref InventoryHubBus
       State: ENABLED
@@ -544,12 +562,12 @@ Resources:
                   - 'logs:PutRetentionPolicy'
                 Resource:
                   - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ForwarderFunction}:*'
-                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/xamops-inventory-region-fanout:*'
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/xamops-inventory-region-fanout${ResourceSuffix}:*'
 
   RegionFanOutFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: xamops-inventory-region-fanout
+      FunctionName: !Sub 'xamops-inventory-region-fanout${ResourceSuffix}'
       Description: Creates inventory event rules in every enabled region
       Runtime: python3.12
       Handler: index.handler
@@ -560,8 +578,11 @@ Resources:
       Environment:
         Variables:
           # Single source of truth for the names is the FunctionName properties above.
-          MANAGED_LOG_GROUPS: !Sub '/aws/lambda/${ForwarderFunction},/aws/lambda/xamops-inventory-region-fanout'
+          MANAGED_LOG_GROUPS: !Sub '/aws/lambda/${ForwarderFunction},/aws/lambda/xamops-inventory-region-fanout${ResourceSuffix}'
           LOG_RETENTION_DAYS: '7'
+          # Same suffix the CloudFormation-level names use. Read once below so every
+          # rule this Lambda creates or deletes carries it.
+          RESOURCE_SUFFIX: !Ref ResourceSuffix
       Code:
         ZipFile: |
           """
@@ -633,15 +654,19 @@ Resources:
           ]
 
 
+          # Empty for production, which owns the unsuffixed rule names.
+          SUFFIX = os.environ.get('RESOURCE_SUFFIX', '')
+
+
           def rules(include_security):
               defs = [
-                  ('xamops-inventory-lifecycle', {
+                  (f'xamops-inventory-lifecycle{SUFFIX}', {
                       'detail-type': ['AWS API Call via CloudTrail'],
                       # The allow-list is the cost control: without it every API call
                       # in the account would invoke the forwarder.
                       'detail': {'eventName': [{'prefix': p} for p in LIFECYCLE_PREFIXES]},
                   }),
-                  ('xamops-inventory-state-change', {
+                  (f'xamops-inventory-state-change{SUFFIX}', {
                       'source': STATE_SOURCES,
                       # CloudTrail events also carry source=aws.ec2, so without this
                       # they would match both rules and be forwarded twice.
@@ -656,13 +681,13 @@ Resources:
                   # resource and the exposure path needs its detail to judge whether it was
                   # created public. The forwarder deduplicates on EventBridge's event id,
                   # so the second delivery updates rather than doubles.
-                  ('xamops-inventory-exposure', {
+                  (f'xamops-inventory-exposure{SUFFIX}', {
                       'detail-type': ['AWS API Call via CloudTrail'],
                       'detail': {'eventName': EXPOSURE_EVENTS},
                   }),
               ]
               if include_security:
-                  defs.append(('xamops-inventory-security', {'source': SECURITY_SOURCES}))
+                  defs.append((f'xamops-inventory-security{SUFFIX}', {'source': SECURITY_SOURCES}))
               return defs
 
 

@@ -110,6 +110,37 @@ Parameters:
     Description: Region hosting the XamOps inventory event queue.
     Default: 'ap-south-1'
 
+  XamOpsPrincipalRoleName:
+    Type: String
+    Default: 'XamOps-App-EC2-Role-new'
+    Description: >
+      Name of the IAM role the XamOps backend runs as. This is the ONLY principal
+      allowed to assume the role created here.
+
+      It must name the instance profile of the environment doing the connecting, and
+      UAT differs from production: the UAT app server runs as
+      XamOps-App-EC2-Role-new, production as XamOps-App-EC2-Role.
+
+      This was hardcoded to XamOps-App-EC2-Role in every template, so a UAT
+      connection produced a role whose trust policy excluded the very server trying
+      to use it. The stack reached CREATE_COMPLETE and verification then failed with
+      "Role assumption failed", which reads like a customer misconfiguration rather
+      than ours.
+    AllowedPattern: '^[A-Za-z0-9+=,.@_-]{1,64}$'
+
+  XamOpsInventoryResourceSuffix:
+    Type: String
+    Default: '-uat'
+    Description: >
+      Suffix for the physically-named resources the inventory nested stack creates,
+      so the SAME AWS account can be connected to more than one XamOps environment.
+
+      Without it that stack fails AWS::EarlyValidation::ResourceExistenceCheck on
+      four resources at once - the hub bus, the forward role and both Lambdas all
+      exist already from the other environment's connection - and the parent rolls
+      back reporting only "Validation failure detected".
+    AllowedPattern: '^$|^-[a-z0-9-]{1,20}$'
+
   XamOpsInventoryTemplateUrl:
     Type: String
     Description: S3 URL of the nested inventory-events template.
@@ -879,7 +910,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Sub 'arn:aws:iam::${XamOpsAccountId}:role/XamOps-App-EC2-Role'
+              AWS: !Sub 'arn:aws:iam::${XamOpsAccountId}:role/${XamOpsPrincipalRoleName}'
             Action: 'sts:AssumeRole'
             Condition:
               StringEquals:
@@ -1270,7 +1301,7 @@ Resources:
     Properties:
       FunctionName: xamops-autospotting-event-forwarder-uat
       Description: Forward EC2 spot instance events to XamOps AutoSpotting engine
-      Runtime: python3.11
+      Runtime: python3.12
       Handler: index.lambda_handler
       Role: !GetAtt AutoSpottingEventForwarderRole.Arn
       Timeout: 30
@@ -1524,6 +1555,7 @@ Resources:
         XamOpsSQSQueueUrl: !Ref XamOpsInventoryQueueUrl
         XamOpsRegion: !Ref XamOpsInventoryRegion
         IncludeSecurityFindings: !Ref IncludeSecurityFindings
+        ResourceSuffix: !Ref XamOpsInventoryResourceSuffix
 
   # =================================================================
   # CUR 2.0 DATA EXPORT (nested)
