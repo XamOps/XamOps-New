@@ -1,3 +1,8 @@
+/*
+ * NOTE: VPC lookups go through apiFetch, not bare fetch, so demo mode, tenant and
+ * CSRF headers, the request deadline and session-expiry handling all apply. See
+ * the same note in hooks/useCloudMap.ts.
+ */
 /**
  * VPC Context
  * 
@@ -6,6 +11,7 @@
  */
 
 import React, { createContext, useContext, useState, useCallback, useRef, useMemo } from 'react';
+import { apiFetch } from '../utils/apiClient';
 
 // Types
 export interface VPC {
@@ -85,8 +91,7 @@ export const VPCProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAwsVpcsError(null);
 
         try {
-            const response = await fetch(`/api/xamops/cloudmap/vpcs?accountId=${accountId}`, {
-                credentials: 'include',
+            const response = await apiFetch(`/api/xamops/cloudmap/vpcs?accountId=${accountId}`, {
             });
 
             if (!response.ok) {
@@ -132,8 +137,7 @@ export const VPCProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setGcpVpcsError(null);
 
         try {
-            const response = await fetch(`/api/xamops/gcp/cloudmap/vpcs?accountId=${accountId}`, {
-                credentials: 'include',
+            const response = await apiFetch(`/api/xamops/gcp/cloudmap/vpcs?accountId=${accountId}`, {
             });
 
             if (!response.ok) {

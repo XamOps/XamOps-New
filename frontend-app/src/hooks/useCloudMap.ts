@@ -1,3 +1,13 @@
+/*
+ * NOTE: these calls go through apiFetch, not bare fetch.
+ *
+ * They used bare fetch, which silently cost three things. Demo mode is
+ * implemented inside apiFetch, and demoRouter.ts already maps
+ * /api/xamops/cloudmap/vpcs and /graph to real fixture data — so a demo session
+ * bypassed its own mocks and rendered an empty canvas. The tenant and CSRF
+ * headers apiFetch injects were also absent, as was its request deadline and
+ * session-expiry handling.
+ */
 /**
  * useCloudMap Hook
  *
@@ -7,6 +17,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ALL_VPCS_VALUE } from '../types/cloudmap';
 import type { VPC, GraphElement, Blueprint } from '../types/cloudmap';
+import { apiFetch } from '../utils/apiClient';
 
 interface UseCloudMapOptions {
   accountId: string | null;
@@ -96,9 +107,9 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
       const results = await Promise.all(
         list.map(async (vpc) => {
           try {
-            const response = await fetch(
+            const response = await apiFetch(
               `/api/xamops/cloudmap/graph?${new URLSearchParams({ accountId: accountId!, vpcId: vpc.id, region: vpc.region }).toString()}`,
-              { credentials: 'include' }
+              {}
             );
             if (!response.ok) return [] as GraphElement[];
             const data = await response.json();
@@ -174,8 +185,7 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
     setVpcError(null);
 
     try {
-      const response = await fetch(`/api/xamops/cloudmap/vpcs?accountId=${accountId}`, {
-        credentials: 'include',
+      const response = await apiFetch(`/api/xamops/cloudmap/vpcs?accountId=${accountId}`, {
       });
 
       if (!response.ok) {
@@ -217,10 +227,9 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
     try {
       const [vpcId, region] = (vpcValue || '|').split('|');
 
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/xamops/cloudmap/graph?accountId=${accountId}&vpcId=${vpcId || ''}&region=${region || ''}`,
         {
-          credentials: 'include',
         }
       );
 
@@ -246,8 +255,7 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
     setLoadingBlueprints(true);
 
     try {
-      const response = await fetch('/api/xamops/design/list', {
-        credentials: 'include',
+      const response = await apiFetch('/api/xamops/design/list', {
       });
 
       if (!response.ok) {
@@ -272,8 +280,7 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
     setGraphError(null);
 
     try {
-      const response = await fetch(`/api/xamops/design/${id}`, {
-        credentials: 'include',
+      const response = await apiFetch(`/api/xamops/design/${id}`, {
       });
 
       if (!response.ok) {
@@ -315,10 +322,9 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
         graphData: graphData,
       };
 
-      const response = await fetch('/api/xamops/design/save', {
+      const response = await apiFetch('/api/xamops/design/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify(payload),
       });
 
