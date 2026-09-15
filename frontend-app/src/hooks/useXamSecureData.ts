@@ -14,15 +14,140 @@ import type {
   ConfigurationsDashboard, ResourceDetail, SyncStatus, IdentitiesSummary,
 } from '../types/xamsecure';
 
-const CACHE_DURATION = 30 * 60 * 1000; // 30 min for scan-based tabs
-const THREAT_POLL_MS = 60 * 1000;      // runtime feed
+const CACHE_DURATION = 30 * 60 * 1000;        // sections with no sync stamp to key off
+const STAMPED_MAX_AGE = 12 * 60 * 60 * 1000;  // ceiling for stamped entries; see stampFor
+const STAMP_REFRESH_MS = 60 * 1000;           // how often the stamps themselves are re-read
+const THREAT_POLL_MS = 60 * 1000;             // runtime feed
+/**
+ * How long the work gets before a spinner appears.
+ *
+ * The spinner used to be raised before the cache was even read, so revisiting a fully cached tab
+ * flashed a loading state for no reason. Arming it on a timer instead means a cache hit resolves
+ * inside the window and nothing is shown, while a real fetch still reports itself.
+ */
+const SPINNER_DELAY_MS = 150;
 
 // Bump this version whenever a cached response's shape changes, so stale
 // localStorage entries miss and refetch instead of masking new fields.
-const CACHE_VERSION = 'v4';
+// v5 also changed the key separator to '|' so a section name can be recovered from a key.
+const CACHE_VERSION = 'v5';
+
+const ALL_DOMAINS = ['DETECTIONS', 'VULNERABILITIES', 'POSTURE', 'INVENTORY', 'API_ENDPOINTS'] as const;
+
+/**
+ * Which backend sync produces each cached section, or null where nothing does.
+ *
+ * A section backed by a synced table only changes when that sync lands, so its cache entry is
+ * keyed by the sync's completion time rather than expiring on a timer. The full sync runs every
+ * six hours, so a thirty-minute timer was throwing away good data roughly eleven times out of
+ * twelve and re-running the same queries to get the same rows back.
+ *
+ * null means the section is served live from the vendor API, or mixes live and stored data, so no
+ * stamp describes it and the timer is the only honest option. Verified per method rather than
+ * assumed: policies, workflows, components and code scans are live; stories, compliance and the
+ * network graph are mixed; config_dashboard delegates, so it is treated as live.
+ */
+const SECTION_SYNC: Record<string, readonly string[] | null> = {
+  summary: ALL_DOMAINS,
+  attack_surface: ['POSTURE'],
+  identities: ['POSTURE', 'INVENTORY'],
+  vuln_dashboard: ['VULNERABILITIES'],
+  inventory_categories: ['INVENTORY'],
+  inventory_risk: ['INVENTORY'],
+  sensor_coverage: ['INVENTORY'],
+  apisec: ['API_ENDPOINTS'],
+  // Checked before the prefixes below, which is what keeps inventory_network off the
+  // INVENTORY stamp — the network graph is built from live vendor calls.
+  inventory_network: null,
+  compliance: null,
+  stories: null,
+  components: null,
+  policies: null,
+  workflows: null,
+  code_scans: null,
+  config_dashboard: null,
+};
+
+/** Sections whose names carry parameters (page, severity, category, days). */
+const SECTION_SYNC_PREFIX: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['issues_', ['POSTURE']],
+  ['threat_overview_', ['DETECTIONS']],
+  ['threat_groups_', ['DETECTIONS']],
+  // The detections poll runs every 60s, so this stamp moves about that often. That is the point:
+  // the runtime feed should be short-lived, while still not refetching twice when Overview and
+  // Threats are opened back to back.
+  ['threats_', ['DETECTIONS']],
+  ['vulns_', ['VULNERABILITIES']],
+  ['vuln_groups_', ['VULNERABILITIES']],
+  ['by_cve_', ['VULNERABILITIES']],
+  ['posture_', ['POSTURE']],
+  ['inventory_', ['INVENTORY']],
+];
+
+function domainsFor(section: string): readonly string[] | null {
+  if (section in SECTION_SYNC) return SECTION_SYNC[section];
+  for (const [prefix, domains] of SECTION_SYNC_PREFIX) {
+    if (section.startsWith(prefix)) return domains;
+  }
+  return null;
+}
+
+/**
+ * Last-success times per sync domain, module-scoped so the cache key helper can reach them
+ * without every call site having to thread them through. The hook is the only writer.
+ */
+let syncStamps: Record<string, string | null> = {};
+let syncStampsAt = 0;
+
+const STAMP_STORE = `xamsecure|${CACHE_VERSION}|syncstamps`;
+
+/**
+ * Restores the stamps written by the previous page view.
+ *
+ * Without this, a reload always had to fetch /sync-status before it could compute a cache key,
+ * so the very thing meant to avoid a request guaranteed one. Persisting them means a reload
+ * inside the refresh window reads the cache immediately and issues nothing.
+ */
+(function hydrateSyncStamps() {
+  try {
+    const raw = localStorage.getItem(STAMP_STORE);
+    if (!raw) return;
+    const saved = JSON.parse(raw) as { stamps?: Record<string, string | null>; at?: number };
+    if (saved?.stamps && typeof saved.at === 'number') {
+      syncStamps = saved.stamps;
+      syncStampsAt = saved.at;
+    }
+  } catch { /* ignore */ }
+})();
+
+/** Marks a key as timer-expiring rather than stamp-invalidated. */
+const TIMER_STAMP = 't';
+
+function stampFor(section: string): string {
+  const domains = domainsFor(section);
+  if (!domains || syncStampsAt === 0) return TIMER_STAMP;
+  // '0' for a domain that has never synced, so the key still changes once it does.
+  return domains.map((d) => syncStamps[d] ?? '0').join('.');
+}
 
 export function xamSecureCacheKey(section: string, accountId: string | null): string {
-  return `xamsecure_${CACHE_VERSION}_${section}_${accountId ?? 'all'}`;
+  return ['xamsecure', CACHE_VERSION, section, accountId ?? 'all', stampFor(section)].join('|');
+}
+
+/**
+ * Replaces the sync stamps. Returns true when any domain moved, which means every stamped cache
+ * entry keyed off the old value is now unreachable and will be refetched on next use.
+ */
+export function applySyncStamps(status: SyncStatus): boolean {
+  const next: Record<string, string | null> = {};
+  status.domains.forEach((d) => { next[d.domain] = d.lastSuccessAt; });
+  const changed = ALL_DOMAINS.some((d) => next[d] !== syncStamps[d]);
+  syncStamps = next;
+  syncStampsAt = Date.now();
+  try {
+    localStorage.setItem(STAMP_STORE, JSON.stringify({ stamps: next, at: syncStampsAt }));
+  } catch { /* ignore */ }
+  return changed;
 }
 
 function loadCache<T>(key: string): T | null {
@@ -34,10 +159,58 @@ function loadCache<T>(key: string): T | null {
   return null;
 }
 
+/**
+ * Drops earlier entries for the same section and account under a different stamp.
+ *
+ * Without this, every sync would leave its predecessor's payload behind and localStorage would
+ * grow until a write threw, at which point the try/catch would silently stop caching altogether.
+ */
+function pruneSupersededEntries(key: string): void {
+  const cut = key.lastIndexOf('|');
+  if (cut < 0) return;
+  const prefix = key.slice(0, cut + 1);
+  const doomed: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(prefix) && k !== key && k !== `${key}_expiry`
+        && !k.endsWith('_expiry')) {
+      doomed.push(k);
+    }
+  }
+  doomed.forEach((k) => {
+    localStorage.removeItem(k);
+    localStorage.removeItem(`${k}_expiry`);
+  });
+}
+
+let stampPrime: Promise<boolean> | null = null;
+
+/**
+ * Reads the sync stamps, at most once per STAMP_REFRESH_MS and never concurrently. Resolves true
+ * when a domain moved.
+ *
+ * Has to complete before any cache read, because the stamps are part of the cache key. On
+ * failure the stamps stay unset, stampFor falls back to TIMER_STAMP, and everything reverts to
+ * the old timer behaviour rather than losing caching altogether.
+ */
+async function primeSyncStamps(): Promise<boolean> {
+  if (Date.now() - syncStampsAt < STAMP_REFRESH_MS) return false;
+  if (stampPrime) return stampPrime;
+  stampPrime = apiClient.get<SyncStatus>('/api/xamsecure/sync-status')
+    .then((s) => applySyncStamps(s))
+    .catch(() => false)
+    .finally(() => { stampPrime = null; });
+  return stampPrime;
+}
+
 function saveCache(key: string, value: unknown): void {
   try {
+    pruneSupersededEntries(key);
+    // A stamped entry is already invalidated by its key when the sync moves, so it only needs a
+    // ceiling to guard against a stamp that never changes.
+    const ttl = key.endsWith(`|${TIMER_STAMP}`) ? CACHE_DURATION : STAMPED_MAX_AGE;
     localStorage.setItem(key, JSON.stringify(value));
-    localStorage.setItem(`${key}_expiry`, (Date.now() + CACHE_DURATION).toString());
+    localStorage.setItem(`${key}_expiry`, (Date.now() + ttl).toString());
   } catch { /* ignore */ }
 }
 
@@ -166,12 +339,23 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     saveCache(key, data);
   }, [acct, selectedAccountId]);
 
-  const loadThreats = useCallback(async (page = 0, severity = '') => {
+  /**
+   * Runtime detection feed. Cached against the DETECTIONS stamp, which moves roughly every 60s,
+   * so this stays current while no longer being fetched twice when Overview and Threats are
+   * opened one after the other. The 60s poll and any mutation pass force.
+   */
+  const loadThreats = useCallback(async (page = 0, severity = '', force = false) => {
     threatPageRef.current = page;
+    const key = xamSecureCacheKey(`threats_${page}_${severity}`, selectedAccountId);
+    if (!force) {
+      const cached = loadCache<PageResp<ThreatDetection>>(key);
+      if (cached) { setThreats(cached); return; }
+    }
     const data = await apiClient.get<PageResp<ThreatDetection>>(
       `/api/xamsecure/threats?${acct}page=${page}&size=50${severity ? `&severity=${severity}` : ''}`);
     setThreats(data);
-  }, [acct]);
+    saveCache(key, data);
+  }, [acct, selectedAccountId]);
 
   const loadThreatOverview = useCallback(async (force = false, days = 7) => {
     const key = xamSecureCacheKey(`threat_overview_${days}`, selectedAccountId);
@@ -196,24 +380,44 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     saveCache(key, data);
   }, [acct, selectedAccountId]);
 
-  const loadVulnByCve = useCallback(async (page = 0, severity = '', view = '') => {
+  /** The Vulnerabilities tab's main list — cached per page, severity and view. */
+  const loadVulnByCve = useCallback(async (page = 0, severity = '', view = '', force = false) => {
+    const key = xamSecureCacheKey(`by_cve_${page}_${severity}_${view}`, selectedAccountId);
+    if (!force) {
+      const cached = loadCache<PageResp<CveGroupRow>>(key);
+      if (cached) { setVulnByCve(cached); return; }
+    }
     const data = await apiClient.get<PageResp<CveGroupRow>>(
       `/api/xamsecure/vulnerabilities/by-cve?${acct}page=${page}&size=50`
       + `${severity ? `&severity=${severity}` : ''}${view ? `&view=${view}` : ''}`);
     setVulnByCve(data);
-  }, [acct]);
+    saveCache(key, data);
+  }, [acct, selectedAccountId]);
 
-  const loadVulnGroups = useCallback(async (dimension: VulnGroupDimension, page = 0) => {
+  const loadVulnGroups = useCallback(async (dimension: VulnGroupDimension, page = 0,
+                                            force = false) => {
+    const key = xamSecureCacheKey(`vuln_groups_${dimension}_${page}`, selectedAccountId);
+    if (!force) {
+      const cached = loadCache<VulnGroupPage>(key);
+      if (cached) { setVulnGroups(cached); return; }
+    }
     const data = await apiClient.get<VulnGroupPage>(
       `/api/xamsecure/vulnerabilities/groups?${acct}dimension=${dimension}&page=${page}&size=50`);
     setVulnGroups(data);
-  }, [acct]);
+    saveCache(key, data);
+  }, [acct, selectedAccountId]);
 
-  const loadThreatGroups = useCallback(async (dimension: ThreatGroupDimension) => {
+  const loadThreatGroups = useCallback(async (dimension: ThreatGroupDimension, force = false) => {
+    const key = xamSecureCacheKey(`threat_groups_${dimension}`, selectedAccountId);
+    if (!force) {
+      const cached = loadCache<ThreatGroups>(key);
+      if (cached) { setThreatGroups(cached); return; }
+    }
     const data = await apiClient.get<ThreatGroups>(
       `/api/xamsecure/threats/groups?${acct}dimension=${dimension}`);
     setThreatGroups(data);
-  }, [acct]);
+    saveCache(key, data);
+  }, [acct, selectedAccountId]);
 
   const loadCodeScans = useCallback(async (force = false) => {
     const key = xamSecureCacheKey('code_scans', selectedAccountId);
@@ -409,7 +613,8 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
 
   const archiveThreat = useCallback(async (upwindId: string) => {
     await apiClient.post(`/api/xamsecure/threats/${encodeURIComponent(upwindId)}/status`, { status: 'ARCHIVED' });
-    await loadThreats(threatPageRef.current);
+    // force: the row just changed underneath us, so the cached page is known-stale.
+    await loadThreats(threatPageRef.current, '', true);
   }, [loadThreats]);
 
   /**
@@ -432,11 +637,24 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     }
     const tabKey = `${activeTab}:${selectedAccountId}`;
     const run = async () => {
-      // Threats polls on its own; every other tab, once loaded for this account, serves
-      // in-memory data on revisit (no refetch, no loading flash). Refresh forces a reload.
-      if (activeTab !== 'threats' && loadedRef.current.has(tabKey)) return;
-      setIsLoading(true);
+      // Armed rather than set: a fully cached tab finishes inside SPINNER_DELAY_MS and clears
+      // this in the finally, so nothing is shown. The timer covers the stamp read as well, so a
+      // slow one reports itself instead of leaving an empty page behind.
+      const spinner = window.setTimeout(
+        () => { if (!cancelled) setIsLoading(true); }, SPINNER_DELAY_MS);
       try {
+        // Threats polls on its own; every other tab, once loaded for this account, serves
+        // in-memory data on revisit. Refresh forces a reload.
+        // Stamps are part of the cache key, so they have to land before anything reads the cache.
+        // Read before the loaded-this-session check too: a sync that lands while the page is open
+        // has to drop the in-memory guard, or an already-visited tab keeps showing the pre-sync
+        // payload for as long as the page stays mounted. Throttled, so revisiting a tab inside
+        // the window costs nothing.
+        const stampsMoved = await primeSyncStamps();
+        if (cancelled) return;
+        if (stampsMoved) loadedRef.current.clear();
+        if (activeTab !== 'threats' && loadedRef.current.has(tabKey)) return;
+
         if (activeTab === 'issues') await loadIssues();
         else if (activeTab === 'overview') {
           await Promise.all([loadSummary(), loadIssues(), loadThreats(), loadStories(), loadVulnDashboard()]);
@@ -469,6 +687,7 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
       } catch (err) {
         console.error('[XamSecure] load failed:', err);
       } finally {
+        window.clearTimeout(spinner);
         if (!cancelled) setIsLoading(false);
       }
     };
@@ -477,7 +696,9 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
     if (activeTab === 'threats') {
       pollRef.current = window.setInterval(() => {
-        loadThreats(threatPageRef.current).catch((err) => console.error('[XamSecure] threat poll failed:', err));
+        // force: the whole point of the poll is to go past the cache.
+        loadThreats(threatPageRef.current, '', true)
+          .catch((err) => console.error('[XamSecure] threat poll failed:', err));
       }, THREAT_POLL_MS);
     }
     return () => {
@@ -496,17 +717,24 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
   const refresh = useCallback(async () => {
     setIsLoading(true);
     try {
+      // Re-read the stamps unconditionally: an explicit refresh is also how a user checks
+      // whether a sync has landed since the page was opened.
+      syncStampsAt = 0;
+      await primeSyncStamps();
       if (activeTab === 'issues') await loadIssues('', true);
       else if (activeTab === 'attack-surface') await loadAttackSurface(true);
+      // The list loaders are cached now, so refresh has to force them or the button would hand
+      // back exactly what is already on screen.
       else if (activeTab === 'overview') {
-        await Promise.all([loadSummary(true), loadIssues('', true), loadThreats(), loadStories(true), loadVulnDashboard(true)]);
+        await Promise.all([loadSummary(true), loadIssues('', true), loadThreats(0, '', true),
+                           loadStories(true), loadVulnDashboard(true)]);
       }
       else if (activeTab === 'threats') {
-        await Promise.all([loadThreats(), loadThreatPolicies(true), loadStories(true),
+        await Promise.all([loadThreats(0, '', true), loadThreatPolicies(true), loadStories(true),
                           loadThreatOverview(true)]);
       }
       else if (activeTab === 'vulnerabilities') {
-        await Promise.all([loadVulnDashboard(true), loadVulnByCve()]);
+        await Promise.all([loadVulnDashboard(true), loadVulnByCve(0, '', '', true)]);
       }
       else if (activeTab === 'posture') {
         await Promise.all([loadConfigDashboard(true), loadPosture(0, '', true), loadCompliance(true),

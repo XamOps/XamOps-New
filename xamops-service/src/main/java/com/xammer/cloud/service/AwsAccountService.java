@@ -48,6 +48,18 @@ public class AwsAccountService {
 
     private static final Logger logger = LoggerFactory.getLogger(AwsAccountService.class);
 
+    /**
+     * The only region AWS::CUR::ReportDefinition exists in, and therefore where the
+     * connection stack has to be created for its nested CUR report to work.
+     */
+    private static final String CUR_REPORT_REGION = "us-east-1";
+
+    /**
+     * The queue every role template names by default. An environment configured with this
+     * is the one that owns it, and has nothing to override.
+     */
+    private static final String SHARED_QUEUE_NAME = "xamops-inventory-events.fifo";
+
     private final String hostAccountId;
     private final String configuredRegion;
     private final CloudAccountRepository cloudAccountRepository;
@@ -72,6 +84,22 @@ public class AwsAccountService {
 
     @Value("${xamops.role.readwrite.name:XamOpsReadWriteRole}")
     private String readWriteRoleName;
+
+    /**
+     * The queue this environment actually listens on.
+     *
+     * <p>Passed to the stack rather than left to the template's default, which names the
+     * shared production queue. An environment with its own queue — local and UAT both have
+     * one — would otherwise onboard accounts that forward to production, where the events
+     * are discarded as belonging to an unknown account. Nothing fails; the environment that
+     * onboarded the customer simply never sees their resources appear in under a minute,
+     * and the events pile up in a queue nobody reads.
+     *
+     * <p>This was a documented manual step ("re-onboard the test account with
+     * XamOpsInventoryQueueUrl pointing here"), which is the kind nobody remembers.
+     */
+    @Value("${xamops.inventory.events.queue-url:}")
+    private String inventoryQueueUrl;
 
     @Value("${xamops.cfn.callback.param.name:}")
     private String cfnCallbackParamName;
@@ -106,7 +134,7 @@ public class AwsAccountService {
 
     public Map<String, Object> generateCloudFormationUrl(String accountName, String awsAccountId, String accessType,
             Long clientId) throws Exception {
-        return generateCloudFormationUrl(accountName, awsAccountId, accessType, clientId, null);
+        return generateCloudFormationUrl(accountName, awsAccountId, accessType, clientId, null, null);
     }
 
     /**
@@ -116,7 +144,7 @@ public class AwsAccountService {
      *                    account under a XamOps payer account, or one with no report, needs.
      */
     public Map<String, Object> generateCloudFormationUrl(String accountName, String awsAccountId, String accessType,
-            Long clientId, String curS3Bucket) throws Exception {
+            Long clientId, String curS3Bucket, String awsBillingSource) throws Exception {
         Client client = clientRepository.findById(clientId)
                 .orElseThrow(() -> new RuntimeException("Client not found with id: " + clientId));
 
@@ -154,9 +182,49 @@ public class AwsAccountService {
                 ? "&param_CurS3Bucket=" + URLEncoder.encode(curS3Bucket.trim(), StandardCharsets.UTF_8)
                 : "";
 
+        /*
+         * Whether the connection stack creates the report, decided by the option the
+         * operator picked rather than left at the template's default.
+         *
+         * Only "create a report in this account" should. An account under a XamOps payer
+         * is already inside that payer's report; an account that already has one would be
+         * paying to store a second copy; and an account whose payer never enabled billing
+         * access cannot create one at all — for that last case the stack would fail rather
+         * than quietly skip, which is the worst of the four outcomes.
+         */
+        boolean createReport = "OWN_CUR".equals(awsBillingSource);
+        String curReportParam = "&param_EnableCurReport=" + (createReport ? "true" : "false");
+
+        // Region comes from the queue URL rather than a second setting, so the two cannot
+        // disagree: sqs.<region>.amazonaws.com is the only shape SQS publishes.
+        String inventoryParams = "";
+        if (inventoryQueueUrl != null && !inventoryQueueUrl.isBlank()) {
+            inventoryParams = "&param_XamOpsInventoryQueueUrl="
+                    + URLEncoder.encode(inventoryQueueUrl.trim(), StandardCharsets.UTF_8);
+            String region = regionFromQueueUrl(inventoryQueueUrl.trim());
+            if (region != null) {
+                inventoryParams += "&param_XamOpsInventoryRegion="
+                        + URLEncoder.encode(region, StandardCharsets.UTF_8);
+            }
+        }
+
+        // Pinned to us-east-1 rather than left to whichever region the customer's console
+        // happens to be showing.
+        //
+        // The connection stack now nests the CUR 1.0 report, and
+        // AWS::CUR::ReportDefinition exists in us-east-1 alone — a nested stack is created
+        // in its parent's region, so a parent anywhere else silently produces an account
+        // with no report. Nothing else in this stack is region-bound: the IAM role is
+        // global and the inventory nested stack fans out to every region by itself.
+        //
+        // The template also guards this with its own IsCurReportRegion condition, so a
+        // customer who overrides the region still connects successfully — they just get no
+        // report, which the stack diagnosis then reports as missing.
         String urlString = String.format(
-                "https://console.aws.amazon.com/cloudformation/home#/stacks/create/review?templateURL=%s&stackName=%s&param_XamOpsAccountId=%s&param_ExternalId=%s%s%s",
-                templateUrl, stackName, xamopsAccountId, externalId, callbackParam, curBucketParam);
+                "https://console.aws.amazon.com/cloudformation/home?region=%s#/stacks/create/review"
+                        + "?templateURL=%s&stackName=%s&param_XamOpsAccountId=%s&param_ExternalId=%s%s%s",
+                CUR_REPORT_REGION, templateUrl, stackName, xamopsAccountId, externalId,
+                callbackParam, curBucketParam + curReportParam + inventoryParams);
 
         return Map.of(
                 "url", new URL(urlString),
@@ -202,23 +270,76 @@ public class AwsAccountService {
                 + String.valueOf(account.getAccountName()).replaceAll("[^a-zA-Z0-9-]", "");
 
         /*
-         * The two parameters that must be set by hand, and why.
+         * The parameters worth naming, and why.
          *
-         * CurS3Bucket is the one that silently breaks things. It defaults to empty, which
-         * makes the template's HasCurBucket condition false and attaches no report
-         * permissions at all — while EnableCurExport defaults to true and creates the
-         * report anyway. Accept every default and the account ends up with a Cost and Usage
-         * Report that XamOps cannot read, with nothing failing to say so.
+         * CurS3Bucket used to be the one that silently broke things — left at its default
+         * the template attached no report permissions while still creating the report, so
+         * the account ended up with a CUR that XamOps could not read and nothing failed to
+         * say so. The template's HasCurBucket condition now derives that from whether a
+         * report is being created, so the default is finally correct. It stays listed
+         * because plenty of stacks were updated while the old advice stood and carry AUTO
+         * already, and seeing it named avoids someone "tidying" it back to blank.
+         *
+         * EnableCurExport is CUR 2.0, now off by default: it and CUR 1.0 write the same
+         * bucket name and only one can own it.
          */
-        List<Map<String, String>> parameters = List.of(
+        // Built rather than a constant list, because the inventory queue differs per
+        // environment and the whole point is that nobody has to remember which one.
+        List<Map<String, String>> parameters = new java.util.ArrayList<>(List.of(
+                // Listed first because it is the one an update silently skips. A stack keeps
+                // the parameter values it was created with; changing a default in the
+                // template does nothing to a stack that already exists, so leaving this on
+                // "Use existing value" produces a change set with no changes at all and the
+                // console reports it as "The submitted information didn't contain changes"
+                // — which reads as a broken template rather than an unchanged parameter.
+                Map.of("name", "EnableInventoryEvents",
+                        "value", "true",
+                        "why", "Near-real-time resource discovery. Accounts connected before"
+                                + " this was switched on still carry false and must be set"
+                                + " here by hand — a new default does not reach an existing"
+                                + " stack."),
+                Map.of("name", "EnableCurReport",
+                        "value", "true",
+                        "why", "Creates the Cost and Usage Report XamOps reads. Leave at its"
+                                + " default unless this account sits under a XamOps payer"
+                                + " account, which is already covered by that payer's report."),
+                Map.of("name", "EnableCurExport",
+                        "value", "false",
+                        "why", "CUR 2.0, for BillOps invoice reconciliation. Off by default"
+                                + " because it claims the same bucket name as the report above."),
                 Map.of("name", "CurS3Bucket",
                         "value", "AUTO",
-                        "why", "Grants XamOps read access to the report bucket. Left blank — its"
-                                + " default — the report is created but cannot be read."),
-                Map.of("name", "EnableCurExport",
-                        "value", "true",
-                        "why", "Creates the Cost and Usage Report itself. Already the default;"
-                                + " confirm it has not been set to false."));
+                        "why", "Which bucket to grant read on. Blank now behaves the same when"
+                                + " a report is being created; AUTO states it explicitly.")));
+
+        /*
+         * The queue THIS environment listens on.
+         *
+         * Only listed when it differs from the template's default, which names the shared
+         * production queue. An environment with its own queue that leaves this alone
+         * onboards accounts forwarding to production, where the events are dropped as
+         * belonging to an unknown account — nothing fails, the resources just never appear
+         * in under a minute and the messages pile up in a queue nobody reads.
+         *
+         * New onboardings already carry it automatically; this covers stacks that predate
+         * that, where the value is stored on the stack and a template default cannot
+         * reach it.
+         */
+        if (inventoryQueueUrl != null && !inventoryQueueUrl.isBlank()
+                && !inventoryQueueUrl.contains(SHARED_QUEUE_NAME)) {
+            parameters.add(Map.of("name", "XamOpsInventoryQueueUrl",
+                    "value", inventoryQueueUrl.trim(),
+                    "why", "This environment has its own inventory queue. Left at the default"
+                            + " the account forwards to the shared queue, which this"
+                            + " environment does not read."));
+            String region = regionFromQueueUrl(inventoryQueueUrl.trim());
+            if (region != null) {
+                parameters.add(Map.of("name", "XamOpsInventoryRegion",
+                        "value", region,
+                        "why", "Region of the queue above. They must match or the EventBridge"
+                                + " target resolves to a queue that does not exist."));
+            }
+        }
 
         // Filtered rather than deep-linked: the update page needs a stack id, and the role
         // stack is region-less IAM that may have been created in any region, so neither the
@@ -233,6 +354,18 @@ public class AwsAccountService {
                 "templateUrl", templateUrl,
                 "consoleUrl", consoleUrl,
                 "likelyStackName", likelyStackName,
+                // An account that already has the CUR 2.0 export cannot make this change in
+                // one update. CloudFormation creates added resources before deleting removed
+                // ones, so the new report's bucket collides with the export's — which still
+                // exists at that moment — and the whole update rolls back. Two passes are
+                // the only way through, and the warning has to reach the person following
+                // the steps rather than sit in a comment here.
+                "twoPassWarning", "If this account already has a CUR 2.0 export"
+                        + " (aws bcm-data-exports list-exports --region us-east-1 lists one),"
+                        + " run the update twice: first with EnableCurReport=false and"
+                        + " EnableCurExport=false to release the shared bucket, then again with"
+                        + " EnableCurReport=true. A single pass fails on the bucket name and"
+                        + " rolls back.",
                 "roleName", roleName,
                 "parameters", parameters);
     }
@@ -285,6 +418,16 @@ public class AwsAccountService {
     }
 
     public CloudAccount connectViaCallback(String externalId, String awsAccountId, String roleArn) {
+        return connectViaCallback(externalId, awsAccountId, roleArn, null);
+    }
+
+    /**
+     * @param stackId ARN of the stack that created the connection, or null from a template
+     *                predating this. Recorded even when the connection then fails to verify:
+     *                knowing which stack to look at is exactly what a failed connection needs.
+     */
+    public CloudAccount connectViaCallback(String externalId, String awsAccountId, String roleArn,
+                                           String stackId) {
         CloudAccount account = cloudAccountRepository.findByExternalId(externalId)
                 .orElseThrow(() -> new RuntimeException("No account found for externalId: " + externalId));
 
@@ -297,6 +440,11 @@ public class AwsAccountService {
         String previousStatus = account.getStatus();
         account.setAwsAccountId(awsAccountId);
         account.setRoleArn(roleArn);
+        if (stackId != null && !stackId.isBlank()) {
+            account.setStackId(stackId);
+            account.setStackName(stackNameFrom(stackId));
+            account.setStackRegion(stackRegionFrom(stackId));
+        }
         awsClientProvider.evictAccount(awsAccountId);
 
         try {
@@ -568,5 +716,37 @@ public class AwsAccountService {
                 .setParameter("column", column)
                 .getSingleResult();
         return found.longValue() > 0;
+    }
+
+    /**
+     * Region segment of an SQS queue URL, or null when it is not the standard shape.
+     *
+     * <p>{@code https://sqs.<region>.amazonaws.com/<account>/<queue>}. Returning null rather
+     * than guessing a default matters: a wrong region here sends events to a queue that does
+     * not exist in it, which fails silently at the EventBridge target.
+     */
+    private String regionFromQueueUrl(String queueUrl) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("^https://sqs\\.([a-z0-9-]+)\\.amazonaws\\.com/")
+                .matcher(queueUrl);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /**
+     * Pulls the stack name out of a stack ARN.
+     *
+     * <p>The ARN is the identity, but the name is what a person sees in the console and what
+     * the fallback lookup needs, so both are stored. Shape:
+     * {@code arn:aws:cloudformation:<region>:<account>:stack/<name>/<uuid>}.
+     */
+    private String stackNameFrom(String stackArn) {
+        String[] parts = stackArn.split("/");
+        return parts.length >= 2 ? parts[1] : null;
+    }
+
+    /** Region segment of a stack ARN — {@code DescribeStacks} only sees its own region. */
+    private String stackRegionFrom(String stackArn) {
+        String[] parts = stackArn.split(":");
+        return parts.length >= 4 ? parts[3] : null;
     }
 }

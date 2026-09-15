@@ -16,6 +16,16 @@ public class AccountCreationRequestDto {
      */
     private String curS3Bucket;
 
+    /**
+     * Which of the four cost-data options the operator picked — OWN_CUR, XAMMER_MPA_CUR,
+     * EXISTING_CUR or COST_EXPLORER_ONLY.
+     *
+     * <p>Decides whether the connection stack creates a Cost and Usage Report. Only
+     * OWN_CUR should: a payer-covered account is already in that payer's report, and an
+     * account that already has one would be paying to store a second copy.
+     */
+    private String awsBillingSource;
+
     // Getters and Setters
 
     public String getAccountName() {
@@ -57,5 +67,13 @@ public class AccountCreationRequestDto {
 
     public void setClientId(Long clientId) {
         this.clientId = clientId;
+    }
+
+    public String getAwsBillingSource() {
+        return awsBillingSource;
+    }
+
+    public void setAwsBillingSource(String awsBillingSource) {
+        this.awsBillingSource = awsBillingSource;
     }
 }

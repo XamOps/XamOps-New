@@ -3,9 +3,17 @@ import { Icon } from '@iconify/react';
 import type { ResourceInventory } from '../../types/liveDashboard';
 
 interface InventorySectionProps {
-  inventory: ResourceInventory;
+  /**
+   * Absent when the dashboard payload carried no inventory.
+   *
+   * <p>Typed optional because it genuinely arrives missing — DashboardData declares
+   * `resourceInventory` as non-optional, but a degraded or unscanned account returns nothing for
+   * it, which is why this component needed a null guard in the first place.
+   */
+  inventory?: ResourceInventory | null;
   isLoading: boolean;
-  getLink: (path: string) => string;
+  /** Returns null when the feature has no page for the selected provider. */
+  getLink: (path: string) => string | null;
 }
 
 interface ResourceCardProps {
@@ -48,9 +56,16 @@ const ResourceCard: React.FC<ResourceCardProps & { animIndex: number }> = ({ nam
 };
 
 const InventorySection: React.FC<InventorySectionProps> = ({ inventory, isLoading }) => {
-  if (!inventory) return null;
-
-  const allResourceItems = [
+  /*
+   * Deliberately no early `return null` on a missing inventory.
+   *
+   * This panel occupies 2 of the 5 columns beside Cost Trend. Rendering nothing did not remove a
+   * row, it left that cell empty, so Cost Trend sat at 3/5 width against a blank gap and the
+   * dashboard looked like the widget had been deleted rather than like the data had not arrived.
+   * The sibling Compliance Posture panel keeps its frame and says "Report unavailable"; this one
+   * now does the same, and the two empty states below say which of the two situations it is.
+   */
+  const allResourceItems = !inventory ? [] : [
     { name: 'EC2 Instances',    count: inventory.ec2Count,          iconName: 'simple-icons:amazonec2',               iconColor: '#FF9900', service: 'EC2' },
     { name: 'S3 Buckets',       count: inventory.s3Count,           iconName: 'simple-icons:amazons3',                iconColor: '#FF9900', service: 'S3' },
     { name: 'RDS Databases',    count: inventory.rdsCount,          iconName: 'simple-icons:amazonrds',               iconColor: '#527FFF', service: 'RDS' },
@@ -99,8 +114,24 @@ const InventorySection: React.FC<InventorySectionProps> = ({ inventory, isLoadin
               <ResourceCard key={resource.service} {...resource} animIndex={idx} isLast={idx === resourceItems.length - 1} />
             ))
           ) : (
-            <div className="py-12 text-center">
-              <p className="text-[13px] text-[rgba(0,0,0,0.35)]">No active resources found</p>
+            /* Two distinct states: a scan that found nothing, and no scan result at all. Collapsing
+               them would let an unscanned account read as a confirmed-empty one. */
+            <div className="py-12 px-5 text-center">
+              <Icon
+                icon={inventory ? 'mdi:server-off-outline' : 'mdi:cloud-question-outline'}
+                width={26}
+                className="mx-auto mb-2 text-[rgba(0,0,0,0.18)]"
+              />
+              {inventory ? (
+                <p className="text-[13px] text-[rgba(0,0,0,0.35)]">No active resources found</p>
+              ) : (
+                <>
+                  <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.5)]">Inventory unavailable</p>
+                  <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-1 leading-relaxed">
+                    This account returned no resource inventory. Refresh to run a fresh scan.
+                  </p>
+                </>
+              )}
             </div>
           )}
         </div>

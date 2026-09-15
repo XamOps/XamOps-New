@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import type { KPIData, CostHistory, OptimizationData, ResourceInventory } from '../../types/liveDashboard';
 import { fmtMoney } from '../../utils/currency';
-import KPIManageModal, { ALL_KPI_CARDS, DEFAULT_SELECTED, type KPICardDef } from './KPIManageModal';
+import KPIManageModal, { ALL_KPI_CARDS, DEFAULT_SELECTED, LEGACY_DEFAULT_SELECTED, MIN_SELECTED, type KPICardDef } from './KPIManageModal';
 
 const LS_KEY = (provider: string) =>
   provider === 'GCP' ? 'xamops_kpi_cards_gcp_v1'
@@ -15,10 +15,24 @@ const LS_KEY = (provider: string) =>
 const MODAL_OPEN_KEY = (provider: string) => `xamops_kpi_modal_open_${provider}`;
 const DRAFT_KEY = (provider: string) => `xamops_kpi_draft_${provider}`;
 
+const sameSelection = (a: string[], b: string[]) =>
+  a.length === b.length && a.every(id => b.includes(id));
+
 const loadKpiCards = (provider: string): string[] => {
   try {
     const raw = localStorage.getItem(LS_KEY(provider));
-    return raw ? JSON.parse(raw) : DEFAULT_SELECTED;
+    if (!raw) return DEFAULT_SELECTED;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_SELECTED;
+    // A stored list identical to the old default is an untouched default, so move
+    // it onto the current one — otherwise the new fifth card would only ever show
+    // up for users who had never opened a dashboard before. A customised
+    // selection is left exactly as the user saved it.
+    if (sameSelection(parsed, LEGACY_DEFAULT_SELECTED)) {
+      localStorage.setItem(LS_KEY(provider), JSON.stringify(DEFAULT_SELECTED));
+      return DEFAULT_SELECTED;
+    }
+    return parsed;
   } catch { return DEFAULT_SELECTED; }
 };
 
@@ -559,8 +573,10 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
           <div className="h-3 w-24 bg-[rgba(0,0,0,0.06)] rounded animate-pulse" />
           <div className="h-7 w-28 bg-[rgba(0,0,0,0.04)] rounded-lg animate-pulse" />
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map(i => (
+        {/* Same column count and placeholder count as the loaded grid, so the row
+            does not reflow when the real cards arrive. */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          {Array.from({ length: Math.max(selectedIds.length, MIN_SELECTED) }, (_, i) => i).map(i => (
             <div key={i} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 h-[110px] animate-pulse">
               <div className="h-2.5 w-24 bg-[rgba(0,0,0,0.06)] rounded mb-3" />
               <div className="h-7 w-28 bg-[rgba(0,0,0,0.06)] rounded mb-3" />

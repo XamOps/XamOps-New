@@ -10,6 +10,8 @@ import com.xammer.cloud.dto.*;
 import com.xammer.cloud.event.CloudAccountConnectedEvent;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.stack.StackDiagnosisService;
+import com.xammer.cloud.service.stack.StackUpdateService;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.security.ClientUserDetails;
@@ -26,6 +28,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +52,12 @@ public class AccountManagerController {
 
     @Autowired
     private CloudAccountRepository cloudAccountRepository;
+
+    @Autowired
+    private StackDiagnosisService stackDiagnosisService;
+
+    @Autowired
+    private StackUpdateService stackUpdateService;
 
     @Autowired
     private ClientRepository clientRepository;
@@ -75,7 +84,8 @@ public class AccountManagerController {
         Long clientId = userDetails.getClientId();
         try {
             Map<String, Object> result = awsAccountService.generateCloudFormationUrl(request.getAccountName(),
-                    request.getAwsAccountId(), request.getAccessType(), clientId, request.getCurS3Bucket());
+                    request.getAwsAccountId(), request.getAccessType(), clientId, request.getCurS3Bucket(),
+                    request.getAwsBillingSource());
             Map<String, String> stackDetails = Map.of(
                     "url", result.get("url").toString(),
                     "externalId", result.get("externalId").toString(),
@@ -133,8 +143,11 @@ public class AccountManagerController {
         if (externalId == null || awsAccountId == null || roleArn == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "Missing required fields: externalId, awsAccountId, roleArn"));
         }
+        // Optional: only templates from this release onward send it. An older stack connects
+        // exactly as before and has its id discovered later from the role it created.
+        String stackId = payload.get("stackId");
         try {
-            awsAccountService.connectViaCallback(externalId, awsAccountId, roleArn);
+            awsAccountService.connectViaCallback(externalId, awsAccountId, roleArn, stackId);
             logger.info("EventBridge callback succeeded for externalId={}", externalId);
             return ResponseEntity.ok(Map.of("message", "Account connected successfully"));
         } catch (Exception e) {
@@ -142,6 +155,126 @@ public class AccountManagerController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", e.getMessage()));
         }
+    }
+
+    /**
+     * What updating this account's stack would change, without changing anything.
+     *
+     * <p>Builds a change set and describes it. A stack that already matches comes back with
+     * {@code noChanges}, which is a success — not an error — because once a fleet has been
+     * swept it is the commonest answer.
+     */
+    @PostMapping("/stack-update/{accountId}/preview")
+    public ResponseEntity<?> previewStackUpdate(@PathVariable String accountId) {
+        return withAwsAccount(accountId, account ->
+                ResponseEntity.ok(stackUpdateService.preview(account)));
+    }
+
+    /**
+     * Runs a change set produced by the preview.
+     *
+     * <p>Takes the change set id rather than recomputing, so what executes is exactly what
+     * was shown. A stale id fails at AWS rather than silently applying something else.
+     */
+    @PostMapping("/stack-update/{accountId}/execute")
+    public ResponseEntity<?> executeStackUpdate(@PathVariable String accountId,
+                                                @RequestBody Map<String, String> body) {
+        return withAwsAccount(accountId, account -> {
+            stackUpdateService.execute(account, body.get("changeSetId"));
+            return ResponseEntity.accepted().body(Map.of("message", "Update started"));
+        });
+    }
+
+    /** Stack status and recent events, for following an update as it runs. */
+    @GetMapping("/stack-update/{accountId}/progress")
+    public ResponseEntity<?> stackUpdateProgress(@PathVariable String accountId,
+                                                 @RequestParam(defaultValue = "25") int limit) {
+        return withAwsAccount(accountId, account ->
+                ResponseEntity.ok(stackUpdateService.progress(account, Math.min(limit, 100))));
+    }
+
+    /** The innermost message — the SDK buries the useful one several wrappers down. */
+    private String rootMessage(Throwable e) {
+        Throwable cause = e;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return String.valueOf(cause.getMessage());
+    }
+
+    /**
+     * Resolves an AWS account and turns a stack failure into a body the UI can render.
+     *
+     * <p>409 rather than 500 for a refusal: "this account has no CloudFormation permission"
+     * is a state with a remedy, not a server fault, and the client shows the remedy instead
+     * of a stack trace.
+     */
+    private ResponseEntity<?> withAwsAccount(String accountId,
+                                             java.util.function.Function<CloudAccount, ResponseEntity<?>> action) {
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        CloudAccount account = accounts.get(0);
+        if (!"AWS".equalsIgnoreCase(account.getProvider())) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Stack updates apply to AWS accounts only"));
+        }
+        try {
+            return action.apply(account);
+        } catch (StackUpdateService.StackUpdateException e) {
+            Map<String, String> body = new HashMap<>();
+            body.put("verdict", e.getVerdict());
+            body.put("error", e.getMessage());
+            if (e.getRemedy() != null) {
+                body.put("remedy", e.getRemedy());
+            }
+            return ResponseEntity.status(409).body(body);
+        } catch (Exception e) {
+            logger.warn("[stack] Update failed for account {}: {}", accountId, e.getMessage(), e);
+            String message = rootMessage(e);
+            Map<String, String> body = new HashMap<>();
+
+            // A denial is the expected answer for an account whose role predates stack
+            // updates, and it has a fix. Reporting it as "could not reach CloudFormation"
+            // sends the reader looking for a network problem that does not exist — and
+            // hides the one line AWS gave us that names the missing action.
+            if (message.contains("AccessDenied") || message.contains("not authorized")) {
+                body.put("verdict", "NO_CFN_PERMISSION");
+                body.put("error", message);
+                body.put("remedy", "Deploy the XamOps stack updater in this account once "
+                        + "(xamops-stack-updater.yml, a small additive stack). It grants "
+                        + "change-set permissions scoped to XamOps-* stacks and cannot "
+                        + "affect the existing connection. After that this button works on "
+                        + "its own.");
+                body.put("grantTemplate", "xamops-stack-updater.yml");
+                return ResponseEntity.status(409).body(body);
+            }
+
+            body.put("error", "CloudFormation rejected the request");
+            body.put("detail", message);
+            return ResponseEntity.status(502).body(body);
+        }
+    }
+
+    /**
+     * Which CloudFormation stack owns this account's connection, and — when none can be found —
+     * why not.
+     *
+     * <p>Read-only. It answers whether an update could run, never runs one.
+     */
+    @GetMapping("/stack-status/{accountId}")
+    public ResponseEntity<?> stackStatus(@PathVariable String accountId) {
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        CloudAccount account = accounts.get(0);
+        if (!"AWS".equalsIgnoreCase(account.getProvider())) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Stack diagnosis applies to AWS accounts only"));
+        }
+        return ResponseEntity.ok(stackDiagnosisService.diagnose(account));
     }
 
     @PostMapping("/verify-account")

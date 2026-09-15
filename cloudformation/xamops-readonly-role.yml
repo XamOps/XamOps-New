@@ -104,6 +104,37 @@ Parameters:
     Description: Region hosting the XamOps inventory event queue.
     Default: 'ap-south-1'
 
+  XamOpsPrincipalRoleName:
+    Type: String
+    Default: 'XamOps-App-EC2-Role'
+    Description: >
+      Name of the IAM role the XamOps backend runs as. This is the ONLY principal
+      allowed to assume the role created here.
+
+      It must name the instance profile of the environment doing the connecting, and
+      UAT differs from production: the UAT app server runs as
+      XamOps-App-EC2-Role-new, production as XamOps-App-EC2-Role.
+
+      This was hardcoded to XamOps-App-EC2-Role in every template, so a UAT
+      connection produced a role whose trust policy excluded the very server trying
+      to use it. The stack reached CREATE_COMPLETE and verification then failed with
+      "Role assumption failed", which reads like a customer misconfiguration rather
+      than ours.
+    AllowedPattern: '^[A-Za-z0-9+=,.@_-]{1,64}$'
+
+  XamOpsInventoryResourceSuffix:
+    Type: String
+    Default: ''
+    Description: >
+      Suffix for the physically-named resources the inventory nested stack creates,
+      so the SAME AWS account can be connected to more than one XamOps environment.
+
+      Without it that stack fails AWS::EarlyValidation::ResourceExistenceCheck on
+      four resources at once - the hub bus, the forward role and both Lambdas all
+      exist already from the other environment's connection - and the parent rolls
+      back reporting only "Validation failure detected".
+    AllowedPattern: '^$|^-[a-z0-9-]{1,20}$'
+
   XamOpsInventoryTemplateUrl:
     Type: String
     Description: S3 URL of the nested inventory-events template.
@@ -148,7 +179,7 @@ Parameters:
   # -------------------------------------------------------------------
   EnableCurExport:
     Type: String
-    Default: 'true'
+    Default: 'false'
     AllowedValues: ['true', 'false']
     Description: >
       Set up an AWS Cost and Usage Report (CUR 2.0) export to a dedicated S3
@@ -162,25 +193,84 @@ Parameters:
     Description: S3 URL of the nested CUR export template.
     Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-cur-export-nested.yaml'
 
+  # ---------------------------------------------------------------------------------
+  # CUR 1.0 — the report XamOps itself reads.
+  #
+  # On by default, and nested here rather than left to a second launch link, because an
+  # optional step is one most accounts never take: XamOps then shows Cost Explorer
+  # figures everywhere and nobody can say why the per-resource and invoice views are
+  # empty. CUR 2.0 above stays available but is off by default; the two write the same
+  # bucket name and only one can own it.
+  # ---------------------------------------------------------------------------------
+  EnableCurReport:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Create an AWS Cost and Usage Report (CUR 1.0) in this account, so XamOps can show
+      per-resource cost, invoice-level charges and data transfer breakdowns that the Cost
+      Explorer API cannot express. Set to false for an account under a XamOps payer
+      account, which is already covered by that payer's report.
+
+  XamOpsCurReportTemplateUrl:
+    Type: String
+    Description: S3 URL of the nested CUR 1.0 report template.
+    Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-cur-report.yml'
+
 Conditions:
   # Guards the nested stack. With inventory events off, nothing below is created
   # and the account simply relies on 60s polling.
   DeployInventoryEvents: !Equals [!Ref EnableInventoryEvents, 'true']
 
-  # No CUR bucket named means no CUR permissions are attached. Keeping the grant
-  # off entirely — rather than scoped to a wildcard — is what lets an account under
-  # a XamOps MPA deploy this stack with the same permission surface it had before
-  # CUR support existed.
-  HasCurBucket: !Not [!Equals [!Ref CurS3Bucket, '']]
-
-  # 'AUTO' means the CUR stack has not run yet and will create xamops-cur-<this account>.
-  # Derived here rather than passed in, because the onboarding UI does not know the account
-  # id when it builds this launch URL. An IAM policy may name a bucket that does not exist
-  # yet — it grants nothing until it does — so the two stacks can be launched in any order.
-  AutoCurBucket: !Equals [!Ref CurS3Bucket, 'AUTO']
   # Guards the CUR export nested stack. With this off, BillOps simply keeps
   # reconciling this account's invoices from Cost Explorer.
   DeployCurExport: !Equals [!Ref EnableCurExport, 'true']
+
+  # AWS::CUR::ReportDefinition exists only in us-east-1, and a nested stack is created in
+  # its parent's region. The onboarding link pins us-east-1, but a customer who changes it
+  # in the console would otherwise fail the whole connection on a report they can live
+  # without — so the report is skipped instead, and the platform reports it as missing.
+  IsCurReportRegion: !Equals [!Ref 'AWS::Region', 'us-east-1']
+
+  DeployCurReport: !And
+    - !Equals [!Ref EnableCurReport, 'true']
+    - !Condition IsCurReportRegion
+
+  # Whether the role is granted CUR read permissions at all.
+  #
+  # Deploying the export is itself a bucket: the nested stack creates
+  # xamops-cur-<this account id> whether or not anyone named it here. Testing only
+  # CurS3Bucket left the two defaults contradicting each other — EnableCurExport
+  # defaults to 'true' and CurS3Bucket to '' — so a stack launched with defaults
+  # created a CUR bucket and then withheld permission to read it. The data arrived
+  # and every query against it failed with AccessDenied.
+  #
+  # Keeping the grant off entirely — rather than scoped to a wildcard — is what lets an
+  # account under a XamOps MPA deploy this stack with the same permission surface it had
+  # before CUR support existed. That account sets EnableCurExport to 'false'.
+  # Either report writes the same bucket, xamops-cur-<this account id>, so the read
+  # grant follows whichever one is on rather than being tied to the CUR 2.0 export.
+  CreatesOwnCurBucket: !Or
+    - !Condition DeployCurExport
+    - !Condition DeployCurReport
+
+  HasCurBucket: !Or
+    - !Not [!Equals [!Ref CurS3Bucket, '']]
+    - !Condition CreatesOwnCurBucket
+
+  # Whether the bucket is the one the export nested stack creates, rather than one the
+  # customer named. 'AUTO' says so explicitly; an empty value alongside the export says
+  # so implicitly, and both have to resolve to the same ARN or the policy names a bucket
+  # that does not exist.
+  #
+  # Derived here rather than passed in, because the onboarding UI does not know the account
+  # id when it builds this launch URL. An IAM policy may name a bucket that does not exist
+  # yet — it grants nothing until it does — so the two stacks can be launched in any order.
+  AutoCurBucket: !Or
+    - !Equals [!Ref CurS3Bucket, 'AUTO']
+    - !And
+      - !Equals [!Ref CurS3Bucket, '']
+      - !Condition CreatesOwnCurBucket
 
 Resources:
   # =================================================================
@@ -195,7 +285,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Sub 'arn:aws:iam::${XamOpsAccountId}:role/XamOps-App-EC2-Role'
+              AWS: !Sub 'arn:aws:iam::${XamOpsAccountId}:role/${XamOpsPrincipalRoleName}'
             Action: 'sts:AssumeRole'
             Condition:
               StringEquals:
@@ -708,10 +798,16 @@ Resources:
               role_arn = props['RoleArn']
               callback_url = props.get('CallbackUrl', '')
 
+              # StackId lets XamOps record which stack owns this connection. Without it the
+              # platform has to ask CloudFormation which stack created the role — which works,
+              # but cannot tell a stack that was deleted and recreated from the original.
+              stack_id = props.get('StackId', '')
+
               detail = json.dumps({
                   'externalId': external_id,
                   'awsAccountId': aws_account_id,
-                  'roleArn': role_arn
+                  'roleArn': role_arn,
+                  'stackId': stack_id
               })
 
               # 1. Send EventBridge event (for audit/logging)
@@ -763,6 +859,7 @@ Resources:
       ExternalId: !Ref ExternalId
       AwsAccountId: !Ref AWS::AccountId
       RoleArn: !GetAtt XamOpsReadOnlyRole.Arn
+      StackId: !Ref AWS::StackId
 
   # =================================================================
   # 8. Inventory Events (nested)
@@ -786,6 +883,7 @@ Resources:
         XamOpsSQSQueueUrl: !Ref XamOpsInventoryQueueUrl
         XamOpsRegion: !Ref XamOpsInventoryRegion
         IncludeSecurityFindings: !Ref IncludeSecurityFindings
+        ResourceSuffix: !Ref XamOpsInventoryResourceSuffix
 
   # =================================================================
   # 9. CUR 2.0 Data Export (nested)
@@ -803,6 +901,21 @@ Resources:
       TimeoutInMinutes: 15
       Parameters:
         XamOpsAccountId: !Ref XamOpsAccountId
+
+  # =================================================================
+  # CUR 1.0 REPORT (nested)
+  #
+  # Defaults in that template — report name xamops-cur, prefix cur, HOURLY, resource ids
+  # on — are what CurAutoRegistrationService looks for when it registers the source
+  # automatically. Changing them here without changing that service leaves the report
+  # created and unregistered.
+  # =================================================================
+  XamOpsCurReport:
+    Type: AWS::CloudFormation::Stack
+    Condition: DeployCurReport
+    Properties:
+      TemplateURL: !Ref XamOpsCurReportTemplateUrl
+      TimeoutInMinutes: 15
 
 Outputs:
   XamOpsRoleArn:

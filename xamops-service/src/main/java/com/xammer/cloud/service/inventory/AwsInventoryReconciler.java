@@ -770,8 +770,16 @@ public class AwsInventoryReconciler {
         // this connection with nothing: a real account synced 1640 resources and wrote 10,
         // while stamping its generation counter onto rows belonging to the old connection,
         // which the sweep (correctly scoped) could never retire.
+        //
+        // Every status, not just ACTIVE. The unique index this upsert targets is on
+        // (cloud_account_id, arn) and does not include status, so a swept row still owns
+        // its ARN. Reading only ACTIVE rows made a returning resource look new, and the
+        // insert that followed was rejected by that index — one collision failing the
+        // whole transaction and dropping the account onto describes indefinitely. Rows
+        // found here are revived below by the setStatus/setDeletedAt(null) pair, which
+        // already handled this case for rows it could see.
         Map<String, AwsCloudResource> existing = new HashMap<>();
-        for (AwsCloudResource row : resourceRepository.findActiveByCloudAccountId(cloudAccountId)) {
+        for (AwsCloudResource row : resourceRepository.findAllByCloudAccountId(cloudAccountId)) {
             existing.put(row.getArn(), row);
         }
 

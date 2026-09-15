@@ -270,6 +270,11 @@ export function useAddAccount(): UseAddAccountReturn {
           awsAccountId: '',
           accessType,
           curS3Bucket: curBucketParam,
+          // Decides whether the connection stack creates the report. Without it the
+          // template's default applies and every account gets one — including the ones
+          // covered by a payer's report, and the ones whose payer never enabled billing
+          // access, where creating one is impossible and the stack would fail.
+          awsBillingSource: curSource.billingSource,
         }),
       });
 

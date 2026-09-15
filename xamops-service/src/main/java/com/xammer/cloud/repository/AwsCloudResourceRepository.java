@@ -41,6 +41,21 @@ public interface AwsCloudResourceRepository extends JpaRepository<AwsCloudResour
             + "ORDER BY r.displayType, r.resourceId")
     List<AwsCloudResource> findActiveByCloudAccountId(@Param("cloudAccountId") Long cloudAccountId);
 
+    /**
+     * Every row for a connection, whatever its status — including swept ones.
+     *
+     * <p>The upsert must use this, not the ACTIVE-only variant above. {@code
+     * uq_aws_cloud_resource_cloudacct_arn} is on (cloud_account_id, arn) with no status
+     * column, so a swept row still owns its ARN while being invisible to an ACTIVE-scoped
+     * read. A resource that is deleted and later returns — a target group recreated by a
+     * deploy, say — was then built as a fresh insert and rejected by that index. One
+     * collision aborts the whole transaction, so a single recreated resource dropped the
+     * entire account onto the describe fallback and kept it there: measured here, six
+     * hours of every five-minute cycle failing on one target group.
+     */
+    @Query("SELECT r FROM AwsCloudResource r WHERE r.cloudAccountId = :cloudAccountId")
+    List<AwsCloudResource> findAllByCloudAccountId(@Param("cloudAccountId") Long cloudAccountId);
+
     @Query("SELECT r FROM AwsCloudResource r "
             + "WHERE r.cloudAccountId = :cloudAccountId AND r.status = 'ACTIVE'")
     Page<AwsCloudResource> findActiveByCloudAccountId(@Param("cloudAccountId") Long cloudAccountId,

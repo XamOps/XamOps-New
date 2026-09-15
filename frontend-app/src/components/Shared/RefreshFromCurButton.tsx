@@ -21,7 +21,15 @@ import { invalidateCurInsights } from '../../hooks/useCurInsight';
 interface RefreshFromCurButtonProps {
   /** AWS account to reload. Render nothing when there isn't exactly one. */
   accountId: string | null;
-  /** Called after a successful reload, so the page can refetch its now-CUR-backed cache. */
+  /**
+   * Called after a successful reload, so the page can refetch its now-CUR-backed cache.
+   *
+   * <p>Should NOT force an upstream refresh. The endpoint has already written the report
+   * figures into the shared cache, so this only has to re-read it — and forcing re-runs
+   * the Compute Optimizer and waste scans behind granular/kpi, which outlast the client's
+   * 45s timeout and show a Connection Error before the data lands anyway. Nothing those
+   * scans produce is affected by a CUR refresh.
+   */
   onRefreshed: () => void | Promise<void>;
   /** Matches the surrounding header's colour scheme. */
   dark?: boolean;

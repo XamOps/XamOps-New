@@ -19,6 +19,12 @@ interface DashboardHeaderProps {
   lastUpdateTime: string;
   onRefresh: () => void;
   /**
+   * Reload after a Cost and Usage Report refresh. Separate from onRefresh because it must
+   * not force: see RefreshFromCurButton. Falls back to onRefresh when a page has not
+   * distinguished the two yet.
+   */
+  onCurRefreshed?: () => void;
+  /**
    * Single AWS account to offer a CUR-only reload for, or null to hide the button —
    * a CUR belongs to one account, so a multi-account or non-AWS selection has nothing
    * to reload.
@@ -39,6 +45,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   isRefreshing,
   lastUpdateTime,
   onRefresh,
+  onCurRefreshed,
   curAccountId = null,
   onSaveLayout,
   getLink,
@@ -162,7 +169,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 
         <RefreshFromCurButton
           accountId={curAccountId}
-          onRefreshed={onRefresh}
+          onRefreshed={onCurRefreshed ?? onRefresh}
           dark={dark}
         />
       </div>

@@ -31,7 +31,13 @@ interface UseDashboardDataReturn {
   error: DashboardError | null;
   isRefreshing: boolean;
   loadDashboardData: (forceRefresh?: boolean) => Promise<void>;
-  refreshDashboard: () => void;
+  /**
+   * @param force re-run every upstream scan. Default true, matching the Refresh button.
+   *   Pass false after a Cost and Usage Report refresh: those figures are already in the
+   *   shared cache, and forcing would re-run the Compute Optimizer and waste scans behind
+   *   granular/kpi, which outlast the 45s client timeout.
+   */
+  refreshDashboard: (force?: boolean) => void;
   updateResourceInventory: (inventory: ResourceInventory) => void;
 }
 
@@ -172,10 +178,10 @@ export const useDashboardData = ({
   /**
    * Manual refresh function
    */
-  const refreshDashboard = useCallback(() => {
+  const refreshDashboard = useCallback((force = true) => {
     setIsRefreshing(true);
     // Use setTimeout to allow state update to process before calling load
-    setTimeout(() => loadDashboardData(true), 0);
+    setTimeout(() => loadDashboardData(force), 0);
   }, [loadDashboardData]);
 
   /**
