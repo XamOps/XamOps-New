@@ -85,6 +85,139 @@ public class XamSecureOnboardingController {
     }
 
     /**
+     * Customer-facing: a pre-filled CloudFormation quick-create URL for the ECS sensor stack.
+     *
+     * <b>The returned URL contains the shared Sensor credential in its query string.</b> Treat it
+     * as a credential — hence POST and {@code no-store}.
+     */
+    @PostMapping("/ecs-launch-url")
+    @SuppressWarnings("unchecked")
+    public ResponseEntity<?> ecsLaunchUrl(@AuthenticationPrincipal ClientUserDetails user,
+                                        @RequestBody Map<String, Object> body) {
+        if (!onboardingService.isAllowedForClient(user.getClientId())) {
+            return ResponseEntity.status(403).body(Map.of("error",
+                    "Security monitoring is not enabled for this account."));
+        }
+        Object rawSubnets = body.get("subnets");
+        List<String> subnets = rawSubnets instanceof List<?> l
+                ? l.stream().filter(java.util.Objects::nonNull).map(Object::toString).toList()
+                : List.of();
+        try {
+            return ResponseEntity.ok()
+                    .header("Cache-Control", "no-store")
+                    .body(onboardingService.ecsLaunchUrl(
+                            user.getClientId(),
+                            str(body, "cloudAccountId"),
+                            str(body, "launchType"),
+                            str(body, "clusterName"),
+                            str(body, "vpcId"),
+                            str(body, "vpcCidr"),
+                            subnets,
+                            str(body, "region")));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            // Every one of these is something the customer or an admin can fix — a bad subnet id,
+            // a missing template URL — so the reason is returned rather than swallowed.
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    private static String str(Map<String, Object> body, String key) {
+        Object v = body.get(key);
+        return v == null ? null : v.toString();
+    }
+
+    /**
+     * Customer-facing: resolved CloudFormation parameters for the ECS sensor stack.
+     *
+     * POST and {@code no-store} for the same reason as the Kubernetes command — the body carries
+     * the shared Sensor credential.
+     */
+    @PostMapping("/ecs-deployment")
+    public ResponseEntity<?> ecsDeployment(@AuthenticationPrincipal ClientUserDetails user,
+                                          @RequestBody Map<String, String> body) {
+        if (!onboardingService.isAllowedForClient(user.getClientId())) {
+            return ResponseEntity.status(403).body(Map.of("error",
+                    "Security monitoring is not enabled for this account."));
+        }
+        if (!onboardingService.isSensorConfigured()) {
+            return ResponseEntity.badRequest().body(Map.of("error",
+                    "Sensor deployment is not configured. Contact your XamOps administrator."));
+        }
+        String cloudAccountId = body.get("cloudAccountId");
+        if (cloudAccountId == null || cloudAccountId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "cloudAccountId is required."));
+        }
+        try {
+            return ResponseEntity.ok()
+                    .header("Cache-Control", "no-store")
+                    .body(onboardingService.resolveEcsDeployment(
+                            user.getClientId(), cloudAccountId, body.get("launchType")));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
+     * Customer-facing: managed Kubernetes clusters in one of the caller's own accounts.
+     *
+     * Carries no credential, so this one is a plain read — but it is still POST to keep the
+     * account id out of URLs and logs, matching the other onboarding lookups.
+     */
+    @PostMapping("/kubernetes-clusters")
+    public ResponseEntity<?> kubernetesClusters(@AuthenticationPrincipal ClientUserDetails user,
+                                               @RequestBody Map<String, String> body) {
+        if (!onboardingService.isAllowedForClient(user.getClientId())) {
+            return ResponseEntity.status(403).body(Map.of("error",
+                    "Security monitoring is not enabled for this account."));
+        }
+        String cloudAccountId = body.get("cloudAccountId");
+        if (cloudAccountId == null || cloudAccountId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "cloudAccountId is required."));
+        }
+        try {
+            return ResponseEntity.ok(onboardingService.resolveKubernetesClusters(
+                    user.getClientId(), cloudAccountId));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
+     * Customer-facing: the Kubernetes sensor survey command for one of the caller's own accounts.
+     *
+     * POST rather than GET because it is parameterized by account and cluster, and because the
+     * response body carries the shared Sensor credential — a GET would land in browser history and
+     * in any intermediary that logs query strings. {@code no-store} for the same reason.
+     */
+    @PostMapping("/kubernetes-command")
+    public ResponseEntity<?> kubernetesCommand(@AuthenticationPrincipal ClientUserDetails user,
+                                              @RequestBody Map<String, String> body) {
+        if (!onboardingService.isAllowedForClient(user.getClientId())) {
+            return ResponseEntity.status(403).body(Map.of("error",
+                    "Security monitoring is not enabled for this account."));
+        }
+        if (!onboardingService.isSensorConfigured()) {
+            return ResponseEntity.badRequest().body(Map.of("error",
+                    "Sensor deployment is not configured. Contact your XamOps administrator."));
+        }
+        String cloudAccountId = body.get("cloudAccountId");
+        String clusterName = body.get("clusterName");
+        if (cloudAccountId == null || cloudAccountId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "cloudAccountId is required."));
+        }
+        try {
+            return ResponseEntity.ok()
+                    .header("Cache-Control", "no-store")
+                    .body(onboardingService.renderKubernetesSurveyCommand(
+                            user.getClientId(), cloudAccountId, clusterName));
+        } catch (IllegalArgumentException e) {
+            // Unsupported provider or a malformed cluster name — the customer can fix both, so the
+            // reason is worth returning rather than collapsing into a generic 400.
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
      * Customer-facing: disconnect one account from XamSecure.
      *
      * Deregisters upstream, then tells the customer to delete their stack. Deleting the stack on

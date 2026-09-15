@@ -901,3 +901,1460 @@
   0%, 100% { box-shadow: 0 0 0 0 rgba(55,65,81,0); }
   50%       { box-shadow: 0 0 14px 4px rgba(55,65,81,0.35); }
 }
+
+/* ==========================================================================
+   Dark treatment for the CloudMap chrome.
+   ==========================================================================
+   Everything above this block hardcodes light surfaces (white, #f9fafb,
+   rgba(255,255,255,.95)), which rendered the whole feature as a bright slab
+   inside the app's #020617 shell.
+
+   Scoped on .cm-theme-dark, set by CloudMapPage from ThemeContext, rather than
+   Tailwind's `dark:` variant: tailwind.config.js sets darkMode:'class' but
+   nothing in this app ever adds the `dark` class to <html>, so `dark:` utilities
+   never match. Additive overrides keep the existing 900 lines untouched and the
+   diff reviewable.
+
+   Tokens mirror components/CloudMap/canvasTheme.ts so the Cytoscape canvas and
+   the DOM chrome around it stay in agreement.
+   ========================================================================== */
+
+.cm-theme-dark {
+  --cm-canvas: #020617;
+  --cm-surface: #0e1728;
+  --cm-surface-raised: #16223a;
+  --cm-surface-sunken: #0a1120;
+  --cm-hairline: #243350;
+  --cm-hairline-strong: #33456b;
+  --cm-ink: #e9eef8;
+  --cm-ink-muted: #8fa0bd;
+  --cm-ink-faint: #6b7c99;
+  --cm-accent: #1be68b;
+  --cm-accent-ink: #04120b;
+  --cm-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.6);
+}
+
+.cm-theme-light {
+  --cm-canvas: #fbfcfd;
+  --cm-surface: #ffffff;
+  --cm-surface-raised: #ffffff;
+  --cm-surface-sunken: #f1f5f9;
+  --cm-hairline: #dde3ec;
+  --cm-hairline-strong: #c3cddc;
+  --cm-ink: #0f172a;
+  --cm-ink-muted: #5c6b85;
+  --cm-ink-faint: #8a97ad;
+  --cm-accent: #0d9f63;
+  --cm-accent-ink: #ffffff;
+  --cm-shadow: 0 8px 20px -8px rgba(15, 23, 42, 0.18);
+}
+
+/* ── Canvas shell ───────────────────────────────────────────────────────── */
+
+.cm-theme-dark .canvas-wrapper {
+  background: var(--cm-canvas);
+}
+
+.cm-theme-dark .cloudmap-header,
+.cm-theme-dark .toolbar {
+  background: var(--cm-surface);
+  border-color: var(--cm-hairline);
+  color: var(--cm-ink);
+}
+
+/* ── Toolbar ────────────────────────────────────────────────────────────── */
+
+.cm-theme-dark .toolbar-group-label {
+  color: var(--cm-ink-faint);
+}
+
+.cm-theme-dark .toolbar-separator {
+  background: var(--cm-hairline);
+}
+
+.cm-theme-dark .toolbar-button {
+  background: transparent;
+  color: var(--cm-ink-muted);
+  border-color: transparent;
+}
+
+.cm-theme-dark .toolbar-button:hover {
+  background: var(--cm-surface-raised);
+  color: var(--cm-ink);
+}
+
+.cm-theme-dark .toolbar-button-active,
+.cm-theme-dark .toolbar-button.toolbar-button-active {
+  background: rgba(27, 230, 139, 0.14);
+  color: var(--cm-accent);
+  border-color: rgba(27, 230, 139, 0.32);
+}
+
+.cm-theme-dark .toolbar-zoom-badge {
+  background: var(--cm-surface-sunken);
+  color: var(--cm-ink-muted);
+  border-color: var(--cm-hairline);
+}
+
+/* Focus must stay visible on the dark surface, not inherit a light ring. */
+.cm-theme-dark .toolbar-button:focus-visible,
+.cm-theme-dark .tab-btn:focus-visible,
+.cm-theme-dark .page-tab-btn:focus-visible,
+.cm-theme-dark .palette-item:focus-visible {
+  outline: 2px solid var(--cm-accent);
+  outline-offset: 2px;
+}
+
+/* ── Palette / properties panels ────────────────────────────────────────── */
+
+.cm-theme-dark .design-palette,
+.cm-theme-dark .design-props-panel {
+  background: var(--cm-surface);
+  border-color: var(--cm-hairline);
+  color: var(--cm-ink);
+}
+
+.cm-theme-dark .palette-item {
+  background: var(--cm-surface-sunken);
+  border-color: var(--cm-hairline);
+  color: var(--cm-ink);
+}
+
+.cm-theme-dark .palette-item:hover {
+  background: var(--cm-surface-raised);
+  border-color: var(--cm-hairline-strong);
+}
+
+.cm-theme-dark .tab-btn {
+  color: var(--cm-ink-muted);
+}
+
+.cm-theme-dark .tab-btn:hover {
+  color: var(--cm-ink);
+  background: var(--cm-surface-raised);
+}
+
+/* Scroll surfaces: a light track on a dark panel is the loudest tell. */
+.cm-theme-dark .palette-scroll,
+.cm-theme-dark .design-props-scroll {
+  scrollbar-color: var(--cm-hairline-strong) transparent;
+}
+
+.cm-theme-dark .palette-scroll::-webkit-scrollbar-thumb,
+.cm-theme-dark .design-props-scroll::-webkit-scrollbar-thumb {
+  background: var(--cm-hairline-strong);
+}
+
+.cm-theme-dark .palette-scroll::-webkit-scrollbar-track,
+.cm-theme-dark .design-props-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ── Info panel ─────────────────────────────────────────────────────────── */
+
+.cm-theme-dark .info-panel {
+  background: var(--cm-surface);
+  border-color: var(--cm-hairline);
+  color: var(--cm-ink);
+  box-shadow: var(--cm-shadow);
+}
+
+.cm-theme-dark .info-content {
+  color: var(--cm-ink-muted);
+}
+
+.cm-theme-dark .info-panel .close-btn {
+  color: var(--cm-ink-muted);
+}
+
+.cm-theme-dark .info-panel .close-btn:hover {
+  background: var(--cm-surface-raised);
+  color: var(--cm-ink);
+}
+
+/* ── Page tabs ──────────────────────────────────────────────────────────── */
+
+.cm-theme-dark .page-tab-bar {
+  background: var(--cm-surface);
+  border-color: var(--cm-hairline);
+}
+
+.cm-theme-dark .page-tab {
+  background: var(--cm-surface-sunken);
+  border-color: var(--cm-hairline);
+  color: var(--cm-ink-muted);
+}
+
+.cm-theme-dark .page-tab:hover {
+  background: var(--cm-surface-raised);
+  color: var(--cm-ink);
+}
+
+.cm-theme-dark .page-tab.active {
+  background: var(--cm-surface-raised);
+  color: var(--cm-ink);
+  border-color: var(--cm-hairline-strong);
+}
+
+.cm-theme-dark .page-tab-add,
+.cm-theme-dark .page-tab-close {
+  color: var(--cm-ink-faint);
+}
+
+.cm-theme-dark .page-tab-add:hover,
+.cm-theme-dark .page-tab-close:hover {
+  color: var(--cm-ink);
+  background: var(--cm-surface-raised);
+}
+
+.cm-theme-dark .page-tab-rename {
+  background: var(--cm-surface-sunken);
+  border-color: var(--cm-accent);
+  color: var(--cm-ink);
+}
+
+/* ── Overlays: find, label editor, tooltip, legend, message ─────────────── */
+
+.cm-theme-dark .find-overlay,
+.cm-theme-dark .legend,
+.cm-theme-dark .message-box {
+  background: var(--cm-surface);
+  border-color: var(--cm-hairline);
+  color: var(--cm-ink);
+  box-shadow: var(--cm-shadow);
+}
+
+.cm-theme-dark .find-input,
+.cm-theme-dark .label-editor-input {
+  background: var(--cm-surface-sunken);
+  border-color: var(--cm-hairline-strong);
+  color: var(--cm-ink);
+}
+
+.cm-theme-dark .find-input::placeholder {
+  color: var(--cm-ink-faint);
+}
+
+.cm-theme-dark .find-count,
+.cm-theme-dark .legend-item {
+  color: var(--cm-ink-muted);
+}
+
+.cm-theme-dark .message-overlay {
+  background: rgba(2, 6, 23, 0.72);
+}
+
+.cm-theme-dark .message-box h3 {
+  color: var(--cm-ink);
+}
+
+.cm-theme-dark .spinner {
+  border-color: var(--cm-hairline);
+  border-top-color: var(--cm-accent);
+}
+
+/* ── Empty state ────────────────────────────────────────────────────────── */
+
+.cm-theme-dark .empty-state {
+  background: var(--cm-canvas);
+}
+
+.cm-theme-dark .empty-state-content {
+  background: var(--cm-surface);
+  border-color: var(--cm-hairline);
+  color: var(--cm-ink);
+  box-shadow: var(--cm-shadow);
+}
+
+.cm-theme-dark .empty-state-icon {
+  background: var(--cm-surface-sunken);
+  color: var(--cm-ink-muted);
+}
+
+.cm-theme-dark .empty-state-tips {
+  background: var(--cm-surface-sunken);
+  border-color: var(--cm-hairline);
+  color: var(--cm-ink-muted);
+}
+
+/* ── Selects and badges in the header ───────────────────────────────────── */
+
+.cm-theme-dark .vpc-selector,
+.cm-theme-dark .blueprint-selector {
+  background: var(--cm-surface-sunken);
+  border-color: var(--cm-hairline-strong);
+  color: var(--cm-ink);
+}
+
+.cm-theme-dark .vpc-badge {
+  background: var(--cm-surface-sunken);
+  border-color: var(--cm-hairline);
+  color: var(--cm-ink-muted);
+}
+
+.cm-theme-dark .live-badge {
+  background: rgba(27, 230, 139, 0.14);
+  color: var(--cm-accent);
+  border-color: rgba(27, 230, 139, 0.3);
+}
+
+.cm-theme-dark .live-stat-item,
+.cm-theme-dark .live-stat-count {
+  color: var(--cm-ink-muted);
+}
+
+.cm-theme-dark .node-tooltip-arrow {
+  border-top-color: var(--cm-surface);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+
+.cm-theme-dark .save-btn {
+  background: var(--cm-accent);
+  color: var(--cm-accent-ink);
+  border-color: transparent;
+}
+
+.cm-theme-dark .clear-btn,
+.cm-theme-dark .export-btn,
+.cm-theme-dark .back-btn {
+  background: var(--cm-surface-sunken);
+  border-color: var(--cm-hairline-strong);
+  color: var(--cm-ink);
+}
+
+.cm-theme-dark .clear-btn:hover,
+.cm-theme-dark .export-btn:hover,
+.cm-theme-dark .back-btn:hover {
+  background: var(--cm-surface-raised);
+}
+
+/* ── Guides ─────────────────────────────────────────────────────────────── */
+
+.cm-theme-dark .guide-line {
+  background: var(--cm-accent);
+}
+
+.cm-theme-dark .edge-waypoint-handle {
+  background: var(--cm-accent);
+  border-color: var(--cm-canvas);
+}
+
+/* ── Reduced motion ─────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .cm-root .slide-in,
+  .cm-root .spinner {
+    animation: none;
+  }
+
+  .cm-root .info-panel,
+  .cm-root .toolbar-button,
+  .cm-root .palette-item {
+    transition: none;
+  }
+}
+
+/* ── Loading pulse ──────────────────────────────────────────────────────────
+   The loading dots previously used Tailwind's springy vertical hop, which is
+   decoration rather than state. This conveys the same "still working" signal
+   through opacity and a small scale on an ease-out curve, and stops entirely
+   under prefers-reduced-motion below.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.cm-pulse-dot {
+  background: var(--cm-ink-muted, #5c6b85);
+  animation: cm-pulse 1.05s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+@keyframes cm-pulse {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: scale(0.82);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cm-pulse-dot {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
+/* ==========================================================================
+   Empty state
+   ==========================================================================
+   Colour arrives via inline style from canvasTheme tokens; this owns type and
+   rhythm. Previously the whole block was hardcoded gray-800/500/600 Tailwind
+   utilities, so it was unreadable the moment the canvas went dark.
+   ========================================================================== */
+
+.es-title {
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.3px;
+  line-height: 1.3;
+  margin: 0 0 7px;
+  text-wrap: balance;
+}
+
+.es-lede {
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0 auto 20px;
+  /* Held under ~62ch so the sentence does not run the full panel width. */
+  max-width: 42ch;
+  text-wrap: pretty;
+}
+
+.es-tips-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+
+.es-tips {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+
+.es-tips li {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.es-tips li i {
+  /* Optical nudge: the glyph cap-height sits above the text baseline. */
+  margin-top: 2px;
+  font-size: 11px;
+  text-align: center;
+  opacity: 0.75;
+}
+
+.es-retry {
+  margin: 20px auto 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border: none;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: filter 170ms ease-out, transform 120ms ease-out;
+}
+
+.es-retry:hover:not(:disabled) {
+  filter: brightness(1.07);
+}
+
+.es-retry:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.es-retry:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.es-retry:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.cm-root .empty-state-icon {
+  background: transparent;
+  display: grid;
+  place-items: center;
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .es-retry {
+    transition: none;
+  }
+
+  .es-retry:active:not(:disabled) {
+    transform: none;
+  }
+
+  .es-retry .fa-spin {
+    animation: none;
+  }
+}
+
+/* ==========================================================================
+   ResourceInspector — live-mode detail panel
+   ==========================================================================
+   Colour arrives from canvasTheme tokens via inline style props, so this block
+   owns layout, rhythm and type only. One source of truth for palette.
+   ========================================================================== */
+
+.ri-panel {
+  display: flex;
+  flex-direction: column;
+  border-width: 1px;
+  border-style: solid;
+  overflow: hidden;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.ri-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 16px 14px 14px;
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+}
+
+.ri-well {
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  border-width: 1px;
+  border-style: solid;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.ri-well img {
+  display: block;
+  object-fit: contain;
+}
+
+.ri-well-glyph {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+.ri-heading {
+  min-width: 0;
+  padding-top: 1px;
+}
+
+/*
+ * Resource names run long (customer Name tags). Two lines then ellipsis: enough
+ * to tell prod-web-asg-1 from prod-web-asg-2 without one name shoving the rest
+ * of the panel down.
+ */
+.ri-name {
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.28;
+  letter-spacing: -0.2px;
+  margin: 0 0 3px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.ri-type {
+  font-size: 11.5px;
+  font-weight: 550;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ri-sep {
+  opacity: 0.5;
+}
+
+.ri-region {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ri-close {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color 160ms ease-out, color 160ms ease-out;
+}
+
+.ri-close:hover {
+  background: rgba(127, 127, 127, 0.14);
+}
+
+.ri-close:focus-visible,
+.ri-copy:focus-visible,
+.ri-action:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* ── Status ─────────────────────────────────────────────────────────────── */
+
+.ri-status-row {
+  padding: 12px 14px 0;
+}
+
+.ri-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px 4px 8px;
+  border-radius: 999px;
+  border-width: 1px;
+  border-style: solid;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.1px;
+  text-transform: capitalize;
+  line-height: 1.4;
+}
+
+.ri-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ri-dot-hollow {
+  background: transparent;
+  border-width: 1.5px;
+  border-style: solid;
+}
+
+/* ── Identifier ─────────────────────────────────────────────────────────── */
+
+.ri-id-row {
+  margin: 10px 14px 0;
+  padding: 7px 8px 7px 10px;
+  border-radius: 8px;
+  border-width: 1px;
+  border-style: solid;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ri-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.ri-copy {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  display: grid;
+  place-items: center;
+  transition: background-color 160ms ease-out, color 160ms ease-out;
+}
+
+.ri-copy:hover {
+  background: rgba(127, 127, 127, 0.16);
+}
+
+/* ── Actions ────────────────────────────────────────────────────────────── */
+
+.ri-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 14px 0;
+}
+
+.ri-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  border-width: 1px;
+  border-style: solid;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  background: transparent;
+  transition: background-color 170ms ease-out, border-color 170ms ease-out, transform 120ms ease-out;
+}
+
+.ri-action:hover {
+  background: rgba(127, 127, 127, 0.1);
+}
+
+.ri-action:active {
+  transform: translateY(1px);
+}
+
+/* ── Fields ─────────────────────────────────────────────────────────────── */
+
+.ri-fields {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 14px 18px;
+  scrollbar-width: thin;
+}
+
+.ri-fields dl {
+  margin: 0;
+}
+
+/*
+ * Label above value rather than a two-column table: values here are ARNs,
+ * identifiers and comma lists that overflow any fixed label column, and a
+ * wrapped value sitting beside a short label reads as broken alignment.
+ */
+.ri-field {
+  padding: 9px 0;
+  border-top-width: 1px;
+  border-top-style: solid;
+}
+
+.ri-field:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.ri-field dt {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.ri-field dd {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.ri-value {
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.45;
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.ri-value-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ri-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ri-chip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  border-width: 1px;
+  border-style: solid;
+  overflow-wrap: anywhere;
+}
+
+.ri-no-fields {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ri-close,
+  .ri-copy,
+  .ri-action {
+    transition: none;
+  }
+
+  .ri-action:active {
+    transform: none;
+  }
+}
+
+/* ==========================================================================
+   TerraformPanel — generated code beside the canvas
+   ==========================================================================
+   Colour comes from canvasTheme tokens via inline style; this owns layout and
+   type. Sized to match the properties panel it swaps with, so toggling between
+   them does not reflow the canvas.
+   ========================================================================== */
+
+.tf-panel {
+  width: 420px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left-width: 1px;
+  border-left-style: solid;
+  overflow: hidden;
+  height: 100%;
+}
+
+.tf-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 14px;
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+  flex-shrink: 0;
+}
+
+.tf-title-group {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+}
+
+.tf-title {
+  font-size: 13.5px;
+  font-weight: 650;
+  letter-spacing: -0.1px;
+}
+
+.tf-subtitle {
+  font-size: 11px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+
+.tf-close {
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  flex-shrink: 0;
+  transition: background-color 160ms ease-out;
+}
+
+.tf-close:hover {
+  background: rgba(127, 127, 127, 0.14);
+}
+
+.tf-close:focus-visible,
+.tf-tab:focus-visible,
+.tf-action:focus-visible,
+.tf-finding:focus-visible,
+.tf-skip:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* ── Error banner ───────────────────────────────────────────────────────── */
+
+.tf-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 12px 14px 0;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border-width: 1px;
+  border-style: solid;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* ── Blocked state ──────────────────────────────────────────────────────── */
+
+/*
+ * Shown instead of code when validation finds errors. Emitting partial Terraform
+ * would be worse than emitting none — it looks applyable and is not — so this
+ * space goes to what needs fixing.
+ */
+.tf-blocked {
+  padding: 14px;
+  overflow-y: auto;
+}
+
+.tf-blocked-title {
+  font-size: 12.5px;
+  font-weight: 650;
+  margin: 0 0 10px;
+  line-height: 1.4;
+}
+
+.tf-findings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.tf-finding {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border-width: 1px;
+  border-style: solid;
+  background: transparent;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms ease-out;
+}
+
+.tf-finding:disabled {
+  cursor: default;
+}
+
+.tf-finding:not(:disabled):hover {
+  background: rgba(127, 127, 127, 0.09);
+}
+
+.tf-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+
+.tf-finding-go {
+  margin-left: auto;
+  font-size: 10px;
+  opacity: 0.5;
+  margin-top: 3px;
+}
+
+/* ── File tabs ──────────────────────────────────────────────────────────── */
+
+.tf-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px;
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+  overflow-x: auto;
+  flex-shrink: 0;
+  scrollbar-width: none;
+}
+
+.tf-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tf-tab {
+  border: none;
+  background: transparent;
+  padding: 9px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  /* Underline rather than a filled pill: four tabs in 420px, and a filled
+     background at this size reads as noise. */
+  border-bottom: 2px solid transparent;
+  transition: color 160ms ease-out, border-color 160ms ease-out;
+}
+
+/* ── Code ───────────────────────────────────────────────────────────────── */
+
+.tf-code-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.tf-code {
+  margin: 0;
+  padding: 10px 0 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+.tf-code code {
+  display: block;
+  /* No wrapping: wrapped HCL misleads about structure. Scroll instead. */
+  white-space: pre;
+  min-width: max-content;
+}
+
+.tf-line {
+  display: flex;
+  align-items: baseline;
+}
+
+.tf-gutter {
+  flex-shrink: 0;
+  width: 38px;
+  padding-right: 10px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  opacity: 0.55;
+  border-right-width: 1px;
+  border-right-style: solid;
+  margin-right: 10px;
+  user-select: none;
+  position: sticky;
+  left: 0;
+}
+
+.tf-line-body {
+  white-space: pre;
+}
+
+/* ── Actions ────────────────────────────────────────────────────────────── */
+
+.tf-actions {
+  display: flex;
+  gap: 8px;
+  padding: 11px 14px;
+  border-top-width: 1px;
+  border-top-style: solid;
+  flex-shrink: 0;
+}
+
+.tf-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 13px;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: filter 170ms ease-out, background-color 170ms ease-out;
+}
+
+.tf-action:hover {
+  filter: brightness(1.06);
+}
+
+.tf-action-secondary {
+  background: transparent;
+  border-width: 1px;
+  border-style: solid;
+  font-weight: 600;
+}
+
+.tf-action-secondary:hover {
+  background: rgba(127, 127, 127, 0.09);
+  filter: none;
+}
+
+/* ── Coverage ───────────────────────────────────────────────────────────── */
+
+.tf-coverage {
+  border-top-width: 1px;
+  border-top-style: solid;
+  flex-shrink: 0;
+  max-height: 40%;
+  overflow-y: auto;
+}
+
+.tf-coverage summary {
+  padding: 10px 14px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tf-coverage-body {
+  padding: 0 14px 12px;
+  display: grid;
+  gap: 7px;
+}
+
+.tf-skip {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 6px 0;
+  cursor: pointer;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.tf-skip strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.tf-note {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* ── Empty ──────────────────────────────────────────────────────────────── */
+
+.tf-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.tf-empty i {
+  font-size: 26px;
+  opacity: 0.4;
+}
+
+.tf-empty p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  max-width: 30ch;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tf-close,
+  .tf-tab,
+  .tf-action,
+  .tf-finding {
+    transition: none;
+  }
+}
+
+/* ==========================================================================
+   Resource properties form
+   ==========================================================================
+   Sits behind a Resource/Style tab pair beside the existing style editor, which
+   is left untouched. Colour arrives from canvasTheme tokens via inline style;
+   this owns layout and type.
+   ========================================================================== */
+
+.design-panel-stack {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.design-panel-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px;
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+  border-left-width: 1px;
+  border-left-style: solid;
+  flex-shrink: 0;
+}
+
+.design-panel-tab {
+  border: none;
+  background: transparent;
+  padding: 10px 12px;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.1px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 160ms ease-out, border-color 160ms ease-out;
+}
+
+.design-panel-tab:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}
+
+/* The style panel manages its own width, so only the resource body is sized. */
+.design-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-left-width: 1px;
+  border-left-style: solid;
+  scrollbar-width: thin;
+}
+
+/* Let the existing style panel fill the stack when it is the active tab. */
+.design-panel-stack > .design-props-panel {
+  flex: 1;
+  min-height: 0;
+  width: auto;
+}
+
+.rp-form {
+  padding: 14px;
+  display: grid;
+  gap: 15px;
+}
+
+/* ── Type header ────────────────────────────────────────────────────────── */
+
+.rp-type {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 11px;
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+}
+
+.rp-type-name {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.1px;
+}
+
+.rp-type-tf {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+}
+
+/* ── Fields ─────────────────────────────────────────────────────────────── */
+
+.rp-field {
+  display: grid;
+  gap: 5px;
+}
+
+.rp-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.rp-required {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.rp-badge {
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: none;
+}
+
+.rp-input {
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: 7px;
+  border-width: 1px;
+  border-style: solid;
+  font-size: 12px;
+  font-family: inherit;
+  /* Identifiers, CIDRs and sizes are all data, so tabular figures line up. */
+  font-variant-numeric: tabular-nums;
+}
+
+.rp-input:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -1px;
+}
+
+select.rp-input {
+  cursor: pointer;
+  appearance: none;
+  background-image: none;
+}
+
+.rp-help,
+.rp-error,
+.rp-unsupported {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.rp-error {
+  font-weight: 600;
+}
+
+.rp-unsupported {
+  font-style: italic;
+}
+
+/* ── Boolean ────────────────────────────────────────────────────────────── */
+
+.rp-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.rp-switch input {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.rp-switch-label {
+  font-size: 11.5px;
+  font-weight: 550;
+}
+
+/* ── Tags ───────────────────────────────────────────────────────────────── */
+
+.rp-tags {
+  display: grid;
+  gap: 6px;
+}
+
+.rp-tag-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) 22px;
+  gap: 5px;
+  align-items: center;
+}
+
+.rp-tag-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+}
+
+.rp-tag-remove {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 10px;
+  display: grid;
+  place-items: center;
+  transition: background-color 150ms ease-out;
+}
+
+.rp-tag-remove:hover:not(:disabled) {
+  background: rgba(127, 127, 127, 0.16);
+}
+
+.rp-tag-remove:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ── References ─────────────────────────────────────────────────────────── */
+
+/*
+ * References are made on the canvas, not in this form. Listing their state is
+ * what turns "vpc_id is required" into "place this inside a vpc".
+ */
+.rp-refs {
+  padding-top: 12px;
+  border-top-width: 1px;
+  border-top-style: solid;
+  display: grid;
+  gap: 7px;
+}
+
+.rp-refs-title {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.rp-ref {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.rp-ref-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transform: translateY(-1px);
+}
+
+.rp-ref-field {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.rp-ref-hint {
+  margin-left: auto;
+  text-align: right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .design-panel-tab,
+  .rp-tag-remove {
+    transition: none;
+  }
+}

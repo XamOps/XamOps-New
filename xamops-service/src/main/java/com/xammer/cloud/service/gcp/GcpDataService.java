@@ -93,6 +93,16 @@ public class GcpDataService {
     /** Announces a newly connected project so the onboarding WAR report can run. */
     @Autowired
     private ApplicationEventPublisher eventPublisher;
+
+    /**
+     * Scores GCP principals for excess permission and attaches their roles.
+     *
+     * <p>
+     * Field-injected to match the six dependencies above rather than extending this class's
+     * constructor, which several call sites already build by hand.
+     */
+    @Autowired
+    private com.xammer.cloud.service.security.GcpPrivilegeAnalyzer gcpPrivilegeAnalyzer;
     private final Map<String, double[]> regionCoordinates = loadRegionCoordinates();
     private final ObjectMapper objectMapper;
     private final RedisCacheService redisCache;
@@ -881,16 +891,24 @@ public class GcpDataService {
                         user.setArn(sa.getName()); // "projects/PID/serviceAccounts/email"
                         user.setCreateDate(null); // Not readily available in list?
                         user.setPasswordLastUsed(null);
+                        // Roles are attached by GcpPrivilegeAnalyzer from the project IAM policy,
+                        // which is the only place GCP records who holds what. Initialised mutable
+                        // so the analyzer can add to it.
+                        user.setAttachedPolicies(new ArrayList<>());
                         users.add(user);
                     }
 
-                    // 2. Fetch Roles (Custom roles usually, pre-defined are too many)
-                    // For now, let's list custom roles or just leave roles empty/minimal to avoid
-                    // massive list
+                    // 2. Custom roles only. Listing predefined roles would return well over a
+                    // thousand entries that are identical in every project and that nobody can
+                    // change, drowning the handful the customer actually authored.
+                    //
+                    // RoleView.FULL rather than BASIC: BASIC omits includedPermissions, and
+                    // without the permission list a custom role cannot be checked for the
+                    // wildcards and setIamPolicy grants that make it dangerous.
                     com.google.iam.admin.v1.ListRolesRequest rolesRequest = com.google.iam.admin.v1.ListRolesRequest
                             .newBuilder()
                             .setParent("projects/" + gcpProjectId)
-                            .setView(com.google.iam.admin.v1.RoleView.BASIC)
+                            .setView(com.google.iam.admin.v1.RoleView.FULL)
                             .build();
 
                     for (com.google.iam.admin.v1.Role role : iamClient.listRoles(rolesRequest).iterateAll()) {
@@ -898,7 +916,20 @@ public class GcpDataService {
                         roleDetail.setRoleName(role.getTitle());
                         roleDetail.setRoleId(role.getName());
                         roleDetail.setArn(role.getName());
+                        roleDetail.setDescription(role.getDescription());
                         roleDetail.setCreateDate(null);
+
+                        // A custom role's access *is* its permission list, so that is what the
+                        // Identity card shows under "Access".
+                        List<DashboardData.IamPolicyDetail> permissions = new ArrayList<>();
+                        for (String permission : role.getIncludedPermissionsList()) {
+                            DashboardData.IamPolicyDetail entry = new DashboardData.IamPolicyDetail(
+                                    permission, null,
+                                    com.xammer.cloud.service.security.GcpPrivilegeAnalyzer.PERMISSION_TYPE);
+                            entry.setDocumentAnalyzed(true);
+                            permissions.add(entry);
+                        }
+                        roleDetail.setAttachedPolicies(permissions);
                         roles.add(roleDetail);
                     }
                 }
@@ -906,7 +937,26 @@ public class GcpDataService {
                 log.error("Error fetching IAM details for project {}", gcpProjectId, e);
             }
 
-            return new DashboardData.IamDetail(users, roles);
+            DashboardData.IamDetail details = new DashboardData.IamDetail(users, roles);
+
+            // Pivots the project IAM policy into per-identity roles, adds the human and group
+            // principals that exist only in that policy, and scores everything. Wrapped because
+            // an audit failure must not cost the customer the inventory: an unscored identity
+            // list is still useful, an empty one is not.
+            try {
+                var outcome = gcpPrivilegeAnalyzer.analyze(gcpProjectId, users, roles);
+                details.setPermissionAnalysisDegraded(outcome.degraded());
+                details.setPermissionAnalysisNote(outcome.note());
+            } catch (Exception e) {
+                log.error("GCP privilege analysis failed for project {}; serving inventory without "
+                        + "risk scoring.", gcpProjectId, e);
+                details.setPermissionAnalysisDegraded(true);
+                details.setPermissionAnalysisNote(
+                        "Permission analysis did not complete for this project, so identities are shown "
+                                + "without a risk assessment.");
+            }
+
+            return details;
         });
     }
 

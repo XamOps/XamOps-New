@@ -40,7 +40,7 @@ const XamSecurePage: React.FC = () => {
 
   const {
     summary, issues, attackSurface, threats, vulnDashboard, vulnByCve, posture, inventory,
-    inventoryCategories, inventoryRisk, networkTopology, compliance, configDashboard, onboarding, apiSecurity, components,
+    inventoryCategories, inventoryRisk, networkTopology, sensorCoverage, compliance, configDashboard, onboarding, apiSecurity, components,
     threatPolicies, workflows, stories, threatOverview, loadThreatOverview, identities,
     vulnGroups, loadVulnGroups, threatGroups, loadThreatGroups,
     codeScans, loadCodeScanFindings, loadFrameworkControls, loadAssetRelationships,
@@ -178,7 +178,8 @@ const XamSecurePage: React.FC = () => {
         )}
         {activeTab === 'workflows' && <WorkflowsTab data={workflows} isLoading={isLoading} />}
         {activeTab === 'onboarding' && (
-          <OnboardingTab accounts={onboarding} isLoading={isLoading} onRefresh={refresh} />
+          <OnboardingTab accounts={onboarding} isLoading={isLoading} onRefresh={refresh}
+                         coverage={sensorCoverage} />
         )}
       </div>
 

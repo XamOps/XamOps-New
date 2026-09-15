@@ -1,0 +1,44 @@
+{
+  "tfType": "aws_subnet",
+  "displayName": "Subnet",
+  "canvasType": "Subnet",
+  "idAttribute": "id",
+  "attributes": [
+    {
+      "name": "cidr_block",
+      "kind": "CIDR",
+      "required": true,
+      "defaultValue": "10.0.1.0/24",
+      "description": "Address range for this subnet. Must sit inside the parent VPC's CIDR and not overlap a sibling."
+    },
+    {
+      "name": "availability_zone",
+      "kind": "AZ",
+      "required": false,
+      "description": "Zone to place the subnet in. Leave blank to let AWS choose."
+    },
+    {
+      "name": "map_public_ip_on_launch",
+      "kind": "BOOL",
+      "required": false,
+      "defaultValue": "false",
+      "description": "Give instances launched here a public IP. This is what makes a subnet public, together with a route to an internet gateway."
+    },
+    {
+      "name": "tags",
+      "kind": "TAGS",
+      "required": false,
+      "description": "Tags applied to the subnet."
+    }
+  ],
+  "references": [
+    {
+      "field": "vpc_id",
+      "targetTfType": "aws_vpc",
+      "via": "CONTAINMENT",
+      "required": true,
+      "list": false
+    }
+  ],
+  "outputs": ["id"]
+}

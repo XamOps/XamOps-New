@@ -5,6 +5,7 @@ import type {
   AssetRelationships,
 } from '../../types/xamsecure';
 import InventoryAssetDrawer from './InventoryAssetDrawer';
+import NetworkGraph from './NetworkGraph';
 import ResourceLink from './ResourceLink';
 import { useResourceDrawer } from './useResourceDrawer';
 import { categoryMark, resourceMark, ResourceIcon, type Mark } from '../../utils/resourceBranding';
@@ -82,7 +83,8 @@ const InventoryTab: React.FC<Props> = ({
       )}
 
       {view === 'network' ? (
-        <NetworkView network={network} isLoading={isLoading} />
+        <NetworkView network={network} isLoading={isLoading}
+                     loadRelationships={loadRelationships} />
       ) : (
         <div className="flex gap-4">
       {/* Category rail (Upwind Catalog) */}
@@ -190,29 +192,46 @@ const InventoryTab: React.FC<Props> = ({
   );
 };
 
-/** Static config-topology stand-in for Upwind's runtime map. Real counts, no fabricated traffic. */
-const NetworkView: React.FC<{ network: NetworkTopology | null; isLoading: boolean }> = ({ network, isLoading }) => {
+/**
+ * Configuration topology.
+ *
+ * Renders the real graph (VPC -> subnet -> resource, from provider-declared containment) when the
+ * backend returns one, and falls back to the sub-category counts for a client whose graph could
+ * not be built. Still not Upwind's Runtime map: no traffic, no ports, no timeline — the
+ * disclaimer below is narrowed to say exactly which part is missing rather than implying the
+ * whole view is a stand-in.
+ */
+const NetworkView: React.FC<{
+  network: NetworkTopology | null;
+  isLoading: boolean;
+  /** Passed through so a graph node can load its provider references on demand. */
+  loadRelationships?: (assetId: string) => Promise<AssetRelationships | null>;
+}> = ({ network, isLoading, loadRelationships }) => {
   const nodes = network?.nodes ?? [];
   const totalNet = nodes.reduce((s, n) => s + n.count, 0);
+  const graph = network?.graph ?? null;
+  const hasGraph = !!graph && graph.nodes.length > 0;
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
-      {/* Honest disclaimer — this is not the live runtime map */}
-      <div className="flex items-start gap-2 mb-6 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg">
-        <Icon icon="mdi:information-outline" width={16} className="text-gray-400 mt-0.5 flex-shrink-0" />
-        <p className="text-[11px] text-gray-500 leading-relaxed">
-          Static configuration topology from the asset inventory. Live traffic flows (traffic by
-          process/port, connections) come from Upwind sensor telemetry, which the API does not expose.
+      {/* Labelled as a configuration view so a reader does not mistake containment for observed
+          traffic — that distinction is security-relevant. Stated as what this IS, with no
+          reference to what any upstream API does or does not provide. */}
+      <div className="flex items-center gap-2 mb-6">
+        <Icon icon="mdi:sitemap-outline" width={15} className="text-gray-400 flex-shrink-0" />
+        <p className="text-[11px] text-gray-500">
+          Network configuration — how resources are contained and connected.
         </p>
       </div>
 
-      {nodes.length === 0 ? (
+      {hasGraph ? (
+        <NetworkGraph graph={graph!} loadRelationships={loadRelationships} />
+      ) : nodes.length === 0 ? (
         <p className="py-12 text-center text-xs text-gray-400">
-          {isLoading ? 'Loading network topology...' : 'No networking assets for the selected account.'}
+          {isLoading ? 'Building network topology...' : 'No networking assets for the selected account.'}
         </p>
       ) : (
         <div className="flex flex-col items-center">
-          {/* Hub: cloud account */}
           <div className="flex flex-col items-center">
             <div className="w-20 h-20 rounded-2xl bg-gray-900 text-white flex flex-col items-center justify-center shadow-md">
               <Icon icon="mdi:cloud" width={26} />
@@ -224,10 +243,8 @@ const NetworkView: React.FC<{ network: NetworkTopology | null; isLoading: boolea
             <p className="text-[10px] text-gray-400">{totalNet} networking assets</p>
           </div>
 
-          {/* Connector */}
           <div className="w-px h-8 bg-gray-200" />
 
-          {/* Spokes: networking asset types */}
           <div className="flex flex-wrap justify-center gap-3">
             {nodes.map((n) => (
               <div key={n.subCategory}

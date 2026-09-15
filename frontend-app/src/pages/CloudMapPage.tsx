@@ -13,10 +13,11 @@
  * - React save-dialog (no browser prompt)
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbarActions } from '../contexts/TopbarContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { useVPC } from '../contexts/VPCContext';
 import { useCloudMap } from '../hooks/useCloudMap';
 import CloudMapTopbarControls from '../components/CloudMap/CloudMapTopbarControls';
@@ -34,15 +35,28 @@ import DesignTemplatesModal from '../components/CloudMap/DesignTemplatesModal';
 import Tooltip from '../components/CloudMap/Tooltip';
 import ResizeHandles from '../components/CloudMap/ResizeHandles';
 import ConnectionArrows from '../components/CloudMap/ConnectionArrows';
+import ResourceInspector from '../components/CloudMap/ResourceInspector';
+import TerraformPanel from '../components/CloudMap/TerraformPanel';
+import { useTerraformPreview } from '../hooks/useTerraformPreview';
+import ResourcePropertiesForm from '../components/CloudMap/ResourcePropertiesForm';
+import { useDesignCatalog } from '../hooks/useDesignCatalog';
 import {
   ALL_VPCS_VALUE,
-  NODE_TYPE_DATA,
   TAILWIND_COLORS,
   AWS_ICONS,
   type CloudMapMode,
   type GraphElement,
   type NodeData,
 } from '../types/cloudmap';
+import {
+  buildCytoscapeStyle,
+  tagEdgeKinds,
+  applyLevelOfDetail,
+  groupOrphanResources,
+  layoutHierarchicalGrid,
+  CANVAS_TOKENS,
+  type CanvasTheme,
+} from '../components/CloudMap/canvasTheme';
 
 import { sanitizeInlineHtml } from '../utils/sanitizeHtml';
 
@@ -315,6 +329,14 @@ const CloudMapPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const { awsVpcs, awsVpcsLoading, fetchAwsVpcs } = useVPC();
   const { setActions } = useTopbarActions();
+  const { theme } = useTheme();
+
+  /**
+   * The canvas used to hardcode a #f8fafc floor, which rendered as a bright slab
+   * inside the app's #020617 dark shell. It now tracks the console theme.
+   */
+  const canvasThemeName: CanvasTheme = theme === 'dark' ? 'dark' : 'light';
+  const canvasTokens = CANVAS_TOKENS[canvasThemeName];
 
   const accountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
@@ -339,6 +361,33 @@ const CloudMapPage: React.FC = () => {
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [infoPanelOpen, setInfoPanelOpen] = useState(false);
+  /** Node whose neighbourhood is focused, via the inspector's Focus action. */
+  const [isolatedNodeId, setIsolatedNodeId] = useState<string | null>(null);
+
+  // ── Terraform generation (design mode) ───────────────────────────────────
+  const [showTerraform, setShowTerraform] = useState(false);
+  /**
+   * Serialised canvas, refreshed on change while the panel is open.
+   *
+   * Only tracked while the panel is open: serialising the whole graph on every
+   * drag when nobody is reading the output would be waste.
+   */
+  const [designGraphJson, setDesignGraphJson] = useState<string | null>(null);
+
+  /**
+   * Right-panel tab in design mode. The existing style panel is untouched; the
+   * resource form is an additional tab beside it rather than a replacement, so
+   * shapes with no Terraform meaning keep exactly the editor they had.
+   */
+  const [designTab, setDesignTab] = useState<'resource' | 'style'>('resource');
+  /**
+   * Terraform attributes of the selected node, mirrored into state so the form is
+   * controlled. The authority is still the Cytoscape node's data — this is a view
+   * of it, refreshed on selection and on every write.
+   */
+  const [selectedAttrs, setSelectedAttrs] = useState<Record<string, unknown>>({});
+  const [selectedCanvasType, setSelectedCanvasType] = useState<string | null>(null);
+  const [selectedRefCounts, setSelectedRefCounts] = useState<Record<string, number>>({});
   const [selectedNodeData, setSelectedNodeData] = useState<NodeData | null>(null);
   const [showEmptyState, setShowEmptyState] = useState(false);
   const [messageOverlay, setMessageOverlay] = useState<{ show: boolean; title: string }>({ show: false, title: '' });
@@ -393,9 +442,23 @@ const CloudMapPage: React.FC = () => {
   const [findIndex, setFindIndex] = useState(0);
 
   // ── Canvas background ─────────────────────────────────────────────────────
-  const [canvasBackground, setCanvasBackground] = useState('#f8fafc');
+  const [canvasBackground, setCanvasBackground] = useState(canvasTokens.canvas);
   const [showBgPicker, setShowBgPicker] = useState(false);
   const [canvasBackgroundImage, setCanvasBackgroundImage] = useState('');
+  /**
+   * Set once the user picks a colour from the background swatches, so a theme
+   * switch stops overwriting their choice.
+   */
+  const bgOverriddenRef = useRef(false);
+  /**
+   * Live mirrors for the stable Cytoscape callbacks inside renderGraph, which
+   * close over the first render and can't read current state directly. Same
+   * pattern the page already uses for modeRef / snapToGridRef.
+   */
+  const canvasBackgroundRef = useRef(canvasTokens.canvas);
+  const canvasThemeRef = useRef<CanvasTheme>(canvasThemeName);
+  useEffect(() => { canvasBackgroundRef.current = canvasBackground; }, [canvasBackground]);
+  useEffect(() => { canvasThemeRef.current = canvasThemeName; }, [canvasThemeName]);
 
   // ── Page drag-to-reorder ──────────────────────────────────────────────────
   const [dragPageId, setDragPageId] = useState<string | null>(null);
@@ -476,7 +539,7 @@ const CloudMapPage: React.FC = () => {
   // Refresh minimap when toggled on
   useEffect(() => {
     if (!showMinimap || !cyRef.current) return;
-    const bg = mode === 'live' ? '#ffffff' : '#f8fafc';
+    const bg = canvasBackground || canvasTokens.canvas;
     try { setMinimapDataUrl(cyRef.current.png({ full: true, scale: 0.15, bg })); } catch (_) { }
   }, [showMinimap, mode]);
 
@@ -692,179 +755,40 @@ const CloudMapPage: React.FC = () => {
 
   // ── Cytoscape style ───────────────────────────────────────────────────────
 
-  const getCytoscapeStyle = (): any[] => {
-    const base: any[] = [
-      {
-        selector: 'node',
-        style: {
-          shape: 'rectangle',
-          label: 'data(label)',
-          'font-size': '10px',
-          'font-weight': '600',
-          'text-valign': 'bottom',
-          'text-halign': 'center',
-          color: '#374151',
-          'text-margin-y': 6,
-          width: 50,
-          height: 50,
-          'background-opacity': 1,
-          'background-color': '#f3f4f6',
-          'background-image': 'none',
-          'background-fit': 'contain',
-          'background-clip': 'none',
-          'border-width': 2,
-          'border-color': '#e5e7eb',
-          'border-opacity': 0.8,
-          'text-wrap': 'wrap',
-          'text-max-width': '70px',
-        },
-      },
-      {
-        selector: 'node:selected',
-        style: { 'border-color': '#374151', 'border-width': 3 },
-      },
-      {
-        selector: 'edge',
-        style: {
-          width: 2,
-          'line-color': '#9ca3af',
-          'target-arrow-color': '#9ca3af',
-          'target-arrow-shape': 'triangle',
-          'curve-style': 'bezier',
-          opacity: 0.8,
-          label: 'data(label)',
-          'font-size': '9px',
-          color: '#374151',
-          'text-background-color': '#ffffff',
-          'text-background-opacity': 0.85,
-          'text-background-padding': '2px',
-          'text-background-shape': 'roundrectangle',
-          'text-rotation': 'autorotate',
-          'source-label': '',
-          'target-label': '',
-          'source-text-offset': 20,
-          'target-text-offset': 20,
-          'source-endpoint': 'outside-to-line',
-          'target-endpoint': 'outside-to-line',
-        } as any,
-      },
-      {
-        selector: 'edge:selected',
-        style: { 'line-color': '#374151', 'target-arrow-color': '#374151', width: 3 },
-      },
-      {
-        selector: ':parent',
-        style: {
-          'text-valign': 'top',
-          'text-halign': 'center',
-          'font-weight': 'bold',
-          'font-size': '11px',
-          color: '#1f2937',
-          'background-opacity': 0.1,
-          'background-color': '#f8fafc',
-          padding: '45px',
-          'border-width': 2,
-          'border-style': 'dashed',
-          'background-image': 'none',
-        },
-      },
-      {
-        selector: 'node[isContainer]', style: {
-          'background-opacity': 0.08, 'border-width': 2, 'border-style': 'dashed',
-          'text-valign': 'top', 'text-halign': 'left', 'font-size': '11px', 'font-weight': 'bold',
-          'padding': '40px', 'min-width': '200px', 'min-height': '120px',
-          'background-image': 'none',
-        }
-      },
-      { selector: 'node[containerType="vpc"]', style: { 'border-color': '#475569', 'background-color': '#f8fafc', 'border-width': 2 } },
-      { selector: 'node[containerType="subnet"]', style: { 'border-color': '#0284c7', 'background-color': '#e0f2fe', 'border-width': 1.5 } },
-      { selector: 'node[containerType="az"]', style: { 'border-color': '#ea580c', 'background-color': '#fff7ed', 'border-width': 1.5 } },
-      { selector: 'node[containerType="sg"]', style: { 'border-color': '#dc2626', 'background-color': '#fef2f2', 'border-width': 1.5 } },
-      { selector: 'node[containerType="region"]', style: { 'border-color': '#94a3b8', 'background-color': '#f8fafc', 'border-width': 1.5 } },
-      { selector: ':parent', style: { 'background-image': 'none' } as any },
-      { selector: 'node[type="VPC"]:parent', style: { 'border-color': '#475569', 'background-color': '#eef2f7', 'background-opacity': 0.45, 'border-width': 2 } },
-      { selector: 'node[type="Subnet"]:parent', style: { 'border-color': '#0284c7', 'background-color': '#dbeafe', 'background-opacity': 0.4, 'border-width': 1.5 } },
-      // Shape-type nodes (generic shapes from Shapes tab) — use inline styles applied by applyElementStyle
-      {
-        selector: 'node[type="shape"]',
-        style: {
-          'background-color': '#dbeafe',
-          'border-color': '#3b82f6',
-          'border-width': 2,
-          'background-image': 'none',
-          'background-opacity': 1,
-          'text-valign': 'center',
-          'text-halign': 'center',
-          width: 80,
-          height: 50,
-        },
-      },
-      // Custom icons
-      {
-        selector: 'node[customIcon]',
-        style: {
-          shape: 'roundrectangle',
-          'background-color': '#dbeafe',
-          'border-color': '#3b82f6',
-          'border-width': 2,
-          'background-opacity': 1,
-          'background-image': 'none',
-          label: 'data(label)',
-          'text-valign': 'bottom',
-          'text-halign': 'center',
-          'text-margin-y': 8,
-          'font-size': '11px',
-          'font-weight': '600',
-          color: '#1e40af',
-          width: 70,
-          height: 50,
-          'text-wrap': 'wrap',
-          'text-max-width': '60px',
-        },
-      },
-      // Edge handles — large enough to click easily
-      {
-        selector: '.eh-handle', style: {
-          'background-color': '#374151',
-          'border-color': '#ffffff',
-          'border-width': 2,
-          'border-opacity': 1,
-          width: 20,
-          height: 20,
-          shape: 'ellipse',
-          'overlay-opacity': 0,
-          'z-index': 9999,
-        }
-      },
-      { selector: '.eh-hover', style: { 'background-color': '#374151', 'border-width': 3, 'border-color': '#111827' } },
-      { selector: '.eh-source', style: { 'border-width': 3, 'border-color': '#374151' } },
-      { selector: '.eh-target', style: { 'border-width': 3, 'border-color': '#374151', 'border-opacity': 1 } },
-      {
-        selector: '.eh-preview, .eh-ghost-edge', style: {
-          'background-color': '#374151', 'line-color': '#374151',
-          'target-arrow-color': '#374151', 'source-arrow-color': '#374151',
-          'line-style': 'dashed',
-        }
-      },
-    ];
+  /**
+   * Canvas stylesheet.
+   *
+   * The visual system lives in components/CloudMap/canvasTheme.ts so this page
+   * stays about behaviour. Live mode bakes full resource cards (service icon,
+   * name, type caption, status dot); design mode keeps native Cytoscape labels
+   * so inline editing still works. Both follow the app's ThemeContext.
+   */
+  const getCytoscapeStyle = (): any[] => buildCytoscapeStyle(canvasThemeName, mode);
 
-    // Locked node visual indicator (amber overlay border)
-    base.push({ selector: 'node.locked-node', style: { 'border-color': '#f59e0b', 'border-width': 3 } as any });
+  /**
+   * Follow the console theme unless the user picked a canvas colour themselves.
+   */
+  useEffect(() => {
+    if (bgOverriddenRef.current) return;
+    setCanvasBackground(CANVAS_TOKENS[canvasThemeName].canvas);
+  }, [canvasThemeName]);
 
-    // Type-based colors
-    for (const [type, data] of Object.entries(NODE_TYPE_DATA)) {
-      base.push({
-        selector: `node[type="${type}"]`,
-        style: {
-          'background-color': TAILWIND_COLORS[data.color as keyof typeof TAILWIND_COLORS]?.[100] || '#f3f4f6',
-          'border-color': TAILWIND_COLORS[data.color as keyof typeof TAILWIND_COLORS]?.[500] || '#6b7280',
-          'border-style': data.style || 'solid',
-        },
-      });
+  /**
+   * Restyle in place on theme change.
+   *
+   * Cheaper and less disruptive than a full renderGraph: swapping the stylesheet
+   * keeps positions, selection, pan and zoom, so toggling light/dark doesn't
+   * throw away the user's place on the canvas.
+   */
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    try {
+      cy.style(buildCytoscapeStyle(canvasThemeName, modeRef.current));
+    } catch (err) {
+      console.warn('[CloudMap] theme restyle failed', err);
     }
-
-    return base;
-  };
+  }, [canvasThemeName]);
 
   // ── Read selected element props from Cytoscape ────────────────────────────
 
@@ -960,12 +884,18 @@ const CloudMapPage: React.FC = () => {
       return true;
     });
 
+    // Regional services with no VPC get one labelled home instead of being
+    // scattered to the far corners by the force layout. Live mode only: design
+    // mode canvases are user-authored and must not gain synthetic nodes.
+    const prepared = isEditable ? valid : groupOrphanResources(valid as any[]);
+
     cyRef.current = cytoscape({
       container: containerRef.current,
-      elements: valid,
+      elements: prepared as any,
       layout: isEditable
         ? { name: 'preset' }
-        : { name: 'dagre', nodeSep: 60, rankSep: 100, rankDir: 'TB', fit: false } as any,
+        // nodeSep clears the 184px card width; the old 60 was sized for 50px squares.
+        : { name: 'dagre', nodeSep: 130, rankSep: 110, rankDir: 'TB', fit: false } as any,
       style: getCytoscapeStyle(),
       wheelSensitivity: 0.8,
       minZoom: 0.02,
@@ -1004,50 +934,40 @@ const CloudMapPage: React.FC = () => {
       wheelCleanupRef.current = () => container.removeEventListener('wheel', onWheel);
     }
 
+    // Classify relationships so edges carry meaning (security / traffic / attach /
+    // manage) instead of every edge rendering as the same grey line. Must run
+    // before styles resolve.
+    tagEdgeKinds(cy);
+
     // Restore stored styles after load (must set inline bypasses AND update stylesheet)
     cy.elements().forEach(applyElementStyle);
     cy.style().update();
 
+    // Level of detail: cards when close, chips when far. Seeded once here, then
+    // maintained on zoom. rAF-coalesced because Cytoscape fires zoom per frame
+    // during a pinch or wheel run and a class flip per frame would thrash.
+    applyLevelOfDetail(cy);
+    let lodFrame = 0;
+    cy.on('zoom', () => {
+      if (lodFrame) return;
+      lodFrame = requestAnimationFrame(() => {
+        lodFrame = 0;
+        if (cyRef.current) applyLevelOfDetail(cyRef.current);
+      });
+    });
+
     // Live mode layout — compact fcose for both all-VPCs and single-VPC views
     if (!isEditable) {
-      const vpcRoots = cy.nodes('[type="VPC"]');
-      if (vpcRoots.length > 1) {
-        // All VPCs: higher separation to avoid card overlaps
-        cy.layout({
-          name: 'fcose',
-          quality: 'default',
-          packComponents: true,
-          tile: true,
-          tilingPaddingVertical: 100,
-          tilingPaddingHorizontal: 100,
-          nodeSeparation: 120,
-          idealEdgeLength: 90,
-          nodeRepulsion: 6000,
-          gravity: 0.25,
-          fit: false,
-          padding: 40,
-        } as any).run();
-        cy.fit(undefined, 40);
-        if (cy.zoom() < 0.12) { cy.zoom(0.12); cy.center(); }
-      } else {
-        // Single VPC: same compact fcose so resources wrap into a square block
-        // instead of a long horizontal strip
-        cy.layout({
-          name: 'fcose',
-          quality: 'default',
-          packComponents: true,
-          tile: true,
-          tilingPaddingVertical: 60,
-          tilingPaddingHorizontal: 60,
-          nodeSeparation: 60,
-          idealEdgeLength: 70,
-          nodeRepulsion: 3500,
-          gravity: 0.3,
-          fit: false,
-          padding: 60,
-        } as any).run();
-        cy.fit(undefined, 80);
-      }
+      // Layout options live in canvasTheme so this page and the visual harness
+      // cannot drift apart. fcose settles asynchronously, so fit() has to wait
+      // for layoutstop — fitting immediately measures unpositioned nodes and
+      // lands on an absurd zoom.
+      // Deterministic shelf packing rather than a force layout: every card is
+      // the same size, the meaning is the containment hierarchy, and this is
+      // stable across refreshes instead of jittering.
+      layoutHierarchicalGrid(cy);
+      cy.fit(undefined, 50);
+      applyLevelOfDetail(cy);
     }
 
     // Compound drag-and-drop (design mode — allows drop-to-reparent)
@@ -1133,7 +1053,7 @@ const CloudMapPage: React.FC = () => {
       minimapTimerRef.current = setTimeout(() => {
         try {
           if (cyRef.current && showMinimapRef.current) {
-            const bg = modeRef.current === 'live' ? '#ffffff' : '#f8fafc';
+            const bg = canvasBackgroundRef.current || CANVAS_TOKENS[canvasThemeRef.current].canvas;
             setMinimapDataUrl(cyRef.current.png({ full: true, scale: 0.15, bg }));
           }
         } catch (_) { }
@@ -2748,7 +2668,7 @@ ${xmlEdges}
     win.document.write(`<!DOCTYPE html><html><head><title>Architecture Diagram</title>
 <style>
   @page { margin: 0; size: auto; }
-  body { margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #f8fafc; }
+  body { margin: 0; display: flex; align-items: center; justify-content: center; min-height: 100dvh; background: #ffffff; }
   img { max-width: 100%; max-height: 100vh; object-fit: contain; }
 </style></head><body>
 <img src="${dataUrl}" onload="window.print()" />
@@ -2760,7 +2680,7 @@ ${xmlEdges}
 
   const handleExportSvg = useCallback(() => {
     if (!cyRef.current) return;
-    const svgStr = cyRef.current.svg({ full: true, bg: '#f8fafc' });
+    const svgStr = cyRef.current.svg({ full: true, bg: canvasBackground || canvasTokens.canvas });
     const blob = new Blob([svgStr], { type: 'image/svg+xml' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -3151,44 +3071,185 @@ ${xmlEdges}
 
   // ── Info panel (live mode) ────────────────────────────────────────────────
 
-  const renderInfoPanel = () => {
-    if (!selectedNodeData) return null;
-    const typeInfo = NODE_TYPE_DATA[selectedNodeData.type] || { icon: 'cube', color: 'gray' };
-    const gradients: Record<string, string> = {
-      'VPC': 'from-green-500 to-emerald-600',
-      'EC2 Instance': 'from-orange-500 to-red-600',
-      'RDS Instance': 'from-blue-500 to-blue-700',
+  /**
+   * Dim everything more than one hop from the selected resource.
+   *
+   * Tracing "what talks to this box" otherwise means reading overlapping edges by
+   * eye. Dimming rather than hiding keeps the surrounding shape on screen so you
+   * do not lose your bearings.
+   */
+  const handleIsolate = useCallback((nodeId: string) => {
+    const cy = cyRef.current;
+    if (!cy) return;
+
+    if (isolatedNodeId === nodeId) {
+      cy.elements().removeClass('cm-dimmed cm-highlight');
+      setIsolatedNodeId(null);
+      return;
+    }
+
+    const node = cy.getElementById(nodeId);
+    if (!node || node.length === 0) return;
+
+    const neighbourhood = node.closedNeighborhood();
+    // Keep ancestors lit: a resource floating in a dimmed VPC loses its context.
+    const keep = neighbourhood.union(node.ancestors()).union(neighbourhood.ancestors());
+
+    cy.batch(() => {
+      cy.elements().removeClass('cm-highlight').addClass('cm-dimmed');
+      keep.removeClass('cm-dimmed').addClass('cm-highlight');
+    });
+    setIsolatedNodeId(nodeId);
+  }, [isolatedNodeId]);
+
+  const handleCloseInfoPanel = useCallback(() => {
+    setInfoPanelOpen(false);
+    const cy = cyRef.current;
+    if (cy && isolatedNodeId) {
+      cy.elements().removeClass('cm-dimmed cm-highlight');
+      setIsolatedNodeId(null);
+    }
+  }, [isolatedNodeId]);
+
+  /** Reveal and select a node, so a Terraform finding can point at its card. */
+  const focusNodeById = useCallback((nodeId: string) => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const node = cy.getElementById(nodeId);
+    if (!node || node.length === 0) return;
+    cy.elements().unselect();
+    node.select();
+    cy.animate({ center: { eles: node }, duration: 220 } as any);
+  }, []);
+
+  /**
+   * Keep the serialised graph in step with the canvas while the panel is open.
+   *
+   * Cytoscape fires these continuously during a drag, so the work is coalesced
+   * into one frame here and the request is debounced again in the hook.
+   */
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy || mode !== 'design' || !showTerraform) return;
+
+    let frame = 0;
+    const capture = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (!cyRef.current) return;
+        try {
+          setDesignGraphJson(JSON.stringify(cyRef.current.elements().jsons()));
+        } catch (err) {
+          console.warn('[CloudMap] could not serialise design for Terraform', err);
+        }
+      });
     };
-    const gradient = gradients[selectedNodeData.type] || 'from-gray-500 to-gray-600';
-    return (
-      <div className={`info-panel ${infoPanelOpen ? 'open' : ''}`}>
-        <button onClick={() => setInfoPanelOpen(false)} className="close-btn"><i className="fas fa-times" /></button>
-        <div className="info-content">
-          <div className="slide-in">
-            <div className={`w-12 h-12 bg-gradient-to-br ${gradient} rounded-xl flex items-center justify-center mb-4`}>
-              <i className={`fas fa-${typeInfo.icon} text-white text-lg`} />
-            </div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">{selectedNodeData.label}</h2>
-            <div className="vpc-badge mb-4 inline-block">{selectedNodeData.type}</div>
-            <p className="text-xs text-gray-400 font-mono break-all mb-4">{selectedNodeData.id}</p>
-            <div className="space-y-3">
-              {Object.entries(selectedNodeData)
-                .filter(([key]) => !['id', 'label', 'parent', 'type', 'source', 'target'].includes(key))
-                .map(([key, value]) => {
-                  if (typeof value === 'object') return null;
-                  return (
-                    <div key={key} className="network-node">
-                      <span className="font-semibold text-gray-700 text-xs">{key}</span>
-                      <span className="font-mono text-gray-900 text-xs">{String(value)}</span>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
+
+    capture();
+    const events = 'add remove data position move';
+    cy.on(events, capture);
+    return () => {
+      cy.off(events, capture);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [mode, showTerraform, graphElements]);
+
+  const designCatalog = useDesignCatalog(mode === 'design');
+
+  /** Catalog entry for the selected node, or undefined for a shape. */
+  const selectedSpec = useMemo(
+    () => designCatalog.byCanvasType(selectedCanvasType),
+    [designCatalog, selectedCanvasType]);
+
+  /**
+   * Mirror the selected node's Terraform attributes into state.
+   *
+   * Also counts satisfied references by inspecting the canvas: containment from
+   * the node's ancestors, edges from its connected edges. That is what lets the
+   * form explain "place this inside a VPC" instead of just marking a field
+   * missing.
+   */
+  const syncSelectedNode = useCallback((nodeId: string | null) => {
+    const cy = cyRef.current;
+    if (!cy || !nodeId) {
+      setSelectedAttrs({});
+      setSelectedCanvasType(null);
+      setSelectedRefCounts({});
+      return;
+    }
+    const node = cy.getElementById(nodeId);
+    if (!node || node.length === 0 || !node.isNode?.()) {
+      setSelectedAttrs({});
+      setSelectedCanvasType(null);
+      setSelectedRefCounts({});
+      return;
+    }
+
+    const data = { ...node.data() };
+    setSelectedCanvasType(data.type ?? null);
+    setSelectedAttrs(data);
+
+    const spec = designCatalog.byCanvasType(data.type);
+    if (!spec) {
+      setSelectedRefCounts({});
+      return;
+    }
+
+    const counts: Record<string, number> = {};
+    for (const ref of spec.references) {
+      if (ref.via === 'CONTAINMENT') {
+        const ancestorTypes = node.ancestors().map((a: any) => a.data('type'));
+        const target = designCatalog.specs.find(sp => sp.tfType === ref.targetTfType);
+        counts[ref.field] = target && ancestorTypes.includes(target.canvasType) ? 1 : 0;
+      } else {
+        const target = designCatalog.specs.find(sp => sp.tfType === ref.targetTfType);
+        if (!target) { counts[ref.field] = 0; continue; }
+        counts[ref.field] = node.connectedEdges().reduce((total: number, edge: any) => {
+          const other = edge.source().id() === node.id() ? edge.target() : edge.source();
+          return total + (other.data('type') === target.canvasType ? 1 : 0);
+        }, 0);
+      }
+    }
+    setSelectedRefCounts(counts);
+  }, [designCatalog]);
+
+  useEffect(() => {
+    syncSelectedNode(selectedElement?.elementType === 'node' ? selectedElement.id : null);
+  }, [selectedElement, syncSelectedNode]);
+
+  /**
+   * Write an attribute onto the node.
+   *
+   * Stored under the attribute's own name so the existing save path persists it
+   * and CanvasDesignTranslator reads it back — no schema change, and a design from
+   * an older build simply has none set and falls back to catalog defaults.
+   */
+  const handleAttributeChange = useCallback((attributeName: string, value: unknown) => {
+    const cy = cyRef.current;
+    const nodeId = selectedElement?.id;
+    if (!cy || !nodeId) return;
+    const node = cy.getElementById(nodeId);
+    if (!node || node.length === 0) return;
+
+    takeSnapshotRef.current();
+    if (value === undefined) node.removeData(attributeName);
+    else node.data(attributeName, value);
+
+    setSelectedAttrs(prev => {
+      const next = { ...prev };
+      if (value === undefined) delete next[attributeName];
+      else next[attributeName] = value;
+      return next;
+    });
+  }, [selectedElement]);
+
+  const terraform = useTerraformPreview({
+    graphData: designGraphJson,
+    name: currentBlueprintName || 'Untitled design',
+    region: 'us-east-1',
+    enabled: mode === 'design' && showTerraform,
+  });
 
   // ── Render ────────────────────────────────────────────────────────────────
   // When rulers are enabled the cytoscape-container is inset 18px from the
@@ -3198,7 +3259,12 @@ ${xmlEdges}
   const canvasInset = showRulers ? 18 : 0;
 
   return (
-    <div className="flex flex-col h-full max-h-full relative overflow-hidden">
+    /*
+     * cm-theme-* scopes the canvas chrome's dark treatment. It is scoped here
+     * rather than relying on Tailwind's `dark:` variant because nothing in this
+     * app ever adds the `dark` class to <html>, so those variants never match.
+     */
+    <div className={`cm-root cm-theme-${canvasThemeName} flex flex-col h-full max-h-full relative overflow-hidden`}>
       <div className="flex flex-1 min-h-0 relative overflow-hidden">
 
         {/* ── Left Palette (design mode) ── */}
@@ -3238,6 +3304,25 @@ ${xmlEdges}
                 <div className="toolbar-separator" />
 
                 {/* ── DRAW ── */}
+                {/* Terraform lives in its own group: it is the only control here
+                    that produces an artifact rather than changing the drawing. */}
+                <div className="toolbar-group">
+                  <span className="toolbar-group-label">Generate</span>
+                  <div className="toolbar-group-buttons">
+                    <Tooltip text={showTerraform ? 'Hide generated Terraform' : 'Show the Terraform for this design'}>
+                      <button
+                        className={`toolbar-button ${showTerraform ? 'toolbar-button-active' : ''}`}
+                        onClick={() => setShowTerraform(v => !v)}
+                        aria-pressed={showTerraform}
+                      >
+                        <i className="fas fa-file-code" />
+                      </button>
+                    </Tooltip>
+                  </div>
+                </div>
+
+                <div className="toolbar-separator" />
+
                 <div className="toolbar-group">
                   <span className="toolbar-group-label">Draw</span>
                   <div className="toolbar-group-buttons">
@@ -3348,15 +3433,16 @@ ${xmlEdges}
                     <div className="bg-picker-panel absolute top-full left-0 mt-1 z-[300] bg-white rounded-xl shadow-2xl border border-gray-100 p-3 min-w-[180px]">
                       <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-2">Canvas Background</p>
                       <div className="grid grid-cols-5 gap-1.5 mb-2">
-                        {['#f8fafc', '#ffffff', '#1e293b', '#0f172a', '#fef9c3', '#f0fdf4', '#eff6ff', '#fdf4ff', '#fff1f2', '#f0fdfa'].map(c => (
-                          <button key={c} onClick={() => setCanvasBackground(c)}
-                            className={`w-7 h-7 rounded border-2 transition-transform hover:scale-110 ${canvasBackground === c ? 'border-gray-800' : 'border-transparent'}`}
+                        {[CANVAS_TOKENS.light.canvas, '#ffffff', '#f1f5f9', CANVAS_TOKENS.dark.canvas, '#0f172a', '#fef9c3', '#f0fdf4', '#eff6ff', '#fdf4ff', '#f0fdfa'].map(c => (
+                          <button key={c} onClick={() => { bgOverriddenRef.current = true; setCanvasBackground(c); }}
+                            title={`Canvas background ${c}`}
+                            className={`w-7 h-7 rounded border-2 transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-emerald-500 ${canvasBackground === c ? 'border-gray-800' : 'border-transparent'}`}
                             style={{ background: c, boxShadow: c === '#ffffff' ? 'inset 0 0 0 1px #d1d5db' : undefined }} />
                         ))}
                       </div>
                       <div className="flex items-center gap-2">
-                        <input type="color" value={canvasBackground} onChange={(e) => setCanvasBackground(e.target.value)} className="w-7 h-6 rounded border border-gray-200 cursor-pointer p-0 shrink-0" />
-                        <input type="text" value={canvasBackground} onChange={(e) => setCanvasBackground(e.target.value)} className="flex-1 min-w-0 px-2 py-1 text-[11px] border border-gray-200 rounded-md font-mono focus:outline-none focus:ring-1 focus:ring-gray-400" />
+                        <input type="color" aria-label="Canvas background colour" value={canvasBackground} onChange={(e) => { bgOverriddenRef.current = true; setCanvasBackground(e.target.value); }} className="w-7 h-6 rounded border border-gray-200 cursor-pointer p-0 shrink-0" />
+                        <input type="text" aria-label="Canvas background hex" value={canvasBackground} onChange={(e) => { bgOverriddenRef.current = true; setCanvasBackground(e.target.value); }} className="flex-1 min-w-0 px-2 py-1 text-[11px] border border-gray-200 rounded-md font-mono focus:outline-none focus:ring-1 focus:ring-gray-400" />
                       </div>
                       <div className="mt-2 border-t border-gray-100 pt-2">
                         <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Background Image</p>
@@ -3530,10 +3616,10 @@ ${xmlEdges}
                   const lresources = lnodes.filter(e => !['VPC', 'Subnet'].includes((e.data as NodeData).type ?? ''));
                   return (
                     <>
-                      <div className="live-stat-item"><span className="live-stat-dot" style={{ background: '#374151' }} /><span className="live-stat-count">{lvpcsCount}</span><span>VPCs</span></div>
+                      <div className="live-stat-item"><span className="live-stat-dot" style={{ background: canvasTokens.ink }} /><span className="live-stat-count">{lvpcsCount}</span><span>VPCs</span></div>
                       <div className="live-stat-item"><span className="live-stat-dot" style={{ background: '#0ea5e9' }} /><span className="live-stat-count">{lsubnets.length}</span><span>Subnets</span></div>
                       <div className="live-stat-item"><span className="live-stat-dot" style={{ background: '#8b5cf6' }} /><span className="live-stat-count">{lresources.length}</span><span>Resources</span></div>
-                      <div className="live-stat-item"><span className="live-stat-dot" style={{ background: '#9ca3af' }} /><span className="live-stat-count">{ledges.length}</span><span>Connections</span></div>
+                      <div className="live-stat-item"><span className="live-stat-dot" style={{ background: canvasTokens.edge }} /><span className="live-stat-count">{ledges.length}</span><span>Connections</span></div>
                       <div className="toolbar-separator" />
                       <button
                         className="toolbar-button"
@@ -3600,7 +3686,7 @@ ${xmlEdges}
 
           {/* ── Canvas ── */}
           <div
-            className={`canvas-wrapper${formatPainterActive ? ' format-painter-active' : ''}${mode === 'design' ? ' has-page-tabs design-mode' : ''}${showRulers ? ' has-rulers' : ''}${sketchMode ? ' sketch-mode' : ''}`}
+            className={`canvas-wrapper cm-theme-${canvasThemeName}${formatPainterActive ? ' format-painter-active' : ''}${mode === 'design' ? ' has-page-tabs design-mode' : ''}${showRulers ? ' has-rulers' : ''}${sketchMode ? ' sketch-mode' : ''}`}
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleCanvasDrop}
           >
@@ -4215,7 +4301,7 @@ ${xmlEdges}
                   </button>
                 </div>
                 {minimapDataUrl
-                  ? <img src={minimapDataUrl} alt="Minimap" className="block" style={{ width: 180, height: 120, objectFit: 'contain', background: mode === 'live' ? '#ffffff' : '#f8fafc' }} />
+                  ? <img src={minimapDataUrl} alt="Minimap" className="block" style={{ width: 180, height: 120, objectFit: 'contain', background: canvasBackground || canvasTokens.canvas }} />
                   : <div className="flex items-center justify-center text-gray-400 text-[10px]" style={{ width: 180, height: 120 }}>No content</div>
                 }
               </div>
@@ -4377,9 +4463,15 @@ ${xmlEdges}
                     </div>
                   </div>
                   <h3 className="text-xl font-bold text-gray-800 mb-2">{messageOverlay.title}</h3>
-                  <div className="mt-4 flex justify-center gap-1">
-                    {[0, 150, 300].map(d => (
-                      <div key={d} className="w-2 h-2 bg-gray-700 rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />
+                  {/* Progress cue, not decoration: a staggered opacity pulse
+                      reads as "working" without the cartoon bounce easing. */}
+                  <div className="mt-4 flex justify-center gap-1.5" role="status" aria-label="Loading">
+                    {[0, 160, 320].map(d => (
+                      <div
+                        key={d}
+                        className="w-1.5 h-1.5 rounded-full cm-pulse-dot"
+                        style={{ animationDelay: `${d}ms` }}
+                      />
                     ))}
                   </div>
                 </div>
@@ -4390,22 +4482,26 @@ ${xmlEdges}
             {showEmptyState && (
               <div className="empty-state">
                 <div className="empty-state-content">
-                  <div className="empty-state-icon"><i className="fas fa-project-diagram text-white text-3xl" /></div>
-                  <h3 className="text-2xl font-bold text-gray-800 mb-2">No Resources Found</h3>
-                  <p className="text-gray-500 text-sm mb-5">Your AWS infrastructure topology will appear here. Make sure your account is connected and resources are deployed.</p>
-                  <div className="empty-state-tips">
-                    <h4 className="font-semibold text-gray-700 mb-3 flex items-center gap-2 text-sm">
-                      <i className="fas fa-info-circle text-blue-500" /> Troubleshooting
-                    </h4>
-                    <ul className="text-xs text-gray-600 space-y-2">
+                  <div className="empty-state-icon" style={{ color: canvasTokens.inkMuted }}>
+                    <i className="fas fa-project-diagram text-2xl" aria-hidden="true" />
+                  </div>
+                  {/* Names the likely cause rather than only the absence. */}
+                  <h3 className="es-title" style={{ color: canvasTokens.ink }}>Nothing to map yet</h3>
+                  <p className="es-lede" style={{ color: canvasTokens.inkMuted }}>
+                    We reached this account but found no VPCs or resources to draw. That is
+                    usually one of the four things below.
+                  </p>
+                  <div className="empty-state-tips" style={{ borderColor: canvasTokens.hairline }}>
+                    <h4 className="es-tips-title" style={{ color: canvasTokens.ink }}>Worth checking</h4>
+                    <ul className="es-tips">
                       {[
-                        { icon: 'fa-server', text: 'Verify your AWS account has VPCs and resources deployed' },
-                        { icon: 'fa-key', text: 'Confirm IAM credentials are configured with read permissions' },
-                        { icon: 'fa-globe', text: 'Try selecting a specific VPC from the dropdown above' },
-                        { icon: 'fa-redo', text: 'Use the Refresh button to reload topology data' },
+                        { icon: 'fa-server', text: 'The account genuinely has VPCs and resources deployed' },
+                        { icon: 'fa-key', text: 'The XamOps IAM role still has read permission on EC2 and VPC' },
+                        { icon: 'fa-globe', text: 'A specific VPC is selected above, not an empty region' },
+                        { icon: 'fa-rotate', text: 'Topology has been refreshed since the resources were created' },
                       ].map(({ icon, text }) => (
-                        <li key={text} className="flex items-start gap-2">
-                          <i className={`fas ${icon} text-gray-400 mt-0.5 w-3 text-center`} />
+                        <li key={text} style={{ color: canvasTokens.inkMuted }}>
+                          <i className={`fas ${icon}`} aria-hidden="true" style={{ color: canvasTokens.inkMuted }} />
                           <span>{text}</span>
                         </li>
                       ))}
@@ -4413,10 +4509,15 @@ ${xmlEdges}
                   </div>
                   <button
                     onClick={handleRefreshTopology}
-                    className="mt-5 px-4 py-2 bg-gray-900 text-white text-sm font-semibold rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2 mx-auto"
+                    disabled={refreshingTopology}
+                    className="es-retry"
+                    style={{
+                      background: canvasTokens.accent,
+                      color: canvasThemeName === 'dark' ? '#04120b' : '#ffffff',
+                    }}
                   >
-                    <i className="fas fa-sync-alt text-xs" />
-                    Retry
+                    <i className={`fas fa-sync-alt${refreshingTopology ? ' fa-spin' : ''}`} aria-hidden="true" />
+                    {refreshingTopology ? 'Refreshing…' : 'Refresh topology'}
                   </button>
                 </div>
               </div>
@@ -4426,8 +4527,51 @@ ${xmlEdges}
         </div>{/* end column wrapper */}
 
         {/* ── Right: Properties Panel (design) | Info Panel (live) ── */}
-        {mode === 'design' ? (
-          <DesignPropertiesPanel
+        {mode === 'design' && showTerraform ? (
+          <TerraformPanel
+            result={terraform}
+            theme={canvasThemeName}
+            designName={currentBlueprintName || 'Untitled design'}
+            onClose={() => setShowTerraform(false)}
+            onFocusNode={focusNodeById}
+          />
+        ) : mode === 'design' ? (
+          <div className="design-panel-stack">
+            {/* Tabs appear only when the selection has Terraform meaning. For a
+                plain shape there is nothing to configure, so the style editor
+                shows alone exactly as it did before. */}
+            {selectedSpec && (
+              <div className="design-panel-tabs" role="tablist" style={{ background: canvasTokens.card, borderColor: canvasTokens.hairline }}>
+                {(['resource', 'style'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    role="tab"
+                    aria-selected={designTab === tab}
+                    onClick={() => setDesignTab(tab)}
+                    className={`design-panel-tab${designTab === tab ? ' active' : ''}`}
+                    style={{
+                      color: designTab === tab ? canvasTokens.ink : canvasTokens.inkMuted,
+                      borderBottomColor: designTab === tab ? canvasTokens.accent : 'transparent',
+                    }}
+                  >
+                    {tab === 'resource' ? 'Resource' : 'Style'}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {selectedSpec && designTab === 'resource' ? (
+              <div className="design-panel-body" style={{ background: canvasTokens.card, borderColor: canvasTokens.hairline }}>
+                <ResourcePropertiesForm
+                  spec={selectedSpec}
+                  values={selectedAttrs}
+                  onChange={handleAttributeChange}
+                  theme={canvasThemeName}
+                  satisfiedReferences={selectedRefCounts}
+                />
+              </div>
+            ) : (
+            <DesignPropertiesPanel
             selected={selectedElement}
             onLabelChange={handleLabelChange}
             onFillColorChange={handleFillColorChange}
@@ -4474,8 +4618,17 @@ ${xmlEdges}
             onMetadataChange={handleMetadataChange}
             onCommentsChange={handleCommentsChange}
           />
+            )}
+          </div>
         ) : (
-          renderInfoPanel()
+          <ResourceInspector
+            node={selectedNodeData}
+            open={infoPanelOpen}
+            onClose={handleCloseInfoPanel}
+            theme={canvasThemeName}
+            onIsolate={handleIsolate}
+            isolated={!!selectedNodeData && isolatedNodeId === selectedNodeData.id}
+          />
         )}
       </div>
 

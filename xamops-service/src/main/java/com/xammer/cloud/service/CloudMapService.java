@@ -159,7 +159,8 @@ public class CloudMapService {
                                 try {
                                     String parent = getParent(resource);
                                     elements.add(createNode(resource.getId(), resource.getName(), resource.getType(),
-                                            parent, resource.getDetails()));
+                                            parent, resource.getDetails(), resource.getState(),
+                                            resource.getRegion()));
                                 } catch (Exception e) {
                                     logger.warn("Failed to create node for resource {}: {}", resource.getId(),
                                             e.getMessage());
@@ -365,12 +366,34 @@ public class CloudMapService {
 
     private Map<String, Object> createNode(String id, String label, String type, String parent,
             Map<String, String> details) {
+        return createNode(id, label, type, parent, details, null, null);
+    }
+
+    /**
+     * Build one Cytoscape node.
+     *
+     * <p>
+     * {@code state} and {@code region} are passed explicitly rather than left to
+     * {@code details}: the canvas renders a status dot and a region caption per
+     * resource, and {@link ResourceDto} carries both as first-class fields that
+     * the details map does not duplicate. Without them every node on the map
+     * rendered as "unknown" state, which is why the graph could not be read at a
+     * glance.
+     */
+    private Map<String, Object> createNode(String id, String label, String type, String parent,
+            Map<String, String> details, String state, String region) {
         Map<String, Object> data = new HashMap<>();
         data.put("id", id);
         data.put("label", label != null && !label.isBlank() ? label : id);
         data.put("type", type);
         if (parent != null && !parent.isBlank()) {
             data.put("parent", parent);
+        }
+        if (state != null && !state.isBlank()) {
+            data.put("state", state);
+        }
+        if (region != null && !region.isBlank()) {
+            data.put("region", region);
         }
 
         if (details != null) {

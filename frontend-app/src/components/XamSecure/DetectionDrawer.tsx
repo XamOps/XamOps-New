@@ -95,7 +95,7 @@ const DetectionDrawer: React.FC<Props> = ({
       id: 'evidence', label: 'Evidence', icon: 'mdi:file-search-outline', group: 'Detection',
       count: evidence.length || undefined,
       available: evidence.length > 0,
-      unavailableReason: 'Upwind supplied no process, file, network or identity evidence.',
+      unavailableReason: 'No process, file, network or identity evidence on this detection.',
       render: () => (
         <div className="space-y-4">
           {evidence.map(([key, value]) => (

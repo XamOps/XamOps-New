@@ -138,7 +138,9 @@ const COMMANDS: RouteCommand[] = [
 
   // Settings & Profile
   { path: '/tickets',             label: 'Support Tickets',           group: 'Settings',         icon: HiOutlineDocumentText },
-  { path: '/user-management',     label: 'User Management',           group: 'Settings',         icon: HiOutlineUserGroup },
+  // Points straight at the tab rather than the retired /user-management route, so the palette
+  // does not cost a redirect. Keywords keep the old name findable.
+  { path: '/security?tab=identity', label: 'Identity & Access (IAM)',  group: 'Settings',         icon: HiOutlineUserGroup, keywords: 'user management iam users roles permissions privilege' },
   { path: '/my-profile',          label: 'My Profile',                group: 'Settings',         icon: HiOutlineUser },
 ];
 

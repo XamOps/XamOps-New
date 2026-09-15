@@ -661,6 +661,17 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(xamsecure.demoIssues);
   if (url.includes('/api/xamsecure/attack-surface'))
     return makeResponse(xamsecure.demoAttackSurface);
+  // Story detail BEFORE the story list: the detail URL contains the list path as a substring,
+  // so matching the list first returned the list payload for every detail request. The loader
+  // reads `.id` to decide whether a story was withheld for tenancy, the list has none, and so
+  // every story opened as "Story not available".
+  {
+    const story = url.match(/\/api\/xamsecure\/stories\/([^/?]+)/);
+    if (story) {
+      const detail = xamsecure.demoStoryDetail(decodeURIComponent(story[1]));
+      return makeResponse(detail ?? {});
+    }
+  }
   if (url.includes('/api/xamsecure/stories'))
     return makeResponse(xamsecure.demoThreatStories);
   if (url.includes('/api/xamsecure/threat-policies'))
@@ -699,6 +710,8 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(xamsecure.demoInventoryCategories);
   if (url.includes('/api/xamsecure/inventory/network'))
     return makeResponse(xamsecure.demoNetworkTopology);
+  if (url.includes('/api/xamsecure/sensor-coverage'))
+    return makeResponse(xamsecure.demoSensorCoverage);
   // Per-asset relationships, ahead of the inventory list route that would otherwise swallow it.
   if (url.includes('/api/xamsecure/inventory/assets/') && url.includes('/relationships'))
     return makeResponse(xamsecure.demoAssetRelationships(

@@ -44,19 +44,22 @@ public class AzureDashboardService {
     private final RedisCacheService redisCache;
     private final AzureBillingDataIngestionService billingIngestionService;
     private final ObjectMapper objectMapper;
+    private final com.xammer.cloud.service.security.AzurePrivilegeAnalyzer azurePrivilegeAnalyzer;
 
     public AzureDashboardService(AzureClientProvider clientProvider,
             CloudAccountRepository cloudAccountRepository,
             CachedDataRepository cachedDataRepository,
             RedisCacheService redisCache,
             AzureBillingDataIngestionService billingIngestionService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            com.xammer.cloud.service.security.AzurePrivilegeAnalyzer azurePrivilegeAnalyzer) {
         this.clientProvider = clientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.cachedDataRepository = cachedDataRepository;
         this.redisCache = redisCache;
         this.billingIngestionService = billingIngestionService;
         this.objectMapper = objectMapper;
+        this.azurePrivilegeAnalyzer = azurePrivilegeAnalyzer;
     }
 
     public AzureDashboardData getDashboardData(String accountId, boolean force) {
@@ -533,58 +536,189 @@ public class AzureDashboardService {
         }
     }
 
+    /**
+     * Upper bound on role assignments and definitions inspected per subscription.
+     *
+     * <p>
+     * Replaces a bare {@code .limit(50)}. The number matters less than the fact that hitting it
+     * now sets {@code permissionAnalysisDegraded}: the previous code truncated silently, so a
+     * subscription with 60 assignments showed 50 and claimed to be showing all of them.
+     */
+    private static final int MAX_IAM_ENTRIES = 500;
+
     private void getAndSetIamDetails(AzureResourceManager azure, AzureDashboardData dashboardData, String accountId) {
         try {
             List<DashboardData.IamUserDetail> users = new ArrayList<>();
             List<DashboardData.IamRoleDetail> roles = new ArrayList<>();
+            List<com.azure.resourcemanager.authorization.models.RoleAssignment> assignments = new ArrayList<>();
 
-            // 1. Fetch Role Definitions (Roles)
-            // Lists all built-in and custom roles. Might be large, so maybe limit or
-            // filter?
-            // Azure has a lot of built-in roles.
+            // ARM identifies a subscription by the path "/subscriptions/<guid>", not by the bare
+            // guid. listByScope interpolates this argument straight into the request URL, so the
+            // previous bare-accountId form produced a malformed scope — and because both calls
+            // below only warn on failure, that surfaced as a permanently empty Azure identity list
+            // rather than as an error.
+            String scope = "/subscriptions/" + accountId;
+            boolean truncated = false;
+
+            // 1. Role definitions. Azure ships hundreds of built-in roles; they are listed because
+            // the Identity tab shows them, but only custom ones are scored as risky in their own
+            // right (a built-in role is a Microsoft artifact, not a customer decision).
             try {
-                azure.accessManagement().roleDefinitions().listByScope(accountId).stream().limit(50).forEach(role -> {
+                for (var role : azure.accessManagement().roleDefinitions().listByScope(scope)) {
+                    if (roles.size() >= MAX_IAM_ENTRIES) {
+                        truncated = true;
+                        break;
+                    }
                     DashboardData.IamRoleDetail r = new DashboardData.IamRoleDetail();
                     r.setRoleName(role.roleName());
                     r.setRoleId(role.id());
                     r.setArn(role.id());
+                    r.setDescription(role.description());
                     r.setCreateDate(null);
                     roles.add(r);
-                });
+                }
             } catch (Exception e) {
                 log.warn("Failed to list role definitions for account {}: {}", accountId, e.getMessage());
             }
 
-            // 2. Fetch Role Assignments (Users/Principals)
-            // This gives us who has access.
+            // 2. Role assignments — who actually has access.
             try {
-                azure.accessManagement().roleAssignments().listByScope(accountId).stream().limit(50)
-                        .forEach(assignment -> {
-                            DashboardData.IamUserDetail user = new DashboardData.IamUserDetail();
-                            // Principal Name often not available in assignment, only ID.
-                            // We would need Graph API to resolve ID to Name.
-                            // For now use Principal ID as name fallback.
-                            user.setUserName(assignment.principalId());
-                            user.setUserId(assignment.principalId());
-                            user.setArn(assignment.id());
-                            user.setCreateDate(null);
-                            user.setPasswordLastUsed(null);
-                            // Add role name to attached policies/groups if possible
-                            DashboardData.IamPolicyDetail policy = new DashboardData.IamPolicyDetail();
-                            policy.setPolicyName(assignment.roleDefinitionId()); // ID of the role definition
-                            user.setAttachedPolicies(List.of(policy));
+                for (var assignment : azure.accessManagement().roleAssignments().listByScope(scope)) {
+                    if (users.size() >= MAX_IAM_ENTRIES) {
+                        truncated = true;
+                        break;
+                    }
+                    assignments.add(assignment);
 
-                            users.add(user);
-                        });
+                    DashboardData.IamUserDetail user = new DashboardData.IamUserDetail();
+                    // Display name is resolved below where Graph permissions allow it; the object
+                    // id is the fallback so the identity is still addressable either way.
+                    user.setUserName(assignment.principalId());
+                    user.setUserId(assignment.principalId());
+                    // The assignment id, not the principal id: AzurePrivilegeAnalyzer joins on this
+                    // to find the assignment carrying the scope and condition.
+                    user.setArn(assignment.id());
+                    user.setCreateDate(createdOn(assignment));
+                    user.setPasswordLastUsed(null);
+                    user.setGroups(List.of());
+                    users.add(user);
+                }
             } catch (Exception e) {
                 log.warn("Failed to list role assignments for account {}: {}", accountId, e.getMessage());
             }
 
-            dashboardData.setIamDetails(new DashboardData.IamDetail(users, roles));
+            boolean namesResolved = resolvePrincipalNames(azure, users, assignments);
+
+            DashboardData.IamDetail details = new DashboardData.IamDetail(users, roles);
+
+            // Resolves each assignment's role definition and scores its actual permissions.
+            // Wrapped because an audit failure must not cost the customer the inventory.
+            try {
+                var outcome = azurePrivilegeAnalyzer.analyze(
+                        azure, users, roles, assignments, truncated, namesResolved);
+                details.setPermissionAnalysisDegraded(outcome.degraded());
+                details.setPermissionAnalysisNote(outcome.note());
+            } catch (Exception e) {
+                log.error("Azure privilege analysis failed for subscription {}; serving inventory "
+                        + "without risk scoring.", accountId, e);
+                details.setPermissionAnalysisDegraded(true);
+                details.setPermissionAnalysisNote(
+                        "Permission analysis did not complete for this subscription, so identities are "
+                                + "shown without a risk assessment.");
+            }
+
+            dashboardData.setIamDetails(details);
 
         } catch (Exception e) {
             log.error("Error fetching IAM details for account {}: {}", accountId, e.getMessage());
             dashboardData.setIamDetails(new DashboardData.IamDetail(Collections.emptyList(), Collections.emptyList()));
+        }
+    }
+
+    /**
+     * Replaces principal object ids with display names where Microsoft Entra ID allows it.
+     *
+     * <p>
+     * Best-effort by design. Reading directory objects needs Graph application permissions
+     * ({@code Directory.Read.All}) that the Reader-scoped onboarding app registration usually does
+     * not have, and a GUID-labelled identity that has been risk-scored is far more useful than no
+     * identity at all. Failure is reported through the degraded note rather than thrown.
+     *
+     * @return false when at least one lookup failed, so the caller can say names are unresolved
+     */
+    private boolean resolvePrincipalNames(AzureResourceManager azure,
+            List<DashboardData.IamUserDetail> users,
+            List<com.azure.resourcemanager.authorization.models.RoleAssignment> assignments) {
+
+        if (users.isEmpty()) {
+            return true;
+        }
+
+        Map<String, com.azure.resourcemanager.authorization.models.PrincipalType> typeById = new HashMap<>();
+        for (var assignment : assignments) {
+            try {
+                if (assignment.innerModel() != null && assignment.principalId() != null) {
+                    typeById.put(assignment.principalId(), assignment.innerModel().principalType());
+                }
+            } catch (Exception ignored) {
+                // Inner model absent; the identity keeps its object-id label.
+            }
+        }
+
+        // Cached because the same principal commonly holds several assignments, and each lookup
+        // is a Graph round trip.
+        Map<String, String> nameCache = new HashMap<>();
+        boolean allResolved = true;
+
+        for (DashboardData.IamUserDetail user : users) {
+            String principalId = user.getUserId();
+            if (principalId == null || principalId.isBlank()) {
+                continue;
+            }
+            if (nameCache.containsKey(principalId)) {
+                String cached = nameCache.get(principalId);
+                if (cached != null) {
+                    user.setUserName(cached);
+                }
+                continue;
+            }
+
+            var type = typeById.get(principalId);
+            String resolved = null;
+            try {
+                if (com.azure.resourcemanager.authorization.models.PrincipalType.SERVICE_PRINCIPAL.equals(type)) {
+                    var sp = azure.accessManagement().servicePrincipals().getById(principalId);
+                    resolved = sp == null ? null : sp.name();
+                } else if (com.azure.resourcemanager.authorization.models.PrincipalType.GROUP.equals(type)) {
+                    var group = azure.accessManagement().activeDirectoryGroups().getById(principalId);
+                    resolved = group == null ? null : group.name();
+                } else {
+                    var adUser = azure.accessManagement().activeDirectoryUsers().getById(principalId);
+                    resolved = adUser == null ? null : adUser.userPrincipalName();
+                }
+            } catch (Exception e) {
+                allResolved = false;
+                log.debug("Could not resolve Entra principal {}: {}", principalId, e.getMessage());
+            }
+
+            nameCache.put(principalId, resolved);
+            if (resolved != null && !resolved.isBlank()) {
+                user.setUserName(resolved);
+            }
+        }
+
+        return allResolved;
+    }
+
+    /** Assignment creation time, which lives on the inner model. */
+    private static String createdOn(com.azure.resourcemanager.authorization.models.RoleAssignment assignment) {
+        try {
+            if (assignment.innerModel() == null || assignment.innerModel().createdOn() == null) {
+                return null;
+            }
+            return assignment.innerModel().createdOn().toInstant().toString();
+        } catch (Exception e) {
+            return null;
         }
     }
 }

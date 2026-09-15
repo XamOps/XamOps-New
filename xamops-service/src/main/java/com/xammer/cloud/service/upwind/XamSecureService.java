@@ -1353,14 +1353,20 @@ public class XamSecureService {
     /**
      * Provider-native relationships for one asset.
      *
-     * The only place real edges are available. The asset search omits the relationship fields the
-     * inventory schema declares, and nested conditions are rejected in every shape, so this is
-     * one request per asset rather than a topology walk — which is why it is exposed behind an
-     * asset drill-down and not as a graph over the estate.
+     * Still sourced from {@code raw_data} on the asset-detail route, and that is not an oversight.
+     * The v2 relationship search does support graph traversal — corrected 2026-09-07, an earlier
+     * note here said nested conditions were rejected, which was measured against the CATALOG
+     * search that does not support them — but it filters by relationship without projecting it.
+     * It answers "which instances sit behind a security group in this account" and never "which
+     * security group did this instance match", so it cannot enumerate one asset's own neighbours.
+     * Finding them through it would mean one query per candidate related entity.
      *
-     * Keys are provider-native (SecurityGroups, VpcId, Instances, TargetGroupARNs), so rather
-     * than enumerate every resource type we detect the shape: scalars that look like a resource
-     * id, and arrays of ids or of objects carrying one.
+     * What the schema does give us is the TYPE of each relationship. Keys in {@code raw_data} are
+     * provider-native (SecurityGroups, VpcId, Instances, TargetGroupARNs) and carry no indication
+     * of what they point at, so each one is matched against the edges the inventory schema
+     * declares for this label — 621 edge fields over 224 labels — to attach the related asset
+     * label where it can be resolved. The id-shape detection below stays as the extraction
+     * mechanism and as the fallback when no schema edge matches.
      */
     public Map<String, Object> getAssetRelationships(Long clientId, String assetId) {
         Map<String, Object> out = new LinkedHashMap<>();
@@ -1387,6 +1393,9 @@ public class XamSecureService {
         }
         if (raw == null || !raw.isObject()) return out;
 
+        String assetLabel = owned.get().getLabel();
+        List<UpwindApiClient.AssetEdge> declared = apiClient.edgesFor(assetLabel);
+
         List<Map<String, Object>> rels = new ArrayList<>();
         raw.fields().forEachRemaining(entry -> {
             String key = entry.getKey();
@@ -1398,12 +1407,51 @@ public class XamSecureService {
             m.put("label", prettifyFieldName(key));
             m.put("references", refs.size() > 50 ? refs.subList(0, 50) : refs);
             m.put("count", refs.size());
+            // Null when the provider-native key has no schema counterpart, which is common —
+            // raw_data's VpcId has no equivalent among the declared edges, whose VPC relationship
+            // is called vpcs. A null here means "type unknown", never "not a relationship".
+            m.put("relatedType", matchDeclaredEdge(key, declared));
             rels.add(m);
         });
         rels.sort(Comparator.comparing(m -> (String) m.get("label")));
         out.put("relationships", rels);
-        out.put("resourceType", owned.get().getLabel());
+        out.put("resourceType", assetLabel);
+        out.put("declaredEdgeCount", declared.size());
         return out;
+    }
+
+    /**
+     * Resolves a provider-native {@code raw_data} key to the asset label the inventory schema
+     * says it points at, or null when nothing matches.
+     *
+     * The two vocabularies do not line up: {@code SecurityGroups} against {@code security_groups}
+     * is only a case-and-underscore difference, but {@code VpcId} against {@code vpcs} needs the
+     * {@code Id} suffix dropped and a plural tolerated. Both sides are therefore reduced to
+     * lowercase alphanumerics with trailing id/arn markers and a trailing plural removed, and
+     * compared on that. Deliberately conservative — a wrong type label is worse than none.
+     */
+    private static String matchDeclaredEdge(String rawKey,
+                                            List<UpwindApiClient.AssetEdge> declared) {
+        if (rawKey == null || declared.isEmpty()) return null;
+        String needle = edgeMatchKey(rawKey);
+        if (needle.isEmpty()) return null;
+        for (UpwindApiClient.AssetEdge e : declared) {
+            if (needle.equals(edgeMatchKey(e.field()))) return e.relatedLabel();
+        }
+        return null;
+    }
+
+    /** Lowercase alphanumerics, minus trailing id/ids/arn/arns and a trailing plural. */
+    private static String edgeMatchKey(String raw) {
+        String s = raw.toLowerCase().replaceAll("[^a-z0-9]", "");
+        for (String suffix : new String[]{"arns", "arn", "ids", "id"}) {
+            if (s.length() > suffix.length() && s.endsWith(suffix)) {
+                s = s.substring(0, s.length() - suffix.length());
+                break;
+            }
+        }
+        if (s.length() > 1 && s.endsWith("s")) s = s.substring(0, s.length() - 1);
+        return s;
     }
 
     /** Noise that matches the id shapes below without describing a relationship. */
@@ -1850,6 +1898,18 @@ public class XamSecureService {
             double e = parseDoubleSafe((String) r[4]);
             if (e > a.epss) a.epss = e;
             a.firstSeen = earliest(a.firstSeen, (Instant) r[5]);
+            // Columns 7-10: ORed across the CVE's findings — see CveAgg.
+            if (Boolean.TRUE.equals(r[7])) a.packageInUse = true;
+            if (Boolean.TRUE.equals(r[8])) a.internetExposed = true;
+            if (Boolean.TRUE.equals(r[9])) a.functionsInUse = true;
+            if (Boolean.TRUE.equals(r[10])) a.activeCommunication = true;
+        }
+
+        // Fix availability cannot ride the projection above: remediation lives only inside
+        // raw_payload, so it arrives as a separate set of CVE ids and is stamped onto the map.
+        for (String cve : vulnRepo.findCveIdsFixAvailable(ids)) {
+            CveAgg a = cve == null ? null : byCve.get(cve);
+            if (a != null) a.fixAvailable = true;
         }
 
         // Build cumulative series from the new-on-day counts.
@@ -1880,9 +1940,16 @@ public class XamSecureService {
         for (String s : SEVERITY_ORDER) severityCounts.put(s, 0L);
         Map<String, Set<String>> byType = new LinkedHashMap<>();
         int exploitable = 0, epssPrioritized = 0;
+        long exposedAndInUse = 0, activeComm = 0;
         Instant weekAgo = Instant.now().minus(java.time.Duration.ofDays(7));
         Map<String, Long> newBySeverity = new LinkedHashMap<>(Map.of("CRITICAL", 0L, "HIGH", 0L, "OTHER", 0L));
         Map<String, Long> overTime = new LinkedHashMap<>();
+
+        // Funnel stages, each split into the CVSS bands the legend shows. Counted here, off the
+        // one per-CVE map, so a stage's segments always sum to the stage's own total.
+        StageBands fTotal = new StageBands(), fPkg = new StageBands(), fExposed = new StageBands(),
+                fExploit = new StageBands(), fFix = new StageBands(), fEpss = new StageBands(),
+                fFuncs = new StageBands();
 
         for (Map.Entry<String, CveAgg> en : byCve.entrySet()) {
             CveAgg a = en.getValue();
@@ -1892,6 +1959,19 @@ public class XamSecureService {
                     .add(en.getKey());
             if (a.exploitable) exploitable++;
             if (a.epss >= 0.5) epssPrioritized++;
+
+            int band = bandIndex(a.severity);
+            fTotal.add(band);
+            if (a.packageInUse) fPkg.add(band);
+            if (a.internetExposed) fExposed.add(band);
+            if (a.exploitable) fExploit.add(band);
+            if (a.fixAvailable) fFix.add(band);
+            if (a.epss >= 0.5) fEpss.add(band);
+            if (a.functionsInUse) fFuncs.add(band);
+
+            // Not funnel stages, so not banded — these feed the runtime-narrowing cards.
+            if (a.internetExposed && a.packageInUse) exposedAndInUse++;
+            if (a.activeCommunication) activeComm++;
             if (a.firstSeen != null && a.firstSeen.isAfter(weekAgo)) {
                 String bucket = ("CRITICAL".equals(sev) || "HIGH".equals(sev)) ? sev : "OTHER";
                 newBySeverity.merge(bucket, 1L, Long::sum);
@@ -1914,36 +1994,34 @@ public class XamSecureService {
         // used to be hardcoded to unavailable because the sync discarded the fields that
         // carry them; both are real now. "NIST critical sev" remains unsourced — it needs
         // NVD's own severity banding rather than the CVSS v3 severity we store.
+        //
+        // Every stage now comes from the byCve map above rather than from its own
+        // COUNT(DISTINCT) aggregate. The stages are severity-segmented, and SQL would attribute
+        // a CVE to each severity its findings carry while this map gives a CVE one severity, so
+        // sourcing the segments and the total differently let them disagree.
         int totalCves = byCve.size();
-        long packageInUse = vulnRepo.countCvesPackageInUse(ids);
-        long fixAvailable = vulnRepo.countCvesFixAvailable(ids);
-        long internetExposed = 0, exposedAndInUse = 0, functionsInUse = 0, activeComm = 0;
-        List<Object[]> runtime = vulnRepo.countRuntimeExposure(ids);
-        if (!runtime.isEmpty() && runtime.get(0) != null) {
-            Object[] r = runtime.get(0);
-            internetExposed = r[0] == null ? 0 : ((Number) r[0]).longValue();
-            exposedAndInUse = r[1] == null ? 0 : ((Number) r[1]).longValue();
-            functionsInUse = r[2] == null ? 0 : ((Number) r[2]).longValue();
-            activeComm = r[3] == null ? 0 : ((Number) r[3]).longValue();
-        }
         List<Map<String, Object>> funnel = new ArrayList<>();
-        funnel.add(funnelStage("Total", totalCves, true));
-        funnel.add(funnelStage("Package in use", (int) packageInUse, true));
-        funnel.add(funnelStage("Internet exposure", (int) internetExposed, true));
-        funnel.add(funnelStage("Known exploit", exploitable, true));
-        funnel.add(funnelStage("Fix available", (int) fixAvailable, true));
-        funnel.add(funnelStage("NIST critical sev", 0, false));
-        funnel.add(funnelStage("EPSS-prioritized", epssPrioritized, true));
-        funnel.add(funnelStage("Functions in Use", (int) functionsInUse, true));
+        funnel.add(funnelStage("Total", fTotal, true));
+        funnel.add(funnelStage("Package in use", fPkg, true));
+        funnel.add(funnelStage("Internet exposure", fExposed, true));
+        funnel.add(funnelStage("Known exploit", fExploit, true));
+        funnel.add(funnelStage("Fix available", fFix, true));
+        funnel.add(funnelStage("NIST critical sev", new StageBands(), false));
+        funnel.add(funnelStage("EPSS-prioritized", fEpss, true));
+        funnel.add(funnelStage("Functions in Use", fFuncs, true));
 
         // Headline runtime narrowing, surfaced separately from the funnel so the tab can lead
         // with "what is actually reachable and running" instead of the installed total.
+        //
+        // Derived from the same per-CVE map as the funnel. These used to come from their own
+        // COUNT(DISTINCT) aggregate, which meant the card and the funnel stage above it could
+        // print different numbers for the same words — "Internet exposure" appears in both.
         Map<String, Object> runtimeExposure = new LinkedHashMap<>();
-        runtimeExposure.put("internetExposed", internetExposed);
+        runtimeExposure.put("internetExposed", fExposed.total());
         runtimeExposure.put("exposedAndInUse", exposedAndInUse);
         runtimeExposure.put("activeCommunication", activeComm);
-        runtimeExposure.put("functionsInUse", functionsInUse);
-        runtimeExposure.put("packageInUse", packageInUse);
+        runtimeExposure.put("functionsInUse", fFuncs.total());
+        runtimeExposure.put("packageInUse", fPkg.total());
         out.put("runtimeExposure", runtimeExposure);
 
         out.put("totalCves", totalCves);
@@ -1992,12 +2070,43 @@ public class XamSecureService {
         return "Other";
     }
 
-    private static Map<String, Object> funnelStage(String label, int value, boolean available) {
+    private static Map<String, Object> funnelStage(String label, StageBands bands, boolean available) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("label", label);
-        m.put("value", value);
+        m.put("value", (int) bands.total());
         m.put("available", available); // false = we can't source it (shown as 0/—)
+        Map<String, Object> byBand = new LinkedHashMap<>();
+        byBand.put("CRITICAL", bands.n[0]);
+        byBand.put("HIGH", bands.n[1]);
+        byBand.put("OTHER", bands.n[2]);
+        m.put("bands", byBand);
         return m;
+    }
+
+    /**
+     * One funnel stage's CVE count split into the three CVSS bands the funnel legend shows.
+     *
+     * The stage total is the sum of its bands by construction, so the stacked segments can never
+     * add up to something other than the number printed above them.
+     */
+    private static final class StageBands {
+        /** Indexed by {@link #bandIndex}: 0 CRITICAL, 1 HIGH, 2 OTHER. */
+        final long[] n = new long[3];
+
+        void add(int band) {
+            n[band]++;
+        }
+
+        long total() {
+            return n[0] + n[1] + n[2];
+        }
+    }
+
+    /** Band slot for a severity, using the same Critical / High / Other split as {@link #sevBucket}. */
+    private static int bandIndex(String severity) {
+        String b = sevBucket(severity);
+        if ("CRITICAL".equals(b)) return 0;
+        return "HIGH".equals(b) ? 1 : 2;
     }
 
     /**
@@ -2268,13 +2377,24 @@ public class XamSecureService {
         try { return Double.parseDouble(s); } catch (NumberFormatException e) { return 0; }
     }
 
-    /** Per-CVE aggregate for the vulnerabilities dashboard. */
+    /**
+     * Per-CVE aggregate for the vulnerabilities dashboard.
+     *
+     * The runtime flags are ORed across a CVE's findings, matching the rule the repository
+     * documents for its own aggregates: a CVE counts as in-use or exposed if ANY of its findings
+     * is, because one reachable instance of the package is enough to make the CVE reachable.
+     */
     private static final class CveAgg {
         String severity;
         String resourceType;
         boolean exploitable;
         double epss;
         Instant firstSeen;
+        boolean packageInUse;
+        boolean internetExposed;
+        boolean functionsInUse;
+        boolean activeCommunication;
+        boolean fixAvailable;
     }
 
     public Page<UpwindPostureFinding> getPosture(Long clientId, String accountId,
@@ -2901,10 +3021,18 @@ public class XamSecureService {
     }
 
     /**
-     * Best-effort STATIC network topology from the inventory catalog — a stand-in for
-     * Upwind's Runtime map (whose live traffic/flow data is not exposed by the API).
-     * Returns the networking asset types and their counts, to render as a hub-and-spoke
-     * of the account's network configuration. No runtime traffic — config inventory only.
+     * Network topology for the account: real nodes and real edges, from configuration.
+     *
+     * This is a CONFIGURATION graph, not Upwind's Runtime map. Every edge is something the cloud
+     * provider declares — a security group's VPC, a network interface's subnet — and none of it
+     * is observed traffic. Upwind's Runtime map comes from eBPF sensor telemetry (direction,
+     * ports, protocol, volume, per-process attribution, a 24h timeline) and no endpoint serves
+     * it: six candidate paths return 401 with no {@code trace-id}, the signature of a route that
+     * does not exist, and none appears in any of Upwind's 84 published operations. The two are
+     * different products and the UI must not imply otherwise.
+     *
+     * {@code nodes} keeps the original sub-category counts so existing consumers do not break;
+     * {@code graph} is the new part.
      */
     public Map<String, Object> getNetworkTopology(Long clientId, String accountId) {
         List<String> ids = resolveAccountIds(clientId, accountId);
@@ -2923,7 +3051,470 @@ public class XamSecureService {
             nodes.sort(Comparator.comparingLong(m -> -((Long) m.get("count"))));
         }
         out.put("nodes", nodes);
+        out.put("graph", buildConfigGraph(clientId, accountId, ids));
         return out;
+    }
+
+    /**
+     * Labels the topology draws, with counts measured for account 605134457560 on 2026-09-07 so
+     * the cost of this walk is on the record: vpc 30, security_group 151, network_interface 64,
+     * ec2_instance 22, route_table 63, network_acl 30, elastic_ip 18, nat_gateway 5, alb 5,
+     * classic_lb 1.
+     *
+     * {@code aws_subnet} is absent on purpose: the label 404s on the schema route and returns
+     * zero from a label search, because Upwind does not model subnets as assets. Subnet nodes are
+     * synthesised below from the {@code subnet_id} network interfaces carry.
+     *
+     * {@code aws_route_table} (63) and {@code aws_network_acl} (30) are also excluded, and that
+     * is a judgement rather than a limitation: neither carries a foreign key, an address, or a
+     * declared edge to anything, so all 93 would render as permanently unconnected dots. In a
+     * graph whose point is showing what reaches what, 93 isolated nodes cost more in clutter than
+     * they add in completeness. They remain in the Catalog, where a flat list is the right shape.
+     */
+    private static final List<String> TOPOLOGY_LABELS = List.of(
+            "aws_vpc", "aws_security_group", "aws_elastic_network_interface", "aws_ec2_instance",
+            "aws_application_load_balancer", "aws_ec2_classic_load_balancer", "aws_nat_gateway",
+            "aws_ec2_elastic_ip");
+
+    /** Per label, per account. The largest label measured needed 2 pages of 100. */
+    private static final int TOPOLOGY_MAX_PER_LABEL = 2000;
+
+    /**
+     * Wall-clock budget for the whole walk.
+     *
+     * Measured 2026-09-07: 13.5s for account 605134457560 (389 assets) and 36.7s for
+     * 598515435126 (1,094 assets, dominated by 574 network interfaces over 6 pages). A first
+     * uncached build for a client owning both is therefore ~50s, which is a long request. It is
+     * survivable because the result is cached for 30 minutes and the tab loads lazily, but if it
+     * becomes a complaint the fix is not a bigger timeout — it is moving this into
+     * {@link UpwindSyncService}, exactly as the API-security walk was moved when it blocked its
+     * tab for ~20s on every cache miss.
+     */
+    private static final long TOPOLOGY_BUDGET_MS = 60_000L;
+
+    /** Configuration changes slowly, and the inventory behind it only moves on the 6h sync. */
+    private static final int TOPOLOGY_CACHE_MINUTES = 30;
+
+    /**
+     * A partial graph is still cached, but briefly. Not caching it at all means every request
+     * re-runs a walk that already proved too slow, which is the worse failure; caching it for the
+     * full TTL would leave a client looking at a truncated estate for half an hour.
+     */
+    private static final int TOPOLOGY_PARTIAL_CACHE_MINUTES = 5;
+
+    /**
+     * Builds the config graph from the relationship search — the only inventory endpoint that
+     * returns the foreign keys an edge needs. Measured coverage for one account: {@code vpc_id}
+     * on 215 assets (151 security groups + 64 network interfaces), {@code subnet_id} on 64,
+     * {@code cidr_block} on 30 VPCs.
+     *
+     * Never caches an empty graph: a cold start before credentials resolve would otherwise pin
+     * the tab to "no data" for the whole TTL, the trap {@code getComponents} documents.
+     */
+    private Map<String, Object> buildConfigGraph(Long clientId, String accountId,
+                                                 List<String> ids) {
+        if (ids.isEmpty() || !apiClient.isConfigured()) return emptyGraph();
+
+        String cacheKey = "xamsecure:topology:" + clientId + ":"
+                + (accountId == null ? "all" : accountId);
+        Optional<Map<String, Object>> cached =
+                redisCacheService.get(cacheKey, new TypeReference<Map<String, Object>>() {});
+        if (cached.isPresent()) return cached.get();
+
+        long deadline = System.currentTimeMillis() + TOPOLOGY_BUDGET_MS;
+        boolean truncated = false;
+
+        // Nodes keyed by Upwind id — both inventory endpoints share the uwr- id space.
+        Map<String, Map<String, Object>> nodesById = new LinkedHashMap<>();
+        // Canonical resource id -> node id, for resolving vpc_id / subnet_id references.
+        Map<String, String> byResourceId = new HashMap<>();
+        // Deferred until every node exists, since a reference can point at a later label.
+        List<String[]> pending = new ArrayList<>();   // {sourceNodeId, rawTargetId, kind}
+        // Private address -> network-interface node, and the assets wanting to attach to one.
+        Map<String, String> addressIndex = new HashMap<>();
+        List<String[]> addressRefs = new ArrayList<>();   // {sourceNodeId, address}
+
+        outer:
+        for (String acct : ids) {
+            for (String label : TOPOLOGY_LABELS) {
+                if (System.currentTimeMillis() > deadline) {
+                    truncated = true;
+                    log.warn("[Upwind] topology walk hit its {}ms budget for client {} — "
+                                    + "{} node(s) built before stopping at {}/{}",
+                            TOPOLOGY_BUDGET_MS, clientId, nodesById.size(), acct, label);
+                    break outer;
+                }
+                for (JsonNode a : apiClient.searchAssetsByLabel(label, acct,
+                        TOPOLOGY_MAX_PER_LABEL)) {
+                    addTopologyNode(a, acct, nodesById, byResourceId, pending,
+                            addressIndex, addressRefs);
+                }
+            }
+        }
+
+        if (nodesById.isEmpty()) return emptyGraph();
+
+        List<Map<String, Object>> edges = resolveTopologyEdges(pending, nodesById, byResourceId);
+        edges.addAll(attachByAddress(addressRefs, addressIndex));
+
+        Map<String, Object> graph = new LinkedHashMap<>();
+        graph.put("nodes", new ArrayList<>(nodesById.values()));
+        graph.put("edges", edges);
+        graph.put("truncated", truncated);
+        graph.put("source", "configuration");
+        redisCacheService.put(cacheKey, graph, truncated
+                ? TOPOLOGY_PARTIAL_CACHE_MINUTES : TOPOLOGY_CACHE_MINUTES);
+        return graph;
+    }
+
+    /**
+     * Attaches instances and elastic IPs to the network interface that carries their address.
+     *
+     * Without this the graph has no workloads in it. Instances and load balancers carry no
+     * {@code vpc_id} or {@code subnet_id}, so a graph built only from foreign keys leaves 100% of
+     * instances unconnected — measured, before this join: all 22 instances in one account and all
+     * 132 in the other were orphans, and the result was a picture of plumbing with nothing
+     * running in it.
+     *
+     * Network interfaces DO carry subnet and VPC, so attaching an instance to its interface
+     * places it transitively, for no extra API calls. Match rate measured 2026-09-07: 19/22
+     * instances (86%) and 131/132 (99%); elastic IPs 13/18 and 54/55.
+     *
+     * The join key is awkward because the two sides do not share a field: interfaces expose
+     * {@code private_dns_name} and no IP at all (0 of 64 and 0 of 574 carry one), while instances
+     * and elastic IPs expose {@code private_ip}. AWS encodes the address in the hostname, so the
+     * IP is recovered from it — see {@link #privateDnsToIp}.
+     */
+    private static List<Map<String, Object>> attachByAddress(List<String[]> addressRefs,
+                                                             Map<String, String> addressIndex) {
+        Set<String> seen = new HashSet<>();
+        List<Map<String, Object>> edges = new ArrayList<>();
+        for (String[] ref : addressRefs) {
+            String targetNodeId = addressIndex.get(ref[1]);
+            if (targetNodeId == null || targetNodeId.equals(ref[0])) continue;
+            if (!seen.add(ref[0] + ">" + targetNodeId)) continue;
+            Map<String, Object> e = new LinkedHashMap<>();
+            e.put("source", ref[0]);
+            e.put("target", targetNodeId);
+            e.put("kind", "attached-to");
+            edges.add(e);
+        }
+        return edges;
+    }
+
+    /**
+     * Recovers the IPv4 address AWS encodes in a private DNS name, e.g.
+     * {@code ip-10-30-21-26.ap-south-1.compute.internal} to {@code 10.30.21.26}.
+     *
+     * This is the only way to join a network interface to an instance here: interfaces carry the
+     * hostname and never the address, instances carry both.
+     */
+    private static String privateDnsToIp(String dns) {
+        if (dns == null || dns.isBlank()) return null;
+        java.util.regex.Matcher m = PRIVATE_DNS_IP.matcher(dns);
+        return m.find()
+                ? m.group(1) + "." + m.group(2) + "." + m.group(3) + "." + m.group(4)
+                : null;
+    }
+
+    private static final java.util.regex.Pattern PRIVATE_DNS_IP =
+            java.util.regex.Pattern.compile("^ip-(\\d{1,3})-(\\d{1,3})-(\\d{1,3})-(\\d{1,3})\\.");
+
+    private static Map<String, Object> emptyGraph() {
+        Map<String, Object> empty = new LinkedHashMap<>();
+        empty.put("nodes", List.of());
+        empty.put("edges", List.of());
+        empty.put("truncated", false);
+        empty.put("source", "configuration");
+        return empty;
+    }
+
+    /** Turns one relationship-search asset into a graph node, recording its FK references. */
+    private static void addTopologyNode(JsonNode a, String acct,
+                                       Map<String, Map<String, Object>> nodesById,
+                                       Map<String, String> byResourceId,
+                                       List<String[]> pending,
+                                       Map<String, String> addressIndex,
+                                       List<String[]> addressRefs) {
+        String nodeId = a.path("id").asText(null);
+        if (nodeId == null || nodeId.isBlank()) return;
+        String resourceId = UpwindAssetIds.canonicalResourceId(
+                a.path("cloud_resource_id").asText(null));
+        String name = a.path("name").asText(null);
+
+        Map<String, Object> n = new LinkedHashMap<>();
+        n.put("id", nodeId);
+        n.put("type", UpwindAssetIds.assetType(a));
+        n.put("name", name != null && !name.isBlank() ? name
+                : (resourceId != null ? resourceId : nodeId));
+        n.put("category", UpwindAssetIds.category(a));
+        n.put("subCategory", UpwindAssetIds.subCategory(a));
+        n.put("region", a.path("region").asText(null));
+        n.put("cloudAccountId", acct);
+        n.put("resourceId", resourceId);
+        n.put("cidrBlock", a.path("cidr_block").asText(null));
+        // The only network_risk field carrying real values. The six uw_risk_network_* timestamps
+        // are present on ~36 assets but zero on every one of them, so they are deliberately not
+        // read here — the same conclusion V20260811_1 reached about the catalog's equivalents.
+        String exposure = a.path("uw_risk_network_internet_exposure_type").asText(null);
+        n.put("exposure", exposure != null && !exposure.isBlank()
+                && !"none".equalsIgnoreCase(exposure) ? exposure : null);
+        n.put("synthetic", false);
+        nodesById.put(nodeId, n);
+        if (resourceId != null) byResourceId.putIfAbsent(resourceId, nodeId);
+
+        String vpcId = a.path("vpc_id").asText(null);
+        if (vpcId != null && !vpcId.isBlank()) {
+            pending.add(new String[]{nodeId, vpcId, "in-vpc"});
+        }
+        String subnetId = a.path("subnet_id").asText(null);
+        if (subnetId != null && !subnetId.isBlank()) {
+            pending.add(new String[]{nodeId, subnetId, "in-subnet"});
+            // Upwind does not model subnets, so the subnet node is synthesised from this
+            // reference and has no parent of its own. Without the edge below every VPC renders
+            // "0 subnet(s)" while still counting the resources inside those subnets, because the
+            // subnet bucket is built and then attached to nothing.
+            //
+            // An asset sitting in both a subnet and a VPC tells us the containment, and in AWS a
+            // subnet belongs to exactly one VPC, so this is a fact rather than a guess. Many
+            // assets in the same subnet each assert it; resolveTopologyEdges dedupes to one edge.
+            if (vpcId != null && !vpcId.isBlank()) {
+                pending.add(new String[]{subnetId, vpcId, "subnet-in-vpc"});
+            }
+        }
+
+        // Address bookkeeping for attachByAddress. A network interface is a join TARGET (it owns
+        // the subnet and VPC); everything else with a private address is a candidate SOURCE.
+        String privateDns = a.path("private_dns_name").asText(null);
+        String privateIp = a.path("private_ip").asText(null);
+        if ("aws_elastic_network_interface".equals(n.get("type"))) {
+            if (privateDns != null && !privateDns.isBlank()) {
+                addressIndex.putIfAbsent(privateDns, nodeId);
+                String derived = privateDnsToIp(privateDns);
+                if (derived != null) addressIndex.putIfAbsent(derived, nodeId);
+            }
+            if (privateIp != null && !privateIp.isBlank()) {
+                addressIndex.putIfAbsent(privateIp, nodeId);
+            }
+        } else {
+            if (privateDns != null && !privateDns.isBlank()) {
+                addressRefs.add(new String[]{nodeId, privateDns});
+            }
+            if (privateIp != null && !privateIp.isBlank()) {
+                addressRefs.add(new String[]{nodeId, privateIp});
+            }
+        }
+    }
+
+    /**
+     * Resolves deferred FK references into edges.
+     *
+     * A target we never saw becomes a SYNTHETIC node rather than a dropped edge. Two real cases
+     * produce one: Upwind does not model subnets at all, and a VPC in another account or region
+     * will not be in our node set. Discarding those would draw the estate as smaller and
+     * better-connected than it is, so they are added and flagged instead.
+     *
+     * {@code subnet-in-vpc} is the one kind whose SOURCE is a resource id rather than a node id,
+     * because the subnet it names is itself usually synthetic, so both ends may need creating. It
+     * is emitted as a plain {@code in-vpc} edge.
+     */
+    private static List<Map<String, Object>> resolveTopologyEdges(
+            List<String[]> pending, Map<String, Map<String, Object>> nodesById,
+            Map<String, String> byResourceId) {
+        Set<String> seen = new HashSet<>();
+        List<Map<String, Object>> edges = new ArrayList<>();
+        for (String[] p : pending) {
+            String kind = p[2];
+            boolean subnetToVpc = "subnet-in-vpc".equals(kind);
+            boolean isSubnet = "in-subnet".equals(kind);
+            String targetKey = UpwindAssetIds.canonicalResourceId(p[1]);
+            if (targetKey == null) continue;
+
+            String sourceNodeId;
+            if (subnetToVpc) {
+                String sourceKey = UpwindAssetIds.canonicalResourceId(p[0]);
+                if (sourceKey == null) continue;
+                sourceNodeId = topologyContainerNode(sourceKey, true, nodesById, byResourceId);
+                kind = "in-vpc";
+            } else {
+                sourceNodeId = p[0];
+            }
+
+            String targetNodeId = topologyContainerNode(targetKey, isSubnet, nodesById, byResourceId);
+            if (targetNodeId.equals(sourceNodeId)) continue;
+            if (seen.add(sourceNodeId + ">" + targetNodeId + ">" + kind)) {
+                Map<String, Object> e = new LinkedHashMap<>();
+                e.put("source", sourceNodeId);
+                e.put("target", targetNodeId);
+                e.put("kind", kind);
+                edges.add(e);
+            }
+        }
+        return edges;
+    }
+
+    /**
+     * Node id for a container referenced only by cloud resource id, synthesising a placeholder if
+     * we never saw it as an asset.
+     */
+    private static String topologyContainerNode(String resourceKey, boolean subnet,
+                                                Map<String, Map<String, Object>> nodesById,
+                                                Map<String, String> byResourceId) {
+        String existing = byResourceId.get(resourceKey);
+        if (existing != null) return existing;
+        String id = (subnet ? "subnet:" : "vpc:") + resourceKey;
+        nodesById.computeIfAbsent(id, k -> {
+            Map<String, Object> n = new LinkedHashMap<>();
+            n.put("id", k);
+            n.put("type", subnet ? "aws_subnet" : "aws_vpc");
+            n.put("name", resourceKey);
+            n.put("category", "networking");
+            n.put("subCategory", subnet ? "subnet" : "virtual_private_cloud");
+            n.put("resourceId", resourceKey);
+            n.put("exposure", null);
+            n.put("synthetic", true);
+            return n;
+        });
+        return id;
+    }
+
+    /** Asset category holding the things a sensor actually protects. */
+    private static final String WORKLOAD_CATEGORY = "compute_platform";
+
+    /**
+     * Sensor coverage per account — the first question after onboarding, which is "am I actually
+     * protected?".
+     *
+     * Answered entirely from synced inventory: no extra upstream call, and no sensor API exists to
+     * ask directly. {@code protected_by} on the asset catalog is the only signal for this, and it
+     * carries real values (measured 2026-09-07: 2,325 sensor-protected assets on one account,
+     * ZERO on another that had been connected for weeks — an account can look healthy and be
+     * running no sensor at all, which is exactly what this view is for).
+     *
+     * Coverage is computed over WORKLOADS, not all assets. An S3 bucket or an IAM role has no
+     * sensor to run, so counting them dilutes the number towards meaningless: the same account
+     * reads 42% covered across all assets and 84% across workloads, and only the second answers
+     * the question. Non-workload assets are reported separately rather than folded in.
+     *
+     * The unknown bucket is kept distinct from the unprotected one throughout. A null
+     * {@code protected_by} means the catalog gave no verdict; an explicit {@code none} means it
+     * gave one. Collapsing them would overstate how much we know.
+     */
+    public Map<String, Object> getSensorCoverage(Long clientId, String accountId) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        List<String> ids = resolveAccountIds(clientId, accountId);
+        out.put("accounts", List.of());
+        if (ids.isEmpty()) return out;
+
+        // account -> subCategory -> mechanism -> count
+        Map<String, Map<String, Map<String, Long>>> tree = new LinkedHashMap<>();
+        for (Object[] r : inventoryRepo.coverageBreakdown(ids, WORKLOAD_CATEGORY)) {
+            String acct = (String) r[0];
+            String sub = r[1] == null ? "other" : (String) r[1];
+            String mech = normaliseMechanism((String) r[2]);
+            long count = r[3] == null ? 0L : ((Number) r[3]).longValue();
+            tree.computeIfAbsent(acct, k -> new LinkedHashMap<>())
+                    .computeIfAbsent(sub, k -> new LinkedHashMap<>())
+                    .merge(mech, count, Long::sum);
+        }
+
+        // Everything outside compute_platform, so the UI can say what is simply not sensor-eligible.
+        Map<String, Long> nonWorkload = new LinkedHashMap<>();
+        for (Object[] r : inventoryRepo.coverageBreakdown(ids, null)) {
+            String acct = (String) r[0];
+            long count = r[3] == null ? 0L : ((Number) r[3]).longValue();
+            nonWorkload.merge(acct, count, Long::sum);
+        }
+
+        Map<String, String> names = cloudAccountRepository.findByClientId(clientId).stream()
+                .filter(a -> a.getProviderAccountId() != null)
+                .collect(Collectors.toMap(CloudAccount::getProviderAccountId,
+                        a -> a.getAccountName() == null ? a.getProviderAccountId() : a.getAccountName(),
+                        (a, b) -> a));
+
+        List<Map<String, Object>> accounts = new ArrayList<>();
+        for (String acct : ids) {
+            Map<String, Map<String, Long>> bySub = tree.getOrDefault(acct, Map.of());
+            long sensor = 0, scanner = 0, unprotected = 0, unknown = 0;
+            List<Map<String, Object>> workloadTypes = new ArrayList<>();
+
+            for (Map.Entry<String, Map<String, Long>> e : bySub.entrySet()) {
+                Map<String, Long> m = e.getValue();
+                long s = m.getOrDefault("sensor", 0L);
+                long c = m.getOrDefault("cloud_scanner", 0L);
+                long u = m.getOrDefault("unprotected", 0L);
+                long k = m.getOrDefault("unknown", 0L);
+                sensor += s; scanner += c; unprotected += u; unknown += k;
+
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("subCategory", e.getKey());
+                row.put("total", s + c + u + k);
+                row.put("sensor", s);
+                row.put("cloudScanner", c);
+                row.put("unprotected", u);
+                row.put("unknown", k);
+                workloadTypes.add(row);
+            }
+            // Least covered first: that is the row a reader needs to act on.
+            workloadTypes.sort(Comparator.comparingLong(
+                    (Map<String, Object> m) -> (Long) m.get("sensor") - (Long) m.get("total")));
+
+            long workloads = sensor + scanner + unprotected + unknown;
+            long totalAssets = nonWorkload.getOrDefault(acct, 0L);
+
+            Map<String, Object> a = new LinkedHashMap<>();
+            a.put("cloudAccountId", acct);
+            a.put("accountName", names.getOrDefault(acct, acct));
+            a.put("workloads", workloads);
+            a.put("sensorProtected", sensor);
+            a.put("cloudScannerOnly", scanner);
+            a.put("unprotected", unprotected);
+            a.put("unknown", unknown);
+            a.put("totalAssets", totalAssets);
+            a.put("nonWorkloadAssets", Math.max(0, totalAssets - workloads));
+            // Percentage over workloads only, and null rather than 0 when there is nothing to
+            // measure — a 0% badge on an account with no workloads reads as a failure.
+            a.put("coveragePercent", workloads == 0 ? null
+                    : Math.round((sensor * 1000.0) / workloads) / 10.0);
+            a.put("status", coverageStatus(workloads, sensor));
+            a.put("workloadTypes", workloadTypes);
+            accounts.add(a);
+        }
+        // Worst coverage first.
+        accounts.sort(Comparator.comparingDouble(m -> {
+            Object p = m.get("coveragePercent");
+            return p == null ? Double.MAX_VALUE : (Double) p;
+        }));
+        out.put("accounts", accounts);
+        return out;
+    }
+
+    /**
+     * Collapses the catalog's {@code protected_by} into the four states a reader can act on.
+     *
+     * {@code null} and {@code none} are deliberately NOT merged: the first is an absent verdict,
+     * the second an explicit one.
+     */
+    private static String normaliseMechanism(String raw) {
+        if (raw == null || raw.isBlank()) return "unknown";
+        String v = raw.trim().toLowerCase();
+        if (v.contains("sensor") || v.contains("agent")) return "sensor";
+        if (v.contains("scanner")) return "cloud_scanner";
+        if ("none".equals(v)) return "unprotected";
+        return "unknown";
+    }
+
+    /**
+     * Coverage verdict. Thresholds are deliberately blunt — a reader needs to know whether to act,
+     * and a precise percentage is already on the row.
+     */
+    private static String coverageStatus(long workloads, long sensor) {
+        if (workloads == 0) return "NO_WORKLOADS";
+        if (sensor == 0) return "NO_SENSOR";
+        double pct = (sensor * 100.0) / workloads;
+        if (pct >= 90) return "FULL";
+        if (pct >= 50) return "PARTIAL";
+        return "MINIMAL";
     }
 
     public Page<UpwindInventoryAsset> getInventory(Long clientId, String accountId,

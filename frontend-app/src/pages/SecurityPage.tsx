@@ -11,9 +11,14 @@ import {
   SecurityFindingsSection,
   SecurityProwlerBanner,
   SecurityEmptyState,
+  IdentityAccessTab,
 } from '../components/Security';
+import { AriaTabGroup } from '../components/ui';
+import { useTabState } from '../hooks/useTabState';
 
 const SEVERITY_LEVELS: SeverityLevel[] = ['Critical', 'High', 'Medium', 'Low'];
+
+type ActiveTab = 'findings' | 'identity';
 
 const SecurityPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -37,8 +42,18 @@ const SecurityPage: React.FC = () => {
   } = useSecurityData({ selectedAccountId });
 
   const { setActions, clearActions } = useTopbar();
+  const [activeTab, setActiveTab] = useTabState<ActiveTab>('findings');
 
   useEffect(() => {
+    // Scoped to the findings tab on purpose. Both actions operate on the compliance scan —
+    // "Export Report" writes findings to Excel and "Refresh Scan" re-runs Prowler — so on the
+    // Identity tab they would claim to refresh data they do not touch. The Identity canvas
+    // carries its own refresh control instead.
+    if (activeTab !== 'findings') {
+      clearActions();
+      return;
+    }
+
     setActions(
       <div className="flex items-center gap-3">
         {prowlerStatus.status === 'RUNNING' && (
@@ -66,7 +81,12 @@ const SecurityPage: React.FC = () => {
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, isRefreshing, isExporting, prowlerStatus.status, exportData, loadFindings]);
+  }, [setActions, clearActions, activeTab, isRefreshing, isExporting, prowlerStatus.status, exportData, loadFindings]);
+
+  const tabs = [
+    { id: 'findings', label: 'Findings', icon: 'mdi:shield-search' },
+    { id: 'identity', label: 'Identity & Access', icon: 'mdi:account-key-outline' },
+  ];
 
   return (
     <main className="flex-1 flex flex-col min-h-screen bg-white">
@@ -82,7 +102,29 @@ const SecurityPage: React.FC = () => {
           </div>
         )}
 
+        {/* Neutral variant: this page's colour budget is spent on severity, so an indigo
+            accent here would read as a fifth status rather than as navigation. */}
         {selectedAccountId && (
+          <AriaTabGroup
+            variant="neutral"
+            tabs={tabs}
+            selectedKey={activeTab}
+            onSelectionChange={(key) => setActiveTab(key as ActiveTab)}
+          />
+        )}
+
+        {selectedAccountId && activeTab === 'identity' && (
+          <motion.div
+            key="identity"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+          >
+            <IdentityAccessTab />
+          </motion.div>
+        )}
+
+        {selectedAccountId && activeTab === 'findings' && (
           <SecurityKPICards
             totalFindings={filteredFindings.length}
             severityCounts={severityCounts}
@@ -90,7 +132,7 @@ const SecurityPage: React.FC = () => {
           />
         )}
 
-        {selectedAccountId && !isLoading && filteredFindings.length > 0 && (
+        {selectedAccountId && activeTab === 'findings' && !isLoading && filteredFindings.length > 0 && (
           <SecurityComplianceFilter
             selectedCompliance={selectedCompliance}
             complianceFrameworks={complianceFrameworks}
@@ -99,7 +141,7 @@ const SecurityPage: React.FC = () => {
         )}
 
         <AnimatePresence mode="wait">
-          {selectedAccountId && isLoading && (
+          {selectedAccountId && activeTab === 'findings' && isLoading && (
             <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
               <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 animate-pulse">
                 <div className="h-4 bg-[rgba(0,0,0,0.06)] rounded w-40 mb-4" />
@@ -110,13 +152,13 @@ const SecurityPage: React.FC = () => {
             </motion.div>
           )}
 
-          {selectedAccountId && !isLoading && filteredFindings.length === 0 && (
+          {selectedAccountId && activeTab === 'findings' && !isLoading && filteredFindings.length === 0 && (
             <motion.div key="empty" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
               <SecurityEmptyState onRefresh={() => loadFindings(true)} />
             </motion.div>
           )}
 
-          {selectedAccountId && !isLoading && filteredFindings.length > 0 && (
+          {selectedAccountId && activeTab === 'findings' && !isLoading && filteredFindings.length > 0 && (
             <motion.div key="findings" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}>
               <div className="space-y-4">
                 {SEVERITY_LEVELS.map((severity, idx) => (

@@ -1,0 +1,37 @@
+{
+  "tfType": "aws_vpc",
+  "displayName": "VPC",
+  "canvasType": "VPC",
+  "idAttribute": "id",
+  "attributes": [
+    {
+      "name": "cidr_block",
+      "kind": "CIDR",
+      "required": true,
+      "defaultValue": "10.0.0.0/16",
+      "description": "Address range for the whole VPC. Subnets must fall inside it."
+    },
+    {
+      "name": "enable_dns_support",
+      "kind": "BOOL",
+      "required": false,
+      "defaultValue": "true",
+      "description": "Resolve DNS through the Amazon-provided resolver."
+    },
+    {
+      "name": "enable_dns_hostnames",
+      "kind": "BOOL",
+      "required": false,
+      "defaultValue": "true",
+      "description": "Assign DNS hostnames to instances. Required for private hosted zones and for most managed services to resolve."
+    },
+    {
+      "name": "tags",
+      "kind": "TAGS",
+      "required": false,
+      "description": "Tags applied to the VPC."
+    }
+  ],
+  "references": [],
+  "outputs": ["id", "cidr_block"]
+}

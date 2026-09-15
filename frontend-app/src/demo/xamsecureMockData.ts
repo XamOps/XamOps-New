@@ -23,6 +23,7 @@ import { SEVERITY_ORDER } from '../types/xamsecure';
 import type {
   ApiEndpoint, AttackSurfaceSummary, ComplianceFramework, ConfigurationsDashboard,
   CveGroupRow, CveResourceFinding, InventoryAsset, InventoryCategory, InventoryRisk, IssueDetail,
+  ConfigGraph, TopologyNode, TopologyEdge, ThreatStoryDetail, StoryDetection, SensorCoverage,
   IssueSummary, NetworkTopology, NetworkNode, OnboardingAccount, PageResp, PostureFinding,
   SbomComponent, Severity, ThreatDetection, ThreatPolicy, ThreatStoriesSummary, ThreatOverview,
   CodeScan, CodeScansResponse, CodeScanFindings, CodeCve,
@@ -419,12 +420,90 @@ export const demoThreatStories: ThreatStoriesSummary = {
   ],
 };
 
+// ─── /api/xamsecure/stories/{id} ─────────────────────────────────────────────
+
+/**
+ * One story in full, derived from the list above so the panel always agrees with the row that
+ * opened it.
+ *
+ * This exists because the demo router matched the list route for detail URLs too — every story
+ * opened as "Story not available", since the list payload has no `id` and the loader treats a
+ * missing id as "story withheld for tenancy". Detail must be routed before the list.
+ */
+export const demoStoryDetail = (storyId: string): ThreatStoryDetail | null => {
+  const s = demoThreatStories.stories.find((x) => x.id === storyId);
+  if (!s) return null;
+
+  const seed = Number((s.id ?? 'story-01').replace(/\D/g, '')) || 1;
+  const total = s.relatedEvents ?? 1;
+  // Cap the rendered detections: a 40-detection story does not need 40 mock rows to read well.
+  const shown = Math.max(1, Math.min(s.resolvedCount ?? total, 6));
+  const tactics = at(
+    [['Execution', 'Persistence'], ['Credential Access', 'Command and Control'],
+     ['Privilege Escalation'], ['Lateral Movement', 'Discovery'], ['Discovery'],
+     ['Defense Evasion']], seed);
+  const category = at(['PROCESS', 'CLOUD_TRAIL', 'FILE_EVENTS', 'CLOUD_LOGS'], seed);
+
+  const detections: StoryDetection[] = Array.from({ length: shown }, (_, i) => ({
+    id: `${s.id}-det-${i + 1}`,
+    title: at([
+      'Cryptominer process started in a container',
+      'Outbound connection to a known C2 endpoint',
+      'Shell spawned inside a running container',
+      'Repeated failed SSH authentication',
+      'Enumeration of IAM permissions',
+      'Binary written to a read-only path',
+    ], seed + i),
+    severity: i === 0 ? s.severity : at(['HIGH', 'MEDIUM', 'LOW'] as const, seed + i),
+    status: s.status,
+    category,
+    resourceId: `arn:aws:ec2:${at(REGIONS, seed)}:${ACCOUNT_IDS[0]}:instance/i-0demo${seed}${i}`,
+    resourceName: s.resourceName,
+    resourceType: 'AWS_EC2_INSTANCE',
+    cloudAccountId: ACCOUNT_IDS[0],
+    mitreTactics: tactics,
+    occurrenceCount: 1 + ((seed + i) % 5),
+    firstSeenTime: s.createTime,
+    lastSeenTime: s.updateTime,
+  }));
+
+  return {
+    id: s.id,
+    title: s.title,
+    severity: s.severity,
+    status: s.status,
+    createTime: s.createTime,
+    updateTime: s.updateTime,
+    description:
+      `A sequence of ${total} correlated detections on **${s.resourceName}**, beginning with `
+      + `${detections[0].title?.toLowerCase()}. Activity was observed between `
+      + `${s.createTime?.slice(0, 10)} and ${s.updateTime?.slice(0, 10)}.\n\n`
+      + 'Review the affected resource, confirm whether the activity was expected, and rotate any '
+      + 'credentials the workload can reach.',
+    detectionCount: total,
+    resolvedCount: s.resolvedCount ?? total,
+    detections,
+    worstSeverity: s.severity,
+    firstSeenTime: s.createTime,
+    lastSeenTime: s.updateTime,
+    mitreTactics: tactics.map((t) => ({ tactic: t, count: 1 + (seed % 3) })),
+    categories: [{ category, count: shown }],
+    resources: [{
+      resourceId: detections[0].resourceId,
+      resourceName: s.resourceName,
+      resourceType: 'AWS_EC2_INSTANCE',
+      cloudProvider: 'AWS',
+      cloudAccountId: ACCOUNT_IDS[0],
+      detectionCount: shown,
+    }],
+  };
+};
+
 // ─── /api/xamsecure/threats/overview ────────────────────────────────────────────
 
 /**
- * The Events stage is deliberately unavailable here too. Upwind's funnel starts from raw
- * sensor events; we sync detections, so the demo must not invent a number the real API
- * cannot return.
+ * The Events stage is deliberately unavailable here too: the funnel starts from raw event data
+ * we do not hold, so the demo must not invent a number the real backend cannot return.
  */
 export const demoThreatOverview: ThreatOverview = {
   detectionCount: 214,
@@ -686,13 +765,27 @@ const vulnTrends = buildVulnTrends();
  * Each funnel stage is a subset of the one before it, so the ribbon narrows left
  * to right. Clamping here rather than hand-tuning the numbers keeps the shape
  * correct even when the underlying counts move.
+ *
+ * Stages also carry the CVSS bands the ribbon is segmented by, split on the demo's own severity
+ * mix. OTHER absorbs the rounding so the bands sum to the stage total exactly, which is the
+ * invariant the real backend guarantees and the chart relies on.
  */
 const narrowing = (stages: ReadonlyArray<readonly [string, number]>) => {
+  const sevTotal = Object.values(cveSeverityCounts).reduce((a, b) => a + b, 0) || 1;
+  const pCritical = (cveSeverityCounts.CRITICAL ?? 0) / sevTotal;
+  const pHigh = (cveSeverityCounts.HIGH ?? 0) / sevTotal;
   let ceiling = Number.POSITIVE_INFINITY;
   return stages.map(([label, value]) => {
     const clamped = Math.min(value, ceiling);
     ceiling = clamped;
-    return { label, value: clamped, available: true };
+    const CRITICAL = Math.min(clamped, Math.round(clamped * pCritical));
+    const HIGH = Math.min(clamped - CRITICAL, Math.round(clamped * pHigh));
+    return {
+      label,
+      value: clamped,
+      available: true,
+      bands: { CRITICAL, HIGH, OTHER: clamped - CRITICAL - HIGH },
+    };
   });
 };
 
@@ -921,10 +1014,168 @@ const networkNodes: NetworkNode[] = Object.entries(
   .map(([subCategory, count]) => ({ subCategory, count }))
   .sort((a, b) => b.count - a.count);
 
+/**
+ * Demo configuration graph, shaped like the real one: VPCs holding subnets, subnets holding
+ * network interfaces, instances attached to interfaces, security groups sitting in the VPC with
+ * no subnet, and a couple of load balancers that cannot be placed.
+ *
+ * Proportions follow the live measurement (97% of nodes connected, load balancers and NAT
+ * gateways the honest orphans) so demo mode does not imply a cleaner topology than production.
+ */
+const buildDemoGraph = (): ConfigGraph => {
+  const nodes: TopologyNode[] = [];
+  const edges: TopologyEdge[] = [];
+  const vpcCount = 3;
+
+  for (let v = 0; v < vpcCount; v++) {
+    const vpcId = `uwr-demo-vpc-${v}`;
+    nodes.push({
+      id: vpcId, type: 'aws_vpc', name: `${['prod', 'staging', 'sandbox'][v]}-vpc`,
+      category: 'networking', subCategory: 'virtual_private_cloud',
+      region: at(REGIONS, v), cloudAccountId: ACCOUNT_IDS[0],
+      resourceId: `vpc-0demo${v}`, cidrBlock: `10.${v}.0.0/16`,
+      exposure: null, synthetic: false,
+    });
+
+    // Security groups: in the VPC, never in a subnet — matches the real payload.
+    for (let s = 0; s < 3 - v; s++) {
+      const sgId = `uwr-demo-sg-${v}-${s}`;
+      nodes.push({
+        id: sgId, type: 'aws_security_group', name: `${['web', 'app', 'data'][s]}-sg-${v}`,
+        category: 'networking', subCategory: 'security_group', region: at(REGIONS, v),
+        cloudAccountId: ACCOUNT_IDS[0], resourceId: `sg-0demo${v}${s}`,
+        exposure: v === 0 && s === 0 ? 'wide' : null, synthetic: false,
+      });
+      edges.push({ source: sgId, target: vpcId, kind: 'in-vpc' });
+    }
+
+    for (let sn = 0; sn < 2; sn++) {
+      // Synthetic: Upwind does not model subnets as assets.
+      const subnetId = `subnet:subnet-0demo${v}${sn}`;
+      nodes.push({
+        id: subnetId, type: 'aws_subnet', name: `subnet-0demo${v}${sn}`,
+        category: 'networking', subCategory: 'subnet',
+        resourceId: `subnet-0demo${v}${sn}`, exposure: null, synthetic: true,
+      });
+      edges.push({ source: subnetId, target: vpcId, kind: 'in-vpc' });
+
+      for (let i = 0; i < 3; i++) {
+        const eniId = `uwr-demo-eni-${v}-${sn}-${i}`;
+        const instId = `uwr-demo-i-${v}-${sn}-${i}`;
+        nodes.push({
+          id: eniId, type: 'aws_elastic_network_interface',
+          name: `eni-0demo${v}${sn}${i}`, category: 'networking',
+          subCategory: 'virtual_private_cloud', region: at(REGIONS, v),
+          cloudAccountId: ACCOUNT_IDS[0], resourceId: `eni-0demo${v}${sn}${i}`,
+          exposure: null, synthetic: false,
+        });
+        edges.push({ source: eniId, target: subnetId, kind: 'in-subnet' });
+        edges.push({ source: eniId, target: vpcId, kind: 'in-vpc' });
+
+        nodes.push({
+          id: instId, type: 'aws_ec2_instance',
+          name: `${['api', 'worker', 'db'][i]}-${v}${sn}`, category: 'compute_platform',
+          subCategory: 'virtual_machine', region: at(REGIONS, v),
+          cloudAccountId: ACCOUNT_IDS[0], resourceId: `i-0demo${v}${sn}${i}`,
+          exposure: v === 0 && i === 0 ? 'wide' : null, synthetic: false,
+        });
+        edges.push({ source: instId, target: eniId, kind: 'attached-to' });
+      }
+    }
+  }
+
+  // Unplaceable: no VPC, subnet or address is returned for these upstream.
+  nodes.push({
+    id: 'uwr-demo-alb-0', type: 'aws_application_load_balancer', name: 'public-alb',
+    category: 'networking', subCategory: 'load_balancer', region: at(REGIONS, 0),
+    cloudAccountId: ACCOUNT_IDS[0], resourceId: 'a1b2c3d4', exposure: 'wide',
+    synthetic: false,
+  });
+  nodes.push({
+    id: 'uwr-demo-nat-0', type: 'aws_nat_gateway', name: 'prod-nat',
+    category: 'networking', subCategory: 'internet_gateway', region: at(REGIONS, 0),
+    cloudAccountId: ACCOUNT_IDS[0], resourceId: 'nat-0demo', exposure: null,
+    synthetic: false,
+  });
+
+  return { nodes, edges, truncated: false, source: 'configuration' };
+};
+
+// ─── /api/xamsecure/sensor-coverage ──────────────────────────────────────────
+
+/**
+ * Runtime coverage per account.
+ *
+ * Deliberately not all-green. One account is fully covered, one is partial, and one is connected
+ * with no sensor at all — that last state is the whole reason the panel exists, and it is real:
+ * measured on production, an account connected for weeks reported 1,796 assets and zero sensors.
+ * A demo that shows only healthy accounts would hide the case a customer most needs to see.
+ */
+export const demoSensorCoverage: SensorCoverage = {
+  accounts: [
+    {
+      cloudAccountId: ACCOUNT_IDS[2],
+      accountName: 'sandbox',
+      workloads: 24,
+      sensorProtected: 0,
+      cloudScannerOnly: 4,
+      unprotected: 18,
+      unknown: 2,
+      totalAssets: 915,
+      nonWorkloadAssets: 891,
+      coveragePercent: 0,
+      status: 'NO_SENSOR',
+      workloadTypes: [
+        { subCategory: 'virtual_machine', total: 14, sensor: 0, cloudScanner: 2, unprotected: 11, unknown: 1 },
+        { subCategory: 'serverless_function', total: 10, sensor: 0, cloudScanner: 2, unprotected: 7, unknown: 1 },
+      ],
+    },
+    {
+      cloudAccountId: ACCOUNT_IDS[1],
+      accountName: 'staging',
+      workloads: 96,
+      sensorProtected: 61,
+      cloudScannerOnly: 9,
+      unprotected: 22,
+      unknown: 4,
+      totalAssets: 1_204,
+      nonWorkloadAssets: 1_108,
+      coveragePercent: 63.5,
+      status: 'PARTIAL',
+      workloadTypes: [
+        { subCategory: 'kubernetes_workload', total: 52, sensor: 27, cloudScanner: 5, unprotected: 18, unknown: 2 },
+        { subCategory: 'virtual_machine', total: 26, sensor: 20, cloudScanner: 3, unprotected: 3, unknown: 0 },
+        { subCategory: 'ecs_workload', total: 12, sensor: 10, cloudScanner: 1, unprotected: 1, unknown: 0 },
+        { subCategory: 'serverless_function', total: 6, sensor: 4, cloudScanner: 0, unprotected: 0, unknown: 2 },
+      ],
+    },
+    {
+      cloudAccountId: ACCOUNT_IDS[0],
+      accountName: 'production',
+      workloads: 218,
+      sensorProtected: 211,
+      cloudScannerOnly: 5,
+      unprotected: 2,
+      unknown: 0,
+      totalAssets: 3_486,
+      nonWorkloadAssets: 3_268,
+      coveragePercent: 96.8,
+      status: 'FULL',
+      workloadTypes: [
+        { subCategory: 'kubernetes_workload', total: 138, sensor: 136, cloudScanner: 2, unprotected: 0, unknown: 0 },
+        { subCategory: 'virtual_machine', total: 44, sensor: 43, cloudScanner: 1, unprotected: 0, unknown: 0 },
+        { subCategory: 'ecs_workload', total: 22, sensor: 21, cloudScanner: 1, unprotected: 0, unknown: 0 },
+        { subCategory: 'kubernetes_node', total: 14, sensor: 11, cloudScanner: 1, unprotected: 2, unknown: 0 },
+      ],
+    },
+  ],
+};
+
 export const demoNetworkTopology: NetworkTopology = {
   accountId: ACCOUNT_IDS[0],
   accounts: ACCOUNT_IDS.length,
   nodes: networkNodes,
+  graph: buildDemoGraph(),
 };
 
 // ─── /api/xamsecure/compliance ───────────────────────────────────────────────

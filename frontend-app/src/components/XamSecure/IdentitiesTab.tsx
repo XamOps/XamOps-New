@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-import { Icon } from '@iconify/react';
 import type { IdentitiesSummary, ResourceDetail } from '../../types/xamsecure';
 import { SEVERITY_ORDER } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
@@ -77,8 +76,8 @@ const IdentitiesTab: React.FC<Props> = ({ data, isLoading, loadResourceDetail })
               Elevated privilege ({privileged.length})
             </p>
             <p className="text-[10px] text-gray-400 mt-0.5">
-              Assets Upwind flagged as holding elevated or high-level privileges. Listed whether
-              or not they currently fail a check.
+              Assets holding elevated or high-level privileges. Listed whether or not they
+              currently fail a check.
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -171,7 +170,7 @@ const IdentitiesTab: React.FC<Props> = ({ data, isLoading, loadResourceDetail })
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Identities</p>
             <p className="text-[10px] text-gray-400 mt-0.5">
-              Every identity in Upwind's inventory. Those failing a check sort first.
+              Every identity in the inventory. Those failing a check sort first.
             </p>
           </div>
         </div>
@@ -252,12 +251,6 @@ const IdentitiesTab: React.FC<Props> = ({ data, isLoading, loadResourceDetail })
         <Pager page={page} totalPages={totalPages} total={total} unit="identities" onPage={setPage} />
       </div>
 
-      <p className="flex items-start gap-1.5 text-[10px] text-gray-400">
-        <Icon icon="mdi:information-outline" width={12} className="flex-shrink-0 mt-0.5" />
-        Roster and privilege flags come from Upwind's inventory catalog. Upwind's CIEM analysis
-        — entitlement and least-privilege recommendations, the human vs non-human split, and
-        the cross-account role-trust graph — has no API endpoint and is not shown.
-      </p>
       {drawer}
     </div>
   );

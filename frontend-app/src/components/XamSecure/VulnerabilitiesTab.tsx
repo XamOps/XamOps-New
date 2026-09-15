@@ -3,6 +3,7 @@ import { Icon } from '@iconify/react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis,
   AreaChart, Area, Legend as ReLegend } from 'recharts';
 import type { FunnelStage } from '../../types/xamsecure';
+import { ribbonPath, type Point } from './funnelPath';
 import Pager, { usePaged } from './Pager';
 import type {
   PageResp, VulnerabilityDashboard, CveGroupRow, CveResourceFinding, ResourceDetail,
@@ -494,7 +495,7 @@ const CveDrill: React.FC<{
               <td className="px-3 py-2 whitespace-nowrap">
                 {r.functionsInUse ? (
                   <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500 text-white"
-                        title="Upwind observed the vulnerable functions executing">
+                        title="Vulnerable functions observed executing">
                     Functions running
                   </span>
                 ) : r.activeCommunication ? (
@@ -563,7 +564,7 @@ const RuntimeExposure: React.FC<{
     { label: 'Exposed and running', value: data.exposedAndInUse,
       hint: 'Both of the above — reachable and actually loaded' },
     { label: 'Active communication', value: data.activeCommunication,
-      hint: 'Upwind observed live inbound traffic' },
+      hint: 'Live inbound traffic observed' },
     { label: 'Vulnerable functions executing', value: data.functionsInUse,
       hint: 'The vulnerable code paths themselves were observed running' },
   ];
@@ -599,7 +600,32 @@ const RuntimeExposure: React.FC<{
   );
 };
 
-/** Upwind-style horizontal runtime exploit funnel: stage headers + narrowing red ribbon. */
+/**
+ * Runtime exploit funnel: stage headers above a smoothly narrowing ribbon.
+ *
+ * The edges are cubic beziers with control points on the midpoint x, which is what produces the
+ * curved profile. Joining the stage points with straight `L` segments left visible corners, and
+ * at an empty stage it produced a hard pinch.
+ *
+ * The ribbon stops at the first empty stage. These stages are independent attributes of the same
+ * CVEs rather than nested subsets, so a later one can exceed an earlier one — live data has
+ * Internet exposure 0 followed by Known exploit 1. Drawing that literally collapsed the ribbon to
+ * a point and flared it out again, reading as though a CVE had come back after being filtered
+ * away. Nothing downstream of an empty stage can be a subset of it, so the ribbon ends there. The
+ * headers above still report every true value, including any after the stop.
+ *
+ * Each stage is segmented into the three CVSS bands, using the same palette and the same
+ * Critical/High/Other buckets as the severity trend chart on this tab, so the legend describes
+ * what is actually drawn. The server guarantees the bands sum to the stage total, which is what
+ * lets the segment heights be taken as fractions of the stage height.
+ */
+/** Stacked top to bottom, most severe first, in the tab's shared severity palette. */
+const BAND_ORDER = [
+  { key: 'CRITICAL', label: 'Critical', color: SEV_COLOR.Critical },
+  { key: 'HIGH', label: 'High', color: SEV_COLOR.High },
+  { key: 'OTHER', label: 'Other', color: SEV_COLOR.Other },
+] as const;
+
 const RuntimeFunnel: React.FC<{ stages: FunnelStage[] }> = ({ stages }) => {
   if (stages.length === 0) {
     return (
@@ -612,23 +638,51 @@ const RuntimeFunnel: React.FC<{ stages: FunnelStage[] }> = ({ stages }) => {
   const W = 1000, H = 120, midY = H / 2, maxH = H * 0.92;
   const total = Math.max(1, stages[0].value);
   const n = stages.length;
-  const x = (i: number) => (i / (n - 1)) * W;
-  const h = (v: number) => Math.max(2, (Math.min(v, total) / total) * maxH);
-  let d = `M ${x(0)} ${midY - h(stages[0].value) / 2}`;
-  for (let i = 1; i < n; i++) d += ` L ${x(i)} ${midY - h(stages[i].value) / 2}`;
-  d += ` L ${x(n - 1)} ${midY + h(stages[n - 1].value) / 2}`;
-  for (let i = n - 2; i >= 0; i--) d += ` L ${x(i)} ${midY + h(stages[i].value) / 2}`;
-  d += ' Z';
+  const x = (i: number) => (n === 1 ? W : (i / (n - 1)) * W);
+  // Empty stages taper to nothing; a floor keeps a small non-zero stage visible against a
+  // large total instead of rendering as a hairline.
+  const h = (v: number) => (v <= 0 ? 0 : Math.max(3, (Math.min(v, total) / total) * maxH));
+
+  const firstEmpty = stages.findIndex((s) => s.value <= 0);
+  const drawn = firstEmpty === -1 ? stages : stages.slice(0, firstEmpty + 1);
+
+  const d = ribbonPath(
+    drawn.map((s, i) => [x(i), midY - h(s.value) / 2] as Point),
+    drawn.map((s, i) => [x(i), midY + h(s.value) / 2] as Point),
+  );
+
+  const banded = stages.some((s) => !!s.bands);
+  // Band boundaries per stage, cumulative down from the ribbon's top edge, so the segments always
+  // fill exactly the stage height however the counts fall.
+  const edges = drawn.map((s) => {
+    const height = h(s.value);
+    const ys = [midY - height / 2];
+    BAND_ORDER.forEach(({ key }) => {
+      const share = s.bands && s.value > 0 ? (s.bands[key] / s.value) * height : 0;
+      ys.push(ys[ys.length - 1] + share);
+    });
+    return ys;
+  });
+  const bandPath = (slot: number) => ribbonPath(
+    drawn.map((_, i) => [x(i), edges[i][slot]] as Point),
+    drawn.map((_, i) => [x(i), edges[i][slot + 1]] as Point),
+  );
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
       <div className="flex items-center justify-between mb-4">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Runtime exploit funnel</p>
         <div className="flex items-center gap-3 text-[10px] text-gray-400">
-          <span>CVSS:</span>
-          <LegendDot color="#dc2626" label="Critical" />
-          <LegendDot color="#f97316" label="High" />
-          <LegendDot color="#3b82f6" label="Other" />
+          {firstEmpty !== -1 && (
+            <span>Narrows to nothing at {stages[firstEmpty].label.toLowerCase()}</span>
+          )}
+          {/* Only shown when the ribbon is actually segmented — see FunnelStage.bands. */}
+          {banded && (
+            <>
+              <span>CVSS:</span>
+              {BAND_ORDER.map((b) => <LegendDot key={b.key} color={b.color} label={b.label} />)}
+            </>
+          )}
         </div>
       </div>
       {/* stage headers */}
@@ -648,13 +702,21 @@ const RuntimeFunnel: React.FC<{ stages: FunnelStage[] }> = ({ stages }) => {
       {/* narrowing ribbon */}
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 110 }}>
         <defs>
-          <linearGradient id="funnelGrad" x1="0" y1="0" x2="1" y2="0">
+          {/* Fallback fill only, for a cached payload with no bands. */}
+          <linearGradient id="funnelGrad" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#f87171" />
-            <stop offset="60%" stopColor="#ef4444" />
-            <stop offset="100%" stopColor="#b91c1c" />
+            <stop offset="52%" stopColor="#dc2626" />
+            <stop offset="100%" stopColor="#8f1414" />
           </linearGradient>
         </defs>
-        <path d={d} fill="url(#funnelGrad)" />
+        {drawn.length > 1 && banded
+          ? BAND_ORDER.map((b, slot) => (
+              // A band that is empty at every drawn stage would be a zero-height sliver.
+              drawn.some((s) => (s.bands?.[b.key] ?? 0) > 0)
+                ? <path key={b.key} d={bandPath(slot)} fill={b.color} />
+                : null
+            ))
+          : <path d={d} fill="url(#funnelGrad)" />}
       </svg>
     </div>
   );

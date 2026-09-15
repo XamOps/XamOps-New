@@ -35,4 +35,17 @@ public interface FinOpsReportScheduleRepository extends JpaRepository<FinOpsRepo
 
     @Query("SELECT DISTINCT s.email FROM FinOpsReportSchedule s WHERE s.cloudAccount.id = :accountId AND s.isActive = true")
     List<String> findActiveEmailsByAccountId(@Param("accountId") Long accountId);
+
+    /**
+     * Mobile numbers for the same recipients {@link #findActiveEmailsByAccountId} returns.
+     *
+     * <p>A schedule row is keyed by email and has no phone column, so the number is reached
+     * through the owning user. Rows whose user has no contact are filtered out in the query
+     * rather than in Java so an account with no mobile-enabled recipients costs one empty result
+     * set instead of loading every schedule.
+     */
+    @Query("SELECT DISTINCT s.user.contact FROM FinOpsReportSchedule s " +
+           "WHERE s.cloudAccount.id = :accountId AND s.isActive = true " +
+           "AND s.user.contact IS NOT NULL AND TRIM(s.user.contact) <> ''")
+    List<String> findActiveContactsByAccountId(@Param("accountId") Long accountId);
 }

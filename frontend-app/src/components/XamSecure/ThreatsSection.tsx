@@ -55,13 +55,9 @@ const ThreatsSection: React.FC<Props> = ({
                  onClick={() => setView('detections')} />
         <ViewTab label="Policies" count={policies?.length} active={view === 'policies'}
                  onClick={() => setView('policies')} />
-        <ViewTab
-          label="Investigation"
-          active={false}
-          disabled
-          reason="Upwind's investigation view queries raw sensor events. We sync detections, not events, so there is nothing to query here."
-          onClick={() => {}}
-        />
+        {/* No "Investigation" tab: it needs raw event data we do not hold. Previously rendered
+            as a permanently disabled tab with the reason on hover, which advertised the gap to
+            the customer and could never become enabled. */}
       </div>
 
       {view === 'dashboard' && (

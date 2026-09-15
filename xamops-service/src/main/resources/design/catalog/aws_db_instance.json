@@ -1,0 +1,94 @@
+{
+  "tfType": "aws_db_instance",
+  "displayName": "RDS Instance",
+  "canvasType": "RDS Instance",
+  "idAttribute": "id",
+  "attributes": [
+    {
+      "name": "identifier",
+      "kind": "STRING",
+      "required": true,
+      "description": "DB instance identifier, unique per region."
+    },
+    {
+      "name": "engine",
+      "kind": "ENUM",
+      "required": true,
+      "defaultValue": "postgres",
+      "description": "Database engine.",
+      "options": ["postgres", "mysql", "mariadb", "sqlserver-ex", "oracle-se2"]
+    },
+    {
+      "name": "engine_version",
+      "kind": "STRING",
+      "required": false,
+      "description": "Engine version, e.g. 16.3. Leave blank to take the current default for the engine."
+    },
+    {
+      "name": "instance_class",
+      "kind": "STRING",
+      "required": true,
+      "defaultValue": "db.t3.micro",
+      "description": "Instance size. Promoted to a variable so it can differ per environment.",
+      "promoteToVariable": true
+    },
+    {
+      "name": "allocated_storage",
+      "kind": "NUMBER",
+      "required": true,
+      "defaultValue": "20",
+      "description": "Storage in GiB."
+    },
+    {
+      "name": "storage_encrypted",
+      "kind": "BOOL",
+      "required": false,
+      "defaultValue": "true",
+      "description": "Encrypt storage at rest. On by default; turning it off after creation requires a rebuild."
+    },
+    {
+      "name": "multi_az",
+      "kind": "BOOL",
+      "required": false,
+      "defaultValue": "false",
+      "description": "Run a standby in a second availability zone. Roughly doubles cost."
+    },
+    {
+      "name": "backup_retention_period",
+      "kind": "NUMBER",
+      "required": false,
+      "defaultValue": "7",
+      "description": "Days of automated backups. Zero disables them entirely."
+    },
+    {
+      "name": "skip_final_snapshot",
+      "kind": "BOOL",
+      "required": false,
+      "defaultValue": "false",
+      "description": "Skip the snapshot taken on delete. Left off so a destroy is recoverable."
+    },
+    {
+      "name": "publicly_accessible",
+      "kind": "BOOL",
+      "required": false,
+      "defaultValue": "false",
+      "description": "Give the instance a public endpoint. Off by default."
+    },
+    {
+      "name": "tags",
+      "kind": "TAGS",
+      "required": false,
+      "description": "Tags applied to the instance."
+    }
+  ],
+  "references": [
+    {
+      "field": "vpc_security_group_ids",
+      "targetTfType": "aws_security_group",
+      "via": "EDGE",
+      "required": false,
+      "list": true
+    }
+  ],
+  "outputs": ["id", "endpoint", "port"]
+}

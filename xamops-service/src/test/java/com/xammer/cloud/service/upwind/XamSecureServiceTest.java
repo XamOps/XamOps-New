@@ -208,48 +208,105 @@ class XamSecureServiceTest {
     }
 
     /**
-     * "Internet exposure" and "Functions in Use" were hardcoded to unavailable because the
-     * sync discarded the fields behind them. Both now come from promoted columns.
+     * One findForDashboard row. Columns: cveId, severity, resourceType, exploitable, epssScore,
+     * firstSeenTime, status, packageInUse, internetExposed, functionsInUse, activeCommunication.
      */
-    @Test
-    void vulnDashboardFunnelSourcesRuntimeExposureStages() {
-        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
-        when(vulnRepo.countCvesPackageInUse(List.of("111"))).thenReturn(930L);
-        when(vulnRepo.countCvesFixAvailable(List.of("111"))).thenReturn(400L);
-        when(vulnRepo.countRuntimeExposure(List.of("111")))
-                .thenReturn(List.<Object[]>of(new Object[]{379L, 364L, 5L, 162L}));
-
-        var out = service.getVulnerabilityDashboard(1L, null);
-
-        @SuppressWarnings("unchecked")
-        var funnel = (List<Map<String, Object>>) out.get("funnel");
-        var exposure = funnel.stream()
-                .filter(s -> "Internet exposure".equals(s.get("label"))).findFirst().orElseThrow();
-        assertEquals(379, exposure.get("value"));
-        assertEquals(true, exposure.get("available"), "no longer a hardcoded zero");
-        var fns = funnel.stream()
-                .filter(s -> "Functions in Use".equals(s.get("label"))).findFirst().orElseThrow();
-        assertEquals(5, fns.get("value"));
-        assertEquals(true, fns.get("available"));
-        // NIST critical severity still has no honest source, so it stays marked unavailable.
-        var nist = funnel.stream()
-                .filter(s -> "NIST critical sev".equals(s.get("label"))).findFirst().orElseThrow();
-        assertEquals(false, nist.get("available"));
-
-        @SuppressWarnings("unchecked")
-        var runtime = (Map<String, Object>) out.get("runtimeExposure");
-        assertEquals(379L, runtime.get("internetExposed"));
-        assertEquals(364L, runtime.get("exposedAndInUse"));
-        assertEquals(162L, runtime.get("activeCommunication"));
-        assertEquals(5L, runtime.get("functionsInUse"));
+    private static Object[] dashRow(String cveId, String severity, boolean exploitable, String epss,
+                                    boolean inUse, boolean exposed, boolean functionsInUse,
+                                    boolean activeComm) {
+        return new Object[]{cveId, severity, "KUBERNETES_DEPLOYMENT", exploitable, epss,
+                java.time.Instant.parse("2026-08-01T00:00:00Z"), "OPEN",
+                inUse, exposed, functionsInUse, activeComm};
     }
 
-    /** No rows yet must read as zeroes, not blow up on a null aggregate row. */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> stage(Object funnel, String label) {
+        return ((List<Map<String, Object>>) funnel).stream()
+                .filter(s -> label.equals(s.get("label"))).findFirst().orElseThrow();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertBands(Map<String, Object> stage, long critical, long high, long other) {
+        var bands = (Map<String, Object>) stage.get("bands");
+        assertEquals(critical, bands.get("CRITICAL"), stage.get("label") + " critical band");
+        assertEquals(high, bands.get("HIGH"), stage.get("label") + " high band");
+        assertEquals(other, bands.get("OTHER"), stage.get("label") + " other band");
+        // The invariant the stacked ribbon depends on: segments sum to the printed total.
+        assertEquals(((Number) stage.get("value")).longValue(),
+                critical + high + other, stage.get("label") + " bands must sum to value");
+    }
+
+    /**
+     * Every funnel stage is severity-banded and derived from the one per-CVE map, so the segments
+     * of a stage always sum to the stage's own total. Stages used to come from separate
+     * COUNT(DISTINCT) aggregates, which could not be attributed to a band consistently.
+     *
+     * Also covers the OR rule: CVE-1 has a second finding with every flag false and must keep its
+     * flags, because one reachable instance of the package is enough.
+     */
+    @Test
+    void vulnDashboardFunnelBandsEveryStageBySeverity() {
+        when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
+        when(vulnRepo.findForDashboard(List.of("111"))).thenReturn(List.<Object[]>of(
+                //      cve      severity    exploit  epss   inUse exposed funcs  activeComm
+                dashRow("CVE-1", "CRITICAL", true,    "0.9", true,  true,   true,  true),
+                dashRow("CVE-1", "CRITICAL", false,   "0.1", false, false,  false, false),
+                dashRow("CVE-2", "HIGH",     true,    "0.6", true,  true,   false, false),
+                dashRow("CVE-3", "MEDIUM",   false,   "0.1", true,  false,  false, false),
+                dashRow("CVE-4", "LOW",      false,   "0.0", false, false,  false, false)));
+        when(vulnRepo.findCveIdsFixAvailable(List.of("111"))).thenReturn(List.of("CVE-2"));
+
+        var out = service.getVulnerabilityDashboard(1L, null);
+        var funnel = out.get("funnel");
+
+        // MEDIUM and LOW both fold into OTHER, matching the legend's three buckets.
+        var total = stage(funnel, "Total");
+        assertEquals(4, total.get("value"));
+        assertBands(total, 1, 1, 2);
+
+        assertEquals(3, stage(funnel, "Package in use").get("value"));
+        assertBands(stage(funnel, "Package in use"), 1, 1, 1);
+
+        // CVE-1 stays exposed despite its second finding saying otherwise.
+        assertEquals(2, stage(funnel, "Internet exposure").get("value"));
+        assertBands(stage(funnel, "Internet exposure"), 1, 1, 0);
+
+        assertEquals(2, stage(funnel, "Known exploit").get("value"));
+        assertBands(stage(funnel, "Known exploit"), 1, 1, 0);
+
+        // Sourced from the CVE-id list, so it lands in the band of that CVE rather than being an
+        // unattributable count.
+        assertEquals(1, stage(funnel, "Fix available").get("value"));
+        assertBands(stage(funnel, "Fix available"), 0, 1, 0);
+
+        assertEquals(2, stage(funnel, "EPSS-prioritized").get("value"));
+        assertBands(stage(funnel, "EPSS-prioritized"), 1, 1, 0);
+
+        assertEquals(1, stage(funnel, "Functions in Use").get("value"));
+        assertBands(stage(funnel, "Functions in Use"), 1, 0, 0);
+
+        // NIST critical severity still has no honest source, so it stays marked unavailable.
+        var nist = stage(funnel, "NIST critical sev");
+        assertEquals(false, nist.get("available"));
+        assertEquals(0, nist.get("value"));
+        assertBands(nist, 0, 0, 0);
+
+        // The narrowing cards read off the same map, so "Internet exposure" cannot disagree
+        // with the funnel stage of the same name.
+        @SuppressWarnings("unchecked")
+        var runtime = (Map<String, Object>) out.get("runtimeExposure");
+        assertEquals(2L, runtime.get("internetExposed"));
+        assertEquals(2L, runtime.get("exposedAndInUse"));
+        assertEquals(1L, runtime.get("activeCommunication"));
+        assertEquals(1L, runtime.get("functionsInUse"));
+        assertEquals(3L, runtime.get("packageInUse"));
+    }
+
+    /** No findings yet must read as zeroes across every stage and band, not blow up. */
     @Test
     void vulnDashboardRuntimeExposureToleratesNoData() {
         when(cloudAccountRepo.findByClientId(1L)).thenReturn(List.of(aws("111")));
-        when(vulnRepo.countRuntimeExposure(List.of("111")))
-                .thenReturn(List.<Object[]>of(new Object[]{null, null, null, null}));
+        when(vulnRepo.findForDashboard(List.of("111"))).thenReturn(List.of());
 
         var out = service.getVulnerabilityDashboard(1L, null);
 
@@ -257,6 +314,12 @@ class XamSecureServiceTest {
         var runtime = (Map<String, Object>) out.get("runtimeExposure");
         assertEquals(0L, runtime.get("internetExposed"));
         assertEquals(0L, runtime.get("functionsInUse"));
+        assertEquals(0L, runtime.get("packageInUse"));
+
+        var funnel = out.get("funnel");
+        assertEquals(0, stage(funnel, "Total").get("value"));
+        assertBands(stage(funnel, "Total"), 0, 0, 0);
+        assertBands(stage(funnel, "Fix available"), 0, 0, 0);
     }
 
     // --- Threat story detail ---

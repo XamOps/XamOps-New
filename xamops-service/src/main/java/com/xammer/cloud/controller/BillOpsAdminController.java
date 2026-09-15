@@ -10,6 +10,9 @@ import com.xammer.cloud.dto.marketplace.ConnectMarketplaceRequest;
 import com.xammer.cloud.dto.marketplace.MarketplaceAccountSummaryDto;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.repository.UpwindAccountConnectionRepository;
+import com.xammer.cloud.repository.UpwindInventoryAssetRepository;
+import com.xammer.cloud.domain.UpwindAccountConnection;
 import com.xammer.cloud.repository.MarketplaceAccountRepository;
 import com.xammer.cloud.repository.MarketplacePayerAccountRepository;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
@@ -66,8 +69,43 @@ class BillOpsAccountDto {
     private String provider;
     private Double consumption;
     private Double creditsApplied;
+    /**
+     * CONNECTED / PENDING / NOT_CONNECTED, or null where onboarding does not apply.
+     *
+     * Null rather than NOT_CONNECTED for non-AWS accounts: self-service onboarding is AWS-only, so
+     * reporting a GCP project as "not onboarded" would read as a gap the admin team could close.
+     */
+    private String upwindStatus;
+    /** Workloads under management (compute assets), the unit a licence is most likely counted in. */
+    private long upwindWorkloads;
+    /** Of those, how many a runtime sensor actually covers. */
+    private long upwindSensorWorkloads;
 
     // Getters and Setters
+    public String getUpwindStatus() {
+        return upwindStatus;
+    }
+
+    public void setUpwindStatus(String upwindStatus) {
+        this.upwindStatus = upwindStatus;
+    }
+
+    public long getUpwindWorkloads() {
+        return upwindWorkloads;
+    }
+
+    public void setUpwindWorkloads(long upwindWorkloads) {
+        this.upwindWorkloads = upwindWorkloads;
+    }
+
+    public long getUpwindSensorWorkloads() {
+        return upwindSensorWorkloads;
+    }
+
+    public void setUpwindSensorWorkloads(long upwindSensorWorkloads) {
+        this.upwindSensorWorkloads = upwindSensorWorkloads;
+    }
+
     public Long getId() {
         return id;
     }
@@ -188,7 +226,73 @@ class BillOpsClientDetailsDto {
     /** Whether this client may self-serve XamSecure onboarding. Defaults on. */
     private boolean xamSecureOnboardingEnabled = true;
 
+    // ── Upwind / XamSecure estate, for the admin team ────────────────────────────────────
+    /** Accounts reporting CONNECTED. A client is "onboarded" when this is > 0. */
+    private int upwindConnectedAccounts;
+    /** Accounts handed a launch URL but not yet confirmed. */
+    private int upwindPendingAccounts;
+    /**
+     * Accounts that COULD be onboarded — AWS only, since self-service is AWS-only.
+     *
+     * Reported alongside the connected count so "1 of 4" is distinguishable from "1 of 1": the
+     * first is an upsell, the second is done.
+     */
+    private int upwindEligibleAccounts;
+    /** Workloads under management across the client's connected accounts. */
+    private long upwindWorkloads;
+    /**
+     * Sensor-covered workloads — our best available proxy for licence consumption.
+     *
+     * Upwind exposes no usage, entitlement or licence endpoint (probed 2026-09-07: usage,
+     * entitlements, licenses, subscription, billing, quota all 404 on v1 and v2), so consumption
+     * has to be metered locally. This counts workloads whose catalog entry reports a runtime
+     * sensor. Treat it as an indicator to reconcile against Upwind's invoice, not as a bill:
+     * their billable unit is still unconfirmed, and workload-vs-node alone differs by ~7x on a
+     * Kubernetes-heavy estate.
+     */
+    private long upwindSensorWorkloads;
+
     // Getters and Setters
+    public int getUpwindConnectedAccounts() {
+        return upwindConnectedAccounts;
+    }
+
+    public void setUpwindConnectedAccounts(int upwindConnectedAccounts) {
+        this.upwindConnectedAccounts = upwindConnectedAccounts;
+    }
+
+    public int getUpwindPendingAccounts() {
+        return upwindPendingAccounts;
+    }
+
+    public void setUpwindPendingAccounts(int upwindPendingAccounts) {
+        this.upwindPendingAccounts = upwindPendingAccounts;
+    }
+
+    public int getUpwindEligibleAccounts() {
+        return upwindEligibleAccounts;
+    }
+
+    public void setUpwindEligibleAccounts(int upwindEligibleAccounts) {
+        this.upwindEligibleAccounts = upwindEligibleAccounts;
+    }
+
+    public long getUpwindWorkloads() {
+        return upwindWorkloads;
+    }
+
+    public void setUpwindWorkloads(long upwindWorkloads) {
+        this.upwindWorkloads = upwindWorkloads;
+    }
+
+    public long getUpwindSensorWorkloads() {
+        return upwindSensorWorkloads;
+    }
+
+    public void setUpwindSensorWorkloads(long upwindSensorWorkloads) {
+        this.upwindSensorWorkloads = upwindSensorWorkloads;
+    }
+
     public Long getId() {
         return id;
     }
@@ -313,6 +417,14 @@ public class BillOpsAdminController {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    // Upwind estate, for the two admin columns. Same Spring context — the Upwind tables are owned
+    // by this module, so no cross-service call is involved.
+    @Autowired
+    private UpwindAccountConnectionRepository upwindConnectionRepository;
+
+    @Autowired
+    private UpwindInventoryAssetRepository upwindInventoryRepository;
 
     /** Evict the clients cache (call this after creating a client or user) */
     @DeleteMapping("/clients/cache")
@@ -448,6 +560,22 @@ public class BillOpsAdminController {
         List<BillOpsClientDetailsDto> result = buildClientDtos(clients);
         redisCacheService.put(CLIENTS_CACHE_KEY, result, CLIENTS_CACHE_TTL_MINUTES);
         return result;
+    }
+
+    /** Asset category holding the things a runtime sensor protects, and the licence unit. */
+    private static final String UPWIND_WORKLOAD_CATEGORY = "compute_platform";
+
+    /**
+     * Whether a catalog {@code protected_by} value means a runtime sensor is covering the asset.
+     *
+     * Only {@code sensor} counts. {@code cloud_scanner} is agentless, and a null value means the
+     * catalog gave no verdict rather than that the asset is uncovered — folding either into the
+     * sensor count would overstate consumption on the one number the admin team bills against.
+     */
+    private static boolean isSensorMechanism(String protectedBy) {
+        if (protectedBy == null || protectedBy.isBlank()) return false;
+        String v = protectedBy.trim().toLowerCase();
+        return v.contains("sensor") || v.contains("agent");
     }
 
     /** Builds BillOpsClientDetailsDto list for a given set of clients (fetches costs in parallel). */
@@ -596,6 +724,49 @@ public class BillOpsAdminController {
             }
         }
 
+        // ── Upwind onboarding state + workload metering (2 queries for ALL clients) ──────
+        //
+        // Both are local table reads. Deliberately NOT calling the Upwind API here: this payload
+        // covers every client and is Redis-cached for 5 minutes, whereas XamSecureService's
+        // per-client getOnboardingStatus can afford a live read because it is scoped to one
+        // tenant. An admin list that fans out to a third-party API per account would be the
+        // slowest page in the product.
+        List<String> allProviderAccountIds = allAccounts.stream()
+                .map(CloudAccount::getProviderAccountId)
+                .filter(id -> id != null && !id.isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
+
+        Map<String, String> upwindStatusByAccountId = new HashMap<>();
+        Map<String, long[]> upwindWorkloadsByAccountId = new HashMap<>();  // [total, sensor]
+        if (!allProviderAccountIds.isEmpty()) {
+            try {
+                for (UpwindAccountConnection c :
+                        upwindConnectionRepository.findByCloudAccountIdIn(allProviderAccountIds)) {
+                    if (c.getCloudAccountId() != null) {
+                        upwindStatusByAccountId.put(c.getCloudAccountId(), c.getStatus());
+                    }
+                }
+                // [cloudAccountId, assetSubCategory, protectedBy, count] over compute assets only.
+                for (Object[] r : upwindInventoryRepository.coverageBreakdown(
+                        allProviderAccountIds, UPWIND_WORKLOAD_CATEGORY)) {
+                    String acct = (String) r[0];
+                    if (acct == null) continue;
+                    long count = r[3] == null ? 0L : ((Number) r[3]).longValue();
+                    long[] agg = upwindWorkloadsByAccountId
+                            .computeIfAbsent(acct, k -> new long[2]);
+                    agg[0] += count;
+                    if (isSensorMechanism((String) r[2])) agg[1] += count;
+                }
+            } catch (Exception e) {
+                // A reporting column must never take down the admin list. Absent numbers render
+                // as "—" rather than as zero, so a failure here cannot be misread as "no estate".
+                log.warn("Upwind admin columns unavailable: {}", e.getMessage());
+                upwindStatusByAccountId.clear();
+                upwindWorkloadsByAccountId.clear();
+            }
+        }
+
         // ── AWS credits — parallel (no DB cache exists for credits) ──────────────────
         Map<Long, Double> creditsByAccountId = new HashMap<>();
         List<CompletableFuture<Double>> creditFutures = allAccounts.stream().map(account -> {
@@ -626,6 +797,8 @@ public class BillOpsAdminController {
             List<CloudAccount> accounts = accountsByClientId.getOrDefault(client.getId(), new ArrayList<>());
             List<BillOpsAccountDto> accountDtos = new ArrayList<>();
             double totalConsumption = 0;
+            int upwindConnected = 0, upwindPending = 0, upwindEligible = 0;
+            long upwindWorkloads = 0, upwindSensorWorkloads = 0;
 
             for (CloudAccount account : accounts) {
                 BillOpsAccountDto accDto = new BillOpsAccountDto();
@@ -637,10 +810,37 @@ public class BillOpsAdminController {
                 accDto.setConsumption(consumption);
                 totalConsumption += consumption;
                 accDto.setCreditsApplied(creditsByAccountId.getOrDefault(account.getId(), 0.0));
+
+                // Upwind state. Only AWS can be self-service onboarded, so anything else is left
+                // null — "not applicable" rather than "not done".
+                String providerAccId = account.getProviderAccountId();
+                boolean awsEligible = "AWS".equalsIgnoreCase(account.getProvider())
+                        && providerAccId != null && !providerAccId.isEmpty();
+                if (awsEligible) {
+                    upwindEligible++;
+                    String status = upwindStatusByAccountId.get(providerAccId);
+                    accDto.setUpwindStatus(status == null ? "NOT_CONNECTED" : status);
+                    if ("CONNECTED".equalsIgnoreCase(status)) upwindConnected++;
+                    else if ("PENDING".equalsIgnoreCase(status)) upwindPending++;
+                }
+                if (providerAccId != null) {
+                    long[] agg = upwindWorkloadsByAccountId.get(providerAccId);
+                    if (agg != null) {
+                        accDto.setUpwindWorkloads(agg[0]);
+                        accDto.setUpwindSensorWorkloads(agg[1]);
+                        upwindWorkloads += agg[0];
+                        upwindSensorWorkloads += agg[1];
+                    }
+                }
                 accountDtos.add(accDto);
             }
             clientDto.setAccounts(accountDtos);
             clientDto.setTotalConsumption(totalConsumption);
+            clientDto.setUpwindConnectedAccounts(upwindConnected);
+            clientDto.setUpwindPendingAccounts(upwindPending);
+            clientDto.setUpwindEligibleAccounts(upwindEligible);
+            clientDto.setUpwindWorkloads(upwindWorkloads);
+            clientDto.setUpwindSensorWorkloads(upwindSensorWorkloads);
 
             List<User> users = usersByClientId.getOrDefault(client.getId(), new ArrayList<>());
             List<BillOpsUserDto> userDtos = new ArrayList<>();

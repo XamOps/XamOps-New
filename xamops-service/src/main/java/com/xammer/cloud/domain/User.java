@@ -68,6 +68,16 @@ public class User {
     @Column(nullable = true)
     private String email;
 
+    // Mobile number for SMS / WhatsApp notifications. The column already exists on app_user —
+    // BillOps has always mapped it as AppUser.contact — it simply was not mapped here, which is
+    // why alert and report delivery had no way to reach a phone number.
+    //
+    // Free text by history: no country code column, no format validation on any write path. Always
+    // run it through PhoneNumbers.toE164 before handing it to a provider, and treat null as
+    // "this recipient cannot receive mobile notifications".
+    @Column(length = 20, nullable = true)
+    private String contact;
+
     @Column(name = "created_by", nullable = true)
     private Long createdBy;
 

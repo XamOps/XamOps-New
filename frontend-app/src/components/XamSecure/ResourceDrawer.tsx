@@ -122,14 +122,11 @@ const ResourceDrawer: React.FC<Props> = ({ resourceId, detail, isLoading, onClos
                  empty="No detections on this resource." />
       ),
     },
-    {
-      id: 'apis', label: 'APIs', icon: 'mdi:api', group: 'Findings',
-      available: false,
-      unavailableReason:
-        'Upwind stamps API endpoints with an internal API-resource id (ep-…), not the cloud '
-        + 'resource id findings use, so endpoints cannot be joined to a resource.',
-      render: () => null,
-    },
+    // NOTE: an "APIs" section is intentionally absent. API endpoints are keyed by an API-catalog
+    // resource id that does not resolve against the cloud resource id findings use, so the join
+    // cannot match. Previously rendered as a disabled nav item with the reason in a tooltip,
+    // which advertised the limitation to the customer for no benefit. Do not re-add without a
+    // working join, and do not show it empty — a permanent zero reads as "serves no APIs".
   ] : [];
 
   return (

@@ -13,8 +13,9 @@ import {
   AzureSecurityAlertsTable,
   AzureSecurityStatusBanner,
 } from '../components/AzureSecurity';
+import { IdentityAccessTab } from '../components/Security';
 
-type ActiveTab = 'assessments' | 'controls' | 'alerts';
+type ActiveTab = 'assessments' | 'controls' | 'alerts' | 'identity';
 
 const AzureSecurityPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -99,6 +100,15 @@ const AzureSecurityPage: React.FC = () => {
                     </>
                   ),
                 },
+                {
+                  id: 'identity',
+                  label: (
+                    <>
+                      <Icon icon="mdi:account-key-outline" width={13} className="mr-1 inline" />
+                      Identity &amp; Access
+                    </>
+                  ),
+                },
               ]}
               selectedKey={activeTab}
               onSelectionChange={(key) => setActiveTab(key as ActiveTab)}
@@ -118,6 +128,11 @@ const AzureSecurityPage: React.FC = () => {
               {activeTab === 'alerts' && (
                 <motion.div key="alerts" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
                   <AzureSecurityAlertsTable alerts={alerts} isLoading={isLoading} />
+                </motion.div>
+              )}
+              {activeTab === 'identity' && (
+                <motion.div key="identity" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
+                  <IdentityAccessTab />
                 </motion.div>
               )}
             </AnimatePresence>

@@ -234,7 +234,7 @@ const OverviewTab: React.FC<Props> = ({
               <p className="mt-1 text-[11px] text-gray-400">
                 {activeStories === 0
                   ? 'No active stories in your environment.'
-                  : 'Correlated attack stories from Upwind.'}
+                  : 'Correlated attack stories.'}
               </p>
             </div>
           )}

@@ -1,0 +1,59 @@
+{
+  "tfType": "aws_lb",
+  "displayName": "Load Balancer",
+  "canvasType": "Load Balancer",
+  "idAttribute": "id",
+  "attributes": [
+    {
+      "name": "name",
+      "kind": "STRING",
+      "required": true,
+      "description": "Load balancer name. Up to 32 characters, letters, digits and hyphens only."
+    },
+    {
+      "name": "load_balancer_type",
+      "kind": "ENUM",
+      "required": false,
+      "defaultValue": "application",
+      "description": "Application balances HTTP/HTTPS; network balances TCP/UDP at layer 4.",
+      "options": ["application", "network", "gateway"]
+    },
+    {
+      "name": "internal",
+      "kind": "BOOL",
+      "required": false,
+      "defaultValue": "false",
+      "description": "Reachable only from inside the VPC. An internal load balancer needs private subnets."
+    },
+    {
+      "name": "enable_deletion_protection",
+      "kind": "BOOL",
+      "required": false,
+      "defaultValue": "false",
+      "description": "Block accidental deletion. Worth enabling for anything serving production traffic."
+    },
+    {
+      "name": "tags",
+      "kind": "TAGS",
+      "required": false,
+      "description": "Tags applied to the load balancer."
+    }
+  ],
+  "references": [
+    {
+      "field": "subnets",
+      "targetTfType": "aws_subnet",
+      "via": "EDGE",
+      "required": false,
+      "list": true
+    },
+    {
+      "field": "security_groups",
+      "targetTfType": "aws_security_group",
+      "via": "EDGE",
+      "required": false,
+      "list": true
+    }
+  ],
+  "outputs": ["id", "dns_name", "zone_id"]
+}

@@ -6,7 +6,22 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { IamUser, IamRole, UserManagementData } from '../types/userManagement';
+import type { IamUser, IamRole, IamRiskFields, UserManagementData } from '../types/userManagement';
+
+/**
+ * Orders identities worst-risk-first, then alphabetically within equal risk.
+ *
+ * <p>The name tiebreak matters: without it, every unassessed identity shares score 0 and
+ * the browser's sort is free to reshuffle them between renders, so cards appear to jump
+ * around while the user is reading them.
+ */
+function byRiskThenName<T extends IamRiskFields>(name: (item: T) => string) {
+  return (a: T, b: T): number => {
+    const delta = (b.riskScore ?? 0) - (a.riskScore ?? 0);
+    if (delta !== 0) return delta;
+    return name(a).localeCompare(name(b));
+  };
+}
 
 export const useUserManagement = () => {
   const [loading, setLoading] = useState(false);
@@ -17,6 +32,23 @@ export const useUserManagement = () => {
   const [users, setUsers] = useState<IamUser[]>([]);
   const [roles, setRoles] = useState<IamRole[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+
+  /**
+   * When true, show only identities carrying a HIGH or CRITICAL risk.
+   *
+   * <p>Kept in the hook rather than the component so the KPI cards can act as filter
+   * controls — clicking "Over-privileged" is the fastest path to the list that matters.
+   */
+  const [flaggedOnly, setFlaggedOnly] = useState(false);
+
+  /**
+   * Whether the permission audit could read every policy document.
+   *
+   * <p>Surfaced because an unaudited identity and a least-privilege identity both render
+   * as an unflagged card. Without this the console would quietly imply the former is safe.
+   */
+  const [analysisDegraded, setAnalysisDegraded] = useState(false);
+  const [analysisNote, setAnalysisNote] = useState<string | null>(null);
 
   /**
    * Determine provider from cached accounts
@@ -123,6 +155,8 @@ export const useUserManagement = () => {
           if (data.selectedAccount.iamDetails) {
             setUsers(data.selectedAccount.iamDetails.users || []);
             setRoles(data.selectedAccount.iamDetails.roles || []);
+            setAnalysisDegraded(Boolean(data.selectedAccount.iamDetails.permissionAnalysisDegraded));
+            setAnalysisNote(data.selectedAccount.iamDetails.permissionAnalysisNote ?? null);
           } else {
             console.warn('IAM Details missing even after refresh.');
             setUsers([]);
@@ -159,27 +193,58 @@ export const useUserManagement = () => {
   }, [loadAccountFromStorage]);
 
   /**
-   * Filtered users based on search query
+   * Filtered users based on search query, worst risk first.
+   *
+   * <p>Risk-descending rather than alphabetical because the canvas shows cards, and a card
+   * grid has no scannable column to sort by eye. The one identity holding
+   * AdministratorAccess has to be in the first row or the view is decorative.
    */
   const filteredUsers = useMemo(() => {
-    if (!searchQuery) return users;
-    const lower = searchQuery.toLowerCase();
-    return users.filter(u =>
-      (u.userName && u.userName.toLowerCase().includes(lower)) ||
-      (u.userId && u.userId.toLowerCase().includes(lower))
-    );
-  }, [users, searchQuery]);
+    const lower = searchQuery.trim().toLowerCase();
+    return users
+      .filter(u => !flaggedOnly || u.excessPermissions)
+      .filter(u => !lower
+        || (u.userName && u.userName.toLowerCase().includes(lower))
+        || (u.userId && u.userId.toLowerCase().includes(lower)))
+      .slice()
+      .sort(byRiskThenName(u => u.userName));
+  }, [users, searchQuery, flaggedOnly]);
 
   /**
-   * Filtered roles based on search query
+   * Filtered roles based on search query, worst risk first.
    */
   const filteredRoles = useMemo(() => {
-    if (!searchQuery) return roles;
-    const lower = searchQuery.toLowerCase();
-    return roles.filter(r =>
-      r.roleName.toLowerCase().includes(lower)
-    );
-  }, [roles, searchQuery]);
+    const lower = searchQuery.trim().toLowerCase();
+    return roles
+      .filter(r => !flaggedOnly || r.excessPermissions)
+      .filter(r => !lower || r.roleName.toLowerCase().includes(lower))
+      .slice()
+      .sort(byRiskThenName(r => r.roleName));
+  }, [roles, searchQuery, flaggedOnly]);
+
+  /**
+   * Risk tallies across users and roles combined.
+   *
+   * <p>Combined deliberately: "how exposed is this account's identity surface" is one
+   * question, and splitting it per tab would let a critical role hide behind a clean
+   * user list.
+   */
+  const riskCounts = useMemo(() => {
+    const all: Array<IamUser | IamRole> = [...users, ...roles];
+    const counts = { critical: 0, high: 0, medium: 0, low: 0, flagged: 0, assessed: 0 };
+    for (const identity of all) {
+      if (identity.riskLevel) counts.assessed += 1;
+      if (identity.excessPermissions) counts.flagged += 1;
+      switch (identity.riskLevel) {
+        case 'CRITICAL': counts.critical += 1; break;
+        case 'HIGH': counts.high += 1; break;
+        case 'MEDIUM': counts.medium += 1; break;
+        case 'LOW': counts.low += 1; break;
+        default: break;
+      }
+    }
+    return counts;
+  }, [users, roles]);
 
   /**
    * Format date string
@@ -230,12 +295,18 @@ export const useUserManagement = () => {
   }, []);
 
   /**
-   * Get labels based on provider
+   * Provider-appropriate names for the two identity kinds.
+   *
+   * <p>GCP says "Principals" rather than "Service Accounts" because the list is no longer only
+   * service accounts: the analyzer adds the human users and groups that appear in the project
+   * IAM policy, which are invisible to the service-account API. Roles differ too — GCP lists
+   * only custom roles (the ~1,500 predefined ones are identical everywhere and unchangeable),
+   * while Azure lists role definitions.
    */
   const labels = useMemo(() => ({
-    users: provider === 'GCP' ? 'Service Accounts' : provider === 'Azure' ? 'Principals' : 'IAM Users',
-    roles: 'IAM Roles',
-    userIdentity: provider === 'GCP' ? 'Service Account' : provider === 'Azure' ? 'Principal Name' : 'User Identity',
+    users: provider === 'AWS' ? 'IAM Users' : 'Principals',
+    roles: provider === 'GCP' ? 'Custom Roles' : provider === 'Azure' ? 'Role Definitions' : 'IAM Roles',
+    userIdentity: provider === 'AWS' ? 'User Identity' : 'Principal',
   }), [provider]);
 
   return {
@@ -259,5 +330,20 @@ export const useUserManagement = () => {
     isAws: provider === 'AWS',
     isGcp: provider === 'GCP',
     isAzure: provider === 'Azure',
+
+    // Permission-risk surface, consumed by the Security Center's Identity tab.
+    riskCounts,
+    flaggedOnly,
+    setFlaggedOnly,
+    analysisDegraded,
+    analysisNote,
+    /**
+     * Whether risk scoring ran at all for this provider.
+     *
+     * <p>GCP and Azure return the inventory shape without risk fields, so the canvas hides
+     * the risk KPIs and red flags entirely there rather than rendering a misleading
+     * "0 over-privileged".
+     */
+    riskAnalysisAvailable: riskCounts.assessed > 0,
   };
 };

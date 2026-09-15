@@ -739,6 +739,26 @@ public class DashboardData {
   public static class IamDetail {
     private List<IamUserDetail> users;
     private List<IamRoleDetail> roles;
+
+    /**
+     * True when policy documents could not be read, so the risk fields below are
+     * "unknown" rather than "clean".
+     *
+     * <p>
+     * The distinction matters more than it looks. An identity with no findings and an
+     * identity we were never allowed to inspect both render as an unflagged card, and
+     * only this flag lets the UI say which one it is showing. Set when the account's
+     * role is missing {@code iam:GetPolicyVersion} / {@code iam:GetUserPolicy}.
+     */
+    private boolean permissionAnalysisDegraded;
+
+    /** Why analysis was degraded, surfaced verbatim in the UI banner. */
+    private String permissionAnalysisNote;
+
+    public IamDetail(List<IamUserDetail> users, List<IamRoleDetail> roles) {
+      this.users = users;
+      this.roles = roles;
+    }
   }
 
   @Data
@@ -753,6 +773,34 @@ public class DashboardData {
     private List<String> groups;
     private List<IamPolicyDetail> attachedPolicies;
     private boolean mfaEnabled;
+
+    // --- Permission risk, populated by IamPrivilegeAnalyzer (AWS only for now) ---
+
+    /** "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "NONE" — highest severity in {@link #risks}. */
+    private String riskLevel;
+    private int riskScore;
+    private List<IamAccessRisk> risks;
+
+    /**
+     * The single flag the card canvas paints red. True when at least one HIGH or
+     * CRITICAL risk was found, i.e. this identity holds more permission than it
+     * should — not merely that some advisory note exists.
+     */
+    private boolean excessPermissions;
+
+    /** Retains the pre-risk-analysis arity so existing AWS/GCP/Azure call sites compile. */
+    public IamUserDetail(String userName, String userId, String arn, String createDate,
+        String passwordLastUsed, List<String> groups, List<IamPolicyDetail> attachedPolicies,
+        boolean mfaEnabled) {
+      this.userName = userName;
+      this.userId = userId;
+      this.arn = arn;
+      this.createDate = createDate;
+      this.passwordLastUsed = passwordLastUsed;
+      this.groups = groups;
+      this.attachedPolicies = attachedPolicies;
+      this.mfaEnabled = mfaEnabled;
+    }
   }
 
   @Data
@@ -765,6 +813,24 @@ public class DashboardData {
     private String createDate;
     private String description;
     private List<IamPolicyDetail> attachedPolicies;
+
+    // --- Permission risk, populated by IamPrivilegeAnalyzer (AWS only for now) ---
+
+    private String riskLevel;
+    private int riskScore;
+    private List<IamAccessRisk> risks;
+    private boolean excessPermissions;
+
+    /** Retains the pre-risk-analysis arity so existing AWS/GCP/Azure call sites compile. */
+    public IamRoleDetail(String roleName, String roleId, String arn, String createDate,
+        String description, List<IamPolicyDetail> attachedPolicies) {
+      this.roleName = roleName;
+      this.roleId = roleId;
+      this.arn = arn;
+      this.createDate = createDate;
+      this.description = description;
+      this.attachedPolicies = attachedPolicies;
+    }
   }
 
   @Data
@@ -774,6 +840,82 @@ public class DashboardData {
     private String policyName;
     private String policyArn; // Null for inline policies
     private String type; // "Managed" or "Inline"
+
+    // --- Document analysis, populated by IamPrivilegeAnalyzer (AWS only for now) ---
+
+    /**
+     * False when the document was never fetched or the fetch was denied. Without it the
+     * UI cannot tell an audited-and-clean policy from an unaudited one.
+     */
+    private boolean documentAnalyzed;
+
+    /** Grants {@code Action:*} on {@code Resource:*} — effectively account administrator. */
+    private boolean adminAccess;
+
+    /** Service-wide wildcards this policy allows, e.g. {@code s3:*}, {@code kms:*}. */
+    private List<String> wildcardActions;
+
+    /** Actions that permit self-escalation, e.g. {@code iam:PutUserPolicy}. */
+    private List<String> escalationActions;
+
+    /**
+     * Group this policy is inherited from, or null when attached directly to the identity.
+     *
+     * <p>
+     * Necessary for correctness, not presentation. Most organisations grant administrator
+     * access to a group rather than to a user, so a permission audit that only reads directly
+     * attached policies reports the real administrators as having no excess access — the worst
+     * possible false negative. It also tells the reader where to go to fix it: the grant lives
+     * on the group, and detaching it from the user is not an available action.
+     */
+    private String inheritedFrom;
+
+    /** Retains the 3-arg arity used across DashboardDataService and AzureDashboardService. */
+    public IamPolicyDetail(String policyName, String policyArn, String type) {
+      this.policyName = policyName;
+      this.policyArn = policyArn;
+      this.type = type;
+    }
+
+    /** Group-inherited policy. */
+    public IamPolicyDetail(String policyName, String policyArn, String type, String inheritedFrom) {
+      this.policyName = policyName;
+      this.policyArn = policyArn;
+      this.type = type;
+      this.inheritedFrom = inheritedFrom;
+    }
+  }
+
+  /**
+   * One reason an identity is over-privileged.
+   *
+   * <p>
+   * Deliberately shaped like {@link SecurityFinding} — code, severity, description — so the
+   * Identity tab and the Findings tab of the Security Center read as the same product rather
+   * than two bolted-together views, and so these can later be promoted into the findings
+   * stream without a translation layer.
+   */
+  @Data
+  @AllArgsConstructor
+  @NoArgsConstructor
+  public static class IamAccessRisk {
+    /** Stable identifier, e.g. "IAM-EXC-001". Safe to key remediation docs off. */
+    private String code;
+
+    /** "CRITICAL" | "HIGH" | "MEDIUM" | "LOW". */
+    private String severity;
+
+    /** Short label for the red chip on the card, e.g. "Full administrator access". */
+    private String title;
+
+    /** One sentence explaining the exposure in the customer's own terms. */
+    private String description;
+
+    /** The policy the risk came from, so the card can point at something actionable. */
+    private String sourcePolicy;
+
+    /** Concrete evidence — the offending actions, capped by the analyzer. */
+    private List<String> evidence;
   }
 
 }

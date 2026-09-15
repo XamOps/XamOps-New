@@ -32,7 +32,7 @@ const fmt = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleStr
 const VulnFindingDrawer: React.FC<Props> = ({ cve, finding, onClose, onOpenResource }) => {
   const reach = finding.functionsInUse
     ? { label: 'Vulnerable functions executing', tone: 'bg-red-500 text-white',
-        detail: 'Upwind observed the vulnerable code paths themselves running.' }
+        detail: 'The vulnerable code paths themselves were observed running.' }
     : finding.activeCommunication
       ? { label: 'Active internet traffic', tone: 'bg-red-100 text-red-700',
           detail: 'Live inbound traffic observed on the hosting resource.' }
@@ -81,8 +81,9 @@ const VulnFindingDrawer: React.FC<Props> = ({ cve, finding, onClose, onOpenResou
           </PanelBlock>
           <p className="flex items-start gap-1.5 text-[10px] text-gray-400">
             <Icon icon="mdi:information-outline" width={12} className="mt-0.5 flex-shrink-0" />
-            These come from Upwind's sensor. A vulnerability that is installed but never loaded,
-            or on a resource nothing can reach, is a far lower priority than the counts alone suggest.
+            Based on observed runtime behaviour. A vulnerability that is installed but never
+            loaded, or on a resource nothing can reach, is a far lower priority than the counts
+            alone suggest.
           </p>
         </>
       ),
@@ -132,18 +133,9 @@ const VulnFindingDrawer: React.FC<Props> = ({ cve, finding, onClose, onOpenResou
         </PanelBlock>
       ),
     },
-    {
-      id: 'finding-mgmt', label: 'Finding management', icon: 'mdi:playlist-edit', group: 'Finding',
-      available: false,
-      unavailableReason: 'Snooze, ticketing and status overrides are not exposed by the Upwind API.',
-      render: () => null,
-    },
-    {
-      id: 'pipeline', label: 'Pipeline', icon: 'mdi:source-branch', group: 'Finding',
-      available: false,
-      unavailableReason: 'Requires Upwind\'s Code/CI integration, which has no API endpoint.',
-      render: () => null,
-    },
+    // NOTE: "Finding management" (snooze / ticketing / status overrides) and "Pipeline" sections
+    // are intentionally absent — no data source or write path for either. Removed rather than
+    // rendered as permanently disabled nav items advertising the gap.
     {
       id: 'image', label: 'Image overview', icon: 'mdi:layers-outline', group: 'Image',
       render: () => (

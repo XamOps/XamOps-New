@@ -79,7 +79,7 @@ const StoryNarrative: React.FC<{ markdown: string | null }> = ({ markdown }) => 
   if (!markdown || !markdown.trim()) {
     return (
       <p className="text-xs text-gray-400">
-        Upwind has not published a narrative for this story.
+        No narrative has been published for this story.
       </p>
     );
   }

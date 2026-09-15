@@ -3,6 +3,7 @@ import { Icon } from '@iconify/react';
 import type { ApiEndpoint } from '../../types/xamsecure';
 import Pager, { usePaged } from './Pager';
 import ApiEndpointDrawer from './ApiEndpointDrawer';
+import { ribbonPath, type Point } from './funnelPath';
 
 interface Props {
   data: ApiEndpoint[] | null;
@@ -86,14 +87,14 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
         <Stat icon="mdi:api" label="Endpoints" value={stats.total} accent="text-gray-900" />
         <Stat icon="mdi:swap-horizontal" label="Ingress observed" value={stats.exposed}
               accent="text-gray-900"
-              hint="Endpoints Upwind has seen inbound traffic on. The payload carries a last-seen timestamp only, not an exposure verdict, so this is not a count of internet-facing endpoints." />
+              hint="Endpoints with observed inbound traffic. Based on last-seen activity, so this is not a count of internet-facing endpoints." />
         <Stat icon="mdi:lock-check" label="Authenticated" value={stats.authed} accent="text-emerald-600" />
         <Stat icon="mdi:lock-open-alert" label="Unauthenticated" value={stats.unauth} accent="text-orange-600" />
         <Stat icon="mdi:shield-account-outline" label="Sensitive data" value={stats.sensitive}
               accent="text-purple-600"
-              hint="Endpoints where Upwind observed PII, PHI, PCI or secrets in traffic" />
+              hint="Endpoints where PII, PHI, PCI or secrets were observed in traffic" />
         <Stat icon="mdi:help-circle-outline" label="Unclassified" value={stats.unclassified} accent="text-gray-500"
-              hint="Upwind hasn't observed enough traffic to classify auth state" />
+              hint="Not enough observed traffic to classify the authentication state" />
       </div>
 
       {/* Sensitive data in traffic is the thing worth acting on; called out when non-zero. */}
@@ -180,7 +181,7 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
               ? 'No classification synced yet. These endpoint rows carry neither sensitive-data '
                 + 'nor status-code fields, both of which arrive only on the v2 payload, so they '
                 + 'predate the v2 switch and will populate on the next full sync.'
-              : 'Upwind has not observed PII, PHI, PCI or secrets on these endpoints.'}
+              : 'No PII, PHI, PCI or secrets observed on these endpoints.'}
           </p>
         )}
       </div>
@@ -285,8 +286,17 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
 
 /**
  * Endpoint narrowing, matching Upwind's APIs funnel: how the full surface reduces to the
- * endpoints that actually warrant attention. Stages are strictly nested subsets, so a
- * narrowing ribbon is an honest encoding rather than decoration.
+ * endpoints that actually warrant attention.
+ *
+ * Drawn with smooth beziers via {@link ribbonPath}. It previously joined the stage points with
+ * straight segments, which put a corner at each boundary and turned the drop into the last stage
+ * into a hard wedge.
+ *
+ * Caveat on the encoding, which this change does not alter: only the first three stages are a
+ * narrowing chain. "Unauthenticated" is not a subset of "Authenticated" — authenticated,
+ * unauthenticated and unclassified partition the surface, and on live data they sum to the
+ * endpoint total — so reading the last step as a further narrowing is wrong. Left as-is because
+ * it mirrors the vendor console's stage order; worth revisiting as a product decision.
  */
 const EndpointsFunnel: React.FC<{
   total: number; exposed: number; authed: number; unauth: number;
@@ -303,12 +313,12 @@ const EndpointsFunnel: React.FC<{
   const max = Math.max(1, total);
   const n = stages.length;
   const x = (i: number) => (i / (n - 1)) * W;
-  const h = (v: number) => Math.max(2, (Math.min(v, max) / max) * maxH);
-  let d = `M ${x(0)} ${midY - h(stages[0].value) / 2}`;
-  for (let i = 1; i < n; i++) d += ` L ${x(i)} ${midY - h(stages[i].value) / 2}`;
-  d += ` L ${x(n - 1)} ${midY + h(stages[n - 1].value) / 2}`;
-  for (let i = n - 2; i >= 0; i--) d += ` L ${x(i)} ${midY + h(stages[i].value) / 2}`;
-  d += ' Z';
+  // A zero stage tapers to an actual point; the floor only keeps a small non-zero stage from
+  // rendering as a hairline.
+  const h = (v: number) => (v <= 0 ? 0 : Math.max(3, (Math.min(v, max) / max) * maxH));
+  const edge = (sign: -1 | 1): Point[] =>
+    stages.map((s, i) => [x(i), midY + sign * (h(s.value) / 2)] as Point);
+  const d = ribbonPath(edge(-1), edge(1));
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">

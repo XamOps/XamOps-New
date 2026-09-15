@@ -122,7 +122,7 @@ const FrameworkDrawer: React.FC<Props> = ({
                     below is fetched live per framework, so the drill-down still has both
                     sides even though PASS findings are no longer synced. */}
                 {f.failCount > 0
-                  ? `${f.failCount.toLocaleString()} failing controls in this account. Score is Upwind's, across the whole organization.`
+                  ? `${f.failCount.toLocaleString()} failing controls in this account. Score is organization-wide.`
                   // Upwind's own reason where it gives one, rather than implying we evaluated
                   // this framework and found nothing.
                   : STATE_REASON[f.state ?? ''] ?? 'No failing controls in this account.'}
@@ -176,7 +176,7 @@ const FrameworkDrawer: React.FC<Props> = ({
               <p className="text-xs text-gray-400">Loading controls...</p>
             ) : !controls || controls.controls.length === 0 ? (
               <p className="text-xs text-gray-500">
-                Upwind reported no per-control findings for this framework.
+                No per-control findings for this framework.
               </p>
             ) : (
               <>
@@ -266,7 +266,7 @@ const ControlRow: React.FC<{ control: FrameworkControl }> = ({ control: c }) => 
           {c.remediation ? (
             <SecurityMarkup text={c.remediation} />
           ) : (
-            <p className="text-[11px] text-gray-500">Upwind provided no remediation text.</p>
+            <p className="text-[11px] text-gray-500">No remediation text for this control.</p>
           )}
           <p className="mt-2 text-[10px] text-gray-400 font-mono">{c.ruleId}</p>
         </div>

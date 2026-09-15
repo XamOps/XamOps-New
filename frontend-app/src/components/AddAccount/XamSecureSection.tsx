@@ -14,6 +14,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { fetchOnboardingAccounts, useUpwindOnboarding } from '../../hooks/useUpwindOnboarding';
 import SensorDeployPanel from '../XamSecure/SensorDeployPanel';
+import KubernetesSensorPanel from '../XamSecure/KubernetesSensorPanel';
+import EcsSensorPanel from '../XamSecure/EcsSensorPanel';
 import type { OnboardingAccount } from '../../types/xamsecure';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -150,6 +152,12 @@ const XamSecureSection: React.FC = () => {
               separate step from connecting the account. Shown once because the script is
               organization-wide, with nothing in it keyed to an account. */}
           {selected === 'AWS' && <SensorDeployPanel />}
+          {/* Kubernetes and ECS belong here for the same reason the host script does: this is
+              where someone is already enabling security monitoring, and connecting an account
+              does not by itself protect a single workload. Both are collapsed by default so
+              they do not push the account list off the page. */}
+          {selected === 'AWS' && <KubernetesSensorPanel accounts={forProvider} />}
+          {selected === 'AWS' && <EcsSensorPanel accounts={forProvider} />}
 
           {forProvider.map((a) => {
             const busy = busyId === a.cloudAccountId;

@@ -1,7 +1,7 @@
 package com.xammer.cloud.domain;
 
-// CHANGE THIS LINE: Use javax instead of jakarta for Spring Boot 2.x
-import jakarta.persistence.*; 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.persistence.*;
 import lombok.Data;
 import java.time.LocalDateTime;
 
@@ -23,6 +23,30 @@ public class ArchitectureBlueprint {
     // Stores the raw JSON from Cytoscape
     @Column(name = "graph_data", columnDefinition = "TEXT")
     private String graphData;
+
+    /**
+     * Owning tenant.
+     *
+     * <p>
+     * Blueprints previously had no ownership column while the controller served
+     * {@code findAll()}, so every tenant saw and could delete every other
+     * tenant's architectures. Reads are now scoped on this column; a NULL means
+     * an unattributed pre-tenancy row and is never served.
+     *
+     * <p>
+     * {@code @JsonIgnore} on the setter path matters as much as the column: the
+     * save endpoint used to bind a whole {@link ArchitectureBlueprint} straight
+     * from the request body, so a client could otherwise nominate its own
+     * {@code clientId} and write into another tenant.
+     */
+    @Column(name = "client_id")
+    @JsonIgnore
+    private Long clientId;
+
+    /** app_user.id of the author. Attribution only — not an access boundary. */
+    @Column(name = "created_by")
+    @JsonIgnore
+    private Long createdBy;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;

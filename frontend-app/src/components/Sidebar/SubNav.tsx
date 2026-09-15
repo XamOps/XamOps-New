@@ -1,0 +1,49 @@
+import React from 'react';
+import clsx from 'clsx';
+
+interface Props {
+  /** Whether the group is expanded. */
+  isOpen: boolean;
+  /** Dark theme, for the connecting rule colour. */
+  dark: boolean;
+  children: React.ReactNode;
+}
+
+/**
+ * The indented sub-item list under a nav entry, expanding and collapsing smoothly.
+ *
+ * Exists because the XamSecure and SOC 2 groups previously rendered their children behind
+ * a plain `condition && (...)`, so the list mounted and unmounted outright and appeared
+ * instantly while every other nav group eased open. The timing here is copied from
+ * NavSection deliberately, so a nested group and a top-level section move identically.
+ *
+ * HOW THE HEIGHT ANIMATES
+ * CSS cannot transition to or from `height: auto`, so the outer element is a grid and the
+ * transition runs on `grid-template-rows` between `0fr` and `1fr`. The inner wrapper needs
+ * `min-h-0`, otherwise its content establishes a minimum height and the collapsed state
+ * never reaches zero.
+ *
+ * Children stay mounted so there is something to animate. While collapsed the group is
+ * `aria-hidden` and takes no pointer events, so it is neither announced nor clickable.
+ */
+const SubNav: React.FC<Props> = ({ isOpen, dark, children }) => (
+  <div
+    aria-hidden={!isOpen}
+    className={clsx(
+      'grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]',
+      isOpen ? 'grid-rows-[1fr] opacity-100 mt-0.5' : 'grid-rows-[0fr] opacity-0 mt-0'
+    )}
+  >
+    <div
+      className={clsx(
+        'min-h-0 space-y-0.5 ml-3 pl-3 border-l',
+        !isOpen && 'pointer-events-none',
+        dark ? 'border-[rgba(255,255,255,0.08)]' : 'border-[rgba(0,0,0,0.08)]'
+      )}
+    >
+      {children}
+    </div>
+  </div>
+);
+
+export default SubNav;

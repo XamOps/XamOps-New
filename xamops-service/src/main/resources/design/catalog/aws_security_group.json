@@ -1,0 +1,63 @@
+{
+  "tfType": "aws_security_group",
+  "displayName": "Security Group",
+  "canvasType": "Security Group",
+  "idAttribute": "id",
+  "attributes": [
+    {
+      "name": "name",
+      "kind": "STRING",
+      "required": true,
+      "description": "Group name as it appears in the console."
+    },
+    {
+      "name": "description",
+      "kind": "STRING",
+      "required": false,
+      "defaultValue": "Managed by XamOps",
+      "description": "AWS requires a description and will not accept an empty one."
+    },
+    {
+      "name": "ingress",
+      "kind": "BLOCK_LIST",
+      "required": false,
+      "description": "Inbound rules. Each entry becomes one ingress block.",
+      "nested": [
+        { "name": "description", "kind": "STRING", "required": false },
+        { "name": "from_port", "kind": "NUMBER", "required": true },
+        { "name": "to_port", "kind": "NUMBER", "required": true },
+        { "name": "protocol", "kind": "STRING", "required": true, "defaultValue": "tcp" },
+        { "name": "cidr_blocks", "kind": "STRING", "required": false }
+      ]
+    },
+    {
+      "name": "egress",
+      "kind": "BLOCK_LIST",
+      "required": false,
+      "description": "Outbound rules. Note that AWS grants allow-all egress by default only when no egress block is present; declaring any egress replaces that default entirely.",
+      "nested": [
+        { "name": "description", "kind": "STRING", "required": false },
+        { "name": "from_port", "kind": "NUMBER", "required": true },
+        { "name": "to_port", "kind": "NUMBER", "required": true },
+        { "name": "protocol", "kind": "STRING", "required": true, "defaultValue": "-1" },
+        { "name": "cidr_blocks", "kind": "STRING", "required": false }
+      ]
+    },
+    {
+      "name": "tags",
+      "kind": "TAGS",
+      "required": false,
+      "description": "Tags applied to the security group."
+    }
+  ],
+  "references": [
+    {
+      "field": "vpc_id",
+      "targetTfType": "aws_vpc",
+      "via": "CONTAINMENT",
+      "required": true,
+      "list": false
+    }
+  ],
+  "outputs": ["id"]
+}
