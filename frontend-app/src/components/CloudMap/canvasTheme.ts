@@ -810,6 +810,25 @@ function iconLayerUrl(type: string | undefined, theme: CanvasTheme): string {
 export const GLOBAL_SCOPE_ID = '__cm-global-scope';
 
 /**
+ * Types that define scope rather than sit inside it.
+ *
+ * These can never be "not in a VPC", so they must never be swept into the global
+ * box — checking only for a missing `parent` is not enough. The all-VPCs view
+ * merges one synthetic `<vpc>::vpc-root` node per VPC, carrying `type: 'VPC'` with
+ * no parent and no isContainer flag. On an account whose VPCs come back with no
+ * subnets or resources, nothing references those roots as a parent either, so
+ * every VPC looked like a loose resource and 30 of them were grouped under
+ * "not in a VPC" — which is both wrong and worse than showing nothing.
+ */
+const STRUCTURAL_TYPES = new Set([
+  'VPC', 'Subnet', 'Availability Zone', 'Region', 'Scope',
+]);
+
+function isStructuralType(type: unknown): boolean {
+  return typeof type === 'string' && STRUCTURAL_TYPES.has(type);
+}
+
+/**
  * Gather parentless resources into one synthetic "Global" compound.
  *
  * Regional services (S3, SQS, DynamoDB, CloudWatch) legitimately have no VPC, so
@@ -837,8 +856,9 @@ export function groupOrphanResources<T extends { group?: string; data: any }>(el
   const orphans = elements.filter((el) =>
     !isEdge(el) &&
     !el.data?.parent &&
-    !parentIds.has(String(el.data?.id)) &&   // not itself a container
+    !parentIds.has(String(el.data?.id)) &&   // not currently a container
     !el.data?.isContainer &&
+    !isStructuralType(el.data?.type) &&
     el.data?.id !== GLOBAL_SCOPE_ID);
 
   // One lone orphan reads fine on its own; a box around it is just chrome.

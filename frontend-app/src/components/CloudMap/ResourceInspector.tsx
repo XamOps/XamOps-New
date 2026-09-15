@@ -30,6 +30,10 @@ const HIDDEN_KEYS = new Set([
   'id', 'label', 'parent', 'type', 'source', 'target',
   'state', 'State', 'region', 'Region',
   'isContainer', 'containerType', 'customIcon', 'kind',
+  // Icon paths are presentation. The canvas writes _iconUrl on palette drops and
+  // `icon` on some node types, and without these the panel renders a row reading
+  // "ICON  /icons/vpc.png" as though it were resource data.
+  '_iconUrl', 'iconUrl', 'icon', 'iconVal',
   'fillColor', 'fillColor2', 'gradientDir', 'borderColor', 'borderWidth', 'borderDash',
   'nodeShape', 'nodeShadow', 'shadowBlur', 'shadowOffsetX', 'shadowOffsetY', 'shadowColor',
   'fontSize', 'fontBold', 'fontItalic', 'fontFamily', 'fontColor', 'textValign', 'textHalign',
