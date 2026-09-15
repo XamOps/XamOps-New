@@ -14,15 +14,101 @@ import type {
   ConfigurationsDashboard, ResourceDetail, SyncStatus, IdentitiesSummary,
 } from '../types/xamsecure';
 
-const CACHE_DURATION = 30 * 60 * 1000; // 30 min for scan-based tabs
-const THREAT_POLL_MS = 60 * 1000;      // runtime feed
+const CACHE_DURATION = 30 * 60 * 1000;        // sections with no sync stamp to key off
+const STAMPED_MAX_AGE = 12 * 60 * 60 * 1000;  // ceiling for stamped entries; see stampFor
+const STAMP_REFRESH_MS = 60 * 1000;           // how often the stamps themselves are re-read
+const THREAT_POLL_MS = 60 * 1000;             // runtime feed
 
 // Bump this version whenever a cached response's shape changes, so stale
 // localStorage entries miss and refetch instead of masking new fields.
-const CACHE_VERSION = 'v4';
+// v5 also changed the key separator to '|' so a section name can be recovered from a key.
+const CACHE_VERSION = 'v5';
+
+const ALL_DOMAINS = ['DETECTIONS', 'VULNERABILITIES', 'POSTURE', 'INVENTORY', 'API_ENDPOINTS'] as const;
+
+/**
+ * Which backend sync produces each cached section, or null where nothing does.
+ *
+ * A section backed by a synced table only changes when that sync lands, so its cache entry is
+ * keyed by the sync's completion time rather than expiring on a timer. The full sync runs every
+ * six hours, so a thirty-minute timer was throwing away good data roughly eleven times out of
+ * twelve and re-running the same queries to get the same rows back.
+ *
+ * null means the section is served live from the vendor API, or mixes live and stored data, so no
+ * stamp describes it and the timer is the only honest option. Verified per method rather than
+ * assumed: policies, workflows, components and code scans are live; stories, compliance and the
+ * network graph are mixed; config_dashboard delegates, so it is treated as live.
+ */
+const SECTION_SYNC: Record<string, readonly string[] | null> = {
+  summary: ALL_DOMAINS,
+  attack_surface: ['POSTURE'],
+  identities: ['POSTURE', 'INVENTORY'],
+  vuln_dashboard: ['VULNERABILITIES'],
+  inventory_categories: ['INVENTORY'],
+  inventory_risk: ['INVENTORY'],
+  sensor_coverage: ['INVENTORY'],
+  apisec: ['API_ENDPOINTS'],
+  // Checked before the prefixes below, which is what keeps inventory_network off the
+  // INVENTORY stamp — the network graph is built from live vendor calls.
+  inventory_network: null,
+  compliance: null,
+  stories: null,
+  components: null,
+  policies: null,
+  workflows: null,
+  code_scans: null,
+  config_dashboard: null,
+};
+
+/** Sections whose names carry parameters (page, severity, category, days). */
+const SECTION_SYNC_PREFIX: ReadonlyArray<readonly [string, readonly string[]]> = [
+  ['issues_', ['POSTURE']],
+  ['threat_overview_', ['DETECTIONS']],
+  ['vulns_', ['VULNERABILITIES']],
+  ['posture_', ['POSTURE']],
+  ['inventory_', ['INVENTORY']],
+];
+
+function domainsFor(section: string): readonly string[] | null {
+  if (section in SECTION_SYNC) return SECTION_SYNC[section];
+  for (const [prefix, domains] of SECTION_SYNC_PREFIX) {
+    if (section.startsWith(prefix)) return domains;
+  }
+  return null;
+}
+
+/**
+ * Last-success times per sync domain, module-scoped so the cache key helper can reach them
+ * without every call site having to thread them through. The hook is the only writer.
+ */
+let syncStamps: Record<string, string | null> = {};
+let syncStampsAt = 0;
+
+/** Marks a key as timer-expiring rather than stamp-invalidated. */
+const TIMER_STAMP = 't';
+
+function stampFor(section: string): string {
+  const domains = domainsFor(section);
+  if (!domains || syncStampsAt === 0) return TIMER_STAMP;
+  // '0' for a domain that has never synced, so the key still changes once it does.
+  return domains.map((d) => syncStamps[d] ?? '0').join('.');
+}
 
 export function xamSecureCacheKey(section: string, accountId: string | null): string {
-  return `xamsecure_${CACHE_VERSION}_${section}_${accountId ?? 'all'}`;
+  return ['xamsecure', CACHE_VERSION, section, accountId ?? 'all', stampFor(section)].join('|');
+}
+
+/**
+ * Replaces the sync stamps. Returns true when any domain moved, which means every stamped cache
+ * entry keyed off the old value is now unreachable and will be refetched on next use.
+ */
+export function applySyncStamps(status: SyncStatus): boolean {
+  const next: Record<string, string | null> = {};
+  status.domains.forEach((d) => { next[d.domain] = d.lastSuccessAt; });
+  const changed = ALL_DOMAINS.some((d) => next[d] !== syncStamps[d]);
+  syncStamps = next;
+  syncStampsAt = Date.now();
+  return changed;
 }
 
 function loadCache<T>(key: string): T | null {
@@ -34,10 +120,58 @@ function loadCache<T>(key: string): T | null {
   return null;
 }
 
+/**
+ * Drops earlier entries for the same section and account under a different stamp.
+ *
+ * Without this, every sync would leave its predecessor's payload behind and localStorage would
+ * grow until a write threw, at which point the try/catch would silently stop caching altogether.
+ */
+function pruneSupersededEntries(key: string): void {
+  const cut = key.lastIndexOf('|');
+  if (cut < 0) return;
+  const prefix = key.slice(0, cut + 1);
+  const doomed: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(prefix) && k !== key && k !== `${key}_expiry`
+        && !k.endsWith('_expiry')) {
+      doomed.push(k);
+    }
+  }
+  doomed.forEach((k) => {
+    localStorage.removeItem(k);
+    localStorage.removeItem(`${k}_expiry`);
+  });
+}
+
+let stampPrime: Promise<boolean> | null = null;
+
+/**
+ * Reads the sync stamps, at most once per STAMP_REFRESH_MS and never concurrently. Resolves true
+ * when a domain moved.
+ *
+ * Has to complete before any cache read, because the stamps are part of the cache key. On
+ * failure the stamps stay unset, stampFor falls back to TIMER_STAMP, and everything reverts to
+ * the old timer behaviour rather than losing caching altogether.
+ */
+async function primeSyncStamps(): Promise<boolean> {
+  if (Date.now() - syncStampsAt < STAMP_REFRESH_MS) return false;
+  if (stampPrime) return stampPrime;
+  stampPrime = apiClient.get<SyncStatus>('/api/xamsecure/sync-status')
+    .then((s) => applySyncStamps(s))
+    .catch(() => false)
+    .finally(() => { stampPrime = null; });
+  return stampPrime;
+}
+
 function saveCache(key: string, value: unknown): void {
   try {
+    pruneSupersededEntries(key);
+    // A stamped entry is already invalidated by its key when the sync moves, so it only needs a
+    // ceiling to guard against a stamp that never changes.
+    const ttl = key.endsWith(`|${TIMER_STAMP}`) ? CACHE_DURATION : STAMPED_MAX_AGE;
     localStorage.setItem(key, JSON.stringify(value));
-    localStorage.setItem(`${key}_expiry`, (Date.now() + CACHE_DURATION).toString());
+    localStorage.setItem(`${key}_expiry`, (Date.now() + ttl).toString());
   } catch { /* ignore */ }
 }
 
@@ -434,6 +568,15 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
     const run = async () => {
       // Threats polls on its own; every other tab, once loaded for this account, serves
       // in-memory data on revisit (no refetch, no loading flash). Refresh forces a reload.
+      // Stamps are part of the cache key, so they have to land before anything reads the cache.
+      // Read before the loaded-this-session check too: a sync that lands while the page is open
+      // has to drop the in-memory guard, or an already-visited tab keeps showing the pre-sync
+      // payload for as long as the page stays mounted. Throttled, so revisiting a tab inside the
+      // window costs nothing.
+      const stampsMoved = await primeSyncStamps();
+      if (cancelled) return;
+      if (stampsMoved) loadedRef.current.clear();
+
       if (activeTab !== 'threats' && loadedRef.current.has(tabKey)) return;
       setIsLoading(true);
       try {
@@ -496,6 +639,10 @@ export const useXamSecureData = ({ selectedAccountId, activeTab }: UseXamSecureD
   const refresh = useCallback(async () => {
     setIsLoading(true);
     try {
+      // Re-read the stamps unconditionally: an explicit refresh is also how a user checks
+      // whether a sync has landed since the page was opened.
+      syncStampsAt = 0;
+      await primeSyncStamps();
       if (activeTab === 'issues') await loadIssues('', true);
       else if (activeTab === 'attack-surface') await loadAttackSurface(true);
       else if (activeTab === 'overview') {
