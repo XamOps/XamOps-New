@@ -1316,12 +1316,32 @@ const CloudMapPage: React.FC = () => {
 
   // ── Message overlay ───────────────────────────────────────────────────────
 
+  /**
+   * Say what is actually happening while the graph loads.
+   *
+   * "Loading AWS Topology..." for up to a couple of minutes reads as a hang. The
+   * first load of an uncached account runs a full describe scan, so the message
+   * escalates with elapsed time: quick at first, then explaining the cost, then
+   * naming what is slow. Nothing here changes the request — it changes whether
+   * waiting feels like progress or like something broken.
+   */
   useEffect(() => {
-    if (loadingVpcs) { setMessageOverlay({ show: true, title: 'Loading VPCs...' }); return; }
-    if (loadingGraph) { setMessageOverlay({ show: true, title: 'Loading AWS Topology...' }); return; }
-    if (vpcError) { setMessageOverlay({ show: true, title: `Error: ${vpcError}` }); return; }
-    if (graphError) { setMessageOverlay({ show: true, title: `Error: ${graphError}` }); return; }
-    setMessageOverlay({ show: false, title: '' });
+    if (loadingVpcs) { setMessageOverlay({ show: true, title: 'Finding your VPCs…' }); return; }
+    if (vpcError) { setMessageOverlay({ show: true, title: `Could not list VPCs: ${vpcError}` }); return; }
+    if (graphError) { setMessageOverlay({ show: true, title: graphError }); return; }
+    if (!loadingGraph) { setMessageOverlay({ show: false, title: '' }); return; }
+
+    const stages: Array<{ after: number; title: string }> = [
+      { after: 0, title: 'Reading your topology…' },
+      { after: 6_000, title: 'Scanning the account for resources…' },
+      { after: 20_000, title: 'Still scanning. The first load of an account is the slow one; later loads are cached.' },
+      { after: 60_000, title: 'This account is large, so the scan is taking a while. It is still running.' },
+    ];
+
+    setMessageOverlay({ show: true, title: stages[0].title });
+    const timers = stages.slice(1).map(stage =>
+      setTimeout(() => setMessageOverlay({ show: true, title: stage.title }), stage.after));
+    return () => timers.forEach(clearTimeout);
   }, [loadingVpcs, loadingGraph, vpcError, graphError]);
 
   // ── Keyboard shortcuts (design mode only) ─────────────────────────────────
