@@ -104,21 +104,73 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
     setGraphError(null);
 
     try {
-      const results = await Promise.all(
-        list.map(async (vpc) => {
-          try {
-            const response = await apiFetch(
-              `/api/xamops/cloudmap/graph?${new URLSearchParams({ accountId: accountId!, vpcId: vpc.id, region: vpc.region }).toString()}`,
-              {}
-            );
-            if (!response.ok) return [] as GraphElement[];
-            const data = await response.json();
-            return Array.isArray(data) ? (data as GraphElement[]) : [];
-          } catch {
-            return [] as GraphElement[];
+      /*
+       * These requests are fanned out carefully rather than all at once.
+       *
+       * Every /cloudmap/graph call runs CloudListService.getAllResources, which is
+       * a ~1000-call full account scan behind a Redis cache. Promise.all over 30
+       * VPCs meant 30 simultaneous cache misses — roughly 30,000 AWS calls at once
+       * — which throttled, timed out, and came back as empty arrays from the
+       * service's exceptionally() handler. The canvas then showed "30 VPCs, 0
+       * Subnets, 0 Resources" because the only surviving nodes were the synthetic
+       * roots created below.
+       *
+       * So the first request goes alone to populate the cache, and the rest follow
+       * in small batches that hit it. One cold scan instead of thirty.
+       */
+      const BATCH_SIZE = 4;
+      /* The first, cache-warming request pays for the whole scan. The Vite proxy
+       * and nginx both allow 300s for /api/xamops, so the client must not give up
+       * sooner — apiFetch's 45s default would abort a legitimately slow scan. */
+      const COLD_TIMEOUT_MS = 240_000;
+      const WARM_TIMEOUT_MS = 60_000;
+
+      let failures = 0;
+
+      const fetchOne = async (vpc: VPC, timeoutMs: number): Promise<GraphElement[]> => {
+        try {
+          const response = await apiFetch(
+            `/api/xamops/cloudmap/graph?${new URLSearchParams({ accountId: accountId!, vpcId: vpc.id, region: vpc.region }).toString()}`,
+            { timeoutMs }
+          );
+          if (!response.ok) {
+            failures++;
+            return [];
           }
-        })
-      );
+          const data = await response.json();
+          return Array.isArray(data) ? (data as GraphElement[]) : [];
+        } catch {
+          failures++;
+          return [];
+        }
+      };
+
+      const results: GraphElement[][] = [];
+      results.push(await fetchOne(list[0], COLD_TIMEOUT_MS));
+
+      for (let i = 1; i < list.length; i += BATCH_SIZE) {
+        const batch = list.slice(i, i + BATCH_SIZE);
+        results.push(...await Promise.all(batch.map(vpc => fetchOne(vpc, WARM_TIMEOUT_MS))));
+      }
+
+      /*
+       * Report a total failure as a failure.
+       *
+       * CloudMapService returns an empty list when a scan fails, so an error and an
+       * empty account look identical over the wire. Without this the canvas claims
+       * "we reached this account and found nothing", which is a stronger statement
+       * than the data supports and sends people looking for missing resources
+       * instead of a broken call.
+       */
+      if (failures === list.length) {
+        setGraphError(
+          `Could not load topology for any of the ${list.length} VPCs. The account scan may have timed out or been throttled.`);
+        setGraphElements([]);
+        return;
+      }
+      if (failures > 0) {
+        setGraphError(`Topology for ${failures} of ${list.length} VPCs could not be loaded.`);
+      }
 
       const merged: GraphElement[] = [];
 
@@ -227,10 +279,11 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
     try {
       const [vpcId, region] = (vpcValue || '|').split('|');
 
+      /* A single VPC still triggers the same ~1000-call account scan, so this
+       * needs far longer than apiFetch's 45s default when the cache is cold. */
       const response = await apiFetch(
         `/api/xamops/cloudmap/graph?accountId=${accountId}&vpcId=${vpcId || ''}&region=${region || ''}`,
-        {
-        }
+        { timeoutMs: 240_000 }
       );
 
       if (!response.ok) {

@@ -1302,12 +1302,17 @@ const CloudMapPage: React.FC = () => {
         setTimeout(() => { cyRef.current?.resize(); }, 100);
       }
     } else if (!loadingGraph && mode === 'live') {
-      setShowEmptyState(true);
+      // Only claim the account is empty when nothing actually failed. The empty
+      // state asserts "we reached this account and found nothing", which is a
+      // stronger statement than an errored fetch supports, and it sends people
+      // hunting for missing resources instead of a broken call. The error overlay
+      // covers that case instead.
+      setShowEmptyState(!graphError);
       renderGraph([], false);
     } else if (mode === 'design') {
       renderGraph([], true);
     }
-  }, [graphElements, mode, renderGraph, loadingGraph, selectedVpcValue]);
+  }, [graphElements, mode, renderGraph, loadingGraph, selectedVpcValue, graphError]);
 
   // ── Message overlay ───────────────────────────────────────────────────────
 
