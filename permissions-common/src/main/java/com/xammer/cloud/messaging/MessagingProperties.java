@@ -25,9 +25,13 @@ public class MessagingProperties {
     private boolean enabled = false;
 
     /**
-     * Provider API root, no trailing slash, e.g. {@code https://api.example.com}. The
-     * published spec is host-relative, so this has no sensible default and the client
-     * treats a blank value as "not configured" and skips sending.
+     * Fallback API root for channels that do not set their own, no trailing slash.
+     *
+     * <p>Usually leave this blank and set the per-channel hosts instead. Xamping serves each
+     * product from a separate host, so there is no single root that answers for both: probing
+     * {@code sms.xammer.in} with a WhatsApp path returns a plain 404, while the same path on
+     * {@code whatsapp.xammer.in} returns a proper {@code API_KEY_MISSING} error. This exists only
+     * for a deployment that fronts several products behind one gateway.
      */
     private String baseUrl = "";
 
@@ -56,9 +60,32 @@ public class MessagingProperties {
     private final Sms sms = new Sms();
     private final WhatsApp whatsapp = new WhatsApp();
 
-    /** True only when the master switch, a base URL and an API key are all present. */
+    /** True when the master switch, an API key, and at least one channel host are all present. */
     public boolean isUsable() {
-        return enabled && !baseUrl.isBlank() && !apiKey.isBlank();
+        return enabled && !apiKey.isBlank()
+                && !(whatsappBaseUrl().isBlank() && smsBaseUrl().isBlank());
+    }
+
+    /**
+     * Host serving the WhatsApp endpoints, e.g. {@code https://whatsapp.xammer.in}.
+     *
+     * <p>Per-channel because Xamping serves each product from its own host. Verified by probing:
+     * {@code POST /api/v1/whatsapp/single} on the SMS host returns a bare 404, while the same path
+     * on the WhatsApp host returns a proper {@code API_KEY_MISSING} error. A single shared root
+     * would silently post every WhatsApp message to the wrong service.
+     */
+    public String whatsappBaseUrl() {
+        return whatsapp.getBaseUrl().isBlank() ? baseUrl : whatsapp.getBaseUrl();
+    }
+
+    /** Host serving the SMS endpoints, e.g. {@code https://sms.xammer.in}. */
+    public String smsBaseUrl() {
+        return sms.getBaseUrl().isBlank() ? baseUrl : sms.getBaseUrl();
+    }
+
+    /** Strips trailing slashes so joining with a spec path cannot produce "//api/v1/...". */
+    private static String normaliseBaseUrl(String value) {
+        return value == null ? "" : value.trim().replaceAll("/+$", "");
     }
 
     public boolean isEnabled() {
@@ -74,8 +101,7 @@ public class MessagingProperties {
     }
 
     public void setBaseUrl(String baseUrl) {
-        // Trailing slashes would produce "//api/v1/..." once joined with the spec paths.
-        this.baseUrl = baseUrl == null ? "" : baseUrl.trim().replaceAll("/+$", "");
+        this.baseUrl = normaliseBaseUrl(baseUrl);
     }
 
     public String getApiKey() {
@@ -123,7 +149,18 @@ public class MessagingProperties {
 
         private boolean enabled = false;
 
-        /** DLT-approved header, e.g. {@code XAMOPS}. Sent as {@code sender_id}. */
+        /** Host serving the SMS endpoints, e.g. {@code https://sms.xammer.in}. */
+        private String baseUrl = "";
+
+        public String getBaseUrl() {
+            return baseUrl;
+        }
+
+        public void setBaseUrl(String baseUrl) {
+            this.baseUrl = normaliseBaseUrl(baseUrl);
+        }
+
+        /** DLT-approved header, e.g. {@code XAMMER}. Sent as {@code sender_id}. */
         private String senderId = "";
 
         /**
@@ -146,23 +183,32 @@ public class MessagingProperties {
         /*
          * Body patterns, rendered by MessageTemplate before sending.
          *
-         * These MUST be edited to match the exact wording approved on the DLT portal for the
-         * corresponding template ID — the provider compares the rendered text against the
-         * approved template and rejects a mismatch. The defaults document the variable
-         * contract each builder produces; they are not expected to pass DLT as-is.
+         * Written in real DLT syntax: bare, repeated {#var#}, filled positionally. That is what the
+         * DLT portal actually approves — an approved template on this account reads
+         * "Dear {#var#}, Scale securely with Xammer {#var#} ... Connect: {#var#}".
+         *
+         * These MUST match the approved wording character for character, because
+         * POST /v1/sms/countrycode takes both `message` and `template_id` and the provider compares
+         * them. The portal link is static text, not a variable: fewer variables to register, and
+         * the target never varies.
          */
 
-        /** var1=alert count, var2=account name, var3=critical count, var4=portal link. */
+        /** {#var#} order: account name, alert count, critical count. */
         private String alertBody =
-                "XamOps Alert: {#var1#} resource(s) on {#var2#} need attention, {#var3#} critical. Details: {#var4#}";
+                "XamOps alert for {#var#}: {#var#} resource(s) need attention, {#var#} critical. Log in to XamOps to review. - Xammer";
 
-        /** var1=frequency, var2=account name, var3=date range, var4=total spend, var5=portal link. */
+        /**
+         * {#var#} order: frequency, account name, date range, total spend — matching the order
+         * {@code FinOpsReportTextBuilder} emits. Positional placeholders make a reordering here
+         * silently render "total spend 2026-09-14" rather than failing, so the two must be changed
+         * together.
+         */
         private String reportBody =
-                "XamOps {#var1#} FinOps report for {#var2#} ({#var3#}): total spend {#var4#}. Full report: {#var5#}";
+                "{#var#} XamOps FinOps report for {#var#} ({#var#}): total spend {#var#}. Log in for the full breakdown. - Xammer";
 
-        /** var1=username, var2=account name, var3=portal link. */
+        /** {#var#} order: username, account name. */
         private String supportBody =
-                "Hi {#var1#}, you have an unread XamOps support message about {#var2#}. Reply here: {#var3#}";
+                "Hi {#var#}, you have an unread XamOps support message about {#var#}. Please reply in the XamOps portal. - Xammer";
 
         public boolean isEnabled() {
             return enabled;
@@ -241,6 +287,17 @@ public class MessagingProperties {
     public static class WhatsApp {
 
         private boolean enabled = false;
+
+        /** Host serving the WhatsApp endpoints, e.g. {@code https://whatsapp.xammer.in}. */
+        private String baseUrl = "";
+
+        public String getBaseUrl() {
+            return baseUrl;
+        }
+
+        public void setBaseUrl(String baseUrl) {
+            this.baseUrl = normaliseBaseUrl(baseUrl);
+        }
 
         /** Registered WhatsApp Business number in E.164, sent as {@code sender}. */
         private String sender = "";

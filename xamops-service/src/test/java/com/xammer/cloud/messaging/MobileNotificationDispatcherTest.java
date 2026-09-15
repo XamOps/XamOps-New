@@ -11,7 +11,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -34,7 +34,7 @@ class MobileNotificationDispatcherTest {
     private MobileNotificationDispatcher dispatcher;
 
     private static final String CONTACT = "9876543210";
-    private static final Map<String, String> VARS = Map.of("var1", "3");
+    private static final List<String> VARS = List.of("Production AWS", "4", "2");
 
     @BeforeEach
     void setUp() {
@@ -49,7 +49,7 @@ class MobileNotificationDispatcherTest {
         // otherwise these tests would fail on a nullness the production client cannot produce.
         lenient().when(client.sendSms(anyString(), anyString(), anyString()))
                 .thenReturn(MessageResult.sent(NotificationChannel.SMS, "+91*****10", "sms-1"));
-        lenient().when(client.sendWhatsApp(anyString(), anyString(), anyMap()))
+        lenient().when(client.sendWhatsApp(anyString(), anyString(), anyList()))
                 .thenReturn(MessageResult.sent(NotificationChannel.WHATSAPP, "+91*****10", "wa-1"));
     }
 
@@ -66,7 +66,7 @@ class MobileNotificationDispatcherTest {
     }
 
     private void whatsAppReturns(MessageResult result) {
-        when(client.sendWhatsApp(anyString(), anyString(), anyMap())).thenReturn(result);
+        when(client.sendWhatsApp(anyString(), anyString(), anyList())).thenReturn(result);
     }
 
     // ── the bug this table exists to prevent ─────────────────────────────────
@@ -81,7 +81,7 @@ class MobileNotificationDispatcherTest {
         dispatcher.dispatch(CONTACT, VARS, MessageKind.ALERT);
 
         verify(client).sendSms(anyString(), anyString(), anyString());
-        verify(client, never()).sendWhatsApp(anyString(), anyString(), anyMap());
+        verify(client, never()).sendWhatsApp(anyString(), anyString(), anyList());
     }
 
     // ── fallback semantics ───────────────────────────────────────────────────
@@ -95,7 +95,7 @@ class MobileNotificationDispatcherTest {
 
         dispatcher.dispatch(CONTACT, VARS, MessageKind.ALERT);
 
-        verify(client).sendWhatsApp(anyString(), anyString(), anyMap());
+        verify(client).sendWhatsApp(anyString(), anyString(), anyList());
         verify(client, never()).sendSms(anyString(), anyString(), anyString());
     }
 
@@ -121,7 +121,7 @@ class MobileNotificationDispatcherTest {
 
         dispatcher.dispatch(CONTACT, VARS, MessageKind.ALERT);
 
-        verify(client).sendWhatsApp(anyString(), anyString(), anyMap());
+        verify(client).sendWhatsApp(anyString(), anyString(), anyList());
         verify(client).sendSms(anyString(), anyString(), anyString());
     }
 
@@ -137,7 +137,7 @@ class MobileNotificationDispatcherTest {
                 EnumSet.of(NotificationChannel.SMS));
 
         verify(client).sendSms(anyString(), anyString(), anyString());
-        verify(client, never()).sendWhatsApp(anyString(), anyString(), anyMap());
+        verify(client, never()).sendWhatsApp(anyString(), anyString(), anyList());
     }
 
     @Test
@@ -150,7 +150,7 @@ class MobileNotificationDispatcherTest {
 
         assertThat(results).isEmpty();
         verify(client, never()).sendSms(anyString(), anyString(), anyString());
-        verify(client, never()).sendWhatsApp(anyString(), anyString(), anyMap());
+        verify(client, never()).sendWhatsApp(anyString(), anyString(), anyList());
     }
 
     // ── inactive / guard conditions ──────────────────────────────────────────
@@ -183,10 +183,38 @@ class MobileNotificationDispatcherTest {
     }
 
     @Test
+    void dispatchAllHonoursPerCustomerEntitlement() {
+        // Deployment can send both; this customer is only entitled to WhatsApp.
+        enableWhatsApp();
+        enableSms();
+
+        dispatcher.dispatchAll(List.of(CONTACT), VARS, MessageKind.ALERT, "acct-1",
+                EnumSet.of(NotificationChannel.WHATSAPP));
+
+        verify(client).sendWhatsApp(anyString(), anyString(), anyList());
+        verify(client, never()).sendSms(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void dispatchAllSendsNothingForAnUnentitledCustomer() {
+        // The default state of every client. Must cost zero provider calls.
+        enableWhatsApp();
+        enableSms();
+
+        List<MessageResult> results = dispatcher.dispatchAll(
+                List.of(CONTACT), VARS, MessageKind.ALERT, "acct-1",
+                EnumSet.noneOf(NotificationChannel.class));
+
+        assertThat(results).isEmpty();
+        verify(client, never()).sendWhatsApp(anyString(), anyString(), anyList());
+        verify(client, never()).sendSms(anyString(), anyString(), anyString());
+    }
+
+    @Test
     void dispatchAllSendsNothingWhenInactive() {
         dispatcher.dispatchAll(List.of(CONTACT), VARS, MessageKind.ALERT, "acct-1");
 
         verify(client, never()).sendSms(anyString(), anyString(), anyString());
-        verify(client, never()).sendWhatsApp(any(), any(), anyMap());
+        verify(client, never()).sendWhatsApp(any(), any(), anyList());
     }
 }

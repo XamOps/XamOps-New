@@ -201,8 +201,13 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                   </FieldSelect>
                 </div>
                 <div>
-                  <FormLabel icon="mdi:phone-outline" text="Contact Number" />
-                  <FieldInput type="tel" value={selectedUser.contact} placeholder="Enter contact number" onChange={e => updateSelectedUser('contact', e.target.value)} />
+                  <FormLabel icon="mdi:phone-outline" text="Mobile Number" />
+                  <FieldInput type="tel" value={selectedUser.contact} placeholder="9876543210 or +91 98765 43210" onChange={e => updateSelectedUser('contact', e.target.value)} />
+                  {/* Optional, but it is the only route to SMS/WhatsApp alerts, so say so rather
+                      than leaving an unlabelled field people skip. */}
+                  <p className="mt-1 text-[11px] text-gray-400">
+                    Used for SMS and WhatsApp alerts. Leave blank for email-only.
+                  </p>
                 </div>
                 <div>
                   <FormLabel icon="mdi:briefcase-outline" text="Designation" />

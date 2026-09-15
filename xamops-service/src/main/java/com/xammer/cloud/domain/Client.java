@@ -41,6 +41,31 @@ public class Client {
             columnDefinition = "boolean default true")
     private boolean xamSecureOnboardingEnabled = true;
 
+    /**
+     * Whether alerts and reports may be delivered to this client over SMS.
+     *
+     * Defaults FALSE — the opposite of {@link #xamSecureOnboardingEnabled} above, and deliberately
+     * so. Every SMS is billed per message by the provider, so the safe default for an unconfigured
+     * or newly created client is "do not spend money". Email delivery is unaffected either way.
+     *
+     * Granted per contract from BillOps admin → Accounts.
+     */
+    @Column(name = "sms_notifications_enabled", nullable = false,
+            columnDefinition = "boolean default false")
+    private boolean smsNotificationsEnabled = false;
+
+    /**
+     * Whether alerts and reports may be delivered to this client over WhatsApp.
+     *
+     * Separate from {@link #smsNotificationsEnabled} rather than one "mobile notifications" flag:
+     * the two channels are priced differently and approved independently (Meta templates for
+     * WhatsApp, DLT registration for SMS), so a customer can legitimately be entitled to one and
+     * not the other. Defaults FALSE for the same billing reason.
+     */
+    @Column(name = "whatsapp_notifications_enabled", nullable = false,
+            columnDefinition = "boolean default false")
+    private boolean whatsappNotificationsEnabled = false;
+
     // --- Trial lifecycle (self-signup customers) ---
     // Nullable at DB level so `ddl-auto=update` can add it to an existing populated
     // table. New rows default to PAID via the field initializer; existing rows (null)

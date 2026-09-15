@@ -17,13 +17,19 @@ import java.util.Map;
  * approved template plus values. This class therefore emits a small ordered variable map, not a
  * finished message.
  *
- * <p><b>Variable contract</b> (must match the registered SMS and WhatsApp templates):
- * <ul>
- *   <li>{@code var1} — total alert count</li>
- *   <li>{@code var2} — account name</li>
- *   <li>{@code var3} — count at CRITICAL</li>
- *   <li>{@code var4} — deep link to the alerts page</li>
- * </ul>
+ * <p><b>Variable contract</b> — positional, must match the {@code xamops_alert} template body
+ * "XamOps has detected issues in {{1}}. {{2}} resource(s) need attention, {{3}} of them critical.":
+ * <ol>
+ *   <li>account name</li>
+ *   <li>total alert count</li>
+ *   <li>count at CRITICAL</li>
+ * </ol>
+ *
+ * <p>A positional list rather than a named map because that is what both APIs take: WhatsApp wants
+ * {@code sample: {"bodyvar": [...]}} and DLT templates spell every placeholder {@code {#var#}}.
+ *
+ * <p>The portal link is static text in the template rather than a variable. Meta commonly rejects
+ * templates that pass URLs through variables, and it is the same URL on every send anyway.
  *
  * <p>The detail of <em>which</em> volumes are affected is deliberately left to the email and the
  * portal. A 160-character segment cannot carry it, and truncating a list of resource IDs produces
@@ -42,20 +48,25 @@ public class AlertTextBuilder {
     /**
      * @param alerts      the digest being sent; must not be empty
      * @param accountName human-readable cloud account name
-     * @return ordered {@code var1..var4} map, safe to pass as WhatsApp {@code sample} or to
-     *         render an SMS body with {@link com.xammer.cloud.messaging.MessageTemplate}
+     * @return ordered positional values for WhatsApp {@code sample.bodyvar} or for rendering an SMS
+     *         body with {@link com.xammer.cloud.messaging.MessageTemplate}
      */
-    public Map<String, String> buildAlertVariables(List<AlertDto> alerts, String accountName) {
+    public List<String> buildAlertVariables(List<AlertDto> alerts, String accountName) {
         long critical = alerts == null ? 0 : alerts.stream()
                 .filter(a -> "CRITICAL".equalsIgnoreCase(a.getStatus()))
                 .count();
 
-        Map<String, String> vars = new LinkedHashMap<>();
-        vars.put("var1", String.valueOf(alerts == null ? 0 : alerts.size()));
-        vars.put("var2", safeAccountName(accountName));
-        vars.put("var3", String.valueOf(critical));
-        vars.put("var4", frontendUrl + "/alerts");
-        return vars;
+        // Order is the contract — see the class javadoc. Both channels fill positionally, so
+        // swapping two entries here silently sends wrong values rather than failing.
+        return List.of(
+                safeAccountName(accountName),
+                String.valueOf(alerts == null ? 0 : alerts.size()),
+                String.valueOf(critical));
+    }
+
+    /** Alerts deep link, for callers that need it outside a template. */
+    public String alertsUrl() {
+        return frontendUrl + "/alerts";
     }
 
     /**

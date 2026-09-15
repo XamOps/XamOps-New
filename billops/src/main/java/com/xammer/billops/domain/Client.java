@@ -49,6 +49,26 @@ public class Client {
     @Column(name = "email")
     private String email;
 
+    /**
+     * Per-client entitlement for SMS / WhatsApp notification delivery (mirrors xamops-service
+     * Client; same `client` table, owned by that module's Flyway migration
+     * V20260915_1__client_mobile_notification_entitlement.sql).
+     *
+     * Mapped here because BillOps reads them too: SupportAutoNotificationScheduler gates its
+     * unread-message reminders on the same entitlement. Both default FALSE — the channels are
+     * billed per message, so an unconfigured client must not incur charges. Email is unaffected.
+     *
+     * Toggled from BillOps admin → Accounts, but the write path lives in xamops-service's
+     * BillOpsAdminController, which is what serves that screen.
+     */
+    @Column(name = "sms_notifications_enabled", nullable = false,
+            columnDefinition = "boolean default false")
+    private boolean smsNotificationsEnabled = false;
+
+    @Column(name = "whatsapp_notifications_enabled", nullable = false,
+            columnDefinition = "boolean default false")
+    private boolean whatsappNotificationsEnabled = false;
+
     // --- Trial lifecycle (mirrors xamops-service Client; same `client` table) ---
     @Column(name = "plan_type")
     private String planType; // PAID | TRIAL

@@ -17,14 +17,16 @@ import java.util.Map;
  * spend for the period — plus a deep link to the full report in the portal. This is a summary
  * with a pointer, not a replacement for the emailed report.
  *
- * <p><b>Variable contract</b> (must match the registered SMS and WhatsApp templates):
- * <ul>
- *   <li>{@code var1} — frequency label, e.g. {@code Daily}</li>
- *   <li>{@code var2} — account name</li>
- *   <li>{@code var3} — date range</li>
- *   <li>{@code var4} — total spend, formatted with currency</li>
- *   <li>{@code var5} — deep link to the FinOps report page</li>
- * </ul>
+ * <p><b>Variable contract</b> — positional, must match the {@code xamops_finops_report} template:
+ * <ol>
+ *   <li>frequency label, e.g. {@code Daily}</li>
+ *   <li>account name</li>
+ *   <li>date range</li>
+ *   <li>total spend, formatted with currency</li>
+ * </ol>
+ *
+ * <p>The portal link is static text in the template, not a variable — Meta commonly rejects
+ * templates that pass URLs through variables, and the target never varies.
  */
 @Service
 public class FinOpsReportTextBuilder {
@@ -41,22 +43,27 @@ public class FinOpsReportTextBuilder {
      * @param frequency   {@code Daily} | {@code Weekly} | {@code Monthly}
      * @param dateRange   pre-formatted range as used in the email subject
      */
-    public Map<String, String> buildReportVariables(List<DetailedCostDto> reportData,
-                                                    String accountName,
-                                                    String frequency,
-                                                    String dateRange) {
+    public List<String> buildReportVariables(List<DetailedCostDto> reportData,
+                                             String accountName,
+                                             String frequency,
+                                             String dateRange) {
         double total = reportData == null ? 0.0 : reportData.stream()
                 .filter(java.util.Objects::nonNull)
                 .mapToDouble(DetailedCostDto::getCost)
                 .sum();
 
-        Map<String, String> vars = new LinkedHashMap<>();
-        vars.put("var1", frequency == null ? "Scheduled" : frequency);
-        vars.put("var2", safeAccountName(accountName));
-        vars.put("var3", dateRange == null ? "" : dateRange);
-        vars.put("var4", formatSpend(total));
-        vars.put("var5", frontendUrl + "/finops");
-        return vars;
+        // Order is the contract. Swapping date range and spend renders "total spend 2026-09-14",
+        // which is exactly the mistake the SMS pattern originally shipped with.
+        return List.of(
+                frequency == null ? "Scheduled" : frequency,
+                safeAccountName(accountName),
+                dateRange == null ? "" : dateRange,
+                formatSpend(total));
+    }
+
+    /** Report deep link, for callers that need it outside a template. */
+    public String reportUrl() {
+        return frontendUrl + "/finops";
     }
 
     /**
