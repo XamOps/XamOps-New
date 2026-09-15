@@ -882,6 +882,27 @@ const CloudMapPage: React.FC = () => {
         return nodeIds.has(d.source) && nodeIds.has(d.target);
       }
       return true;
+    }).map(el => {
+      /*
+       * Drop a parent reference that points at a node we did not receive.
+       *
+       * Cytoscape throws when a child names a nonexistent parent, and that throw
+       * happens during construction — so one bad reference loses the entire graph,
+       * not just that node. It is a reachable state: CloudMapService adds VPC and
+       * subnet containers from live describeVpcs/describeSubnets calls inside a
+       * try/catch that only logs, while resource nodes get their parent from the
+       * cached "Subnet ID" detail. If those describes fail the resources survive
+       * and their containers do not, and every one of them then points at a subnet
+       * that is absent.
+       *
+       * Keeping the node and dropping the parent degrades to a resource drawn at
+       * the top level, which is far better than a blank canvas.
+       */
+      const isEdge = el.group === 'edges' || ((el.data as any).source && (el.data as any).target);
+      const parent = (el.data as any).parent;
+      if (isEdge || !parent || nodeIds.has(parent)) return el;
+      const { parent: _dropped, ...rest } = el.data as any;
+      return { ...el, data: rest } as GraphElement;
     });
 
     // Regional services with no VPC get one labelled home instead of being
