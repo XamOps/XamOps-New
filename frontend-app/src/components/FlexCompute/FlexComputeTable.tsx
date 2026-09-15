@@ -43,7 +43,10 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const key = (status || '').toLowerCase().replace(/ /g, '_');
   const cls = STATUS_BADGE[key] ?? 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.45)] border-[rgba(0,0,0,0.08)]';
   return (
-    <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${cls}`}>
+    <span
+      title={status || 'N/A'}
+      className={`inline-block max-w-full truncate align-middle px-2 py-0.5 rounded-full text-[11px] font-semibold border ${cls}`}
+    >
       {status || 'N/A'}
     </span>
   );
@@ -225,34 +228,34 @@ const FlexComputeTable: React.FC<FlexComputeTableProps> = ({
         ) : (
           <>
             {/* Column headers */}
-            <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] border-b border-[rgba(0,0,0,0.06)]">
-              <div className="col-span-1">ID</div>
-              <div className="col-span-2">Name</div>
-              <div className="col-span-2">Account</div>
-              <div className="col-span-1">Policy Status</div>
-              <div className="col-span-1">Instance State</div>
-              <div className="col-span-1">Type</div>
-              <div className="col-span-1">Qty</div>
-              <div className="col-span-1">Region / Zone</div>
-              <div className="col-span-1">Est. Savings</div>
-              <div className="col-span-1 text-center">Actions</div>
+            <div className="grid grid-cols-12 gap-x-3 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] border-b border-[rgba(0,0,0,0.06)]">
+              <div className="col-span-1 min-w-0 truncate">ID</div>
+              <div className="col-span-2 min-w-0 truncate">Name</div>
+              <div className="col-span-1 min-w-0 truncate">Account</div>
+              <div className="col-span-1 min-w-0 truncate">Policy Status</div>
+              <div className="col-span-2 min-w-0 truncate">Instance State</div>
+              <div className="col-span-1 min-w-0 truncate">Type</div>
+              <div className="col-span-1 min-w-0 truncate">Region / Zone</div>
+              <div className="col-span-1 min-w-0 truncate">Est. Savings</div>
+              <div className="col-span-1 min-w-0 truncate">Qty</div>
+              <div className="col-span-1 min-w-0 text-center">Actions</div>
             </div>
 
             {filteredCapacities.map((cap) => (
               <div
                 key={cap.id}
-                className="grid grid-cols-12 items-center px-5 py-3 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[12px]"
+                className="grid grid-cols-12 gap-x-3 items-center px-5 py-3 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors text-[12px]"
               >
-                <div className="col-span-1 font-mono text-[rgba(0,0,0,0.45)] truncate">{cap.id?.substring(0, 8)}…</div>
-                <div className="col-span-2 font-medium text-[rgba(0,0,0,0.88)] truncate">{cap.name}</div>
-                <div className="col-span-2 text-[rgba(0,0,0,0.55)] truncate">{cap.accountName}</div>
-                <div className="col-span-1"><StatusBadge status={cap.policyStatus} /></div>
-                <div className="col-span-1"><StatusBadge status={cap.instanceState} /></div>
-                <div className="col-span-1 font-mono text-[rgba(0,0,0,0.65)]">{cap.instanceType}</div>
-                <div className="col-span-1 text-[rgba(0,0,0,0.65)]">{cap.quantities}</div>
-                <div className="col-span-1 text-[rgba(0,0,0,0.55)] truncate">{cap.regionZoneId}</div>
-                <div className="col-span-1 font-semibold text-emerald-600">{formatCurrency(cap.estimatedSavings)}</div>
-                <div className="col-span-1 flex justify-center relative">
+                <div className="col-span-1 min-w-0 font-mono text-[rgba(0,0,0,0.45)] truncate">{cap.id?.substring(0, 8)}…</div>
+                <div className="col-span-2 min-w-0 font-medium text-[rgba(0,0,0,0.88)] truncate">{cap.name}</div>
+                <div className="col-span-1 min-w-0 text-[rgba(0,0,0,0.55)] truncate">{cap.accountName}</div>
+                <div className="col-span-1 min-w-0"><StatusBadge status={cap.policyStatus} /></div>
+                <div className="col-span-2 min-w-0"><StatusBadge status={cap.instanceState} /></div>
+                <div className="col-span-1 min-w-0 font-mono text-[rgba(0,0,0,0.65)] truncate">{cap.instanceType}</div>
+                <div className="col-span-1 min-w-0 text-[rgba(0,0,0,0.55)] truncate">{cap.regionZoneId}</div>
+                <div className="col-span-1 min-w-0 font-semibold text-emerald-600 truncate">{formatCurrency(cap.estimatedSavings)}</div>
+                <div className="col-span-1 min-w-0 text-[rgba(0,0,0,0.65)] truncate">{cap.quantities}</div>
+                <div className="col-span-1 min-w-0 flex justify-center relative">
                   <button
                     onClick={() => setOpenDropdown(openDropdown === cap.id ? null : cap.id)}
                     disabled={cancelling === cap.id}
