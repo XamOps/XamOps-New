@@ -3095,7 +3095,7 @@ public class DashboardDataService {
             mainAccount.setCostHistory(new DashboardData.CostHistory(
                     azureData.getCostHistory().getLabels(),
                     azureData.getCostHistory().getCosts(),
-                    azureData.getCostHistory().getAnomalies()));
+                    azureData.getCostHistory().getForecast()));
         }
 
         if (azureData.getRegionStatus() != null) {
@@ -3106,8 +3106,18 @@ public class DashboardDataService {
             mainAccount.setRegionStatus(regions);
         }
 
-        mainAccount.setSecurityScore(100);
-        mainAccount.setSecurityInsights(new ArrayList<>());
+        // Previously hardcoded to 100 with no insights, so every Azure subscription rendered a
+        // perfect security score regardless of posture — a fabricated all-clear. The real Defender
+        // secure score is now collected by AzureDashboardService; zero means "not known" and the
+        // dashboard renders that as N/A rather than as a number.
+        mainAccount.setSecurityScore(azureData.getSecurityScore());
+        mainAccount.setSecurityInsights(azureData.getSecurityInsights() != null
+                ? azureData.getSecurityInsights()
+                : new ArrayList<>());
+        if (azureData.getSecurityScore() == 0 && azureData.getSecurityScoreUnavailableReason() != null) {
+            logger.info("[AzureMap] No security score for {}: {}", account.getAzureSubscriptionId(),
+                    azureData.getSecurityScoreUnavailableReason());
+        }
         mainAccount.setSavingsSummary(new DashboardData.SavingsSummary(0.0, new ArrayList<>()));
         double azureExtra = computeAdditionalSavings(account);
         mainAccount.setOptimizationSummary(new DashboardData.OptimizationSummary(azureExtra, 0));
@@ -3135,7 +3145,12 @@ public class DashboardDataService {
             mainAccount.setWastedResources(new ArrayList<>());
         }
         mainAccount.setCloudWatchStatus(new DashboardData.CloudWatchStatus(0, 0, 0));
-        mainAccount.setCostAnomalies(new ArrayList<>());
+        // Carried through from the Azure payload rather than blanked. This was an empty list even
+        // once anomalies existed, so the unified dashboard would still have shown Azure as having
+        // none.
+        mainAccount.setCostAnomalies(azureData.getCostAnomalies() != null
+                ? azureData.getCostAnomalies()
+                : new ArrayList<>());
         mainAccount.setEbsRecommendations(new ArrayList<>());
         mainAccount.setLambdaRecommendations(new ArrayList<>());
         mainAccount.setBillingSummary(new ArrayList<>());

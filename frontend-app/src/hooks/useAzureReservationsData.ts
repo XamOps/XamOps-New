@@ -11,6 +11,13 @@ const EMPTY_DATA: AzureReservationData = {
     activeSavingsPlans: 0,
   },
   recommendations: [],
+  totalMonthlySavings: 0,
+  indicativeMonthlySavings: 0,
+  indicativeRecommendationCount: 0,
+  recommendationsUnavailableReason: null,
+  recommendationCurrency: null,
+  mixedCurrencies: false,
+  savingsUnavailableReason: null,
 };
 
 interface UseAzureReservationsDataReturn {
@@ -56,6 +63,15 @@ export const useAzureReservationsData = (
           savingsPlans: json.savingsPlans ?? [],
           metrics: json.metrics ?? EMPTY_DATA.metrics,
           recommendations: json.recommendations ?? [],
+          totalMonthlySavings: json.totalMonthlySavings ?? 0,
+          indicativeMonthlySavings: json.indicativeMonthlySavings ?? 0,
+          indicativeRecommendationCount: json.indicativeRecommendationCount ?? 0,
+          // Null and undefined both mean "Azure answered normally"; anything else is a reason the
+          // empty state has to show instead of guessing at why the tab is blank.
+          recommendationsUnavailableReason: json.recommendationsUnavailableReason ?? null,
+          recommendationCurrency: json.recommendationCurrency ?? null,
+          mixedCurrencies: json.mixedCurrencies ?? false,
+          savingsUnavailableReason: json.savingsUnavailableReason ?? null,
         });
       } catch (err) {
         console.error('[AzureReservations] Failed to load data:', err);

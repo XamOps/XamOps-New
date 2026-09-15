@@ -72,6 +72,23 @@ public class GcpPricingService {
     private static final String RAM_USAGE_UNIT = "GiBy.h";
 
     /**
+     * Multipliers that bring a storage SKU's quoted usage unit onto per-GiB-month.
+     *
+     * <p>Capacity SKUs are published per gibibyte-month, but the catalog is not contractually
+     * bound to that unit and has used per-hour and per-second forms elsewhere. Anything not listed
+     * here is skipped rather than assumed, because misreading the unit is not a rounding error —
+     * treating a per-hour rate as monthly understates a disk by 730x.
+     */
+    private static final Map<String, Double> STORAGE_UNIT_TO_MONTH = Map.of(
+            "GiBy.mo", 1.0,
+            // All derived from HOURS_PER_MONTH so every form agrees on the same month. Mixing a
+            // 30-day month for the per-day rate with a 730-hour (30.4-day) month for the per-hour rate
+            // priced the same disk 1.4% apart depending on which meter the catalog happened to publish.
+            "GiBy.d", HOURS_PER_MONTH / 24.0,
+            "GiBy.h", HOURS_PER_MONTH,
+            "GiBy.s", HOURS_PER_MONTH * 3600.0);
+
+    /**
      * Where a price came from. Exposed so a caller can decline to present a figure it should not
      * present, rather than every number looking equally authoritative.
      */
@@ -106,11 +123,17 @@ public class GcpPricingService {
     }
 
     /**
-     * The catalog rate table: region -> family -> usage type -> rates.
+     * The catalog rate tables, both built from one walk of the Compute Engine catalog.
      *
      * <p>Rebuilt wholesale rather than mutated, so a reader never sees a half-populated table.
+     *
+     * @param byRegion     compute rates: region -> family -> spot? -> rates
+     * @param diskByRegion block-storage capacity rates: region -> disk kind -> USD per GiB-month
      */
-    private record CatalogSnapshot(Map<String, Map<String, Map<Boolean, FamilyRates>>> byRegion, long builtAtMs) {
+    private record CatalogSnapshot(
+            Map<String, Map<String, Map<Boolean, FamilyRates>>> byRegion,
+            Map<String, Map<String, Double>> diskByRegion,
+            long builtAtMs) {
 
         boolean isExpired() {
             return System.currentTimeMillis() - builtAtMs > CATALOG_TTL_MS;
@@ -122,6 +145,12 @@ public class GcpPricingService {
                     .map(byUsage -> byUsage.get(spot))
                     .filter(FamilyRates::isComplete);
         }
+
+        Optional<Double> lookupDisk(String region, String diskKind) {
+            return Optional.ofNullable(diskByRegion.get(region))
+                    .map(kinds -> kinds.get(diskKind))
+                    .filter(rate -> rate > 0);
+        }
     }
 
     private final java.util.concurrent.atomic.AtomicReference<CatalogSnapshot> catalog =
@@ -129,6 +158,22 @@ public class GcpPricingService {
 
     /** Guards the catalog walk so a burst of callers triggers one refresh, not one each. */
     private final Object catalogRefreshLock = new Object();
+
+    /**
+     * How long to wait before retrying a catalog walk that failed.
+     *
+     * <p>
+     * Without this, a project whose {@code cloudbilling.googleapis.com} is disabled triggers a full
+     * {@code listSkus} walk per caller. That was tolerable while only the compute path used the
+     * catalog, because {@code priceCache} memoised per machine type — but disk pricing is resolved
+     * once per disk with no memo, so a 200-disk project made 200 serialized failing walks inside
+     * {@link #catalogRefreshLock} on every dashboard build.
+     */
+    private static final long FAILED_REFRESH_BACKOFF_MS = 10 * 60 * 1000L;
+
+    /** When the last catalog walk failed, so the retry can be backed off. 0 means never. */
+    private final java.util.concurrent.atomic.AtomicLong lastFailedRefreshMs =
+            new java.util.concurrent.atomic.AtomicLong(0L);
 
     /** Resolved prices, keyed by machine type and region. */
     private final Map<String, PricingInfo> priceCache = new ConcurrentHashMap<>();
@@ -253,23 +298,40 @@ public class GcpPricingService {
             return existing;
         }
 
+        // A recent failure short-circuits before taking the lock, so one unreachable catalog costs one
+        // walk per backoff window rather than one per caller.
+        long lastFailure = lastFailedRefreshMs.get();
+        if (lastFailure > 0 && System.currentTimeMillis() - lastFailure < FAILED_REFRESH_BACKOFF_MS) {
+            return existing;
+        }
+
         synchronized (catalogRefreshLock) {
-            // Another thread may have refreshed while this one waited.
+            // Another thread may have refreshed, or failed, while this one waited.
             existing = catalog.get();
             if (existing != null && !existing.isExpired()) {
+                return existing;
+            }
+            lastFailure = lastFailedRefreshMs.get();
+            if (lastFailure > 0 && System.currentTimeMillis() - lastFailure < FAILED_REFRESH_BACKOFF_MS) {
                 return existing;
             }
 
             CatalogSnapshot rebuilt = buildCatalogSnapshot(gcpProjectId);
             if (rebuilt != null) {
                 catalog.set(rebuilt);
+                lastFailedRefreshMs.set(0L);
                 return rebuilt;
             }
+
+            lastFailedRefreshMs.set(System.currentTimeMillis());
             // Serving a stale table beats serving the estimate table: a day-old list price is far
             // closer to the invoice than a per-family constant with no region in it.
             if (existing != null) {
                 log.warn("[gcp-pricing] Catalog refresh failed; continuing with the table built at {}",
                         java.time.Instant.ofEpochMilli(existing.builtAtMs()));
+            } else {
+                log.warn("[gcp-pricing] Catalog could not be read; not retrying for {} minutes",
+                        FAILED_REFRESH_BACKOFF_MS / 60000);
             }
             return existing;
         }
@@ -284,8 +346,10 @@ public class GcpPricingService {
         }
 
         Map<String, Map<String, Map<Boolean, FamilyRates>>> byRegion = new HashMap<>();
+        Map<String, Map<String, Double>> diskByRegion = new HashMap<>();
         int skusRead = 0;
         int ratesResolved = 0;
+        int diskRatesResolved = 0;
 
         try (CloudCatalogClient client = clientOpt.get()) {
             ListSkusRequest request = ListSkusRequest.newBuilder()
@@ -294,10 +358,15 @@ public class GcpPricingService {
                     .setPageSize(5000)
                     .build();
 
+            // Block storage capacity lives in the same service as compute, so one walk fills both
+            // tables. Splitting it into a second walk would double a call that returns thousands
+            // of SKUs.
             for (Sku sku : client.listSkus(request).iterateAll()) {
                 skusRead++;
                 if (applySku(sku, byRegion)) {
                     ratesResolved++;
+                } else if (applyDiskSku(sku, diskByRegion)) {
+                    diskRatesResolved++;
                 }
             }
         } catch (Exception e) {
@@ -306,16 +375,22 @@ public class GcpPricingService {
             return null;
         }
 
-        if (ratesResolved == 0) {
-            log.warn("[gcp-pricing] Read {} Compute Engine SKUs but matched none as a core or RAM "
-                    + "rate. The catalog's description format has probably changed — prices will "
-                    + "fall back to per-family estimates.", skusRead);
+        if (ratesResolved == 0 && diskRatesResolved == 0) {
+            log.warn("[gcp-pricing] Read {} Compute Engine SKUs but matched none as a core, RAM or "
+                    + "disk-capacity rate. The catalog's description format has probably changed.",
+                    skusRead);
             return null;
         }
 
-        log.info("[gcp-pricing] Built Compute Engine rate table from {} SKUs: {} rates across {} regions",
-                skusRead, ratesResolved, byRegion.size());
-        return new CatalogSnapshot(byRegion, System.currentTimeMillis());
+        if (diskRatesResolved == 0) {
+            log.warn("[gcp-pricing] Read {} Compute Engine SKUs but matched no disk-capacity rate. "
+                    + "Disk costs will be reported as unknown rather than estimated.", skusRead);
+        }
+
+        log.info("[gcp-pricing] Built rate tables from {} SKUs: {} compute rates across {} regions, "
+                + "{} disk rates across {} regions",
+                skusRead, ratesResolved, byRegion.size(), diskRatesResolved, diskByRegion.size());
+        return new CatalogSnapshot(byRegion, diskByRegion, System.currentTimeMillis());
     }
 
     /**
@@ -468,6 +543,273 @@ public class GcpPricingService {
         // A zero rate is a free tier or a placeholder, not a price. Accepting it would silently
         // make an entire family look free.
         return price > 0 ? price : null;
+    }
+
+    // ── Block storage capacity ────────────────────────────────────────────────
+
+    /**
+     * Matches the persistent-disk and Hyperdisk capacity meters, capturing the product name.
+     *
+     * <p>Verified against the published SKU groups. Capacity SKUs are named
+     * {@code "<Product> Capacity"} with an optional {@code "Regional "} prefix and an optional
+     * {@code " in <Location>"} suffix — for example {@code "Balanced PD Capacity"},
+     * {@code "SSD backed PD Capacity in Mumbai"}, {@code "Regional Storage PD Capacity"},
+     * {@code "Hyperdisk Balanced Capacity in Tokyo"}.
+     *
+     * <p>The location in the description is a city or country name, not a region id, so it is
+     * deliberately ignored: {@code serviceRegions} on the SKU carries the actual region ids and is
+     * what the table is keyed by. Mapping "Mumbai" to {@code asia-south1} by hand would be a second
+     * table to get wrong.
+     */
+    private static final Pattern STORAGE_CAPACITY_METER = Pattern.compile(
+            "(?i)^(?<regional>regional\\s+)?"
+                    + "(?<product>storage pd|balanced pd|ssd backed pd|extreme pd|"
+                    + "hyperdisk balanced high availability|hyperdisk balanced|hyperdisk extreme|"
+                    + "hyperdisk throughput|hyperdisk ml)"
+                    + "\\s+capacity(?:\\s+in\\s+.+)?$");
+
+    /**
+     * Catalog product name for each Compute Engine disk type, as the API reports the type.
+     *
+     * <p>Keys are the disk-type tails of {@code Disk.type} URLs. Values are the lower-cased product
+     * names in the capacity SKU descriptions.
+     */
+    private static final Map<String, String> DISK_TYPE_TO_PRODUCT = Map.ofEntries(
+            Map.entry("pd-standard", "storage pd"),
+            Map.entry("pd-balanced", "balanced pd"),
+            Map.entry("pd-ssd", "ssd backed pd"),
+            Map.entry("pd-extreme", "extreme pd"),
+            Map.entry("hyperdisk-balanced", "hyperdisk balanced"),
+            // Its own, dearer meter. Mapping it to the plain balanced product priced an HA disk at the
+            // single-zone rate; if the HA capacity SKU is not published under this name the lookup
+            // simply misses and the disk is reported as unpriced, which is the safe direction.
+            Map.entry("hyperdisk-balanced-high-availability", "hyperdisk balanced high availability"),
+            Map.entry("hyperdisk-extreme", "hyperdisk extreme"),
+            Map.entry("hyperdisk-throughput", "hyperdisk throughput"),
+            Map.entry("hyperdisk-ml", "hyperdisk ml"));
+
+    /** Table key for a disk product at a given replication scope. */
+    private static String diskKindKey(String product, boolean regional) {
+        return (regional ? "regional:" : "zonal:") + product;
+    }
+
+    /**
+     * Folds one capacity SKU into the disk rate table.
+     *
+     * @return whether the SKU contributed a rate
+     */
+    private boolean applyDiskSku(Sku sku, Map<String, Map<String, Double>> diskByRegion) {
+        String description = sku.getDescription();
+        if (description == null || description.isBlank()) {
+            return false;
+        }
+
+        Matcher matcher = STORAGE_CAPACITY_METER.matcher(description.trim());
+        if (!matcher.matches()) {
+            return false;
+        }
+
+        // Committed-use and other non-list rates must not overwrite the on-demand rate.
+        String usageType = sku.getCategory().getUsageType();
+        if (!usageType.isEmpty() && !"OnDemand".equalsIgnoreCase(usageType)) {
+            return false;
+        }
+
+        Double perUnit = unitPriceUsd(sku);
+        if (perUnit == null) {
+            return false;
+        }
+
+        Double toMonth = STORAGE_UNIT_TO_MONTH.get(usageUnitOf(sku));
+        if (toMonth == null) {
+            log.debug("[gcp-pricing] Skipping storage SKU '{}': unrecognised usage unit '{}'",
+                    description, usageUnitOf(sku));
+            return false;
+        }
+
+        String key = diskKindKey(matcher.group("product").toLowerCase(Locale.ROOT),
+                matcher.group("regional") != null);
+        double perGibMonth = perUnit * toMonth;
+
+        // A region-specific SKU wins over the generic one. The catalog publishes both
+        // "Balanced PD Capacity" and "Balanced PD Capacity in Mumbai", and their serviceRegions lists
+        // overlap — so a plain put() resolved the rate by catalog iteration order, which is not
+        // something to leave a money figure depending on.
+        boolean specific = matcher.group(0).toLowerCase(Locale.ROOT).contains(" in ");
+
+        boolean applied = false;
+        for (String skuRegion : sku.getServiceRegionsList()) {
+            Map<String, Double> forRegion = diskByRegion
+                    .computeIfAbsent(skuRegion.toLowerCase(Locale.ROOT), r -> new HashMap<>());
+            String specificMarker = key + SPECIFIC_SUFFIX;
+
+            if (specific) {
+                forRegion.put(key, perGibMonth);
+                forRegion.put(specificMarker, 1.0);
+            } else if (!forRegion.containsKey(specificMarker)) {
+                forRegion.put(key, perGibMonth);
+            }
+            applied = true;
+        }
+        return applied;
+    }
+
+    /**
+     * Marks a rate as having come from a region-specific SKU description, so a later generic SKU for
+     * the same region does not overwrite it. Kept in the same map to avoid a second structure; the
+     * lookup key never contains this suffix.
+     */
+    private static final String SPECIFIC_SUFFIX = "#specific";
+
+    /**
+     * Disk types that bill provisioned IOPS and/or throughput as SKUs separate from capacity.
+     *
+     * <p>
+     * Only the {@code *Capacity} meters are read, so for these types {@code costPerGibMonth × sizeGb}
+     * is the capacity component alone. That understates the disk, and understates the saving from
+     * deleting an unattached one. Rather than quietly publish a short figure under a label that says
+     * "monthly cost", the caller is told the figure is partial.
+     */
+    private static final java.util.Set<String> BILLS_PROVISIONED_PERFORMANCE = java.util.Set.of(
+            "pd-extreme",
+            "hyperdisk-extreme",
+            "hyperdisk-throughput",
+            "hyperdisk-balanced",
+            "hyperdisk-balanced-high-availability");
+
+    private static String usageUnitOf(Sku sku) {
+        if (sku.getPricingInfoCount() == 0) {
+            return "";
+        }
+        return sku.getPricingInfo(sku.getPricingInfoCount() - 1)
+                .getPricingExpression()
+                .getUsageUnit();
+    }
+
+    /**
+     * Catalog list price for a persistent disk type in a region, in USD per GiB-month.
+     *
+     * <p>This replaces a four-entry constant map — {@code pd-standard} 0.040, {@code pd-balanced}
+     * 0.100, {@code pd-ssd} 0.170, {@code pd-extreme} 0.125 — commented "approximate, us-central1",
+     * with a default of 0.100 for anything absent. Three problems compounded: the rates were for one
+     * region and applied to all of them, {@code pd-extreme} was listed below {@code pd-ssd} when it
+     * is the more expensive product, and every unrecognised type silently became a balanced disk.
+     * Because the same figure drove both the displayed monthly cost and the savings on every
+     * delete/shrink recommendation, a wrong rate moved a number customers act on.
+     *
+     * <p>There is deliberately no estimate fallback. An unresolvable rate returns
+     * {@link DiskPriceInfo#isPriced()} false so the caller reports cost as unknown; substituting a
+     * regionless constant would put the same wrong figures back in the same places behind a label
+     * nothing reads.
+     *
+     * @param diskType     disk type as Compute Engine reports it, e.g. {@code pd-balanced}
+     * @param region       region id, e.g. {@code asia-south1}
+     * @param regional     whether this is a regional (dual-zone replicated) disk, which is a
+     *                     separate and more expensive SKU
+     * @param gcpProjectId project whose credentials read the catalog; prices are public list prices
+     */
+    public DiskPriceInfo getPersistentDiskPricing(String diskType, String region, boolean regional,
+            String gcpProjectId) {
+
+        if (diskType == null || diskType.isBlank()) {
+            return DiskPriceInfo.unavailable("no disk type given");
+        }
+        String normalisedType = diskType.trim().toLowerCase(Locale.ROOT);
+        String product = DISK_TYPE_TO_PRODUCT.get(normalisedType);
+        if (product == null) {
+            return DiskPriceInfo.unavailable("no catalog product is known for disk type '"
+                    + normalisedType + "'");
+        }
+
+        if (region == null || region.isBlank()) {
+            return DiskPriceInfo.unavailable("no region given for " + normalisedType);
+        }
+        String normalisedRegion = region.trim().toLowerCase(Locale.ROOT);
+
+        if (gcpProjectId == null || gcpProjectId.isBlank()) {
+            return DiskPriceInfo.unavailable("no project id supplied, so the billing catalog "
+                    + "cannot be read");
+        }
+
+        CatalogSnapshot snapshot = currentCatalog(gcpProjectId);
+        if (snapshot == null) {
+            return DiskPriceInfo.unavailable("the Cloud Billing Catalog could not be read. Enable "
+                    + "cloudbilling.googleapis.com on project " + gcpProjectId + ".");
+        }
+
+        Optional<Double> rate = snapshot.lookupDisk(normalisedRegion, diskKindKey(product, regional));
+        if (rate.isEmpty()) {
+            return DiskPriceInfo.unavailable("the catalog publishes no "
+                    + (regional ? "regional " : "") + normalisedType + " capacity rate for "
+                    + normalisedRegion);
+        }
+
+        boolean capacityOnly = BILLS_PROVISIONED_PERFORMANCE.contains(normalisedType);
+        return DiskPriceInfo.priced(rate.get(), capacityOnly
+                ? "Capacity only. " + normalisedType + " also bills provisioned IOPS and throughput as "
+                        + "separate meters, which are not included in this figure."
+                : null);
+    }
+
+    /**
+     * A disk capacity list price, in USD per GiB-month, or an explicit absence.
+     *
+     * <p>Separate from {@link PricingInfo} because that type models an hourly compute rate with a
+     * spot counterpart, neither of which applies to block storage.
+     */
+    public static final class DiskPriceInfo {
+
+        private final double usdPerGibMonth;
+        private final PriceSource source;
+        private final String note;
+        private final boolean capacityOnly;
+
+        private DiskPriceInfo(double usdPerGibMonth, PriceSource source, String note,
+                boolean capacityOnly) {
+            this.usdPerGibMonth = usdPerGibMonth;
+            this.source = source;
+            this.note = note;
+            this.capacityOnly = capacityOnly;
+        }
+
+        static DiskPriceInfo priced(double usdPerGibMonth, String capacityOnlyNote) {
+            return new DiskPriceInfo(usdPerGibMonth, PriceSource.CATALOG, capacityOnlyNote,
+                    capacityOnlyNote != null);
+        }
+
+        static DiskPriceInfo unavailable(String note) {
+            return new DiskPriceInfo(0, PriceSource.UNAVAILABLE, note, false);
+        }
+
+        /**
+         * True when the rate covers capacity only and the disk type also bills provisioned IOPS or
+         * throughput. The resulting monthly cost is a floor, not the whole charge.
+         */
+        public boolean isCapacityOnly() {
+            return capacityOnly;
+        }
+
+        /** USD per GiB per month. Zero when {@link #isPriced()} is false — never treat as free. */
+        public double getUsdPerGibMonth() {
+            return usdPerGibMonth;
+        }
+
+        public boolean isPriced() {
+            return source != PriceSource.UNAVAILABLE;
+        }
+
+        public PriceSource getSource() {
+            return source;
+        }
+
+        /** Why the price is missing, for display. Null when it is known. */
+        public String getNote() {
+            return note;
+        }
+
+        public String getCurrency() {
+            return CATALOG_CURRENCY;
+        }
     }
 
     // ── Estimate table ────────────────────────────────────────────────────────
@@ -672,6 +1014,7 @@ public class GcpPricingService {
         stats.put("resolvedPrices", priceCache.size());
         stats.put("catalogLoaded", snapshot != null);
         stats.put("catalogRegions", snapshot == null ? 0 : snapshot.byRegion().size());
+        stats.put("catalogDiskRegions", snapshot == null ? 0 : snapshot.diskByRegion().size());
         stats.put("catalogBuiltAt", snapshot == null
                 ? null
                 : java.time.Instant.ofEpochMilli(snapshot.builtAtMs()).toString());

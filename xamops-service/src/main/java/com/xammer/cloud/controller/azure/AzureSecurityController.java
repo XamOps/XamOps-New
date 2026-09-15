@@ -60,16 +60,11 @@ public class AzureSecurityController {
                     "message", "A scan is already in progress for this Azure subscription."));
         }
 
-        // NOTE: These must match Prowler's Azure compliance identifiers exactly.
-        // Prowler rejects the ENTIRE --compliance argument if any single name is
-        // invalid (argparse exit code 2), which aborts the whole scan. Azure has
-        // no cis_2.1.1 / pci_3.2.1 / iso27001_2013 — use the versions Prowler ships.
-        String[] frameworks = {
-                "cis_3.0_azure", "soc2_azure", "pci_4.0_azure",
-                "iso27001_2022_azure", "mitre_attack_azure", "hipaa_azure"
-        };
-
-        prowlerService.triggerAzureScanAsync(accountId, frameworks);
+        // Shared with the weekly scheduler via ProwlerFrameworks so the two paths cannot ask for
+        // different frameworks. Prowler rejects the ENTIRE --compliance argument if any single
+        // name is invalid, so a drifted list scans nothing at all.
+        prowlerService.triggerAzureScanAsync(accountId,
+                com.xammer.cloud.service.security.ProwlerFrameworks.AZURE);
 
         return ResponseEntity.ok(Map.of(
                 "status", "STARTED",

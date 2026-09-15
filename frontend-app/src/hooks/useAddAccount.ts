@@ -405,6 +405,20 @@ export function useAddAccount(): UseAddAccountReturn {
         throw new Error(errorText || 'Failed to add Azure account.');
       }
 
+      // The backend saves the account even when the cost export could not be created, and says so
+      // with these headers. Without surfacing them the user is told the connection succeeded and then
+      // sees 0.00 for every cost figure, which is indistinguishable from a subscription that spent
+      // nothing.
+      const warning = res.headers.get('X-XamOps-Warning');
+      if (warning) {
+        alert(
+          res.headers.get('X-XamOps-Warning-Detail') ??
+            'The Azure account was connected, but cost data will not be available.'
+        );
+        window.location.href = '/account-manager';
+        return;
+      }
+
       alert('Azure account added successfully!');
       window.location.href = '/account-manager';
     } catch (err) {

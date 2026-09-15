@@ -10,6 +10,14 @@ import type { AzureBudget } from '../../types/azureFinops';
 
 interface AzureFinOpsBudgetsProps {
   budgets: AzureBudget[];
+  /**
+   * Set when Azure could not be asked for budgets at all.
+   *
+   * Distinguishes that from "this subscription has none". Every failure — missing role, an offer the
+   * Consumption API does not serve, throttling — used to reach here as an empty array, so the panel
+   * invited the user to create a budget when the real problem was a role assignment.
+   */
+  unavailableReason?: string | null;
   onCreateBudget: () => void;
   onScheduleReport: () => void;
   onDeleteBudget: (budgetName: string) => void;
@@ -25,6 +33,7 @@ const formatCurrency = (value: number): string => {
 
 const AzureFinOpsBudgets: React.FC<AzureFinOpsBudgetsProps> = ({
   budgets,
+  unavailableReason,
   onCreateBudget,
   onScheduleReport,
   onDeleteBudget,
@@ -68,8 +77,20 @@ const AzureFinOpsBudgets: React.FC<AzureFinOpsBudgetsProps> = ({
         </div>
       </div>
 
+      {/* Could not be read — distinct from having none, and offering "Create Your First Budget" here
+          would send the user down the wrong path when the real fix is a role assignment. */}
+      {unavailableReason && (
+        <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-4 flex items-start gap-2">
+          <Icon icon="mdi:alert-outline" width={18} color="#B45309" className="flex-shrink-0 mt-0.5" />
+          <div>
+            <h4 className="text-[14px] font-semibold text-amber-800 mb-0.5">Budgets Unavailable</h4>
+            <p className="text-[13px] text-amber-800">{unavailableReason}</p>
+          </div>
+        </div>
+      )}
+
       {/* Empty state */}
-      {(!budgets || budgets.length === 0) && (
+      {!unavailableReason && (!budgets || budgets.length === 0) && (
         <div className="text-center py-10 rounded-xl border-2 border-dashed border-[rgba(0,0,0,0.1)]">
           <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-xl flex items-center justify-center mx-auto mb-3">
             <Icon icon="mdi:wallet" width={24} color="rgba(0,0,0,0.25)" />

@@ -7,6 +7,7 @@ import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.azure.AzureDashboardData;
+import com.xammer.cloud.dto.azure.AzureSecurityResponse;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.dto.azure.AzureWasteItem;
@@ -46,13 +47,35 @@ public class AzureDashboardService {
     private final ObjectMapper objectMapper;
     private final com.xammer.cloud.service.security.AzurePrivilegeAnalyzer azurePrivilegeAnalyzer;
 
+    /**
+     * Lazy because both services are @Service beans in the same package and the security service
+     * is only needed once per nightly build; @Lazy keeps startup order irrelevant.
+     */
+    private final AzureSecurityService azureSecurityService;
+
+    /**
+     * Generic subscription-scoped ARM REST helper.
+     *
+     * <p>
+     * Lives in the {@code service.war.azure} package because WAR needed it first, but nothing
+     * about it is WAR-specific — it is a token-plus-GET wrapper. Reused here rather than adding a
+     * second copy for the one resource type the fluent SDK's facade does not expose.
+     */
+    private final com.xammer.cloud.service.war.azure.AzureWarRest armRest;
+
+    /** Trailing-average spike detector over the ingested daily cost series. */
+    private final AzureCostAnomalyService costAnomalyService;
+
     public AzureDashboardService(AzureClientProvider clientProvider,
             CloudAccountRepository cloudAccountRepository,
             CachedDataRepository cachedDataRepository,
             RedisCacheService redisCache,
             AzureBillingDataIngestionService billingIngestionService,
             ObjectMapper objectMapper,
-            com.xammer.cloud.service.security.AzurePrivilegeAnalyzer azurePrivilegeAnalyzer) {
+            com.xammer.cloud.service.security.AzurePrivilegeAnalyzer azurePrivilegeAnalyzer,
+            @org.springframework.context.annotation.Lazy AzureSecurityService azureSecurityService,
+            com.xammer.cloud.service.war.azure.AzureWarRest armRest,
+            AzureCostAnomalyService costAnomalyService) {
         this.clientProvider = clientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.cachedDataRepository = cachedDataRepository;
@@ -60,6 +83,9 @@ public class AzureDashboardService {
         this.billingIngestionService = billingIngestionService;
         this.objectMapper = objectMapper;
         this.azurePrivilegeAnalyzer = azurePrivilegeAnalyzer;
+        this.azureSecurityService = azureSecurityService;
+        this.armRest = armRest;
+        this.costAnomalyService = costAnomalyService;
     }
 
     public AzureDashboardData getDashboardData(String accountId, boolean force) {
@@ -97,7 +123,7 @@ public class AzureDashboardService {
 
             // Run data fetching in parallel
             CompletableFuture<Void> inventoryFuture = CompletableFuture
-                    .runAsync(() -> getAndSetResourceInventory(azure, dashboardData));
+                    .runAsync(() -> getAndSetResourceInventory(azure, dashboardData, accountId));
             CompletableFuture<Void> costFuture = CompletableFuture
                     .runAsync(() -> getAndSetCostHistoryAndBilling(dashboardData, account, force));
             CompletableFuture<Void> regionFuture = CompletableFuture
@@ -106,8 +132,11 @@ public class AzureDashboardService {
                     .runAsync(() -> getAndSetOptimizationSummary(azure, dashboardData, accountId));
             CompletableFuture<Void> iamFuture = CompletableFuture
                     .runAsync(() -> getAndSetIamDetails(azure, dashboardData, accountId));
+            CompletableFuture<Void> securityFuture = CompletableFuture
+                    .runAsync(() -> getAndSetSecurityPosture(dashboardData, accountId));
 
-            CompletableFuture.allOf(inventoryFuture, costFuture, regionFuture, optimizationFuture, iamFuture).join();
+            CompletableFuture.allOf(inventoryFuture, costFuture, regionFuture, optimizationFuture, iamFuture,
+                    securityFuture).join();
 
             // Ensure all lists are initialized
             if (dashboardData.getVmRecommendations() == null) {
@@ -137,8 +166,8 @@ public class AzureDashboardService {
             if (dashboardData.getCostHistory().getCosts() == null) {
                 dashboardData.getCostHistory().setCosts(Collections.emptyList());
             }
-            if (dashboardData.getCostHistory().getAnomalies() == null) {
-                dashboardData.getCostHistory().setAnomalies(Collections.emptyList());
+            if (dashboardData.getCostHistory().getForecast() == null) {
+                dashboardData.getCostHistory().setForecast(Collections.emptyList());
             }
 
             // ✅ Save to DATABASE (persistent - same as AWS pattern)
@@ -260,7 +289,7 @@ public class AzureDashboardService {
         AzureDashboardData.CostHistory costHistory = new AzureDashboardData.CostHistory();
         costHistory.setLabels(Collections.emptyList());
         costHistory.setCosts(Collections.emptyList());
-        costHistory.setAnomalies(Collections.emptyList());
+        costHistory.setForecast(Collections.emptyList());
         data.setCostHistory(costHistory);
         data.setOptimizationSummary(new DashboardData.OptimizationSummary());
         data.setRegionStatus(Collections.emptyList());
@@ -275,7 +304,8 @@ public class AzureDashboardService {
         return data;
     }
 
-    private void getAndSetResourceInventory(AzureResourceManager azure, AzureDashboardData dashboardData) {
+    private void getAndSetResourceInventory(AzureResourceManager azure, AzureDashboardData dashboardData,
+            String subscriptionId) {
         try {
             AzureDashboardData.ResourceInventory inventory = new AzureDashboardData.ResourceInventory();
             inventory.setVirtualMachines(azure.virtualMachines().list().stream().count());
@@ -290,12 +320,39 @@ public class AzureDashboardService {
             inventory.setContainerInstances(azure.containerGroups().list().stream().count());
             inventory.setKubernetesServices(azure.kubernetesClusters().list().stream().count());
             inventory.setAppServices(azure.webApps().list().stream().count());
-            inventory.setStaticWebApps(0);
+            inventory.setStaticWebApps(countStaticWebApps(subscriptionId, dashboardData));
             dashboardData.setResourceInventory(inventory);
         } catch (Exception e) {
             log.error("Error fetching resource inventory: {}", e.getMessage());
             dashboardData.addDataWarning("Resource inventory unavailable: " + e.getMessage());
             dashboardData.setResourceInventory(new AzureDashboardData.ResourceInventory());
+        }
+    }
+
+    /**
+     * Counts Azure Static Web Apps.
+     *
+     * <p>
+     * Was hardcoded to {@code 0} while every neighbouring field was a live count, so a
+     * subscription running Static Web Apps reported none. The fluent SDK's top-level facade has no
+     * {@code staticSites()} collection, which is presumably why it was stubbed; the ARM REST
+     * endpoint does list them subscription-wide in one call.
+     *
+     * <p>
+     * A read failure records a data warning rather than returning a sentinel. Zero and "unknown"
+     * still need to be distinguishable, but the count itself is rendered as a number, so a
+     * {@code -1} would leak into the widget; the warning channel already carries this exact
+     * distinction and is surfaced on the dashboard.
+     */
+    private long countStaticWebApps(String subscriptionId, AzureDashboardData dashboardData) {
+        try {
+            return armRest.listValues(subscriptionId,
+                    "/providers/Microsoft.Web/staticSites?api-version=2022-03-01").size();
+        } catch (Exception e) {
+            log.warn("Could not count Azure Static Web Apps for {}: {}", subscriptionId, e.getMessage());
+            dashboardData.addDataWarning("Static Web App count unavailable, so it is shown as zero rather "
+                    + "than measured.");
+            return 0;
         }
     }
 
@@ -328,10 +385,25 @@ public class AzureDashboardService {
                 new TypeReference<>() {
                 });
 
+        // Whether this subscription has a cost export at all, which is the difference between
+        // "the numbers are not in yet" and "the numbers are never coming". Onboarding saves the
+        // account even when export setup fails, so a connected subscription can legitimately have
+        // no billing source — and every cost figure then reads a confident 0.00 that looks
+        // measured. The container name is only set once setupCostExports succeeds, so its absence
+        // is the signal.
+        boolean costExportConfigured = account.getAzureBillingContainer() != null
+                && !account.getAzureBillingContainer().isBlank();
+
         if (billingSummary.isPresent()) {
             dashboardData.setBillingSummary(billingSummary.get());
         } else {
             log.warn("No cached billing summary found for {}. Data will be missing until next ingestion.", accountId);
+            dashboardData.addDataWarning(costExportConfigured
+                    ? "Cost by service is unavailable: billing data has not been ingested for this "
+                            + "subscription yet."
+                    : "Cost reporting is not configured for this subscription. No Azure cost export was "
+                            + "created during onboarding, so spend cannot be reported. Re-run the Azure "
+                            + "connection with a billing resource group and storage account.");
             dashboardData.setBillingSummary(Collections.emptyList());
         }
 
@@ -351,9 +423,9 @@ public class AzureDashboardService {
             AzureDashboardData.CostHistory history = costHistory.get();
             List<String> labels = history.getLabels();
             List<Double> costs = history.getCosts();
-            List<Boolean> anomalies = history.getAnomalies();
+            List<Boolean> forecastFlags = history.getForecast();
 
-            if (labels != null && costs != null && anomalies != null && labels.size() == costs.size()) {
+            if (labels != null && costs != null && forecastFlags != null && labels.size() == costs.size()) {
                 // Look up costs by month label — MTD = current month only, Last Month = previous month only
                 String currentMonthLabel = java.time.LocalDate.now()
                         .format(DateTimeFormatter.ofPattern("MMM yyyy"));
@@ -367,7 +439,7 @@ public class AzureDashboardService {
                 for (int i = 0; i < labels.size(); i++) {
                     String label = labels.get(i);
                     double cost = costs.get(i);
-                    boolean isForecast = Boolean.TRUE.equals(anomalies.get(i));
+                    boolean isForecast = Boolean.TRUE.equals(forecastFlags.get(i));
 
                     if (isForecast) {
                         forecastedSpend += cost;
@@ -393,12 +465,41 @@ public class AzureDashboardService {
             // These zeros are placeholders, not measurements. Flagging that here is what stops
             // saveDashboardToDatabase from writing them over a populated snapshot.
             log.warn("No cached cost history found for {}. Data will be missing until next ingestion.", accountId);
-            dashboardData.addDataWarning("Cost history and month-to-date spend unavailable: the billing "
-                    + "ingestion cache is empty for this subscription.");
+            dashboardData.addDataWarning(costExportConfigured
+                    ? "Cost history and month-to-date spend unavailable: the billing ingestion cache is "
+                            + "empty for this subscription."
+                    : "Cost reporting is not configured for this subscription, so month-to-date and "
+                            + "forecast spend are unavailable rather than zero.");
             dashboardData.setCostHistory(new AzureDashboardData.CostHistory());
             dashboardData.setMonthToDateSpend(0.0);
             dashboardData.setForecastedSpend(0.0);
             dashboardData.setLastMonthSpend(0.0);
+        }
+
+        // 3. Detect cost forecastFlags over the ingested daily series.
+        //
+        // This field was hardcoded to an empty list, so every Azure subscription reported no cost
+        // anomalies — which the dashboard renders identically to a subscription that was checked and
+        // found clean. AWS reads Cost Explorer's GetAnomalies and GCP runs a trailing-average query;
+        // Azure now runs the same trailing-average test over the daily cost export.
+        try {
+            AzureCostAnomalyService.AnomalyOutcome outcome = costAnomalyService.detect(accountId, true);
+            dashboardData.setCostAnomalies(outcome.anomalies());
+            if (outcome.unavailableReason() != null) {
+                // The reason path matters more than the exception path: detection legitimately cannot
+                // run for the first week of a month on a month-to-date export, and that returns
+                // normally. Handling only the exception left the common case looking clean.
+                dashboardData.addDataWarning(outcome.unavailableReason());
+            } else if (!outcome.anomalies().isEmpty()) {
+                log.info("Detected {} Azure cost anomalies for {}", outcome.anomalies().size(), accountId);
+            }
+        } catch (Exception e) {
+            // An empty list here is the same false-clean signal this change exists to remove, so the
+            // failure is recorded as a data warning rather than passed off as "nothing found".
+            log.error("Azure cost anomaly detection failed for {}: {}", accountId, e.getMessage(), e);
+            dashboardData.setCostAnomalies(Collections.emptyList());
+            dashboardData.addDataWarning("Cost anomaly detection did not run for this subscription, so "
+                    + "an empty anomaly list does not mean spend is normal.");
         }
     }
 
@@ -534,6 +635,106 @@ public class AzureDashboardService {
             log.error("Error fetching optimization summary for account {}: {}", accountId, e.getMessage());
             dashboardData.setOptimizationSummary(null);
         }
+    }
+
+    /**
+     * Copies the real Defender secure score and unhealthy assessments onto the dashboard.
+     *
+     * <p>
+     * The unified dashboard used to hardcode a security score of 100 for every Azure
+     * subscription, because this DTO had no security field to map from. Defender was computing a
+     * genuine score all along — it was only ever shown on the standalone Azure Security page.
+     * A hardcoded 100 is the worst possible default here: it reads as a verified all-clear.
+     *
+     * <p>
+     * Reads through {@link AzureSecurityService}'s own Redis/DB cache rather than forcing a
+     * refresh, so adding this to the nightly dashboard build does not add a Defender round trip
+     * on every run.
+     *
+     * <p>
+     * Defender reports points earned against a maximum scaled to the controls in scope, so the
+     * score is converted to a percentage of that maximum. Anything other than a successful fetch
+     * leaves the score at zero with a reason attached — never a number.
+     */
+    private void getAndSetSecurityPosture(AzureDashboardData dashboardData, String accountId) {
+        try {
+            AzureSecurityResponse security = azureSecurityService.getSecurityData(accountId, false);
+
+            if (security == null || security.getStatus() == null) {
+                // A cached response deserialized without a status would NPE on the switch below and be
+                // swallowed by the catch, which reports a generic reason instead of this specific one.
+                dashboardData.setSecurityScoreUnavailableReason(
+                        "Defender for Cloud returned no usable response for this subscription.");
+                return;
+            }
+
+            switch (security.getStatus()) {
+                case PERMISSION_ERROR -> dashboardData.setSecurityScoreUnavailableReason(
+                        "The service principal lacks the Security Reader role on this subscription, so "
+                                + "Defender for Cloud cannot be read. Assign Security Reader to see a "
+                                + "security score.");
+                case API_ERROR -> dashboardData.setSecurityScoreUnavailableReason(
+                        "Defender for Cloud could not be reached, so no security score is available.");
+                case NO_DATA -> dashboardData.setSecurityScoreUnavailableReason(
+                        "Defender for Cloud reports no assessments for this subscription. Enable a "
+                                + "Defender plan to get a security score.");
+                case OK -> {
+                    // Guarded rather than assumed: a zero maximum would make this a divide-by-zero,
+                    // and a zero score with OK status is indistinguishable from "unknown" once it
+                    // reaches the dashboard, so both are treated as not-known.
+                    if (security.getMaxScore() > 0 && security.getSecureScore() > 0) {
+                        int percentage = (int) Math.round(
+                                security.getSecureScore() * 100.0 / security.getMaxScore());
+                        dashboardData.setSecurityScore(Math.max(0, Math.min(100, percentage)));
+                    } else {
+                        dashboardData.setSecurityScoreUnavailableReason(
+                                "Defender for Cloud did not report a usable secure score for this "
+                                        + "subscription.");
+                    }
+                }
+            }
+
+            dashboardData.setSecurityInsights(toSecurityInsights(security.getAssessments()));
+
+        } catch (Exception e) {
+            log.error("Failed to read Azure security posture for {}: {}", accountId, e.getMessage());
+            dashboardData.setSecurityScoreUnavailableReason(
+                    "Security posture could not be read for this subscription.");
+        }
+    }
+
+    /**
+     * Collapses unhealthy Defender assessments into dashboard insights.
+     *
+     * <p>
+     * Grouped by category and severity to match how the AWS path builds the same widget, so the
+     * unified dashboard renders one shape regardless of provider.
+     */
+    private List<DashboardData.SecurityInsight> toSecurityInsights(
+            List<com.xammer.cloud.dto.azure.AzureSecurityAssessment> assessments) {
+
+        if (assessments == null || assessments.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        Map<String, DashboardData.SecurityInsight> byGroup = new java.util.LinkedHashMap<>();
+        for (var assessment : assessments) {
+            String category = assessment.getCategory() == null || assessment.getCategory().isBlank()
+                    ? "Defender for Cloud"
+                    : assessment.getCategory();
+            String severity = com.xammer.cloud.service.security.SecuritySeverity
+                    .normalize(assessment.getSeverity());
+            String key = category + "|" + severity;
+
+            DashboardData.SecurityInsight existing = byGroup.get(key);
+            if (existing == null) {
+                byGroup.put(key, new DashboardData.SecurityInsight(
+                        category + " has potential issues", category, severity, 1));
+            } else {
+                existing.setCount(existing.getCount() + 1);
+            }
+        }
+        return new ArrayList<>(byGroup.values());
     }
 
     /**

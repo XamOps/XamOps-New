@@ -64,7 +64,7 @@ public class AzureForecastingService {
         AzureDashboardData.CostHistory costHistory = costHistoryOpt.get();
         List<String> labels = costHistory.getLabels();
         List<Double> costs = costHistory.getCosts();
-        List<Boolean> anomalies = costHistory.getAnomalies();
+        List<Boolean> anomalies = costHistory.getForecast();
 
         if (labels == null || costs == null || anomalies == null || labels.size() != costs.size() || labels.size() != anomalies.size()) {
             logger.warn("❌ Historical cost data is malformed for {}. Forecast will be empty.", subscriptionId);

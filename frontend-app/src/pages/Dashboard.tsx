@@ -151,15 +151,27 @@ export const Dashboard: React.FC = () => {
     };
   }, [refreshDashboard]);
 
-  const getLink = (basePath: string): string => {
+  /**
+   * Provider-appropriate destination for a dashboard link, or null when the feature does not
+   * exist for the selected provider.
+   *
+   * <p>Cloud Map previously mapped to `/cloudmap` for all three providers. That is the AWS page:
+   * it calls `/api/xamops/cloudmap/vpcs?accountId=…`, so a GCP project id or Azure subscription id
+   * was being sent to the AWS endpoint. GCP has its own page, and Azure has no Cloud Map at all —
+   * as AccountContext's PROVIDER_PAGE_MAP already documents — so the link is withheld there
+   * rather than pointing somewhere that cannot answer.
+   */
+  const getLink = (basePath: string): string | null => {
     if (selectedAccountIds.length === 0) return basePath;
     const account = accounts.find(a => a.id === selectedAccountIds[0]);
     const provider = account?.provider || 'AWS';
-    const providerPaths: Record<string, Record<string, string>> = {
-      '/cloudmap':    { AWS: '/cloudmap',    GCP: '/cloudmap',    Azure: '/cloudmap'    },
+    const providerPaths: Record<string, Partial<Record<string, string>>> = {
+      '/cloudmap':    { AWS: '/cloudmap',    GCP: '/gcp-cloudmap' },
       '/calculator':  { AWS: '/calculator',  GCP: '/calculator',  Azure: '/calculator'  },
     };
-    return providerPaths[basePath]?.[provider] || basePath;
+    const mapping = providerPaths[basePath];
+    if (!mapping) return basePath;
+    return mapping[provider] ?? null;
   };
 
   const accountId = selectedAccountIds.length === 1 ? selectedAccountIds[0] : null;

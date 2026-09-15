@@ -96,7 +96,16 @@ export const createAzureBudget = async (
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      // The controller returns {"error": "..."} naming the remediation — a rejected name or limit as
+      // 400, a missing 'Cost Management Contributor' assignment as 403. A bare status threw that away.
+      let message = `Failed to create budget (HTTP ${response.status})`;
+      try {
+        const body = await response.json();
+        if (body?.error) message = body.error;
+      } catch {
+        // Non-JSON body; keep the status-based message.
+      }
+      throw new Error(message);
     }
 
     const data = await response.json();

@@ -64,6 +64,9 @@ public class AzureFinOpsService {
     @Autowired
     private AzureBudgetService azureBudgetService;
 
+    @Autowired
+    private AzureCostAnomalyService costAnomalyService;
+
     /**
      * Generates the main FinOps report for an Azure subscription
      */
@@ -102,13 +105,13 @@ public class AzureFinOpsService {
                 AzureDashboardData.CostHistory costHistory = costHistoryOpt.get();
                 List<String> labels = costHistory.getLabels();
                 List<Double> costs = costHistory.getCosts();
-                List<Boolean> anomalies = costHistory.getAnomalies();
+                List<Boolean> forecastFlags = costHistory.getForecast();
 
-                if (labels != null && costs != null && anomalies != null && labels.size() == costs.size()) {
+                if (labels != null && costs != null && forecastFlags != null && labels.size() == costs.size()) {
 
                     // Calculate Forecasted Spend (where anomaly is true)
                     double totalForecast = IntStream.range(0, labels.size())
-                        .filter(i -> Boolean.TRUE.equals(anomalies.get(i))) // Filter FOR forecast data
+                        .filter(i -> Boolean.TRUE.equals(forecastFlags.get(i))) // Filter FOR forecast data
                         .mapToDouble(costs::get)
                         .sum();
                     
@@ -117,7 +120,7 @@ public class AzureFinOpsService {
 
                     // Calculate MoM/YoY (where anomaly is false)
                     Map<String, Double> historyMap = IntStream.range(0, labels.size())
-                        .filter(i -> !Boolean.TRUE.equals(anomalies.get(i))) // Filter OUT forecast data
+                        .filter(i -> !Boolean.TRUE.equals(forecastFlags.get(i))) // Filter OUT forecast data
                         .boxed()
                         .collect(Collectors.toMap(
                             i -> labels.get(i),
@@ -128,7 +131,7 @@ public class AzureFinOpsService {
                     // Calculate MoM change using the two most recent non-forecast entries
                     List<Double> actualCosts = new ArrayList<>();
                     for (int i = labels.size() - 1; i >= 0; i--) {
-                        boolean isForecast = i < anomalies.size() && Boolean.TRUE.equals(anomalies.get(i));
+                        boolean isForecast = i < forecastFlags.size() && Boolean.TRUE.equals(forecastFlags.get(i));
                         if (!isForecast) {
                             actualCosts.add(costs.get(i));
                         }
@@ -299,9 +302,29 @@ public class AzureFinOpsService {
             List<AzureBudgetDto> budgets = azureBudgetService.getBudgetsSync(subscriptionId);
             report.setBudgets(budgets);
             logger.info("Added {} budgets to FinOps report for {}", budgets.size(), subscriptionId);
+        } catch (AzureBudgetService.BudgetsUnavailableException e) {
+            // Carried onto the report rather than swallowed. An empty budget list otherwise reads as
+            // "no budgets configured", which is what the removed mock data used to hide.
+            logger.warn("Budgets unavailable for Azure subscription {}: {}", subscriptionId, e.getMessage());
+            report.setBudgets(Collections.emptyList());
+            report.setBudgetsUnavailableReason(e.getMessage());
         } catch (Exception e) {
             logger.warn("Failed to get budgets for Azure subscription {}: {}", subscriptionId, e.getMessage());
             report.setBudgets(Collections.emptyList());
+            report.setBudgetsUnavailableReason("Budgets could not be read: " + e.getMessage());
+        }
+
+        // --- STEP 8: Cost anomalies ---
+        try {
+            AzureCostAnomalyService.AnomalyOutcome outcome = costAnomalyService.detect(subscriptionId, false);
+            report.setCostAnomalies(outcome.anomalies());
+            report.setCostAnomaliesUnavailableReason(outcome.unavailableReason());
+        } catch (Exception e) {
+            logger.warn("Cost anomaly detection failed for Azure subscription {}: {}",
+                    subscriptionId, e.getMessage());
+            report.setCostAnomalies(Collections.emptyList());
+            report.setCostAnomaliesUnavailableReason(
+                    "Cost anomaly detection did not run, so an empty list does not mean spend is normal.");
         }
 
         return report;
@@ -329,11 +352,17 @@ public class AzureFinOpsService {
         schedule.setCloudAccount(account);
         schedule.setEmail(dto.getEmail());
 
-        schedule.setFrequency(FinOpsReportSchedule.Frequency.valueOf(dto.getFrequency().toUpperCase()));
+        FinOpsReportSchedule.Frequency frequency =
+                FinOpsReportSchedule.Frequency.valueOf(dto.getFrequency().toUpperCase());
+        schedule.setFrequency(frequency);
         schedule.setActive(true);
 
-        // TODO: You still need to set the cronExpression field here before saving
-        // schedule.setCronExpression(...);
+        // cron_expression is NOT NULL, so leaving this unset did not create a schedule that
+        // quietly never fired — it made every Azure FinOps schedule creation fail on insert.
+        // Derived through the same helper the AWS path uses so both providers agree.
+        schedule.setCronExpression(frequency == FinOpsReportSchedule.Frequency.CUSTOM
+                ? com.xammer.cloud.service.FinOpsCron.forCustom(dto)
+                : com.xammer.cloud.service.FinOpsCron.forFrequency(frequency.name()));
 
         FinOpsReportSchedule savedSchedule = scheduleRepository.save(schedule);
 

@@ -38,12 +38,24 @@ export interface AzureCostDataPoint {
 export interface AzureCostHistory {
   labels: string[];
   costs: number[];
-  anomalies: boolean[];
+  /**
+   * Per-point flag marking a label as a forecast rather than actual spend.
+   *
+   * <p>Named `anomalies` on the wire until now, which it never was: the backend sets it true for the
+   * projected "MMM yyyy (Forecast)" point, and the FinOps KPIs sum those to produce forecast spend.
+   * Real anomalies are the separate `costAnomalies` list. The API layer accepts the old key so a
+   * cached payload still renders.
+   */
+  forecast: boolean[];
 }
 
 export interface AzureCostAnomaly {
+  /** Stable identifier, derived from subscription + service + date. */
+  anomalyId?: string;
   service: string;
   startDate: string;
+  endDate?: string;
+  /** Spend above the trailing 7-day average for that service, not the whole day's cost. */
   unexpectedSpend: number;
 }
 
@@ -107,6 +119,18 @@ export interface AzureDashboardData {
   costAnomalies: AzureCostAnomaly[];
   lastUpdated: string;
   cacheStatus: 'fresh' | 'stale' | 'expired';
+
+  /**
+   * False when at least one section could not be populated, so the zeros in this payload are
+   * placeholders rather than measurements.
+   *
+   * <p>The backend has always set this; nothing rendered it, which is how a subscription with no
+   * cost export configured came to display a confident $0.00 spend.
+   */
+  dataComplete?: boolean;
+
+  /** Customer-facing reasons {@link dataComplete} is false, each naming what to do about it. */
+  dataWarnings?: string[];
 }
 
 export interface AzureResourceType {

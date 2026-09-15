@@ -2,6 +2,7 @@ package com.xammer.cloud.service;
 
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.security.ProwlerFrameworks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,20 +20,10 @@ public class SecurityScheduler {
     private final CloudAccountRepository cloudAccountRepository;
     private final ProwlerService prowlerService;
 
-    private static final String[] AWS_SERVICES = {
-            "s3", "ec2", "iam", "rds", "cloudtrail", "cloudwatch",
-            "kms", "lambda", "vpc", "config", "sns", "sqs",
-            "efs", "elb", "elbv2", "secretsmanager", "guardduty"
-    };
-
-    private static final String[] AWS_FRAMEWORKS = {
-            "cis_3.0_aws",
-            "soc2_aws",
-            "pci_3.2.1_aws",
-            "nist_csf_1.1_aws",
-            "aws_foundational_security_best_practices_aws",
-            "iso27001_2013_aws"
-    };
+    // Service groups and framework lists live in ProwlerFrameworks so this scheduler and the
+    // manual-trigger controllers cannot drift. They had: the GCP list here asked Prowler for
+    // pci_3.2.1_gcp and iso27001_2013_gcp, which GCP does not offer, and one unknown name makes
+    // Prowler reject the whole --compliance argument and scan nothing.
 
     // Key regions that cover most AWS customer deployments.
     // Scanned sequentially per account — memory stays bounded even for 500 accounts.
@@ -44,12 +35,6 @@ public class SecurityScheduler {
             "ap-southeast-1" // Singapore    — common SE Asia
     );
 
-    private static final String[] GCP_FRAMEWORKS = {
-            "cis_2.0_gcp", "soc2_gcp", "pci_3.2.1_gcp",
-            "iso27001_2013_gcp", "mitre_attack_gcp",
-            "hipaa_gcp", "gdpr_gcp", "nist_csf_1.1_gcp"
-    };
-
     @Autowired
     public SecurityScheduler(CloudAccountRepository cloudAccountRepository,
             ProwlerService prowlerService) {
@@ -58,12 +43,21 @@ public class SecurityScheduler {
     }
 
     /**
-     * Every Saturday at 11:00 PM IST — scans ALL accounts (AWS + GCP) across
-     * all key regions. Results are saved to DB and Redis so the UI reads cached
-     * data until the user explicitly clicks "Run Compliance Scan".
+     * Every Saturday at 11:00 PM IST — scans ALL accounts (AWS, GCP and Azure). Results are
+     * saved to DB and Redis so the UI reads cached data until the user explicitly clicks
+     * "Run Compliance Scan".
      *
      * The Semaphore inside ProwlerService caps concurrent Prowler processes at 2,
      * so all 500+ accounts queue up safely without OOM.
+     *
+     * <p>
+     * Azure used to be missing here. The loop branched on GCP and fell through to an
+     * {@code else} that assumed AWS, so an Azure subscription reached the AWS branch, found a
+     * null {@code awsAccountId} and skipped — silently, once a week, forever. Azure compliance
+     * was therefore only ever as fresh as the last time somebody clicked the button by hand,
+     * and ComplianceOps had nothing to report for those subscriptions. The dispatch is now an
+     * explicit switch on the provider so an unrecognised one is logged rather than
+     * mistaken for AWS.
      */
     @Scheduled(cron = "0 0 23 * * SAT", zone = "Asia/Kolkata")
     public void runWeeklySaturdayScan() {
@@ -77,40 +71,66 @@ public class SecurityScheduler {
 
         int awsCount = 0;
         int gcpCount = 0;
+        int azureCount = 0;
+        int skipped = 0;
 
         for (CloudAccount account : accounts) {
             try {
-                String provider = account.getProvider();
+                String provider = account.getProvider() == null ? "" : account.getProvider();
 
-                if ("GCP".equalsIgnoreCase(provider)) {
-                    String gcpProjectId = account.getGcpProjectId();
-                    if (gcpProjectId == null || gcpProjectId.isEmpty()) continue;
-
-                    Map<String, Object> status = prowlerService.getGcpScanStatus(gcpProjectId);
-                    if ("RUNNING".equals(status.get("status"))) {
-                        logger.info("GCP Prowler already running for project={} — skipping", gcpProjectId);
-                        continue;
+                switch (provider.toUpperCase(java.util.Locale.ROOT)) {
+                    case "GCP" -> {
+                        String gcpProjectId = account.getGcpProjectId();
+                        if (isBlank(gcpProjectId)) {
+                            skipped++;
+                            logger.warn("Skipping GCP account {} — no project id", account.getId());
+                            continue;
+                        }
+                        if (alreadyRunning(prowlerService.getGcpScanStatus(gcpProjectId), "GCP", gcpProjectId)) {
+                            continue;
+                        }
+                        logger.info("Triggering GCP Prowler scan for project={}", gcpProjectId);
+                        prowlerService.triggerGcpScanAsync(gcpProjectId, ProwlerFrameworks.GCP);
+                        gcpCount++;
                     }
-
-                    logger.info("Triggering GCP Prowler scan for project={}", gcpProjectId);
-                    prowlerService.triggerGcpScanAsync(gcpProjectId, GCP_FRAMEWORKS);
-                    gcpCount++;
-
-                } else {
-                    // AWS (default)
-                    String awsAccountId = account.getAwsAccountId();
-                    if (awsAccountId == null || awsAccountId.isEmpty()) continue;
-
-                    Map<String, Object> status = prowlerService.getScanStatus(awsAccountId);
-                    if ("RUNNING".equals(status.get("status"))) {
-                        logger.info("AWS Prowler already running for account={} — skipping", awsAccountId);
-                        continue;
+                    case "AZURE" -> {
+                        String subscriptionId = account.getAzureSubscriptionId();
+                        if (isBlank(subscriptionId)) {
+                            skipped++;
+                            logger.warn("Skipping Azure account {} — no subscription id", account.getId());
+                            continue;
+                        }
+                        if (alreadyRunning(prowlerService.getAzureScanStatus(subscriptionId), "Azure",
+                                subscriptionId)) {
+                            continue;
+                        }
+                        logger.info("Triggering Azure Prowler scan for subscription={}", subscriptionId);
+                        prowlerService.triggerAzureScanAsync(subscriptionId, ProwlerFrameworks.AZURE);
+                        azureCount++;
                     }
-
-                    logger.info("Triggering AWS Prowler scan for account={} across {} regions",
-                            awsAccountId, AWS_REGIONS.size());
-                    prowlerService.triggerScanAsync(awsAccountId, AWS_REGIONS, AWS_SERVICES, AWS_FRAMEWORKS);
-                    awsCount++;
+                    case "AWS" -> {
+                        String awsAccountId = account.getAwsAccountId();
+                        if (isBlank(awsAccountId)) {
+                            skipped++;
+                            logger.warn("Skipping AWS account {} — no account id", account.getId());
+                            continue;
+                        }
+                        if (alreadyRunning(prowlerService.getScanStatus(awsAccountId), "AWS", awsAccountId)) {
+                            continue;
+                        }
+                        logger.info("Triggering AWS Prowler scan for account={} across {} regions",
+                                awsAccountId, AWS_REGIONS.size());
+                        prowlerService.triggerScanAsync(awsAccountId, AWS_REGIONS,
+                                ProwlerFrameworks.AWS_SERVICES, ProwlerFrameworks.AWS);
+                        awsCount++;
+                    }
+                    // Named rather than silently treated as AWS. The previous else-means-AWS
+                    // default is exactly how Azure came to be skipped without a trace.
+                    default -> {
+                        skipped++;
+                        logger.warn("No compliance scan configured for provider '{}' (account {}) — skipping",
+                                provider.isBlank() ? "unset" : provider, account.getId());
+                    }
                 }
 
             } catch (Exception e) {
@@ -118,6 +138,20 @@ public class SecurityScheduler {
             }
         }
 
-        logger.info("Saturday scan triggered — AWS: {} accounts, GCP: {} projects", awsCount, gcpCount);
+        logger.info("Saturday scan triggered — AWS: {} accounts, GCP: {} projects, Azure: {} subscriptions, "
+                + "{} skipped", awsCount, gcpCount, azureCount, skipped);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    /** Avoids queueing a second Prowler process for an account already mid-scan. */
+    private boolean alreadyRunning(Map<String, Object> status, String provider, String id) {
+        if (status != null && "RUNNING".equals(status.get("status"))) {
+            logger.info("{} Prowler already running for {} — skipping", provider, id);
+            return true;
+        }
+        return false;
     }
 }

@@ -95,12 +95,28 @@ export interface AzureFinOpsReportData {
   rightsizingRecommendations?: AzureRightsizingRecommendation[];
   wastedResources?: AzureWastedResource[];
   costAnomalies?: AzureCostAnomaly[];
+  /**
+   * Why costAnomalies is empty, or null when detection ran normally.
+   *
+   * <p>An empty list means either "spend looks normal" or "we never checked". Detection legitimately
+   * cannot run for the first week of a month on subscriptions billed through a month-to-date cost
+   * export, so treating an empty list as a clean bill of health is wrong most of the time.
+   */
+  costAnomaliesUnavailableReason?: string | null;
   budgets?: AzureBudget[];
+  /** Why budgets is empty, or null when Azure returned the list normally. */
+  budgetsUnavailableReason?: string | null;
 }
 
 export interface AzureNewBudget {
   budgetName: string;
   budgetLimit: number | null;
+  /**
+   * Addresses to alert when the budget is exceeded. Optional, but without at least one the budget
+   * cannot notify anyone: Azure requires a contact address on a subscription-scoped budget
+   * notification, and contactRoles alone is not accepted.
+   */
+  contactEmails?: string[];
   budgetUnit: string;
 }
 

@@ -31,14 +31,17 @@ public class GcpDiskRightsizingService {
     private static final String CACHE_KEY_DISKS  = "gcp-disks-";
     private static final int    CACHE_TTL_MINUTES = 120;
 
-    // GCP persistent disk pricing: USD/GB/month (approximate, us-central1)
-    private static final Map<String, Double> PD_COST_PER_GB = Map.of(
-            "pd-standard", 0.040,
-            "pd-balanced",  0.100,
-            "pd-ssd",       0.170,
-            "pd-extreme",   0.125
-    );
-    private static final double DEFAULT_PD_COST_PER_GB = 0.100;
+    /**
+     * Text shown in place of a cost when the disk's rate could not be resolved.
+     *
+     * <p>Disk costs used to come from a four-entry constant map of us-central1 rates with a
+     * 0.100 USD/GiB default for anything missing, so every disk in every region was priced off one
+     * region's list, {@code pd-extreme} was priced below {@code pd-ssd} when it is the dearer
+     * product, and an unrecognised type silently became a balanced disk. Rates now come from the
+     * Cloud Billing Catalog via {@link GcpPricingService}; when the catalog cannot price a disk the
+     * row says so instead of carrying a number that looks like every other number on the page.
+     */
+    private static final String COST_UNKNOWN_PREFIX = "Monthly cost unknown: ";
 
     /** @see DiskAgentPeaks#MIN_OBSERVATIONS_FOR_SHRINK */
     private static final int MIN_OBSERVATIONS_FOR_SHRINK = DiskAgentPeaks.MIN_OBSERVATIONS_FOR_SHRINK;
@@ -63,6 +66,7 @@ public class GcpDiskRightsizingService {
     private final EbsVolumeActionRepository ebsVolumeActionRepository;
     private final RedisCacheService         redisCacheService;
     private final GcpClientProvider         gcpClientProvider;
+    private final GcpPricingService         gcpPricingService;
 
     // ── Public API ────────────────────────────────────────────────────────────
 
@@ -186,13 +190,20 @@ public class GcpDiskRightsizingService {
             StreamSupport.stream(client.aggregatedList(projectId).iterateAll().spliterator(), false)
                     .flatMap(entry -> entry.getValue().getDisksList().stream())
                     .forEach(disk -> {
-                        Map<String, Object> dto = buildDiskDto(disk);
+                        Map<String, Object> dto = buildDiskDto(disk, projectId);
                         enrichFromAgent(account, disk, dto);
                         applyRecommendation(dto, policy);
                         result.add(dto);
                     });
         } catch (Exception e) {
             logger.error("[gcp-disk] failed to list disks for project {}: {}", projectId, e.getMessage(), e);
+        }
+
+        long unpriced = result.stream().filter(d -> d.get("monthlyCost") == null).count();
+        if (unpriced > 0) {
+            logger.warn("[gcp-disk] {} of {} disks in project {} could not be priced from the "
+                    + "billing catalog; their cost and savings are reported as unknown rather than "
+                    + "estimated", unpriced, result.size(), projectId);
         }
 
         logger.info("[gcp-disk] listed {} disks for project {}", result.size(), projectId);
@@ -220,13 +231,17 @@ public class GcpDiskRightsizingService {
         return false;
     }
 
-    private Map<String, Object> buildDiskDto(Disk disk) {
-        String zoneUrl = disk.getZone();
-        String zone = zoneUrl.substring(zoneUrl.lastIndexOf('/') + 1);
-        String region = zone.lastIndexOf('-') > 0 ? zone.substring(0, zone.lastIndexOf('-')) : zone;
+    private Map<String, Object> buildDiskDto(Disk disk, String projectId) {
+        String zone = lastPathSegment(disk.getZone());
+        // A regional disk carries no zone; its location is on `region` and it replicates across
+        // `replicaZones`. Deriving the region from a blank zone yielded a blank region, which now
+        // matters because the region is what the catalog rate is keyed by.
+        boolean regional = zone.isEmpty() && !disk.getReplicaZonesList().isEmpty();
+        String region = !zone.isEmpty() && zone.lastIndexOf('-') > 0
+                ? zone.substring(0, zone.lastIndexOf('-'))
+                : lastPathSegment(disk.getRegion());
 
-        String typeUrl = disk.getType();
-        String diskType = typeUrl.substring(typeUrl.lastIndexOf('/') + 1);
+        String diskType = lastPathSegment(disk.getType());
 
         boolean attached = !disk.getUsersList().isEmpty();
         String instanceName = null;
@@ -236,8 +251,10 @@ public class GcpDiskRightsizingService {
         }
 
         long sizeGb = disk.getSizeGb();
+
         // USD, matching every other amount produced by the optimization services.
-        double monthlyCostUsd = sizeGb * PD_COST_PER_GB.getOrDefault(diskType, DEFAULT_PD_COST_PER_GB);
+        GcpPricingService.DiskPriceInfo price =
+                gcpPricingService.getPersistentDiskPricing(diskType, region, regional, projectId);
 
         Map<String, Object> dto = new LinkedHashMap<>();
         // GKE-provisioned PersistentVolume disks must never be offered for deletion.
@@ -245,17 +262,45 @@ public class GcpDiskRightsizingService {
         dto.put("diskName",             disk.getName());
         dto.put("zone",                 zone);
         dto.put("region",               region);
+        dto.put("regional",             regional);
         dto.put("diskType",             diskType);
         dto.put("sizeGb",               (int) sizeGb);
         dto.put("status",               disk.getStatus());
         dto.put("attached",             attached);
         dto.put("instanceName",         instanceName);
-        dto.put("monthlyCost",          Math.round(monthlyCostUsd * 100.0) / 100.0);
+
+        if (price.isPriced()) {
+            dto.put("costPerGibMonth", price.getUsdPerGibMonth());
+            dto.put("monthlyCost", Math.round(sizeGb * price.getUsdPerGibMonth() * 100.0) / 100.0);
+            if (price.isCapacityOnly()) {
+                // Extreme and Hyperdisk types bill provisioned IOPS and throughput on their own
+                // meters, which this rate does not include. Saying so keeps a partial figure from
+                // reading as the whole charge.
+                dto.put("costIsCapacityOnly", true);
+                dto.put("costNote", price.getNote());
+            }
+        } else {
+            // Null, not zero. A zero here reads as a free disk, which would make it the least
+            // interesting row on the page when in fact its cost is simply unknown.
+            dto.put("costPerGibMonth", null);
+            dto.put("monthlyCost", null);
+            dto.put("costUnavailableReason", COST_UNKNOWN_PREFIX + price.getNote());
+            logger.debug("[gcp-disk] no catalog rate for {} ({} in {}): {}",
+                    disk.getName(), diskType, region, price.getNote());
+        }
+
         dto.put("recommendation",       "NONE");
         dto.put("recommendationReason", "");
         dto.put("estimatedSavings",     0.0);
         dto.put("recommendedSizeGb",    (int) sizeGb);
         return dto;
+    }
+
+    private static String lastPathSegment(String url) {
+        if (url == null || url.isEmpty()) {
+            return "";
+        }
+        return url.substring(url.lastIndexOf('/') + 1);
     }
 
     // ── Agent enrichment ──────────────────────────────────────────────────────
@@ -355,8 +400,11 @@ public class GcpDiskRightsizingService {
     private void applyRecommendation(Map<String, Object> dto, EffectiveDiskPolicy policy) {
         boolean attached = Boolean.TRUE.equals(dto.get("attached"));
         int sizeGb = (int) dto.get("sizeGb");
-        String diskType = (String) dto.get("diskType");
-        double costPerGbUsd = PD_COST_PER_GB.getOrDefault(diskType, DEFAULT_PD_COST_PER_GB);
+        // Null when the billing catalog could not price this disk type in this region. Every
+        // savings figure below is therefore conditional: an unpriced disk still gets its
+        // recommendation, because "delete this unattached disk" is sound advice with or without a
+        // price on it, but it gets savingsUnknown instead of an invented amount.
+        Double costPerGibMonth = (Double) dto.get("costPerGibMonth");
 
         if (!attached) {
             // A GKE PersistentVolume disk shows no users while its pod is rescheduled, so
@@ -370,7 +418,13 @@ public class GcpDiskRightsizingService {
             }
             dto.put("recommendation", "DELETE_UNATTACHED");
             dto.put("recommendationReason", "Disk is not attached to any instance");
-            dto.put("estimatedSavings", (double) dto.get("monthlyCost"));
+            Object monthlyCost = dto.get("monthlyCost");
+            if (monthlyCost instanceof Number cost) {
+                dto.put("estimatedSavings", cost.doubleValue());
+            } else {
+                dto.put("estimatedSavings", 0.0);
+                dto.put("savingsUnknown", true);
+            }
             return;
         }
 
@@ -386,9 +440,14 @@ public class GcpDiskRightsizingService {
                     "Disk is %.0f%% full — expand to %d GB to avoid capacity issues", usedPct, targetSize));
             // An expand increases cost. Report the delta as a negative "saving" so it can
             // never be added into a savings total as if it were a gain.
-            double costIncrease = (targetSize - sizeGb) * costPerGbUsd;
-            dto.put("estimatedSavings", -Math.round(costIncrease * 100.0) / 100.0);
-            dto.put("estimatedMonthlyCostIncrease", Math.round(costIncrease * 100.0) / 100.0);
+            if (costPerGibMonth != null) {
+                double costIncrease = (targetSize - sizeGb) * costPerGibMonth;
+                dto.put("estimatedSavings", -Math.round(costIncrease * 100.0) / 100.0);
+                dto.put("estimatedMonthlyCostIncrease", Math.round(costIncrease * 100.0) / 100.0);
+            } else {
+                dto.put("estimatedSavings", 0.0);
+                dto.put("savingsUnknown", true);
+            }
         } else if (usedPct < policy.shrinkThresholdPct() && sizeGb > policy.minDiskSizeGb()) {
             // A shrink is sized against the highest utilization ever observed, not the latest
             // sample. Sizing to the sample means the first log rotation or batch job after the
@@ -423,14 +482,19 @@ public class GcpDiskRightsizingService {
 
             int targetSize = policy.targetSizeGb(sizeGb, peakPct);
             if (targetSize < sizeGb) {
-                double saving = (sizeGb - targetSize) * costPerGbUsd;
                 dto.put("recommendation", "SHRINK");
                 dto.put("recommendedSizeGb", targetSize);
                 dto.put("recommendationReason", String.format(
                         "Peaked at %.0f%% across %d observations — a %d GB disk would suffice "
                                 + "(currently %d GB). %s",
                         peakPct, samples.longValue(), targetSize, sizeGb, SHRINK_UNSUPPORTED_MESSAGE));
-                dto.put("estimatedSavings", Math.round(saving * 100.0) / 100.0);
+                if (costPerGibMonth != null) {
+                    double saving = (sizeGb - targetSize) * costPerGibMonth;
+                    dto.put("estimatedSavings", Math.round(saving * 100.0) / 100.0);
+                } else {
+                    dto.put("estimatedSavings", 0.0);
+                    dto.put("savingsUnknown", true);
+                }
                 // GCP cannot shrink in place, so this saving is only realizable by creating a
                 // smaller disk and migrating. Flag it so totals can exclude un-actionable
                 // savings and the UI can avoid offering a one-click Apply.
