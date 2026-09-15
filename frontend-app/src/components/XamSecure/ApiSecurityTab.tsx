@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
 import type { ApiEndpoint } from '../../types/xamsecure';
 import Pager, { usePaged } from './Pager';
@@ -15,6 +15,36 @@ const METHOD_COLOR: Record<string, string> = {
   DELETE: '#dc2626', HEAD: '#0891b2', OPTIONS: '#64748b',
 };
 const methodColor = (m: string) => METHOD_COLOR[m?.toUpperCase()] ?? '#64748b';
+
+type AuthBucket = 'AUTHENTICATED' | 'UNAUTHENTICATED' | 'UNCLASSIFIED';
+
+interface EndpointFilters {
+  q: string;
+  /** Uppercase HTTP method, or '' for all. */
+  method: string;
+  auth: '' | AuthBucket;
+  /** Only endpoints carrying observed sensitive data. */
+  sensitive: boolean;
+  /** '' all · 'yes' traffic observed · 'no' none observed. */
+  ingress: '' | 'yes' | 'no';
+}
+
+const EMPTY_FILTERS: EndpointFilters = { q: '', method: '', auth: '', sensitive: false, ingress: '' };
+
+const isFiltering = (f: EndpointFilters) =>
+  f.q.trim() !== '' || f.method !== '' || f.auth !== '' || f.sensitive || f.ingress !== '';
+
+/**
+ * Collapses the auth state into the three buckets the summary cards count.
+ *
+ * Anything that is not an explicit AUTHENTICATED or UNAUTHENTICATED is unclassified rather than
+ * unauthenticated: it means Upwind has not seen enough traffic to decide, and on this estate that
+ * is over half the endpoints. Treating absent as unauthenticated would invent a finding.
+ */
+const authBucket = (e: ApiEndpoint): AuthBucket => {
+  const s = (e.authState ?? '').toUpperCase();
+  return s === 'AUTHENTICATED' || s === 'UNAUTHENTICATED' ? s : 'UNCLASSIFIED';
+};
 
 /**
  * APIs — mirrors Upwind's API Security dashboard using only real endpoint data:
@@ -72,7 +102,38 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
              sensitive, sensitiveKinds, preV2Rows };
   }, [all]);
 
-  const { page, setPage, pageItems: rows, totalPages, total } = usePaged(all, 50);
+  const [filters, setFilters] = useState<EndpointFilters>(EMPTY_FILTERS);
+
+  /**
+   * Filtering is client-side because the whole endpoint list is already in memory — the tab
+   * loads it in one request and every summary above is computed from it. Going back to the
+   * server per keystroke would be slower and would make the cards disagree with the table.
+   */
+  const filtered = useMemo(() => {
+    if (!isFiltering(filters)) return all;
+    const q = filters.q.trim().toLowerCase();
+    return all.filter((e) => {
+      if (filters.method && (e.method ?? '').toUpperCase() !== filters.method) return false;
+      if (filters.auth && authBucket(e) !== filters.auth) return false;
+      if (filters.sensitive && (e.sensitiveData ?? []).length === 0) return false;
+      if (filters.ingress === 'yes' && !e.internetExposed) return false;
+      if (filters.ingress === 'no' && e.internetExposed) return false;
+      if (q) {
+        // Path, host, the API-resource id and observed status codes — the four things visible
+        // in the row, so a search matches what the user can actually see.
+        const haystack = [e.uri, e.resourceId, ...(e.domains ?? []), ...(e.statusCodes ?? [])]
+          .filter(Boolean).join(' ').toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [all, filters]);
+
+  const { page, setPage, pageItems: rows, totalPages, total } = usePaged(filtered, 50);
+
+  // usePaged clamps a page that no longer exists, but landing mid-list after narrowing the set
+  // reads as missing results. A new filter starts at the top.
+  useEffect(() => { setPage(0); }, [filters, setPage]);
 
   if (isLoading && all.length === 0) {
     return <div className="text-center py-16 text-sm text-gray-400">Loading API endpoints...</div>;
@@ -188,11 +249,27 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
 
       {/* Endpoint inventory */}
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100">
+        <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-            Endpoints ({stats.total})
+            Endpoints{' '}
+            {isFiltering(filters)
+              ? `(${filtered.length.toLocaleString()} of ${stats.total.toLocaleString()})`
+              : `(${stats.total.toLocaleString()})`}
           </p>
+          {isFiltering(filters) && (
+            <button type="button" onClick={() => setFilters(EMPTY_FILTERS)}
+                    className="text-[11px] font-semibold text-gray-500 hover:text-gray-800">
+              Clear filters
+            </button>
+          )}
         </div>
+
+        {/* The summary cards and the funnel above stay on the full set on purpose: they describe
+            the account, and having them move with the table would leave no fixed reference to
+            compare a filtered subset against. */}
+        <EndpointFilterBar filters={filters} onChange={setFilters}
+                           methods={stats.methods.map(([m]) => m)} />
+
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -201,7 +278,10 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
                 <th className="px-5 py-2.5">Endpoint</th>
                 <th className="px-5 py-2.5">Served by</th>
                 <th className="px-5 py-2.5">Auth</th>
-                <th className="px-5 py-2.5">Internet Exposed</th>
+                {/* Was "Internet Exposed" with a red badge. The field is a last-seen traffic
+                    timestamp, so it read as a critical finding on 3,741 of 3,808 rows — see the
+                    tab docstring. Renamed to match the summary card and the filter. */}
+                <th className="px-5 py-2.5">Ingress</th>
                 <th className="px-5 py-2.5">Sensitive data</th>
                 <th className="px-5 py-2.5">Status codes</th>
                 <th className="px-5 py-2.5">First Seen</th>
@@ -238,8 +318,11 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
                   </td>
                   <td className="px-5 py-3">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      e.internetExposed ? 'bg-red-500 text-white' : 'bg-emerald-100 text-emerald-700'}`}>
-                      {e.internetExposed ? 'Exposed' : 'Internal'}
+                      e.internetExposed ? 'bg-sky-100 text-sky-700' : 'bg-gray-100 text-gray-500'}`}
+                          title={e.internetExposed
+                            ? 'Inbound traffic seen on this endpoint'
+                            : 'No inbound traffic seen'}>
+                      {e.internetExposed ? 'Observed' : 'None'}
                     </span>
                   </td>
                   <td className="px-5 py-3">
@@ -269,7 +352,9 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
               ))}
               {rows.length === 0 && (
                 <tr><td colSpan={9} className="px-5 py-12 text-center text-gray-400">
-                  No API endpoints discovered for the selected account.</td></tr>
+                  {isFiltering(filters)
+                    ? 'No endpoints match these filters.'
+                    : 'No API endpoints discovered for the selected account.'}</td></tr>
               )}
             </tbody>
           </table>
@@ -280,6 +365,79 @@ const ApiSecurityTab: React.FC<Props> = ({ data, isLoading }) => {
       {selected && (
         <ApiEndpointDrawer endpoint={selected} onClose={() => setSelected(null)} />
       )}
+    </div>
+  );
+};
+
+/**
+ * Filter row for the endpoint table.
+ *
+ * The method list is passed in from the data rather than hardcoded from METHOD_COLOR, so the
+ * dropdown only ever offers methods this account actually serves instead of seven options where
+ * four return nothing.
+ */
+const EndpointFilterBar: React.FC<{
+  filters: EndpointFilters;
+  onChange: (f: EndpointFilters) => void;
+  methods: string[];
+}> = ({ filters, onChange, methods }) => {
+  const set = <K extends keyof EndpointFilters>(key: K, value: EndpointFilters[K]) =>
+    onChange({ ...filters, [key]: value });
+
+  const selectClass = 'rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs '
+    + 'text-gray-700 focus:border-gray-400 focus:outline-none';
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 bg-gray-50/60 px-5 py-3">
+      <div className="relative min-w-[220px] flex-1">
+        <Icon icon="mdi:magnify" width={15}
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input
+          type="search"
+          value={filters.q}
+          onChange={(e) => set('q', e.target.value)}
+          placeholder="Search path, host, resource id or status code"
+          aria-label="Search endpoints"
+          className="w-full rounded-lg border border-gray-200 bg-white py-1.5 pl-8 pr-2.5 text-xs
+                     text-gray-700 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"
+        />
+      </div>
+
+      <select value={filters.method} onChange={(e) => set('method', e.target.value)}
+              aria-label="Filter by HTTP method" className={selectClass}>
+        <option value="">All methods</option>
+        {methods.map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
+
+      <select value={filters.auth}
+              onChange={(e) => set('auth', e.target.value as EndpointFilters['auth'])}
+              aria-label="Filter by authentication state" className={selectClass}>
+        <option value="">Any auth state</option>
+        <option value="AUTHENTICATED">Authenticated</option>
+        <option value="UNAUTHENTICATED">Unauthenticated</option>
+        <option value="UNCLASSIFIED">Unclassified</option>
+      </select>
+
+      {/* Named for what the field means. See the tab docstring: this is a last-seen traffic
+          timestamp, not an internet-facing determination. */}
+      <select value={filters.ingress}
+              onChange={(e) => set('ingress', e.target.value as EndpointFilters['ingress'])}
+              aria-label="Filter by observed ingress" className={selectClass}>
+        <option value="">Any ingress</option>
+        <option value="yes">Traffic observed</option>
+        <option value="no">No traffic observed</option>
+      </select>
+
+      <button type="button" onClick={() => set('sensitive', !filters.sensitive)}
+              aria-pressed={filters.sensitive}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs
+                          font-semibold transition-colors ${
+                filters.sensitive
+                  ? 'border-purple-300 bg-purple-100 text-purple-700'
+                  : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}>
+        <Icon icon="mdi:shield-account-outline" width={13} />
+        Sensitive data
+      </button>
     </div>
   );
 };
