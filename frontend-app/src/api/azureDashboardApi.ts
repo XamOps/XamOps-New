@@ -56,7 +56,13 @@ export const fetchAzureDashboardData = async (
         staticWebApps: 0,
       },
       regionStatus: rawData.regionStatus || [],
-      costHistory: rawData.costHistory || { labels: [], costs: [], anomalies: [] },
+      // `forecast` replaced the misnamed `anomalies` key. Both are read so a payload already in the
+      // backend's DB snapshot cache, written before the rename, still charts its forecast point.
+      costHistory: {
+        labels: rawData.costHistory?.labels || [],
+        costs: rawData.costHistory?.costs || [],
+        forecast: rawData.costHistory?.forecast || rawData.costHistory?.anomalies || [],
+      },
       costByRegion: rawData.costByRegion || {},
       optimization: {
         summary: rawData.optimizationSummary || {
@@ -79,6 +85,13 @@ export const fetchAzureDashboardData = async (
       costAnomalies: rawData.costAnomalies || [],
       lastUpdated: new Date().toISOString(),
       cacheStatus: 'fresh',
+
+      // Carried through deliberately. This transform builds an explicit object, so anything not
+      // named here is dropped — which is why the backend's incomplete-data flags never reached
+      // the page and a subscription with no cost export showed a confident $0.00.
+      // Defaults to complete so an older cached payload without the fields is not flagged.
+      dataComplete: rawData.dataComplete !== false,
+      dataWarnings: rawData.dataWarnings || [],
     };
 
     console.log('🔷 Transformed Azure dashboard data:', transformedData);

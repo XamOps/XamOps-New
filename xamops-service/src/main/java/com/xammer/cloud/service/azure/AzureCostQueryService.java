@@ -183,6 +183,19 @@ public class AzureCostQueryService {
         public Map<String, Double> currentMonthCostByService = new HashMap<>();
         public Map<String, Double> currentMonthCostByRegion = new HashMap<>();
         public Map<String, Map<String, Double>> costByServiceByDate = new HashMap<>();
+
+        /**
+         * Daily cost per service: service name -&gt; ISO date -&gt; cost.
+         *
+         * <p>
+         * The Cost Management query already runs at {@code Daily} granularity, but every consumer
+         * collapsed the result into {@code MMM yyyy} buckets and the day was discarded. Anomaly
+         * detection needs the daily series: a service that spends its usual month in three days is
+         * invisible in a monthly total, and that is exactly the shape of a runaway resource. Keyed
+         * by ISO date string rather than {@link java.time.LocalDate} so it round-trips through the
+         * JSON cache without a key deserializer.
+         */
+        public Map<String, Map<String, Double>> costByServiceByDay = new HashMap<>();
     }
 
     /**
@@ -311,6 +324,12 @@ public class AzureCostQueryService {
                     data.costByServiceByDate
                             .computeIfAbsent(service, k -> new HashMap<>())
                             .merge(monthYear, cost, Double::sum);
+
+                    // Keep the daily grain too. The query is already daily; collapsing it to months
+                    // here was throwing away the only series a spike can be seen in.
+                    data.costByServiceByDay
+                            .computeIfAbsent(service, k -> new HashMap<>())
+                            .merge(date.toString(), cost, Double::sum);
 
                     // Track current month costs per service and region for Billing Details
                     String currentMonthLabel = LocalDate.now()

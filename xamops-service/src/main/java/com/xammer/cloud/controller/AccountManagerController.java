@@ -570,9 +570,21 @@ public class AccountManagerController {
             } catch (Exception e) {
                 logger.error("Azure account {} saved/updated, but cost export setup failed: {}", savedAccount.getId(),
                         e.getMessage());
-                // Return the saved account anyway so the connection succeeds even if billing
-                // setup fails
-                return ResponseEntity.ok(savedAccount);
+                // The account is still saved on purpose — a bad billing parameter should not cost the
+                // customer their credentials. But the connection was reported as a plain success, and
+                // without a cost export no spend data ever arrives, so every cost figure for this
+                // subscription then reads 0.00 and looks like a subscription that spent nothing.
+                //
+                // Signalled with response headers rather than by changing the body: the sole consumer
+                // reads the CloudAccount shape, and headers are purely additive so no unknown consumer
+                // can break on them.
+                return ResponseEntity.ok()
+                        .header("X-XamOps-Warning", "cost-export-setup-failed")
+                        .header("X-XamOps-Warning-Detail",
+                                "The Azure account is connected, but the cost export could not be created, "
+                                        + "so spend data will not be available. Re-run the connection with a "
+                                        + "valid billing resource group and storage account.")
+                        .body(savedAccount);
             }
 
         } catch (Exception e) {

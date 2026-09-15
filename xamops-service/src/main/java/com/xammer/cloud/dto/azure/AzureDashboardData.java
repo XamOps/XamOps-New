@@ -18,7 +18,19 @@ public class AzureDashboardData {
     private CostHistory costHistory;
     private DashboardData.OptimizationSummary optimizationSummary;
     private List<RegionStatus> regionStatus;
-    private List<CostAnomaly> costAnomalies;
+
+    /**
+     * Detected cost anomalies.
+     *
+     * <p>
+     * Typed as the shared {@link DashboardData.CostAnomaly} so an Azure anomaly carries the same
+     * fields as an AWS or GCP one. This used to be a local {@code AzureDashboardData.CostAnomaly}
+     * that declared <strong>no fields at all</strong> — an empty placeholder class. That is why
+     * Azure could never report an anomaly regardless of detection: the payload had nowhere to put
+     * one, and {@code AzureDashboardService} filled the list with {@code Collections.emptyList()},
+     * which renders identically to a subscription that was checked and found clean.
+     */
+    private List<DashboardData.CostAnomaly> costAnomalies;
 
     // Cost by region map (populated from Redis cache)
     private Map<String, Double> costByRegion = new HashMap<>();
@@ -35,6 +47,39 @@ public class AzureDashboardData {
 
     // Hints/IAM
     private DashboardData.IamDetail iamDetails;
+
+    /**
+     * Defender secure score as a percentage, or {@code 0} when it is not known.
+     *
+     * <p>
+     * This field exists because the unified dashboard previously hardcoded a security score of
+     * 100 for every Azure subscription — there was nothing on this DTO to map from, so
+     * {@code mapAzureDataToDashboardData} invented a perfect score. Defender was computing a real
+     * one the whole time; it simply never reached the dashboard.
+     *
+     * <p>
+     * Zero means "not known", not "zero posture". Defender reports points earned against a
+     * maximum it scales to the controls in scope, so this is stored as a percentage of that
+     * maximum rather than raw points. It is left at zero whenever Defender was unreachable, the
+     * service principal lacks the Security Reader role, or the subscription has no Defender data
+     * — all cases where any number would be a guess. The dashboard already treats a falsy score
+     * as "N/A" and excludes it from the cross-provider average, so zero degrades correctly
+     * without a nullable type.
+     */
+    private int securityScore;
+
+    /** Unhealthy Defender assessments, grouped by category and severity. */
+    private List<DashboardData.SecurityInsight> securityInsights = new java.util.ArrayList<>();
+
+    /**
+     * Why {@link #securityScore} is unavailable, or null when it is available.
+     *
+     * <p>
+     * Carried so the reason travels with the data. "Security Reader is not assigned" and "this
+     * subscription has no Defender data" are different problems with different fixes, and a bare
+     * absent score cannot tell them apart.
+     */
+    private String securityScoreUnavailableReason;
 
     // Cache metadata - shows when data was last refreshed
     private String lastUpdated;
@@ -60,8 +105,17 @@ public class AzureDashboardData {
     public java.util.List<String> getDataWarnings() { return dataWarnings; }
     public void setDataWarnings(java.util.List<String> dataWarnings) { this.dataWarnings = dataWarnings; }
 
-    /** Records a reason this payload is incomplete. */
-    public void addDataWarning(String warning) {
+    /**
+     * Records a reason this payload is incomplete.
+     *
+     * <p>
+     * Synchronized because {@code AzureDashboardService} builds the payload from six parallel futures
+     * and several of them can add a warning. Concurrent {@code ArrayList.add} can drop an element or
+     * leave a null hole, and the frontend banner is gated on {@code dataWarnings.length} — so a lost
+     * warning silences the explanation for a zero that is still on screen, which is the exact failure
+     * this field exists to prevent.
+     */
+    public synchronized void addDataWarning(String warning) {
         this.dataComplete = false;
         if (this.dataWarnings == null) {
             this.dataWarnings = new java.util.ArrayList<>();
@@ -125,11 +179,11 @@ public class AzureDashboardData {
         this.regionStatus = regionStatus;
     }
 
-    public List<CostAnomaly> getCostAnomalies() {
+    public List<DashboardData.CostAnomaly> getCostAnomalies() {
         return costAnomalies;
     }
 
-    public void setCostAnomalies(List<CostAnomaly> costAnomalies) {
+    public void setCostAnomalies(List<DashboardData.CostAnomaly> costAnomalies) {
         this.costAnomalies = costAnomalies;
     }
 
@@ -196,6 +250,30 @@ public class AzureDashboardData {
 
     public void setIamDetails(DashboardData.IamDetail iamDetails) {
         this.iamDetails = iamDetails;
+    }
+
+    public int getSecurityScore() {
+        return securityScore;
+    }
+
+    public void setSecurityScore(int securityScore) {
+        this.securityScore = securityScore;
+    }
+
+    public List<DashboardData.SecurityInsight> getSecurityInsights() {
+        return securityInsights;
+    }
+
+    public void setSecurityInsights(List<DashboardData.SecurityInsight> securityInsights) {
+        this.securityInsights = securityInsights != null ? securityInsights : new java.util.ArrayList<>();
+    }
+
+    public String getSecurityScoreUnavailableReason() {
+        return securityScoreUnavailableReason;
+    }
+
+    public void setSecurityScoreUnavailableReason(String securityScoreUnavailableReason) {
+        this.securityScoreUnavailableReason = securityScoreUnavailableReason;
     }
 
     public String getLastUpdated() {
@@ -362,7 +440,25 @@ public class AzureDashboardData {
     public static class CostHistory {
         private List<String> labels;
         private List<Double> costs;
-        private List<Boolean> anomalies;
+
+        /**
+         * Per-point flag marking a label as a <strong>forecast</strong> rather than actual spend.
+         *
+         * <p>
+         * This was named {@code anomalies}, which it never was. The ingestion job sets it true for
+         * the {@code "MMM yyyy (Forecast)"} point it projects, and every reader treats it that way:
+         * {@code AzureFinOpsService} sums the costs where it is true to produce forecast spend, and
+         * filters them out to compute month-over-month change. Nothing anywhere read it as an
+         * anomaly signal — real anomalies live in {@link AzureDashboardData#getCostAnomalies()} — but
+         * the name meant a reader could reasonably conclude Azure had anomaly detection when it had
+         * none.
+         *
+         * <p>
+         * {@code getAnomalies()}/{@code setAnomalies()} remain as deprecated delegates onto this same
+         * list so existing callers keep working, and {@code @JsonAlias} lets already-cached snapshots
+         * written under the old key deserialize without a forced re-ingestion.
+         */
+        private List<Boolean> forecast;
 
         public List<String> getLabels() {
             return labels;
@@ -380,12 +476,35 @@ public class AzureDashboardData {
             this.costs = costs;
         }
 
-        public List<Boolean> getAnomalies() {
-            return anomalies;
+        @com.fasterxml.jackson.annotation.JsonProperty("forecast")
+        public List<Boolean> getForecast() {
+            return forecast;
         }
 
+        @com.fasterxml.jackson.annotation.JsonProperty("forecast")
+        @com.fasterxml.jackson.annotation.JsonAlias("anomalies")
+        public void setForecast(List<Boolean> forecast) {
+            this.forecast = forecast;
+        }
+
+        /**
+         * @deprecated misnamed; this list marks forecast points, not anomalies.
+         *             Use {@link #getForecast()}. Real cost anomalies are on
+         *             {@link AzureDashboardData#getCostAnomalies()}.
+         */
+        @Deprecated
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        public List<Boolean> getAnomalies() {
+            return forecast;
+        }
+
+        /**
+         * @deprecated misnamed; use {@link #setForecast(List)}.
+         */
+        @Deprecated
+        @com.fasterxml.jackson.annotation.JsonIgnore
         public void setAnomalies(List<Boolean> anomalies) {
-            this.anomalies = anomalies;
+            this.forecast = anomalies;
         }
     }
 
@@ -439,12 +558,6 @@ public class AzureDashboardData {
         public void setStatus(String status) {
             this.status = status;
         }
-    }
-
-    /**
-     * Represents a single cost anomaly.
-     */
-    public static class CostAnomaly {
     }
 
     /**

@@ -54,11 +54,24 @@ public class AzureBillingDataIngestionService {
     public static final String AZURE_COST_BY_REGION_CACHE_PREFIX = "azure:cost-by-region:";
     public static final String AZURE_SERVICE_MONTHLY_CACHE_PREFIX = "azure:service-monthly:";
 
+    /**
+     * Daily cost per service: {@code service -> ISO date -> cost}.
+     *
+     * <p>
+     * Both ingestion paths already read daily rows — the export is created with
+     * {@code GranularityType.DAILY} and the REST query asks for {@code "granularity":"Daily"} — but
+     * every consumer folded them into {@code MMM yyyy} buckets before anything was stored. Without
+     * the daily series there is no way to detect a cost spike, which is why Azure had no anomaly
+     * detection while AWS and GCP both did.
+     */
+    public static final String AZURE_DAILY_SERVICE_COST_CACHE_PREFIX = "azure:daily-service-cost:";
+
     // DB snapshot key prefixes (uppercase convention used across all Azure services)
     private static final String AZURE_COST_BILLING_SUMMARY_DB_PREFIX = "AZURE_COST_BILLING_SUMMARY::";
     private static final String AZURE_COST_HISTORY_DB_PREFIX       = "AZURE_COST_HISTORY::";
     private static final String AZURE_COST_BY_REGION_DB_PREFIX     = "AZURE_COST_BY_REGION::";
     private static final String AZURE_SERVICE_MONTHLY_DB_PREFIX    = "AZURE_COST_SERVICE_MONTHLY::";
+    public static final String AZURE_DAILY_SERVICE_COST_DB_PREFIX  = "AZURE_COST_DAILY_SERVICE::";
 
     public AzureBillingDataIngestionService(CloudAccountRepository cloudAccountRepository,
             AzureClientProvider clientProvider,
@@ -136,7 +149,8 @@ public class AzureBillingDataIngestionService {
                 ? data.costByService : data.currentMonthCostByService;
         Map<String, Double> regionMapForBilling = data.currentMonthCostByRegion.isEmpty()
                 ? data.costByRegion : data.currentMonthCostByRegion;
-        processAndCacheData(subscriptionId, serviceMapForBilling, data.costByDate, regionMapForBilling, new HashMap<>(), data.costByServiceByDate);
+        processAndCacheData(subscriptionId, serviceMapForBilling, data.costByDate, regionMapForBilling,
+                new HashMap<>(), data.costByServiceByDate, data.costByServiceByDay);
     }
 
     private void ingestDataViaBlob(CloudAccount account) {
@@ -213,6 +227,7 @@ public class AzureBillingDataIngestionService {
             Map<String, Double> currentMonthCostByService = new HashMap<>();
             Map<String, Double> currentMonthCostByRegion = new HashMap<>();
             Map<String, Map<String, Double>> costByServiceByDate = new HashMap<>();
+            Map<String, Map<String, Double>> costByServiceByDay = new HashMap<>();
 
             DateTimeFormatter azureDateFormatter = DateTimeFormatter.ofPattern("MM/dd/yyyy");
             LocalDate today = LocalDate.now();
@@ -289,6 +304,15 @@ public class AzureBillingDataIngestionService {
                             .computeIfAbsent(service, k -> new HashMap<>())
                             .merge(monthYear, cost, Double::sum);
 
+                    // Daily grain, for anomaly detection. Forecast rows are excluded on purpose: a
+                    // projected day is not an observation, and letting one into the series would
+                    // raise alerts about spend that has not happened.
+                    if (!isForecast) {
+                        costByServiceByDay
+                                .computeIfAbsent(service, k -> new HashMap<>())
+                                .merge(date.toString(), cost, Double::sum);
+                    }
+
                     if (!isForecast && monthYear.equals(currentMonthKey)) {
                         currentMonthCostByService.put(service,
                             currentMonthCostByService.getOrDefault(service, 0.0) + cost);
@@ -314,7 +338,8 @@ public class AzureBillingDataIngestionService {
                     ? costByService : currentMonthCostByService;
             Map<String, Double> regionMapForBilling = currentMonthCostByRegion.isEmpty()
                     ? costByRegion : currentMonthCostByRegion;
-            processAndCacheData(subscriptionId, serviceMapForBilling, costByDate, regionMapForBilling, forecastByDate, costByServiceByDate);
+            processAndCacheData(subscriptionId, serviceMapForBilling, costByDate, regionMapForBilling,
+                    forecastByDate, costByServiceByDate, costByServiceByDay);
 
         } catch (Exception e) {
             log.error("Failed to ingest cost data via Blob for Azure account {}: {}. Falling back to Cost Management API.",
@@ -328,7 +353,8 @@ public class AzureBillingDataIngestionService {
             Map<String, Double> costByDate,
             Map<String, Double> costByRegion,
             Map<String, Double> forecastByDate,
-            Map<String, Map<String, Double>> costByServiceByDate) {
+            Map<String, Map<String, Double>> costByServiceByDate,
+            Map<String, Map<String, Double>> costByServiceByDay) {
 
         // Handle forecast calculation if missing (same logic as before)
         if (forecastByDate.isEmpty() && !costByDate.isEmpty()) {
@@ -385,7 +411,7 @@ public class AzureBillingDataIngestionService {
         }));
 
         List<Double> costs = new ArrayList<>();
-        List<Boolean> anomalies = new ArrayList<>();
+        List<Boolean> forecastFlags = new ArrayList<>();
 
         for (String monthYear : labels) {
             if (monthYear.contains("(Forecast)")) {
@@ -397,21 +423,21 @@ public class AzureBillingDataIngestionService {
                 } else {
                     costs.add(0.0);
                 }
-                anomalies.add(true);
+                forecastFlags.add(true);
             } else {
                 if (forecastByDate.containsKey(monthYear)) {
                     costs.add(forecastByDate.get(monthYear));
-                    anomalies.add(true);
+                    forecastFlags.add(true);
                 } else {
                     costs.add(costByDate.getOrDefault(monthYear, 0.0));
-                    anomalies.add(false);
+                    forecastFlags.add(false);
                 }
             }
         }
 
         costHistory.setLabels(labels);
         costHistory.setCosts(costs);
-        costHistory.setAnomalies(anomalies);
+        costHistory.setForecast(forecastFlags);
 
         String historyCacheKey = AZURE_COST_HISTORY_CACHE_PREFIX + subscriptionId;
         redisCache.put(historyCacheKey, costHistory, 60 * 24);
@@ -423,5 +449,40 @@ public class AzureBillingDataIngestionService {
         redisCache.put(serviceMonthlyKey, costByServiceByDate, 60 * 24);
         saveToDb(AZURE_SERVICE_MONTHLY_DB_PREFIX + subscriptionId, costByServiceByDate);
         log.info("✅ Cached service monthly breakdown for {}: {} services", subscriptionId, costByServiceByDate.size());
+
+        // 5. Cache the daily per-service series that anomaly detection reads.
+        cacheDailyServiceCosts(subscriptionId, costByServiceByDay);
+    }
+
+    /**
+     * Stores the daily per-service cost series.
+     *
+     * <p>
+     * Written even when empty is avoided deliberately: overwriting a good series with an empty one
+     * because a single ingestion run produced no daily rows would silently disable anomaly detection
+     * until the next successful run. The blob path in particular reads only the most recent export
+     * file, which for a month-to-date export covers just the current month — so early in a month
+     * there may be too few days to say anything, and the detector reports that rather than
+     * overwriting what it already had.
+     */
+    private void cacheDailyServiceCosts(String subscriptionId,
+            Map<String, Map<String, Double>> costByServiceByDay) {
+
+        if (costByServiceByDay == null || costByServiceByDay.isEmpty()) {
+            log.warn("No daily per-service cost rows for {} — leaving the previous daily series in "
+                    + "place so anomaly detection is not blanked by one thin ingestion run",
+                    subscriptionId);
+            return;
+        }
+
+        int days = costByServiceByDay.values().stream()
+                .flatMap(byDay -> byDay.keySet().stream())
+                .collect(Collectors.toSet())
+                .size();
+
+        redisCache.put(AZURE_DAILY_SERVICE_COST_CACHE_PREFIX + subscriptionId, costByServiceByDay, 60 * 24);
+        saveToDb(AZURE_DAILY_SERVICE_COST_DB_PREFIX + subscriptionId, costByServiceByDay);
+        log.info("✅ Cached daily per-service costs for {}: {} services across {} days",
+                subscriptionId, costByServiceByDay.size(), days);
     }
 }

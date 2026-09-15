@@ -14,6 +14,7 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useAzureCostData } from '../hooks/useAzureCostData';
 import { useAzureBudgetData } from '../hooks/useAzureBudgetData';
@@ -70,6 +71,7 @@ const AzureCostPage: React.FC = () => {
   const {
     budgets,
     isLoading: budgetsLoading,
+    error: budgetsError,
     createBudget,
     deleteBudget,
   } = useAzureBudgetData({ selectedAccountId });
@@ -90,11 +92,15 @@ const AzureCostPage: React.FC = () => {
     }
     setIsBudgetCreating(true);
     try {
-      await createBudget(budget);
+      const created = await createBudget(budget);
       setIsBudgetModalOpen(false);
-      setToastMessage('Budget created successfully!');
+      // "Budget created successfully" was the whole message even when the budget could not alert
+      // anyone, which is the property that makes a budget useful. Azure needs a contact address on a
+      // subscription-scoped notification and this form does not collect one, so say so.
+      const warning = (created as { warning?: string } | undefined)?.warning;
+      setToastMessage(warning ?? 'Budget created successfully!');
       setShowSuccessToast(true);
-      setTimeout(() => setShowSuccessToast(false), 4000);
+      setTimeout(() => setShowSuccessToast(false), warning ? 9000 : 4000);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to create budget');
     } finally {
@@ -153,6 +159,17 @@ const AzureCostPage: React.FC = () => {
             <RevealSection>
               {budgetsLoading ? (
                 <div className="animate-pulse bg-[rgba(0,0,0,0.04)] h-[400px] w-full rounded-xl" />
+              ) : budgetsError ? (
+                /* "Could not read budgets" is not "no budgets exist". The dashboard below invites the
+                   user to create one, which is the wrong next step when the real problem is a missing
+                   'Cost Management Reader' assignment or a subscription offer Azure does not serve. */
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 flex items-start gap-3">
+                  <Icon icon="mdi:alert-outline" width={20} color="#B45309" className="flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-[14px] font-semibold text-amber-800 mb-0.5">Budgets Unavailable</p>
+                    <p className="text-[13px] text-amber-800">{budgetsError}</p>
+                  </div>
+                </div>
               ) : (
                 <CostBudgetDashboard
                   budgets={budgets}

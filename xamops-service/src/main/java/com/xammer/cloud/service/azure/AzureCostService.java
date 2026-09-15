@@ -87,9 +87,42 @@ public class AzureCostService {
                 logger.warn("DB snapshot load failed for Azure MTD cost {}: {}", subscriptionId, e.getMessage());
             }
 
-            logger.warn("❌ No Azure MTD cost data found for {} in Redis or DB.", subscriptionId);
+            // Zero here is a fallback, not a measurement, and this method's return type cannot
+            // express "unknown". Callers that can represent the difference should ask
+            // isCostReportingConfigured first; the log says which case this is so a $0.00
+            // dashboard can be diagnosed without guessing.
+            logger.warn("❌ No Azure MTD cost data found for {} in Redis or DB — returning 0.0 as a "
+                    + "fallback. Cost reporting configured for this subscription: {}",
+                    subscriptionId, isCostReportingConfigured(subscriptionId));
             return 0.0;
         });
+    }
+
+    /**
+     * Whether this subscription has an Azure cost export wired up at all.
+     *
+     * <p>
+     * Onboarding deliberately saves the account even when {@code setupCostExports} fails, so that
+     * a bad billing parameter does not cost the customer their credentials. The consequence is
+     * that a subscription can be fully "connected" with no billing source, and every cost figure
+     * then reads {@code 0.00} — indistinguishable from a subscription that genuinely spent
+     * nothing. The billing container is only recorded once the export exists, so its absence is
+     * the signal that no spend will ever arrive.
+     *
+     * <p>
+     * Exposed so callers that <em>can</em> represent an unknown — the dashboard payload, with its
+     * data warnings — say "not configured" instead of showing a confident zero.
+     */
+    public boolean isCostReportingConfigured(String subscriptionId) {
+        try {
+            return cloudAccountRepository.findByAzureSubscriptionId(subscriptionId)
+                    .map(a -> a.getAzureBillingContainer() != null && !a.getAzureBillingContainer().isBlank())
+                    .orElse(false);
+        } catch (Exception e) {
+            logger.debug("Could not determine cost-export configuration for {}: {}",
+                    subscriptionId, e.getMessage());
+            return false;
+        }
     }
 
     /**

@@ -18,7 +18,31 @@ export interface GcpDisk {
   status: string;
   attached: boolean;
   instanceName?: string;
-  monthlyCost: number;
+  /** Whether this is a regional (dual-zone replicated) disk, which is a dearer SKU. */
+  regional?: boolean;
+  /**
+   * USD per month, or null when the Cloud Billing Catalog could not price this disk.
+   *
+   * <p>Nullable deliberately. Disk costs used to come from a four-entry table of us-central1 rates
+   * with a silent default, so every disk in every region got a number that looked authoritative.
+   * Rates now come from the real catalogue, and when it cannot price a disk this is null rather
+   * than 0 — a zero would render the disk as free, making it the least interesting row on a page
+   * about wasted spend.
+   */
+  monthlyCost: number | null;
+  /** USD per GiB-month behind monthlyCost, when known. */
+  costPerGibMonth?: number | null;
+  /** Why monthlyCost is null. */
+  costUnavailableReason?: string | null;
+  /**
+   * True when monthlyCost covers capacity only.
+   *
+   * Extreme and Hyperdisk types bill provisioned IOPS and throughput on separate meters, which the
+   * capacity rate does not include — so the figure is a floor, not the whole charge.
+   */
+  costIsCapacityOnly?: boolean;
+  /** Explains costIsCapacityOnly. */
+  costNote?: string | null;
   usedPercent?: number;
   usedGb?: number;
   freeGb?: number;
@@ -27,6 +51,12 @@ export interface GcpDisk {
   recommendationReason?: string;
   recommendedSizeGb: number;
   estimatedSavings: number;
+  /** True when the recommendation stands but its saving could not be priced. */
+  savingsUnknown?: boolean;
+  /** False when the recommendation cannot be applied in place (GCP cannot shrink a disk). */
+  actionable?: boolean;
+  requiresMigration?: boolean;
+  estimatedMonthlyCostIncrease?: number;
 }
 
 export interface GcpDiskAction {

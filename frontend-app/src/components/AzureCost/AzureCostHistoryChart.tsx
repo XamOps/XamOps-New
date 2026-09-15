@@ -21,11 +21,16 @@ const AzureCostHistoryChart: React.FC<AzureCostHistoryChartProps> = ({ costHisto
     if (!canvasRef.current || !costHistory?.labels?.length || !window.Chart) return;
     if (chartRef.current) chartRef.current.destroy();
 
-    const backgroundColors = costHistory.anomalies.map(isAnomaly =>
-      isAnomaly ? 'rgba(239,68,68,0.8)' : 'rgba(139,92,246,0.8)'
+    // The flag marks a projected month, not an anomaly. This chart used to paint those bars red and
+    // caption them "⚠ Anomaly detected", so the projected month-end total was reported to the
+    // customer as a detected cost problem every single month. Forecast bars are now drawn muted, and
+    // real anomalies are the separate costAnomalies list.
+    const forecastFlags: boolean[] = costHistory.forecast ?? [];
+    const backgroundColors = costHistory.labels.map((_, i) =>
+      forecastFlags[i] ? 'rgba(139,92,246,0.35)' : 'rgba(139,92,246,0.8)'
     );
-    const borderColors = costHistory.anomalies.map(isAnomaly =>
-      isAnomaly ? 'rgba(220,38,38,1)' : 'rgba(109,40,217,1)'
+    const borderColors = costHistory.labels.map((_, i) =>
+      forecastFlags[i] ? 'rgba(109,40,217,0.5)' : 'rgba(109,40,217,1)'
     );
 
     chartRef.current = new window.Chart(canvasRef.current, {
@@ -57,7 +62,7 @@ const AzureCostHistoryChart: React.FC<AzureCostHistoryChartProps> = ({ costHisto
             padding: 10,
             callbacks: {
               label: (c: any) => `Cost: ${formatCurrency(c.parsed.y)}`,
-              afterLabel: (c: any) => costHistory.anomalies[c.dataIndex] ? '⚠ Anomaly detected' : '',
+              afterLabel: (c: any) => forecastFlags[c.dataIndex] ? 'Projected — not yet billed' : '',
             },
           },
         },
@@ -86,16 +91,18 @@ const AzureCostHistoryChart: React.FC<AzureCostHistoryChartProps> = ({ costHisto
             <i className="fas fa-chart-bar mr-2 text-violet-500"></i>
             Cost History
           </h2>
-          <p className="text-[11px] text-[rgba(0,0,0,0.4)]">6-month trend with anomaly detection</p>
+          <p className="text-[11px] text-[rgba(0,0,0,0.4)]">6-month trend with month-end projection</p>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: 'rgba(139,92,246,0.8)' }}></span>
             <span className="text-[11px] font-medium text-[rgba(0,0,0,0.45)]">Actual</span>
           </div>
+          {/* Was a red "Anomaly" key. The flag it keyed off marks the projected month, so this
+              legend told the customer their forecast was an anomaly. */}
           <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: 'rgba(239,68,68,0.8)' }}></span>
-            <span className="text-[11px] font-medium text-[rgba(0,0,0,0.45)]">Anomaly</span>
+            <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: 'rgba(139,92,246,0.35)' }}></span>
+            <span className="text-[11px] font-medium text-[rgba(0,0,0,0.45)]">Forecast</span>
           </div>
         </div>
       </div>

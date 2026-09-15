@@ -19,12 +19,14 @@ interface AzureBudgetModalProps {
 const AzureBudgetModal: React.FC<AzureBudgetModalProps> = ({ isOpen, isCreating, onClose, onSubmit }) => {
   const [budgetName, setBudgetName] = useState('');
   const [budgetLimit, setBudgetLimit] = useState<string>('');
+  const [alertEmails, setAlertEmails] = useState('');
 
   // Reset form when modal opens
   useEffect(() => {
     if (isOpen) {
       setBudgetName('');
       setBudgetLimit('');
+      setAlertEmails('');
     }
   }, [isOpen]);
 
@@ -34,6 +36,10 @@ const AzureBudgetModal: React.FC<AzureBudgetModalProps> = ({ isOpen, isCreating,
       budgetName,
       budgetLimit: parseFloat(budgetLimit),
       budgetUnit: 'USD',
+      contactEmails: alertEmails
+        .split(/[,;\s]+/)
+        .map((e2) => e2.trim())
+        .filter(Boolean),
     });
   };
 
@@ -107,8 +113,28 @@ const AzureBudgetModal: React.FC<AzureBudgetModalProps> = ({ isOpen, isCreating,
               />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Alert Thresholds</label>
-              <p className="text-xs text-gray-500 mb-2">Default alerts at 50%, 80%, 90%, and 100%</p>
+              <label htmlFor="azureBudgetEmails" className="block text-sm font-semibold text-gray-700 mb-2">
+                Alert Email <span className="font-normal text-gray-400">(optional)</span>
+              </label>
+              <input
+                type="text"
+                id="azureBudgetEmails"
+                value={alertEmails}
+                onChange={(e) => setAlertEmails(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+                placeholder="finops@example.com, cto@example.com"
+              />
+              {/*
+                This panel previously promised "Default alerts at 50%, 80%, 90%, and 100%" while the
+                backend set no notifications at all, so every budget created here tracked spend and
+                alerted nobody. Azure requires a contact address on a subscription-scoped budget
+                notification, so the promise is now conditional on one being given.
+              */}
+              <p className="text-xs text-gray-500 mt-2">
+                {alertEmails.trim()
+                  ? 'Azure will email these addresses at 80% and 100% of the limit.'
+                  : 'Without an address the budget tracks spend but cannot send alerts \u2014 Azure requires a contact on a subscription budget notification.'}
+              </p>
             </div>
           </div>
         </form>

@@ -133,7 +133,13 @@ export const AzureReservationsPage: React.FC = () => {
 
             {activeTab === 'recommendations' && (
               <div className="fade-in">
-                <AzureReservationRecommendations recommendations={data.recommendations} />
+                <AzureReservationRecommendations
+                  recommendations={data.recommendations}
+                  unavailableReason={data.recommendationsUnavailableReason}
+                  totalMonthlySavings={data.totalMonthlySavings}
+                  indicativeRecommendationCount={data.indicativeRecommendationCount}
+                  savingsUnavailableReason={data.savingsUnavailableReason}
+                />
               </div>
             )}
           </>

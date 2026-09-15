@@ -80,21 +80,32 @@ public class GcpBudgetService {
 
         List<GcpBudgetDto> allBudgets = new ArrayList<>();
 
-        // Always include mock/local budgets from Redis
+        // Locally-stored budgets are NOT merged into real results any more.
+        //
+        // They used to be, unconditionally — "always include mock/local budgets from Redis". A
+        // locally-stored budget is one this service invented when the real Budgets API call failed:
+        // it never evaluates spend and never alerts anyone, but it appeared in the list beside real
+        // budgets with nothing to distinguish it. Any left over from that behaviour are reported
+        // once here and then ignored, so the list only ever contains budgets that actually exist in
+        // GCP.
         String mockCacheKey = MOCK_BUDGETS_CACHE_PREFIX + gcpProjectId;
-        Optional<List<GcpBudgetDto>> mockBudgets = redisCacheService.get(mockCacheKey,
+        Optional<List<GcpBudgetDto>> strandedLocal = redisCacheService.get(mockCacheKey,
                 new TypeReference<List<GcpBudgetDto>>() {
                 });
-        if (mockBudgets.isPresent()) {
-            allBudgets.addAll(mockBudgets.get());
-            log.info("Found {} local budgets for project {}", mockBudgets.get().size(), gcpProjectId);
+        if (strandedLocal.isPresent() && !strandedLocal.get().isEmpty() && !useMockData) {
+            log.warn("Ignoring {} locally-stored budget(s) for project {} — these were never created in "
+                    + "GCP and cannot alert. Recreate them once the service account has budget "
+                    + "permissions.", strandedLocal.get().size(), gcpProjectId);
         }
 
-        // If mock data mode, just return local budgets
+        // Mock mode is a local-development affordance only; the flag defaults to false.
         if (useMockData) {
+            allBudgets.addAll(strandedLocal.orElseGet(java.util.ArrayList::new));
             if (allBudgets.isEmpty()) {
                 allBudgets = getMockBudgets(gcpProjectId);
             }
+            log.warn("gcp.budget.mock is enabled — returning {} SYNTHETIC budgets for project {}",
+                    allBudgets.size(), gcpProjectId);
             redisCacheService.put(cacheKey, allBudgets, 10);
             return allBudgets;
         }
@@ -164,23 +175,27 @@ public class GcpBudgetService {
         if (useMockData) {
             result = createMockBudget(accountId, gcpProjectId, request);
         } else {
-            // Try real GCP API first
+            // Fails loudly rather than falling back to local storage.
+            //
+            // The fallback used to write an invented budget into Redis, send a "budget created"
+            // email and return success. That budget existed only inside XamOps: it never evaluated
+            // spend and never alerted, so the user believed they had a cost guardrail that could not
+            // fire. A clear failure they can act on is strictly better than a silent one they
+            // cannot see.
             try {
                 result = createBudgetViaGcpApi(accountId, gcpProjectId, request, username);
             } catch (Exception e) {
-                log.error("Failed to create budget via GCP API for project {}: {}. Falling back to local storage.",
-                        gcpProjectId, e.getMessage());
+                log.error("Failed to create budget via GCP API for project {}: {}", gcpProjectId,
+                        e.getMessage());
 
-                // Log if it might be a permission issue
-                if (e.getMessage() != null &&
-                        (e.getMessage().contains("PERMISSION_DENIED")
-                                || e.getMessage().contains("does not have permission"))) {
-                    log.info(
-                            "Note: This appears to be a permission issue for project {}. To use real GCP budgets, grant 'Billing Account Administrator' or 'Budget Admin' role.",
-                            gcpProjectId);
-                }
+                boolean permissionProblem = e.getMessage() != null
+                        && (e.getMessage().contains("PERMISSION_DENIED")
+                                || e.getMessage().contains("does not have permission"));
 
-                result = createMockBudget(accountId, gcpProjectId, request);
+                throw new IllegalStateException(permissionProblem
+                        ? "The service account cannot create budgets on this project. Grant 'Billing "
+                                + "Account Administrator' or 'Budget Admin' and try again."
+                        : "GCP rejected the budget: " + e.getMessage(), e);
             }
         }
 

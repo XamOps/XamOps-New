@@ -96,9 +96,12 @@ const AzureDashboard: React.FC = () => {
   }, [resources]);
 
   const azureCostHistory: CostHistory = useMemo(() => ({
-    labels:    dashboardData?.costHistory?.labels    || [],
-    costs:     dashboardData?.costHistory?.costs     || [],
-    anomalies: dashboardData?.costHistory?.anomalies || [],
+    labels:    dashboardData?.costHistory?.labels   || [],
+    costs:     dashboardData?.costHistory?.costs    || [],
+    // The shared CostHistory chart type still calls this `anomalies`; the Azure payload now calls it
+    // `forecast`, which is what it has always meant. Mapping here keeps the misnomer out of the
+    // Azure types without touching the shared AWS/GCP chart contract.
+    anomalies: dashboardData?.costHistory?.forecast || [],
   }), [dashboardData]);
 
   const accountId = selectedAccountIds.length === 1 ? selectedAccountIds[0] : null;
@@ -178,6 +181,27 @@ const AzureDashboard: React.FC = () => {
 
   return (
     <main className="flex-1 px-6 pt-4 pb-6 space-y-5">
+      {/* Incomplete-data banner.
+          The backend has always marked payloads whose sections could not be populated, but
+          nothing rendered it — so a subscription with no cost export configured showed a
+          confident $0.00 spend that read as measured. Placed above the KPI cards because the
+          zeros it explains are the first thing on the page. */}
+      {dashboardData?.dataComplete === false && (dashboardData.dataWarnings?.length ?? 0) > 0 && (
+        <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
+          <Icon icon="mdi:alert-outline" width={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <p className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-1">
+              Some figures are unavailable
+            </p>
+            <ul className="space-y-0.5">
+              {dashboardData.dataWarnings!.map((warning) => (
+                <li key={warning} className="text-sm text-amber-700">{warning}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
       {/* Customize — only as a standalone row when the KPI widget (its usual host) is hidden */}
       {selectedAccountIds.length > 0 && !show('kpi') && (
         <div className="flex items-center justify-end">

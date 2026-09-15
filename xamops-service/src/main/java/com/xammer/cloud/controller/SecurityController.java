@@ -252,22 +252,11 @@ public class SecurityController {
                     "message", "A scan is already in progress for this account."));
         }
 
-        // Core frameworks only — running all 17 simultaneously causes OOM on constrained hosts
-        String[] services = {
-                "s3", "ec2", "iam", "rds", "cloudtrail", "cloudwatch",
-                "kms", "lambda", "vpc", "config", "sns", "sqs",
-                "efs", "elb", "elbv2", "secretsmanager", "guardduty"
-        };
-        String[] complianceFrameworks = {
-                "cis_3.0_aws",
-                "soc2_aws",
-                "pci_3.2.1_aws",
-                "nist_csf_1.1_aws",
-                "aws_foundational_security_best_practices_aws",
-                "iso27001_2013_aws"
-        };
-
-        prowlerService.triggerScanAsync(accountId, ComplianceRegions.AWS, services, complianceFrameworks);
+        // Shared with the weekly scheduler via ProwlerFrameworks so the two paths cannot drift.
+        // Core service groups only — running all 17 simultaneously causes OOM on constrained hosts.
+        prowlerService.triggerScanAsync(accountId, ComplianceRegions.AWS,
+                com.xammer.cloud.service.security.ProwlerFrameworks.AWS_SERVICES,
+                com.xammer.cloud.service.security.ProwlerFrameworks.AWS);
 
         return ResponseEntity.ok(Map.of(
                 "status", "STARTED",

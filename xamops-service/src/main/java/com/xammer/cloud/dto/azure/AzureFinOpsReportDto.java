@@ -17,6 +17,31 @@ public class AzureFinOpsReportDto {
     private List<WasteItem> wasteItems;
     private List<AzureBudgetDto> budgets;
 
+    /**
+     * Detected day-over-day cost spikes per service.
+     *
+     * <p>
+     * The AWS and GCP FinOps reports both carry this; the Azure report had no field for it, so even
+     * once anomalies were detected there was nowhere in the report payload to put them. Uses the
+     * shared {@link com.xammer.cloud.dto.DashboardData.CostAnomaly} so the three providers'
+     * anomaly rows are interchangeable on the client.
+     */
+    private List<com.xammer.cloud.dto.DashboardData.CostAnomaly> costAnomalies;
+
+    /**
+     * Why {@link #costAnomalies} is empty, or null when detection ran normally.
+     *
+     * <p>
+     * An empty anomaly list means either "spend looks normal" or "we never checked", and the UI
+     * renders both as a clean bill of health. Detection legitimately cannot run for the first week of
+     * a month on subscriptions whose billing arrives via the month-to-date blob export, because there
+     * is no seven-day baseline yet — so this is the common case, not an edge one.
+     */
+    private String costAnomaliesUnavailableReason;
+
+    /** Why {@link #budgets} is empty, or null when Azure returned the list normally. */
+    private String budgetsUnavailableReason;
+
     // Inner class for KPIs
     @Data
     @NoArgsConstructor

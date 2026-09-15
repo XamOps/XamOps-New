@@ -31,7 +31,8 @@ interface DashboardHeaderProps {
    */
   curAccountId?: string | null;
   onSaveLayout: () => void;
-  getLink: (path: string) => string;
+  /** Returns null when the feature has no page for the selected provider. */
+  getLink: (path: string) => string | null;
 }
 
 const DashboardHeader: React.FC<DashboardHeaderProps> = ({
@@ -54,6 +55,10 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   const { setActions, clearActions } = useTopbarActions();
   const { theme } = useTheme();
   const dark = theme === 'dark';
+
+  // Resolved once so the link and its trailing separator share a single decision. Null means the
+  // selected provider has no Cloud Map page, in which case neither is rendered.
+  const cloudMapLink = getLink('/cloudmap');
 
   const handleTenantChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const tenantId = e.target.value;
@@ -117,20 +122,26 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           </div>
         )}
 
-        {/* CloudMap */}
-        <Link
-          to={getLink('/cloudmap')}
-          className={`flex items-center gap-1.5 text-[12px] font-medium transition-colors ${
-            selectedAccountIds.length === 0
-              ? dark ? 'text-[rgba(255,255,255,0.2)] pointer-events-none' : 'text-[rgba(0,0,0,0.25)] pointer-events-none'
-              : dark ? 'text-[rgba(255,255,255,0.5)] hover:text-white' : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)]'
-          }`}
-        >
-          <i className="fas fa-map text-[10px]"></i>
-          CloudMap
-        </Link>
+        {/* CloudMap — omitted entirely for providers without one (Azure), rather than linking to
+            the AWS page and querying it with a subscription id. The trailing separator goes with
+            it so the row does not end up with a dangling divider. */}
+        {cloudMapLink && (
+          <>
+            <Link
+              to={cloudMapLink}
+              className={`flex items-center gap-1.5 text-[12px] font-medium transition-colors ${
+                selectedAccountIds.length === 0
+                  ? dark ? 'text-[rgba(255,255,255,0.2)] pointer-events-none' : 'text-[rgba(0,0,0,0.25)] pointer-events-none'
+                  : dark ? 'text-[rgba(255,255,255,0.5)] hover:text-white' : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)]'
+              }`}
+            >
+              <i className="fas fa-map text-[10px]"></i>
+              CloudMap
+            </Link>
 
-        <span className={`text-[12px] select-none ${dark ? 'text-[rgba(255,255,255,0.15)]' : 'text-[rgba(0,0,0,0.15)]'}`}>|</span>
+            <span className={`text-[12px] select-none ${dark ? 'text-[rgba(255,255,255,0.15)]' : 'text-[rgba(0,0,0,0.15)]'}`}>|</span>
+          </>
+        )}
 
         {/* Shell */}
         {hasAnyRole(['ROLE_XAMOPS']) && (

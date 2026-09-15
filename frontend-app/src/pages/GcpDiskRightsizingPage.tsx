@@ -8,6 +8,17 @@ import { useTopbarActions } from '../contexts/TopbarContext';
 
 const PAGE_SIZE = 20;
 
+/**
+ * Formats a disk amount in USD.
+ *
+ * Every figure on this page comes from the Cloud Billing Catalog, which the backend reads with an
+ * explicit `currencyCode: "USD"`. The page previously rendered those same USD amounts with a ₹
+ * prefix, so a $12.40 disk read as ₹12.40 — off by the exchange rate, and in the direction that
+ * makes waste look trivial.
+ */
+const fmtUsd = (value: number): string =>
+  '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const NUM_STYLE: React.CSSProperties = {
   fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif",
   fontSize: '32px',
@@ -258,10 +269,13 @@ const GcpDiskRightsizingPage: React.FC = () => {
   const totalPages = Math.ceil(filteredDisks.length / PAGE_SIZE);
   const paginated  = filteredDisks.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const totalWasted   = disks.reduce((s, d) => s + d.estimatedSavings, 0);
+  const totalWasted   = disks.reduce((s, d) => s + (d.savingsUnknown ? 0 : d.estimatedSavings), 0);
   const unattachedCnt = disks.filter(d => d.recommendation === 'DELETE_UNATTACHED').length;
   const shrinkCnt     = disks.filter(d => d.recommendation === 'SHRINK').length;
   const expandCnt     = disks.filter(d => d.recommendation === 'EXPAND').length;
+  // Disks the billing catalogue could not price. Their savings are excluded from the headline
+  // above, so the count has to be visible or the total silently under-reports.
+  const unpricedCnt   = disks.filter(d => typeof d.monthlyCost !== 'number').length;
 
   const handleAction = async () => {
     if (!confirmAction) return;
@@ -305,10 +319,23 @@ const GcpDiskRightsizingPage: React.FC = () => {
         </div>
       )}
 
+      {/* Unpriced disks notice */}
+      {unpricedCnt > 0 && (
+        <div className="rounded-lg px-4 py-3 text-[13px] border bg-amber-50 text-amber-800 border-amber-100 flex items-start gap-2">
+          <Icon icon="mdi:alert-outline" width={18} className="flex-shrink-0 mt-0.5" />
+          <span>
+            {unpricedCnt} of {disks.length} disk{disks.length === 1 ? '' : 's'} could not be priced
+            from the Cloud Billing Catalog, so they are excluded from Potential Savings. Enable{' '}
+            <code className="font-mono text-[12px]">cloudbilling.googleapis.com</code> on the project
+            to price them.
+          </span>
+        </div>
+      )}
+
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Potential Savings',   value: `₹${totalWasted.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: 'mdi:piggy-bank',          iconColor: '#16A34A', iconBg: '#16A34A14' },
+          { label: 'Potential Savings',   value: fmtUsd(totalWasted), icon: 'mdi:piggy-bank',          iconColor: '#16A34A', iconBg: '#16A34A14' },
           { label: 'Unattached Disks',    value: String(unattachedCnt), icon: 'mdi:harddisk-remove',     iconColor: '#DC2626', iconBg: '#DC262614' },
           { label: 'Oversized (Shrink)',  value: String(shrinkCnt),     icon: 'mdi:arrow-collapse-down', iconColor: '#D97706', iconBg: '#D9770614' },
           { label: 'Undersized (Expand)', value: String(expandCnt),     icon: 'mdi:arrow-expand-up',     iconColor: '#3B82F6', iconBg: '#3B82F614' },
@@ -487,13 +514,39 @@ const GcpDiskRightsizingPage: React.FC = () => {
 
                   {/* Monthly Cost */}
                   <div className="col-span-1">
-                    <p className="font-semibold text-[rgba(0,0,0,0.88)]">₹{disk.monthlyCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                    {typeof disk.monthlyCost === 'number' ? (
+                      <>
+                        <p className="font-semibold text-[rgba(0,0,0,0.88)]">{fmtUsd(disk.monthlyCost)}</p>
+                        {disk.costIsCapacityOnly && (
+                          <p
+                            className="text-[10px] text-amber-600 leading-tight"
+                            title={disk.costNote ?? undefined}
+                          >
+                            capacity only
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <p
+                        className="text-[11px] text-amber-600 leading-snug"
+                        title={disk.costUnavailableReason ?? 'The billing catalogue could not price this disk.'}
+                      >
+                        Not priced
+                      </p>
+                    )}
                   </div>
 
                   {/* Savings */}
                   <div className="col-span-1">
-                    {disk.estimatedSavings > 0 ? (
-                      <p className="font-semibold text-emerald-600">₹{disk.estimatedSavings.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo</p>
+                    {disk.savingsUnknown ? (
+                      <span
+                        className="text-[11px] text-amber-600"
+                        title={disk.costUnavailableReason ?? 'This disk could not be priced, so the saving is unknown.'}
+                      >
+                        Unknown
+                      </span>
+                    ) : disk.estimatedSavings > 0 ? (
+                      <p className="font-semibold text-emerald-600">{fmtUsd(disk.estimatedSavings)}/mo</p>
                     ) : (
                       <span className="text-[rgba(0,0,0,0.3)]">—</span>
                     )}
@@ -594,7 +647,7 @@ const GcpDiskRightsizingPage: React.FC = () => {
                 {a.oldSizeGb && a.newSizeGb ? `${a.oldSizeGb} GB → ${a.newSizeGb} GB` : '—'}
               </div>
               <div className="col-span-1 font-medium text-emerald-600">
-                {a.estimatedSavings ? `₹${a.estimatedSavings.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/mo` : '—'}
+                {a.estimatedSavings ? `${fmtUsd(a.estimatedSavings)}/mo` : '—'}
               </div>
               <div className="col-span-1">
                 <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${

@@ -49,7 +49,7 @@ export const useAzureCostData = (
 ): UseAzureCostDataReturn => {
   const [billingSummary, setBillingSummary] = useState<AzureBillingItem[]>([]);
   const [costByRegion, setCostByRegion] = useState<Record<string, number>>({});
-  const [costHistory, setCostHistory] = useState<AzureCostHistory>({ labels: [], costs: [], anomalies: [] });
+  const [costHistory, setCostHistory] = useState<AzureCostHistory>({ labels: [], costs: [], forecast: [] });
   const [kpis, setKpis] = useState<AzureCostKPIs>({ mtdSpend: 0, forecastedSpend: 0, lastMonthSpend: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -120,7 +120,7 @@ export const useAzureCostData = (
 
       setBillingSummary(data.billingSummary || []);
       setCostByRegion(data.costByRegion || {});
-      setCostHistory(data.costHistory || { labels: [], costs: [], anomalies: [] });
+      setCostHistory(data.costHistory || { labels: [], costs: [], forecast: [] });
       setKpis({
         mtdSpend: data.kpi?.mtdSpend || 0,
         forecastedSpend: data.kpi?.forecastedSpend || 0,
@@ -183,7 +183,7 @@ export const useAzureCostData = (
     } else {
       setBillingSummary([]);
       setCostByRegion({});
-      setCostHistory({ labels: [], costs: [], anomalies: [] });
+      setCostHistory({ labels: [], costs: [], forecast: [] });
       setKpis({ mtdSpend: 0, forecastedSpend: 0, lastMonthSpend: 0 });
       setForecast(null);
       setServiceTrend({ dimension: null, data: null, isLoading: false });
