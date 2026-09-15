@@ -36,6 +36,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
+import com.xammer.cloud.service.cur.CostSourceContext;
+import com.xammer.cloud.service.AwsClientProvider;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -522,7 +524,30 @@ public class ProactiveCacheRefreshService {
     // ===================================================================================
     @Scheduled(cron = "${xamops.cost.refresh-cron:0 30 2 * * WED,SUN}")
     public void refreshCostData() {
-        logger.info("--- [2:30 AM] Starting Cost Data Refresh (cost.html) ---");
+        logger.info("--- [2:30 AM] Starting Cost Data Refresh (cost.html) — CUR only ---");
+        /*
+         * CUR_ONLY, not AUTO.
+         *
+         * AUTO falls back to Cost Explorer per query, which would leave the nightly cache
+         * part report and part Cost Explorer with nothing recording which rows came from
+         * where — and reintroduce the per-request Cost Explorer charge that made a daily
+         * cadence unaffordable in the first place. Failing is the better outcome: an
+         * account whose report cannot answer keeps yesterday's cached figures, which are
+         * at least internally consistent.
+         *
+         * Propagated onto the awsTaskExecutor threads by tenantTaskDecorator, which is
+         * where nearly all of this work actually runs. Cleared in the finally below
+         * because these threads are pooled.
+         */
+        CostSourceContext.set(CostSourceContext.CUR_ONLY);
+        try {
+            refreshCostDataFromCur();
+        } finally {
+            CostSourceContext.clear();
+        }
+    }
+
+    private void refreshCostDataFromCur() {
         String startDate = LocalDate.now().withDayOfMonth(1).toString(); // Start of month
         String endDate = LocalDate.now().toString(); // Today
 
@@ -536,6 +561,7 @@ public class ProactiveCacheRefreshService {
                 jobHistory = jobExecutionHistoryRepository.save(jobHistory);
 
                 int count = 0;
+                int skipped = 0;
                 for (CloudAccount account : getAllAccounts()) {
                     String accountId = getAccountId(account);
                     if (accountId == null)
@@ -558,11 +584,25 @@ public class ProactiveCacheRefreshService {
                         dbOpsCostService.getDbCosts(accountId, true).join();
                         count++;
                     } catch (Exception e) {
-                        logger.error("Failed Cost refresh for {}", accountId, e);
+                        if (hasCause(e, AwsClientProvider.CostExplorerNotPermittedException.class)) {
+                            // Expected for accounts with no usable report. They keep their
+                            // existing cached figures rather than being silently topped up
+                            // from Cost Explorer.
+                            logger.info("Skipped Cost refresh for {} — no Cost and Usage Report "
+                                    + "can serve it, and this refresh does not use Cost Explorer",
+                                    accountId);
+                            skipped++;
+                        } else {
+                            logger.error("Failed Cost refresh for {}", accountId, e);
+                        }
                     }
                 }
 
                 jobHistory.setStatus("SUCCESS");
+                if (skipped > 0) {
+                    logger.info("[Cost] Tenant {} — {} account(s) refreshed from the report, "
+                            + "{} skipped for want of one", tenantId, count, skipped);
+                }
                 jobHistory.setItemsProcessed(count);
                 jobHistory.setEndTime(LocalDateTime.now());
                 jobExecutionHistoryRepository.save(jobHistory);
@@ -1752,5 +1792,15 @@ public class ProactiveCacheRefreshService {
                 jobExecutionHistoryRepository.save(jobHistory);
             }
         }
+    }
+
+    /** Walks the cause chain — CompletableFuture.join and the SDK both wrap. */
+    private boolean hasCause(Throwable e, Class<? extends Throwable> type) {
+        for (Throwable c = e; c != null && c.getCause() != c; c = c.getCause()) {
+            if (type.isInstance(c)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

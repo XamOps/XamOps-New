@@ -25,7 +25,8 @@ public enum CostSourceContext {
 
     /**
      * Prefer the Cost and Usage Report, falling back to Cost Explorer when the report
-     * cannot serve the request. The default, used by page loads and the nightly job.
+     * cannot serve the request. The default, used by page loads. The nightly job uses
+     * {@link #CUR_ONLY} instead.
      */
     AUTO,
 
@@ -34,7 +35,23 @@ public enum CostSourceContext {
      * Refresh button asks for: a live mid-day figure, independent of when the report was
      * last delivered.
      */
-    COST_EXPLORER;
+    COST_EXPLORER,
+
+    /**
+     * Use the Cost and Usage Report and nothing else. Where AUTO falls back to Cost
+     * Explorer when the report cannot answer, this fails instead.
+     *
+     * <p>For the nightly refresh. Falling back there is worse than failing: the point of
+     * moving to the report is that its figures reconcile with the invoice, and a silent
+     * per-query fallback produces a cache that is part report and part Cost Explorer with
+     * nothing recording which rows came from where. It also reintroduces the per-request
+     * Cost Explorer charge the daily cadence was only affordable without.
+     *
+     * <p>Enforced in {@code AwsClientProvider.getCostExplorerClient}, not at each of the
+     * dozen fallback sites: a guard that has to be remembered in twelve places is one that
+     * will be missed in the thirteenth.
+     */
+    CUR_ONLY;
 
     private static final ThreadLocal<CostSourceContext> CURRENT = new ThreadLocal<>();
 

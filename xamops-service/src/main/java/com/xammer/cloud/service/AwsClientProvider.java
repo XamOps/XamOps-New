@@ -26,6 +26,7 @@ import software.amazon.awssdk.services.autoscaling.AutoScalingClient;
 import software.amazon.awssdk.services.bedrock.BedrockClient;
 import software.amazon.awssdk.services.budgets.BudgetsClient;
 import software.amazon.awssdk.services.cloudfront.CloudFrontClient;
+import com.xammer.cloud.service.cur.CostSourceContext;
 import software.amazon.awssdk.services.cloudformation.CloudFormationClient;
 import software.amazon.awssdk.services.cloudtrail.CloudTrailClient;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchClient;
@@ -430,7 +431,17 @@ public class AwsClientProvider {
         return getClient(EksClient.class, EksClient.builder(), account, region);
     }
 
+    /**
+     * @throws CostExplorerNotPermittedException when the current context is CUR_ONLY.
+     *     The nightly refresh runs in that mode, and this is where it is enforced —
+     *     every cost path funnels through here, whereas the fallback decision is made in
+     *     roughly a dozen separate methods. Guarding the client is the one place a new
+     *     cost method cannot forget to check.
+     */
     public CostExplorerClient getCostExplorerClient(CloudAccount account) {
+        if (CostSourceContext.current() == CostSourceContext.CUR_ONLY) {
+            throw new CostExplorerNotPermittedException(account.getAwsAccountId());
+        }
         String cacheKey = account.getAwsAccountId() + ":CostExplorerClient:us-east-1";
         return (CostExplorerClient) clientCache.computeIfAbsent(cacheKey, k -> {
             logger.info("🚀 [AwsClientProvider] Creating NEW CostExplorerClient for account {} (short-timeout config)",
@@ -728,5 +739,19 @@ public class AwsClientProvider {
 
     public NetworkFirewallClient getNetworkFirewallClient(CloudAccount account, String region) {
         return getClient(NetworkFirewallClient.class, NetworkFirewallClient.builder(), account, region);
+    }
+
+    /**
+     * Thrown when cost work asks for Cost Explorer while the context forbids it.
+     *
+     * <p>Its own type so the nightly job can tell "this account has no usable report" from
+     * a genuine AWS failure and skip it quietly, rather than logging every CUR-less
+     * account as an error every night.
+     */
+    public static class CostExplorerNotPermittedException extends RuntimeException {
+        public CostExplorerNotPermittedException(String awsAccountId) {
+            super("Cost Explorer is not permitted for account " + awsAccountId
+                    + ": this refresh runs CUR-only and the report could not answer");
+        }
     }
 }
