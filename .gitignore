@@ -138,3 +138,13 @@ id_rsa
 id_rsa.pub
 id_ed25519
 id_ed25519.pub
+
+# codescope MCP local symbol-graph index (rebuilt on demand, never shared)
+.codescope/
+
+# Python virtualenv — forecast-service/venv holds 22.8k files and is currently
+# git-TRACKED, which is its own problem worth untracking separately. Ignoring it
+# here stops file-watchers and indexers (codescope, IDE search) from trying to
+# watch site-packages and drowning in EMFILE "too many open files" errors.
+venv/
+.venv/
