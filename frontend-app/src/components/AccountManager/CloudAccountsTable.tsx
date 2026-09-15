@@ -4,6 +4,8 @@ import { Icon } from '@iconify/react';
 import { gooeyToast } from 'goey-toast';
 import { apiFetch } from '../../utils/apiClient';
 import type { CloudAccount } from '../../types/accountManager';
+import { fetchStackStatus, type StackDiagnosis } from '../../api/stackApi';
+import StackUpdateModal from './StackUpdateModal';
 
 /** What the customer has to do to bring their stack onto the current template. */
 interface StackUpdateGuide {
@@ -15,6 +17,13 @@ interface StackUpdateGuide {
   roleName: string;
   /** The parameters that must be set by hand, with the reason each matters. */
   parameters: { name: string; value: string; why: string }[];
+  /**
+   * Present only when this account needs two update passes rather than one.
+   *
+   * <p>Following the steps as written would fail for it, so this cannot be a footnote —
+   * it is rendered above them.
+   */
+  twoPassWarning?: string;
 }
 
 /** The numbered marker beside one step of the update guide. */
@@ -31,6 +40,67 @@ interface CloudAccountsTableProps {
   onRemove: (account: CloudAccount) => void;
   onUpdateBillingTable?: (accountDbId: number, billingTable: string) => Promise<{ success: boolean; error?: string }>;
 }
+
+/**
+ * How each verdict reads on screen.
+ *
+ * Titles say what was found, not how the check went — "This stack was deleted" tells the reader
+ * something; "Diagnosis complete" does not. Tone is split three ways rather than two, because
+ * "busy, try again shortly" is not a failure and colouring it as one sends people looking for a
+ * problem that does not exist.
+ */
+const VERDICT_TONE: Record<string, { title: string; icon: string; chip: string }> = {
+  BUSY: {
+    title: 'The stack is busy right now',
+    icon: 'mdi:progress-clock',
+    chip: 'bg-blue-50 text-blue-600',
+  },
+  NO_CFN_PERMISSION: {
+    title: 'This account cannot be inspected yet',
+    icon: 'mdi:lock-outline',
+    chip: 'bg-amber-50 text-amber-600',
+  },
+  STACK_DELETED: {
+    title: 'The stack was deleted',
+    icon: 'mdi:delete-clock-outline',
+    chip: 'bg-rose-50 text-rose-500',
+  },
+  STACK_REPLACED: {
+    title: 'A different stack has taken its place',
+    icon: 'mdi:swap-horizontal',
+    chip: 'bg-amber-50 text-amber-600',
+  },
+  UNUPDATABLE: {
+    title: 'AWS will not update this stack',
+    icon: 'mdi:alert-octagon-outline',
+    chip: 'bg-rose-50 text-rose-500',
+  },
+  ROLLBACK_STUCK: {
+    title: 'A previous update is stuck',
+    icon: 'mdi:backup-restore',
+    chip: 'bg-rose-50 text-rose-500',
+  },
+  NOT_STACK_MANAGED: {
+    title: 'No stack created this role',
+    icon: 'mdi:hand-back-left-outline',
+    chip: 'bg-amber-50 text-amber-600',
+  },
+  CONNECTION_BROKEN: {
+    title: 'The connection itself is broken',
+    icon: 'mdi:link-variant-off',
+    chip: 'bg-rose-50 text-rose-500',
+  },
+  HEALTHY: {
+    title: 'The stack is healthy',
+    icon: 'mdi:check-circle-outline',
+    chip: 'bg-emerald-50 text-emerald-600',
+  },
+  UNKNOWN: {
+    title: 'The check did not complete',
+    icon: 'mdi:help-circle-outline',
+    chip: 'bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.5)]',
+  },
+};
 
 const providerConfig: Record<string, { icon: string; bg: string; color: string }> = {
   AWS:   { icon: '/icons/aws-icon.png',   bg: 'bg-[#FF9900]/10', color: 'text-[#FF9900]' },
@@ -50,6 +120,10 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
   const [billingModalLoading, setBillingModalLoading] = useState(false);
   const [upgradingId, setUpgradingId] = useState<number | null>(null);
   const [updateGuide, setUpdateGuide] = useState<StackUpdateGuide | null>(null);
+  /** What the pre-flight check found, shown before any manual steps are offered. */
+  const [diagnosis, setDiagnosis] = useState<(StackDiagnosis & { accountName: string }) | null>(null);
+  /** The account whose stack is being updated from here, rather than in the AWS console. */
+  const [updating, setUpdating] = useState<{ id: string; name: string } | null>(null);
 
   /**
    * Fetches what it takes to bring an account onto the current template.
@@ -59,8 +133,45 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
    * they already have, which is what brings the whole role up to date — a second stack
    * alongside it could only ever patch what it was told to patch.
    */
+  /**
+   * Looks for the account's stack before offering to update it.
+   *
+   * <p>Previously this went straight to the manual steps, which assumed a stack that might not
+   * be there: an account whose stack was deleted but whose IAM role was retained keeps serving
+   * dashboards, so nothing on this screen distinguished it from a healthy one. The customer
+   * would work through the steps and hit an error AWS words unhelpfully.
+   *
+   * <p>The check is read-only and costs one API call. When it finds a healthy stack the guide
+   * opens as before, now naming the real stack rather than a guess at its name.
+   */
   const launchUpgrade = async (account: CloudAccount) => {
+    const awsId = account.id;
+    if (!awsId) return;
+
     setUpgradingId(account.dbId);
+    try {
+      const found = await fetchStackStatus(awsId);
+      if (found.verdict !== 'HEALTHY') {
+        // Anything else needs a specific remedy, not an update it cannot perform.
+        setDiagnosis({ ...found, accountName: account.name });
+        return;
+      }
+      // Healthy and updatable: do it here rather than handing over console steps. The
+      // manual guide stays reachable from the diagnosis panel for the cases that need it.
+      setUpdating({ id: awsId, name: account.name });
+    } catch (e) {
+      // The check failing is not a reason to block the manual route — it is the fallback that
+      // has always worked. Say what happened, then offer it.
+      gooeyToast.error(
+        `Could not check the stack (${(e as Error).message}). Showing the manual steps.`,
+      );
+      await openGuide(account, null);
+    } finally {
+      setUpgradingId(null);
+    }
+  };
+
+  const openGuide = async (account: CloudAccount, found: StackDiagnosis | null) => {
     try {
       // apiFetch, not fetch: this is a POST, and the CSRF token it attaches from the
       // cookie is what stops the request being rejected before it reaches the controller.
@@ -73,11 +184,15 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
         gooeyToast.error(data.error || 'Could not prepare the update steps.');
         return;
       }
-      setUpdateGuide({ ...data, accountName: account.name });
+      setUpdateGuide({
+        ...data,
+        accountName: account.name,
+        // The real name beats the derived one: a renamed stack makes the guess wrong, and a
+        // wrong stack name is the step people get stuck on.
+        likelyStackName: found?.stackName ?? data.likelyStackName,
+      });
     } catch {
       gooeyToast.error('Could not reach XamOps to prepare the update steps.');
-    } finally {
-      setUpgradingId(null);
     }
   };
 
@@ -317,6 +432,117 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
         )}
       </div>
 
+      {updating && (
+        <StackUpdateModal
+          accountId={updating.id}
+          accountName={updating.name}
+          onClose={() => setUpdating(null)}
+        />
+      )}
+
+      {/* What the pre-flight check found, when it was not a healthy stack.
+          One panel per verdict rather than a generic "not found": a deleted stack, a stack
+          mid-operation and a role that was never stack-managed each need a different next
+          step, and naming the wrong one wastes the reader's afternoon. */}
+      {diagnosis && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={() => setDiagnosis(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3 px-6 pt-6 pb-4">
+              <div
+                className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                  VERDICT_TONE[diagnosis.verdict].chip
+                }`}
+              >
+                <Icon icon={VERDICT_TONE[diagnosis.verdict].icon} width={19} />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-[15px] font-bold text-black">
+                  {VERDICT_TONE[diagnosis.verdict].title}
+                </h3>
+                <p className="text-[12px] text-[rgba(0,0,0,0.45)] mt-0.5">
+                  {diagnosis.accountName}
+                </p>
+              </div>
+              <button
+                onClick={() => setDiagnosis(null)}
+                className="ml-auto text-[rgba(0,0,0,0.4)] hover:text-black"
+                aria-label="Close"
+              >
+                <Icon icon="mdi:close" width={18} />
+              </button>
+            </div>
+
+            <div className="px-6 pb-5 space-y-3">
+              <p className="text-[13.5px] text-[rgba(0,0,0,0.7)] leading-relaxed">
+                {diagnosis.detail}
+              </p>
+
+              {diagnosis.remedy && (
+                <div className="rounded-lg bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.07)] px-3.5 py-3">
+                  <p className="text-[10.5px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)]">
+                    What to do
+                  </p>
+                  <p className="text-[13px] text-black mt-1">{diagnosis.remedy}</p>
+                </div>
+              )}
+
+              {(diagnosis.stackName || diagnosis.stackStatus) && (
+                <dl className="text-[12px] space-y-1.5 pt-1">
+                  {diagnosis.stackName && (
+                    <div className="flex gap-2">
+                      <dt className="text-[rgba(0,0,0,0.45)] w-[68px] flex-shrink-0">Stack</dt>
+                      <dd className="font-mono text-black break-all">{diagnosis.stackName}</dd>
+                    </div>
+                  )}
+                  {diagnosis.stackStatus && (
+                    <div className="flex gap-2">
+                      <dt className="text-[rgba(0,0,0,0.45)] w-[68px] flex-shrink-0">Status</dt>
+                      <dd className="font-mono text-black">{diagnosis.stackStatus}</dd>
+                    </div>
+                  )}
+                  {diagnosis.stackRegion && (
+                    <div className="flex gap-2">
+                      <dt className="text-[rgba(0,0,0,0.45)] w-[68px] flex-shrink-0">Region</dt>
+                      <dd className="font-mono text-black">{diagnosis.stackRegion}</dd>
+                    </div>
+                  )}
+                </dl>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-6 py-4 bg-[rgba(0,0,0,0.02)] border-t border-[rgba(0,0,0,0.07)]">
+              <button
+                onClick={() => setDiagnosis(null)}
+                className="h-9 px-4 rounded-lg text-[12.5px] font-semibold text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.05)]"
+              >
+                Close
+              </button>
+              {/* The manual route still works when there is a stack to point it at, so it stays
+                  available rather than being hidden behind a verdict we may have called wrong. */}
+              {diagnosis.verdict !== 'NOT_STACK_MANAGED' &&
+                diagnosis.verdict !== 'CONNECTION_BROKEN' && (
+                  <button
+                    onClick={() => {
+                      const account = accounts.find((a) => a.name === diagnosis.accountName);
+                      setDiagnosis(null);
+                      if (account) void openGuide(account, diagnosis);
+                    }}
+                    className="h-9 px-4 rounded-lg bg-blue-600 text-white text-[12.5px] font-semibold hover:bg-blue-700"
+                  >
+                    Show manual steps anyway
+                  </button>
+                )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Stack update guide.
           Instructions rather than a button, because AWS has no one-click link that updates
           an existing stack. Updating the real connection stack is what brings the whole
@@ -354,6 +580,26 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
             </div>
 
             <div className="px-6 py-5 space-y-4">
+              {/* Above the steps, not below them: for the accounts this applies to,
+                  following the steps as written fails and rolls the stack back. */}
+              {updateGuide.twoPassWarning && (
+                <div className="flex gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3">
+                  <Icon
+                    icon="mdi:alert-outline"
+                    width={17}
+                    className="text-amber-600 flex-shrink-0 mt-0.5"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-[12.5px] font-semibold text-amber-900">
+                      This account may need two passes
+                    </p>
+                    <p className="text-[12px] text-amber-800 mt-0.5 leading-relaxed">
+                      {updateGuide.twoPassWarning}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <ol className="space-y-4">
                 <li className="flex gap-3">
                   <Step n={1} />

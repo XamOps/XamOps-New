@@ -76,9 +76,6 @@ const CurSourceSelector: React.FC<CurSourceSelectorProps> = ({ value, onChange }
   const [payerSources, setPayerSources] = useState<AvailableCurSource[]>([]);
   const [loadError, setLoadError] = useState<string>('');
   const [loading, setLoading] = useState(true);
-  const [curStackUrl, setCurStackUrl] = useState<string>('');
-  /** Why no launch link, or empty when there is one. Carries the reason, not just a flag. */
-  const [curStackUnavailable, setCurStackUnavailable] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -96,53 +93,6 @@ const CurSourceSelector: React.FC<CurSourceSelectorProps> = ({ value, onChange }
       cancelled = true;
     };
   }, []);
-
-  // The launch URL must pin us-east-1 (AWS::CUR::ReportDefinition exists nowhere else) and
-  // the template location differs per environment, so the backend builds it.
-  //
-  // The failure reason is captured rather than collapsed into one message. An earlier
-  // version reported every failure as "template not published", which was wrong and
-  // actively misleading: the template was published, and the real cause was the dev
-  // server having no proxy entry for /api/cloudformation — so the fetch returned the
-  // SPA's own index.html and JSON parsing threw. Reporting the status distinguishes
-  // "not configured" (503) from "never reached the backend" (HTML, 404, network).
-  useEffect(() => {
-    if (value.billingSource !== 'OWN_CUR' || curStackUrl) return;
-    let cancelled = false;
-
-    fetch('/api/cloudformation/cur-deploy-url', { credentials: 'include' })
-      .then(async (r) => {
-        if (!r.ok) {
-          throw new Error(
-            r.status === 503
-              ? 'no cost reporting template is configured for this environment'
-              : `HTTP ${r.status}`,
-          );
-        }
-        // A dev proxy gap answers with index.html and a 200, so a content-type check is
-        // what separates "backend said no" from "request never got there".
-        const contentType = r.headers.get('content-type') ?? '';
-        if (!contentType.includes('application/json')) {
-          throw new Error('the request did not reach the backend');
-        }
-        return r.json();
-      })
-      .then((data) => {
-        if (cancelled) return;
-        if (data?.url) {
-          setCurStackUrl(data.url as string);
-        } else {
-          setCurStackUnavailable('the backend returned no launch URL');
-        }
-      })
-      .catch((e: Error) => {
-        if (!cancelled) setCurStackUnavailable(e.message);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [value.billingSource, curStackUrl]);
 
   const set = (patch: Partial<CurSourceSelection>) => onChange({ ...value, ...patch });
 
@@ -256,40 +206,14 @@ const CurSourceSelector: React.FC<CurSourceSelectorProps> = ({ value, onChange }
                       className="text-[rgba(0,0,0,0.35)] flex-shrink-0 mt-0.5"
                     />
                     <div className="text-[11.5px] text-[rgba(0,0,0,0.55)] leading-relaxed">
-                      Deploy in <span className="font-medium">us-east-1</span> — AWS only accepts
-                      report definitions there. The first delivery takes up to 24 hours, and the
-                      report starts from the current month rather than backfilling history. Until it
-                      lands, we serve this account from the Cost Explorer API.
+                      The report is created by the CloudFormation stack below — there is no
+                      second stack to launch. It is deployed in{' '}
+                      <span className="font-medium">us-east-1</span>, the only region AWS accepts
+                      report definitions in. First delivery takes up to 24 hours and starts from
+                      the current month rather than backfilling history; until it lands, we serve
+                      this account from the Cost Explorer API.
                     </div>
                   </div>
-                  {curStackUrl && (
-                    <a
-                      href={curStackUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-black text-white text-[12.5px] font-medium rounded-lg hover:bg-[rgba(0,0,0,0.85)] transition-colors"
-                    >
-                      <Icon icon="mdi:rocket-launch-outline" width={15} />
-                      Launch cost reporting stack
-                    </a>
-                  )}
-                  {/* Without this the option is selectable but offers no way to act on it,
-                      which reads as a broken page rather than an unconfigured environment. */}
-                  {curStackUnavailable && (
-                    <div className="flex items-start gap-2.5 px-3.5 py-3 bg-amber-50 border border-amber-200 rounded-lg">
-                      <Icon
-                        icon="mdi:alert-outline"
-                        width={15}
-                        className="text-amber-600 flex-shrink-0 mt-0.5"
-                      />
-                      <div className="text-[11.5px] text-amber-900 leading-relaxed">
-                        No launch link — {curStackUnavailable}. The role stack below still grants
-                        access to the report once it exists, so you can deploy{' '}
-                        <span className="font-medium">xamops-cur-report.yml</span> in us-east-1
-                        yourself, or pick another option.
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 

@@ -183,6 +183,44 @@ public class CloudAccount {
     @Column(name = "last_sync")
     private Instant lastSync;
 
+    /**
+     * The CloudFormation stack that created this account's connection.
+     *
+     * <p>The full ARN rather than the name, because names are reusable: a customer who deleted
+     * and recreated their stack presents the same name over different resources and, usually, a
+     * different ExternalId. Only the ARN separates "the stack we created" from "a stack wearing
+     * its name", and that distinction is what makes the difference between adopting the new
+     * stack and re-onboarding the account.
+     *
+     * <p>Null for every account connected before this was recorded, and for accounts whose role
+     * was never created by a stack at all. Those two are distinguishable — see
+     * {@code StackDiagnosisService} — but only by asking AWS.
+     */
+    @Column(name = "stack_id")
+    private String stackId;
+
+    @Column(name = "stack_name")
+    private String stackName;
+
+    /** Stacks are regional and {@code DescribeStacks} only sees its own region. */
+    @Column(name = "stack_region")
+    private String stackRegion;
+
+    /** Last template version known to be deployed, so "needs updating" is a comparison. */
+    @Column(name = "stack_template_version")
+    private String stackTemplateVersion;
+
+    /**
+     * Outcome of the last diagnosis — a CloudFormation status where one could be read, otherwise
+     * one of this feature's own verdicts. Cached so the account list can show a column without
+     * calling AWS once per row.
+     */
+    @Column(name = "stack_status")
+    private String stackStatus;
+
+    @Column(name = "stack_checked_at")
+    private Instant stackCheckedAt;
+
     // Getter and setter for awsAccountId
     public String getAwsAccountId() {
         return awsAccountId;
@@ -280,5 +318,6 @@ public class CloudAccount {
                 ? this.awsBillingSource
                 : AwsBillingSource.COST_EXPLORER_ONLY;
     }
+
 
 }
