@@ -195,6 +195,7 @@ export const Dashboard: React.FC = () => {
         isRefreshing={isRefreshing}
         lastUpdateTime={lastUpdateTime}
         onRefresh={refreshDashboard}
+        onCurRefreshed={() => refreshDashboard(false)}
         curAccountId={curAccountId}
         onSaveLayout={saveLayout}
         getLink={getLink}
