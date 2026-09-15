@@ -19,6 +19,8 @@ const IdentityAccessTab: React.FC = () => {
   const {
     loading,
     error,
+    accountName,
+    accountId,
     users,
     roles,
     searchQuery,
@@ -44,6 +46,11 @@ const IdentityAccessTab: React.FC = () => {
     <IdentityAccessCanvas
       users={filteredUsers}
       roles={filteredRoles}
+      // Unfiltered: the access graph rebuilds groups from user.groups, and filtering the source
+      // list would make a search on role names empty the groups lane.
+      allUsers={users}
+      accountName={accountName}
+      accountId={accountId}
       totalUsers={users.length}
       totalRoles={roles.length}
       isLoading={loading && users.length === 0 && roles.length === 0}
