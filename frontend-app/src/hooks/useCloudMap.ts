@@ -178,15 +178,39 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
         const elements = results[i];
         const prefix = `${vpc.id}::`;
 
-        // Synthetic compound root node for this VPC
-        merged.push({
-          group: 'nodes',
-          data: {
-            id: `${prefix}vpc-root`,
-            label: `${vpc.name} (${vpc.region})`,
-            type: 'VPC',
-          },
+        /*
+         * Reuse the VPC node the backend already sent instead of wrapping it.
+         *
+         * CloudMapService returns a real VPC node for the requested VPC, parentless.
+         * Adding a synthetic root and then reparenting everything parentless to it
+         * caught that real node too, so each VPC rendered as a box labelled
+         * "<name> (<region>)" containing a second, identical box labelled "<name>" —
+         * a VPC inside itself, with the subnets pushed a level deeper than they are.
+         *
+         * The real node is used as the container and its label is widened to carry
+         * the region, which is the only thing the synthetic root added. A synthetic
+         * root is still emitted when the backend sends no VPC node, so a VPC whose
+         * describe failed keeps a labelled box rather than scattering its resources.
+         */
+        const realVpcNode = elements.find((el) => {
+          const d = el.data as any;
+          const isEdge = el.group === 'edges' || (!!d.source && !!d.target);
+          return !isEdge && d.type === 'VPC' && !d.parent;
         });
+        const rootId = realVpcNode
+          ? `${prefix}${(realVpcNode.data as any).id}`
+          : `${prefix}vpc-root`;
+
+        if (!realVpcNode) {
+          merged.push({
+            group: 'nodes',
+            data: {
+              id: rootId,
+              label: `${vpc.name} (${vpc.region})`,
+              type: 'VPC',
+            },
+          });
+        }
 
         elements.forEach((el) => {
           const isEdge = el.group === 'edges' || (!!(el.data as any).source && !!(el.data as any).target);
@@ -202,12 +226,18 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
             });
           } else {
             const nd = el.data as any;
+            const scopedId = `${prefix}${nd.id}`;
+            const isRealVpcRoot = scopedId === rootId;
             merged.push({
               ...el,
               data: {
                 ...nd,
-                id: `${prefix}${nd.id}`,
-                parent: nd.parent ? `${prefix}${nd.parent}` : `${prefix}vpc-root`,
+                id: scopedId,
+                // The VPC node is the container, so it must stay parentless —
+                // parenting it to itself is what produced the nested box.
+                ...(isRealVpcRoot
+                  ? { label: `${vpc.name} (${vpc.region})`, parent: undefined }
+                  : { parent: nd.parent ? `${prefix}${nd.parent}` : rootId }),
               },
             });
           }

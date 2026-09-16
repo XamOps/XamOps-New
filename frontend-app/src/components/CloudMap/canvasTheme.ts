@@ -470,7 +470,19 @@ export function buildCytoscapeStyle(theme: CanvasTheme, mode: 'live' | 'design')
         'background-opacity': 0,
         'border-width': 0,
         'background-clip': ['none', 'none'],
-        'background-fit': ['none', 'none'],
+        /*
+         * Layer 0 is the baked card SVG, authored at exactly CARD_W x CARD_H, so
+         * 'none' is right for it. Layer 1 is a service icon whose intrinsic aspect
+         * ratio we do not control: AWS_ICONS mixes our own flat line-art SVGs with
+         * AWS's official service icons, and 'none' stretches whatever arrives to
+         * fill the box. That is what made EC2 nodes render as wide smears of orange
+         * — and because the oversized layer draws 'over' the card, it also hid the
+         * resource name baked into layer 0.
+         *
+         * 'contain' keeps the icon's own proportions inside its box, so a mis-sized
+         * box shrinks or centres the icon instead of distorting it.
+         */
+        'background-fit': ['none', 'contain'],
         'background-image-containment': ['over', 'over'],
         'background-image': (ele: any) => [
           resourceCardUrl({
