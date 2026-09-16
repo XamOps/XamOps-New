@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { fetchTopResources, type ResourceCost } from '../../api/curInsightsApi';
 import { useCurInsight } from '../../hooks/useCurInsight';
+import Pagination from '../FinOps/Pagination';
 
 /**
  * What each individual resource cost — this bucket, this instance, this volume.
@@ -52,8 +53,12 @@ const money = (v: number): string =>
   (v < 0 ? '-$' : '$') +
   Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** How many rows inside one open service before the list stops being scannable. */
-const PAGE = 20;
+/**
+ * Rows per page — for the service list and for the resources inside one open service.
+ *
+ * The same number for both, so paging never changes how much of the page moves.
+ */
+const PAGE_SIZE = 10;
 
 /** Resources of one service, costliest first. */
 interface ServiceGroup {
@@ -132,8 +137,18 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
   const [search, setSearch] = useState('');
   /** Services the reader has drilled into. */
   const [open, setOpen] = useState<Set<string>>(new Set());
-  /** Services showing past the first {@link PAGE} rows. */
-  const [showAll, setShowAll] = useState<Set<string>>(new Set());
+  /** Which page of the service list is showing, 1-based. */
+  const [page, setPage] = useState(1);
+  /** Which page of resources each open service is showing, 1-based, keyed by service. */
+  const [resourcePages, setResourcePages] = useState<Map<string, number>>(new Map());
+  /**
+   * Which page of account-level charges is showing, 1-based.
+   *
+   * Its own state because that list answers to the month alone. The service, region and
+   * search controls filter resources, and a charge with no resource id is not something
+   * they can narrow — so paging it is independent of them.
+   */
+  const [accountPage, setAccountPage] = useState(1);
 
   // Cached across mounts, so returning to this page does not re-scan the report.
   const { data, isPending, isError } = useCurInsight(
@@ -197,8 +212,15 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
   }, [filtered]);
 
   // The largest group in the current view, so the bars rescale when a filter narrows it —
-  // against the global maximum every bar in a filtered list would be a sliver.
+  // against the global maximum every bar in a filtered list would be a sliver. Taken from
+  // every group rather than the visible page, so a bar keeps its length as you page.
   const maxGroup = groups.length > 0 ? Math.max(...groups.map((g) => Math.abs(g.cost))) : 0;
+
+  const totalPages = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
+  // Clamped rather than trusted: the group list is rebuilt from the filters, and a page
+  // number left over from a longer list would otherwise render an empty section.
+  const currentPage = Math.min(page, totalPages);
+  const visibleGroups = groups.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   /**
    * Which groups the current filters imply should be open:
@@ -224,20 +246,36 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
       return next;
     });
 
-  const toggleShowAll = (svc: string) =>
-    setShowAll((prev) => {
-      const next = new Set(prev);
-      if (next.has(svc)) next.delete(svc);
-      else next.add(svc);
-      return next;
-    });
+  const setResourcePage = (svc: string, next: number) =>
+    setResourcePages((prev) => new Map(prev).set(svc, next));
+
+  /**
+   * Back to the first page of everything.
+   *
+   * A page number outlives the list it was counting: narrowing the filters shortens the
+   * list, and page 3 of a list that now has one page would render as empty rather than as
+   * the match the reader was looking for.
+   */
+  const resetPaging = () => {
+    setPage(1);
+    setResourcePages(new Map());
+  };
 
   // A CUR only carries the tags that were activated for cost allocation, so "no names
   // anywhere" is a setting rather than a bug — and worth saying, since the reader is
   // otherwise left wondering why every row is an id.
   const anyNamed = resources.some((r) => Boolean(r.name));
 
+  // Summed over every charge, not the visible page, so the heading total still reconciles
+  // to the invoice while the list is paged.
   const accountLevelTotal = accountLevel.reduce((sum, r) => sum + r.cost, 0);
+  const accountTotalPages = Math.max(1, Math.ceil(accountLevel.length / PAGE_SIZE));
+  const accountCurrentPage = Math.min(accountPage, accountTotalPages);
+  const visibleAccountLevel = accountLevel.slice(
+    (accountCurrentPage - 1) * PAGE_SIZE,
+    accountCurrentPage * PAGE_SIZE,
+  );
+
   const isFiltered = service !== 'all' || region !== 'all' || search.trim() !== '';
   const filteredTotal = filtered.reduce((sum, r) => sum + r.cost, 0);
 
@@ -260,7 +298,11 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
         <div className="flex items-center gap-4">
           <select
             value={period}
-            onChange={(e) => setPeriod(e.target.value)}
+            onChange={(e) => {
+              setPeriod(e.target.value);
+              resetPaging();
+              setAccountPage(1);
+            }}
             className="text-[12px] border border-[rgba(0,0,0,0.15)] rounded-lg px-2.5 py-1.5 bg-white text-black focus:outline-none focus:ring-1 focus:ring-[#4285F4]"
           >
             {months.map((m) => (
@@ -299,7 +341,7 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
               value={service}
               onChange={(e) => {
                 setService(e.target.value);
-                setShowAll(new Set());
+                resetPaging();
               }}
               aria-label="Service"
               className="text-[12px] border border-[rgba(0,0,0,0.15)] rounded-lg px-2.5 py-1.5 bg-white text-black focus:outline-none focus:ring-1 focus:ring-[#4285F4]"
@@ -318,7 +360,7 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
               value={region}
               onChange={(e) => {
                 setRegion(e.target.value);
-                setShowAll(new Set());
+                resetPaging();
               }}
               aria-label="Region"
               className="text-[12px] border border-[rgba(0,0,0,0.15)] rounded-lg px-2.5 py-1.5 bg-white text-black focus:outline-none focus:ring-1 focus:ring-[#4285F4]"
@@ -342,7 +384,7 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
-                  setShowAll(new Set());
+                  resetPaging();
                 }}
                 placeholder="Find a resource by name, id or instance type…"
                 className="w-full text-[12px] border border-[rgba(0,0,0,0.15)] rounded-lg pl-7 pr-2.5 py-1.5 bg-white text-black placeholder:text-[rgba(0,0,0,0.3)] focus:outline-none focus:ring-1 focus:ring-[#4285F4]"
@@ -362,19 +404,30 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
               Nothing matches that filter.
             </p>
           ) : (
-            <div className="divide-y divide-[rgba(0,0,0,0.05)]">
-              {groups.map((g) => (
-                <ServiceGroupRow
-                  key={g.service}
-                  group={g}
-                  max={maxGroup}
-                  open={open.has(g.service)}
-                  showAll={showAll.has(g.service)}
-                  onToggle={() => toggle(g.service)}
-                  onToggleShowAll={() => toggleShowAll(g.service)}
-                />
-              ))}
-            </div>
+            <>
+              <div className="divide-y divide-[rgba(0,0,0,0.05)]">
+                {visibleGroups.map((g) => (
+                  <ServiceGroupRow
+                    key={g.service}
+                    group={g}
+                    max={maxGroup}
+                    open={open.has(g.service)}
+                    page={resourcePages.get(g.service) ?? 1}
+                    onToggle={() => toggle(g.service)}
+                    onPageChange={(p) => setResourcePage(g.service, p)}
+                  />
+                ))}
+              </div>
+              {/* Counts services, not resources: this list's rows are services, and the
+                  resource count for the filter is already stated above. */}
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={groups.length}
+                itemsPerPage={PAGE_SIZE}
+                onPageChange={setPage}
+              />
+            </>
           )}
 
           {accountLevel.length > 0 && (
@@ -387,7 +440,7 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
                 Billed to the account rather than to any one resource, so they have no id.
               </p>
               <div className="space-y-0.5">
-                {accountLevel.map((r) => (
+                {visibleAccountLevel.map((r) => (
                   <div
                     key={`${r.service}-${r.region}`}
                     className="flex items-center justify-between px-2 py-1.5 text-[12.5px]"
@@ -402,6 +455,13 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
                   </div>
                 ))}
               </div>
+              <Pagination
+                currentPage={accountCurrentPage}
+                totalPages={accountTotalPages}
+                totalItems={accountLevel.length}
+                itemsPerPage={PAGE_SIZE}
+                onPageChange={setAccountPage}
+              />
             </div>
           )}
 
@@ -434,19 +494,26 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
  * truncated (see the note at the foot of the section) that is the costliest slice of the
  * service rather than everything it spent — "Charges by service" is the number that
  * reconciles to the invoice.
+ *
+ * <p>An open service pages its resources {@link PAGE_SIZE} at a time. A service with fifty
+ * of them would otherwise push every other service off the screen, which is the same
+ * problem the grouping was there to solve.
  */
 const ServiceGroupRow: React.FC<{
   group: ServiceGroup;
   max: number;
   open: boolean;
-  showAll: boolean;
+  page: number;
   onToggle: () => void;
-  onToggleShowAll: () => void;
-}> = ({ group, max, open, showAll, onToggle, onToggleShowAll }) => {
+  onPageChange: (page: number) => void;
+}> = ({ group, max, open, page, onToggle, onPageChange }) => {
   const share = max > 0 ? (Math.abs(group.cost) / max) * 100 : 0;
-  const rows = showAll ? group.resources : group.resources.slice(0, PAGE);
+  const totalPages = Math.max(1, Math.ceil(group.resources.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const rows = group.resources.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   // Within an open service the bars rescale to that service, so a $26 OpenSearch resource
-  // is not a sliver just because an unrelated service spent $200.
+  // is not a sliver just because an unrelated service spent $200. Measured across the whole
+  // service rather than the page, so a row keeps its length as the reader pages.
   const maxInGroup =
     group.resources.length > 0 ? Math.max(...group.resources.map((r) => Math.abs(r.cost))) : 0;
 
@@ -493,17 +560,13 @@ const ServiceGroupRow: React.FC<{
             <ResourceRow key={`${r.resourceId}-${r.region}`} r={r} max={maxInGroup} />
           ))}
 
-          {group.resources.length > PAGE && (
-            <button
-              type="button"
-              onClick={onToggleShowAll}
-              className="ml-2 mt-1 text-[11.5px] font-medium text-[#1A56C4] hover:underline"
-            >
-              {showAll
-                ? 'Show less'
-                : `Show all ${group.resources.length} in ${group.service}`}
-            </button>
-          )}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={group.resources.length}
+            itemsPerPage={PAGE_SIZE}
+            onPageChange={onPageChange}
+          />
         </div>
       )}
     </div>
