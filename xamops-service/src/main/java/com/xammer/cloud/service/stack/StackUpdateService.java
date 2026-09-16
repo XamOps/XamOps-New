@@ -16,6 +16,7 @@ import software.amazon.awssdk.services.cloudformation.model.DescribeChangeSetRes
 import software.amazon.awssdk.services.cloudformation.model.DescribeStackEventsRequest;
 import software.amazon.awssdk.services.cloudformation.model.DescribeStacksRequest;
 import software.amazon.awssdk.services.cloudformation.model.ExecuteChangeSetRequest;
+import software.amazon.awssdk.services.cloudformation.model.Output;
 import software.amazon.awssdk.services.cloudformation.model.Parameter;
 import software.amazon.awssdk.services.cloudformation.model.Stack;
 import software.amazon.awssdk.services.cloudformation.model.StackEvent;
@@ -73,6 +74,9 @@ public class StackUpdateService {
      * message naming this role, which the caller turns into a link to deploy it.
      */
     private static final String UPDATER_ROLE_NAME = "XamOpsStackUpdaterRole";
+
+    /** Output a connection stack publishes when it carries its own updater role. */
+    private static final String EMBEDDED_UPDATER_OUTPUT = "XamOpsStackUpdaterRoleArn";
 
     /** How long to wait for a change set to finish computing before giving up. */
     private static final int CHANGE_SET_POLL_ATTEMPTS = 30;
@@ -211,7 +215,7 @@ public class StackUpdateService {
                 .changeSetType(ChangeSetType.UPDATE)
                 .templateURL(templateUrl)
                 .capabilitiesWithStrings(CAPABILITIES.stream().map(Capability::toString).toList())
-                .roleARN(updaterRoleArn(account))
+                .roleARN(updaterRoleArn(account, stack))
                 .parameters(parameters)
                 .build());
 
@@ -390,7 +394,33 @@ public class StackUpdateService {
         }
     }
 
-    private String updaterRoleArn(CloudAccount account) {
+    /**
+     * The role CloudFormation should assume to apply this stack's change set.
+     *
+     * <p>Two places it can come from, tried in order:
+     * <ol>
+     * <li>The stack's own {@code XamOpsStackUpdaterRoleArn} output. Onboarding templates now
+     * create the updater role inside the connection stack, with a generated name, so an
+     * account connected after that needs no separate grant at all.</li>
+     * <li>The fixed {@link #UPDATER_ROLE_NAME}, created by xamops-stack-updater.yml. The only
+     * route for an account connected earlier, whose stack predates the embedded role.</li>
+     * </ol>
+     *
+     * <p>The embedded role is deliberately not given the fixed name. That account's first
+     * upgrade runs through the separately deployed XamOpsStackUpdaterRole and installs the
+     * embedded one; had both been called XamOpsStackUpdaterRole, that upgrade would have
+     * failed creating a role that already exists. Reading the output is what lets the two
+     * coexist, and every later update then uses the role the stack owns.
+     */
+    private String updaterRoleArn(CloudAccount account, Stack stack) {
+        if (stack.hasOutputs()) {
+            for (Output output : stack.outputs()) {
+                if (EMBEDDED_UPDATER_OUTPUT.equals(output.outputKey())
+                        && output.outputValue() != null && !output.outputValue().isBlank()) {
+                    return output.outputValue();
+                }
+            }
+        }
         return "arn:aws:iam::" + account.getAwsAccountId() + ":role/" + UPDATER_ROLE_NAME;
     }
 

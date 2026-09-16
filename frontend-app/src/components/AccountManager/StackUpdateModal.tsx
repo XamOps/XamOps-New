@@ -44,7 +44,12 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
   const [phase, setPhase] = useState<Phase>('previewing');
   const [preview, setPreview] = useState<StackUpdatePreview | null>(null);
   const [progress, setProgress] = useState<StackUpdateProgress | null>(null);
-  const [error, setError] = useState<{ message: string; remedy?: string } | null>(null);
+  const [error, setError] = useState<{
+    message: string;
+    remedy?: string;
+    grantUrl?: string;
+    grantRoleName?: string;
+  } | null>(null);
   const pollRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -58,7 +63,7 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
       .catch((e: unknown) => {
         if (cancelled) return;
         const err = e as StackUpdateError;
-        setError({ message: err.message, remedy: err.remedy });
+        setError({ message: err.message, remedy: err.remedy, grantUrl: err.grantUrl, grantRoleName: err.grantRoleName });
         setPhase('refused');
       });
     return () => {
@@ -101,7 +106,7 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
       startPolling();
     } catch (e: unknown) {
       const err = e as StackUpdateError;
-      setError({ message: err.message, remedy: err.remedy });
+      setError({ message: err.message, remedy: err.remedy, grantUrl: err.grantUrl, grantRoleName: err.grantRoleName });
       setPhase('refused');
     }
   };
@@ -171,6 +176,29 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
                     What to do
                   </p>
                   <p className="text-[13px] text-black mt-1">{error.remedy}</p>
+                  {/* The one-click fix for an account connected before onboarding carried the
+                      updater. Opens AWS rather than acting, because no role can grant itself
+                      permissions — someone with access to the account has to approve it. */}
+                  {error.grantUrl && (
+                    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+                      <a
+                        href={error.grantUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[12.5px] font-medium
+                                   bg-[rgba(0,0,0,0.88)] text-white hover:bg-[rgba(0,0,0,0.75)] transition-colors"
+                      >
+                        <Icon icon="mdi:open-in-new" width={14} />
+                        Approve in AWS console
+                      </a>
+                      {error.grantRoleName && (
+                        <span className="text-[11.5px] text-[rgba(0,0,0,0.45)]">
+                          Grants to role{' '}
+                          <code className="font-mono text-[rgba(0,0,0,0.7)]">{error.grantRoleName}</code>
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
