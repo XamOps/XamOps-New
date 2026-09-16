@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -646,12 +647,18 @@ public class AwsInventoryReconciler {
             case "ec2:volume":
                 awsClientProvider.getEc2Client(account, region).describeVolumesPaginator()
                         .volumes()
-                        .forEach(v -> states.put(v.volumeId(), v.stateAsString()));
+                        .forEach(v -> {
+                            states.put(v.volumeId(), v.stateAsString());
+                            detailsOut.put(v.volumeId(), volumeDetails(v));
+                        });
                 break;
             case "rds:db":
                 awsClientProvider.getRdsClient(account, region).describeDBInstancesPaginator()
                         .dbInstances()
-                        .forEach(d -> states.put(d.dbInstanceIdentifier(), d.dbInstanceStatus()));
+                        .forEach(d -> {
+                            states.put(d.dbInstanceIdentifier(), d.dbInstanceStatus());
+                            detailsOut.put(d.dbInstanceIdentifier(), dbInstanceDetails(d));
+                        });
                 break;
             case "ec2:elastic-ip":
                 // An unassociated EIP is billed hourly, so this is the value that turns a
@@ -663,7 +670,10 @@ public class AwsInventoryReconciler {
             case "ec2:network-interface":
                 awsClientProvider.getEc2Client(account, region).describeNetworkInterfacesPaginator()
                         .networkInterfaces()
-                        .forEach(n -> states.put(n.networkInterfaceId(), n.statusAsString()));
+                        .forEach(n -> {
+                            states.put(n.networkInterfaceId(), n.statusAsString());
+                            detailsOut.put(n.networkInterfaceId(), networkInterfaceDetails(n));
+                        });
                 break;
             case "acm:certificate":
                 awsClientProvider.getAcmClient(account, region).listCertificatesPaginator()
@@ -738,6 +748,86 @@ public class AwsInventoryReconciler {
             details.put("Security Groups", i.securityGroups().stream()
                     .map(software.amazon.awssdk.services.ec2.model.GroupIdentifier::groupId)
                     .collect(Collectors.joining(", ")));
+        }
+        return details;
+    }
+
+    /**
+     * Details for an EBS volume, carrying the instance it is attached to.
+     *
+     * <p>
+     * {@code CloudMapService} draws {@code EBS Volume -> "attaches to" -> EC2 Instance}
+     * from an {@code "Attached to"} detail. Without it the plane stored no attachment
+     * and the edge was never drawn, so volumes appeared as unrelated strays.
+     */
+    static Map<String, String> volumeDetails(software.amazon.awssdk.services.ec2.model.Volume v) {
+        Map<String, String> details = new HashMap<>();
+        putIfPresent(details, "Size", v.size() == null ? null : v.size() + " GiB");
+        putIfPresent(details, "Type", v.volumeTypeAsString());
+        putIfPresent(details, "Availability Zone", v.availabilityZone());
+        if (v.hasAttachments() && !v.attachments().isEmpty()) {
+            putIfPresent(details, "Attached to", v.attachments().get(0).instanceId());
+        }
+        return details;
+    }
+
+    /**
+     * Details for an RDS instance, carrying its VPC and security groups.
+     *
+     * <p>
+     * The VPC id lives on the DB subnet group rather than the instance, and is absent
+     * for a classic non-VPC instance, so it is read defensively. Only {@code "VPC ID"}
+     * is set and not {@code "Subnet ID"}: a DB subnet group spans several subnets by
+     * design, and {@code CloudMapService.getParent} prefers {@code "Subnet ID"} when
+     * present, which would pin a multi-AZ database inside whichever subnet happened to
+     * be listed first. Placing it directly in the VPC is the honest depiction.
+     */
+    static Map<String, String> dbInstanceDetails(software.amazon.awssdk.services.rds.model.DBInstance d) {
+        Map<String, String> details = new HashMap<>();
+        putIfPresent(details, "Engine", d.engine());
+        putIfPresent(details, "Type", d.dbInstanceClass());
+        if (d.dbSubnetGroup() != null) {
+            putIfPresent(details, "VPC ID", d.dbSubnetGroup().vpcId());
+        }
+        if (d.hasVpcSecurityGroups() && !d.vpcSecurityGroups().isEmpty()) {
+            String sgs = d.vpcSecurityGroups().stream()
+                    .map(software.amazon.awssdk.services.rds.model.VpcSecurityGroupMembership
+                            ::vpcSecurityGroupId)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.joining(", "));
+            if (!sgs.isBlank()) {
+                details.put("Security Groups", sgs);
+            }
+        }
+        return details;
+    }
+
+    /**
+     * Details for an elastic network interface, carrying its VPC and subnet.
+     *
+     * <p>
+     * ENIs are the one resource that makes an in-VPC service visible on the map at all
+     * when the service itself is regional, so their placement details matter more than
+     * most.
+     */
+    static Map<String, String> networkInterfaceDetails(
+            software.amazon.awssdk.services.ec2.model.NetworkInterface n) {
+        Map<String, String> details = new HashMap<>();
+        putIfPresent(details, "VPC ID", n.vpcId());
+        putIfPresent(details, "Subnet ID", n.subnetId());
+        putIfPresent(details, "Private IP", n.privateIpAddress());
+        putIfPresent(details, "Type", n.interfaceTypeAsString());
+        if (n.attachment() != null) {
+            putIfPresent(details, "Attached to", n.attachment().instanceId());
+        }
+        if (n.hasGroups() && !n.groups().isEmpty()) {
+            String sgs = n.groups().stream()
+                    .map(software.amazon.awssdk.services.ec2.model.GroupIdentifier::groupId)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.joining(", "));
+            if (!sgs.isBlank()) {
+                details.put("Security Groups", sgs);
+            }
         }
         return details;
     }

@@ -15,8 +15,11 @@ import software.amazon.awssdk.services.ec2.model.Vpc;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -140,10 +143,13 @@ public class CloudMapService {
                                 Ec2Client ec2Client = awsClientProvider.getEc2Client(account, effectiveRegion);
                                 addVpcAndSubnetNodes(elements, ec2Client, vpcId);
 
-                                relevantResources = allResources.stream()
+                                List<ResourceDto> seeds = allResources.stream()
                                         .filter(r -> r != null && ("ALL".equals(vpcId)
                                                 || vpcId.equals(getDetail(r, "VPC ID")) || vpcId.equals(r.getId())))
                                         .collect(Collectors.toList());
+                                relevantResources = "ALL".equals(vpcId)
+                                        ? seeds
+                                        : withConnectedNeighbours(seeds, allResources);
                             } else {
                                 // --- Global view (non-VPC resources) ---
                                 logger.info("Building global resource graph");
@@ -292,6 +298,89 @@ public class CloudMapService {
                     .map(t -> t.value()).orElse(subnet.subnetId());
             elements.add(createNode(subnet.subnetId(), subnetName, "Subnet", vid, null));
         }
+    }
+
+    /**
+     * Widen a VPC-scoped selection to the resources it is actually wired to.
+     *
+     * <p>
+     * Selecting purely on the {@code "VPC ID"} detail is what made the graph look
+     * disconnected. {@link #createAllEdges} models thirteen relationships, but an edge
+     * only survives rendering if both of its endpoints are present, and most of the
+     * types on the far end of those relationships carry no {@code "VPC ID"} at all.
+     * A load balancer in the VPC therefore lost the chain
+     * {@code Load Balancer -> Target Group -> EC2 Instance} at the first hop, because
+     * the target group was filtered out; the same happened to
+     * {@code EBS Volume -> EC2 Instance} and to every {@code uses SG} edge from RDS or
+     * Lambda. The relationships existed in the model and vanished from the picture.
+     *
+     * <p>
+     * Edges are built once over the whole account and used purely as an adjacency
+     * probe, then any resource sharing an edge with a seed is pulled in. Both
+     * directions matter: a target group names its instances rather than the reverse,
+     * so walking outward from the seeds alone would never reach it.
+     *
+     * <p>
+     * Only a single hop is taken. Two hops would drag in most of the account through
+     * shared security groups and defeat the point of scoping to a VPC. Neighbours
+     * arrive without a {@code "VPC ID"}, so {@link #getParent} leaves them parentless
+     * and the canvas collects them in its global scope box — which is honest: they are
+     * related to this VPC without living inside it.
+     */
+    private List<ResourceDto> withConnectedNeighbours(List<ResourceDto> seeds,
+                                                      List<ResourceDto> allResources) {
+        if (seeds.isEmpty() || allResources.isEmpty()) {
+            return seeds;
+        }
+        Set<String> seedIds = seeds.stream()
+                .filter(Objects::nonNull)
+                .map(ResourceDto::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        List<Map<String, Object>> probe = new ArrayList<>();
+        try {
+            createAllEdges(probe, allResources);
+        } catch (Exception e) {
+            // The adjacency probe is an enhancement; losing it must not lose the graph.
+            logger.warn("Could not probe resource adjacency, showing the VPC alone: {}", e.getMessage());
+            return seeds;
+        }
+
+        Set<String> neighbourIds = new HashSet<>();
+        for (Map<String, Object> edge : probe) {
+            Object raw = edge.get("data");
+            if (!(raw instanceof Map)) {
+                continue;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> data = (Map<String, Object>) raw;
+            Object source = data.get("source");
+            Object target = data.get("target");
+            if (!(source instanceof String) || !(target instanceof String)) {
+                continue;
+            }
+            boolean sourceIsSeed = seedIds.contains(source);
+            boolean targetIsSeed = seedIds.contains(target);
+            if (sourceIsSeed ^ targetIsSeed) {
+                neighbourIds.add((String) (sourceIsSeed ? target : source));
+            }
+        }
+        if (neighbourIds.isEmpty()) {
+            return seeds;
+        }
+
+        List<ResourceDto> widened = new ArrayList<>(seeds);
+        for (ResourceDto r : allResources) {
+            if (r != null && r.getId() != null
+                    && neighbourIds.contains(r.getId())
+                    && !seedIds.contains(r.getId())) {
+                widened.add(r);
+            }
+        }
+        logger.info("VPC selection widened from {} to {} resources by following {} connections",
+                seeds.size(), widened.size(), neighbourIds.size());
+        return widened;
     }
 
     private void createAllEdges(List<Map<String, Object>> elements, List<ResourceDto> resources) {
