@@ -755,6 +755,24 @@ public class DashboardData {
     /** Why analysis was degraded, surfaced verbatim in the UI banner. */
     private String permissionAnalysisNote;
 
+    /**
+     * True when the inventory is complete but the privilege audit is still running.
+     *
+     * <p>
+     * Distinct from {@link #permissionAnalysisDegraded}, which means the audit ran and could
+     * not read everything. This means it has not finished yet, and the risk fields will be
+     * populated by a background pass that rewrites this account's cache entry.
+     *
+     * <p>
+     * The distinction exists because the audit is the expensive half of the scan — two IAM
+     * calls per distinct policy, run serially — and on a large account it does not fit inside
+     * the gateway's timeout. Rather than let the whole request die and show nothing, the
+     * inventory is returned as soon as it is ready. Without this flag the UI could not tell
+     * that apart from an account that genuinely has no risk findings, which would put a clean
+     * bill of health on identities nobody had inspected yet.
+     */
+    private boolean permissionAnalysisPending;
+
     public IamDetail(List<IamUserDetail> users, List<IamRoleDetail> roles) {
       this.users = users;
       this.roles = roles;

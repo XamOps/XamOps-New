@@ -17,6 +17,12 @@ import type { IamUser, IamRole, IamRiskFields, IdentityInventoryResponse } from 
  */
 const REQUEST_TIMEOUT_MS = 120_000;
 
+/** Gap between checks for the background privilege audit's result. */
+const PENDING_POLL_INTERVAL_MS = 15_000;
+
+/** How many times to check before leaving the "still scoring" banner up for good. */
+const PENDING_POLL_LIMIT = 4;
+
 /**
  * Turns a failed response into something worth showing a person.
  *
@@ -27,11 +33,17 @@ const REQUEST_TIMEOUT_MS = 120_000;
  */
 function describeFailure(status: number, body: string): string {
   switch (status) {
-    case 502:
     case 503:
+      // Our own deadline, not the proxy's. The scan was not cancelled — it is still running and
+      // will write its result to the cache — so a retry shortly is genuinely the right advice.
+      return 'The identity scan is taking longer than usual and is still running in the '
+        + 'background. Reload identities in a moment to pick up the result.';
     case 504:
-      return 'The identity scan did not finish in time. Reload identities to try again — the '
-        + 'result is cached once it completes.';
+      // The proxy gave up before the app could answer, so nothing is known about the scan's fate.
+      return 'The request timed out before the server responded. Reload identities to try again.';
+    case 502:
+      return 'The identity scan failed. If this persists, the account\'s role may be missing IAM '
+        + 'read permissions.';
     case 401:
       return 'Your session expired. Sign in again to view identities.';
     case 403:
@@ -100,6 +112,18 @@ export const useUserManagement = () => {
    */
   const [analysisDegraded, setAnalysisDegraded] = useState(false);
   const [analysisNote, setAnalysisNote] = useState<string | null>(null);
+
+  /**
+   * Whether the backend is still scoring this account in the background.
+   *
+   * <p>The audit is the expensive half of the scan, so a large account gets its inventory
+   * returned first and its risk fields shortly after. This drives both the banner and the
+   * bounded poll below, so the badges arrive without the user being told to press anything.
+   */
+  const [analysisPending, setAnalysisPending] = useState(false);
+
+  /** Poll attempts spent waiting for the audit, reset per account. */
+  const pendingPollsRef = useRef(0);
 
   /**
    * Determine provider from cached accounts
@@ -219,6 +243,7 @@ export const useUserManagement = () => {
         setRoles(data.iamDetails.roles || []);
         setAnalysisDegraded(Boolean(data.iamDetails.permissionAnalysisDegraded));
         setAnalysisNote(data.iamDetails.permissionAnalysisNote ?? null);
+        setAnalysisPending(Boolean(data.iamDetails.permissionAnalysisPending));
       } else {
         setUsers([]);
         setRoles([]);
@@ -242,6 +267,34 @@ export const useUserManagement = () => {
         setLoading(false);
       }
     }
+  }, [accountId]);
+
+  /**
+   * Pick up the risk scores once the background audit lands.
+   *
+   * <p>Bounded rather than open-ended: the audit either finishes within a minute or it hit the
+   * analyzer's own document cap, and a poll that never gives up would keep a tab making requests
+   * for as long as it is open. On the last attempt the banner is left in place, which is honest —
+   * the inventory is real, the scoring is not there yet.
+   *
+   * <p>`fetchData(false)` on purpose: the refresh must read the cache the audit writes to. Forcing
+   * a refresh would start a whole new scan and never observe the result it is waiting for.
+   */
+  useEffect(() => {
+    if (!analysisPending || !accountId) return;
+    if (pendingPollsRef.current >= PENDING_POLL_LIMIT) return;
+
+    const timer = window.setTimeout(() => {
+      pendingPollsRef.current += 1;
+      fetchData(false, accountId);
+    }, PENDING_POLL_INTERVAL_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [analysisPending, accountId, fetchData]);
+
+  /** A new account gets a fresh budget of polls. */
+  useEffect(() => {
+    pendingPollsRef.current = 0;
   }, [accountId]);
 
   /**
@@ -404,6 +457,7 @@ export const useUserManagement = () => {
     setFlaggedOnly,
     analysisDegraded,
     analysisNote,
+    analysisPending,
     /**
      * Whether risk scoring ran at all for this provider.
      *

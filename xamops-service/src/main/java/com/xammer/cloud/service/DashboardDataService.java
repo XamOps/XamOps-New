@@ -49,6 +49,7 @@ import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Semaphore;
@@ -2661,6 +2662,55 @@ public class DashboardDataService {
         }
     }
 
+    /**
+     * How long a request will wait for the privilege audit before answering without it.
+     *
+     * <p>
+     * Chosen so the common case is unchanged and the pathological case stops failing. The audit
+     * is two IAM calls per distinct managed policy, run serially against a low-TPS global
+     * endpoint; a typical account finishes inside a couple of seconds and still returns fully
+     * scored. An account with a few hundred distinct policies needs 20-40s on its own, which is
+     * past every timeout between here and the browser — so past this deadline the inventory is
+     * returned and the audit finishes in the background, rewriting the cache entry for the next
+     * load. Comfortably under the ~60s gateway budget, leaving room for the inventory phase.
+     */
+    private static final int AUDIT_WAIT_SECONDS = 12;
+
+    /** Cache lifetime for an IAM scan, in minutes. */
+    private static final int IAM_CACHE_MINUTES = 60;
+
+    /**
+     * Scans in flight, so a retry joins the running scan instead of starting a second one.
+     *
+     * <p>
+     * Without this, the Reload button was a way to make the problem worse: each press queued
+     * another full scan onto the same thread pool and the same IAM throttle budget, so the more
+     * a user retried the slower every attempt became. In-process only — it collapses the retry
+     * storm from one browser, which is the case that actually happens, rather than coordinating
+     * across replicas.
+     */
+    private final Map<String, CompletableFuture<DashboardData.IamDetail>> iamScansInFlight =
+            new ConcurrentHashMap<>();
+
+    /**
+     * IAM identities for an account, with risk scoring when it fits in the time available.
+     *
+     * <p>
+     * Two phases with very different costs. The inventory — list users, list roles, and the
+     * policy/group/MFA lookups per identity — is a few hundred calls on a parallel stream and
+     * lands in seconds. The privilege audit is {@code GetPolicy} plus {@code GetPolicyVersion}
+     * per distinct policy, strictly serial inside {@link IamPrivilegeAnalyzer}, and on a large
+     * estate takes longer than any timeout between this method and the browser.
+     *
+     * <p>
+     * Previously both ran before anything was cached, and the single {@code redisCache.put} was
+     * the last statement in the method. A scan killed at the gateway therefore cached nothing,
+     * so every retry paid the full cost again and the feature could never converge on a warm
+     * cache — the Identity tab was permanently broken for exactly the accounts that most need an
+     * access review. Now the inventory is cached the moment it exists, and the audit is a
+     * separate pass that rewrites the entry when it finishes. The worst case degrades from "no
+     * identities at all" to "identities without risk badges, scored shortly".
+     */
     @Async("backgroundTaskExecutor")
     public CompletableFuture<DashboardData.IamDetail> getIamDetails(CloudAccount account, boolean forceRefresh) {
         // Version suffix bumped when permission-risk fields were added. Entries written by the
@@ -2675,135 +2725,232 @@ public class DashboardDataService {
             }
         }
 
+        // Join a scan already running for this account rather than starting a rival one.
+        //
+        // computeIfAbsent rather than get-then-put: two requests arriving together both saw an
+        // empty map under the naive version and both started a full scan, which is the exact
+        // pile-up this is here to prevent. The mapping function only allocates — the scan itself
+        // runs on the executor — so nothing blocks while the bin lock is held.
+        String inFlightKey = account.getAwsAccountId();
+        return iamScansInFlight.computeIfAbsent(inFlightKey, key -> {
+            logger.info("[IAM] Starting scan for account {} (forceRefresh={})", key, forceRefresh);
+            // backgroundTaskExecutor rather than the common pool. supplyAsync with no executor put
+            // this whole scan on ForkJoinPool.commonPool, where the nested parallelStream calls
+            // compete for the same few workers, every blocking IAM call occupies a carrier thread
+            // with no compensation, and one account's scan slowed every other parallel stream in
+            // the process.
+            CompletableFuture<DashboardData.IamDetail> started = runIamScan(account, cacheKey);
+            // Two-arg remove so a scan that has already been replaced by a newer one cannot evict
+            // its successor on completion.
+            started.whenComplete((r, e) -> iamScansInFlight.remove(key, started));
+            return started;
+        });
+    }
+
+    /**
+     * Inventory, then as much of the audit as fits in {@link #AUDIT_WAIT_SECONDS}.
+     *
+     * <p>
+     * Composed rather than blocking on {@code get(timeout)}. Waiting synchronously would park a
+     * pool thread for the whole deadline, and the audit it is waiting for runs on that same pool —
+     * so under load the waiters could occupy every thread while the work they need sits in the
+     * queue behind them. {@code completeOnTimeout} hands back the inventory without anyone
+     * waiting, and the audit continues to its own cache write regardless.
+     */
+    private CompletableFuture<DashboardData.IamDetail> runIamScan(CloudAccount account, String cacheKey) {
+        String accountId = account.getAwsAccountId();
+        IamClient iam = awsClientProvider.getIamClient(account);
+
         return CompletableFuture.supplyAsync(() -> {
-            IamClient iam = awsClientProvider.getIamClient(account);
+            long startedAt = System.currentTimeMillis();
+            DashboardData.IamDetail inventory = scanIamInventory(iam, account);
+            logger.info("[IAM] Inventory for account {} took {} ms ({} users, {} roles)",
+                    accountId, System.currentTimeMillis() - startedAt,
+                    inventory.getUsers().size(), inventory.getRoles().size());
 
-            // Group policies, resolved once per group and shared across its members.
-            //
-            // Groups are the normal place administrator access is granted, so without these the
-            // permission audit would clear the account's actual administrators. Cached because
-            // membership overlaps heavily — an account with 60 users typically has a handful of
-            // groups, and resolving per user would repeat the same two calls dozens of times.
-            // ConcurrentHashMap because the user mapping below runs on a parallel stream.
-            java.util.Map<String, List<DashboardData.IamPolicyDetail>> groupPolicyCache =
-                    new java.util.concurrent.ConcurrentHashMap<>();
-            java.util.function.Function<String, List<DashboardData.IamPolicyDetail>> policiesForGroup =
-                    groupName -> groupPolicyCache.computeIfAbsent(groupName, g -> {
-                        List<DashboardData.IamPolicyDetail> inherited = new ArrayList<>();
-                        inherited.addAll(quietly(
-                                () -> iam.listAttachedGroupPolicies(r -> r.groupName(g)).attachedPolicies()
-                                        .stream()
-                                        .map(p -> new DashboardData.IamPolicyDetail(
-                                                p.policyName(), p.policyArn(), "Managed", g))
-                                        .collect(Collectors.toList()),
-                                new ArrayList<>(), "attached policies for group " + g));
-                        inherited.addAll(quietly(
-                                () -> iam.listGroupPolicies(r -> r.groupName(g)).policyNames().stream()
-                                        .map(p -> new DashboardData.IamPolicyDetail(p, null, "Inline", g))
-                                        .collect(Collectors.toList()),
-                                new ArrayList<>(), "inline policies for group " + g));
-                        return inherited;
-                    });
-
-            // Each sub-call is guarded separately rather than the identity as a whole. Previously a
-            // single failure — typically AccessDenied, because the read-only onboarding role did
-            // not grant iam:ListAttachedUserPolicies — discarded the user entirely, so an account
-            // missing one permission rendered an empty user list instead of a partial one. Dropping
-            // an identity from a security view is the worst possible failure mode: it reports
-            // "nobody here" rather than "could not read this".
-            // Paginated. iam.listUsers() returns one page — 100 users by default — and IAM does
-            // not warn about the rest, so on any account past that boundary the Identity tab was
-            // silently reporting a subset of the estate as if it were the whole thing. On a
-            // security view that is worse than an error: the administrator who was never listed
-            // reads as an administrator who does not exist.
-            List<software.amazon.awssdk.services.iam.model.User> allUsers = new ArrayList<>();
-            iam.listUsersPaginator().users().forEach(allUsers::add);
-
-            List<DashboardData.IamUserDetail> users = allUsers.parallelStream().map(user -> {
-                List<String> groups = quietly(
-                        () -> iam.listGroupsForUser(r -> r.userName(user.userName()))
-                                .groups().stream().map(g -> g.groupName()).collect(Collectors.toList()),
-                        new ArrayList<>(), "groups for user " + user.userName());
-
-                List<DashboardData.IamPolicyDetail> policies = new ArrayList<>();
-                policies.addAll(quietly(
-                        () -> iam.listAttachedUserPolicies(r -> r.userName(user.userName())).attachedPolicies()
-                                .stream()
-                                .map(p -> new DashboardData.IamPolicyDetail(p.policyName(), p.policyArn(), "Managed"))
-                                .collect(Collectors.toList()),
-                        new ArrayList<>(), "attached policies for user " + user.userName()));
-                policies.addAll(quietly(
-                        () -> iam.listUserPolicies(r -> r.userName(user.userName())).policyNames().stream()
-                                .map(p -> new DashboardData.IamPolicyDetail(p, null, "Inline"))
-                                .collect(Collectors.toList()),
-                        new ArrayList<>(), "inline policies for user " + user.userName()));
-
-                // Merged into the same list so the analyzer scores effective permission rather
-                // than directly-attached permission. Each carries inheritedFrom, so the card can
-                // still say the grant lives on the group.
-                for (String group : groups) {
-                    policies.addAll(policiesForGroup.apply(group));
-                }
-
-                boolean mfaEnabled = quietly(
-                        () -> !iam.listMFADevices(r -> r.userName(user.userName())).mfaDevices().isEmpty(),
-                        false, "MFA devices for user " + user.userName());
-
-                return new DashboardData.IamUserDetail(
-                        user.userName(), user.userId(), user.arn(),
-                        user.createDate().toString(),
-                        user.passwordLastUsed() != null ? user.passwordLastUsed().toString() : "Never",
-                        groups, policies, mfaEnabled);
-            }).collect(Collectors.toList());
-
-            // Paginated for the same reason as users above. Roles hit the 100 boundary sooner than
-            // users on most accounts, because every service integration leaves one behind.
-            List<software.amazon.awssdk.services.iam.model.Role> allRoles = new ArrayList<>();
-            iam.listRolesPaginator().roles().forEach(allRoles::add);
-
-            List<DashboardData.IamRoleDetail> roles = allRoles.parallelStream()
-                    .filter(r -> !r.path().startsWith("/aws-service-role/"))
-                    .map(role -> {
-                        List<DashboardData.IamPolicyDetail> policies = new ArrayList<>();
-                        policies.addAll(quietly(
-                                () -> iam.listAttachedRolePolicies(r -> r.roleName(role.roleName()))
-                                        .attachedPolicies().stream()
-                                        .map(p -> new DashboardData.IamPolicyDetail(p.policyName(), p.policyArn(),
-                                                "Managed"))
-                                        .collect(Collectors.toList()),
-                                new ArrayList<>(), "attached policies for role " + role.roleName()));
-                        policies.addAll(quietly(
-                                () -> iam.listRolePolicies(r -> r.roleName(role.roleName())).policyNames().stream()
-                                        .map(p -> new DashboardData.IamPolicyDetail(p, null, "Inline"))
-                                        .collect(Collectors.toList()),
-                                new ArrayList<>(), "inline policies for role " + role.roleName()));
-
-                        return new DashboardData.IamRoleDetail(
-                                role.roleName(), role.roleId(), role.arn(),
-                                role.createDate().toString(), role.description(), policies);
-                    }).collect(Collectors.toList());
-
-            DashboardData.IamDetail details = new DashboardData.IamDetail(users, roles);
-
-            // Reuses the client above so the audit shares this scan's credentials and throttle
-            // budget. Wrapped because an audit failure must not cost the customer the inventory
-            // they came for — a list with no risk badges still beats an empty Identity tab.
-            try {
-                var outcome = iamPrivilegeAnalyzer.analyze(iam, users, roles);
-                details.setPermissionAnalysisDegraded(outcome.degraded());
-                details.setPermissionAnalysisNote(outcome.note());
-            } catch (Exception e) {
-                logger.error("IAM privilege analysis failed for account {}; serving inventory without "
-                        + "risk scoring.", account.getAwsAccountId(), e);
-                details.setPermissionAnalysisDegraded(true);
-                details.setPermissionAnalysisNote(
-                        "Permission analysis did not complete for this account, so identities are shown "
-                                + "without a risk assessment.");
+            // Cached before the audit runs, which is the whole point: from here on, a timeout
+            // costs the risk badges rather than the entire page.
+            inventory.setPermissionAnalysisPending(true);
+            inventory.setPermissionAnalysisNote(
+                    "Identities are listed. The access assessment is still running and will appear here "
+                            + "shortly.");
+            redisCache.put(cacheKey, inventory, IAM_CACHE_MINUTES);
+            return inventory;
+        }, backgroundTaskExecutor).thenCompose(inventory -> {
+            // The analyzer mutates the DTOs it is given, so it gets its own copy. Handing it the
+            // objects that may be serialized into a response would mean writing risk fields on one
+            // thread while Jackson reads them on another.
+            DashboardData.IamDetail auditTarget = copyForAudit(inventory);
+            if (auditTarget == null) {
+                return CompletableFuture.completedFuture(inventory);
             }
 
-            redisCache.put(cacheKey, details, 60);
-            return details;
+            CompletableFuture<DashboardData.IamDetail> audit = CompletableFuture.supplyAsync(() -> {
+                long auditStart = System.currentTimeMillis();
+                try {
+                    var outcome = iamPrivilegeAnalyzer.analyze(iam, auditTarget.getUsers(), auditTarget.getRoles());
+                    auditTarget.setPermissionAnalysisDegraded(outcome.degraded());
+                    auditTarget.setPermissionAnalysisNote(outcome.note());
+                } catch (Exception e) {
+                    logger.error("[IAM] Privilege analysis failed for account {}; serving inventory without "
+                            + "risk scoring.", accountId, e);
+                    auditTarget.setPermissionAnalysisDegraded(true);
+                    auditTarget.setPermissionAnalysisNote(
+                            "Permission analysis did not complete for this account, so identities are shown "
+                                    + "without a risk assessment.");
+                }
+                auditTarget.setPermissionAnalysisPending(false);
+                // Overwrites the inventory-only entry written above, so the next load is fully
+                // scored whether or not the request that started this is still listening.
+                redisCache.put(cacheKey, auditTarget, IAM_CACHE_MINUTES);
+                logger.info("[IAM] Privilege audit for account {} took {} ms", accountId,
+                        System.currentTimeMillis() - auditStart);
+                return auditTarget;
+            }, backgroundTaskExecutor);
+
+            return audit.completeOnTimeout(inventory, AUDIT_WAIT_SECONDS, TimeUnit.SECONDS);
         });
+    }
+
+    /**
+     * Deep copy via the cache's own serializer.
+     *
+     * <p>
+     * Round-tripping JSON rather than writing a copy constructor per DTO: these types already
+     * have to survive that round trip to be cacheable, so a copy that fails here would be a
+     * caching bug worth failing loudly on. Returns null when it cannot copy, and the caller
+     * skips the audit rather than risk handing the analyzer the live objects.
+     */
+    private DashboardData.IamDetail copyForAudit(DashboardData.IamDetail source) {
+        try {
+            return objectMapper.readValue(
+                    objectMapper.writeValueAsString(source), DashboardData.IamDetail.class);
+        } catch (Exception e) {
+            logger.error("[IAM] Could not copy inventory for the privilege audit; skipping scoring.", e);
+            return null;
+        }
+    }
+
+    /**
+     * The inventory half: who exists, what is attached to them, and whether they carry MFA.
+     *
+     * <p>
+     * No policy documents are read here — that is the audit's job, and keeping the two apart is
+     * what lets the cheap half be cached on its own.
+     */
+    private DashboardData.IamDetail scanIamInventory(IamClient iam, CloudAccount account) {
+        // Group policies, resolved once per group and shared across its members.
+        //
+        // Groups are the normal place administrator access is granted, so without these the
+        // permission audit would clear the account's actual administrators. Cached because
+        // membership overlaps heavily — an account with 60 users typically has a handful of
+        // groups, and resolving per user would repeat the same two calls dozens of times.
+        // ConcurrentHashMap because the user mapping below runs on a parallel stream.
+        java.util.Map<String, List<DashboardData.IamPolicyDetail>> groupPolicyCache =
+                new java.util.concurrent.ConcurrentHashMap<>();
+        java.util.function.Function<String, List<DashboardData.IamPolicyDetail>> policiesForGroup =
+                groupName -> groupPolicyCache.computeIfAbsent(groupName, g -> {
+                    List<DashboardData.IamPolicyDetail> inherited = new ArrayList<>();
+                    inherited.addAll(quietly(
+                            () -> iam.listAttachedGroupPolicies(r -> r.groupName(g)).attachedPolicies()
+                                    .stream()
+                                    .map(p -> new DashboardData.IamPolicyDetail(
+                                            p.policyName(), p.policyArn(), "Managed", g))
+                                    .collect(Collectors.toList()),
+                            new ArrayList<>(), "attached policies for group " + g));
+                    inherited.addAll(quietly(
+                            () -> iam.listGroupPolicies(r -> r.groupName(g)).policyNames().stream()
+                                    .map(p -> new DashboardData.IamPolicyDetail(p, null, "Inline", g))
+                                    .collect(Collectors.toList()),
+                            new ArrayList<>(), "inline policies for group " + g));
+                    return inherited;
+                });
+
+        // Each sub-call is guarded separately rather than the identity as a whole. Previously a
+        // single failure — typically AccessDenied, because the read-only onboarding role did
+        // not grant iam:ListAttachedUserPolicies — discarded the user entirely, so an account
+        // missing one permission rendered an empty user list instead of a partial one. Dropping
+        // an identity from a security view is the worst possible failure mode: it reports
+        // "nobody here" rather than "could not read this".
+        // Paginated. iam.listUsers() returns one page — 100 users by default — and IAM does
+        // not warn about the rest, so on any account past that boundary the Identity tab was
+        // silently reporting a subset of the estate as if it were the whole thing. On a
+        // security view that is worse than an error: the administrator who was never listed
+        // reads as an administrator who does not exist.
+        List<software.amazon.awssdk.services.iam.model.User> allUsers = new ArrayList<>();
+        iam.listUsersPaginator().users().forEach(allUsers::add);
+
+        List<DashboardData.IamUserDetail> users = allUsers.parallelStream().map(user -> {
+            List<String> groups = quietly(
+                    () -> iam.listGroupsForUser(r -> r.userName(user.userName()))
+                            .groups().stream().map(g -> g.groupName()).collect(Collectors.toList()),
+                    new ArrayList<>(), "groups for user " + user.userName());
+
+            List<DashboardData.IamPolicyDetail> policies = new ArrayList<>();
+            policies.addAll(quietly(
+                    () -> iam.listAttachedUserPolicies(r -> r.userName(user.userName())).attachedPolicies()
+                            .stream()
+                            .map(p -> new DashboardData.IamPolicyDetail(p.policyName(), p.policyArn(), "Managed"))
+                            .collect(Collectors.toList()),
+                    new ArrayList<>(), "attached policies for user " + user.userName()));
+            policies.addAll(quietly(
+                    () -> iam.listUserPolicies(r -> r.userName(user.userName())).policyNames().stream()
+                            .map(p -> new DashboardData.IamPolicyDetail(p, null, "Inline"))
+                            .collect(Collectors.toList()),
+                    new ArrayList<>(), "inline policies for user " + user.userName()));
+
+            // Merged into the same list so the analyzer scores effective permission rather
+            // than directly-attached permission. Each carries inheritedFrom, so the card can
+            // still say the grant lives on the group. Copied per user, because the analyzer
+            // writes its verdict onto these objects and sharing one instance across every
+            // member of a group would have them racing on the same fields.
+            for (String group : groups) {
+                for (DashboardData.IamPolicyDetail inherited : policiesForGroup.apply(group)) {
+                    policies.add(new DashboardData.IamPolicyDetail(
+                            inherited.getPolicyName(), inherited.getPolicyArn(),
+                            inherited.getType(), inherited.getInheritedFrom()));
+                }
+            }
+
+            boolean mfaEnabled = quietly(
+                    () -> !iam.listMFADevices(r -> r.userName(user.userName())).mfaDevices().isEmpty(),
+                    false, "MFA devices for user " + user.userName());
+
+            return new DashboardData.IamUserDetail(
+                    user.userName(), user.userId(), user.arn(),
+                    user.createDate().toString(),
+                    user.passwordLastUsed() != null ? user.passwordLastUsed().toString() : "Never",
+                    groups, policies, mfaEnabled);
+        }).collect(Collectors.toList());
+
+        // Paginated for the same reason as users above. Roles hit the 100 boundary sooner than
+        // users on most accounts, because every service integration leaves one behind.
+        List<software.amazon.awssdk.services.iam.model.Role> allRoles = new ArrayList<>();
+        iam.listRolesPaginator().roles().forEach(allRoles::add);
+
+        List<DashboardData.IamRoleDetail> roles = allRoles.parallelStream()
+                .filter(r -> !r.path().startsWith("/aws-service-role/"))
+                .map(role -> {
+                    List<DashboardData.IamPolicyDetail> policies = new ArrayList<>();
+                    policies.addAll(quietly(
+                            () -> iam.listAttachedRolePolicies(r -> r.roleName(role.roleName()))
+                                    .attachedPolicies().stream()
+                                    .map(p -> new DashboardData.IamPolicyDetail(p.policyName(), p.policyArn(),
+                                            "Managed"))
+                                    .collect(Collectors.toList()),
+                            new ArrayList<>(), "attached policies for role " + role.roleName()));
+                    policies.addAll(quietly(
+                            () -> iam.listRolePolicies(r -> r.roleName(role.roleName())).policyNames().stream()
+                                    .map(p -> new DashboardData.IamPolicyDetail(p, null, "Inline"))
+                                    .collect(Collectors.toList()),
+                            new ArrayList<>(), "inline policies for role " + role.roleName()));
+
+                    return new DashboardData.IamRoleDetail(
+                            role.roleName(), role.roleId(), role.arn(),
+                            role.createDate().toString(), role.description(), policies);
+                }).collect(Collectors.toList());
+
+        return new DashboardData.IamDetail(users, roles);
     }
 
     @Async("backgroundTaskExecutor")
