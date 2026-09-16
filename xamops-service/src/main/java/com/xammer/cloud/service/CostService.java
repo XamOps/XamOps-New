@@ -154,8 +154,9 @@ public class CostService {
                         }
                         try {
                                 Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
-                                if (dbCached.isPresent()) {
-                                        Double dbData = objectMapper.readValue(dbCached.get().getJsonData(), Double.class);
+                                String dbJson = dbCached.map(snapshotService::resolvePayload).orElse(null);
+                                if (dbJson != null) {
+                                        Double dbData = objectMapper.readValue(dbJson, Double.class);
                                         if (dbData != null) {
                                                 redisCache.put(cacheKey, dbData, 60 * 24);
                                                 logger.info("✅ DB snapshot hit for MTD cost — re-warmed Redis: {}", dbKey);
@@ -297,8 +298,9 @@ public class CostService {
                         }
                         try {
                                 Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
-                                if (dbCached.isPresent()) {
-                                        Double dbData = objectMapper.readValue(dbCached.get().getJsonData(), Double.class);
+                                String dbJson = dbCached.map(snapshotService::resolvePayload).orElse(null);
+                                if (dbJson != null) {
+                                        Double dbData = objectMapper.readValue(dbJson, Double.class);
                                         if (dbData != null) {
                                                 redisCache.put(cacheKey, dbData, 60 * 24);
                                                 logger.info("✅ DB snapshot hit for last month cost — re-warmed Redis: {}", dbKey);
@@ -2027,8 +2029,9 @@ public class CostService {
                         }
                         try {
                                 Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
-                                if (dbSnapshot.isPresent()) {
-                                        Double dbResult = objectMapper.readValue(dbSnapshot.get().getJsonData(), Double.class);
+                                String snapJson = dbSnapshot.map(snapshotService::resolvePayload).orElse(null);
+                                if (snapJson != null) {
+                                        Double dbResult = objectMapper.readValue(snapJson, Double.class);
                                         if (dbResult != null) {
                                                 redisCache.put(cacheKey, dbResult, 60 * 24);
                                                 logger.info("✅ Credits applied loaded from DB for {} — re-warming Redis", accountId);
