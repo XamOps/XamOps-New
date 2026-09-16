@@ -36,6 +36,12 @@ import java.util.Map;
  * environment ends up pointed at another environment's queue. That failure is silent: events
  * go to a queue nobody reads and resources merely appear a minute late.
  *
+ * <p>Updates move the stack onto the template this environment currently publishes, not just
+ * onto new parameter values. The first version re-applied each stack's own template, which
+ * made it structurally unable to deliver the change updates exist for most often: a permission
+ * added to the template. {@code resource-explorer-2:UpdateIndexType} was the case that exposed
+ * it — published to S3, and unreachable by every already-connected account through this path.
+ *
  * <p>Every update goes through a change set rather than {@code UpdateStack} directly. This
  * stack owns the IAM role the whole connection depends on, so showing what will change before
  * it changes is the safety story, and "no changes" comes back as a first-class answer instead
@@ -72,16 +78,39 @@ public class StackUpdateService {
     private static final int CHANGE_SET_POLL_ATTEMPTS = 30;
     private static final long CHANGE_SET_POLL_MS = 1000;
 
+    /**
+     * The roles XamOps assumes — the only ones whose trust policy carries the ExternalId.
+     *
+     * <p>Replacing one deletes and recreates the role the whole connection runs through. Unlike a
+     * policy edit, which applies in place, that leaves the account disconnected for the duration
+     * and permanently so if the create half fails and rolls back. A parameter-only update could
+     * never cause it; a template upgrade can, so it is refused rather than merely shown.
+     */
+    private static final java.util.Set<String> CONNECTION_ROLES =
+            java.util.Set.of("XamOpsReadOnlyRole", "XamOpsReadWriteRole");
+
+    private static final java.time.Duration TEMPLATE_FETCH_TIMEOUT = java.time.Duration.ofSeconds(15);
+
     private final AwsClientProvider awsClientProvider;
     private final StackDiagnosisService diagnosisService;
     private final String inventoryQueueUrl;
+    private final String readOnlyTemplateUrl;
+    private final String readWriteTemplateUrl;
+    private final java.net.http.HttpClient http = java.net.http.HttpClient.newBuilder()
+            .connectTimeout(TEMPLATE_FETCH_TIMEOUT)
+            .followRedirects(java.net.http.HttpClient.Redirect.NORMAL)
+            .build();
 
     public StackUpdateService(AwsClientProvider awsClientProvider,
                               StackDiagnosisService diagnosisService,
-                              @Value("${xamops.inventory.events.queue-url:}") String inventoryQueueUrl) {
+                              @Value("${xamops.inventory.events.queue-url:}") String inventoryQueueUrl,
+                              @Value("${cloudformation.template.s3.url:}") String readOnlyTemplateUrl,
+                              @Value("${cloudformation.template.s3.readwrite.url:}") String readWriteTemplateUrl) {
         this.awsClientProvider = awsClientProvider;
         this.diagnosisService = diagnosisService;
         this.inventoryQueueUrl = inventoryQueueUrl;
+        this.readOnlyTemplateUrl = readOnlyTemplateUrl;
+        this.readWriteTemplateUrl = readWriteTemplateUrl;
     }
 
     /** One resource the change set will touch. */
@@ -123,25 +152,56 @@ public class StackUpdateService {
         Stack stack = cfn.describeStacks(DescribeStacksRequest.builder()
                 .stackName(diagnosis.stackId()).build()).stacks().get(0);
 
+        // Upgrade to the template this environment currently publishes, not merely re-apply the
+        // stack's own. Reusing the previous template could only ever move parameters, so a
+        // permission added to the template — the commonest reason to update at all — never
+        // reached a connected account through this button.
+        String templateUrl = templateUrlFor(account);
+        Map<String, Boolean> declared;
+        try {
+            declared = TemplateParameters.parse(fetchTemplate(templateUrl));
+        } catch (IllegalArgumentException e) {
+            throw new StackUpdateException("TEMPLATE_UNREADABLE",
+                    "The latest template at " + templateUrl + " could not be parsed: " + e.getMessage(),
+                    "Check the published template is valid CloudFormation.");
+        }
+
+        Map<String, String> existingValues = new LinkedHashMap<>();
+        for (Parameter p : stack.parameters()) {
+            existingValues.put(p.parameterKey(), p.parameterValue());
+        }
+
         Map<String, String> desired = desiredParameters();
         List<ParameterChange> parameterChanges = new ArrayList<>();
         List<Parameter> parameters = new ArrayList<>();
 
-        for (Parameter existing : stack.parameters()) {
-            String key = existing.parameterKey();
+        // Driven by what the NEW template declares, never by what the old stack held. Passing a
+        // parameter the new template dropped fails as "does not exist in the template"; omitting
+        // one it added without a default fails as missing. Walking the declared list avoids both.
+        for (Map.Entry<String, Boolean> param : declared.entrySet()) {
+            String key = param.getKey();
             String want = desired.get(key);
-            if (want == null) {
+
+            if (want != null) {
+                if (!want.equals(existingValues.get(key))) {
+                    parameterChanges.add(new ParameterChange(key, existingValues.get(key), want));
+                }
+                parameters.add(Parameter.builder().parameterKey(key).parameterValue(want).build());
+            } else if (existingValues.containsKey(key)) {
                 // Everything this environment does not dictate keeps what the stack has —
                 // ExternalId above all, because rewriting it changes the role's trust policy
                 // and disconnects the account with nothing failing to say so.
                 parameters.add(Parameter.builder()
                         .parameterKey(key).usePreviousValue(true).build());
-                continue;
+            } else if (!param.getValue()) {
+                // New in this template, with no default, and nothing here to supply it. Refused
+                // before CloudFormation is asked, so the message can name the parameter.
+                throw new StackUpdateException("NEW_REQUIRED_PARAMETER",
+                        "The latest template adds a required parameter, " + key
+                                + ", that this stack has no value for.",
+                        "Give " + key + " a default in the template, or set it on the stack by hand.");
             }
-            if (!want.equals(existing.parameterValue())) {
-                parameterChanges.add(new ParameterChange(key, existing.parameterValue(), want));
-            }
-            parameters.add(Parameter.builder().parameterKey(key).parameterValue(want).build());
+            // Otherwise new with a default: left out so CloudFormation applies the default.
         }
 
         String changeSetName = "xamops-" + Instant.now().toEpochMilli();
@@ -149,7 +209,7 @@ public class StackUpdateService {
                 .stackName(diagnosis.stackId())
                 .changeSetName(changeSetName)
                 .changeSetType(ChangeSetType.UPDATE)
-                .usePreviousTemplate(true)
+                .templateURL(templateUrl)
                 .capabilitiesWithStrings(CAPABILITIES.stream().map(Capability::toString).toList())
                 .roleARN(updaterRoleArn(account))
                 .parameters(parameters)
@@ -179,6 +239,21 @@ public class StackUpdateService {
                 .map(rc -> new ResourceChange(rc.logicalResourceId(), rc.resourceType(),
                         rc.actionAsString(), rc.replacementAsString()))
                 .toList();
+
+        // Refuse rather than preview. Showing the replacement and trusting someone to notice it
+        // among a list of IAM changes is not a safety mechanism for the one change that
+        // disconnects the account.
+        for (ResourceChange rc : resourceChanges) {
+            if (CONNECTION_ROLES.contains(rc.logicalId()) && "True".equalsIgnoreCase(rc.replacement())) {
+                cleanUp(cfn, described.changeSetId());
+                throw new StackUpdateException("WOULD_REPLACE_CONNECTION_ROLE",
+                        "This update would replace " + rc.logicalId() + ", the role XamOps connects "
+                                + "through. That deletes and recreates it, disconnecting the account "
+                                + "while it runs and permanently if the recreate fails.",
+                        "Change the template so " + rc.logicalId() + " is modified in place — "
+                                + "replacement is usually caused by editing RoleName or Path.");
+            }
+        }
 
         logger.info("[stack] Preview for {} — {} parameter change(s), {} resource change(s)",
                 account.getAwsAccountId(), parameterChanges.size(), resourceChanges.size());
@@ -262,6 +337,57 @@ public class StackUpdateService {
             }
         }
         return desired;
+    }
+
+    /**
+     * The template this environment publishes for the account's access level.
+     *
+     * <p>Chosen by access type, the same comparison {@code AwsAccountService} uses when it
+     * builds the onboarding link, so an update lands on the template the account would get if
+     * it connected today — never a read-write template on a read-only account.
+     */
+    private String templateUrlFor(CloudAccount account) {
+        boolean readWrite = "read-write".equalsIgnoreCase(account.getAccessType());
+        String url = readWrite ? readWriteTemplateUrl : readOnlyTemplateUrl;
+        if (url == null || url.isBlank()) {
+            throw new StackUpdateException("TEMPLATE_NOT_CONFIGURED",
+                    "No " + (readWrite ? "read-write" : "read-only")
+                            + " template is configured for this environment.",
+                    "Set cloudformation.template.s3." + (readWrite ? "readwrite.url" : "url") + ".");
+        }
+        return url.trim();
+    }
+
+    /**
+     * The template body, read from its published URL.
+     *
+     * <p>Fetched rather than trusted blind for two reasons. Its parameter list decides what the
+     * change set may pass, and a URL that does not resolve should fail here with the URL named,
+     * not deep inside CreateChangeSet with a message that omits it. That second case is real:
+     * UAT's read-write template has been referenced by configuration without being published.
+     */
+    private String fetchTemplate(String url) {
+        try {
+            java.net.http.HttpResponse<String> response = http.send(
+                    java.net.http.HttpRequest.newBuilder(java.net.URI.create(url))
+                            .timeout(TEMPLATE_FETCH_TIMEOUT).GET().build(),
+                    java.net.http.HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                throw new StackUpdateException("TEMPLATE_UNAVAILABLE",
+                        "The latest template could not be read (HTTP " + response.statusCode() + "): " + url,
+                        "Publish the template at that URL, or correct the configured URL.");
+            }
+            return response.body();
+        } catch (StackUpdateException e) {
+            throw e;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new StackUpdateException("INTERRUPTED", "Interrupted while reading the template.", null);
+        } catch (Exception e) {
+            throw new StackUpdateException("TEMPLATE_UNAVAILABLE",
+                    "The latest template could not be read: " + url + " (" + e.getMessage() + ")",
+                    "Check that the template URL is reachable.");
+        }
     }
 
     private String updaterRoleArn(CloudAccount account) {
