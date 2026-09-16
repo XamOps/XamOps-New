@@ -908,7 +908,142 @@ Resources:
       TemplateURL: !Ref XamOpsCurReportTemplateUrl
       TimeoutInMinutes: 15
 
+  # ===================================================================================
+  # Stack updates from the XamOps console
+  #
+  # Lets XamOps bring this stack onto the current template through its Update Stack button,
+  # so new permissions reach a connected account without anyone opening the AWS console.
+  # Granted here at creation because this is the only moment it can be granted without a
+  # manual step: the permission to update a stack lives in the role that stack defines, so
+  # for an account connected before this existed the first grant has to be deployed
+  # separately (xamops-stack-updater.yml).
+  #
+  # Built as a service role rather than granted to XamOps directly. CloudFormation assumes
+  # this role to do the work, so XamOps itself holds only change-set actions and iam:PassRole
+  # on this one role, never iam:CreateRole. iam:PassRole to a privileged role is still a real
+  # escalation path; scoped to one role and one service principal it is the standard AWS
+  # pattern, and every change lands in this account's own stack event history.
+  # ===================================================================================
+  XamOpsConnectionUpdaterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      # No RoleName, on purpose. An account connected before this existed gets its first
+      # grant from xamops-stack-updater.yml, which creates a role literally named
+      # XamOpsStackUpdaterRole. A fixed name here would collide with it the first time that
+      # account's stack is upgraded onto this template, failing the very update the grant
+      # exists to enable. XamOps reads the generated name from the XamOpsStackUpdaterRoleArn
+      # output instead.
+      Description: Assumed by CloudFormation to apply XamOps connection stack updates.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'aws:SourceAccount': !Ref 'AWS::AccountId'
+      Policies:
+        - PolicyName: XamOpsConnectionStackResources
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Same scope as xamops-stack-updater.yml, which enumerates every resource type
+              # this stack and its nested stacks create. Reads are included deliberately:
+              # CloudFormation calls them during rollback, and a missing read breaks it.
+              - Sid: NestedStacks
+                Effect: Allow
+                Action: 'cloudformation:*'
+                Resource:
+                  - !Sub 'arn:aws:cloudformation:*:${AWS::AccountId}:stack/${AWS::StackName}*/*'
+                  - !Sub 'arn:aws:cloudformation:*:${AWS::AccountId}:changeSet/*/*'
+              - Sid: ReadXamOpsTemplates
+                Effect: Allow
+                Action: 's3:GetObject'
+                Resource: 'arn:aws:s3:::xamopscftemplate/*'
+              - Sid: ConnectionRolesAndPolicies
+                Effect: Allow
+                Action: 'iam:*'
+                Resource:
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/XamOps*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:policy/XamOps*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/xamops*'
+                  # This role's own generated name starts with the stack name, which is not
+                  # guaranteed to begin with XamOps for a stack someone renamed.
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/${AWS::StackName}*'
+              - Sid: ServiceLinkedRoles
+                Effect: Allow
+                Action: 'iam:CreateServiceLinkedRole'
+                Resource: '*'
+              - Sid: CostAndUsageReport
+                Effect: Allow
+                Action: 'cur:*'
+                Resource: '*'
+              - Sid: ReportBucket
+                Effect: Allow
+                Action: 's3:*'
+                Resource:
+                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}'
+                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/*'
+              - Sid: DataExports
+                Effect: Allow
+                Action: 'bcm-data-exports:*'
+                Resource: '*'
+              - Sid: InventoryEvents
+                Effect: Allow
+                Action:
+                  - 'events:*'
+                  - 'lambda:*'
+                  - 'logs:*'
+                Resource: '*'
+
+  # What XamOps itself gains: proposing and applying a change set on this stack, and nothing
+  # else. A separate policy rather than an edit to the connection role's own, and named
+  # differently from xamops-stack-updater.yml's, so the two can coexist on an account that
+  # has both without either stack deleting the other's grant.
+  XamOpsConnectionUpdatePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: XamOpsConnectionUpdate
+      Roles:
+        - !Ref XamOpsReadOnlyRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ChangeSetsOnThisStackOnly
+            Effect: Allow
+            Action:
+              - 'cloudformation:CreateChangeSet'
+              - 'cloudformation:DescribeChangeSet'
+              - 'cloudformation:ExecuteChangeSet'
+              - 'cloudformation:DeleteChangeSet'
+              - 'cloudformation:DescribeStacks'
+              - 'cloudformation:DescribeStackEvents'
+              - 'cloudformation:DescribeStackResource'
+              - 'cloudformation:DescribeStackResources'
+              - 'cloudformation:GetTemplate'
+              - 'cloudformation:GetTemplateSummary'
+            Resource:
+              - !Sub 'arn:aws:cloudformation:*:${AWS::AccountId}:stack/${AWS::StackName}*/*'
+              - !Sub 'arn:aws:cloudformation:*:${AWS::AccountId}:changeSet/*/*'
+          # Deliberately absent: UpdateStack, CreateStack, DeleteStack. Every change goes
+          # through a change set, so none can skip being written down before it runs.
+          - Sid: HandTheWorkToCloudFormation
+            Effect: Allow
+            Action: 'iam:PassRole'
+            Resource: !GetAtt XamOpsConnectionUpdaterRole.Arn
+            Condition:
+              StringEquals:
+                'iam:PassedToService': 'cloudformation.amazonaws.com'
+
 Outputs:
+  XamOpsStackUpdaterRoleArn:
+    Description: >
+      Role XamOps passes to CloudFormation when updating this stack. Read by XamOps in place of
+      a fixed role name, because this role's name is generated.
+    Value: !GetAtt XamOpsConnectionUpdaterRole.Arn
+
   XamOpsRoleArn:
     Description: The ARN of the IAM role created for the XamOps platform.
     Value: !GetAtt XamOpsReadOnlyRole.Arn
