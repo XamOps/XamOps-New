@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="IAM Policy">
+  <title>IAM Policy</title>
+  <defs>
+    <linearGradient id="g-iam-policy" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#BD0816"/>
+      <stop offset="1" stop-color="#FF5252"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="10" fill="url(#g-iam-policy)"/>
+  <g fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M15 11h11l7 7v19a2 2 0 0 1-2 2H17a2 2 0 0 1-2-2V13a2 2 0 0 1 2-2z"/><path d="M26 11v7h7"/><path d="M19 27.5l3.2 3.2 6.3-6.3"/>
+  </g>
+</svg>

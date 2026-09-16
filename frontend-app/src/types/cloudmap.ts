@@ -4,6 +4,8 @@
  * Type definitions for the CloudMap network visualization feature
  */
 
+import { AWS_SERVICE_ICONS } from '../utils/awsServiceIcons';
+
 export const ALL_VPCS_VALUE = '__ALL__';
 
 export interface VPC {
@@ -130,59 +132,35 @@ export const TAILWIND_COLORS = {
   violet: { 100: '#f5f3ff', 500: '#8b5cf6', 600: '#7c3aed' }
 };
 
+/**
+ * Icons for CloudMap canvas nodes.
+ *
+ * Service coverage comes from the shared resolver so this page and the cloud list
+ * can no longer drift apart — that drift is what left half the cloud list on the
+ * generic AWS mark. The overrides below are deliberate: the canvas draws nodes
+ * small, where AWS's flat line-art resource icons stay legible and gradient tiles
+ * turn to mud.
+ *
+ * Unknown types are intentionally left `undefined`. `canvasTheme.iconLayerUrl`
+ * then falls back to a baked initials glyph in the service hue, which is a better
+ * canvas citizen than one logo repeated across every unrecognised node.
+ */
 export const AWS_ICONS: Record<string, string> = {
-  'VPC': '/icons/vpc.png',
-  'EC2 Instance': '/icons/ec2-instances.png',
+  ...AWS_SERVICE_ICONS,
+
+  // Flat line-art variants, chosen for legibility at node scale.
   'EBS Volume': '/icons/aws-ebs-volume.svg',
-  'RDS Instance': '/icons/rds-instance.png',
   'Lambda Function': '/icons/aws-lambda-function.svg',
-  'Security Group': '/icons/security-group.png',
   'Load Balancer': '/icons/aws-alb.svg',
   'Auto Scaling Group': '/icons/aws-ec2-autoscaling.svg',
-  'ElastiCache Cluster': '/icons/elasticache-cluster.png',
-  'DynamoDB Table': '/icons/dynamodb-table.png',
-  'ECR Repository': '/icons/ecr-repository.png',
   'SNS Topic': '/icons/aws-sns-topic.svg',
   'SQS Queue': '/icons/aws-sqs-queue.svg',
   'CloudWatch Log Group': '/icons/aws-cloudwatch-logs.svg',
-  'CloudTrail': '/icons/cloudtrail.png',
-  'S3 Bucket': '/icons/s3-bucket.png',
   'Route 53 Zone': '/icons/aws-route53-zone.svg',
   'Certificate Manager': '/icons/aws-certificate-manager.svg',
-  'EKS Cluster': '/icons/aws-eks.png',
-  'Lightsail Instance': '/icons/lightsail.png',
-  'Amplify App': '/icons/amplify.png',
   'EFS File System': '/icons/aws-efs.svg',
-  'SSM Managed Instance': '/icons/ssm.png',
-  'AWS Step Functions': '/icons/step-functions.png',
-  'AWS Config': '/icons/Config.png',
-  'Security Hub': '/icons/security-hub.png',
-  'AWS Glue': '/icons/glue.png',
-  'Amazon Athena': '/icons/athena.png',
-  'Amazon Cognito': '/icons/cognito.png',
-  'CloudFront': '/icons/cloudfront.png',
-  'Bedrock': '/icons/bedrock.png',
-  'SageMaker': '/icons/sagemaker.png',
-  'KMS': '/icons/aws-kms.svg',
-  'Internet Gateway': '/icons/internet-gateway.png',
-  'NAT Gateway': '/icons/nat-gateway.png',
-  'Network Interface (ENI)': '/icons/eni.png',
-  'Elastic IP': '/icons/elastic-ip.png',
-  'CloudFormation Stack': '/icons/cloudformation.png',
-  'DataZone Domain': '/icons/datazone.png',
-  'Textract Project': '/icons/textract.png',
   'EventBridge Bus': '/icons/aws-eventbridge.svg',
-  'Kinesis Stream': '/icons/kinesis.png',
-  'CodePipeline': '/icons/codepipeline.png',
-  'CodeBuild Project': '/icons/codebuild.png',
-  'CodeCommit Repository': '/icons/codecommit.png',
-  'AWS Shield Protection': '/icons/shield.png',
-  'Organization Account': '/icons/organizations.png',
-  'Control Tower Control': '/icons/controltower.png',
-  'Elastic Beanstalk Environment': '/icons/elasticbeanstalk.png',
-  'API Gateway': '/icons/api-gateway.png',
-  'ECS Cluster': '/icons/aws-ecs.png',
+  'KMS': '/icons/aws-kms.svg',
+  'DynamoDB Table': '/icons/dynamodb-table.png',
   'Snapshot': '/icons/ebs-snapshot.svg',
-  'AMI': '/icons/ami.png',
-  'WAF Web ACL': '/icons/waf.png',
 };
