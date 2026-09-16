@@ -30,11 +30,24 @@ class CostSourceContextTest {
     }
 
     @Test
+    @DisplayName("Recognises the report-only spellings the FinOps date range sends")
+    void parsesCurOnlySpellings() {
+        // Sent for a custom date range, where the page has told the user the figures come
+        // from the report — so a silent Cost Explorer fallback would misstate the source.
+        assertEquals(CostSourceContext.CUR_ONLY, CostSourceContext.parse("CUR"));
+        assertEquals(CostSourceContext.CUR_ONLY, CostSourceContext.parse("cur"));
+        assertEquals(CostSourceContext.CUR_ONLY, CostSourceContext.parse("CUR_ONLY"));
+        assertEquals(CostSourceContext.CUR_ONLY, CostSourceContext.parse(" CurOnly "));
+    }
+
+    @Test
     @DisplayName("Anything unrecognised falls back to the report rather than erroring")
     void unknownValuesFallBackToAuto() {
         // A typo in a URL must not silently route an account to a different source, and
-        // must not fail the request either.
-        assertEquals(CostSourceContext.AUTO, CostSourceContext.parse("CUR"));
+        // must not fail the request either. The typos are near-misses of real values on
+        // purpose: those are the ones that could plausibly be mistaken for a valid choice.
+        assertEquals(CostSourceContext.AUTO, CostSourceContext.parse("CURR"));
+        assertEquals(CostSourceContext.AUTO, CostSourceContext.parse("C E"));
         assertEquals(CostSourceContext.AUTO, CostSourceContext.parse("nonsense"));
         assertEquals(CostSourceContext.AUTO, CostSourceContext.parse(""));
         assertEquals(CostSourceContext.AUTO, CostSourceContext.parse(null));
