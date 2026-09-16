@@ -20,6 +20,7 @@ import software.amazon.awssdk.services.resourceexplorer2.model.Index;
 import software.amazon.awssdk.services.resourceexplorer2.model.ListIndexesRequest;
 import software.amazon.awssdk.services.resourceexplorer2.model.ListResourcesRequest;
 import software.amazon.awssdk.services.resourceexplorer2.model.ListResourcesResponse;
+import software.amazon.awssdk.services.resourceexplorer2.model.UpdateIndexTypeRequest;
 import software.amazon.awssdk.services.resourceexplorer2.model.Resource;
 import software.amazon.awssdk.services.resourceexplorer2.model.ResourceProperty;
 
@@ -304,11 +305,23 @@ public class AwsInventoryReconciler {
             List<Index> indexes = client.listIndexes(ListIndexesRequest.builder().build()).indexes();
 
             if (indexes == null || indexes.isEmpty()) {
-                // No user-owned index. Search may still return partial results from
-                // Resource Explorer-owned indexes, so it is worth trying the default
-                // region before giving up.
-                log.info("[Inventory] No user-owned index for account {} — attempting partial search",
-                        account.getAwsAccountId());
+                // Resource Explorer was never switched on in this account — nothing in
+                // onboarding turns it on, so this is where a new customer starts.
+                //
+                // Bootstrap it rather than only reporting it. Everything below that closes
+                // index gaps and promotes an aggregator sits after this return, so an
+                // account with no index at all could never reach any of it and would stay
+                // on the partial path permanently, however many times it synced.
+                //
+                // Only the default region is created here. Once one index exists the normal
+                // path takes over on the next pass: createMissingIndexes fans out to the
+                // remaining regions and promoteAggregator promotes one. Creation is
+                // asynchronous, so this pass still returns INDEX_PARTIAL.
+                createMissingIndexes(account, Set.of(defaultRegion));
+                log.info("[Inventory] No user-owned index for account {} — bootstrapping one in {} "
+                        + "and attempting partial search meanwhile. Later syncs will index the "
+                        + "remaining regions and promote an aggregator.",
+                        account.getAwsAccountId(), defaultRegion);
                 return new IndexInfo(defaultRegion, AwsInventorySyncState.INDEX_PARTIAL, null);
             }
 
@@ -345,6 +358,11 @@ public class AwsInventoryReconciler {
             String region = indexedRegions.contains(defaultRegion)
                     ? defaultRegion
                     : regionOf(indexes.get(0));
+
+            // No aggregator anywhere. Promote one, so this account stops being limited to a
+            // single region from the next sync onwards. Takes effect asynchronously, so this
+            // run still reports INDEX_LOCAL and protects the unqueried regions below.
+            promoteAggregator(account, indexes, region);
 
             // Every other region is uncovered, because fetchAll() queries exactly one.
             //
@@ -400,6 +418,79 @@ public class AwsInventoryReconciler {
      *
      * @return regions still uncovered after the attempt
      */
+    /**
+     * Promotes one LOCAL index to AGGREGATOR when the account has none.
+     *
+     * <p>
+     * The companion to {@link #createMissingIndexes}, which assumes "the aggregator already
+     * exists and AWS replicates local indexes into it automatically". That assumption holds
+     * for an account someone had already set up by hand, and is false for every newly
+     * onboarded one — nothing else in the system creates the first aggregator. Without it
+     * {@link #resolveIndex} falls back to querying a single region, so a resource created
+     * anywhere else is not slow to appear, it is permanently invisible. Observed on a fresh
+     * account with 17 LOCAL indexes and no aggregator: a new bucket outside the queried
+     * region never arrived, while an aggregator-backed account in the same environment
+     * reported 2008 resources against its 229.
+     *
+     * <p>
+     * A write in the customer's account, so it matches the conservatism of index creation:
+     * <ul>
+     * <li>Only ever called when no aggregator exists. AWS permits exactly one per account,
+     * and replacing an existing one needs a 24-hour wait after demotion — so a customer's
+     * own choice of aggregator region is never overridden.</li>
+     * <li>Prefers the region this sync already chose to query, so the aggregator lands
+     * where the data is rather than wherever AWS happened to list first.</li>
+     * <li>Treats a conflict as success. Two syncs racing, or a customer promoting one by
+     * hand, both end with an aggregator existing, which is the goal.</li>
+     * <li>Never fails the sync. Without the permission the account simply stays on the
+     * single-region path it was already on.</li>
+     * </ul>
+     *
+     * <p>
+     * Promotion is asynchronous: AWS backfills the other regions over several minutes, and
+     * {@code ListIndexes} keeps reporting LOCAL until it finishes. The caller therefore does
+     * not treat the account as aggregator-backed on this pass — a later sync picks it up
+     * once AWS reports the new type.
+     */
+    private void promoteAggregator(CloudAccount account, List<Index> indexes, String preferredRegion) {
+        if (!autoCreateIndexes || indexes.isEmpty()) {
+            return;
+        }
+
+        Index target = indexes.stream()
+                .filter(i -> preferredRegion.equals(regionOf(i)))
+                .findFirst()
+                .orElse(indexes.get(0));
+        String region = regionOf(target);
+
+        try {
+            ResourceExplorer2Client client = awsClientProvider.getResourceExplorerClient(account, region);
+            client.updateIndexType(UpdateIndexTypeRequest.builder()
+                    .arn(target.arn())
+                    .type("AGGREGATOR")
+                    .build());
+            log.info("[Inventory] Promoted the Resource Explorer index in {} to AGGREGATOR for "
+                    + "account {}. Until AWS finishes backfilling the other regions this sync "
+                    + "stays single-region; the next pass should report AGGREGATOR and the full "
+                    + "resource count.", region, account.getAwsAccountId());
+        } catch (ConflictException e) {
+            // An aggregator appeared between ListIndexes and now, or one was demoted inside
+            // the last 24 hours and AWS is still enforcing the cool-off. Either way there is
+            // nothing useful to do differently on this pass.
+            log.debug("[Inventory] Aggregator promotion in {} for account {} conflicted: {}",
+                    region, account.getAwsAccountId(), e.getMessage());
+        } catch (Exception e) {
+            // Usually AccessDenied on accounts whose onboarding stack predates the
+            // permission. Same handling as CreateIndex: report it and carry on, rather than
+            // failing a sync that can still return this region's resources.
+            log.warn("[Inventory] Could not promote an aggregator index in {} for account {}: {}. "
+                    + "The account stays limited to one region, so resources elsewhere remain "
+                    + "invisible to Resource Explorer. If this is AccessDenied, the customer's "
+                    + "onboarding stack needs resource-explorer-2:UpdateIndexType.",
+                    region, account.getAwsAccountId(), e.getMessage());
+        }
+    }
+
     private Set<String> createMissingIndexes(CloudAccount account, Set<String> missing) {
         if (!autoCreateIndexes || missing.isEmpty()) {
             return missing;

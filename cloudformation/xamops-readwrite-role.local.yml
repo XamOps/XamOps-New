@@ -347,6 +347,18 @@ Resources:
               # Creation is one-time per region and idempotent.
               # ------------------------------------------------------------------
               - 'resource-explorer-2:CreateIndex'
+              # Promote the first index to AGGREGATOR when the account has none.
+              #
+              # CreateIndex alone is not enough. An account with a LOCAL index in every
+              # region and no aggregator is still enumerated one region at a time, so a
+              # resource created anywhere else is not slow to appear - it is invisible.
+              # That is the state every newly onboarded account starts in, and nothing
+              # else creates the first aggregator, so without this the fix stays a manual
+              # per-account chore.
+              #
+              # Only ever used when no aggregator exists; AWS allows one per account and
+              # a customer's own choice is never overridden.
+              - 'resource-explorer-2:UpdateIndexType'
               # Fallback when Resource Explorer is blocked: one call per region.
               - 'tag:GetResources'
               - 'tag:GetTagKeys'
