@@ -89,13 +89,19 @@ export interface IamDetails {
   permissionAnalysisNote?: string | null;
 }
 
-export interface UserManagementData {
-  selectedAccount?: {
-    id: string;
-    name: string;
-    iamDetails?: IamDetails;
-  };
-  selectedProvider?: 'AWS' | 'GCP' | 'Azure';
+/**
+ * Response of `GET /api/xamops/security/identities`.
+ *
+ * <p>Mirrors IdentityInventoryResponse.java. This replaced reading identities out of the full
+ * dashboard aggregate: that endpoint joins ~18 AWS collectors, so the Identity tab waited on
+ * Cost Explorer and waste detection before it could draw an IAM list, and timed out at the
+ * gateway on cold caches.
+ */
+export interface IdentityInventoryResponse {
+  provider?: 'AWS' | 'GCP' | 'Azure';
+  accountId?: string;
+  accountName?: string;
+  iamDetails?: IamDetails | null;
 }
 
 /** A user or a role, for components that render both. */

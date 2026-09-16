@@ -4,7 +4,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.CloudSecurityFinding;
 import com.xammer.cloud.dto.DashboardData;
+import com.xammer.cloud.dto.security.IdentityInventoryResponse;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.CloudListService;
 import com.xammer.cloud.service.security.DetectorCoverageService;
 import com.xammer.cloud.service.security.SecurityFindingProjectionService;
@@ -17,6 +19,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -119,6 +122,112 @@ public class SecurityController {
         // findings list is never shown without saying whether anything was actually watching.
         body.put("coverage", detectorCoverage.coverageFor(cloudAccountId));
         return ResponseEntity.ok(body);
+    }
+
+    /**
+     * IAM identities for the Identity &amp; Access tab, without the rest of the dashboard.
+     *
+     * <p>
+     * The tab previously called {@code /dashboard/data} and used one field of the response.
+     * That endpoint joins ~18 AWS collectors and blocks on all of them, so the identity view
+     * inherited the latency of Cost Explorer, waste detection and reservation analysis; past
+     * the gateway's read timeout the page received nginx's HTML 504 and rendered zero
+     * identities. This path runs the IAM scan alone and nothing else.
+     *
+     * <p>
+     * Returns {@code CompletableFuture} deliberately. Spring applies
+     * {@code spring.mvc.async.request-timeout} to async handlers only, so a scan that does run
+     * long fails as a clean JSON 503 from the app rather than as an HTML error page from the
+     * proxy — which is what made this look like a frontend bug.
+     *
+     * <p>
+     * Only AWS gets the fast path today: GCP and Azure assemble {@code iamDetails} inside their
+     * own dashboard builders, and reusing those would mean refactoring them. They fall through
+     * to the aggregate, exactly as before, so this cannot regress them.
+     */
+    @GetMapping("/identities")
+    public CompletableFuture<ResponseEntity<IdentityInventoryResponse>> identities(
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        CloudAccount account;
+        try {
+            account = resolveOwnedAccount(accountId, userDetails);
+        } catch (SecurityException e) {
+            logger.warn("Rejected identity request for account {} — not owned by client {}",
+                    accountId, userDetails == null ? "?" : userDetails.getClientId());
+            return CompletableFuture.completedFuture(ResponseEntity.status(403).build());
+        } catch (IllegalArgumentException e) {
+            logger.warn("Identity request for unknown account {}", accountId);
+            return CompletableFuture.completedFuture(ResponseEntity.notFound().build());
+        }
+
+        String provider = account.getProvider() == null ? "AWS" : account.getProvider().toUpperCase();
+
+        if ("AWS".equals(provider)) {
+            return dashboardDataService.getIamDetails(account, forceRefresh)
+                    .thenApply(details -> ResponseEntity.ok(new IdentityInventoryResponse(
+                            provider, accountId, account.getAccountName(), details)))
+                    .exceptionally(ex -> {
+                        logger.error("IAM identity scan failed for account {}", accountId, ex);
+                        return ResponseEntity.status(502).build();
+                    });
+        }
+
+        // GCP and Azure: unchanged cost, unchanged behaviour. Pulled from the aggregate so this
+        // endpoint is the single path the frontend needs, rather than the client having to guess
+        // the provider before it knows which URL to call.
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                DashboardData data = dashboardDataService.getDashboardData(accountId, forceRefresh, userDetails);
+                DashboardData.IamDetail details = data.getSelectedAccount() == null
+                        ? null
+                        : data.getSelectedAccount().getIamDetails();
+                String name = data.getSelectedAccount() == null
+                        ? account.getAccountName()
+                        : data.getSelectedAccount().getName();
+                return ResponseEntity.ok(new IdentityInventoryResponse(provider, accountId, name, details));
+            } catch (Exception ex) {
+                logger.error("Identity fetch failed for {} account {}", provider, accountId, ex);
+                return ResponseEntity.status(502).<IdentityInventoryResponse>build();
+            }
+        });
+    }
+
+    /**
+     * Resolves an account and confirms the caller's tenant owns it.
+     *
+     * <p>
+     * The ownership check is here because this endpoint returns who holds administrator access
+     * in a cloud account, which is the last thing that should be readable by account id alone.
+     * Note that the other read endpoints on this controller resolve by id without it — worth
+     * closing separately, but not silently widened by adding another one.
+     *
+     * @throws IllegalArgumentException when no account matches
+     * @throws SecurityException        when the account belongs to a different client
+     */
+    private CloudAccount resolveOwnedAccount(String accountId, ClientUserDetails userDetails) {
+        if (accountId == null || accountId.isBlank()) {
+            throw new IllegalArgumentException("accountId is required");
+        }
+        String id = accountId.contains(",") ? accountId.split(",")[0].trim() : accountId.trim();
+
+        CloudAccount account = cloudAccountRepository.findByProviderAccountId(id)
+                .orElseGet(() -> {
+                    List<CloudAccount> matches = cloudAccountRepository.findByAwsAccountId(id);
+                    if (matches.isEmpty()) {
+                        throw new IllegalArgumentException("No account found for " + id);
+                    }
+                    return matches.get(0);
+                });
+
+        Long owner = account.getClient() == null ? null : account.getClient().getId();
+        Long caller = userDetails == null ? null : userDetails.getClientId();
+        if (owner == null || caller == null || !owner.equals(caller)) {
+            throw new SecurityException("Account " + id + " is not owned by the calling client");
+        }
+        return account;
     }
 
     /**

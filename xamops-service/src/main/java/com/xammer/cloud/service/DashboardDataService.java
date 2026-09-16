@@ -2203,7 +2203,17 @@ public class DashboardDataService {
                 : new ArrayList<>();
         mainAccount.setWastedResources(wastedResources);
         mainAccount.setCloudWatchStatus(new DashboardData.CloudWatchStatus(0, 0, 0));
-        mainAccount.setCostAnomalies(new ArrayList<>());
+        // Carried through instead of blanked. GcpCostService has always detected these — the GCP
+        // FinOps page shows them — but this mapping discarded them, so the unified dashboard reported
+        // every GCP project as having no cost anomalies. That renders the same as a project that was
+        // checked and found clean.
+        mainAccount.setCostAnomalies(gcpData.getCostAnomalies() != null
+                ? gcpData.getCostAnomalies()
+                : new ArrayList<>());
+        if (gcpData.getCostAnomaliesUnavailableReason() != null) {
+            logger.info("[GcpMap] No cost anomalies for {}: {}",
+                    account.getGcpProjectId(), gcpData.getCostAnomaliesUnavailableReason());
+        }
         mainAccount.setEbsRecommendations(new ArrayList<>());
         mainAccount.setLambdaRecommendations(new ArrayList<>());
 
@@ -2711,7 +2721,15 @@ public class DashboardDataService {
             // missing one permission rendered an empty user list instead of a partial one. Dropping
             // an identity from a security view is the worst possible failure mode: it reports
             // "nobody here" rather than "could not read this".
-            List<DashboardData.IamUserDetail> users = iam.listUsers().users().parallelStream().map(user -> {
+            // Paginated. iam.listUsers() returns one page — 100 users by default — and IAM does
+            // not warn about the rest, so on any account past that boundary the Identity tab was
+            // silently reporting a subset of the estate as if it were the whole thing. On a
+            // security view that is worse than an error: the administrator who was never listed
+            // reads as an administrator who does not exist.
+            List<software.amazon.awssdk.services.iam.model.User> allUsers = new ArrayList<>();
+            iam.listUsersPaginator().users().forEach(allUsers::add);
+
+            List<DashboardData.IamUserDetail> users = allUsers.parallelStream().map(user -> {
                 List<String> groups = quietly(
                         () -> iam.listGroupsForUser(r -> r.userName(user.userName()))
                                 .groups().stream().map(g -> g.groupName()).collect(Collectors.toList()),
@@ -2748,7 +2766,12 @@ public class DashboardDataService {
                         groups, policies, mfaEnabled);
             }).collect(Collectors.toList());
 
-            List<DashboardData.IamRoleDetail> roles = iam.listRoles().roles().parallelStream()
+            // Paginated for the same reason as users above. Roles hit the 100 boundary sooner than
+            // users on most accounts, because every service integration leaves one behind.
+            List<software.amazon.awssdk.services.iam.model.Role> allRoles = new ArrayList<>();
+            iam.listRolesPaginator().roles().forEach(allRoles::add);
+
+            List<DashboardData.IamRoleDetail> roles = allRoles.parallelStream()
                     .filter(r -> !r.path().startsWith("/aws-service-role/"))
                     .map(role -> {
                         List<DashboardData.IamPolicyDetail> policies = new ArrayList<>();

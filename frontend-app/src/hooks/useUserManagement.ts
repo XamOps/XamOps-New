@@ -5,8 +5,56 @@
  * Handles fetching, filtering, and formatting of user management data
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { IamUser, IamRole, IamRiskFields, UserManagementData } from '../types/userManagement';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import type { IamUser, IamRole, IamRiskFields, IdentityInventoryResponse } from '../types/userManagement';
+
+/**
+ * Ceiling on a single identity request.
+ *
+ * <p>Above the proxy's own timeout on purpose: the gateway answers first in the normal slow
+ * case, and this only catches a socket that hangs without either side closing it. Without it
+ * such a request leaves the tab on its skeleton forever with no way to retry.
+ */
+const REQUEST_TIMEOUT_MS = 120_000;
+
+/**
+ * Turns a failed response into something worth showing a person.
+ *
+ * <p>The previous version interpolated `text.substring(0, 500)` of the body into the message
+ * unconditionally. When the gateway timed out, that body was nginx's HTML error page, so the
+ * banner rendered `Status: 504 <html><head><title>504 Gateway Time-out</title>…` as prose.
+ * The status code already carries the meaning; the body is only useful when it is our own JSON.
+ */
+function describeFailure(status: number, body: string): string {
+  switch (status) {
+    case 502:
+    case 503:
+    case 504:
+      return 'The identity scan did not finish in time. Reload identities to try again — the '
+        + 'result is cached once it completes.';
+    case 401:
+      return 'Your session expired. Sign in again to view identities.';
+    case 403:
+      return 'You do not have access to this account.';
+    case 404:
+      return 'That account is no longer connected.';
+    default:
+      break;
+  }
+
+  const trimmed = body.trim();
+  if (!trimmed || /^<(!doctype|html)/i.test(trimmed)) {
+    return `Could not load identities (${status}).`;
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    const message = parsed?.error ?? parsed?.message;
+    if (typeof message === 'string' && message) return message;
+  } catch {
+    // Not JSON — fall through rather than surface a parser complaint.
+  }
+  return `Could not load identities (${status}).`;
+}
 
 /**
  * Orders identities worst-risk-first, then alphabetically within equal risk.
@@ -32,6 +80,9 @@ export const useUserManagement = () => {
   const [users, setUsers] = useState<IamUser[]>([]);
   const [roles, setRoles] = useState<IamRole[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+
+  /** Abort handle for the in-flight identity request, so account switches cannot race. */
+  const inFlightRef = useRef<AbortController | null>(null);
 
   /**
    * When true, show only identities carrying a HIGH or CRITICAL risk.
@@ -109,71 +160,87 @@ export const useUserManagement = () => {
   }, [accountId, users.length, determineProvider]);
 
   /**
-   * Fetch IAM data from API
+   * Fetch the identity inventory.
+   *
+   * <p>Targets the dedicated identities endpoint rather than the dashboard aggregate. The
+   * aggregate joins ~18 AWS collectors and blocks on all of them, so this tab used to inherit
+   * Cost Explorer's latency and got the gateway's HTML 504 instead of data whenever the cache
+   * was cold. Same reason `forceRefresh` is now safe to hand to the Reload button: it re-runs
+   * the IAM scan, not the entire dashboard.
    */
   const fetchData = useCallback(async (forceRefresh = false, specificAccountId: string | null = null) => {
     const idToFetch = specificAccountId || accountId;
     if (!idToFetch) return;
 
+    // One request in flight at a time. Switching accounts mid-scan otherwise races, and the
+    // slower response wins — showing one account's identities under another's name.
+    inFlightRef.current?.abort();
+    const controller = new AbortController();
+    inFlightRef.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
     setLoading(true);
     setError(null);
 
     try {
-      const url = `/api/xamops/dashboard/data?accountId=${idToFetch}&forceRefresh=${forceRefresh}&_t=${new Date().getTime()}`;
-      console.log('Fetching:', url);
+      const url = `/api/xamops/security/identities?accountId=${encodeURIComponent(idToFetch)}`
+        + `&forceRefresh=${forceRefresh}`;
 
       const response = await fetch(url, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        credentials: 'include'
+        headers: { 'Accept': 'application/json' },
+        credentials: 'include',
+        cache: 'no-store',
+        signal: controller.signal,
       });
 
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Status: ${response.status} - ${text.substring(0, 500)}`);
+        throw new Error(describeFailure(response.status, await response.text().catch(() => '')));
       }
 
-      const data: UserManagementData = await response.json();
+      const data: IdentityInventoryResponse = await response.json();
+      if (!data) {
+        throw new Error('Could not load identities: the server returned an empty response.');
+      }
 
-      if (data) {
-        // Capture Provider
-        setProvider(data.selectedProvider || 'AWS');
+      setProvider(data.provider || 'AWS');
+      if (data.accountName) setAccountName(data.accountName);
+      if (data.accountId) setAccountId(data.accountId);
 
-        if (data.selectedAccount) {
-          setAccountName(data.selectedAccount.name);
-          setAccountId(data.selectedAccount.id);
+      // A null inventory means the scan produced nothing rather than that the account is empty,
+      // so retry once against a bypassed cache before believing it.
+      if (!data.iamDetails && !forceRefresh) {
+        await fetchData(true, idToFetch);
+        return;
+      }
 
-          if (!data.selectedAccount.iamDetails && !forceRefresh) {
-            console.warn('Stale cache detected (missing iamDetails). Auto-refreshing...');
-            await fetchData(true, idToFetch);
-            return;
-          }
-
-          if (data.selectedAccount.iamDetails) {
-            setUsers(data.selectedAccount.iamDetails.users || []);
-            setRoles(data.selectedAccount.iamDetails.roles || []);
-            setAnalysisDegraded(Boolean(data.selectedAccount.iamDetails.permissionAnalysisDegraded));
-            setAnalysisNote(data.selectedAccount.iamDetails.permissionAnalysisNote ?? null);
-          } else {
-            console.warn('IAM Details missing even after refresh.');
-            setUsers([]);
-            setRoles([]);
-            if (forceRefresh) {
-              setError('Backend returned incomplete data (iamDetails is null).');
-            }
-          }
-        }
+      if (data.iamDetails) {
+        setUsers(data.iamDetails.users || []);
+        setRoles(data.iamDetails.roles || []);
+        setAnalysisDegraded(Boolean(data.iamDetails.permissionAnalysisDegraded));
+        setAnalysisNote(data.iamDetails.permissionAnalysisNote ?? null);
       } else {
-        throw new Error('Invalid response format');
+        setUsers([]);
+        setRoles([]);
+        setError('The identity scan returned no data for this account. Reload identities to retry.');
       }
     } catch (err) {
-      console.error('Fetch error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      // An abort is either our own timeout or a superseded request; only the former is worth
+      // reporting, and a superseded request must not overwrite the newer one's state.
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        if (inFlightRef.current === controller) {
+          setError('The identity scan took too long to respond. Reload identities to try again.');
+        }
+        return;
+      }
+      console.error('Identity fetch failed:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load identities');
     } finally {
-      setLoading(false);
+      window.clearTimeout(timeout);
+      if (inFlightRef.current === controller) {
+        inFlightRef.current = null;
+        setLoading(false);
+      }
     }
   }, [accountId]);
 

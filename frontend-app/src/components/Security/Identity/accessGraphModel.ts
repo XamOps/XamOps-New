@@ -549,6 +549,16 @@ export function buildAccessGraph(args: BuildAccessGraphArgs): AccessGraph {
   const totalLeaves = buckets.reduce((sum, b) => sum + b.leaves.length, 0);
   const identityCount = users.length + roles.length;
 
+  // Width follows the content. Reserving the leaf column unconditionally meant a fully collapsed
+  // graph still declared itself 1000px wide, a third of which was empty — so fit-to-width scaled
+  // the tree down to make room for nothing and the panel read as mostly blank.
+  const leavesDrawn = buckets.some(
+    (b) => expanded.has(b.id) && visibleLeaves(b, showAll.has(b.id)).length > 0,
+  );
+  const contentRight = leavesDrawn
+    ? COLS.leaf + LAYOUT.LEAF_W
+    : COLS.bucket + LAYOUT.BUCKET_W;
+
   return {
     rootLabel: accountName || accountId || 'Selected account',
     rootSubLabel: `${provider} · ${identityCount} ${
@@ -560,7 +570,7 @@ export function buildAccessGraph(args: BuildAccessGraphArgs): AccessGraph {
     rootY,
     rootW: LAYOUT.ROOT_W,
     rootH: LAYOUT.ROOT_H,
-    width: COLS.leaf + LAYOUT.LEAF_W + LAYOUT.PAD,
+    width: contentRight + LAYOUT.PAD,
     height,
   };
 }
