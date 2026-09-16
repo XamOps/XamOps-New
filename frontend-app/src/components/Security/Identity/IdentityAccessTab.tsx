@@ -38,6 +38,7 @@ const IdentityAccessTab: React.FC = () => {
     setFlaggedOnly,
     analysisDegraded,
     analysisNote,
+    analysisPending,
     riskAnalysisAvailable,
     fetchData,
   } = useUserManagement();
@@ -63,6 +64,7 @@ const IdentityAccessTab: React.FC = () => {
       riskAnalysisAvailable={riskAnalysisAvailable}
       analysisDegraded={analysisDegraded}
       analysisNote={analysisNote}
+      analysisPending={analysisPending}
       noMfaCount={countNoMfa}
       provider={provider}
       labels={labels}

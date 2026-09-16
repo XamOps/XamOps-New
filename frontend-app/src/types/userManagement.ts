@@ -87,6 +87,17 @@ export interface IamDetails {
    */
   permissionAnalysisDegraded?: boolean;
   permissionAnalysisNote?: string | null;
+
+  /**
+   * True when the inventory is complete but the privilege audit is still running.
+   *
+   * <p>Separate from `permissionAnalysisDegraded`, which means the audit ran and hit something
+   * it could not read. The audit is two IAM calls per distinct policy run serially, so on a
+   * large account it does not fit inside the request; the backend returns the inventory and
+   * finishes scoring in the background. Without this the UI would present unscored identities
+   * the same way it presents an account with no findings.
+   */
+  permissionAnalysisPending?: boolean;
 }
 
 /**

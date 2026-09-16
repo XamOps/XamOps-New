@@ -81,6 +81,8 @@ interface IdentityAccessCanvasProps {
   riskAnalysisAvailable: boolean;
   analysisDegraded: boolean;
   analysisNote?: string | null;
+  /** Inventory is complete, risk scoring is still running server-side. */
+  analysisPending?: boolean;
   noMfaCount: number;
   /** AWS | GCP | Azure — drives labels and whether MFA is meaningful. */
   provider: 'AWS' | 'GCP' | 'Azure';
@@ -137,6 +139,7 @@ const IdentityAccessCanvas: React.FC<IdentityAccessCanvasProps> = ({
   riskAnalysisAvailable,
   analysisDegraded,
   analysisNote,
+  analysisPending = false,
   noMfaCount,
   provider,
   labels,
@@ -245,7 +248,7 @@ const IdentityAccessCanvas: React.FC<IdentityAccessCanvasProps> = ({
       )}
 
       {/* The honesty banner. See the note on permissionAnalysisDegraded in the DTO. */}
-      {analysisDegraded && analysisNote && (
+      {analysisDegraded && !analysisPending && analysisNote && (
         <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
           <Icon icon="mdi:shield-alert-outline" width={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
           <div>
@@ -258,7 +261,24 @@ const IdentityAccessCanvas: React.FC<IdentityAccessCanvasProps> = ({
       {/* All three providers are analyzed now, so this fires only when an audit returned nothing
           it could score — never as a standing provider limitation. Without it an unassessed list
           would read as a clean one, which is the failure mode the whole feature guards against. */}
-      {!isLoading && !riskAnalysisAvailable && !analysisDegraded && (totalUsers + totalRoles) > 0 && (
+      {/* Scoring in flight. Distinct from the two banners around it: the inventory below is
+          complete and correct, only the risk assessment is outstanding, and it arrives on its
+          own — the hook re-checks while this is up. Saying "reload to run the audit" here would
+          send the user to restart work that is already running. */}
+      {!isLoading && analysisPending && (
+        <div className="flex items-start gap-3 px-4 py-3 bg-blue-50 border border-blue-100 rounded-xl">
+          <Icon icon="mdi:progress-clock" width={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-bold text-blue-800 uppercase tracking-wider mb-0.5">Assessing access</p>
+            <p className="text-sm text-blue-700">
+              {analysisNote
+                || 'Identities are listed. The access assessment is still running and will appear here shortly.'}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!isLoading && !analysisPending && !riskAnalysisAvailable && !analysisDegraded && (totalUsers + totalRoles) > 0 && (
         <div className="flex items-start gap-3 px-4 py-3 bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.1)] rounded-xl">
           <Icon icon="mdi:information-outline" width={16} className="text-[rgba(0,0,0,0.45)] flex-shrink-0 mt-0.5" />
           <p className="text-sm text-[rgba(0,0,0,0.6)]">

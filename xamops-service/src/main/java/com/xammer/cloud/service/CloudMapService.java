@@ -10,13 +10,20 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.Filter;
+import software.amazon.awssdk.services.ec2.model.Route;
+import software.amazon.awssdk.services.ec2.model.RouteTable;
+import software.amazon.awssdk.services.ec2.model.RouteTableAssociation;
+import software.amazon.awssdk.services.ec2.model.Tag;
 import software.amazon.awssdk.services.ec2.model.Subnet;
 import software.amazon.awssdk.services.ec2.model.Vpc;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -140,10 +147,13 @@ public class CloudMapService {
                                 Ec2Client ec2Client = awsClientProvider.getEc2Client(account, effectiveRegion);
                                 addVpcAndSubnetNodes(elements, ec2Client, vpcId);
 
-                                relevantResources = allResources.stream()
+                                List<ResourceDto> seeds = allResources.stream()
                                         .filter(r -> r != null && ("ALL".equals(vpcId)
                                                 || vpcId.equals(getDetail(r, "VPC ID")) || vpcId.equals(r.getId())))
                                         .collect(Collectors.toList());
+                                relevantResources = "ALL".equals(vpcId)
+                                        ? seeds
+                                        : withConnectedNeighbours(seeds, allResources);
                             } else {
                                 // --- Global view (non-VPC resources) ---
                                 logger.info("Building global resource graph");
@@ -221,12 +231,36 @@ public class CloudMapService {
             try {
                 if (inventoryProjection.isFresh(account.getId())) {
                     List<ResourceDto> fromPlane = inventoryProjection.flatList(account.getId());
-                    if (!fromPlane.isEmpty()) {
+                    /*
+                     * The plane is only allowed to answer if it knows where things live.
+                     *
+                     * This graph places a resource by its "VPC ID" detail and silently drops
+                     * anything without one. AwsInventoryReconciler currently persists that
+                     * detail from instanceDetails(Instance) alone, so EC2 instances carry it
+                     * and every other type is stored with empty details. Serving the graph
+                     * from the plane therefore returned a VPC containing nothing but EC2 —
+                     * no security groups, load balancers, gateways or interfaces — which the
+                     * describe scan does return, because CloudListService sets "VPC ID" for
+                     * all of them.
+                     *
+                     * Counting the detail rather than assuming it is present means this fixes
+                     * itself: as the reconciler learns to persist VPC associations for more
+                     * types the plane starts qualifying again, with no change here. Until
+                     * then a slower scan that shows the whole topology beats an instant one
+                     * that quietly omits most of it.
+                     */
+                    long withVpc = fromPlane.stream()
+                            .filter(r -> r != null && getDetail(r, "VPC ID") != null)
+                            .count();
+                    if (!fromPlane.isEmpty() && withVpc > 0) {
                         logger.info("✅ Cloud Map graph served from inventory plane for account {} "
-                                + "({} resources, 0 describe calls)",
-                                account.getAwsAccountId(), fromPlane.size());
+                                + "({} resources, {} with a VPC association, 0 describe calls)",
+                                account.getAwsAccountId(), fromPlane.size(), withVpc);
                         return CompletableFuture.completedFuture(fromPlane);
                     }
+                    logger.info("[Inventory] Plane has {} resources for account {} but {} carry a "
+                            + "\"VPC ID\"; using a describe scan so non-EC2 services are not dropped",
+                            fromPlane.size(), account.getAwsAccountId(), withVpc);
                 }
             } catch (Exception e) {
                 // A plane read failing must not cost the whole page; the scan still works.
@@ -263,11 +297,239 @@ public class CloudMapService {
 
         List<Subnet> subnets = ec2Client
                 .describeSubnets(req -> req.filters(Filter.builder().name("vpc-id").values(vid).build())).subnets();
+
+        // Routing is resolved before the subnets are emitted, because whether a subnet is
+        // public is a property of the route table attached to it, not of the subnet.
+        VpcRouting routing = describeRouting(ec2Client, vid);
+
         for (Subnet subnet : subnets) {
             String subnetName = subnet.tags().stream().filter(t -> "Name".equalsIgnoreCase(t.key())).findFirst()
                     .map(t -> t.value()).orElse(subnet.subnetId());
-            elements.add(createNode(subnet.subnetId(), subnetName, "Subnet", vid, null));
+            Map<String, String> details = new HashMap<>();
+            details.put("Availability Zone", subnet.availabilityZone());
+            if (subnet.cidrBlock() != null) {
+                details.put("CIDR", subnet.cidrBlock());
+            }
+            String tier = routing.tierOf(subnet.subnetId());
+            if (tier != null) {
+                // The single most useful fact about a subnet on an architecture diagram, and
+                // one no amount of inventory listing can supply.
+                details.put("Tier", tier);
+            }
+            elements.add(createNode(subnet.subnetId(), subnetName, "Subnet", vid, details));
         }
+
+        addRouteTableNodes(elements, vid, routing);
+    }
+
+    /**
+     * How a VPC actually routes: its route tables, what each one associates, and where
+     * each sends default traffic.
+     *
+     * <p>
+     * This is the difference between an inventory grouped by VPC and an architecture
+     * diagram. Nothing in the resource listing can tell you that one subnet reaches the
+     * internet through an internet gateway while its neighbour egresses through a NAT —
+     * that fact lives only in the route tables, and it is usually the first thing anyone
+     * looks for on a network diagram.
+     */
+    private static final class VpcRouting {
+        final List<RouteTable> tables = new ArrayList<>();
+        /** Subnet id to the route table governing it, including via the main table. */
+        final Map<String, RouteTable> bySubnet = new HashMap<>();
+        RouteTable mainTable;
+
+        /**
+         * "Public", "Private" or "Isolated" for a subnet, or null when routing is unknown.
+         *
+         * <p>
+         * A subnet with no explicit association is governed by the VPC's main route table,
+         * which is exactly how a subnet ends up unintentionally public, so falling back to
+         * it matters more than the explicit case.
+         */
+        String tierOf(String subnetId) {
+            RouteTable table = bySubnet.get(subnetId);
+            if (table == null) {
+                table = mainTable;
+            }
+            if (table == null) {
+                return null;
+            }
+            String target = defaultRouteTarget(table);
+            if (target == null) {
+                return "Isolated";
+            }
+            return target.startsWith("igw-") ? "Public" : "Private";
+        }
+
+        /** The target of the 0.0.0.0/0 route, or null when the table has no default route. */
+        static String defaultRouteTarget(RouteTable table) {
+            for (Route route : table.routes()) {
+                if (!"0.0.0.0/0".equals(route.destinationCidrBlock())) {
+                    continue;
+                }
+                if (route.gatewayId() != null && !route.gatewayId().isBlank()) {
+                    return route.gatewayId();
+                }
+                if (route.natGatewayId() != null && !route.natGatewayId().isBlank()) {
+                    return route.natGatewayId();
+                }
+                if (route.transitGatewayId() != null && !route.transitGatewayId().isBlank()) {
+                    return route.transitGatewayId();
+                }
+                if (route.vpcPeeringConnectionId() != null && !route.vpcPeeringConnectionId().isBlank()) {
+                    return route.vpcPeeringConnectionId();
+                }
+            }
+            return null;
+        }
+    }
+
+    private VpcRouting describeRouting(Ec2Client ec2Client, String vpcId) {
+        VpcRouting routing = new VpcRouting();
+        try {
+            List<RouteTable> tables = ec2Client.describeRouteTables(
+                    req -> req.filters(Filter.builder().name("vpc-id").values(vpcId).build())).routeTables();
+            for (RouteTable table : tables) {
+                routing.tables.add(table);
+                for (RouteTableAssociation association : table.associations()) {
+                    if (Boolean.TRUE.equals(association.main())) {
+                        routing.mainTable = table;
+                    }
+                    if (association.subnetId() != null) {
+                        routing.bySubnet.put(association.subnetId(), table);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Routing is an enrichment. A VPC drawn without it is still worth drawing, and
+            // describeRouteTables is a separate permission from describeSubnets.
+            logger.warn("Could not describe route tables for VPC {}, drawing without routing: {}",
+                    vpcId, e.getMessage());
+        }
+        return routing;
+    }
+
+    /**
+     * Emit each route table and the two relationships that carry the routing story: what
+     * it governs, and where it sends default traffic.
+     *
+     * <p>
+     * The default-route edge points at an internet gateway, NAT gateway, transit gateway
+     * or peering connection by its real id. Those ids are the node ids used elsewhere in
+     * the graph, so the edge joins up when the target is on the canvas and is dropped by
+     * the renderer when it is not — which is why no existence check is needed here.
+     */
+    private void addRouteTableNodes(List<Map<String, Object>> elements, String vpcId, VpcRouting routing) {
+        for (RouteTable table : routing.tables) {
+            String id = table.routeTableId();
+            String name = table.tags().stream().filter(t -> "Name".equalsIgnoreCase(t.key())).findFirst()
+                    .map(Tag::value).orElse(id);
+            boolean isMain = table.associations().stream().anyMatch(a -> Boolean.TRUE.equals(a.main()));
+            String target = VpcRouting.defaultRouteTarget(table);
+
+            Map<String, String> details = new HashMap<>();
+            details.put("VPC ID", vpcId);
+            details.put("Routes", String.valueOf(table.routes().size()));
+            details.put("Main", isMain ? "Yes" : "No");
+            details.put("Default Route", target == null ? "None" : target);
+
+            // Parented to the VPC rather than to a subnet: one table commonly governs
+            // several subnets, so it belongs to neither of them exclusively.
+            elements.add(createNode(id, isMain ? name + " (main)" : name, "Route Table", vpcId, details));
+
+            for (RouteTableAssociation association : table.associations()) {
+                if (association.subnetId() != null) {
+                    elements.add(createEdge(id, association.subnetId(), "routes"));
+                }
+            }
+            if (target != null) {
+                elements.add(createEdge(id, target, "default via"));
+            }
+        }
+    }
+
+    /**
+     * Widen a VPC-scoped selection to the resources it is actually wired to.
+     *
+     * <p>
+     * Selecting purely on the {@code "VPC ID"} detail is what made the graph look
+     * disconnected. {@link #createAllEdges} models thirteen relationships, but an edge
+     * only survives rendering if both of its endpoints are present, and most of the
+     * types on the far end of those relationships carry no {@code "VPC ID"} at all.
+     * A load balancer in the VPC therefore lost the chain
+     * {@code Load Balancer -> Target Group -> EC2 Instance} at the first hop, because
+     * the target group was filtered out; the same happened to
+     * {@code EBS Volume -> EC2 Instance} and to every {@code uses SG} edge from RDS or
+     * Lambda. The relationships existed in the model and vanished from the picture.
+     *
+     * <p>
+     * Edges are built once over the whole account and used purely as an adjacency
+     * probe, then any resource sharing an edge with a seed is pulled in. Both
+     * directions matter: a target group names its instances rather than the reverse,
+     * so walking outward from the seeds alone would never reach it.
+     *
+     * <p>
+     * Only a single hop is taken. Two hops would drag in most of the account through
+     * shared security groups and defeat the point of scoping to a VPC. Neighbours
+     * arrive without a {@code "VPC ID"}, so {@link #getParent} leaves them parentless
+     * and the canvas collects them in its global scope box — which is honest: they are
+     * related to this VPC without living inside it.
+     */
+    private List<ResourceDto> withConnectedNeighbours(List<ResourceDto> seeds,
+                                                      List<ResourceDto> allResources) {
+        if (seeds.isEmpty() || allResources.isEmpty()) {
+            return seeds;
+        }
+        Set<String> seedIds = seeds.stream()
+                .filter(Objects::nonNull)
+                .map(ResourceDto::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        List<Map<String, Object>> probe = new ArrayList<>();
+        try {
+            createAllEdges(probe, allResources);
+        } catch (Exception e) {
+            // The adjacency probe is an enhancement; losing it must not lose the graph.
+            logger.warn("Could not probe resource adjacency, showing the VPC alone: {}", e.getMessage());
+            return seeds;
+        }
+
+        Set<String> neighbourIds = new HashSet<>();
+        for (Map<String, Object> edge : probe) {
+            Object raw = edge.get("data");
+            if (!(raw instanceof Map)) {
+                continue;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> data = (Map<String, Object>) raw;
+            Object source = data.get("source");
+            Object target = data.get("target");
+            if (!(source instanceof String) || !(target instanceof String)) {
+                continue;
+            }
+            boolean sourceIsSeed = seedIds.contains(source);
+            boolean targetIsSeed = seedIds.contains(target);
+            if (sourceIsSeed ^ targetIsSeed) {
+                neighbourIds.add((String) (sourceIsSeed ? target : source));
+            }
+        }
+        if (neighbourIds.isEmpty()) {
+            return seeds;
+        }
+
+        List<ResourceDto> widened = new ArrayList<>(seeds);
+        for (ResourceDto r : allResources) {
+            if (r != null && r.getId() != null
+                    && neighbourIds.contains(r.getId())
+                    && !seedIds.contains(r.getId())) {
+                widened.add(r);
+            }
+        }
+        logger.info("VPC selection widened from {} to {} resources by following {} connections",
+                seeds.size(), widened.size(), neighbourIds.size());
+        return widened;
     }
 
     private void createAllEdges(List<Map<String, Object>> elements, List<ResourceDto> resources) {

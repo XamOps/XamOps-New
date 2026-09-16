@@ -32,6 +32,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 // Regions scanned on every compliance run — matches SecurityScheduler.AWS_REGIONS
 // IAM, S3, CloudTrail are global; the rest are per-region services.
@@ -51,6 +53,17 @@ final class ComplianceRegions {
 public class SecurityController {
 
     private static final Logger logger = LoggerFactory.getLogger(SecurityController.class);
+
+    /**
+     * Ceiling on the identity request.
+     *
+     * <p>
+     * Under the ~60s gateway budget on purpose, so a slow account produces our own 503 with a
+     * JSON body rather than nginx's HTML 504 page — which is what the Identity tab was rendering
+     * as prose. The scan itself is not cancelled: it keeps running on the background executor and
+     * writes its result to the cache, so the retry this failure invites is the one that succeeds.
+     */
+    private static final int IDENTITY_DEADLINE_SECONDS = 45;
 
     private final SecurityService securityService;
     private final CloudAccountRepository cloudAccountRepository;
@@ -166,11 +179,25 @@ public class SecurityController {
         String provider = account.getProvider() == null ? "AWS" : account.getProvider().toUpperCase();
 
         if ("AWS".equals(provider)) {
+            // Bounded here as well as inside the scan. The scan already answers with the inventory
+            // when the privilege audit runs long, so reaching this deadline means the inventory
+            // itself is slow — and a 504 from the proxy is worse than a 503 from us, because the
+            // proxy answers in HTML that the browser cannot parse as an error.
             return dashboardDataService.getIamDetails(account, forceRefresh)
+                    .orTimeout(IDENTITY_DEADLINE_SECONDS, TimeUnit.SECONDS)
                     .thenApply(details -> ResponseEntity.ok(new IdentityInventoryResponse(
                             provider, accountId, account.getAccountName(), details)))
                     .exceptionally(ex -> {
-                        logger.error("IAM identity scan failed for account {}", accountId, ex);
+                        Throwable cause = ex instanceof java.util.concurrent.CompletionException
+                                ? ex.getCause()
+                                : ex;
+                        if (cause instanceof TimeoutException) {
+                            logger.warn("IAM identity scan for account {} exceeded {}s; the scan continues in "
+                                    + "the background and will populate the cache.",
+                                    accountId, IDENTITY_DEADLINE_SECONDS);
+                            return ResponseEntity.status(503).build();
+                        }
+                        logger.error("IAM identity scan failed for account {}", accountId, cause);
                         return ResponseEntity.status(502).build();
                     });
         }
