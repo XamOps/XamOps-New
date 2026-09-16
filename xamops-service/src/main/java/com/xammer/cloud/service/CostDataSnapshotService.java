@@ -131,6 +131,111 @@ public class CostDataSnapshotService {
     }
 
     /**
+     * True when a cached_data payload is a leftover PostgreSQL large-object OID
+     * rather than JSON.
+     *
+     * <p>{@code CachedData.jsonData} was once annotated {@code @Lob}. On PostgreSQL that
+     * makes Hibernate store the text as a large object and write only its OID into the
+     * TEXT column, so every row written before the annotation was removed holds a bare
+     * integer like {@code 1503879} — the real JSON is still in {@code pg_largeobject}.
+     *
+     * <p>List-typed reads survive this on their own: a number will not deserialize into a
+     * List, so they miss and refetch. A {@code Double} read does not — Jackson parses
+     * {@code 1503879} quite happily, and an OID is then rendered as $1,503,879 of spend.
+     * That is exactly the Account Dashboard's "Last Month" card and Cost Trend chart, and
+     * it is why every such read has to reject this shape before trusting it.
+     *
+     * <p>The test is exact, not a heuristic: Jackson always writes a Double with a decimal
+     * point or an exponent ({@code 1953.07}, {@code 2000.0}, {@code 1.0E10}), so a payload
+     * of nothing but digits is never a cost this code wrote.
+     *
+     * <p>Callers should not act on this directly — use {@link #resolvePayload(CachedData)},
+     * which reads the JSON back out of the large object. This predicate only identifies the
+     * shape.
+     */
+    public static boolean isLegacyLobOid(String payload) {
+        if (payload == null) {
+            return false;
+        }
+        String trimmed = payload.trim();
+        if (trimmed.isEmpty() || trimmed.length() > 10) {
+            return false;
+        }
+        for (int i = 0; i < trimmed.length(); i++) {
+            if (!Character.isDigit(trimmed.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * A cached row's JSON, whichever of the two storage formats it is in.
+     *
+     * <p>Every read of {@code cached_data} goes through here. A row written by the current
+     * code holds JSON and is returned as-is; a row written while {@code @Lob} was on the
+     * entity holds a large-object OID, and the JSON is read back out of
+     * {@code pg_largeobject}.
+     *
+     * <p>Both formats have to work at once because they coexist in the field. On
+     * 2026-09-16 prod held 62,207 rows, every one of them an OID and still being written
+     * that way, while UAT had a mix and local had another. Without this, deploying the
+     * {@code @Lob} removal would make every one of those rows unreadable simultaneously —
+     * not only historical cost, but everything else keyed in this table.
+     *
+     * <p>A resolved row is written back in its new form, so each one costs the extra
+     * lookup once and the data converges on the current format as it is read.
+     * {@code database_migration_cached_data_lob_oid_repair.sql} does the same thing in
+     * bulk for rows nobody happens to read; neither depends on the other having run.
+     *
+     * @return the JSON, or null when the row is an OID whose large object is gone —
+     *         treated as a cache miss so the caller refetches from AWS.
+     */
+    public String resolvePayload(CachedData row) {
+        if (row == null) {
+            return null;
+        }
+        String payload = row.getJsonData();
+        if (!isLegacyLobOid(payload)) {
+            return payload;
+        }
+
+        String oid = payload.trim();
+        String json;
+        try {
+            json = cachedDataRepository.findLargeObjectText(oid);
+        } catch (Exception e) {
+            // Most likely the app's DB role cannot read the large object. Refetching from
+            // AWS is slower but correct, which beats surfacing an OID as a cost figure.
+            logger.warn("[Snapshot] Could not read large object {} for {}: {}",
+                    oid, row.getCacheKey(), e.getMessage());
+            return null;
+        }
+
+        if (json == null) {
+            logger.warn("[Snapshot] {} points at large object {}, which no longer exists — "
+                    + "treating as a miss. (vacuumlo does not see an OID held in a TEXT "
+                    + "column as a reference.)", row.getCacheKey(), oid);
+            return null;
+        }
+
+        try {
+            // lastUpdated is left alone: it records when the data was fetched from AWS, and
+            // the snapshot schedulers use it to decide what needs refreshing. Moving the
+            // payload between columns is not a refresh.
+            row.setJsonData(json);
+            cachedDataRepository.save(row);
+            logger.info("[Snapshot] Migrated {} from large object {} to inline JSON", row.getCacheKey(), oid);
+        } catch (Exception e) {
+            // The value is already in hand, so a failed write-back costs another lookup
+            // next time and nothing else.
+            logger.warn("[Snapshot] Read {} from large object {} but could not write it back: {}",
+                    row.getCacheKey(), oid, e.getMessage());
+        }
+        return json;
+    }
+
+    /**
      * Returns true if all 7 snapshot key types are present for the given account + month.
      * Uses CF_USAGE as the sentinel (it is saved last).
      */
@@ -666,8 +771,12 @@ public class CostDataSnapshotService {
         try {
             return cachedDataRepository.findById(key)
                     .map(row -> {
+                        String json = resolvePayload(row);
+                        if (json == null) {
+                            return null;
+                        }
                         try {
-                            return objectMapper.readValue(row.getJsonData(), type);
+                            return objectMapper.readValue(json, type);
                         } catch (Exception e) {
                             logger.warn("[Snapshot] Deserialize failed for {}: {}", key, e.getMessage());
                             return null;
@@ -683,8 +792,12 @@ public class CostDataSnapshotService {
         try {
             return cachedDataRepository.findById(key)
                     .map(row -> {
+                        String json = resolvePayload(row);
+                        if (json == null) {
+                            return null;
+                        }
                         try {
-                            return objectMapper.<T>readValue(row.getJsonData(), typeRef);
+                            return objectMapper.<T>readValue(json, typeRef);
                         } catch (Exception e) {
                             logger.warn("[Snapshot] Deserialize failed for {}: {}", key, e.getMessage());
                             return null;
