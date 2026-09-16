@@ -67,13 +67,6 @@ public class CurSourceResolver {
      */
     public Optional<CurSource> resolve(CloudAccount account, LocalDate start, LocalDate end,
                                        boolean requiresDaily) {
-        if (!curEnabled) {
-            return Optional.empty();
-        }
-        if (account == null || !"AWS".equalsIgnoreCase(account.getProvider())) {
-            return Optional.empty();
-        }
-
         // The caller asked for Cost Explorer explicitly — the UI's ordinary Refresh
         // button, which exists to give a live mid-day figure regardless of when the
         // report was last delivered. Declining here sends the query down the CE path
@@ -81,17 +74,49 @@ public class CurSourceResolver {
         //
         // Checked before every other condition so it cannot be overridden by any of
         // them, and so the reason a request went to CE is unambiguous in the logs.
+        //
+        // Kept here rather than in describeCoverage because the two answer different
+        // questions: this one is "what should this request use", while coverage is
+        // "what could the report answer", which must not change with the caller's
+        // preference — the FinOps page asks about coverage precisely so it can decide
+        // whether to offer Cost Explorer.
         if (CostSourceContext.current() == CostSourceContext.COST_EXPLORER) {
             logger.debug("[CUR] Cost Explorer requested explicitly for {} — skipping the report",
-                    account.getAwsAccountId());
+                    account == null ? "(no account)" : account.getAwsAccountId());
             return Optional.empty();
+        }
+        return describeCoverage(account, start, end, requiresDaily).source();
+    }
+
+    /**
+     * Whether the report can answer a query over this range, and if not, why.
+     *
+     * <p>Same checks as {@link #resolve}, which delegates here — the reason has to be the
+     * real one, so there is deliberately no second copy of this logic to drift out of step.
+     *
+     * <p>Exists because "no data" is not a good enough answer for someone who has just
+     * picked a date range. A report that begins in July cannot answer a question about
+     * April, and saying so — with the date it does begin — is the difference between a
+     * user understanding the limit and assuming the product is broken.
+     */
+    public Coverage describeCoverage(CloudAccount account, LocalDate start, LocalDate end,
+                                     boolean requiresDaily) {
+        if (!curEnabled) {
+            return Coverage.unavailable("DISABLED",
+                    "Cost and Usage Report reading is turned off for this environment.", null);
+        }
+        if (account == null || !"AWS".equalsIgnoreCase(account.getProvider())) {
+            return Coverage.unavailable("NOT_AWS",
+                    "Cost and Usage Reports apply to AWS accounts only.", null);
         }
 
         AwsBillingSource billingSource = account.resolveAwsBillingSource();
         if (!billingSource.usesCur()) {
             // COST_EXPLORER_ONLY. Terminal, not pending — no CUR will ever exist for
             // this account, so this is not worth logging per query.
-            return Optional.empty();
+            return Coverage.unavailable("NOT_CUR_BACKED",
+                    "This account is configured to use Cost Explorer rather than a Cost and Usage Report.",
+                    null);
         }
 
         // Selected directly rather than read off the account: curSource is a LAZY
@@ -103,31 +128,64 @@ public class CurSourceResolver {
             // that silently reported zero on the GCP side, so it is a warning, not debug.
             logger.warn("[CUR] Account {} is {} but has no ACTIVE cur_source — falling back to Cost Explorer",
                     account.getAwsAccountId(), billingSource);
-            return Optional.empty();
+            return Coverage.unavailable("NO_ACTIVE_SOURCE",
+                    "No active Cost and Usage Report is connected to this account yet.", null);
         }
 
         CurSource source = sources.get(0);
+        String earliest = source.getEarliestBillingPeriod();
 
         if (requiresDaily && !source.supportsDailyGranularity()) {
             logger.debug("[CUR] Source {} is {} granularity; daily query for {} goes to Cost Explorer",
                     source.getId(), source.getTimeUnit(), account.getAwsAccountId());
-            return Optional.empty();
+            return Coverage.unavailable("GRANULARITY",
+                    "This report is delivered at " + source.getTimeUnit()
+                            + " granularity and cannot produce a day-by-day breakdown.",
+                    earliest);
         }
 
         if (!coversRange(source, start)) {
             logger.debug("[CUR] Source {} starts at {}; range from {} predates it, using Cost Explorer",
-                    source.getId(), source.getEarliestBillingPeriod(), start);
-            return Optional.empty();
+                    source.getId(), earliest, start);
+            return Coverage.unavailable("RANGE_BEFORE_START",
+                    earliest == null || earliest.isBlank()
+                            ? "How far back this report goes is not known yet, so it cannot be trusted for this range."
+                            : "This report starts at " + earliest + ", which is after the start of the range you picked.",
+                    earliest);
         }
 
         if (isStale(source)) {
             logger.warn("[CUR] Source {} last validated {} — stale beyond {}h, using Cost Explorer for {}",
                     source.getId(), source.getLastValidatedAt(), maxValidationAgeHours,
                     account.getAwsAccountId());
-            return Optional.empty();
+            return Coverage.unavailable("STALE",
+                    "This report has not been delivered recently, so its figures would be out of date.",
+                    earliest);
         }
 
-        return Optional.of(source);
+        return new Coverage(Optional.of(source), "OK", null, earliest,
+                source.getTimeUnit() == null ? null : String.valueOf(source.getTimeUnit()));
+    }
+
+    /**
+     * The outcome of a coverage check: the usable source, or the reason there isn't one.
+     *
+     * @param source   the report that can answer, empty when none can
+     * @param reason   a stable code for callers to branch on ({@code OK} when covered)
+     * @param message  a sentence intended to be shown to the user, null when covered
+     * @param earliestBillingPeriod  how far back the report goes, when that is known
+     * @param timeUnit the report's granularity, when a source was found
+     */
+    public record Coverage(Optional<CurSource> source, String reason, String message,
+                           String earliestBillingPeriod, String timeUnit) {
+
+        public boolean covered() {
+            return source.isPresent();
+        }
+
+        static Coverage unavailable(String reason, String message, String earliestBillingPeriod) {
+            return new Coverage(Optional.empty(), reason, message, earliestBillingPeriod, null);
+        }
     }
 
     /** Convenience overload for queries that do not need day buckets. */

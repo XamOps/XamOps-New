@@ -6,6 +6,7 @@ import com.xammer.cloud.service.DashboardDataService;
 import com.xammer.cloud.service.FinOpsRefreshService;
 import com.xammer.cloud.service.FinOpsService;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.service.cur.CurSourceResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -14,7 +15,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
+import java.time.LocalDate;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -106,6 +109,46 @@ public class FinOpsController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Failed to retrieve FinOps report.",
                             "message", e.getMessage() != null ? e.getMessage() : "Unknown error"));
+        }
+    }
+
+    /**
+     * Whether the account's Cost and Usage Report can answer a query over this range.
+     *
+     * <p>Asked by the FinOps page before it loads a custom date range, so it can either
+     * show report-backed figures or explain why it cannot and offer Cost Explorer. Doing
+     * this up front rather than inferring it from an empty result matters: an empty chart
+     * cannot distinguish "spent nothing" from "the report does not go back that far", and
+     * those need opposite responses from the user.
+     *
+     * <p>Cheap by design — it reads the source's registration, not the report itself, so
+     * no Athena query is run and nothing is billed.
+     */
+    @GetMapping("/cur-coverage")
+    public ResponseEntity<Map<String, Object>> getCurCoverage(
+            @RequestParam String accountId,
+            @RequestParam String startDate,
+            @RequestParam String endDate,
+            @RequestParam(defaultValue = "true") boolean requiresDaily) {
+        try {
+            CurSourceResolver.Coverage coverage = finOpsService.describeCurCoverage(
+                    accountId, LocalDate.parse(startDate), LocalDate.parse(endDate), requiresDaily);
+
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("covered", coverage.covered());
+            body.put("reason", coverage.reason());
+            body.put("message", coverage.message());
+            body.put("earliestBillingPeriod", coverage.earliestBillingPeriod());
+            body.put("timeUnit", coverage.timeUnit());
+            return ResponseEntity.ok(body);
+        } catch (Exception e) {
+            // Never block the page on this. Reporting "not covered" sends the user to the
+            // Cost Explorer option, which is the same place a real miss would send them.
+            logger.warn("[FinOps] CUR coverage check failed for {}: {}", accountId, e.getMessage());
+            return ResponseEntity.ok(Map.of(
+                    "covered", false,
+                    "reason", "CHECK_FAILED",
+                    "message", "Could not tell whether the Cost and Usage Report covers this range."));
         }
     }
 

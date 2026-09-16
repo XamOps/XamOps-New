@@ -302,10 +302,51 @@ public class FinOpsService {
         return accounts.get(0); // Return the first one found
     }
 
+    /**
+     * Whether this account's Cost and Usage Report can answer a query over the range,
+     * and if not, why — for the FinOps page's custom date range.
+     *
+     * <p>Synchronous and deliberately not cached: it reads the source registration only,
+     * so it is a single indexed lookup, and a stale answer here would either hide a report
+     * that has since been connected or offer Cost Explorer for a range the report now
+     * covers.
+     */
+    public CurSourceResolver.Coverage describeCurCoverage(String accountId, LocalDate start,
+                                                          LocalDate end, boolean requiresDaily) {
+        return curSourceResolver.describeCoverage(getAccount(accountId), start, end, requiresDaily);
+    }
+
     /** Returns true if the date string falls within the current calendar month. */
     private boolean isCurrentMonth(String dateStr) {
         try {
             return YearMonth.from(LocalDate.parse(dateStr)).equals(YearMonth.now());
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    /**
+     * Whether an end date is the implicit "up to now" of a month-to-date view rather than
+     * a cut-off the user chose.
+     *
+     * <p>Guards the end-of-month stretch below. That stretch is right for the default view,
+     * where the page asks for the 1st to today and means "this month so far": widening it to
+     * the 31st keeps one cache entry for the whole month and picks up reservation fees,
+     * support and tax, which carry usage dates spanning the whole billing period and are
+     * already on the bill (see {@code CurSql.usageDatePredicate}).
+     *
+     * <p>It is wrong for a range someone picked. Asking for 1–14 September and being shown
+     * 1–30 September is not a rounding difference, it is a different question — and because
+     * the widened dates also form the cache key, every range starting on the 1st collapsed
+     * onto the same entry and returned an identical figure.
+     *
+     * <p>A date today or later is the to-date case; anything earlier was chosen deliberately
+     * and is honoured exactly. The existing day-of-month check already covers a chosen
+     * <em>start</em>; this covers a chosen end.
+     */
+    private boolean isImplicitToDate(String dateStr) {
+        try {
+            return !LocalDate.parse(dateStr).isBefore(LocalDate.now());
         } catch (Exception ignored) {
             return false;
         }
@@ -970,7 +1011,8 @@ public class FinOpsService {
             String startDate, String endDate) {
         boolean isMtdOrFullMonthQuery = startDate == null
                 || LocalDate.parse(startDate).getDayOfMonth() == 1;
-        String normalizedEndRegion = (endDate != null && isCurrentMonth(endDate) && isMtdOrFullMonthQuery)
+        String normalizedEndRegion = (endDate != null && isCurrentMonth(endDate) && isMtdOrFullMonthQuery
+                        && isImplicitToDate(endDate))
                 ? YearMonth.from(LocalDate.parse(endDate)).atEndOfMonth().toString()
                 : endDate;
         String cacheKey = "costByRegion-" + account.getAwsAccountId();
@@ -1114,7 +1156,8 @@ public class FinOpsService {
         // to end-of-month, otherwise they silently return 3+ weeks of data instead of 7 days.
         boolean isMtdOrFullMonthQuery = startDate == null
                 || LocalDate.parse(startDate).getDayOfMonth() == 1;
-        String normalizedEnd = (endDate != null && isCurrentMonth(endDate) && isMtdOrFullMonthQuery)
+        String normalizedEnd = (endDate != null && isCurrentMonth(endDate) && isMtdOrFullMonthQuery
+                        && isImplicitToDate(endDate))
                 ? YearMonth.from(LocalDate.parse(endDate)).atEndOfMonth().toString()
                 : endDate;
 
@@ -1161,7 +1204,8 @@ public class FinOpsService {
             String startDate, String endDate) {
         boolean isMtdOrFullMonthQuery = startDate == null
                 || LocalDate.parse(startDate).getDayOfMonth() == 1;
-        String normalizedEndHistory = (endDate != null && isCurrentMonth(endDate) && isMtdOrFullMonthQuery)
+        String normalizedEndHistory = (endDate != null && isCurrentMonth(endDate) && isMtdOrFullMonthQuery
+                        && isImplicitToDate(endDate))
                 ? YearMonth.from(LocalDate.parse(endDate)).atEndOfMonth().toString()
                 : endDate;
         String cacheKey = "costHistory-" + account.getAwsAccountId();

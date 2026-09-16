@@ -12,6 +12,15 @@ interface FinOpsKPISectionProps {
   kpis: FinOpsKPIs;
   /** Account to read the savings rate for, or null to omit that card. */
   curAccountId?: string | null;
+  /**
+   * Show the spend total alone, under the given heading.
+   *
+   * <p>For a custom date range, where the other cards would be wrong rather than merely
+   * absent: forecast extrapolates to the end of the current month, "Last Month" is the
+   * previous calendar month whatever the picker says, and potential savings comes from
+   * scans of today's resources. Only the total describes the range actually asked for.
+   */
+  spendOnlyLabel?: string | null;
 }
 
 const formatCurrency = (value: number): string =>
@@ -244,7 +253,7 @@ const UnusedCommitmentCard: React.FC<{
   );
 };
 
-const FinOpsKPISection: React.FC<FinOpsKPISectionProps> = ({ kpis, curAccountId = null }) => {
+const FinOpsKPISection: React.FC<FinOpsKPISectionProps> = ({ kpis, curAccountId = null, spendOnlyLabel = null }) => {
   const mtdSpend = kpis.monthToDateSpend || 0;
   const lastMonthSpend = kpis.lastMonthSpend || 0;
   const forecast = kpis.forecastedSpend || 0;
@@ -316,6 +325,17 @@ const FinOpsKPISection: React.FC<FinOpsKPISectionProps> = ({ kpis, curAccountId 
   const extraCards = (savingsRate ? 1 : 0) + (unusedCommitment ? 1 : 0);
   const columns =
     extraCards === 2 ? 'lg:grid-cols-6' : extraCards === 1 ? 'lg:grid-cols-5' : 'lg:grid-cols-4';
+
+  // A custom range: only the total is meaningful, so the rest of the row is dropped
+  // rather than left showing current-month figures beside a historical chart.
+  if (spendOnlyLabel) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KPICard index={0} label={spendOnlyLabel} rawValue={mtdSpend} icon="mdi:currency-usd"
+          iconColor="#4285F4" iconBg="#4285F414" changeLabel="selected range" />
+      </div>
+    );
+  }
 
   return (
     <div className={`grid grid-cols-1 md:grid-cols-2 ${columns} gap-4`}>

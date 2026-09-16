@@ -113,13 +113,21 @@ public class CostService {
          * query is a default MTD or full-month view (startDate null or 1st of month).
          * Mid-month startDates (comparison periods like Jun 8–15) must NOT be stretched to
          * end-of-month, otherwise the cache returns 3+ weeks of data instead of 7 days.
+         *
+         * <p>Nor is an end date the caller chose. An end date earlier than today was picked
+         * deliberately, and stretching it answers a different question than the one asked:
+         * a FinOps range of 1–14 September returned the whole month, and since the widened
+         * dates also form the cache key, every range starting on the 1st collapsed onto one
+         * entry and reported an identical total. Today or later is the genuine to-date case
+         * and is still widened, which is what keeps period-spanning fee rows — reservation
+         * charges, support, tax — in the current month's figure.
          */
         private String normalizeEndDate(String startDate, String endDate) {
                 if (endDate == null) return null;
                 try {
                         LocalDate end = LocalDate.parse(endDate);
                         YearMonth endYm = YearMonth.from(end);
-                        if (endYm.equals(YearMonth.now())) {
+                        if (endYm.equals(YearMonth.now()) && !end.isBefore(LocalDate.now())) {
                                 boolean isMtdOrFullMonth = startDate == null
                                         || LocalDate.parse(startDate).getDayOfMonth() == 1;
                                 if (isMtdOrFullMonth) {
@@ -134,7 +142,9 @@ public class CostService {
         private LocalDate normalizeEndDate(LocalDate endDate) {
                 if (endDate == null) return null;
                 YearMonth endYm = YearMonth.from(endDate);
-                return endYm.equals(YearMonth.now()) ? endYm.atEndOfMonth() : endDate;
+                return endYm.equals(YearMonth.now()) && !endDate.isBefore(LocalDate.now())
+                        ? endYm.atEndOfMonth()
+                        : endDate;
         }
 
         // --- NEW METHODS ADDED TO FIX COMPILATION ERROR ---

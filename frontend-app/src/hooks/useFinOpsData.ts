@@ -25,6 +25,26 @@ import type {
 interface UseFinOpsDataOptions {
   selectedAccountId: string | null;
   dateFilter: DateFilter;
+  /**
+   * Which source the figures must come from, appended as `costSource`.
+   *
+   * <p>'CUR' means the Cost and Usage Report and nothing else — the backend fails rather
+   * than falling back, which is the point: under a custom range the page has told the user
+   * where the numbers come from, so quietly substituting Cost Explorer would make that a
+   * lie. 'CE' is the explicit opt-in after the report turns out not to cover the range.
+   * null leaves the default preference alone.
+   */
+  costSource?: 'CUR' | 'CE' | null;
+  /**
+   * Load only what a custom date range can actually answer: the spend total and the Cost
+   * Explorer breakdown.
+   *
+   * <p>The other sections describe current state, not a historical window. Waste,
+   * rightsizing, tagging compliance and budgets have no meaning "as of last April", and
+   * their endpoints ignore the date parameters anyway — so under a range they are not
+   * fetched at all rather than shown with figures that silently belong to today.
+   */
+  rangeScoped?: boolean;
 }
 
 export interface SectionLoadingState {
@@ -78,6 +98,8 @@ function computeKpisFromBilling(
 export const useFinOpsData = ({
   selectedAccountId,
   dateFilter,
+  costSource = null,
+  rangeScoped = false,
 }: UseFinOpsDataOptions): UseFinOpsDataReturn => {
   const [reportData, setReportData] = useState<FinOpsReportData | null>(null);
   const [reportSchedules, setReportSchedules] = useState<ReportSchedule[]>([]);
@@ -118,7 +140,8 @@ export const useFinOpsData = ({
       setReportData(emptyReport());
       setSectionLoading({ kpis: true, budgets: true, charts: true, tagging: true, insights: true });
 
-      const base = `accountId=${selectedAccountId}&forceRefresh=${forceRefresh}`;
+      const sourceParam = costSource ? `&costSource=${costSource}` : '';
+      const base = `accountId=${selectedAccountId}&forceRefresh=${forceRefresh}${sourceParam}`;
       const dateParams = dateFilter.startDate && dateFilter.endDate
         ? `&startDate=${dateFilter.startDate}&endDate=${dateFilter.endDate}`
         : '';
@@ -225,6 +248,16 @@ export const useFinOpsData = ({
         }
 
         // ── Slowest parallel group 3: tagging + wasted + rightsizing ─────────
+        // Skipped under a custom range: these describe current state, and their endpoints
+        // do not take the date parameters, so fetching them would put today's waste and
+        // rightsizing figures beside a chart showing last April.
+        if (rangeScoped) {
+          if (version === requestVersion.current) {
+            setSectionLoading(prev => ({ ...prev, tagging: false, insights: false }));
+          }
+          return;
+        }
+
         await Promise.all([
           fetchSection<TaggingCompliance>(
             'tagging-compliance',
@@ -278,7 +311,7 @@ export const useFinOpsData = ({
         }
       }
     },
-    [selectedAccountId, dateFilter] // eslint-disable-line react-hooks/exhaustive-deps
+    [selectedAccountId, dateFilter, costSource, rangeScoped] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // Load schedules

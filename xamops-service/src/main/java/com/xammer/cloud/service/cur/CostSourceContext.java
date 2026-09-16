@@ -88,6 +88,10 @@ public enum CostSourceContext {
         }
         return switch (raw.trim().toUpperCase()) {
             case "CE", "COST_EXPLORER", "COSTEXPLORER" -> COST_EXPLORER;
+            // The FinOps page sends this for a custom date range, where a silent fallback
+            // would be actively misleading: the user has been told the figures come from
+            // the report, and Cost Explorer is offered explicitly instead of substituted.
+            case "CUR", "CUR_ONLY", "CURONLY" -> CUR_ONLY;
             default -> AUTO;
         };
     }
