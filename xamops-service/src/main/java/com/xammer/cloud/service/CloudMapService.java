@@ -221,12 +221,36 @@ public class CloudMapService {
             try {
                 if (inventoryProjection.isFresh(account.getId())) {
                     List<ResourceDto> fromPlane = inventoryProjection.flatList(account.getId());
-                    if (!fromPlane.isEmpty()) {
+                    /*
+                     * The plane is only allowed to answer if it knows where things live.
+                     *
+                     * This graph places a resource by its "VPC ID" detail and silently drops
+                     * anything without one. AwsInventoryReconciler currently persists that
+                     * detail from instanceDetails(Instance) alone, so EC2 instances carry it
+                     * and every other type is stored with empty details. Serving the graph
+                     * from the plane therefore returned a VPC containing nothing but EC2 —
+                     * no security groups, load balancers, gateways or interfaces — which the
+                     * describe scan does return, because CloudListService sets "VPC ID" for
+                     * all of them.
+                     *
+                     * Counting the detail rather than assuming it is present means this fixes
+                     * itself: as the reconciler learns to persist VPC associations for more
+                     * types the plane starts qualifying again, with no change here. Until
+                     * then a slower scan that shows the whole topology beats an instant one
+                     * that quietly omits most of it.
+                     */
+                    long withVpc = fromPlane.stream()
+                            .filter(r -> r != null && getDetail(r, "VPC ID") != null)
+                            .count();
+                    if (!fromPlane.isEmpty() && withVpc > 0) {
                         logger.info("✅ Cloud Map graph served from inventory plane for account {} "
-                                + "({} resources, 0 describe calls)",
-                                account.getAwsAccountId(), fromPlane.size());
+                                + "({} resources, {} with a VPC association, 0 describe calls)",
+                                account.getAwsAccountId(), fromPlane.size(), withVpc);
                         return CompletableFuture.completedFuture(fromPlane);
                     }
+                    logger.info("[Inventory] Plane has {} resources for account {} but {} carry a "
+                            + "\"VPC ID\"; using a describe scan so non-EC2 services are not dropped",
+                            fromPlane.size(), account.getAwsAccountId(), withVpc);
                 }
             } catch (Exception e) {
                 // A plane read failing must not cost the whole page; the scan still works.
