@@ -42,6 +42,14 @@ const CloudListPage: React.FC = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
+  /**
+   * Mirror of currentPage for the WebSocket handler.
+   *
+   * <p>That handler is registered once on connect, so it closes over whatever currentPage
+   * held at that moment — always 0 — and would think the reader was on the first page
+   * forever. A ref is read at call time instead.
+   */
+  const currentPageRef = useRef(0);
   const [hasNextPage, setHasNextPage] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRegion, setSelectedRegion] = useState('');
@@ -108,6 +116,36 @@ const CloudListPage: React.FC = () => {
   }, []);
 
   /**
+   * Re-fetches every page the reader has already loaded, as one request.
+   *
+   * <p>Used by the live inventory push. The page size is widened rather than the pages
+   * re-fetched one by one: the endpoint pages over service groups, so a single call for
+   * {@code (currentPage + 1) * servicesPerPage} groups returns the same span the reader
+   * was looking at, with whatever changed folded in.
+   *
+   * <p>Deliberately silent — no spinner and no list clearing. A visible loading state
+   * every few seconds is its own kind of broken, and the status line already says what
+   * changed.
+   */
+  const reloadLoadedPages = useCallback(async () => {
+    if (!selectedAccountId) return;
+    const pagesLoaded = currentPageRef.current + 1;
+    try {
+      const data = await fetchCloudlistServicesPaginated(
+        selectedAccountId, 0, servicesPerPage * pagesLoaded,
+      );
+      setAllGroups(data.services || []);
+      setHasNextPage(data.hasNext);
+      // currentPage is unchanged on purpose: the reader is still that many pages in, and
+      // Load More must ask for the next one, not repeat the span just fetched.
+    } catch (e) {
+      // A failed background reload is not worth interrupting for — the rows on screen are
+      // still valid, just missing the newest change until the next push or a Refresh.
+      console.warn('[CloudList] Live reload failed, keeping current rows:', e);
+    }
+  }, [selectedAccountId]);
+
+  /**
    * Load initial resources (page 0)
    */
   const loadInitialResources = useCallback(async (forceRefresh: boolean = false) => {
@@ -168,6 +206,7 @@ const CloudListPage: React.FC = () => {
     if (isMountedRef.current) {
       setIsLoading(true);
       setCurrentPage(0);
+      currentPageRef.current = 0;
       setAllGroups([]);
       setHasNextPage(true);
       setStatusMessage('Loading resources...');
@@ -313,9 +352,17 @@ const CloudListPage: React.FC = () => {
         setStatusMessage(`${parts.join(', ')} · ${new Date().toLocaleTimeString()}`);
         setStatusColor('green');
 
-        // Reload from the inventory plane. Cheap because it is a DB read, not the
-        // ~1000-call AWS scan a forceRefresh would trigger.
-        loadInitialResources(false);
+        // Reload everything the reader currently has on screen, not just the first page.
+        //
+        // loadInitialResources fetches page 0 alone, so calling it here used to discard
+        // every page Load More had fetched and snap the list back to five services. On an
+        // account with live inventory events a batch can arrive every few seconds, so the
+        // list collapsed under the reader repeatedly.
+        //
+        // Asking for one page of (pages loaded x page size) returns exactly the same span
+        // in a single request — the new resource appears, the reader's position does not
+        // move, and Load More carries on from where it was.
+        reloadLoadedPages();
       });
     }, (error: any) => {
       isConnectingRef.current = false;
@@ -327,7 +374,7 @@ const CloudListPage: React.FC = () => {
     });
 
     stompClientRef.current = client;
-  }, [selectedAccountId, loadInitialResources]);
+  }, [selectedAccountId, loadInitialResources, reloadLoadedPages]);
 
 
   /**
@@ -344,6 +391,7 @@ const CloudListPage: React.FC = () => {
       setAllGroups(prev => [...prev, ...data.services]);
       setHasNextPage(data.hasNext);
       setCurrentPage(nextPage);
+      currentPageRef.current = nextPage;
 
       // Update EC2 cache if new EC2 instances loaded
       const ec2Group = data.services.find(g => g.serviceType === 'EC2 Instance');
