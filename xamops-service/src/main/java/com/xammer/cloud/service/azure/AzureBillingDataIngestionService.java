@@ -5,6 +5,8 @@ import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.models.BlobItem;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xammer.cloud.config.SchedulingEnvironmentConfig;
+import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.azure.AzureDashboardData;
@@ -46,6 +48,7 @@ public class AzureBillingDataIngestionService {
     private final RedisCacheService redisCache;
     private final AzureCostQueryService costQueryService;
     private final CachedDataRepository cachedDataRepository;
+    private final SchedulingEnvironmentConfig envConfig;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Define cache keys for the data we will save
@@ -77,12 +80,14 @@ public class AzureBillingDataIngestionService {
             AzureClientProvider clientProvider,
             RedisCacheService redisCache,
             AzureCostQueryService costQueryService,
-            CachedDataRepository cachedDataRepository) {
+            CachedDataRepository cachedDataRepository,
+            SchedulingEnvironmentConfig envConfig) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.clientProvider = clientProvider;
         this.redisCache = redisCache;
         this.costQueryService = costQueryService;
         this.cachedDataRepository = cachedDataRepository;
+        this.envConfig = envConfig;
     }
 
     private void saveToDb(String dbKey, Object data) {
@@ -99,22 +104,72 @@ public class AzureBillingDataIngestionService {
     }
 
     /**
-     * Runs every 6 hours to check for new billing data.
+     * Refreshes the Azure cost caches the dashboard and cost pages read.
+     *
+     * <p>
+     * Was {@code @Scheduled(fixedRate = 21600000)}. A fixed rate is phased from JVM start, so
+     * the run times drifted with every deploy and there was no way to place this job relative to
+     * the 04:30 dashboard snapshot that consumes what it writes. A cron fixes the phase, and
+     * 03:30 puts it an hour ahead of that snapshot so the cost keys are warm when the snapshot is
+     * assembled. The force-refresh path also ingests inline before reading (see
+     * {@code AzureDashboardService.getAndSetCostHistoryAndBilling}), so this ordering is belt and
+     * braces rather than the only protection — but it is what keeps the non-forced seed path and
+     * the cost pages from reading a cold cache for most of the day.
+     *
+     * <p>
+     * Three correctness fixes travel with the cadence change:
+     * <ul>
+     * <li><b>Tenant context.</b> This ran {@code findAll()} with no tenant set. Scheduled threads
+     * never pass through {@code TenantFilter}, so {@code TenantRoutingDataSource} had no lookup
+     * key and fell through to the default datasource. That happens to be the right database in
+     * the current single-tenant deployment, which is why it was never noticed; it would silently
+     * ingest into the wrong tenant the moment a second one existed. Every other scheduled job in
+     * the platform sets this.</li>
+     * <li><b>Per-account isolation.</b> The loop had no try/catch, so one subscription with a
+     * rotated secret or a deleted storage account threw and abandoned every remaining
+     * subscription for the rest of the cycle — six hours of missing cost data for accounts that
+     * were perfectly healthy, with nothing in the logs tying the two together.</li>
+     * <li><b>Case-sensitive provider match.</b> {@code "Azure".equals(...)} where the rest of the
+     * codebase uses {@code equalsIgnoreCase}. A row stored as "AZURE" or "azure" was skipped by
+     * ingestion while still being picked up by the dashboard refresh, which produced the most
+     * confusing possible symptom: a subscription that renders but reports zero spend.</li>
+     * </ul>
      */
-    @Scheduled(fixedRate = 21600000) // 6 hours
+    @Scheduled(cron = "${xamops.azure.billing-ingestion-cron:0 30 3 * * *}", zone = "Asia/Kolkata")
     public void runDailyBillingIngestion() {
-        log.info("Starting scheduled job: Ingest Azure billing data...");
-        List<CloudAccount> azureAccounts = cloudAccountRepository.findAll().stream()
-                .filter(a -> "Azure".equals(a.getProvider()))
-                .collect(Collectors.toList());
-
-        if (azureAccounts.isEmpty()) {
-            log.info("No Azure accounts found. Skipping ingestion.");
+        if (!envConfig.isSchedulingEnabled()) {
             return;
         }
 
-        for (CloudAccount account : azureAccounts) {
-            ingestDataForAccount(account);
+        log.info("Starting scheduled job: Ingest Azure billing data...");
+        TenantContext.setCurrentTenant(envConfig.getCurrentTenantId());
+        try {
+            List<CloudAccount> azureAccounts = cloudAccountRepository.findAll().stream()
+                    .filter(a -> "Azure".equalsIgnoreCase(a.getProvider()))
+                    .collect(Collectors.toList());
+
+            if (azureAccounts.isEmpty()) {
+                log.info("No Azure accounts found. Skipping ingestion.");
+                return;
+            }
+
+            int ingested = 0;
+            int failed = 0;
+            for (CloudAccount account : azureAccounts) {
+                try {
+                    ingestDataForAccount(account);
+                    ingested++;
+                } catch (Exception e) {
+                    failed++;
+                    log.error("Azure billing ingestion failed for subscription {} — continuing with the "
+                            + "remaining {} account(s). Cause: {}",
+                            account.getAzureSubscriptionId(), azureAccounts.size() - ingested - failed,
+                            e.getMessage(), e);
+                }
+            }
+            log.info("Azure billing ingestion complete — {} succeeded, {} failed", ingested, failed);
+        } finally {
+            TenantContext.clear();
         }
     }
 

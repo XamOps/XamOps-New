@@ -24,6 +24,30 @@ interface UseAzureDashboardDataReturn {
 const CACHE_KEY_PREFIX = 'azure_dashboard_';
 const DEFAULT_REFRESH_INTERVAL = 60; // 60 seconds
 
+/**
+ * How long the sessionStorage copy may be used to paint the page.
+ *
+ * The session cache exists only so a remount (tab switch, route change) shows the last
+ * known figures instead of an empty dashboard while the request is in flight. It is NOT a
+ * substitute for fetching.
+ *
+ * It used to have no age limit, and `loadDashboardData(false)` returned it before ever
+ * calling the API. Since the auto-refresh timer also calls `loadDashboardData(false)`, the
+ * effect was that the Azure dashboard made exactly one request per browser session: the
+ * 60-second poll read sessionStorage, found a hit, and returned. A backend refresh was
+ * invisible until the user hard-reloaded or pressed Refresh. The AWS dashboard has no
+ * session cache at all and genuinely re-fetches every 60s, which is most of why AWS looked
+ * live and Azure looked frozen.
+ *
+ * Kept shorter than the poll interval so a poll can never be served from it.
+ */
+const SESSION_CACHE_MAX_AGE_MS = 30_000;
+
+interface CachedEnvelope {
+  data: AzureDashboardData;
+  cachedAt: number;
+}
+
 export const useAzureDashboardData = ({
   accountIds,
   autoRefresh = true,
@@ -51,16 +75,28 @@ export const useAzureDashboardData = ({
     return `${CACHE_KEY_PREFIX}${accountIds[0]}`;
   }, [accountIds]);
 
-  // Load from cache
+  // Load from cache — only honoured while within SESSION_CACHE_MAX_AGE_MS.
   const loadFromCache = useCallback((): AzureDashboardData | null => {
     try {
       const cacheKey = getCacheKey();
       const cached = sessionStorage.getItem(cacheKey);
-      if (cached) {
-        const parsedData = JSON.parse(cached);
-        setLastUpdated(parsedData.lastUpdated || new Date().toISOString());
-        return parsedData;
+      if (!cached) return null;
+
+      const envelope = JSON.parse(cached) as CachedEnvelope | AzureDashboardData;
+
+      // Entries written before this envelope existed have no cachedAt. Treat them as
+      // expired rather than trusting them forever, which is the bug being fixed.
+      if (!('cachedAt' in envelope) || typeof envelope.cachedAt !== 'number') {
+        sessionStorage.removeItem(cacheKey);
+        return null;
       }
+
+      if (Date.now() - envelope.cachedAt > SESSION_CACHE_MAX_AGE_MS) {
+        return null;
+      }
+
+      setLastUpdated(envelope.data?.lastUpdated || new Date().toISOString());
+      return envelope.data;
     } catch (err) {
       console.error('Failed to load from cache:', err);
     }
@@ -72,7 +108,8 @@ export const useAzureDashboardData = ({
     (dashboardData: AzureDashboardData) => {
       try {
         const cacheKey = getCacheKey();
-        sessionStorage.setItem(cacheKey, JSON.stringify(dashboardData));
+        const envelope: CachedEnvelope = { data: dashboardData, cachedAt: Date.now() };
+        sessionStorage.setItem(cacheKey, JSON.stringify(envelope));
       } catch (err) {
         console.error('Failed to save to cache:', err);
       }
@@ -80,10 +117,19 @@ export const useAzureDashboardData = ({
     [getCacheKey]
   );
 
-  // Load dashboard data
+  // Load dashboard data.
+  //
+  // forceRefresh        -> ask the backend for a live Azure fetch (slow, expensive)
+  // bypassSessionCache  -> skip the browser copy but still let the backend serve its
+  //                        snapshot. This is what the poll uses: cheap for Azure, but it
+  //                        does pick up whatever the scheduled refresh last wrote.
   const loadDashboardData = useCallback(
-    async (forceRefresh: boolean = false) => {
-      console.log('🔷 Azure Dashboard: loadDashboardData called', { accountIds, forceRefresh });
+    async (forceRefresh: boolean = false, bypassSessionCache: boolean = false) => {
+      console.log('🔷 Azure Dashboard: loadDashboardData called', {
+        accountIds,
+        forceRefresh,
+        bypassSessionCache,
+      });
 
       if (accountIds.length === 0) {
         console.log('🔷 Azure Dashboard: No account IDs, clearing data');
@@ -103,10 +149,10 @@ export const useAzureDashboardData = ({
 
       try {
         // Try to load from cache first if not force refresh
-        if (!forceRefresh) {
+        if (!forceRefresh && !bypassSessionCache) {
           const cachedData = loadFromCache();
           if (cachedData) {
-            console.log('🔷 Azure Dashboard: Loaded from cache');
+            console.log('🔷 Azure Dashboard: Loaded from cache (fresh, < 30s old)');
             setData(cachedData);
             setLoading({
               global: false,
@@ -202,10 +248,14 @@ export const useAzureDashboardData = ({
       clearInterval(refreshTimerRef.current);
     }
 
-    // Set up new timer
+    // Set up new timer.
+    //
+    // bypassSessionCache=true is the whole point of the timer. With it false the poll was
+    // served from sessionStorage and never reached the network, so an open tab could not
+    // see a backend refresh for the life of the session.
     refreshTimerRef.current = setInterval(() => {
-      console.log('🔷 Azure Dashboard: Auto-refresh triggered (cache read)');
-      loadDashboardData(false);
+      console.log('🔷 Azure Dashboard: Auto-refresh triggered (server read)');
+      loadDashboardData(false, true);
     }, refreshInterval * 1000);
 
     // Cleanup
