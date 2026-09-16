@@ -346,6 +346,8 @@ const CloudMapPage: React.FC = () => {
   // Cytoscape refs
   const cyRef = useRef<any>(null);
   const ehRef = useRef<any>(null);
+  /** Canvas resize observer, disconnected on re-render and on unmount. */
+  const roRef = useRef<ResizeObserver | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const wheelCleanupRef = useRef<(() => void) | null>(null);
 
@@ -854,9 +856,12 @@ const CloudMapPage: React.FC = () => {
     hoverNodeIdRef.current = null;
     if (hoverClearTimerRef.current) { clearTimeout(hoverClearTimerRef.current); hoverClearTimerRef.current = null; }
 
+    // Disconnect the previous observer before the instance it points at goes away,
+    // otherwise one survives per render and fires against a destroyed canvas.
+    if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
     if (cyRef.current) {
       if (ehRef.current) { ehRef.current.destroy(); ehRef.current = null; }
-      cyRef.current.destroy();
+      if (!cyRef.current.destroyed()) cyRef.current.destroy();
       cyRef.current = null;
     }
     if (!containerRef.current) return;
@@ -1288,15 +1293,50 @@ const CloudMapPage: React.FC = () => {
       });
     }
 
-    // Resize observer — only recalculate canvas geometry, never auto-fit
-    // (auto-fit on resize causes runaway zoom when palette panel width changes)
+    /*
+     * Resize observer — only recalculate canvas geometry, never auto-fit
+     * (auto-fit on resize causes runaway zoom when palette panel width changes).
+     *
+     * Held in a ref and disconnected in the teardown above, because renderGraph runs
+     * again on every graph change. Each run used to leave its observer attached, so
+     * they accumulated one per render and all of them outlived the page. After
+     * navigating away they kept firing against a Cytoscape instance whose container
+     * was gone: the optional call guards null but not a destroyed instance, and
+     * resize() on one throws. An exception raised from a ResizeObserver callback
+     * while React is committing the next route is enough to leave the app showing a
+     * changed URL and nothing else until the browser is reloaded.
+     */
     if (window.ResizeObserver && containerRef.current) {
       const ro = new ResizeObserver(() => {
-        cyRef.current?.resize();
+        const cy = cyRef.current;
+        // destroyed() is the check that matters; the instance can outlive its DOM.
+        if (cy && !cy.destroyed()) cy.resize();
       });
       ro.observe(containerRef.current);
+      roRef.current = ro;
     }
   }, [readElementProps]);
+
+  /*
+   * Tear the canvas down when leaving the page.
+   *
+   * Nothing did this before: the Cytoscape instance was only ever destroyed at the
+   * top of the next renderGraph, so navigating away left a live instance, its event
+   * handlers and its resize observer attached to a detached container.
+   */
+  useEffect(() => () => {
+    if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
+    if (ehRef.current) {
+      try { ehRef.current.destroy(); } catch { /* extension may already be gone */ }
+      ehRef.current = null;
+    }
+    const cy = cyRef.current;
+    if (cy && !cy.destroyed()) {
+      cy.removeAllListeners();
+      cy.destroy();
+    }
+    cyRef.current = null;
+  }, []);
 
   // ── Graph effect ──────────────────────────────────────────────────────────
 
@@ -2636,10 +2676,12 @@ ${xmlEdges}
   const handleRefreshTopology = useCallback(() => {
     setRefreshingTopology(true);
     const done = () => setRefreshingTopology(false);
+    // force: Refresh must re-scan. Without it this would hand back the cached
+    // graph instantly and look like the button does nothing.
     if (selectedVpcValue === ALL_VPCS_VALUE) {
-      loadAllGraphs(awsVpcs);
+      loadAllGraphs(awsVpcs, true);
     } else if (selectedVpcValue) {
-      loadGraph(selectedVpcValue);
+      loadGraph(selectedVpcValue, true);
     }
     setTimeout(done, 1500);
   }, [selectedVpcValue, loadGraph, loadAllGraphs, awsVpcs]);
@@ -4524,8 +4566,12 @@ ${xmlEdges}
               </div>
             )}
 
-            {/* Empty State */}
-            {showEmptyState && (
+            {/*
+              Empty State — suppressed while a load is in flight. "Nothing to map yet"
+              was rendering behind the "Finding your VPCs…" overlay, so an account that
+              was merely still loading was simultaneously being told it had nothing.
+            */}
+            {showEmptyState && !loadingVpcs && !loadingGraph && (
               <div className="empty-state">
                 <div className="empty-state-content">
                   <div className="empty-state-icon" style={{ color: canvasTokens.inkMuted }}>

@@ -13,6 +13,7 @@
 import { getDemoRole } from './demoConfig';
 import { buildDemoComplianceReport } from './complianceReportDemo';
 import * as xamops from './xamopsMockData';
+import * as identity from './xamopsIdentityMockData';
 import * as billops from './billopsAdminMockData';
 import * as xamsecure from './xamsecureMockData';
 import * as soc2 from './soc2MockData';
@@ -294,6 +295,12 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(xamops.demoAwsProwlerFindings);
   if (url.includes('/api/xamops/security/prowler/scan'))
     return makeResponse({ status: 'STARTED', message: 'Scan initiated' });
+  // Identity & Access. Must precede the catch-all below, which would otherwise answer this with
+  // the findings array — a 200 of the wrong shape, which the tab reads as "no identities" and
+  // then retries once with forceRefresh before giving up. Keyed on accountId so switching
+  // accounts changes the estate, including across providers.
+  if (url.includes('/api/xamops/security/identities'))
+    return makeResponse(identity.demoIdentityInventory(param(url, 'accountId')));
   if (url.includes('/api/xamops/security'))
     return makeResponse(xamops.demoSecurityData);
 

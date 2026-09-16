@@ -15,6 +15,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ALL_VPCS_VALUE } from '../types/cloudmap';
 import type { VPC, GraphElement, Blueprint } from '../types/cloudmap';
 import { apiFetch } from '../utils/apiClient';
@@ -36,8 +37,9 @@ interface UseCloudMapReturn {
   graphElements: GraphElement[];
   loadingGraph: boolean;
   graphError: string | null;
-  loadGraph: (vpcValue: string) => Promise<void>;
-  loadAllGraphs: (vpcsData?: VPC[]) => Promise<void>;
+  /** `force` bypasses the cached result; the Refresh control uses it. */
+  loadGraph: (vpcValue: string, force?: boolean) => Promise<void>;
+  loadAllGraphs: (vpcsData?: VPC[], force?: boolean) => Promise<void>;
 
   // Design Mode
   blueprints: Blueprint[];
@@ -53,7 +55,29 @@ interface UseCloudMapReturn {
   exportToPng: (cy: any, vpcSelector: HTMLSelectElement | null) => void;
 }
 
+/*
+ * Cache keys for the shared react-query cache.
+ *
+ * The graph is keyed by account and selection because those are the only inputs to
+ * the request. The QueryClient lives at App level, so entries outlive this hook and
+ * survive navigating away from Cloud Map and back — which is the whole point: a
+ * single VPC still costs a full account scan on the backend, so re-opening the page
+ * used to pay for the entire topology again.
+ */
+const vpcsKey = (accountId?: string) => ['cloudmap', 'vpcs', accountId ?? ''];
+const graphKey = (accountId: string | undefined, selection: string) =>
+  ['cloudmap', 'graph', accountId ?? '', selection];
+
 export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMapReturn => {
+  /*
+   * Used as a store rather than through useQuery. The loaders here are imperative —
+   * they are called from event handlers, and loadAllGraphs deliberately sequences a
+   * cache-warming request before the rest — so converting them to declarative
+   * queries would rewrite that control flow. Reading and writing the same cache
+   * gets the persistence without touching the fetch ordering.
+   */
+  const queryClient = useQueryClient();
+
   // VPC State
   const [vpcs, setVpcs] = useState<VPC[]>([]);
   const [selectedVpcValue, setSelectedVpcValue] = useState<string>('');
@@ -88,10 +112,22 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
   /**
    * Load and merge graph data for all VPCs into a single canvas
    */
-  const loadAllGraphs = useCallback(async (vpcsData?: VPC[]) => {
+  const loadAllGraphs = useCallback(async (vpcsData?: VPC[], force = false) => {
     if (!accountId) {
       setGraphError('No account selected');
       return;
+    }
+
+    // The merged all-VPCs canvas is the most expensive view and the default one, so
+    // it is the request most worth not repeating on every visit.
+    if (!force) {
+      const cached = queryClient.getQueryData<GraphElement[]>(graphKey(accountId, ALL_VPCS_VALUE));
+      if (cached && cached.length > 0) {
+        setGraphElements(cached);
+        setGraphError(null);
+        setLoadingGraph(false);
+        return;
+      }
     }
 
     const list = vpcsData ?? vpcs;
@@ -245,6 +281,9 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
       });
 
       setGraphElements(merged);
+      if (merged.length > 0) {
+        queryClient.setQueryData(graphKey(accountId, ALL_VPCS_VALUE), merged);
+      }
     } catch (error) {
       console.error('Error loading all VPC graphs:', error);
       setGraphError(error instanceof Error ? error.message : 'Failed to load all VPC graphs');
@@ -263,6 +302,23 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
       return;
     }
 
+    /*
+     * Reuse a known VPC list before showing any spinner.
+     *
+     * This is what the user actually sees on revisiting the page: loadVpcs runs from a
+     * mount effect, so every navigation to Cloud Map raised "Finding your VPCs…" and
+     * then re-fetched the topology behind it. With both lists cached the page paints
+     * from cache and no overlay appears at all.
+     */
+    const cachedVpcs = queryClient.getQueryData<VPC[]>(vpcsKey(accountId));
+    if (cachedVpcs && cachedVpcs.length > 0) {
+      setVpcs(cachedVpcs);
+      setVpcError(null);
+      setSelectedVpcValue(ALL_VPCS_VALUE);
+      await loadAllGraphs(cachedVpcs);
+      return;
+    }
+
     setLoadingVpcs(true);
     setVpcError(null);
 
@@ -276,6 +332,9 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
 
       const data = await response.json();
       setVpcs(data);
+      if (Array.isArray(data) && data.length > 0) {
+        queryClient.setQueryData(vpcsKey(accountId), data);
+      }
 
       // Default: load all VPCs merged on one canvas
       if (data.length > 0) {
@@ -297,10 +356,21 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
   /**
    * Load graph data for a selected VPC
    */
-  const loadGraph = useCallback(async (vpcValue: string) => {
+  const loadGraph = useCallback(async (vpcValue: string, force = false) => {
     if (!accountId) {
       setGraphError('No account selected');
       return;
+    }
+
+    // Serve a previous result straight away. Refresh passes force to bypass this.
+    if (!force) {
+      const cached = queryClient.getQueryData<GraphElement[]>(graphKey(accountId, vpcValue));
+      if (cached && cached.length > 0) {
+        setGraphElements(cached);
+        setGraphError(null);
+        setLoadingGraph(false);
+        return;
+      }
     }
 
     setLoadingGraph(true);
@@ -322,6 +392,11 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
 
       const data = await response.json();
       setGraphElements(data || []);
+      // Only a non-empty result is cached: caching an empty graph would make a
+      // transient failure look permanent until the tab is reloaded.
+      if (Array.isArray(data) && data.length > 0) {
+        queryClient.setQueryData(graphKey(accountId, vpcValue), data);
+      }
     } catch (error) {
       console.error('Error loading graph:', error);
       setGraphError(error instanceof Error ? error.message : 'Failed to load graph');
@@ -329,7 +404,7 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
     } finally {
       setLoadingGraph(false);
     }
-  }, [accountId]);
+  }, [accountId, queryClient]);
 
   /**
    * Load list of design blueprints

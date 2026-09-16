@@ -193,7 +193,8 @@ export const CARD_H = 56;
 const WELL_X = 10;
 const WELL_Y = 12;
 const WELL_SIZE = 32;
-const ICON_INSET = 6;
+/** Side of the square icon well on a live card. */
+const ICON_BOX = 22;
 
 const TEXT_X = WELL_X + WELL_SIZE + 11; // 53
 const DOT_CX = CARD_W - 15;
@@ -314,6 +315,8 @@ export const LOD_ZOOM_THRESHOLD = 0.42;
 /** Chip box for the far view. Square so tiling stays predictable. */
 export const CHIP_W = 60;
 export const CHIP_H = 60;
+/** Icon side on a far-zoom chip; leaves a margin so the status ring stays visible. */
+const CHIP_ICON = 30;
 
 const chipCache = new Map<string, string>();
 
@@ -462,72 +465,81 @@ export function buildCytoscapeStyle(theme: CanvasTheme, mode: 'live' | 'design')
     style.push({
       selector: 'node',
       style: {
+        /*
+         * One background layer, and the name drawn by Cytoscape rather than baked.
+         *
+         * This was previously two layers: a card SVG authored at CARD_W x CARD_H in
+         * slot 0, and the service icon in slot 1 with its own smaller width, height
+         * and offset supplied as per-slot arrays. It rendered as a wide stretched
+         * icon with no card and no name, and setting slot 1 to 'contain' did not
+         * help — which is the tell. If the icon were really in slot 1 it could not
+         * be stretched to the full card width. It was landing in slot 0 and picking
+         * up slot 0's 'none' fit and CARD_W width, because the card image in front
+         * of it never resolved, and the per-slot arrays are only positional.
+         *
+         * Rather than keep guessing at Cytoscape's multi-layer resolution, the card
+         * is now drawn with the properties made for it — shape, background-color and
+         * border — the icon is the only background image, and the label is a real
+         * Cytoscape label. A single layer cannot be mis-indexed, so 'contain' is
+         * guaranteed to apply to the icon and the aspect ratio is safe whatever
+         * AWS_ICONS returns. It also puts the name back on the node, which is what
+         * the baked card was for.
+         */
         shape: 'round-rectangle',
         width: CARD_W,
         height: CARD_H,
-        label: '',
-        'background-color': 'transparent',
-        'background-opacity': 0,
-        'border-width': 0,
-        'background-clip': ['none', 'none'],
-        /*
-         * Layer 0 is the baked card SVG, authored at exactly CARD_W x CARD_H, so
-         * 'none' is right for it. Layer 1 is a service icon whose intrinsic aspect
-         * ratio we do not control: AWS_ICONS mixes our own flat line-art SVGs with
-         * AWS's official service icons, and 'none' stretches whatever arrives to
-         * fill the box. That is what made EC2 nodes render as wide smears of orange
-         * — and because the oversized layer draws 'over' the card, it also hid the
-         * resource name baked into layer 0.
-         *
-         * 'contain' keeps the icon's own proportions inside its box, so a mis-sized
-         * box shrinks or centres the icon instead of distorting it.
-         */
-        'background-fit': ['none', 'contain'],
-        'background-image-containment': ['over', 'over'],
-        'background-image': (ele: any) => [
-          resourceCardUrl({
-            name: ele.data('label') || ele.data('id'),
-            type: ele.data('type') || 'Resource',
-            state: ele.data('state') ?? ele.data('State'),
-            // Region deliberately omitted: it collided with long type names
-            // ("DynamoDB Table" + "ap-south-1" ran together) and repeats
-            // identically on every card in a single-region view. The VPC
-            // container label and the inspector both carry it.
-            theme,
-            selected: ele.selected(),
-          }),
-          iconLayerUrl(ele.data('type'), theme),
-        ],
-        'background-width': [CARD_W, WELL_SIZE - ICON_INSET * 2],
-        'background-height': [CARD_H, WELL_SIZE - ICON_INSET * 2],
-        'background-position-x': [0, WELL_X + ICON_INSET],
-        'background-position-y': [0, WELL_Y + ICON_INSET],
-        'background-offset-x': 0,
+        'background-color': t.card,
+        'background-opacity': 1,
+        'border-width': 1,
+        'border-color': t.hairline,
+
+        'background-image': (ele: any) => iconLayerUrl(ele.data('type'), theme),
+        'background-fit': 'contain',
+        'background-width': ICON_BOX,
+        'background-height': ICON_BOX,
+        'background-image-containment': 'inside',
+        // Anchored left so the icon sits in a fixed well and the text always starts
+        // at the same x, however wide the icon's own artwork is.
+        'background-position-x': WELL_X,
+        'background-position-y': '50%',
         'background-offset-y': 0,
+
+        label: 'data(label)',
+        color: t.ink,
+        'font-size': 11,
+        'font-weight': 600,
+        'text-valign': 'center',
+        'text-halign': 'right',
+        // Pulled back inside the node: 'right' aligns the text to the node's right
+        // edge and grows outward, so without this the label floats off the card.
+        'text-margin-x': -(CARD_W - WELL_X - ICON_BOX - 8),
+        'text-wrap': 'ellipsis',
+        'text-max-width': CARD_W - WELL_X - ICON_BOX - 14,
+        'text-overflow-wrap': 'anywhere',
         'z-index': 10,
       },
     });
 
-    // Far view: chips. Zoomed out past LOD_ZOOM_THRESHOLD the names are
-    // sub-pixel anyway, so drop them and keep shape, service and status.
+    /*
+     * Far view: square chips. Zoomed out past LOD_ZOOM_THRESHOLD a name is sub-pixel
+     * anyway, so the label is dropped and only shape, service and status remain.
+     *
+     * Kept to one background layer for the same reason as the card above: a second
+     * layer whose size comes from a positional array is what stretched the icon, and
+     * a chip is the view where a distorted icon is the only thing left to read.
+     */
     style.push({
       selector: 'node.cm-far',
       style: {
         width: CHIP_W,
         height: CHIP_H,
-        'background-image': (ele: any) => [
-          resourceChipUrl(
-            ele.data('type') || 'Resource',
-            ele.data('state') ?? ele.data('State'),
-            theme,
-            ele.selected(),
-          ),
-          iconLayerUrl(ele.data('type'), theme),
-        ],
-        'background-width': [CHIP_W, 26],
-        'background-height': [CHIP_H, 26],
-        'background-position-x': [0, (CHIP_W - 5 - 26) / 2 + 2],
-        'background-position-y': [0, (CHIP_H - 7 - 26) / 2 + 2],
+        label: '',
+        'background-image': (ele: any) => iconLayerUrl(ele.data('type'), theme),
+        'background-fit': 'contain',
+        'background-width': CHIP_ICON,
+        'background-height': CHIP_ICON,
+        'background-position-x': '50%',
+        'background-position-y': '50%',
       },
     });
 
