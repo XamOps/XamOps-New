@@ -59,6 +59,12 @@ export const NODE_TYPE_DATA: Record<string, NodeTypeInfo> = {
   'Security Group': { icon: 'shield-alt', color: 'yellow', style: 'solid', category: 'Security' },
   'Internet Gateway': { icon: 'globe', color: 'cyan', style: 'solid', category: 'Network' },
   'NAT Gateway': { icon: 'exchange-alt', color: 'indigo', style: 'solid', category: 'Network' },
+  // CloudMapService emits a route table per VPC, with "routes" edges to the subnets it
+  // governs and a "default via" edge to whatever terminates 0.0.0.0/0. Without an entry
+  // here the node still drew, but fell back to an initials glyph in the default hue.
+  // Violet is unused by the other Network types, so a route table stays distinguishable
+  // from the VPC, subnet and gateway nodes it sits among.
+  'Route Table': { icon: 'route', color: 'violet', style: 'solid', category: 'Network' },
   'Route 53 Zone': { icon: 'route', color: 'orange', style: 'solid', category: 'Network' },
   'EC2 Instance': { icon: 'server', color: 'orange', style: 'solid', category: 'Compute' },
   'Lambda Function': { icon: 'bolt', color: 'amber', style: 'solid', category: 'Compute' },
