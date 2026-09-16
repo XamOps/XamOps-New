@@ -2636,10 +2636,12 @@ ${xmlEdges}
   const handleRefreshTopology = useCallback(() => {
     setRefreshingTopology(true);
     const done = () => setRefreshingTopology(false);
+    // force: Refresh must re-scan. Without it this would hand back the cached
+    // graph instantly and look like the button does nothing.
     if (selectedVpcValue === ALL_VPCS_VALUE) {
-      loadAllGraphs(awsVpcs);
+      loadAllGraphs(awsVpcs, true);
     } else if (selectedVpcValue) {
-      loadGraph(selectedVpcValue);
+      loadGraph(selectedVpcValue, true);
     }
     setTimeout(done, 1500);
   }, [selectedVpcValue, loadGraph, loadAllGraphs, awsVpcs]);
@@ -4524,8 +4526,12 @@ ${xmlEdges}
               </div>
             )}
 
-            {/* Empty State */}
-            {showEmptyState && (
+            {/*
+              Empty State — suppressed while a load is in flight. "Nothing to map yet"
+              was rendering behind the "Finding your VPCs…" overlay, so an account that
+              was merely still loading was simultaneously being told it had nothing.
+            */}
+            {showEmptyState && !loadingVpcs && !loadingGraph && (
               <div className="empty-state">
                 <div className="empty-state-content">
                   <div className="empty-state-icon" style={{ color: canvasTokens.inkMuted }}>
