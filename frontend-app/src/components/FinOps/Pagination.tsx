@@ -23,17 +23,17 @@ const Pagination: React.FC<PaginationProps> = ({ currentPage, totalPages, totalI
         Showing <span className="font-semibold text-[rgba(0,0,0,0.7)]">{start}</span>–<span className="font-semibold text-[rgba(0,0,0,0.7)]">{end}</span> of <span className="font-semibold text-[rgba(0,0,0,0.7)]">{totalItems}</span>
       </p>
       <div className="flex items-center gap-1">
-        <button onClick={() => onPageChange(1)} disabled={currentPage === 1} className={btnCls(currentPage === 1)}>
+        <button type="button" aria-label="First page" onClick={() => onPageChange(1)} disabled={currentPage === 1} className={btnCls(currentPage === 1)}>
           <Icon icon="mdi:chevron-double-left" width={14} />
         </button>
-        <button onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1} className={btnCls(currentPage === 1)}>
+        <button type="button" aria-label="Previous page" onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1} className={btnCls(currentPage === 1)}>
           <Icon icon="mdi:chevron-left" width={14} />
         </button>
         <span className="px-3 text-[11px] font-medium text-[rgba(0,0,0,0.6)]">Page {currentPage} of {totalPages}</span>
-        <button onClick={() => onPageChange(currentPage + 1)} disabled={currentPage >= totalPages} className={btnCls(currentPage >= totalPages)}>
+        <button type="button" aria-label="Next page" onClick={() => onPageChange(currentPage + 1)} disabled={currentPage >= totalPages} className={btnCls(currentPage >= totalPages)}>
           <Icon icon="mdi:chevron-right" width={14} />
         </button>
-        <button onClick={() => onPageChange(totalPages)} disabled={currentPage >= totalPages} className={btnCls(currentPage >= totalPages)}>
+        <button type="button" aria-label="Last page" onClick={() => onPageChange(totalPages)} disabled={currentPage >= totalPages} className={btnCls(currentPage >= totalPages)}>
           <Icon icon="mdi:chevron-double-right" width={14} />
         </button>
       </div>
