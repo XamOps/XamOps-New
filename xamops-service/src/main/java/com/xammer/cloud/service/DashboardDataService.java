@@ -2203,17 +2203,7 @@ public class DashboardDataService {
                 : new ArrayList<>();
         mainAccount.setWastedResources(wastedResources);
         mainAccount.setCloudWatchStatus(new DashboardData.CloudWatchStatus(0, 0, 0));
-        // Carried through instead of blanked. GcpCostService has always detected these — the GCP
-        // FinOps page shows them — but this mapping discarded them, so the unified dashboard reported
-        // every GCP project as having no cost anomalies. That renders the same as a project that was
-        // checked and found clean.
-        mainAccount.setCostAnomalies(gcpData.getCostAnomalies() != null
-                ? gcpData.getCostAnomalies()
-                : new ArrayList<>());
-        if (gcpData.getCostAnomaliesUnavailableReason() != null) {
-            logger.info("[GcpMap] No cost anomalies for {}: {}",
-                    account.getGcpProjectId(), gcpData.getCostAnomaliesUnavailableReason());
-        }
+        mainAccount.setCostAnomalies(new ArrayList<>());
         mainAccount.setEbsRecommendations(new ArrayList<>());
         mainAccount.setLambdaRecommendations(new ArrayList<>());
 
