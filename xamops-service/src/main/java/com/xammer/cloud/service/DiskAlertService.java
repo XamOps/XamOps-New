@@ -5,6 +5,7 @@ import com.xammer.cloud.domain.DiskAlertState;
 import com.xammer.cloud.dto.AlertDto;
 import com.xammer.cloud.messaging.MessageKind;
 import com.xammer.cloud.messaging.MobileNotificationDispatcher;
+import com.xammer.cloud.messaging.NotificationChannel;
 import com.xammer.cloud.repository.DiskAlertStateRepository;
 import com.xammer.cloud.repository.FinOpsReportScheduleRepository;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -176,6 +178,16 @@ public class DiskAlertService {
         if (!mobileNotificationDispatcher.isActive()) return;
 
         try {
+            // Per-customer entitlement, checked before the recipient query. These channels are
+            // billed per message, so a client nobody has granted them to must cost nothing —
+            // not even the lookup.
+            Set<NotificationChannel> entitled = scheduleRepository
+                    .findClientByAccountId(account.getId())
+                    .map(c -> NotificationChannel.entitled(
+                            c.isSmsNotificationsEnabled(), c.isWhatsappNotificationsEnabled()))
+                    .orElseGet(() -> EnumSet.noneOf(NotificationChannel.class));
+            if (entitled.isEmpty()) return;
+
             List<String> contacts = scheduleRepository.findActiveContactsByAccountId(account.getId());
             if (contacts.isEmpty()) return;
 
@@ -183,7 +195,8 @@ public class DiskAlertService {
                     contacts,
                     alertTextBuilder.buildAlertVariables(alerts, account.getAccountName()),
                     MessageKind.ALERT,
-                    "account " + account.getProviderAccountId());
+                    "account " + account.getProviderAccountId(),
+                    entitled);
         } catch (Exception e) {
             // The dispatcher already swallows per-message failures; this guards the query and
             // variable build so a mobile problem can never cost the email that already went out.

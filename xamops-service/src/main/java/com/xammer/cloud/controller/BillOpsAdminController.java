@@ -225,6 +225,13 @@ class BillOpsClientDetailsDto {
     private boolean starred;
     /** Whether this client may self-serve XamSecure onboarding. Defaults on. */
     private boolean xamSecureOnboardingEnabled = true;
+    /**
+     * Per-client entitlement for the chargeable notification channels. Both default OFF, unlike
+     * xamSecureOnboardingEnabled — every send is billed per message, so a client absent from a
+     * stale cache must read as not entitled rather than as entitled.
+     */
+    private boolean smsNotificationsEnabled = false;
+    private boolean whatsappNotificationsEnabled = false;
 
     // ── Upwind / XamSecure estate, for the admin team ────────────────────────────────────
     /** Accounts reporting CONNECTED. A client is "onboarded" when this is > 0. */
@@ -355,6 +362,22 @@ class BillOpsClientDetailsDto {
 
     public void setXamSecureOnboardingEnabled(boolean xamSecureOnboardingEnabled) {
         this.xamSecureOnboardingEnabled = xamSecureOnboardingEnabled;
+    }
+
+    public boolean isSmsNotificationsEnabled() {
+        return smsNotificationsEnabled;
+    }
+
+    public void setSmsNotificationsEnabled(boolean smsNotificationsEnabled) {
+        this.smsNotificationsEnabled = smsNotificationsEnabled;
+    }
+
+    public boolean isWhatsappNotificationsEnabled() {
+        return whatsappNotificationsEnabled;
+    }
+
+    public void setWhatsappNotificationsEnabled(boolean whatsappNotificationsEnabled) {
+        this.whatsappNotificationsEnabled = whatsappNotificationsEnabled;
     }
 }
 
@@ -495,6 +518,63 @@ public class BillOpsAdminController {
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("clientId", clientId);
         response.put("xamSecureOnboardingEnabled", enabled);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Grant or withdraw a chargeable notification channel for a client.
+     *
+     * Explicit value rather than a toggle, for the same reason as {@code /xamsecure-onboarding}:
+     * this gates spend, and a toggle makes a double-submitted request silently reverse the
+     * decision. Sending the intended state means a retry is idempotent.
+     *
+     * Both channels default OFF. Every SMS and WhatsApp message is billed per send by the provider,
+     * so a client only starts costing money once someone here says so. Email delivery is entirely
+     * unaffected by these flags and remains the channel of record — withdrawing a channel narrows
+     * delivery, it never silences a customer's alerts altogether.
+     *
+     * SMS and WhatsApp are separate grants, not one "mobile" switch: they are priced differently
+     * and approved through different regimes (DLT registration vs Meta template review), so a
+     * customer can legitimately have one and not the other.
+     *
+     * @param channel {@code sms} or {@code whatsapp}
+     */
+    @PostMapping("/clients/{clientId}/notification-channel/{channel}")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN') or hasAuthority('ROLE_SUPER_ADMIN')")
+    public ResponseEntity<Map<String, Object>> setNotificationChannel(
+            @PathVariable Long clientId,
+            @PathVariable String channel,
+            @RequestBody Map<String, Object> body) {
+        Object raw = body.get("enabled");
+        if (!(raw instanceof Boolean)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Body must be {\"enabled\": true|false}"));
+        }
+        boolean enabled = (Boolean) raw;
+
+        String normalised = channel == null ? "" : channel.trim().toLowerCase();
+        if (!"sms".equals(normalised) && !"whatsapp".equals(normalised)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Unknown channel '" + channel + "' — expected 'sms' or 'whatsapp'"));
+        }
+
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "Client not found: " + clientId));
+
+        if ("sms".equals(normalised)) {
+            client.setSmsNotificationsEnabled(enabled);
+        } else {
+            client.setWhatsappNotificationsEnabled(enabled);
+        }
+        clientRepository.save(client);
+        redisCacheService.evict(CLIENTS_CACHE_KEY);
+
+        log.info("Client {} {}NotificationsEnabled={}", clientId, normalised, enabled);
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("clientId", clientId);
+        response.put("smsNotificationsEnabled", client.isSmsNotificationsEnabled());
+        response.put("whatsappNotificationsEnabled", client.isWhatsappNotificationsEnabled());
         return ResponseEntity.ok(response);
     }
 
@@ -793,6 +873,8 @@ public class BillOpsAdminController {
             clientDto.setEmail(client.getEmail());
             clientDto.setStarred(client.isStarred());
             clientDto.setXamSecureOnboardingEnabled(client.isXamSecureOnboardingEnabled());
+            clientDto.setSmsNotificationsEnabled(client.isSmsNotificationsEnabled());
+            clientDto.setWhatsappNotificationsEnabled(client.isWhatsappNotificationsEnabled());
 
             List<CloudAccount> accounts = accountsByClientId.getOrDefault(client.getId(), new ArrayList<>());
             List<BillOpsAccountDto> accountDtos = new ArrayList<>();

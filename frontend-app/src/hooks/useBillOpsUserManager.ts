@@ -42,6 +42,35 @@ const EMPTY_FORM: BillOpsUserFormData = {
 
 const AVAILABLE_ROLES: BillOpsRole[] = ['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB', 'ROLE_XAMOPS'];
 
+/**
+ * Validates the optional mobile number used for SMS / WhatsApp alerts.
+ *
+ * Mirrors the server-side rules in AppUserService.validateContact, which in turn defer to
+ * PhoneNumbers.toE164 — the same code the sender runs. Kept deliberately loose on punctuation
+ * because stored numbers legitimately contain spaces, dashes, brackets and a leading + or 0.
+ *
+ * @returns an error message, or null when the value is acceptable (including empty)
+ */
+const validateContactNumber = (contact: string | undefined): string | null => {
+    if (!contact || !contact.trim()) return null; // optional — email-only user
+    const raw = contact.trim();
+
+    if (raw.length > 20) return 'Contact number must be 20 characters or fewer.';
+    if (/[a-zA-Z]/.test(raw)) {
+        return 'Contact number cannot contain letters. Remove any extension or note.';
+    }
+
+    // Strip punctuation the normaliser tolerates, then check it is a plausible subscriber number.
+    let digits = raw.replace(/\D/g, '');
+    if (digits.startsWith('00')) digits = digits.slice(2);
+    else if (!raw.startsWith('+') && digits.startsWith('0')) digits = digits.slice(1);
+    // Bare national numbers get the default dial code prepended server-side, so 10 digits is fine.
+    if (digits.length < 8 || digits.length > 15) {
+        return 'Enter a valid mobile number — for example 9876543210 or +91 98765 43210.';
+    }
+    return null;
+};
+
 export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
     // State
     const [users, setUsers] = useState<BillOpsUser[]>([]);
@@ -168,6 +197,14 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
         }
         if (!selectedUser.id && !selectedUser.password?.trim()) {
             alert('Password is required for new users!');
+            return;
+        }
+        // Contact is optional, but a malformed one is worse than none: the backend would store it,
+        // the notification sender would silently skip it, and it would surface only as "the
+        // customer never got their alerts". Mirrors AppUserService.validateContact.
+        const contactError = validateContactNumber(selectedUser.contact);
+        if (contactError) {
+            alert(contactError);
             return;
         }
 

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Athena Data Catalog">
+  <title>Athena Data Catalog</title>
+  <defs>
+    <linearGradient id="g-athena-catalog" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#4D27A8"/>
+      <stop offset="1" stop-color="#A166FF"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="10" fill="url(#g-athena-catalog)"/>
+  <g fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M24 16c-3-2-6.8-3-11-3v20c4.2 0 8 1 11 3 3-2 6.8-3 11-3V13c-4.2 0-8 1-11 3z"/><path d="M24 16v20"/>
+  </g>
+</svg>

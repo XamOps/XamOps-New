@@ -61,11 +61,31 @@ public class MobileNotificationDispatcher {
      * @param context     short label for logs, e.g. the account ID
      */
     public List<MessageResult> dispatchAll(Collection<String> rawContacts,
-                                           Map<String, String> variables,
+                                           List<String> variables,
                                            MessageKind kind,
                                            String context) {
+        return dispatchAll(rawContacts, variables, kind, context, MOBILE_CHANNELS);
+    }
+
+    /**
+     * Sends to every recipient, restricted to {@code allowed}.
+     *
+     * <p>The allow-set is how per-customer entitlement reaches this layer. SMS and WhatsApp are
+     * billed per message and granted separately per contract, so a caller passes only the channels
+     * that customer is entitled to; configuration still decides what the deployment can send at
+     * all. An empty set sends nothing and costs no provider call.
+     */
+    public List<MessageResult> dispatchAll(Collection<String> rawContacts,
+                                           List<String> variables,
+                                           MessageKind kind,
+                                           String context,
+                                           Set<NotificationChannel> allowed) {
         List<MessageResult> results = new ArrayList<>();
         if (rawContacts == null || rawContacts.isEmpty()) {
+            return results;
+        }
+        if (allowed == null || allowed.isEmpty()) {
+            log.debug("No entitled mobile channels — skipping {} dispatch for {}", kind, context);
             return results;
         }
         if (!isActive()) {
@@ -82,7 +102,7 @@ public class MobileNotificationDispatcher {
                 .toList();
 
         for (String contact : distinct) {
-            results.addAll(dispatch(contact, variables, kind));
+            results.addAll(dispatch(contact, variables, kind, allowed));
         }
 
         long sent = results.stream().filter(MessageResult::isSent).count();
@@ -97,7 +117,7 @@ public class MobileNotificationDispatcher {
     }
 
     /** Sends to one recipient on every channel that configuration has enabled. */
-    public List<MessageResult> dispatch(String rawContact, Map<String, String> variables, MessageKind kind) {
+    public List<MessageResult> dispatch(String rawContact, List<String> variables, MessageKind kind) {
         return dispatch(rawContact, variables, kind, MOBILE_CHANNELS);
     }
 
@@ -113,7 +133,7 @@ public class MobileNotificationDispatcher {
      * @return one result per channel attempted; empty when no channel is both enabled and allowed
      */
     public List<MessageResult> dispatch(String rawContact,
-                                        Map<String, String> variables,
+                                        List<String> variables,
                                         MessageKind kind,
                                         Set<NotificationChannel> allowed) {
         List<MessageResult> results = new ArrayList<>();

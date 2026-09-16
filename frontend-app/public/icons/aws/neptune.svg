@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Neptune Cluster">
+  <title>Neptune Cluster</title>
+  <defs>
+    <linearGradient id="g-neptune" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#2E27AD"/>
+      <stop offset="1" stop-color="#527FFF"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="10" fill="url(#g-neptune)"/>
+  <g fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path fill="#fff" stroke="none" d="M24 10.5a3.5 3.5 0 110 7 3.5 3.5 0 010-7zM14 28.5a3.5 3.5 0 110 7 3.5 3.5 0 010-7zM34 28.5a3.5 3.5 0 110 7 3.5 3.5 0 010-7z"/><path d="M22 17.5l-6.3 11M26 17.5l6.3 11M17.5 32h13"/>
+  </g>
+</svg>

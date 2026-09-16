@@ -120,7 +120,7 @@ public class CloudMapService {
             CloudAccount account = getAccount(accountId);
             logger.info("Fetching graph data for account {}, VPC: {}, Region: {}", accountId, vpcId, region);
 
-            return cloudListService.getAllResources(account, forceRefresh)
+            return resourcesForGraph(account, forceRefresh)
                     .thenApply(allResources -> {
                         if (allResources == null) {
                             logger.warn("Received null resources list for account {}", accountId);
@@ -184,6 +184,59 @@ public class CloudMapService {
             logger.error("Failed to initialize graph fetch for account {}: {}", accountId, ex.getMessage(), ex);
             return CompletableFuture.completedFuture(new ArrayList<Map<String, Object>>());
         }
+    }
+
+    /**
+     * Resources for the graph, from the inventory plane when it can answer.
+     *
+     * <p>
+     * {@code CloudListService.getAllResources} is a ~1000-call describe scan. Behind a
+     * cache that is tolerable once, but the Cloud Map asks for it per VPC: an account
+     * with 30 VPCs produced 30 concurrent cold misses, every one of them timed out, and
+     * because the {@code exceptionally} handler below turns a failure into an empty
+     * list the canvas rendered "30 VPCs, 0 Subnets, 0 Resources" while looking like a
+     * success. The frontend now warms the cache with a single request first, and this
+     * removes the scan altogether wherever the plane is usable.
+     *
+     * <p>
+     * The plane holds one indexed row per resource and
+     * {@link InventoryProjectionService#flatList} already carries the {@code "VPC ID"},
+     * {@code "Subnet ID"} and {@code "Security Groups"} details this graph groups and
+     * draws edges by, so one query replaces the scan.
+     *
+     * <p>
+     * {@code isFresh} is deliberately strict and refuses whenever region coverage is
+     * incomplete — Resource Explorer does not automatically index AWS opt-in regions,
+     * and serving a partial estate would silently omit whole regions. So accounts with
+     * resources in an opt-in region keep taking the slow path until an aggregator index
+     * exists there. That is the right trade: a slow complete answer beats a fast wrong
+     * one, and the alternative is a map that quietly loses a region.
+     *
+     * <p>
+     * {@code forceRefresh} always takes the scan, because the point of asking for a
+     * refresh is to bypass anything cached.
+     */
+    private CompletableFuture<List<ResourceDto>> resourcesForGraph(CloudAccount account, boolean forceRefresh) {
+        if (!forceRefresh && inventoryProjection != null && account.getId() != null) {
+            try {
+                if (inventoryProjection.isFresh(account.getId())) {
+                    List<ResourceDto> fromPlane = inventoryProjection.flatList(account.getId());
+                    if (!fromPlane.isEmpty()) {
+                        logger.info("✅ Cloud Map graph served from inventory plane for account {} "
+                                + "({} resources, 0 describe calls)",
+                                account.getAwsAccountId(), fromPlane.size());
+                        return CompletableFuture.completedFuture(fromPlane);
+                    }
+                }
+            } catch (Exception e) {
+                // A plane read failing must not cost the whole page; the scan still works.
+                logger.warn("[Inventory] Cloud Map plane read failed for account {} — falling back "
+                        + "to describes: {}", account.getAwsAccountId(), e.getMessage());
+            }
+        }
+        logger.info("Cloud Map graph falling back to a describe scan for account {}",
+                account.getAwsAccountId());
+        return cloudListService.getAllResources(account, forceRefresh);
     }
 
     private void addVpcAndSubnetNodes(List<Map<String, Object>> elements, Ec2Client ec2Client, String vpcId) {

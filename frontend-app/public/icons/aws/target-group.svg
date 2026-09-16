@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Target Group">
+  <title>Target Group</title>
+  <defs>
+    <linearGradient id="g-target-group" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#4D27A8"/>
+      <stop offset="1" stop-color="#A166FF"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="10" fill="url(#g-target-group)"/>
+  <g fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="24" cy="24" r="12"/><circle cx="24" cy="24" r="6.5"/><path fill="#fff" stroke="none" d="M24 21.5a2.5 2.5 0 110 5 2.5 2.5 0 010-5z"/>
+  </g>
+</svg>

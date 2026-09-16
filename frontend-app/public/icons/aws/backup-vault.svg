@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Backup Vault">
+  <title>Backup Vault</title>
+  <defs>
+    <linearGradient id="g-backup-vault" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#1B660F"/>
+      <stop offset="1" stop-color="#6CAE3E"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="10" fill="url(#g-backup-vault)"/>
+  <g fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="11" y="11" width="26" height="26" rx="4"/><circle cx="24" cy="24" r="6"/><path d="M24 14.5v3.5M24 30v3.5M14.5 24h3.5M30 24h3.5"/>
+  </g>
+</svg>

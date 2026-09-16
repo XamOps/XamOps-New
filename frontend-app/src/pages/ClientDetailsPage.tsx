@@ -49,6 +49,20 @@ interface ClientDetails {
     xamSecureOnboardingEnabled?: boolean;
 
     /**
+     * Whether alerts and reports may be delivered to this client over SMS / WhatsApp.
+     *
+     * Optional for the same stale-cache reason as xamSecureOnboardingEnabled, but defaulted to
+     * FALSE at every read site rather than true. These channels are billed per message, so an
+     * absent value must render as "not entitled" — showing a chargeable service as on when we
+     * don't know is the expensive direction to be wrong in.
+     *
+     * Granted separately because the two channels are priced differently and approved through
+     * different regimes (DLT registration for SMS, Meta template review for WhatsApp).
+     */
+    smsNotificationsEnabled?: boolean;
+    whatsappNotificationsEnabled?: boolean;
+
+    /**
      * Upwind estate, for the admin team. All optional: a stale cached list predates these fields,
      * and the backend clears them rather than sending zeros if the lookup fails — so absent must
      * render as "unknown", never as "nothing onboarded".
@@ -356,6 +370,33 @@ const ClientDetailsPage: React.FC = () => {
             }
         }, []);
 
+    /**
+     * Grant or withdraw a chargeable notification channel (SMS or WhatsApp) for a client.
+     *
+     * Sends the intended state rather than toggling server-side, so a double-click or a retry
+     * cannot silently reverse a decision that starts or stops spend.
+     *
+     * Withdrawing narrows delivery only — email remains the channel of record and is unaffected,
+     * so a customer never loses their alerts entirely because of this switch.
+     */
+    const setNotificationChannel = useCallback(
+        async (e: React.MouseEvent, clientId: number, channel: 'sms' | 'whatsapp', enabled: boolean) => {
+            e.stopPropagation();
+            const field = channel === 'sms' ? 'smsNotificationsEnabled' : 'whatsappNotificationsEnabled';
+            setClients(prev => prev.map(c =>
+                c.id === clientId ? { ...c, [field]: enabled } : c));
+            try {
+                await apiClient.post(
+                    `/api/xamops/billops-admin/clients/${clientId}/notification-channel/${channel}`,
+                    { enabled });
+                localStorage.removeItem(CACHE_KEY);
+            } catch (err) {
+                setClients(prev => prev.map(c =>
+                    c.id === clientId ? { ...c, [field]: !enabled } : c));
+                console.error(`Failed to update ${channel} notification entitlement:`, err);
+            }
+        }, []);
+
     const stats = useMemo(() => ({
         clients: clients.length,
         accounts: clients.reduce((sum, c) => sum + c.accounts.length, 0),
@@ -648,6 +689,33 @@ const ClientDetailsPage: React.FC = () => {
                                         </button>
                                     );
                                 })()}
+                                {/* Chargeable notification channels. Two separate grants, not one
+                                    "mobile" switch: SMS and WhatsApp are priced differently and
+                                    approved through different regimes, so a customer can have one
+                                    and not the other. Both default OFF and read as OFF when absent
+                                    from a stale cache — showing a billed channel as on when we
+                                    don't know is the expensive way to be wrong. */}
+                                {([
+                                    { key: 'whatsapp', on: client.whatsappNotificationsEnabled === true, icon: 'fab fa-whatsapp', label: 'WhatsApp' },
+                                    { key: 'sms', on: client.smsNotificationsEnabled === true, icon: 'fas fa-comment-sms', label: 'SMS' },
+                                ] as const).map(ch => (
+                                    <button
+                                        key={ch.key}
+                                        onClick={(e) => setNotificationChannel(e, client.id, ch.key, !ch.on)}
+                                        title={ch.on
+                                            ? `${ch.label} alerts enabled — click to disable. Billed per message; email is unaffected.`
+                                            : `${ch.label} alerts disabled — click to enable. Each message is chargeable.`}
+                                        aria-label={ch.on
+                                            ? `Disable ${ch.label} notifications for this client`
+                                            : `Enable ${ch.label} notifications for this client`}
+                                        aria-pressed={ch.on}
+                                        className={`w-6 h-6 flex items-center justify-center transition-colors ${
+                                            ch.on ? 'text-emerald-500 hover:text-emerald-600'
+                                                  : 'text-gray-300 hover:text-gray-400'}`}
+                                    >
+                                        <i className={`${ch.icon} text-xs`}></i>
+                                    </button>
+                                ))}
                                 <button
                                     onClick={(e) => toggleStar(e, client.id)}
                                     title={client.starred ? 'Remove primary flag' : 'Mark as primary client'}

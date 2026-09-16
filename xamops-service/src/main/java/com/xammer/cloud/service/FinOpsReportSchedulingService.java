@@ -5,6 +5,7 @@ import com.xammer.cloud.domain.FinOpsReportSchedule;
 import com.xammer.cloud.dto.DetailedCostDto;
 import com.xammer.cloud.messaging.MessageKind;
 import com.xammer.cloud.messaging.MobileNotificationDispatcher;
+import com.xammer.cloud.messaging.NotificationChannel;
 import com.xammer.cloud.repository.FinOpsReportScheduleRepository;
 import com.xammer.cloud.service.gcp.GcpCostService;
 import org.slf4j.Logger;
@@ -18,8 +19,10 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.DayOfWeek;
 import java.time.format.DateTimeFormatter;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -344,6 +347,15 @@ public class FinOpsReportSchedulingService {
         if (!mobileNotificationDispatcher.isActive()) return;
 
         try {
+            // Per-customer entitlement — see BillOpsAdminController#setNotificationChannel. Checked
+            // before the recipient query so an unentitled client costs nothing.
+            Set<NotificationChannel> entitled = scheduleRepository
+                    .findClientByAccountId(account.getId())
+                    .map(c -> NotificationChannel.entitled(
+                            c.isSmsNotificationsEnabled(), c.isWhatsappNotificationsEnabled()))
+                    .orElseGet(() -> EnumSet.noneOf(NotificationChannel.class));
+            if (entitled.isEmpty()) return;
+
             List<String> contacts = scheduleRepository.findActiveContactsByAccountId(account.getId());
             if (contacts.isEmpty()) return;
 
@@ -351,7 +363,8 @@ public class FinOpsReportSchedulingService {
                     contacts,
                     textBuilder.buildReportVariables(reportData, account.getAccountName(), frequency, dateRange),
                     MessageKind.REPORT,
-                    frequency + " report for " + account.getProviderAccountId());
+                    frequency + " report for " + account.getProviderAccountId(),
+                    entitled);
         } catch (Exception e) {
             logger.error("Mobile {} report dispatch failed for account {}: {}",
                     frequency, account.getProviderAccountId(), e.getMessage());

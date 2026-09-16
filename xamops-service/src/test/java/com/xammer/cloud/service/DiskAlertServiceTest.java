@@ -1,10 +1,12 @@
 package com.xammer.cloud.service;
 
+import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DiskAlertState;
 import com.xammer.cloud.dto.AlertDto;
 import com.xammer.cloud.messaging.MessageKind;
 import com.xammer.cloud.messaging.MobileNotificationDispatcher;
+import com.xammer.cloud.messaging.NotificationChannel;
 import com.xammer.cloud.repository.DiskAlertStateRepository;
 import com.xammer.cloud.repository.FinOpsReportScheduleRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,6 +17,7 @@ import org.mockito.MockitoAnnotations;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -186,13 +189,76 @@ class DiskAlertServiceTest {
         when(alertEmailBuilder.buildAlertDigestEmail(anyList(), any(), any())).thenReturn("<html>alert</html>");
 
         when(mobileNotificationDispatcher.isActive()).thenReturn(true);
+        when(scheduleRepository.findClientByAccountId(1L))
+                .thenReturn(Optional.of(entitledClient(true, true)));
         when(scheduleRepository.findActiveContactsByAccountId(1L)).thenReturn(List.of("9876543210"));
-        when(alertTextBuilder.buildAlertVariables(anyList(), any())).thenReturn(Map.of("var1", "1"));
+        when(alertTextBuilder.buildAlertVariables(anyList(), any())).thenReturn(List.of("Test Account", "1", "1"));
 
         service.scanAccount(account);
 
         verify(mobileNotificationDispatcher).dispatchAll(
-                eq(List.of("9876543210")), anyMap(), eq(MessageKind.ALERT), anyString());
+                eq(List.of("9876543210")), anyList(), eq(MessageKind.ALERT), anyString(),
+                eq(EnumSet.of(NotificationChannel.SMS, NotificationChannel.WHATSAPP)));
+    }
+
+    @Test
+    void scanAccount_passesOnlyTheChannelsTheClientIsEntitledTo() {
+        // WhatsApp granted, SMS not. Each send is billed, so an ungranted channel must not fire.
+        CloudAccount account = awsAccount(1L, "123456789012");
+        Map<String, Object> vol = volume("vol-001", "ap-south-1", 30, 90.0);
+
+        when(ebsDiskRightsizingService.getVolumes("123456789012", false)).thenReturn(List.of(vol));
+        when(diskAlertStateRepository.findByAccount_IdAndResolvedAtIsNull(1L)).thenReturn(List.of());
+        when(diskAlertStateRepository.findByAccount_IdAndVolumeIdAndAlertType(1L, "vol-001", "NEAR_FULL"))
+                .thenReturn(Optional.empty());
+        when(scheduleRepository.findActiveEmailsByAccountId(1L)).thenReturn(List.of("ops@example.com"));
+        when(alertEmailBuilder.buildAlertDigestEmail(anyList(), any(), any())).thenReturn("<html>alert</html>");
+
+        when(mobileNotificationDispatcher.isActive()).thenReturn(true);
+        when(scheduleRepository.findClientByAccountId(1L))
+                .thenReturn(Optional.of(entitledClient(false, true)));
+        when(scheduleRepository.findActiveContactsByAccountId(1L)).thenReturn(List.of("9876543210"));
+        when(alertTextBuilder.buildAlertVariables(anyList(), any())).thenReturn(List.of("Test Account", "1", "1"));
+
+        service.scanAccount(account);
+
+        verify(mobileNotificationDispatcher).dispatchAll(
+                anyList(), anyList(), eq(MessageKind.ALERT), anyString(),
+                eq(EnumSet.of(NotificationChannel.WHATSAPP)));
+    }
+
+    @Test
+    void scanAccount_sendsNoMobileAlertAndSkipsTheContactQueryWhenClientIsNotEntitled() {
+        // The default for every client. Email still goes out; nothing chargeable happens, and the
+        // recipient query is not even run.
+        CloudAccount account = awsAccount(1L, "123456789012");
+        Map<String, Object> vol = volume("vol-001", "ap-south-1", 30, 90.0);
+
+        when(ebsDiskRightsizingService.getVolumes("123456789012", false)).thenReturn(List.of(vol));
+        when(diskAlertStateRepository.findByAccount_IdAndResolvedAtIsNull(1L)).thenReturn(List.of());
+        when(diskAlertStateRepository.findByAccount_IdAndVolumeIdAndAlertType(1L, "vol-001", "NEAR_FULL"))
+                .thenReturn(Optional.empty());
+        when(scheduleRepository.findActiveEmailsByAccountId(1L)).thenReturn(List.of("ops@example.com"));
+        when(alertEmailBuilder.buildAlertDigestEmail(anyList(), any(), any())).thenReturn("<html>alert</html>");
+
+        when(mobileNotificationDispatcher.isActive()).thenReturn(true);
+        when(scheduleRepository.findClientByAccountId(1L))
+                .thenReturn(Optional.of(entitledClient(false, false)));
+
+        service.scanAccount(account);
+
+        verify(emailService).sendHtmlEmail(eq("ops@example.com"), contains("Disk Alert"), anyString());
+        verify(scheduleRepository, never()).findActiveContactsByAccountId(any());
+        verify(mobileNotificationDispatcher, never())
+                .dispatchAll(any(), anyList(), any(), anyString(), any());
+    }
+
+    /** A client row carrying only the two notification entitlement flags. */
+    private Client entitledClient(boolean sms, boolean whatsapp) {
+        Client client = new Client();
+        client.setSmsNotificationsEnabled(sms);
+        client.setWhatsappNotificationsEnabled(whatsapp);
+        return client;
     }
 
     @Test
@@ -210,7 +276,8 @@ class DiskAlertServiceTest {
         service.scanAccount(account);
 
         verify(scheduleRepository, never()).findActiveContactsByAccountId(any());
-        verify(mobileNotificationDispatcher, never()).dispatchAll(any(), anyMap(), any(), anyString());
+        verify(mobileNotificationDispatcher, never())
+                .dispatchAll(any(), anyList(), any(), anyString(), any());
     }
 
     @Test

@@ -60,6 +60,8 @@ class MessagingConfigurationBindingTest {
         runner.withPropertyValues(
                 "xamops.messaging.enabled=true",
                 "xamops.messaging.base-url=https://provider.example.com/",
+                "xamops.messaging.whatsapp.base-url=https://whatsapp.example.com/",
+                "xamops.messaging.sms.base-url=https://sms.example.com",
                 "xamops.messaging.api-key=secret-key",
                 "xamops.messaging.default-country-code=+91",
                 "xamops.messaging.connect-timeout=3s",
@@ -84,6 +86,11 @@ class MessagingConfigurationBindingTest {
             // Trailing slash must be trimmed or joined paths become "//api/v1/...".
             assertThat(props.getBaseUrl()).isEqualTo("https://provider.example.com");
             assertThat(props.getApiKey()).isEqualTo("secret-key");
+
+            // Per-channel hosts must win over the shared one. Xamping serves WhatsApp and SMS from
+            // different hosts, so collapsing them would post to the wrong service.
+            assertThat(props.whatsappBaseUrl()).isEqualTo("https://whatsapp.example.com");
+            assertThat(props.smsBaseUrl()).isEqualTo("https://sms.example.com");
             assertThat(props.getDefaultCountryCode()).isEqualTo("+91");
             assertThat(props.getConnectTimeout()).isEqualTo(Duration.ofSeconds(3));
             assertThat(props.getReadTimeout()).isEqualTo(Duration.ofSeconds(15));
@@ -114,6 +121,8 @@ class MessagingConfigurationBindingTest {
         runner.withPropertyValues(
                 "xamops.messaging.enabled=true",
                 "xamops.messaging.base-url=",
+                "xamops.messaging.whatsapp.base-url=",
+                "xamops.messaging.sms.base-url=",
                 "xamops.messaging.api-key=",
                 "xamops.messaging.sms.enabled=true"
         ).run(context -> {

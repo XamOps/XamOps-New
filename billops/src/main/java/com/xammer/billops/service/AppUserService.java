@@ -7,6 +7,8 @@ import com.xammer.billops.dto.UserDTO;
 import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.UserTabAccessRepository;
+import com.xammer.cloud.messaging.MessagingProperties;
+import com.xammer.cloud.messaging.PhoneNumbers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,14 +46,45 @@ public class AppUserService {
     @Autowired
     private EmailService emailService;
 
+    @Autowired
+    private MessagingProperties messagingProperties;
+
     @Value("${app.login-url}")
     private String loginUrl;
+
+    /**
+     * Rejects a contact number the notification sender would not be able to dial.
+     *
+     * <p>Checked with {@link PhoneNumbers#toE164} rather than a regex because that is the exact
+     * code the send path runs: anything this accepts will normalise identically at send time, and
+     * anything it rejects would otherwise be stored, silently skipped at dispatch, and surface only
+     * as "the customer never received their alerts".
+     *
+     * <p>Blank is allowed — a user with no mobile number receives email only. Throws
+     * {@link IllegalArgumentException}, which the controller already converts to a 400 carrying this
+     * message, matching how the duplicate-username check surfaces.
+     */
+    private void validateContact(String contact) {
+        if (contact == null || contact.isBlank()) {
+            return;
+        }
+        if (contact.trim().length() > 20) {
+            // app_user.contact is varchar(20); a longer value fails at the DB with an opaque error.
+            throw new IllegalArgumentException("Contact number must be 20 characters or fewer.");
+        }
+        if (PhoneNumbers.toE164(contact, messagingProperties.getDefaultCountryCode()) == null) {
+            throw new IllegalArgumentException(
+                    "'" + contact + "' is not a usable mobile number. Enter digits only, "
+                    + "optionally with a country code — for example 9876543210 or +91 98765 43210.");
+        }
+    }
 
     public AppUser createUser(UserDTO dto) {
         // Check if username already exists
         if (appUserRepository.findByUsername(dto.getUsername()).isPresent()) {
             throw new RuntimeException("Username already exists: " + dto.getUsername());
         }
+        validateContact(dto.getContact());
 
         // Resolve the caller to detect ROLE_BILLOPS_ADMIN_SUB (for client ownership + createdBy tagging)
         // Use SecurityContext authority as authoritative role (DB role field may be null for sub-admins)
@@ -172,6 +205,7 @@ public class AppUserService {
     public AppUser updateUser(UserDTO dto) {
         AppUser user = appUserRepository.findById(dto.getId())
                 .orElseThrow(() -> new RuntimeException("User not found"));
+        validateContact(dto.getContact());
 
         // Update basic fields
         user.setUsername(dto.getUsername());

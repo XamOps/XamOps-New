@@ -1,5 +1,6 @@
 package com.xammer.cloud.repository;
 
+import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.FinOpsReportSchedule;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface FinOpsReportScheduleRepository extends JpaRepository<FinOpsReportSchedule, Long> {
@@ -48,4 +50,15 @@ public interface FinOpsReportScheduleRepository extends JpaRepository<FinOpsRepo
            "WHERE s.cloudAccount.id = :accountId AND s.isActive = true " +
            "AND s.user.contact IS NOT NULL AND TRIM(s.user.contact) <> ''")
     List<String> findActiveContactsByAccountId(@Param("accountId") Long accountId);
+
+    /**
+     * The client owning a cloud account, for reading their notification-channel entitlement.
+     *
+     * <p>Fetched with an explicit query rather than {@code account.getClient()} because
+     * {@code CloudAccount.client} is {@code FetchType.LAZY} and the alert and report senders run on
+     * {@code @Scheduled} threads with no open session — traversing the association there throws
+     * {@code LazyInitializationException}.
+     */
+    @Query("SELECT a.client FROM CloudAccount a WHERE a.id = :accountId")
+    Optional<Client> findClientByAccountId(@Param("accountId") Long accountId);
 }

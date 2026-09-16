@@ -17,7 +17,7 @@
  * principal be a real focusable button instead of a hit-test on a canvas bitmap.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
 import type { IamIdentity, IamRole, IamUser } from '../../../types/userManagement';
 import { isIamUser } from '../../../types/userManagement';
@@ -44,9 +44,113 @@ interface CanvasView {
 
 const MIN_ZOOM = 0.35;
 const MAX_ZOOM = 2;
-const CANVAS_H = 620;
+
+/**
+ * Ceiling for automatic fit.
+ *
+ * <p>The model lays the tree out at a fixed 1000px width, so on a wide screen fitting to 1:1
+ * left roughly a third of the panel empty with the graph stranded in the middle. Fit is allowed
+ * to scale up past 1 to consume that space; capped well below {@link MAX_ZOOM} because a
+ * three-bucket collapsed graph blown up to 2× reads as a diagram of nothing.
+ */
+const FIT_MAX_ZOOM = 1.45;
+
+/** Floor for the canvas. Below this the tree is too cramped to be worth panning. */
+const MIN_CANVAS_H = 440;
+
+/** Ceiling, as insurance: a measurement taken mid-scroll must not be able to run away. */
+const MAX_CANVAS_H = 1600;
+
+/** Breathing room left under the canvas, matching the page's bottom padding. */
+const CANVAS_BOTTOM_GAP = 24;
+
+/**
+ * Easing for view changes the user did not drag.
+ *
+ * <p>Short and decelerating: long enough to show which way the canvas moved so the viewer keeps
+ * their bearings, short enough that clicking zoom twice does not queue a wait.
+ */
+const VIEW_EASE = '220ms cubic-bezier(0.22, 1, 0.36, 1)';
+
+/**
+ * The canvas surface.
+ *
+ * <p>Values taken from the CloudMap canvas (`styles/cloudmap.css`, `.cytoscape-container`) so the
+ * console's two graph surfaces read as the same material. The dot was previously
+ * `rgba(15,23,42,0.10)`, which composites to `#E3E5E8` against the old `#FBFCFD` ground — a 1px
+ * dot at about four percent contrast, which is to say present in the stylesheet and absent on a
+ * screen. Solid colours here rather than an alpha, for the same reason CloudMap uses them: the
+ * composited result is what matters and it should be legible from the source.
+ */
+const DOT_COLOR = '#d1d5db';
+const DOT_SPACING = 28;
+const CANVAS_BG = '#fcfcfd';
+
+/**
+ * Dot grid for the canvas, anchored to the transform.
+ *
+ * <p>Offsetting by the pan and scaling by the zoom is what makes a drag feel like moving over a
+ * surface rather than sliding content across a static backdrop. Spacing is held in a comfortable
+ * band because the ends of the zoom range are ugly in different ways: at 0.35 the raw grid falls
+ * to ~10px, where 1px dots moiré, and past ~40px it is too sparse to read as a surface. The grid
+ * is decoration, not a ruler, so letting it drift from the content at the extremes costs nothing.
+ */
+function dotSurface(zoom: number, x: number, y: number): React.CSSProperties {
+  const spacing = clamp(DOT_SPACING * zoom, 16, 40);
+  return {
+    backgroundColor: CANVAS_BG,
+    backgroundImage: `radial-gradient(circle, ${DOT_COLOR} 1px, transparent 1px)`,
+    backgroundSize: `${spacing}px ${spacing}px`,
+    backgroundPosition: `${x}px ${y}px`,
+  };
+}
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+/**
+ * The OS "reduce motion" setting.
+ *
+ * <p>This canvas animates its own transform, and a moving viewport is one of the things that
+ * setting exists to suppress — for vestibular disorders a graph that glides is not a nicer graph.
+ * Kept local rather than promoted to a shared hook because nothing else in the app consults the
+ * preference yet, and a utility with one caller is a guess about the second.
+ */
+function usePrefersReducedMotion(): boolean {
+  const query = '(prefers-reduced-motion: reduce)';
+  const [reduced, setReduced] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia?.(query).matches === true,
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia?.(query);
+    if (!mq) return;
+    const onChange = () => setReduced(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  return reduced;
+}
+
+/**
+ * Keeps the graph inside the viewport.
+ *
+ * <p>Without this the canvas panned without limit: a drag could push the whole tree past the
+ * edge and leave an empty grid with no indication anything was there, and no way back except
+ * the fit button. Now an axis larger than the viewport can travel exactly as far as its
+ * overflow, and an axis smaller than the viewport is centred instead of drifting — which is
+ * also what stops a collapsed graph sitting off to one side of an otherwise empty panel.
+ */
+function clampView(v: CanvasView, vw: number, vh: number, graphW: number, graphH: number): CanvasView {
+  if (!vw || !vh) return v;
+  const scaledW = graphW * v.zoom;
+  const scaledH = graphH * v.zoom;
+  return {
+    zoom: v.zoom,
+    x: scaledW <= vw ? (vw - scaledW) / 2 : clamp(v.x, vw - scaledW, 0),
+    y: scaledH <= vh ? (vh - scaledH) / 2 : clamp(v.y, vh - scaledH, 0),
+  };
+}
 
 interface IdentityAccessGraphProps {
   /** Filtered and sorted by useUserManagement. */
@@ -107,11 +211,52 @@ const IdentityAccessGraph: React.FC<IdentityAccessGraphProps> = ({
 }) => {
   const viewportRef = useRef<HTMLDivElement>(null);
 
-  const [expanded, setExpanded] = useState<Set<BucketId>>(() => new Set(ALL_BUCKETS));
+  /**
+   * Everything shut on arrival.
+   *
+   * <p>Open, an account of seventy identities renders as a column thousands of pixels tall that
+   * overflows the canvas immediately, so the first thing the view showed was a clipped list —
+   * burying the shape of the account, which is the only thing this tab does better than the
+   * cards. The count and the risk dot on each bucket are the summary; opening one is the
+   * question the user asks second, not first.
+   */
+  const [expanded, setExpanded] = useState<Set<BucketId>>(() => new Set());
   const [showAll, setShowAll] = useState<Set<BucketId>>(() => new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [view, setView] = useState<CanvasView>({ zoom: 1, x: LAYOUT.PAD, y: 0 });
   const [dragging, setDragging] = useState(false);
+
+  /**
+   * Whether the next transform change should be animated.
+   *
+   * <p>On for changes the user did not make with their hand — fit, the zoom buttons, keyboard
+   * focus, the reveal after expanding a bucket — where teleporting the canvas loses the
+   * viewer's place. Off while dragging or scrolling, because a transition there means the graph
+   * trails behind the cursor.
+   *
+   * <p>Turned off with a guarded setter so the wheel handler firing sixty times a second costs
+   * nothing once it is already off: React bails on a state write that does not change the value.
+   */
+  const [smooth, setSmooth] = useState(false);
+  const animate = useCallback(() => setSmooth(true), []);
+  const cutAnimation = useCallback(() => setSmooth((s) => (s ? false : s)), []);
+
+  const reduceMotion = usePrefersReducedMotion();
+  /** What actually reaches the style attribute. */
+  const eased = smooth && !reduceMotion;
+
+  /**
+   * Canvas height, measured rather than fixed.
+   *
+   * <p>It was a hardcoded 620px, which left dead white space below the panel on a normal window
+   * while the node column above was still clipped — the worst of both. Measuring the distance
+   * from the canvas's own top to the bottom of the window means the graph takes whatever the
+   * KPI strip and controls leave it, on any screen.
+   */
+  const [canvasH, setCanvasH] = useState(620);
+
+  /** Canvas width, from the same measurement. Only used to decide whether panning is possible. */
+  const [canvasW, setCanvasW] = useState(0);
 
   const groupQuery = searchQuery.trim().toLowerCase();
 
@@ -145,9 +290,12 @@ const IdentityAccessGraph: React.FC<IdentityAccessGraphProps> = ({
    * Fit the graph's width, not its bounding box.
    *
    * <p>Fitting height as well sounds right and is not: a 30-role column is several thousand
-   * pixels tall, and scaling that into a 620px canvas lands around 0.15 zoom, where every label
-   * is illegible. Width always fits in one screen, so fit that, floor the zoom at something
-   * readable, and let the tall case scroll — which is what the collapse chevrons are for.
+   * pixels tall, and scaling that into the canvas lands around 0.15 zoom, where every label is
+   * illegible. Width always fits in one screen, so fit that, floor the zoom at something
+   * readable, and let the tall case pan — which is what the collapse chevrons are for.
+   *
+   * <p>Allowed above 1:1 up to {@link FIT_MAX_ZOOM}. The layout is a fixed 1000px wide, so on a
+   * wide panel clamping at 1 left the tree marooned in the middle of empty space.
    */
   const fit = useCallback(() => {
     const vp = viewportRef.current;
@@ -155,24 +303,108 @@ const IdentityAccessGraph: React.FC<IdentityAccessGraphProps> = ({
     const vw = vp.clientWidth;
     const vh = vp.clientHeight;
     if (!vw || !vh) return;
-    const zoom = clamp(vw / graph.width, MIN_ZOOM, 1);
-    const scaledH = graph.height * zoom;
-    setView({
-      zoom,
-      x: Math.max(0, (vw - graph.width * zoom) / 2),
-      y: scaledH <= vh ? (vh - scaledH) / 2 : LAYOUT.PAD,
+    const zoom = clamp(vw / graph.width, MIN_ZOOM, FIT_MAX_ZOOM);
+    animate();
+    setView(clampView({ zoom, x: 0, y: 0 }, vw, vh, graph.width, graph.height));
+  }, [graph.width, graph.height, animate]);
+
+  /**
+   * Measure the space the page leaves for the canvas.
+   *
+   * <p>A layout effect, so the first paint already has the right height instead of showing the
+   * 620px default for a frame and then jumping.
+   *
+   * <p>Measurements are coalesced into an animation frame. The tab enters under a framer-motion
+   * translate, so during that animation the canvas's own top moves several pixels per frame; run
+   * synchronously, every one of those became a height change, and the panel visibly settled
+   * rather than appeared. Batching to a frame and ignoring deltas under 12px absorbs the whole
+   * entrance, and also keeps the body observer — which fires as a consequence of our own height
+   * change — from doing more than one no-op comparison.
+   */
+  useLayoutEffect(() => {
+    let frame = 0;
+
+    const measure = () => {
+      const vp = viewportRef.current;
+      if (!vp) return;
+      const top = vp.getBoundingClientRect().top;
+      const nextH = clamp(
+        Math.round(window.innerHeight - top - CANVAS_BOTTOM_GAP),
+        MIN_CANVAS_H,
+        MAX_CANVAS_H,
+      );
+      setCanvasH((prev) => (Math.abs(prev - nextH) > 12 ? nextH : prev));
+      setCanvasW((prev) => {
+        const nextW = vp.clientWidth;
+        return Math.abs(prev - nextW) > 1 ? nextW : prev;
+      });
+    };
+
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        measure();
+      });
+    };
+
+    measure();
+    window.addEventListener('resize', schedule);
+    const observer = new ResizeObserver(schedule);
+    observer.observe(document.body);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener('resize', schedule);
+      observer.disconnect();
+    };
+  }, [isLoading]);
+
+  /**
+   * Keep the view honest when the content or the canvas resizes.
+   *
+   * <p>Two jobs. Re-clamping stops a collapse from leaving the viewport parked past the end of a
+   * now-short graph. Zooming out to reveal a newly-wider graph covers the case that matters more:
+   * opening a bucket adds the leaf column, and at the zoom fitted to the collapsed tree that
+   * column lands off-screen, where the only way to it is a horizontal drag nobody thinks to try.
+   * It never zooms *in* — an expand that already fits is left exactly as the user had it.
+   */
+  const lastGraphSize = useRef({ w: graph.width, h: graph.height });
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const vw = vp.clientWidth;
+    const vh = vp.clientHeight;
+
+    // Animate only when the *content* changed shape — opening a bucket is worth easing so the
+    // eye follows it. A window resize runs this too, and easing there makes the graph lag a
+    // frame behind the edge being dragged, which reads as the panel struggling to keep up.
+    const contentChanged = lastGraphSize.current.w !== graph.width
+      || lastGraphSize.current.h !== graph.height;
+    lastGraphSize.current = { w: graph.width, h: graph.height };
+    if (contentChanged) animate(); else cutAnimation();
+
+    setView((v) => {
+      const zoom = graph.width * v.zoom > vw
+        ? clamp(vw / graph.width, MIN_ZOOM, v.zoom)
+        : v.zoom;
+      return clampView({ ...v, zoom }, vw, vh, graph.width, graph.height);
     });
-  }, [graph.width, graph.height]);
+  }, [graph.width, graph.height, canvasH, animate, cutAnimation]);
 
   // Fit once per account rather than on every expand: re-fitting when a chevron opens would
-  // yank the canvas out from under the click that opened it.
+  // yank the canvas out from under the click that opened it. A layout effect so the fitted
+  // transform is the first one painted — with a plain effect the graph appeared at 1:1 in the
+  // top-left corner for a frame and then snapped into place.
   const fittedForRef = useRef<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (isLoading || graph.totalLeaves === 0) return;
     const key = `${accountId}|${provider}`;
     if (fittedForRef.current === key) return;
     fittedForRef.current = key;
     fit();
+    // Nothing to ease from on the first paint, and animating from the default transform reads
+    // as the graph sliding in from the corner.
+    setSmooth(false);
   }, [isLoading, graph.totalLeaves, accountId, provider, fit]);
 
   /**
@@ -184,19 +416,40 @@ const IdentityAccessGraph: React.FC<IdentityAccessGraphProps> = ({
   const narrowed = groupQuery !== '' || flaggedOnly;
   useEffect(() => {
     if (!narrowed) return;
-    setExpanded(new Set(ALL_BUCKETS));
+    // Returning the previous set when it is already open keeps React from re-rendering, and more
+    // importantly keeps the `graph` memo's identity stable — otherwise every keystroke in the
+    // search box rebuilt the whole layout twice.
+    setExpanded((prev) => (ALL_BUCKETS.every((b) => prev.has(b)) ? prev : new Set(ALL_BUCKETS)));
   }, [narrowed, groupQuery, flaggedOnly]);
 
   // ── Pan / zoom ────────────────────────────────────────────────────────────
 
-  // Plain wheel pans and Ctrl/Cmd+wheel zooms toward the cursor, matching CloudMap. Registered
-  // manually because preventDefault needs a non-passive listener, which JSX onWheel cannot give.
+  // Current view and content size, for the wheel listener. It is registered once with a
+  // non-passive handler — JSX onWheel cannot preventDefault — so it cannot close over state.
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const sizeRef = useRef({ w: graph.width, h: graph.height });
+  sizeRef.current = { w: graph.width, h: graph.height };
+
+  /**
+   * Plain wheel pans, Ctrl/Cmd+wheel zooms toward the cursor, matching CloudMap.
+   *
+   * <p>The gesture is handed back to the page once the canvas has nothing left to give in that
+   * direction. Previously this called {@code preventDefault} on every wheel event, so putting the
+   * pointer over the graph — which now fills most of the window — trapped the page's scroll
+   * entirely and there was no way to reach anything below it.
+   */
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
+
     const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
+      const vw = el.clientWidth;
+      const vh = el.clientHeight;
+
       if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        cutAnimation();
         const rect = el.getBoundingClientRect();
         const cx = e.clientX - rect.left;
         const cy = e.clientY - rect.top;
@@ -204,15 +457,38 @@ const IdentityAccessGraph: React.FC<IdentityAccessGraphProps> = ({
           const zoom = clamp(v.zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12), MIN_ZOOM, MAX_ZOOM);
           const k = zoom / v.zoom;
           // Keep the graph point under the cursor pinned to the cursor.
-          return { zoom, x: cx - (cx - v.x) * k, y: cy - (cy - v.y) * k };
+          const next = { zoom, x: cx - (cx - v.x) * k, y: cy - (cy - v.y) * k };
+          return clampView(next, vw, vh, sizeRef.current.w, sizeRef.current.h);
         });
-      } else {
-        setView((v) => ({ ...v, x: v.x - e.deltaX, y: v.y - e.deltaY }));
+        return;
       }
+
+      const { w, h } = sizeRef.current;
+      const v = viewRef.current;
+      const overflowY = h * v.zoom - vh;
+      const overflowX = w * v.zoom - vw;
+
+      // Room left in the direction of travel? A 1px tolerance keeps a rounded bound from
+      // reading as "still scrollable" forever.
+      const wantsUp = e.deltaY < 0;
+      const canPanY = overflowY > 1 && (wantsUp ? v.y < -1 : v.y > vh - h * v.zoom + 1);
+      const canPanX = overflowX > 1
+        && (e.deltaX < 0 ? v.x < -1 : v.x > vw - w * v.zoom + 1)
+        && Math.abs(e.deltaX) > 0;
+
+      if (!canPanY && !canPanX) return; // let the page scroll
+
+      e.preventDefault();
+      cutAnimation();
+      setView((cur) => clampView(
+        { ...cur, x: cur.x - e.deltaX, y: cur.y - e.deltaY },
+        vw, vh, sizeRef.current.w, sizeRef.current.h,
+      ));
     };
+
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [cutAnimation]);
 
   const dragRef = useRef<{ px: number; py: number; vx: number; vy: number } | null>(null);
 
@@ -220,33 +496,76 @@ const IdentityAccessGraph: React.FC<IdentityAccessGraphProps> = ({
     // Let the nodes have their clicks; only empty canvas starts a pan.
     if ((e.target as HTMLElement).closest('button, a')) return;
     dragRef.current = { px: e.clientX, py: e.clientY, vx: view.x, vy: view.y };
+    cutAnimation();
     setDragging(true);
   };
 
+  /**
+   * Drag to pan, coalesced to one update per animation frame.
+   *
+   * <p>A mouse reporting at 120Hz fires roughly twice per frame, and each event re-rendered the
+   * whole tree — every node and every edge path — so a drag across an expanded bucket did
+   * measurably more work than the display could use. Collapsing the events to the frame boundary
+   * gives the same motion for half the renders, and reads as smoother rather than merely cheaper
+   * because no frame is spent on a transform that is overwritten before it paints.
+   */
   useEffect(() => {
     if (!dragging) return;
-    const onMove = (e: MouseEvent) => {
+
+    let frame = 0;
+    let latest: { x: number; y: number } | null = null;
+
+    const flush = () => {
+      frame = 0;
+      const point = latest;
       const d = dragRef.current;
-      if (!d) return;
-      setView((v) => ({ ...v, x: d.vx + (e.clientX - d.px), y: d.vy + (e.clientY - d.py) }));
+      const vp = viewportRef.current;
+      if (!point || !d || !vp) return;
+      setView((v) => clampView(
+        { ...v, x: d.vx + (point.x - d.px), y: d.vy + (point.y - d.py) },
+        vp.clientWidth, vp.clientHeight, sizeRef.current.w, sizeRef.current.h,
+      ));
     };
-    const onUp = () => { dragRef.current = null; setDragging(false); };
+
+    const onMove = (e: MouseEvent) => {
+      latest = { x: e.clientX, y: e.clientY };
+      if (!frame) frame = requestAnimationFrame(flush);
+    };
+
+    const onUp = () => {
+      if (frame) {
+        cancelAnimationFrame(frame);
+        flush();
+      }
+      dragRef.current = null;
+      setDragging(false);
+    };
+
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     return () => {
+      if (frame) cancelAnimationFrame(frame);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
   }, [dragging]);
 
-  const zoomBy = (factor: number) => setView((v) => {
-    const vp = viewportRef.current;
-    const cx = (vp?.clientWidth ?? 0) / 2;
-    const cy = (vp?.clientHeight ?? 0) / 2;
-    const zoom = clamp(v.zoom * factor, MIN_ZOOM, MAX_ZOOM);
-    const k = zoom / v.zoom;
-    return { zoom, x: cx - (cx - v.x) * k, y: cy - (cy - v.y) * k };
-  });
+  const zoomBy = (factor: number) => {
+    animate();
+    setView((v) => {
+      const vp = viewportRef.current;
+      const vw = vp?.clientWidth ?? 0;
+      const vh = vp?.clientHeight ?? 0;
+      const cx = vw / 2;
+      const cy = vh / 2;
+      const zoom = clamp(v.zoom * factor, MIN_ZOOM, MAX_ZOOM);
+      const k = zoom / v.zoom;
+      return clampView(
+        { zoom, x: cx - (cx - v.x) * k, y: cy - (cy - v.y) * k },
+        vw, vh, sizeRef.current.w, sizeRef.current.h,
+      );
+    });
+  };
 
   /**
    * Pan a node into view.
@@ -258,6 +577,7 @@ const IdentityAccessGraph: React.FC<IdentityAccessGraphProps> = ({
   const ensureVisible = useCallback((x: number, y: number, w: number, h: number) => {
     const vp = viewportRef.current;
     if (!vp) return;
+    animate();
     setView((v) => {
       const m = 24;
       const left = x * v.zoom + v.x;
@@ -270,17 +590,50 @@ const IdentityAccessGraph: React.FC<IdentityAccessGraphProps> = ({
       else if (right > vp.clientWidth - m) nx -= right - (vp.clientWidth - m);
       if (top < m) ny += m - top;
       else if (bottom > vp.clientHeight - m) ny -= bottom - (vp.clientHeight - m);
-      return nx === v.x && ny === v.y ? v : { ...v, x: nx, y: ny };
+      if (nx === v.x && ny === v.y) return v;
+      return clampView(
+        { ...v, x: nx, y: ny },
+        vp.clientWidth, vp.clientHeight, sizeRef.current.w, sizeRef.current.h,
+      );
     });
-  }, []);
+  }, [animate]);
+
+  /** Bucket opened on the last click, so the reveal below knows what to bring into view. */
+  const justOpenedRef = useRef<BucketId | null>(null);
 
   const toggleBucket = (id: BucketId) => setExpanded((prev) => {
     const next = new Set(prev);
-    if (next.has(id)) next.delete(id); else next.add(id);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+      justOpenedRef.current = id;
+    }
     return next;
   });
 
+  /**
+   * Bring a freshly-opened bucket into view.
+   *
+   * <p>A bucket re-centres on its own leaves when it opens, so on a tall graph the branch the
+   * user just clicked can end up below the fold — the click appears to do nothing except make a
+   * scrollbar's worth of content appear somewhere off screen. Runs after the clamp effect above
+   * so it pans from the corrected position, and rides the same easing, which is what makes the
+   * open read as the graph growing rather than as the canvas jumping.
+   */
+  useEffect(() => {
+    const id = justOpenedRef.current;
+    if (!id) return;
+    justOpenedRef.current = null;
+    const bucket = graph.buckets.find((b) => b.id === id);
+    if (bucket) ensureVisible(bucket.x, bucket.y, bucket.w, bucket.h);
+  }, [graph, ensureVisible]);
+
   const allOpen = graph.buckets.length > 0 && graph.buckets.every((b) => expanded.has(b.id));
+
+  /** Whether either axis overflows the canvas, i.e. whether dragging would do anything. */
+  const pannable = graph.height * view.zoom > canvasH + 1
+    || (canvasW > 0 && graph.width * view.zoom > canvasW + 1);
 
   // ── Focus / dim ───────────────────────────────────────────────────────────
 
@@ -294,7 +647,12 @@ const IdentityAccessGraph: React.FC<IdentityAccessGraphProps> = ({
   if (isLoading) {
     return (
       <div className="rounded-xl border border-[rgba(0,0,0,0.12)] bg-white shadow-sm overflow-hidden">
-        <div className="h-[620px] flex flex-col items-center justify-center gap-3">
+        {/* Same surface as the live canvas, so the panel does not change material when the data
+            lands — only what is drawn on it. */}
+        <div
+          className="flex flex-col items-center justify-center gap-3"
+          style={{ height: canvasH, ...dotSurface(1, 0, 0) }}
+        >
           <Icon icon="mdi:graph-outline" width={30} className="text-[rgba(0,0,0,0.15)] animate-pulse" />
           <p className="text-xs text-[rgba(0,0,0,0.4)]">Building access graph…</p>
         </div>
@@ -304,8 +662,11 @@ const IdentityAccessGraph: React.FC<IdentityAccessGraphProps> = ({
 
   if (graph.buckets.length === 0) {
     return (
-      <div className="rounded-xl border border-[rgba(0,0,0,0.12)] bg-white shadow-sm py-20 text-center">
-        <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-xl flex items-center justify-center mx-auto mb-3">
+      <div
+        className="rounded-xl border border-[rgba(0,0,0,0.12)] shadow-sm text-center flex flex-col items-center justify-center overflow-hidden"
+        style={{ height: canvasH, ...dotSurface(1, 0, 0) }}
+      >
+        <div className="w-14 h-14 bg-white border border-[rgba(0,0,0,0.08)] rounded-xl flex items-center justify-center mx-auto mb-3">
           <Icon icon={flaggedOnly ? 'mdi:shield-check' : 'mdi:graph-outline'} width={28} color="rgba(0,0,0,0.25)" />
         </div>
         {flaggedOnly ? (
@@ -381,14 +742,14 @@ const IdentityAccessGraph: React.FC<IdentityAccessGraphProps> = ({
           onMouseDown={onMouseDown}
           className="relative overflow-hidden select-none"
           style={{
-            height: CANVAS_H,
-            cursor: dragging ? 'grabbing' : 'grab',
-            backgroundColor: '#fbfcfd',
-            // Grid rides the transform so panning feels like moving over a surface rather
-            // than sliding content across a static backdrop.
-            backgroundImage: 'radial-gradient(circle, rgba(15,23,42,0.10) 1px, transparent 1px)',
-            backgroundSize: `${18 * view.zoom}px ${18 * view.zoom}px`,
-            backgroundPosition: `${view.x}px ${view.y}px`,
+            height: canvasH,
+            // Only claim the graph is draggable when there is somewhere to drag it. A grab
+            // cursor over a graph that is fully in view promises movement that never happens.
+            cursor: dragging ? 'grabbing' : pannable ? 'grab' : 'default',
+            ...dotSurface(view.zoom, view.x, view.y),
+            // Matches the content layer so the grid travels with the tree during an animated
+            // move instead of arriving a beat early.
+            transition: eased ? `background-position ${VIEW_EASE}, background-size ${VIEW_EASE}` : undefined,
           }}
         >
           <div
@@ -398,8 +759,12 @@ const IdentityAccessGraph: React.FC<IdentityAccessGraphProps> = ({
               left: 0,
               width: graph.width,
               height: graph.height,
-              transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
+              transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.zoom})`,
               transformOrigin: '0 0',
+              // Promoted to its own layer so a pan compositves instead of repainting seventy
+              // nodes and their edges. translate3d rather than translate for the same reason.
+              willChange: 'transform',
+              transition: eased ? `transform ${VIEW_EASE}` : undefined,
             }}
           >
             {/* Edge layer */}
@@ -593,7 +958,7 @@ const IdentityAccessGraph: React.FC<IdentityAccessGraphProps> = ({
           </div>
 
           <p className="absolute bottom-2 right-2 text-[9px] text-[rgba(0,0,0,0.3)] pointer-events-none">
-            Drag to pan · ⌘/Ctrl + scroll to zoom
+            Scroll or drag to pan · ⌘/Ctrl + scroll to zoom
           </p>
         </div>
 

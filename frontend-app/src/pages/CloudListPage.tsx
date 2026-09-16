@@ -31,6 +31,7 @@ import LabelAssignPopover from '../components/Labels/LabelAssignPopover';
 import { fetchLabels, fetchResourceLabelMap, assignLabel, removeLabel, fetchConnectedResources } from '../services/resourceLabelsApi';
 import type { ConnectedResource } from '../services/resourceLabelsApi';
 import type { ResourceLabel, ResourceLabelMap } from '../types/resourceLabels';
+import { DEFAULT_AWS_ICON, resolveAwsServiceIcon } from '../utils/awsServiceIcons';
 
 const CloudListPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -670,81 +671,6 @@ const CloudListPage: React.FC = () => {
     document.body.removeChild(link);
   }, [filteredGroups]);
 
-  /**
-   * Get service icon filename
-   */
-  const getServiceIcon = (serviceType: string): string => {
-    const iconMap: Record<string, string> = {
-      'EC2 Instance': 'ec2-instances.png',
-      'EBS Volume': 'aws-ebs.png',
-      'RDS Instance': 'rds-instance.png',
-      'Lambda Function': 'aws-lambda.png',
-      'S3 Bucket': 's3-bucket.png',
-      'Load Balancer': 'load-balanceraws.png',
-      'Auto Scaling Group': 'autoscaling.png',
-      'VPC': 'vpc.png',
-      'Security Group': 'security-group.png',
-      'Route 53 Zone': 'aws-route53.png',
-      'EKS Cluster': 'aws-eks.png',
-      'ECS Cluster': 'aws-ecs.png',
-      'Certificate Manager': 'certificate-manager.png',
-      'CloudTrail': 'cloudtrail.png',
-      'CloudWatch Log Group': 'cloudwatch-log-group.png',
-      'ECR Repository': 'ecr-repository.png',
-      'SNS Topic': 'sns-topic.png',
-      'SQS Queue': 'sqs-queue.png',
-      'Lightsail Instance': 'lightsail.png',
-      'Amplify App': 'amplify.png',
-      'AWS Step Functions': 'step-functions.png',
-      'Amazon ElastiCache': 'elasticache.png',
-      'ElastiCache Cluster': 'elasticache-cluster.png',
-      'AWS Config': 'Config.png',
-      'AWS Security Hub': 'security-hub.png',
-      'AWS Glue': 'glue.png',
-      'Amazon Athena': 'athena.png',
-      'Amazon Cognito': 'cognito.png',
-      'Amazon CloudWatch Events': 'cloudwatch-events.png',
-      'AWS WAF': 'waf.png',
-      'CloudFront': 'cloudfront.png',
-      'DynamoDB Table': 'dynamodb.png',
-      'Bedrock': 'bedrock.png',
-      'Amazon Textract': 'textract.png',
-      'SageMaker': 'sagemaker.png',
-      'Amazon Elastic File System': 'efs.png',
-      'AWS Systems Manager': 'systems-manager.png',
-      'Amazon DataZone': 'datazone.png',
-      'KMS': 'kms.png',
-      'AWS Cloud Map': 'cloud-map.png',
-      'EFS File System': 'efs.png',
-      'SSM Managed Instance': 'ssm.png',
-      'NAT Gateway': 'Res_Amazon-VPC_NAT-Gateway_48_Light.png',
-      'Internet Gateway': 'Res_Amazon-VPC_Internet-Gateway_48_Light.png',
-      'Network Interface (ENI)': 'eni.png',
-      'Elastic IP': 'elastic-ip.png',
-      'EBS Snapshot': 'snapshot.png',
-      'Security Hub': 'security-hub.png',
-      'CloudFormation Stack': 'cloudformation.png',
-      'DataZone Domain': 'datazone.png',
-      'Textract Project': 'textract.png',
-      'EventBridge Bus': 'eventbridge.png',
-      'Kinesis Stream': 'kinesis.png',
-      'CodePipeline': 'codepipeline.png',
-      'CodeBuild Project': 'codebuild.png',
-      'CodeCommit Repository': 'codecommit.png',
-      'AWS Shield Protection': 'shield.png',
-      'Organization Account': 'organizations.png',
-      'Control Tower Control': 'controltower.png',
-      'Elastic Beanstalk Environment': 'elasticbeanstalk.png',
-      'API Gateway': 'api-gateway.png',
-      // Tier 1 additions — only map types whose icon file exists in /public/icons;
-      // the rest intentionally fall back to default-icon.png below.
-      'WAF': 'waf.png',
-      'RDS Cluster (Aurora)': 'rds-instance.png'
-    };
-    return iconMap[serviceType] || 'default-icon.png';
-  };
-
-
   // Initialize WebSocket and load data
   useEffect(() => {
     isMountedRef.current = true;
@@ -1004,7 +930,21 @@ const CloudListPage: React.FC = () => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
                         </svg>
                         <div className="w-10 h-10 flex items-center justify-center rounded-lg bg-[rgba(0,0,0,0.03)] flex-shrink-0">
-                          <img src={`/icons/${getServiceIcon(group.serviceType)}`} alt={group.serviceType} className="w-6 h-6 object-contain" />
+                          {/* Decorative: the service name is rendered as text alongside it.
+                              onError guards an asset that 404s — a broken-image glyph
+                              reads worse than the generic AWS mark. */}
+                          <img
+                            src={resolveAwsServiceIcon(group.serviceType)}
+                            alt=""
+                            aria-hidden="true"
+                            className="w-6 h-6 object-contain"
+                            loading="lazy"
+                            onError={e => {
+                              const img = e.currentTarget;
+                              if (img.src.endsWith(DEFAULT_AWS_ICON)) return;
+                              img.src = DEFAULT_AWS_ICON;
+                            }}
+                          />
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">{group.serviceType}</p>

@@ -70,12 +70,13 @@ public class SmsWhatsAppClient {
      *
      * @param rawContact stored contact value; normalised to E.164 here
      * @param templateId Meta-approved template
-     * @param variables  template placeholder values, sent as {@code sample}; may be empty
+     * @param variables  positional body values, first filling {@code {{1}}}; may be empty
      */
-    public MessageResult sendWhatsApp(String rawContact, String templateId, Map<String, String> variables) {
+    public MessageResult sendWhatsApp(String rawContact, String templateId, List<String> variables) {
         MessagingProperties.WhatsApp cfg = properties.getWhatsapp();
 
-        MessageResult unusable = checkChannelUsable(NotificationChannel.WHATSAPP, cfg.isEnabled(), templateId);
+        MessageResult unusable = checkChannelUsable(NotificationChannel.WHATSAPP,
+                properties.whatsappBaseUrl(), cfg.isEnabled(), templateId);
         if (unusable != null) {
             return unusable;
         }
@@ -96,10 +97,16 @@ public class SmsWhatsAppClient {
         payload.put("to", to);
         payload.put("template_id", templateId);
         if (variables != null && !variables.isEmpty()) {
-            payload.put("sample", variables);
+            // Verified live against template hello_world_hbgriymthcw: body values go in an ordered
+            // array under sample.bodyvar. Three other shapes were tested and all silently rendered
+            // the literal placeholder tokens ("Hello bodyvar0, ...") while still reporting
+            // success:true and billing the send — sample.{bodyvar0,bodyvar1}, sample.{"1","2"}, and
+            // sample as a bare array (that last one at least errored with INVALID_JSON).
+            payload.put("sample", Map.of("bodyvar", variables));
         }
 
-        return post(NotificationChannel.WHATSAPP, PATH_WHATSAPP_SINGLE, payload, PhoneNumbers.mask(to));
+        return post(NotificationChannel.WHATSAPP, properties.whatsappBaseUrl(),
+                PATH_WHATSAPP_SINGLE, payload, PhoneNumbers.mask(to));
     }
 
     // ── SMS ──────────────────────────────────────────────────────────────────
@@ -114,7 +121,8 @@ public class SmsWhatsAppClient {
     public MessageResult sendSms(String rawContact, String body, String templateId) {
         MessagingProperties.Sms cfg = properties.getSms();
 
-        MessageResult unusable = checkChannelUsable(NotificationChannel.SMS, cfg.isEnabled(), templateId);
+        MessageResult unusable = checkChannelUsable(NotificationChannel.SMS,
+                properties.smsBaseUrl(), cfg.isEnabled(), templateId);
         if (unusable != null) {
             return unusable;
         }
@@ -145,7 +153,8 @@ public class SmsWhatsAppClient {
         payload.put("message", body);
         payload.put("template_id", templateId);
 
-        return post(NotificationChannel.SMS, PATH_SMS_COUNTRY_CODE, payload, PhoneNumbers.mask(to));
+        return post(NotificationChannel.SMS, properties.smsBaseUrl(),
+                PATH_SMS_COUNTRY_CODE, payload, PhoneNumbers.mask(to));
     }
 
     // ── plumbing ─────────────────────────────────────────────────────────────
@@ -154,12 +163,16 @@ public class SmsWhatsAppClient {
      * Shared precondition check. Returns a SKIPPED result when the channel cannot be used, or
      * null when it can.
      */
-    private MessageResult checkChannelUsable(NotificationChannel channel, boolean channelEnabled, String templateId) {
+    private MessageResult checkChannelUsable(NotificationChannel channel, String baseUrl,
+                                             boolean channelEnabled, String templateId) {
         if (!properties.isEnabled()) {
             return MessageResult.skipped(channel, "***", "messaging disabled");
         }
-        if (properties.getBaseUrl().isBlank() || properties.getApiKey().isBlank()) {
-            return MessageResult.skipped(channel, "***", "provider base-url or api-key not set");
+        // Checked per channel, not globally: with separate hosts per product, a configured SMS
+        // host says nothing about whether WhatsApp can be reached.
+        if (baseUrl.isBlank() || properties.getApiKey().isBlank()) {
+            return MessageResult.skipped(channel, "***",
+                    "no " + channel + " base-url, or api-key not set");
         }
         if (!channelEnabled) {
             return MessageResult.skipped(channel, "***", channel + " channel disabled");
@@ -177,9 +190,9 @@ public class SmsWhatsAppClient {
      * message is an expected outcome here, not an exceptional one. Only the path is ever
      * logged — the URI carries the {@code api_key} and must not reach the log.
      */
-    private MessageResult post(NotificationChannel channel, String path,
+    private MessageResult post(NotificationChannel channel, String baseUrl, String path,
                                Map<String, Object> payload, String recipientLabel) {
-        URI uri = UriComponentsBuilder.fromUriString(properties.getBaseUrl())
+        URI uri = UriComponentsBuilder.fromUriString(baseUrl)
                 .path(path)
                 .queryParam("api_key", properties.getApiKey())
                 .encode()
@@ -238,15 +251,34 @@ public class SmsWhatsAppClient {
         }
     }
 
-    /** Appends the provider's own message text to a failure detail, when it sent one. */
+    /**
+     * Appends the provider's own explanation to a failure detail.
+     *
+     * <p>Checks inside {@code results[]} first, because that is where the useful message actually
+     * is: a rejected send returns {@code {"results":[{"to":"","error":"Invalid Number"}],
+     * "success":false}} with no top-level {@code message} at all. Reading only the top level logged
+     * failures with an empty reason.
+     */
+    @SuppressWarnings("unchecked")
     private String describe(Map<String, Object> body) {
         if (body == null) {
             return "";
         }
-        Object message = body.get("message");
-        if (message == null) {
-            message = body.get("error");
+        Object results = body.get("results");
+        if (results instanceof List<?> list && !list.isEmpty()
+                && list.get(0) instanceof Map<?, ?> first) {
+            Object nested = firstNonNull((Map<String, Object>) first, "error", "message", "status");
+            if (nested != null) {
+                return " — " + nested;
+            }
         }
+        if (results instanceof Map<?, ?> map) {
+            Object nested = firstNonNull(map, "error", "message", "status");
+            if (nested != null) {
+                return " — " + nested;
+            }
+        }
+        Object message = firstNonNull(body, "message", "error");
         return message == null ? "" : " — " + message;
     }
 
