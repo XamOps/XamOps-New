@@ -8,6 +8,60 @@ import { apiFetch } from '../utils/apiClient';
  * "hide the widget", never as an error worth showing.
  */
 
+// ── Response shape checking ──────────────────────────────────────────────────
+
+/**
+ * Reads a JSON body, returning null when it is unreadable or cannot be the type the
+ * endpoint declares.
+ *
+ * <p>`Response.json()` is typed `any`, so a body of the wrong shape used to be cast into
+ * a typed field unchecked and then fail wherever it was eventually used, far from the
+ * request that produced it. An `{error, detail}` object arriving with a 2xx status — a
+ * proxy answering instead of the service — reached `for (const c of charges)` in the
+ * charges table and took the entire Cost page down with "N is not iterable", losing the
+ * budgets, breakdown and forecast along with it.
+ *
+ * <p>Null is the right answer rather than a thrown error because these endpoints already
+ * have a meaning for "no usable data" that every caller handles: the section hides
+ * itself. A body that cannot be the declared type is that case.
+ */
+const readShape = async <T>(
+  res: Response,
+  isValid: (body: unknown) => boolean,
+): Promise<T | null> => {
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    // Empty body, or HTML from something upstream that answered in the service's place.
+    return null;
+  }
+  if (!isValid(body)) {
+    console.warn('[CUR] Ignoring unexpected response shape from', res.url);
+    return null;
+  }
+  return body as T;
+};
+
+const isRecord = (body: unknown): body is Record<string, unknown> =>
+  typeof body === 'object' && body !== null && !Array.isArray(body);
+
+/** For endpoints declared to return a list. */
+const isList = (body: unknown): boolean => Array.isArray(body);
+
+/**
+ * For endpoints declared to return a record, keyed on the fields callers actually read.
+ *
+ * <p>"Is an object" alone would not do: the 409 and 502 bodies are objects too, so only
+ * the presence of the real fields separates data from an explanation of its absence.
+ */
+const isRecordWith =
+  (lists: string[] = [], numbers: string[] = []) =>
+  (body: unknown): boolean =>
+    isRecord(body) &&
+    lists.every((field) => Array.isArray(body[field])) &&
+    numbers.every((field) => typeof body[field] === 'number');
+
 export interface SavingsRate {
   /** What was actually paid, with commitments spread across their term. */
   amortizedCost: number;
@@ -30,7 +84,7 @@ export const fetchSavingsRate = async (
   // 409 = no report configured, 502 = the report could not be read. Neither is worth
   // interrupting the page for: the rest of FinOps is unaffected.
   if (!res.ok) return null;
-  return (await res.json()) as SavingsRate;
+  return readShape<SavingsRate>(res, isRecordWith([], ['publicOnDemandCost', 'rate']));
 };
 
 /** One service's cost change, split into the part caused by rate and the part by usage. */
@@ -62,7 +116,7 @@ export const fetchPriceVsVolume = async (
     `/api/xamops/cur-insights/price-vs-volume/${encodeURIComponent(accountId)}${query}`,
   );
   if (!res.ok) return null;
-  return (await res.json()) as PriceVolumeChange[];
+  return readShape<PriceVolumeChange[]>(res, isList);
 };
 
 /** One billed line as the AWS invoice shows it. */
@@ -92,7 +146,7 @@ export const fetchChargesByService = async (
     `/api/xamops/cur-insights/charges-by-service/${encodeURIComponent(accountId)}${query}`,
   );
   if (!res.ok) return null;
-  return (await res.json()) as ServiceCharge[];
+  return readShape<ServiceCharge[]>(res, isList);
 };
 
 /** Commitment spend that bought nothing. */
@@ -118,7 +172,7 @@ export const fetchUnusedCommitment = async (
     `/api/xamops/cur-insights/unused-commitment/${encodeURIComponent(accountId)}${query}`,
   );
   if (!res.ok) return null;
-  return (await res.json()) as UnusedCommitment;
+  return readShape<UnusedCommitment>(res, isRecordWith([], ['total']));
 };
 
 /** One network charge, already categorised by what drives it. */
@@ -152,7 +206,7 @@ export const fetchDataTransferCosts = async (
     `/api/xamops/cur-insights/data-transfer/${encodeURIComponent(accountId)}${query}`,
   );
   if (!res.ok) return null;
-  return (await res.json()) as TransferCharge[];
+  return readShape<TransferCharge[]>(res, isList);
 };
 
 /** One resource's cost for a month. An empty `resourceId` is an account-level charge. */
@@ -197,7 +251,7 @@ export const fetchTopResources = async (
     `/api/xamops/cur-insights/top-resources/${encodeURIComponent(accountId)}${query}`,
   );
   if (!res.ok) return null;
-  return (await res.json()) as TopResources;
+  return readShape<TopResources>(res, isRecordWith(['resources'], ['totalCost']));
 };
 
 // ── Tag coverage and cost allocation ─────────────────────────────────────────
@@ -288,7 +342,15 @@ export const fetchTagCoverage = async (
     `/api/xamops/cur-insights/tag-coverage/${encodeURIComponent(accountId)}${query}`,
   );
   if (!res.ok) return null;
-  return (await res.json()) as TagCoverage;
+  // Every list the panel walks, because it walks them unconditionally: a partial body
+  // would render most of the panel and then fail on the one field it lacked.
+  return readShape<TagCoverage>(
+    res,
+    isRecordWith(
+      ['checkedTags', 'unavailableTags', 'byTag', 'untaggedServices', 'availableTagKeys'],
+      ['totalCost'],
+    ),
+  );
 };
 
 /** Spend under one tag, by value. Null means no report; empty means the tag is not in it. */
@@ -303,5 +365,5 @@ export const fetchCostByTag = async (
     `/api/xamops/cur-insights/cost-by-tag/${encodeURIComponent(accountId)}?${params}`,
   );
   if (!res.ok) return null;
-  return (await res.json()) as TagValueCost[];
+  return readShape<TagValueCost[]>(res, isList);
 };
