@@ -1603,11 +1603,19 @@ public class CostService {
                                                         }
 
                                                         // Running: full-period on-demand estimate is reasonable
-                                                        double hourlyRate = awsPricingService.getHourlyCost(instanceType, region);
+                                                        var ec2Quote = awsPricingService.getHourlyCostQuote(instanceType, region);
+                                                        double hourlyRate = ec2Quote.usdPerHour();
                                                         if (hourlyRate > 0) {
                                                                 double estimatedCost = hourlyRate * totalHours;
                                                                 String label = name + (instanceType != null ? " (" + instanceType + ")" : "");
-                                                                combinedCosts.add(new CostDto(label, estimatedCost));
+                                                                CostDto dto = new CostDto(label, estimatedCost);
+                                                                // Flag when the rate behind this is a 2024 table entry or a size-pattern
+                                                                // guess rather than a live Price List rate, so the UI does not present a
+                                                                // projection as billed spend.
+                                                                if (!ec2Quote.isAuthoritative()) {
+                                                                        dto.markEstimated(ec2Quote.note());
+                                                                }
+                                                                combinedCosts.add(dto);
                                                                 hasEc2Estimates = true;
                                                                 logger.info("💡 EC2 estimate: {} [{}] {} @ ${}/hr × {}hrs = ${}",
                                                                         name, instanceType, state, hourlyRate, totalHours,
@@ -1706,11 +1714,18 @@ public class CostService {
                                                         String identifier = (id != null && id.contains(":"))
                                                                 ? id.substring(id.lastIndexOf(':') + 1) : id;
                                                         String dbClass = instanceClassById.get(identifier);
-                                                        double hourlyRate = awsPricingService.getRdsHourlyCost(dbClass, region);
+                                                        var rdsQuote = awsPricingService.getRdsHourlyCostQuote(dbClass, region, null);
+                                                        double hourlyRate = rdsQuote.usdPerHour();
                                                         if (hourlyRate > 0) {
                                                                 double estimatedCost = hourlyRate * totalHours;
                                                                 String label = name + (dbClass != null ? " (" + dbClass + ")" : "");
-                                                                combinedCosts.add(new CostDto(label, estimatedCost));
+                                                                CostDto dto = new CostDto(label, estimatedCost);
+                                                                // Flag a 2024 table entry or size-pattern guess so it is not read as
+                                                                // billed spend.
+                                                                if (!rdsQuote.isAuthoritative()) {
+                                                                        dto.markEstimated(rdsQuote.note());
+                                                                }
+                                                                combinedCosts.add(dto);
                                                                 hasRdsEstimates = true;
                                                                 logger.info("💡 RDS estimate: {} [{}] in {} @ ${}/hr × {}hrs = ${}",
                                                                         name, dbClass, region, hourlyRate, totalHours,
@@ -1762,8 +1777,14 @@ public class CostService {
                                                         Integer sizeGb   = sizeById.get(id);
                                                         String  volType  = typeById.get(id);
                                                         if (sizeGb != null && sizeGb > 0) {
-                                                                double cost = awsPricingService.getEbsCostForPeriod(volType, sizeGb, region, daysBetween);
-                                                                combinedCosts.add(new CostDto(name + " (" + sizeGb + "GiB " + volType + ")", cost));
+                                                                var ebsQuote = awsPricingService.getEbsCostQuoteForPeriod(volType, sizeGb, region, daysBetween);
+                                                                double cost = ebsQuote.usdPerHour();
+                                                                CostDto dto = new CostDto(name + " (" + sizeGb + "GiB " + volType + ")", cost);
+                                                                // EBS has no live lookup behind it at all, so this is always an estimate.
+                                                                if (!ebsQuote.isAuthoritative()) {
+                                                                        dto.markEstimated(ebsQuote.note());
+                                                                }
+                                                                combinedCosts.add(dto);
                                                                 logger.info("💡 EBS estimate: {} {} GiB {} in {} = ${}", name, sizeGb, volType, region,
                                                                         String.format("%.2f", cost));
                                                         } else {
@@ -1805,9 +1826,15 @@ public class CostService {
                                                         String id   = resource.get("id");
                                                         String name = resource.getOrDefault("name", id);
                                                         String lbType = lbTypeByArn.getOrDefault(id, "application");
-                                                        double hourlyRate = awsPricingService.getElbHourlyRate(lbType);
+                                                        var lbQuote = awsPricingService.getElbHourlyRateQuote(lbType);
+                                                        double hourlyRate = lbQuote.usdPerHour();
                                                         double cost = hourlyRate * totalHours;
-                                                        combinedCosts.add(new CostDto(name + " (" + lbType + " LB, base only)", cost));
+                                                        CostDto dto = new CostDto(name + " (" + lbType + " LB, base only)", cost);
+                                                        // Hardcoded base rate with no regional dimension and no LCU charges.
+                                                        if (!lbQuote.isAuthoritative()) {
+                                                                dto.markEstimated(lbQuote.note());
+                                                        }
+                                                        combinedCosts.add(dto);
                                                         logger.info("💡 LB estimate: {} [{}] @ ${}/hr × {}hrs = ${}",
                                                                 name, lbType, hourlyRate, totalHours, String.format("%.2f", cost));
                                                 }

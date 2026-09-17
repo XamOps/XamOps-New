@@ -51,11 +51,42 @@ public class CostDto implements Serializable {
     private Double changePercent;
 
     /**
+     * True when {@link #amount} was reconstructed from a non-authoritative rate rather than read
+     * from billing data.
+     *
+     * <p>Resource-level cost breakdown is partly reconstructed as {@code rate × hours}, because Cost
+     * Explorer reports per service rather than per resource. When that rate comes from a live Price
+     * List lookup the result is sound; when it falls back to a 2024 table or a size-pattern guess it
+     * is a projection. Both used to arrive here as a bare number, indistinguishable from billed
+     * spend.
+     *
+     * <p>Boxed so {@code NON_NULL} omits it entirely for rows that are genuinely billed data.
+     */
+    @JsonProperty("estimated")
+    private Boolean estimated;
+
+    /** Why {@link #amount} is an estimate, suitable for a UI disclaimer. Null when billed data. */
+    @JsonProperty("estimateBasis")
+    private String estimateBasis;
+
+    /**
      * Constructor with only name and amount (backward compatible)
      */
     public CostDto(String name, double amount) {
         this.name = name;
         this.amount = amount;
+    }
+
+    /**
+     * Marks this figure as an estimate and records why.
+     *
+     * @param basis provenance text, e.g. the note from an {@code AwsPricingService.RateQuote}
+     * @return this, for chaining at the construction site
+     */
+    public CostDto markEstimated(String basis) {
+        this.estimated = Boolean.TRUE;
+        this.estimateBasis = basis;
+        return this;
     }
 
     /**

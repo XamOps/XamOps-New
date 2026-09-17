@@ -45,17 +45,40 @@ public class PricingService {
     private static final double HOURS_PER_MONTH = 730.0;
 
     /**
-     * Last-resort monthly figure when the RDS catalog lookup fails entirely. Kept as a
-     * named constant so it is greppable, and always accompanied by a warning log so a
-     * systematic lookup failure is visible rather than silently uniform.
+     * Message appended to every "price unavailable" warning, so the operator reading the log knows
+     * the consequence rather than just the cause.
+     *
+     * <p>There used to be a flat {@code RDS_FALLBACK_MONTHLY_PRICE = 20.0} here, returned whenever a
+     * catalog lookup failed. Twenty dollars is a plausible RDS bill, so it could not be told apart
+     * from a real one: an unpriced db.r5.4xlarge and a genuinely cheap db.t3.micro both reported $20,
+     * and both fed the waste total as if measured. Callers now get {@link #PRICE_UNAVAILABLE} and are
+     * expected to exclude the resource via {@link #isPriceAvailable(double)}.
      */
-    private static final double RDS_FALLBACK_MONTHLY_PRICE = 20.0;
+    private static final String UNPRICED_CONSEQUENCE =
+            "reporting the price as unavailable so the resource is excluded from savings totals "
+            + "rather than counted at a guessed rate";
 
     /**
      * Standard public IPv4 address rate, $0.005/hour. Since February 2024 AWS bills this for
      * every public IPv4 address, whether associated with a running resource or not.
      */
     private static final double DEFAULT_PUBLIC_IPV4_HOURLY = 0.005;
+
+    // ---------------------------------------------------------------------------------------------
+    // Mock-mode rates.
+    //
+    // Reachable only when aws.costexplorer.mock=true, which ships false and which MockDataGuard
+    // refuses to start with in a real profile. These are the same numbers that used to serve as
+    // production fallbacks; keeping them for mock mode preserves local development while removing
+    // them from every path a customer can see.
+    // ---------------------------------------------------------------------------------------------
+    private static final double MOCK_NAT_GATEWAY_HOURLY = 0.045;
+    private static final double MOCK_EBS_SNAPSHOT_GB_MONTH = 0.05;
+    private static final double MOCK_CW_LOGS_GB_MONTH = 0.03;
+    private static final double MOCK_RDS_SNAPSHOT_GB_MONTH = 0.095;
+    private static final double MOCK_S3_STANDARD_GB_MONTH = 0.023;
+    private static final double MOCK_S3_IA_GB_MONTH = 0.0125;
+    private static final double MOCK_ELASTICACHE_NODE_HOURLY = 0.034;
 
     /**
      * Sentinel returned when a price genuinely could not be determined.
@@ -330,23 +353,22 @@ public class PricingService {
             }
 
             if (priceList.isEmpty()) {
-                logger.warn("No price list found for RDS instance type {} engine {} in region {}. "
-                                + "Falling back to a flat estimate; this figure is not authoritative.",
-                        dbInstance.dbInstanceClass(), dbInstance.engine(), region);
-                return RDS_FALLBACK_MONTHLY_PRICE;
+                logger.warn("No price list found for RDS instance type {} engine {} in region {}; {}",
+                        dbInstance.dbInstanceClass(), dbInstance.engine(), region, UNPRICED_CONSEQUENCE);
+                return PRICE_UNAVAILABLE;
             }
             JsonNode priceListNode = objectMapper.readTree(priceList.get(0));
             double hourlyPrice = extractOnDemandPrice(priceListNode);
             if (hourlyPrice <= 0) {
-                logger.warn("RDS price lookup returned a non-positive rate for {} in {}; using fallback",
-                        dbInstance.dbInstanceClass(), region);
-                return RDS_FALLBACK_MONTHLY_PRICE;
+                logger.warn("RDS price lookup returned a non-positive rate for {} in {}; {}",
+                        dbInstance.dbInstanceClass(), region, UNPRICED_CONSEQUENCE);
+                return PRICE_UNAVAILABLE;
             }
             return hourlyPrice * HOURS_PER_MONTH;
         } catch (Exception e) {
-            logger.error("Failed to fetch price for RDS instance {} in region {}", dbInstance.dbInstanceIdentifier(),
-                    region, e);
-            return RDS_FALLBACK_MONTHLY_PRICE;
+            logger.error("Failed to fetch price for RDS instance {} in region {}; {}",
+                    dbInstance.dbInstanceIdentifier(), region, UNPRICED_CONSEQUENCE, e);
+            return PRICE_UNAVAILABLE;
         }
     }
 
@@ -399,9 +421,8 @@ public class PricingService {
 
     @Cacheable(value = "natGatewayPrice", key = "#region")
     public double getNatGatewayHourlyPrice(String region) {
-        double fallback = 0.045;
         if (useMockData) {
-            return fallback;
+            return MOCK_NAT_GATEWAY_HOURLY;
         }
         logger.info("Fetching live NAT Gateway price for region: {}", region);
         // regionCode rather than the human-readable location: the 16-entry map this
@@ -427,18 +448,17 @@ public class PricingService {
                     }
                 }
             }
-            logger.warn("No NAT Gateway hourly price found for region {}, using fallback", region);
+            logger.warn("No NAT Gateway hourly price found for region {}; {}", region, UNPRICED_CONSEQUENCE);
         } catch (Exception e) {
-            logger.error("Failed to fetch NAT Gateway price for region {}", region, e);
+            logger.error("Failed to fetch NAT Gateway price for region {}; {}", region, UNPRICED_CONSEQUENCE, e);
         }
-        return fallback;
+        return PRICE_UNAVAILABLE;
     }
 
     @Cacheable(value = "elbPrice", key = "#region + '-' + #lbType")
     public double getElbHourlyPrice(String region, String lbType) {
-        double fallback = getElbHourlyFallback(lbType);
         if (useMockData) {
-            return fallback;
+            return mockElbHourlyPrice(lbType);
         }
         logger.info("Fetching live ELB price for region: {}, type: {}", region, lbType);
         // regionCode rather than the human-readable location: the 16-entry map this
@@ -467,7 +487,7 @@ public class PricingService {
         } catch (Exception e) {
             logger.error("Failed to fetch ELB price for type {} in region {}", lbType, region, e);
         }
-        return fallback;
+        return PRICE_UNAVAILABLE;
     }
 
     private String mapElbOperation(String lbType) {
@@ -486,7 +506,8 @@ public class PricingService {
         }
     }
 
-    private double getElbHourlyFallback(String lbType) {
+    /** Mock-mode ELB rate. Only reachable when {@code aws.costexplorer.mock} is enabled. */
+    private double mockElbHourlyPrice(String lbType) {
         if (lbType == null) {
             return 0.0225;
         }
@@ -502,9 +523,8 @@ public class PricingService {
 
     @Cacheable(value = "ebsSnapshotPrice", key = "#region")
     public double getEbsSnapshotGbMonthPrice(String region) {
-        double fallback = 0.05;
         if (useMockData) {
-            return fallback;
+            return MOCK_EBS_SNAPSHOT_GB_MONTH;
         }
         logger.info("Fetching live EBS snapshot price for region: {}", region);
         Filter regionFilter = Filter.builder().field("regionCode").value(region).type("TERM_MATCH").build();
@@ -523,11 +543,11 @@ public class PricingService {
                     return price;
                 }
             }
-            logger.warn("No EBS snapshot price found for region {}, using fallback", region);
+            logger.warn("No EBS snapshot price found for region {}; {}", region, UNPRICED_CONSEQUENCE);
         } catch (Exception e) {
-            logger.error("Failed to fetch EBS snapshot price for region {}", region, e);
+            logger.error("Failed to fetch EBS snapshot price for region {}; {}", region, UNPRICED_CONSEQUENCE, e);
         }
-        return fallback;
+        return PRICE_UNAVAILABLE;
     }
 
     /**
@@ -539,9 +559,8 @@ public class PricingService {
      */
     @Cacheable(value = "cloudWatchLogsStoragePrice", key = "#region")
     public double getCloudWatchLogsStorageGbMonthPrice(String region) {
-        double fallback = 0.03;
         if (useMockData) {
-            return fallback;
+            return MOCK_CW_LOGS_GB_MONTH;
         }
         logger.info("Fetching live CloudWatch Logs storage price for region: {}", region);
         Filter regionFilter = Filter.builder().field("regionCode").value(region).type("TERM_MATCH").build();
@@ -559,18 +578,17 @@ public class PricingService {
                     return price;
                 }
             }
-            logger.warn("No CloudWatch Logs storage price found for region {}, using fallback", region);
+            logger.warn("No CloudWatch Logs storage price found for region {}; {}", region, UNPRICED_CONSEQUENCE);
         } catch (Exception e) {
-            logger.error("Failed to fetch CloudWatch Logs storage price for region {}", region, e);
+            logger.error("Failed to fetch CloudWatch Logs storage price for region {}; {}", region, UNPRICED_CONSEQUENCE, e);
         }
-        return fallback;
+        return PRICE_UNAVAILABLE;
     }
 
     @Cacheable(value = "rdsSnapshotPrice", key = "#region + '-' + #engine")
     public double getRdsSnapshotGbMonthPrice(String region, String engine) {
-        double fallback = 0.095;
         if (useMockData) {
-            return fallback;
+            return MOCK_RDS_SNAPSHOT_GB_MONTH;
         }
         logger.info("Fetching live RDS snapshot price for region: {}, engine: {}", region, engine);
         // regionCode rather than the human-readable location: the 16-entry map this
@@ -601,18 +619,17 @@ public class PricingService {
                     return price;
                 }
             }
-            logger.warn("No RDS snapshot price found for region {}, engine {}, using fallback", region, engine);
+            logger.warn("No RDS snapshot price found for region {}, engine {}; {}", region, engine, UNPRICED_CONSEQUENCE);
         } catch (Exception e) {
-            logger.error("Failed to fetch RDS snapshot price for region {}, engine {}", region, engine, e);
+            logger.error("Failed to fetch RDS snapshot price for region {}, engine {}; {}", region, engine, UNPRICED_CONSEQUENCE, e);
         }
-        return fallback;
+        return PRICE_UNAVAILABLE;
     }
 
     @Cacheable(value = "s3StoragePrice", key = "#region + '-' + #storageClass")
     public double getS3StorageClassGbMonthPrice(String region, String storageClass) {
-        double fallback = "Standard-IA".equals(storageClass) ? 0.0125 : 0.023;
         if (useMockData) {
-            return fallback;
+            return "Standard-IA".equals(storageClass) ? MOCK_S3_IA_GB_MONTH : MOCK_S3_STANDARD_GB_MONTH;
         }
         logger.info("Fetching live S3 {} price for region: {}", storageClass, region);
         String volumeType = "Standard-IA".equals(storageClass) ? "Standard - Infrequent Access" : "Standard";
@@ -637,18 +654,17 @@ public class PricingService {
                     return price;
                 }
             }
-            logger.warn("No S3 {} price found for region {}, using fallback", storageClass, region);
+            logger.warn("No S3 {} price found for region {}; {}", storageClass, region, UNPRICED_CONSEQUENCE);
         } catch (Exception e) {
-            logger.error("Failed to fetch S3 {} price for region {}", storageClass, region, e);
+            logger.error("Failed to fetch S3 {} price for region {}; {}", storageClass, region, UNPRICED_CONSEQUENCE, e);
         }
-        return fallback;
+        return PRICE_UNAVAILABLE;
     }
 
     @Cacheable(value = "elastiCachePrice", key = "#region + '-' + #nodeType")
     public double getElastiCacheNodeHourlyPrice(String region, String nodeType) {
-        double fallback = 0.034;
         if (useMockData) {
-            return fallback;
+            return MOCK_ELASTICACHE_NODE_HOURLY;
         }
         logger.info("Fetching live ElastiCache price for region: {}, node type: {}", region, nodeType);
         Filter regionFilter = Filter.builder().field("regionCode").value(region).type("TERM_MATCH").build();
@@ -666,11 +682,11 @@ public class PricingService {
                     return price;
                 }
             }
-            logger.warn("No ElastiCache price found for node type {} in region {}, using fallback", nodeType, region);
+            logger.warn("No ElastiCache price found for node type {} in region {}; {}", nodeType, region, UNPRICED_CONSEQUENCE);
         } catch (Exception e) {
-            logger.error("Failed to fetch ElastiCache price for node type {} in region {}", nodeType, region, e);
+            logger.error("Failed to fetch ElastiCache price for node type {} in region {}; {}", nodeType, region, UNPRICED_CONSEQUENCE, e);
         }
-        return fallback;
+        return PRICE_UNAVAILABLE;
     }
 
     /**
@@ -716,19 +732,23 @@ public class PricingService {
     /**
      * Shared shape for the simple "one region filter plus one discriminator" lookups above.
      *
-     * <p>Falls back rather than returning zero, because a zero would be read downstream as
-     * "this resource is free" and quietly erase a real cost from the waste total.
+     * <p>Returns {@link #PRICE_UNAVAILABLE} rather than a us-east-1 constant when the lookup yields
+     * nothing. The constant was indistinguishable from a real rate, so an EFS filesystem in Mumbai
+     * whose SKU failed to match was silently billed at the Virginia rate and counted in the waste
+     * total as though measured. Callers gate on {@link #isPriceAvailable(double)} and report the
+     * resource as unpriced instead.
      *
      * @param serviceCode Price List service code, e.g. {@code AmazonEFS}
-     * @param fallback    us-east-1 list price to use when the lookup yields nothing
+     * @param mockPrice   rate used only when {@code aws.costexplorer.mock} is enabled
      * @param extra       additional filters narrowing the SKU
      */
-    private double firstOnDemandPrice(String serviceCode, String region, double fallback, Filter... extra) {
+    private double firstOnDemandPrice(String serviceCode, String region, double mockPrice, Filter... extra) {
         if (useMockData) {
-            return fallback;
+            return mockPrice;
         }
         if (region == null || region.isBlank()) {
-            return fallback;
+            logger.warn("No region supplied for {} price lookup; {}", serviceCode, UNPRICED_CONSEQUENCE);
+            return PRICE_UNAVAILABLE;
         }
         List<Filter> filters = new java.util.ArrayList<>();
         filters.add(Filter.builder().field("regionCode").value(region).type("TERM_MATCH").build());
@@ -755,11 +775,12 @@ public class PricingService {
                     return price;
                 }
             }
-            logger.warn("No {} price found for region {}; using fallback {}", serviceCode, region, fallback);
+            logger.warn("No {} price found for region {}; {}", serviceCode, region, UNPRICED_CONSEQUENCE);
         } catch (Exception e) {
-            logger.error("Failed to fetch {} price for region {}: {}", serviceCode, region, e.getMessage());
+            logger.error("Failed to fetch {} price for region {}: {}; {}",
+                    serviceCode, region, e.getMessage(), UNPRICED_CONSEQUENCE);
         }
-        return fallback;
+        return PRICE_UNAVAILABLE;
     }
 
     /**

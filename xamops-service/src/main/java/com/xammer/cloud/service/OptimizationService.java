@@ -636,6 +636,7 @@ public class OptimizationService {
             // Snapshots that back a registered AMI cannot be deleted — DeleteSnapshot returns
             // InvalidSnapshot.InUse — so recommending it produced advice that always fails.
             java.util.Set<String> amiBackedSnapshotIds = snapshotIdsBackingImages(ec2, regionId);
+            double snapshotRate = pricingService.getEbsSnapshotGbMonthPrice(regionId);
 
             return ec2.describeSnapshots(r -> r.ownerIds("self")).snapshots().stream()
                     .filter(s -> s.startTime().isBefore(ninetyDaysAgo))
@@ -643,9 +644,10 @@ public class OptimizationService {
                     // tag is deliberately old — age alone is not evidence it is unwanted.
                     .filter(s -> !isManagedOrRetained(s.tags()))
                     .filter(s -> !amiBackedSnapshotIds.contains(s.snapshotId()))
-                    .map(snapshot -> new DashboardData.WastedResource(snapshot.snapshotId(),
+                    .map(snapshot -> wasteWithRate(snapshot.snapshotId(),
                             getTagName(snapshot.tags(), snapshot.snapshotId()), "Snapshot", regionId,
-                            calculateSnapshotMonthlyCost(snapshot, regionId), "Older than 90 days"))
+                            snapshotRate, calculateSnapshotMonthlyCost(snapshot, regionId),
+                            "Older than 90 days"))
                     .collect(Collectors.toList());
         }, "Old Snapshots");
     }
@@ -669,8 +671,8 @@ public class OptimizationService {
                                 .filter(bdm -> bdm.ebs() != null && bdm.ebs().volumeSize() != null)
                                 .mapToDouble(bdm -> bdm.ebs().volumeSize() * snapshotGbMonthPrice)
                                 .sum();
-                        return new DashboardData.WastedResource(image.imageId(), image.name(), "AMI", regionId,
-                                monthlyCost, "Deregistered or Failed State");
+                        return wasteWithRate(image.imageId(), image.name(), "AMI", regionId,
+                                snapshotGbMonthPrice, monthlyCost, "Deregistered or Failed State");
                     })
                     .collect(Collectors.toList());
         }, "Deregistered AMIs");
@@ -708,9 +710,10 @@ public class OptimizationService {
                 List<Double> values = results.getOrDefault("rds" + i, List.of());
                 if (!values.isEmpty() && values.stream().allMatch(v -> v < 1)) {
                     var db = instances.get(i);
-                    findings.add(new DashboardData.WastedResource(db.dbInstanceIdentifier(),
+                    double rdsMonthly = pricingService.getRdsInstanceMonthlyPrice(db, regionId);
+                    findings.add(wasteWithRate(db.dbInstanceIdentifier(),
                             db.dbInstanceIdentifier(), "RDS Instance", regionId,
-                            pricingService.getRdsInstanceMonthlyPrice(db, regionId),
+                            rdsMonthly, rdsMonthly,
                             "Idle RDS Instance (no connections)"));
                 }
             }
@@ -805,10 +808,12 @@ public class OptimizationService {
                                 tg -> elbv2.describeTargetHealth(req -> req.targetGroupArn(tg.targetGroupArn()))
                                         .targetHealthDescriptions().isEmpty());
                     })
-                    .map(lb -> new DashboardData.WastedResource(lb.loadBalancerArn(), lb.loadBalancerName(),
-                            "Load Balancer", regionId,
-                            pricingService.getElbHourlyPrice(regionId, lb.typeAsString()) * 730,
-                            "Idle Load Balancer (no targets)"))
+                    .map(lb -> {
+                        double elbHourly = pricingService.getElbHourlyPrice(regionId, lb.typeAsString());
+                        return wasteWithRate(lb.loadBalancerArn(), lb.loadBalancerName(),
+                                "Load Balancer", regionId, elbHourly, elbHourly * 730,
+                                "Idle Load Balancer (no targets)");
+                    })
                     .collect(Collectors.toList());
         }, "Idle Load Balancers");
     }
@@ -846,9 +851,9 @@ public class OptimizationService {
                     if (avgCpu < 5.0) {
                         // Control-plane charge for the cluster itself, at the region's real rate
                         // rather than a flat us-east-1 $73/month.
-                        double monthlyCost = pricingService.getEksClusterHourlyPrice(regionId) * 730;
-                        findings.add(new DashboardData.WastedResource(clusters.get(i), clusters.get(i), "EKS Cluster",
-                                regionId, monthlyCost, "Idle Cluster (low CPU)"));
+                        double eksHourly = pricingService.getEksClusterHourlyPrice(regionId);
+                        findings.add(wasteWithRate(clusters.get(i), clusters.get(i), "EKS Cluster",
+                                regionId, eksHourly, eksHourly * 730, "Idle Cluster (low CPU)"));
                     }
                 }
             }
@@ -985,13 +990,15 @@ public class OptimizationService {
                     rds.describeDBSnapshots(r -> r.snapshotType("manual")).dbSnapshots();
 
             return deletableManualDbSnapshots(manual, ninetyDaysAgo).stream()
-                    .map(snap -> new DashboardData.WastedResource(
-                            snap.dbSnapshotIdentifier(),
-                            snap.dbSnapshotIdentifier(), "DB Snapshot", regionId,
-                            snap.allocatedStorage()
-                                    * pricingService.getRdsSnapshotGbMonthPrice(regionId, snap.engine()),
-                            String.format("Older than 90 days. The %d most recent manual snapshot(s) of "
-                                    + "the same instance are retained.", MIN_RETAINED_DB_SNAPSHOTS)))
+                    .map(snap -> {
+                        double snapRate = pricingService.getRdsSnapshotGbMonthPrice(regionId, snap.engine());
+                        return wasteWithRate(
+                                snap.dbSnapshotIdentifier(),
+                                snap.dbSnapshotIdentifier(), "DB Snapshot", regionId,
+                                snapRate, snap.allocatedStorage() * snapRate,
+                                String.format("Older than 90 days. The %d most recent manual snapshot(s) of "
+                                        + "the same instance are retained.", MIN_RETAINED_DB_SNAPSHOTS));
+                    })
                     .collect(Collectors.toList());
         }, "Old DB Snapshots");
     }
@@ -1438,6 +1445,33 @@ public class OptimizationService {
         return 0.0;
     }
 
+    /** Standard explanation appended to a finding whose cost could not be priced. */
+    private static final String UNPRICED_SUFFIX =
+            " — monthly cost could not be priced from the AWS Price List, so this resource is "
+            + "excluded from savings totals";
+
+    /**
+     * Builds a waste finding, reporting the cost as unknown when the rate behind it is unavailable.
+     *
+     * <p>Gates on {@code rate} rather than on {@code monthlyCost} deliberately. A rate of zero means
+     * the Price List lookup failed; a <em>cost</em> of zero can be perfectly legitimate — an empty
+     * ECR repository or a DynamoDB table with no data multiplies a real rate by a real zero size.
+     * Checking the product would mislabel those as unpriced.
+     *
+     * <p>Before {@link PricingService} stopped substituting constants for failed lookups, an
+     * unavailable rate arrived here as a plausible us-east-1 number and was reported as measured
+     * spend. It now arrives as {@link PricingService#PRICE_UNAVAILABLE}, and this is where that
+     * becomes an honest "unknown" rather than a confident "$0".
+     */
+    private static DashboardData.WastedResource wasteWithRate(String resourceId, String resourceName,
+            String resourceType, String region, double rate, double monthlyCost, String reason) {
+        return PricingService.isPriceAvailable(rate)
+                ? new DashboardData.WastedResource(resourceId, resourceName, resourceType, region,
+                        monthlyCost, reason)
+                : DashboardData.WastedResource.withUnknownSavings(resourceId, resourceName, resourceType,
+                        region, reason + UNPRICED_SUFFIX);
+    }
+
     private CompletableFuture<List<DashboardData.WastedResource>> findS3StorageClassWaste(CloudAccount account) {
         return CompletableFuture.supplyAsync(() -> {
             List<DashboardData.WastedResource> output = new ArrayList<>();
@@ -1490,8 +1524,12 @@ public class OptimizationService {
                                 String name = regionBuckets.get(i);
                                 double standardPrice = pricingService.getS3StorageClassGbMonthPrice(region, "Standard");
                                 double iaPrice = pricingService.getS3StorageClassGbMonthPrice(region, "Standard-IA");
-                                output.add(new DashboardData.WastedResource(name, name, "S3 Bucket", region,
-                                        gbInStandard * (standardPrice - iaPrice),
+                                // The saving is a difference, so both rates have to be real. Gating on
+                                // the smaller of the two means either one missing marks the finding
+                                // unpriced rather than yielding a nonsense delta.
+                                double rateGate = Math.min(standardPrice, iaPrice);
+                                output.add(wasteWithRate(name, name, "S3 Bucket", region,
+                                        rateGate, gbInStandard * (standardPrice - iaPrice),
                                         String.format(
                                                 "%.1f GB in Standard storage - consider Intelligent-Tiering or Standard-IA",
                                                 gbInStandard)));
@@ -1549,9 +1587,10 @@ public class OptimizationService {
                     var fs = fileSystems.get(i);
                     double sizeGb = fs.sizeInBytes().value() / (1024.0 * 1024 * 1024);
                     String name = fs.name() != null && !fs.name().isEmpty() ? fs.name() : fs.fileSystemId();
-                    double monthlyCost = sizeGb * pricingService.getEfsGbMonthPrice(regionId);
-                    findings.add(new DashboardData.WastedResource(fs.fileSystemId(), name, "EFS File System",
-                            regionId, monthlyCost, "No I/O in 90 days - likely idle file system"));
+                    double efsRate = pricingService.getEfsGbMonthPrice(regionId);
+                    findings.add(wasteWithRate(fs.fileSystemId(), name, "EFS File System",
+                            regionId, efsRate, sizeGb * efsRate,
+                            "No I/O in 90 days - likely idle file system"));
                 }
             }
             return findings;
@@ -1601,8 +1640,9 @@ public class OptimizationService {
                     var cluster = clusters.get(i);
                     int nodes = cluster.numCacheNodes() != null ? cluster.numCacheNodes() : 1;
                     double hourlyPrice = pricingService.getElastiCacheNodeHourlyPrice(regionId, cluster.cacheNodeType());
-                    findings.add(new DashboardData.WastedResource(cluster.cacheClusterId(),
-                            cluster.cacheClusterId(), "ElastiCache Cluster", regionId, nodes * hourlyPrice * 730,
+                    findings.add(wasteWithRate(cluster.cacheClusterId(),
+                            cluster.cacheClusterId(), "ElastiCache Cluster", regionId,
+                            hourlyPrice, nodes * hourlyPrice * 730,
                             "No connections in 90 days - likely idle cluster"));
                 }
             }
@@ -1663,9 +1703,9 @@ public class OptimizationService {
                     } catch (Exception e) {
                         sizeGb = 0.0;
                     }
-                    double monthlyCost = sizeGb * pricingService.getDynamoDbGbMonthPrice(regionId);
-                    findings.add(new DashboardData.WastedResource(tableName, tableName, "DynamoDB Table",
-                            regionId, monthlyCost, "No read/write activity in 90 days"));
+                    double ddbRate = pricingService.getDynamoDbGbMonthPrice(regionId);
+                    findings.add(wasteWithRate(tableName, tableName, "DynamoDB Table",
+                            regionId, ddbRate, sizeGb * ddbRate, "No read/write activity in 90 days"));
                 }
             }
             return findings;
@@ -1700,9 +1740,9 @@ public class OptimizationService {
                         } catch (Exception e) {
                             sizeGb = 0.0;
                         }
-                        double monthlyCost = sizeGb * pricingService.getEcrGbMonthPrice(regionId);
-                        return new DashboardData.WastedResource(repo.repositoryArn(), repo.repositoryName(),
-                                "ECR Repository", regionId, monthlyCost,
+                        double ecrRate = pricingService.getEcrGbMonthPrice(regionId);
+                        return wasteWithRate(repo.repositoryArn(), repo.repositoryName(),
+                                "ECR Repository", regionId, ecrRate, sizeGb * ecrRate,
                                 "No image push or pull in 90 days");
                     })
                     .collect(Collectors.toList());
@@ -2010,9 +2050,9 @@ public class OptimizationService {
                     String name = gw.tags().stream().filter(t -> "Name".equals(t.key()))
                             .map(software.amazon.awssdk.services.ec2.model.Tag::value)
                             .findFirst().orElse(gw.natGatewayId());
-                    double monthlyCost = pricingService.getNatGatewayHourlyPrice(regionId) * 730;
-                    findings.add(new DashboardData.WastedResource(gw.natGatewayId(), name,
-                            "NAT Gateway", regionId, monthlyCost,
+                    double natHourly = pricingService.getNatGatewayHourlyPrice(regionId);
+                    findings.add(wasteWithRate(gw.natGatewayId(), name,
+                            "NAT Gateway", regionId, natHourly, natHourly * 730,
                             "Near-zero traffic in 30 days (<1 MB outbound)"));
                 }
             }

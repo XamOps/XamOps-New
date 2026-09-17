@@ -5,6 +5,18 @@
 export interface CostDataItem {
   name: string;
   amount: number;
+  /**
+   * True when `amount` was reconstructed from a non-authoritative rate rather than read from
+   * billing data.
+   *
+   * Cost Explorer reports per service, not per resource, so resource-level rows are partly rebuilt
+   * as `rate × hours`. When that rate is a live AWS Price List lookup the figure is sound; when it
+   * falls back to a 2024 table entry or a size-pattern guess it is a projection. Absent on rows that
+   * are genuinely billed data, so `estimated === true` is the only positive signal.
+   */
+  estimated?: boolean;
+  /** Why `amount` is an estimate — suitable for a tooltip. Absent when it is billed data. */
+  estimateBasis?: string;
 }
 
 export interface HistoricalData {
