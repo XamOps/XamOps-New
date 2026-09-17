@@ -24,6 +24,12 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 public class BillopsApplication {
 
     public static void main(String[] args) {
+        // Force IST so billops agrees with xamops-service (which sets the same in its main).
+        // Both services write timestamps to the shared `ticket` table; without this billops
+        // followed the server OS zone (UTC on UAT/prod), so SLA/first-reply times computed
+        // against xamops's IST timestamps were skewed by the 5.5h India offset. Pinning both
+        // to IST keeps every timestamp in one zone across services and environments.
+        System.setProperty("user.timezone", "Asia/Kolkata");
         SpringApplication.run(BillopsApplication.class, args);
     }
 }
