@@ -130,7 +130,23 @@ public class InventoryProjectionService {
         // The same principle the AGGREGATOR_INCOMPLETE branch was written on: a slow but
         // complete describe scan beats a fast wrong answer. Promoting one LOCAL index to
         // AGGREGATOR restores the fast path for these accounts.
-        if (!AwsInventorySyncState.INDEX_AGGREGATOR.equals(state.getIndexType())) {
+        //
+        // LOCAL is now accepted when nothing is uncovered. The reconciler reads every indexed
+        // region individually when it has no ACTIVE aggregator, and records a region as
+        // uncovered if it has no index, its read failed, or its index is still building — so
+        // an empty set means every enabled region was fully read. That was never true of the
+        // single-region read this rule was written against, whose rows always listed the
+        // regions it skipped, so those still fail here until a newer sync replaces them.
+        //
+        // The type alone was also never proof of completeness. AWS reports AGGREGATOR the
+        // moment a promotion starts, hours before the other regions replicate in; trusting it
+        // served a newly connected account's us-east-1 buckets as its whole estate and hid
+        // everything in ap-south-1. The reconciler now checks the aggregator is ACTIVE before
+        // recording it, which is what makes the AGGREGATOR branch below safe to trust.
+        boolean aggregator = AwsInventorySyncState.INDEX_AGGREGATOR.equals(state.getIndexType());
+        boolean everyRegionRead = AwsInventorySyncState.INDEX_LOCAL.equals(state.getIndexType())
+                && (state.getUncoveredRegions() == null || state.getUncoveredRegions().isBlank());
+        if (!aggregator && !everyRegionRead) {
             log.warn("[Inventory] Account {} has index type {} (uncovered: [{}]) — falling back "
                     + "to describes because only an AGGREGATOR index covers every region in one "
                     + "query. Promote a Resource Explorer aggregator index to use the fast path.",
@@ -158,7 +174,10 @@ public class InventoryProjectionService {
         }
         return syncStateRepository.findById(cloudAccountId)
                 .map(s -> AwsInventorySyncState.INDEX_PARTIAL.equals(s.getIndexType())
-                        || AwsInventorySyncState.INDEX_LOCAL.equals(s.getIndexType())
+                        // A LOCAL account is partial only when some region went unread; one read
+                        // region by region with nothing uncovered is complete. See isFresh.
+                        || (AwsInventorySyncState.INDEX_LOCAL.equals(s.getIndexType())
+                            && s.getUncoveredRegions() != null && !s.getUncoveredRegions().isBlank())
                         || AwsInventorySyncState.INDEX_AGGREGATOR_INCOMPLETE.equals(s.getIndexType()))
                 .orElse(false);
     }

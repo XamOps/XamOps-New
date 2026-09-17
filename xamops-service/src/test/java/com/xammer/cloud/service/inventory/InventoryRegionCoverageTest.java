@@ -102,11 +102,41 @@ class InventoryRegionCoverageTest {
      */
     @Test
     void refusesToServeWhenOnlyLocalIndexesExist() {
+        // The single-region read recorded every region it skipped as uncovered, so this is the
+        // shape its rows have. They must keep failing until a newer sync replaces them.
+        when(syncStateRepository.findById(CLOUD_ACCOUNT_ID)).thenReturn(Optional.of(
+                state(AwsInventorySyncState.INDEX_LOCAL, "ap-south-1,eu-west-1,us-west-2")));
+
+        assertFalse(projection.isFresh(CLOUD_ACCOUNT_ID),
+                "a LOCAL read that skipped regions must not be served; it hides every region it skipped");
+    }
+
+    /**
+     * The reconciler now reads each indexed region individually when there is no ACTIVE
+     * aggregator, recording any region it could not fully read as uncovered. An empty set
+     * therefore means every enabled region was read, which is as complete as an aggregator.
+     *
+     * <p>
+     * Without this the account falls back to describes for as long as its aggregator is still
+     * replicating — hours, for a newly connected account — despite holding a complete plane.
+     */
+    @Test
+    void servesLocalIndexesWhenEveryRegionWasRead() {
         when(syncStateRepository.findById(CLOUD_ACCOUNT_ID)).thenReturn(Optional.of(
                 state(AwsInventorySyncState.INDEX_LOCAL, null)));
 
-        assertFalse(projection.isFresh(CLOUD_ACCOUNT_ID),
-                "a LOCAL index covers one region; serving it hides every other region");
+        assertTrue(projection.isFresh(CLOUD_ACCOUNT_ID),
+                "LOCAL with nothing uncovered was read region by region, so it covers the account");
+    }
+
+    @Test
+    void blankUncoveredRegionsCountAsNoneUncovered() {
+        // setUncoveredRegions writes null for an empty set, but a blank string must not be
+        // mistaken for a real region list either.
+        when(syncStateRepository.findById(CLOUD_ACCOUNT_ID)).thenReturn(Optional.of(
+                state(AwsInventorySyncState.INDEX_LOCAL, "  ")));
+
+        assertTrue(projection.isFresh(CLOUD_ACCOUNT_ID));
     }
 
     /** No user-owned index at all — results are explicitly partial by name. */
@@ -144,12 +174,20 @@ class InventoryRegionCoverageTest {
     }
 
     @Test
-    void localOnlyIndexesAreAlsoTreatedAsPartial() {
-        // A LOCAL index covers one region, so the account is inherently incomplete.
+    void localIndexesWithUnreadRegionsAreTreatedAsPartial() {
+        when(syncStateRepository.findById(CLOUD_ACCOUNT_ID)).thenReturn(Optional.of(
+                state(AwsInventorySyncState.INDEX_LOCAL, "ap-south-1")));
+
+        assertTrue(projection.isPartial(CLOUD_ACCOUNT_ID));
+    }
+
+    @Test
+    void localIndexesWithEveryRegionReadAreNotPartial() {
         when(syncStateRepository.findById(CLOUD_ACCOUNT_ID)).thenReturn(Optional.of(
                 state(AwsInventorySyncState.INDEX_LOCAL, null)));
 
-        assertTrue(projection.isPartial(CLOUD_ACCOUNT_ID));
+        assertFalse(projection.isPartial(CLOUD_ACCOUNT_ID),
+                "labelling a complete region-by-region read as partial would be as misleading as the reverse");
     }
 
     @Test

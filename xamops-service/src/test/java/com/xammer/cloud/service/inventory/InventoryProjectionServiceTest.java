@@ -147,7 +147,11 @@ class InventoryProjectionServiceTest {
         assertTrue(service.isPartial(CLOUD_ACCOUNT_ID), "no service-linked role means missing history");
 
         partial.setIndexType(AwsInventorySyncState.INDEX_LOCAL);
-        assertTrue(service.isPartial(CLOUD_ACCOUNT_ID), "a local index covers only one region");
+        partial.setUncoveredRegions("ap-south-1,eu-west-1");
+        assertTrue(service.isPartial(CLOUD_ACCOUNT_ID), "a local read that skipped regions is partial");
+
+        partial.setUncoveredRegions(null);
+        assertFalse(service.isPartial(CLOUD_ACCOUNT_ID), "a local read of every region is complete");
 
         partial.setIndexType(AwsInventorySyncState.INDEX_AGGREGATOR);
         assertFalse(service.isPartial(CLOUD_ACCOUNT_ID), "an aggregator index spans every region");

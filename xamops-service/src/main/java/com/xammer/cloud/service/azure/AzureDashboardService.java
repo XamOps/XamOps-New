@@ -28,6 +28,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
+import com.xammer.cloud.config.multitenancy.TenantContext;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -56,6 +60,19 @@ public class AzureDashboardService {
     @org.springframework.beans.factory.annotation.Value("${xamops.azure.dashboard.stale-after-minutes:1560}")
     private long staleAfterMinutes;
 
+    /**
+     * Deadline for one dashboard section.
+     *
+     * <p>
+     * Has to accommodate the slowest legitimate section, which is the inventory: twelve
+     * subscription-wide list calls plus an N+1 over SQL servers. 120s is comfortably above that on
+     * the subscriptions measured so far and still well inside the gap before the next scheduled
+     * job. Six sections run concurrently, so this is the worst case for the whole refresh, not the
+     * sum.
+     */
+    @org.springframework.beans.factory.annotation.Value("${xamops.azure.dashboard.section-timeout-seconds:120}")
+    private long sectionTimeoutSeconds;
+
     private final AzureClientProvider clientProvider;
     private final CloudAccountRepository cloudAccountRepository;
     private final CachedDataRepository cachedDataRepository;
@@ -83,6 +100,17 @@ public class AzureDashboardService {
     /** Trailing-average spike detector over the ingested daily cost series. */
     private final AzureCostAnomalyService costAnomalyService;
 
+    /**
+     * Pool the six dashboard sections run on.
+     *
+     * <p>
+     * Explicitly {@code backgroundTaskExecutor} rather than {@code ForkJoinPool.commonPool}, which
+     * is what {@code CompletableFuture.runAsync} defaults to. The common pool is sized from
+     * available processors and shared with every parallel stream in the process, so six blocking
+     * ARM calls per subscription could occupy all of it and slow unrelated work.
+     */
+    private final java.util.concurrent.Executor dashboardExecutor;
+
     public AzureDashboardService(AzureClientProvider clientProvider,
             CloudAccountRepository cloudAccountRepository,
             CachedDataRepository cachedDataRepository,
@@ -92,7 +120,10 @@ public class AzureDashboardService {
             com.xammer.cloud.service.security.AzurePrivilegeAnalyzer azurePrivilegeAnalyzer,
             @org.springframework.context.annotation.Lazy AzureSecurityService azureSecurityService,
             com.xammer.cloud.service.war.azure.AzureWarRest armRest,
-            AzureCostAnomalyService costAnomalyService) {
+            AzureCostAnomalyService costAnomalyService,
+            @org.springframework.beans.factory.annotation.Qualifier("backgroundTaskExecutor")
+            java.util.concurrent.Executor dashboardExecutor) {
+        this.dashboardExecutor = dashboardExecutor;
         this.clientProvider = clientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.cachedDataRepository = cachedDataRepository;
@@ -149,19 +180,36 @@ public class AzureDashboardService {
             AzureResourceManager azure = clientProvider.getAzureClient(accountId);
             AzureDashboardData dashboardData = new AzureDashboardData();
 
-            // Run data fetching in parallel
-            CompletableFuture<Void> inventoryFuture = CompletableFuture
-                    .runAsync(() -> getAndSetResourceInventory(azure, dashboardData, accountId));
-            CompletableFuture<Void> costFuture = CompletableFuture
-                    .runAsync(() -> getAndSetCostHistoryAndBilling(dashboardData, account, force));
-            CompletableFuture<Void> regionFuture = CompletableFuture
-                    .runAsync(() -> getAndSetRegionStatus(azure, dashboardData));
-            CompletableFuture<Void> optimizationFuture = CompletableFuture
-                    .runAsync(() -> getAndSetOptimizationSummary(azure, dashboardData, accountId));
-            CompletableFuture<Void> iamFuture = CompletableFuture
-                    .runAsync(() -> getAndSetIamDetails(azure, dashboardData, accountId));
-            CompletableFuture<Void> securityFuture = CompletableFuture
-                    .runAsync(() -> getAndSetSecurityPosture(dashboardData, accountId));
+            // Run data fetching in parallel.
+            //
+            // Two changes from the original, both about not hanging.
+            //
+            // The pool is explicit. These ran on ForkJoinPool.commonPool, which is sized from
+            // available processors and shared with every other parallel stream in the JVM. Six
+            // blocking ARM calls per subscription is exactly the workload the common pool is not
+            // for, and on a small container it could occupy every worker.
+            //
+            // Each section has a deadline. The original .join() had none, so one ARM call that
+            // connected and never answered parked the caller forever. In prod that caller is the
+            // scheduler, whose pool is size 1, so a single hung socket stopped every job behind it
+            // — including the 5:10 unified snapshot — with nothing in the logs to say why.
+            //
+            // A timed-out section records a warning and leaves its part of the payload unset,
+            // which the empty-overwrite guard in saveDashboardToDatabase then reads as an
+            // incomplete result. The dashboard keeps its previous figures rather than being
+            // overwritten with a half-built one.
+            CompletableFuture<Void> inventoryFuture = section("Resource inventory", dashboardData,
+                    () -> getAndSetResourceInventory(azure, dashboardData, accountId));
+            CompletableFuture<Void> costFuture = section("Cost history and billing", dashboardData,
+                    () -> getAndSetCostHistoryAndBilling(dashboardData, account, force));
+            CompletableFuture<Void> regionFuture = section("Region status", dashboardData,
+                    () -> getAndSetRegionStatus(azure, dashboardData));
+            CompletableFuture<Void> optimizationFuture = section("Optimization summary", dashboardData,
+                    () -> getAndSetOptimizationSummary(azure, dashboardData, accountId));
+            CompletableFuture<Void> iamFuture = section("Identity details", dashboardData,
+                    () -> getAndSetIamDetails(azure, dashboardData, accountId));
+            CompletableFuture<Void> securityFuture = section("Security posture", dashboardData,
+                    () -> getAndSetSecurityPosture(dashboardData, accountId));
 
             CompletableFuture.allOf(inventoryFuture, costFuture, regionFuture, optimizationFuture, iamFuture,
                     securityFuture).join();
@@ -211,6 +259,58 @@ public class AzureDashboardService {
     // ============================================================================================
     // DATABASE CACHING METHODS (Same pattern as AWS DashboardDataService)
     // ============================================================================================
+
+    /**
+     * Runs one dashboard section with a deadline, converting a hang or a failure into a warning.
+     *
+     * <p>
+     * {@code orTimeout} rather than a blocking {@code get(timeout)}: waiting synchronously would
+     * park a thread for the whole deadline, and on a bounded pool the waiters could occupy every
+     * thread while the work they are waiting for sits in the queue behind them.
+     *
+     * <p>
+     * The exception is swallowed into a data warning on purpose. Every section here already
+     * catches its own failures; this is the outer net for the case they cannot catch, which is not
+     * returning at all. One unreachable section must not cost the other five.
+     */
+    private CompletableFuture<Void> section(String name, AzureDashboardData dashboardData, Runnable work) {
+        // Tenant carried across the handoff explicitly. Unlike awsTaskExecutor, backgroundTaskExecutor
+        // has no TaskDecorator, and the common pool this used to run on had none either — so the
+        // cost section, which reaches cachedDataRepository through the billing ingestion service,
+        // was resolving the tenant-routed datasource with no tenant set and falling through to the
+        // default. Correct today only because one tenant exists.
+        String tenantId = TenantContext.getCurrentTenant();
+        Runnable scoped = () -> {
+            if (tenantId != null) {
+                TenantContext.setCurrentTenant(tenantId);
+            }
+            try {
+                work.run();
+            } finally {
+                // Pool threads are reused; leaving the tenant set would leak it into whatever
+                // runs next on this thread.
+                TenantContext.clear();
+            }
+        };
+
+        return CompletableFuture.runAsync(scoped, dashboardExecutor)
+                .orTimeout(sectionTimeoutSeconds, TimeUnit.SECONDS)
+                .exceptionally(ex -> {
+                    Throwable cause = ex instanceof java.util.concurrent.CompletionException && ex.getCause() != null
+                            ? ex.getCause() : ex;
+                    if (cause instanceof TimeoutException) {
+                        log.error("Azure dashboard section '{}' timed out after {}s — serving the rest without it.",
+                                name, sectionTimeoutSeconds);
+                        dashboardData.addDataWarning(name + " took longer than " + sectionTimeoutSeconds
+                                + " seconds and was not included, so any figure it supplies is missing rather "
+                                + "than measured.");
+                    } else {
+                        log.error("Azure dashboard section '{}' failed: {}", name, cause.getMessage(), cause);
+                        dashboardData.addDataWarning(name + " could not be loaded: " + cause.getMessage());
+                    }
+                    return null;
+                });
+    }
 
     /**
      * Save Azure Dashboard data to database cache (persistent storage)
