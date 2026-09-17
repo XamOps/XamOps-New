@@ -23,10 +23,95 @@ import java.util.stream.Collectors;
 public class AzureCostQueryService {
 
     private static final Logger log = LoggerFactory.getLogger(AzureCostQueryService.class);
+
+    /** Hard ceiling on continuation pages, so a pathological subscription cannot pin a worker. */
+    private static final int MAX_COST_PAGES = 50;
+
     private final AzureClientProvider clientProvider;
 
-    public AzureCostQueryService(AzureClientProvider clientProvider) {
+    /**
+     * Shared ARM transport: connection reuse, connect and request timeouts, and retry that
+     * honours Azure's retry-after header.
+     *
+     * <p>
+     * This class previously built {@code HttpClient.newHttpClient()} inline at two call sites with
+     * none of that. Cost Management is the most aggressively throttled endpoint in the Azure
+     * integration — two back-to-back {@code query} calls against a live subscription were enough
+     * to exhaust the client-type quota — and a 429 here returns an empty result, which the
+     * ingestion job logs as "no cost data" and the dashboard renders as zero spend.
+     */
+    private final AzureArmClient armClient;
+
+    public AzureCostQueryService(AzureClientProvider clientProvider, AzureArmClient armClient) {
         this.clientProvider = clientProvider;
+        this.armClient = armClient;
+    }
+
+    /** The rows of a Cost Management query, with the column metadata needed to read them. */
+    private record CostQueryResult(JsonNode columns, List<JsonNode> rows) {
+        boolean isEmpty() {
+            return rows.isEmpty();
+        }
+    }
+
+    /**
+     * Runs a Cost Management query and returns every row, following {@code nextLink}.
+     *
+     * <p>
+     * The response carries a {@code properties.nextLink} when the result does not fit in one page,
+     * and it was being ignored: only the first page was ever read. Whether that truncated anything
+     * depended entirely on how many rows the grouping produced, so the same code was correct for a
+     * small subscription and silently wrong for a large one, with no error either way. Checked
+     * against a live subscription — 8 meter categories over 200 days, 1546 rows — where Azure
+     * returned everything in one page and {@code nextLink} was null, so that account was never
+     * affected. The grouping decides it, not the account: swapping MeterCategory for ResourceId
+     * multiplies the row count by the resource count.
+     *
+     * <p>
+     * The continuation is a POST with the same body, not a GET — the query definition has to be
+     * resent with the cursor.
+     */
+    private CostQueryResult runCostQuery(String subscriptionId, String token, String body) {
+        String url = "https://management.azure.com/subscriptions/" + subscriptionId
+                + "/providers/Microsoft.CostManagement/query?api-version=2023-03-01";
+
+        List<JsonNode> allRows = new ArrayList<>();
+        JsonNode columns = null;
+        int pages = 0;
+        ObjectMapper mapper = new ObjectMapper();
+
+        while (url != null && !url.isBlank() && pages < MAX_COST_PAGES) {
+            Optional<String> response = armClient.post(url, token, body);
+            if (response.isEmpty()) {
+                break;
+            }
+            try {
+                JsonNode root = mapper.readTree(response.get());
+                JsonNode properties = root.path("properties");
+                if (columns == null) {
+                    columns = properties.path("columns");
+                }
+                JsonNode rows = properties.path("rows");
+                if (rows.isArray()) {
+                    rows.forEach(allRows::add);
+                }
+                url = properties.path("nextLink").asText(null);
+            } catch (Exception e) {
+                log.warn("Could not parse Cost Management response for {}: {}", subscriptionId, e.getMessage());
+                break;
+            }
+            pages++;
+        }
+
+        if (pages >= MAX_COST_PAGES) {
+            log.warn("Cost Management query for {} hit the {}-page ceiling; results may be truncated",
+                    subscriptionId, MAX_COST_PAGES);
+        }
+        if (pages > 1) {
+            log.info("Cost Management query for {} returned {} rows across {} pages",
+                    subscriptionId, allRows.size(), pages);
+        }
+        return new CostQueryResult(columns == null ? mapper.createArrayNode() : columns, allRows);
     }
 
     /**
@@ -231,33 +316,15 @@ public class AzureCostQueryService {
                     "]}}",
                     startDate, endDate);
 
-            String uri = "https://management.azure.com/subscriptions/" + subscriptionId
-                    + "/providers/Microsoft.CostManagement/query?api-version=2023-03-01";
-
             log.info("Querying Cost Management REST API for {} from {} to {}", subscriptionId, startDate, endDate);
 
-            java.net.http.HttpClient httpClient = java.net.http.HttpClient.newHttpClient();
-            java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
-                    .uri(java.net.URI.create(uri))
-                    .header("Authorization", "Bearer " + bearerToken)
-                    .header("Content-Type", "application/json")
-                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body))
-                    .build();
-            java.net.http.HttpResponse<String> response = httpClient.send(
-                    request, java.net.http.HttpResponse.BodyHandlers.ofString());
-
-            log.info("Cost Management REST API status: {} for {}", response.statusCode(), subscriptionId);
-
-            if (response.statusCode() != 200) {
-                log.error("Cost Management REST API error for {}: {}", subscriptionId, response.body());
-                return data;
-            }
-
-            // Parse JSON response: { "properties": { "columns": [...], "rows": [[...], ...] } }
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode root = mapper.readTree(response.body());
-            JsonNode columns = root.path("properties").path("columns");
-            JsonNode rows = root.path("properties").path("rows");
+            // Timeouts, throttle retry and nextLink paging all live in runCostQuery now. A 429 here
+            // used to fall straight through to the "0 rows" branch below, which reports it as a
+            // permissions or no-activity problem — three plausible causes listed, none of them the
+            // actual one — and leaves the cost caches cold so the dashboard shows zero spend.
+            CostQueryResult result = runCostQuery(subscriptionId, bearerToken, body);
+            JsonNode columns = result.columns();
+            List<JsonNode> rows = result.rows();
 
             // Build column index map from response column metadata
             int costIdx = 0, dateIdx = 1, productIdx = 2, locationIdx = 3; // positional defaults
@@ -284,11 +351,12 @@ public class AzureCostQueryService {
             }
             log.info("REST API Result Columns: [{}], Row Count: {}", String.join(", ", colNames), rows.size());
 
-            if (rows.size() == 0) {
+            if (rows.isEmpty()) {
                 log.warn("Cost Management REST API returned 0 rows for subscription {}. " +
                         "Possible causes: (1) SP '{}' lacks 'Cost Management Reader' role, " +
                         "(2) Azure tenant policy restricts cost data access to billing admins, " +
-                        "(3) No billable activity in the last 6 months.",
+                        "(3) No billable activity in the last 6 months. " +
+                        "Throttling is no longer a candidate — a 429 is retried and then raised.",
                         subscriptionId, account.getAzureClientId());
                 return data;
             }
@@ -377,28 +445,9 @@ public class AzureCostQueryService {
                     "]}}",
                     startDate, endDate);
 
-            String uri = "https://management.azure.com/subscriptions/" + subscriptionId
-                    + "/providers/Microsoft.CostManagement/query?api-version=2023-03-01";
-
-            java.net.http.HttpClient httpClient = java.net.http.HttpClient.newHttpClient();
-            java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
-                    .uri(java.net.URI.create(uri))
-                    .header("Authorization", "Bearer " + bearerToken)
-                    .header("Content-Type", "application/json")
-                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body))
-                    .build();
-            java.net.http.HttpResponse<String> response = httpClient.send(
-                    request, java.net.http.HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() != 200) {
-                log.error("Cost Management date-range API error for {}: {}", subscriptionId, response.body());
-                return data;
-            }
-
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode root = mapper.readTree(response.body());
-            JsonNode columns = root.path("properties").path("columns");
-            JsonNode rows = root.path("properties").path("rows");
+            CostQueryResult result = runCostQuery(subscriptionId, bearerToken, body);
+            JsonNode columns = result.columns();
+            List<JsonNode> rows = result.rows();
 
             int costIdx = 0, productIdx = 2, locationIdx = 3;
             if (columns.isArray() && columns.size() > 0) {
