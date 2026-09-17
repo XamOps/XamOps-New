@@ -77,19 +77,26 @@ export const useAzureDashboardData = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   /**
-   * Whether anything is currently rendered, tracked as a ref.
+   * Which account selection the data currently on screen belongs to.
    *
-   * Kept out of the `loadDashboardData` dependency list on purpose: depending on `data` would
-   * rebuild that callback after every fetch, and the auto-refresh effect depends on it, so the
-   * 60-second interval would be destroyed and recreated on every poll.
+   * Copied from the AWS dashboard hook (`useDashboardData`), which has had this right all along:
+   * the skeleton decision is not "do we have data" but "does the data we have belong to what is
+   * being asked for". A refresh of the same selection swaps figures in place; switching account
+   * shows skeletons, because leaving one subscription's numbers on screen under another's name is
+   * worse than a brief skeleton.
+   *
+   * A boolean has-data flag was tried first and cannot express the second case. AWS also notes a
+   * reason this matters beyond aesthetics: re-showing skeletons unmounts whatever is open,
+   * including the widget customizer, on every refresh cycle.
+   *
+   * A ref, not state, so `loadDashboardData` does not depend on it — the auto-refresh effect
+   * depends on that callback, so a dependency here would tear down and rebuild the 60-second
+   * interval on every poll.
    */
-  const hasDataRef = useRef(false);
+  const loadedSelectionRef = useRef<string | null>(null);
 
-  /** Sets the payload and keeps {@link hasDataRef} in step, so the two cannot drift apart. */
-  const applyData = useCallback((next: AzureDashboardData | null) => {
-    hasDataRef.current = next !== null;
-    setData(next);
-  }, []);
+  /** Stable key for a selection, order-independent, matching the AWS hook. */
+  const selectionKey = useCallback((ids: string[]) => [...ids].sort().join(','), []);
 
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isFetchingRef = useRef(false);
@@ -156,10 +163,16 @@ export const useAzureDashboardData = ({
 
       if (accountIds.length === 0) {
         console.log('🔷 Azure Dashboard: No account IDs, clearing data');
-        applyData(null);
+        setData(null);
+        loadedSelectionRef.current = null;
         setError(null);
         return;
       }
+
+      const key = selectionKey(accountIds);
+      // Skeletons only when what is on screen does not belong to this selection — first load or
+      // an account switch. Same rule as the AWS dashboard.
+      const showSkeletons = loadedSelectionRef.current !== key;
 
       if (isFetchingRef.current && !forceRefresh) {
         console.log('🔷 Azure Dashboard: Already loading, skipping');
@@ -171,27 +184,35 @@ export const useAzureDashboardData = ({
       // This is what stops a remount showing zeros. Previously the cache read returned early,
       // so the page was either instantly complete or — once the entry aged out — completely
       // blank with every section spinning.
+      // Paint the last known payload before fetching, so a remount is never blank. This is the
+      // one thing Azure needs that AWS does not: the AWS dashboard holds its data in a hook that
+      // outlives navigation, whereas this page remounts and starts empty.
       let painted = false;
-      if (paintFromCache && !forceRefresh) {
+      if (paintFromCache && showSkeletons) {
         const cachedData = loadFromCache();
         if (cachedData) {
           console.log('🔷 Azure Dashboard: Painted from session cache, revalidating');
-          applyData(cachedData);
+          setData(cachedData);
+          loadedSelectionRef.current = key;
           painted = true;
         }
       }
 
       isFetchingRef.current = true;
-      // `global` drives the full-page skeleton, so it is only set when there is genuinely
-      // nothing on screen. A revalidation behind existing data is a background refresh and
-      // must not blank the KPIs it is about to replace.
-      //
-      // Read through a ref rather than the `data` state so this callback does not depend on it.
-      // Depending on `data` would rebuild loadDashboardData after every fetch, and the
-      // auto-refresh effect depends on loadDashboardData — so the 60s interval would be torn
-      // down and recreated on each poll.
-      const hasSomethingOnScreen = painted || hasDataRef.current;
-      setLoading((prev) => ({ ...prev, global: !hasSomethingOnScreen }));
+      // All section flags move together, as the AWS hook does it. Setting only `global` was not
+      // enough: the page passes loading.kpi / loading.cost / loading.inventory to its sections, so
+      // a `global`-only flag left every section rendering the previous account's figures during a
+      // switch. Moving them together is also what makes clearing `data` unnecessary — the
+      // skeletons cover the gap, and the payload is replaced when the fetch lands.
+      const skeletons = showSkeletons && !painted;
+      setLoading({
+        global: skeletons,
+        kpi: skeletons,
+        inventory: skeletons,
+        cost: skeletons,
+        optimization: skeletons,
+        map: skeletons,
+      });
       setIsRefreshing(true);
       setError(null);
 
@@ -200,7 +221,8 @@ export const useAzureDashboardData = ({
         console.log('🔷 Azure Dashboard: Fetching from API');
         const dashboardData = await fetchAzureDashboardData(accountIds[0], forceRefresh);
 
-        applyData(dashboardData);
+        setData(dashboardData);
+        loadedSelectionRef.current = key;
         setLastUpdated(dashboardData.lastUpdated || new Date().toISOString());
         saveToCache(dashboardData);
 
@@ -234,7 +256,7 @@ export const useAzureDashboardData = ({
         setIsRefreshing(false);
       }
     },
-    [accountIds, applyData, loadFromCache, saveToCache]
+    [accountIds, selectionKey, loadFromCache, saveToCache]
   );
 
   // Refresh function
@@ -254,21 +276,19 @@ export const useAzureDashboardData = ({
 
     if (accountIdsChanged || !initializedRef.current) {
       console.log('🔷 Azure Dashboard: Account IDs changed or initial load', { accountIds, accountIdsChanged });
-      const isFirstRun = !initializedRef.current;
-      const previous = previousAccountIdsRef.current;
       previousAccountIdsRef.current = accountIds;
       initializedRef.current = true;
 
-      // Blank the page only when the user genuinely switched to a different subscription, so
-      // figures from the old one are never shown under the new one's name.
+      // No clearing of the payload here any more.
       //
-      // `isFirstRun` is the important guard. previousAccountIdsRef starts empty, so on every
-      // mount — including a remount from navigating back to this page — accountIdsChanged was
-      // true and this cleared the data. Combined with the cache read that then returned
-      // nothing, that is what blanked every KPI to zero on arrival.
-      if (accountIdsChanged && !isFirstRun && previous.length > 0 && accountIds.length > 0) {
-        applyData(null);
-      }
+      // This used to call setData(null) whenever accountIdsChanged was true, and
+      // previousAccountIdsRef starts empty — so it fired on every mount, including a remount from
+      // navigating back to the page, not only on a real account switch. That was the blanking.
+      //
+      // loadedSelectionRef inside loadDashboardData now decides this properly, the way the AWS
+      // hook does: a selection that does not match what is on screen raises skeletons across every
+      // section, which covers an account switch without ever showing one subscription's figures
+      // under another's name.
 
       // Paint from the session copy, then revalidate.
       loadDashboardData(false, true);
