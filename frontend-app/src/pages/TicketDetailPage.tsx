@@ -20,7 +20,8 @@ import { Icon } from '@iconify/react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useTopbarActions } from '../contexts/TopbarContext';
-import { formatIST, getSlaStatus, getResponseSlaLabel } from '../utils/timeUtils';
+import { formatIST, getResponseSlaLabel } from '../utils/timeUtils';
+import { useSlaCountdown } from '../components/tickets/SlaCountdown';
 import { sanitizeRichText, htmlToPlainText, escapeHtml } from '../utils/sanitizeHtml';
 import TicketCallButton from '../components/calls/TicketCallButton';
 import TicketCallHistory from '../components/calls/TicketCallHistory';
@@ -75,6 +76,9 @@ interface Ticket {
   assignedToId?: number;
   assignedToUsername?: string;
   creatorUsername?: string;
+  // Stop-the-clock resolution SLA (backend Phase 1).
+  slaActiveMs?: number;
+  slaRunningSince?: string | null;
   /** 'WEB' for tickets raised in the app, 'EMAIL' for ones ingested from the support mailbox. */
   source?: string;
   /** Only set when source is EMAIL — the mail that opened the ticket. */
@@ -115,6 +119,17 @@ const TicketDetailPage: React.FC = () => {
   const [isSendingEmail, setIsSendingEmail] = useState(false);
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // Live stop-the-clock resolution SLA. Called unconditionally (before any early return) to
+  // satisfy the rules of hooks; tolerates a not-yet-loaded ticket via safe defaults.
+  const { sla: slaStatus, bigLabel: slaBigLabel } = useSlaCountdown({
+    createdAt: ticket?.createdAt ?? '',
+    severity: ticket?.severity ?? '',
+    isClosed: ticket?.status === 'CLOSED',
+    closedAt: ticket?.closedAt,
+    slaActiveMs: ticket?.slaActiveMs,
+    slaRunningSince: ticket?.slaRunningSince,
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   /**
@@ -534,9 +549,8 @@ const TicketDetailPage: React.FC = () => {
   if (!ticket) return null;
 
   const isClosed = ticket.status === 'CLOSED';
-  const slaStatus = getSlaStatus(ticket.createdAt, ticket.severity, isClosed, ticket.closedAt);
-  const slaColorMap = { ok: 'bg-emerald-100 text-emerald-700 border-emerald-200', warning: 'bg-amber-100 text-amber-700 border-amber-200', breached: 'bg-red-100 text-red-700 border-red-200' };
-  const slaDotMap = { ok: 'bg-emerald-500', warning: 'bg-amber-500 animate-pulse', breached: 'bg-red-500 animate-pulse' };
+  const slaColorMap = { ok: 'bg-emerald-100 text-emerald-700 border-emerald-200', warning: 'bg-amber-100 text-amber-700 border-amber-200', breached: 'bg-red-100 text-red-700 border-red-200', paused: 'bg-slate-100 text-slate-600 border-slate-200' };
+  const slaDotMap = { ok: 'bg-emerald-500', warning: 'bg-amber-500 animate-pulse', breached: 'bg-red-500 animate-pulse', paused: 'bg-slate-400' };
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
@@ -600,9 +614,9 @@ const TicketDetailPage: React.FC = () => {
                     <span className={`w-2 h-2 rounded-full flex-shrink-0 ${slaDotMap[slaStatus.status]}`}></span>
                     <div className="flex-1 min-w-0">
                       <div className="text-[10px] font-black uppercase tracking-widest leading-none mb-1">
-                        Resolution SLA — {slaStatus.status === 'breached' ? 'Breached' : slaStatus.status === 'warning' ? 'At Risk' : 'On Track'}
+                        Resolution SLA — {slaStatus.status === 'breached' ? 'Breached' : slaStatus.status === 'warning' ? 'At Risk' : slaStatus.status === 'paused' ? 'Paused' : 'On Track'}
                       </div>
-                      <div className="text-[11px] font-bold">{slaStatus.label}</div>
+                      <div className="text-[11px] font-bold font-mono tabular-nums">{slaBigLabel}</div>
                     </div>
                     <div className="text-[10px] font-black opacity-70 whitespace-nowrap">
                       {getResponseSlaLabel(ticket.createdAt, ticket.severity, ticket.chatStartedAt)}

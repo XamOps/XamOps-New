@@ -31,6 +31,10 @@ export interface AdminTicket {
   assignedToId?: number;
   assignedToUsername?: string;
   hasUnreadUserReply?: boolean;  // true = customer replied and admin hasn't responded yet
+  // Stop-the-clock resolution SLA (backend Phase 1). slaActiveMs = banked awaiting-admin time;
+  // slaRunningSince = ISO timestamp while the clock is running, null/absent while paused.
+  slaActiveMs?: number;
+  slaRunningSince?: string | null;
 }
 
 export interface AdminTicketCacheData {

@@ -36,6 +36,15 @@ public class TicketDto {
     private boolean hasUnreadUserReply;
     private boolean hasUnreadAdminReply;
 
+    /**
+     * Stop-the-clock resolution SLA. {@code slaActiveMs} is the banked awaiting-admin time;
+     * {@code slaRunningSince} is non-null while the clock is currently running. The frontend
+     * computes effective elapsed = slaActiveMs + (slaRunningSince != null ? now - slaRunningSince : 0)
+     * so the badge can tick live, and compares it against the severity target.
+     */
+    private long slaActiveMs;
+    private LocalDateTime slaRunningSince;
+
     /** WEB when raised through the app, EMAIL when ingested from the support mailbox. */
     private String source;
 
@@ -106,4 +115,8 @@ public class TicketDto {
     public void setHasUnreadUserReply(boolean hasUnreadUserReply) { this.hasUnreadUserReply = hasUnreadUserReply; }
     public boolean isHasUnreadAdminReply() { return hasUnreadAdminReply; }
     public void setHasUnreadAdminReply(boolean hasUnreadAdminReply) { this.hasUnreadAdminReply = hasUnreadAdminReply; }
+    public long getSlaActiveMs() { return slaActiveMs; }
+    public void setSlaActiveMs(long slaActiveMs) { this.slaActiveMs = slaActiveMs; }
+    public LocalDateTime getSlaRunningSince() { return slaRunningSince; }
+    public void setSlaRunningSince(LocalDateTime slaRunningSince) { this.slaRunningSince = slaRunningSince; }
 }

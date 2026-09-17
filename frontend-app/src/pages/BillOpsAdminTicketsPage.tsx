@@ -81,7 +81,8 @@ interface TicketRowProps {
 const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient, isNew }) => {
   const isClosed = ticket.status === 'CLOSED';
   const sla = ticket.createdAt
-    ? getSlaStatus(ticket.createdAt, ticket.severity, isClosed, ticket.closedAt)
+    ? getSlaStatus(ticket.createdAt, ticket.severity, isClosed, ticket.closedAt,
+        { slaActiveMs: ticket.slaActiveMs, slaRunningSince: ticket.slaRunningSince })
     : null;
 
   const rowBorderClass = (() => {
@@ -98,19 +99,25 @@ const TicketRow = React.memo<TicketRowProps>(({ ticket, onView, isStarredClient,
       ok: 'bg-emerald-100 text-emerald-700 border-emerald-200',
       warning: 'bg-amber-100 text-amber-700 border-amber-200',
       breached: 'bg-red-100 text-red-700 border-red-200',
+      paused: 'bg-slate-100 text-slate-600 border-slate-200',
     };
     const dotMap = {
       ok: 'bg-emerald-500',
       warning: 'bg-amber-500 animate-pulse',
       breached: 'bg-red-500 animate-pulse',
+      paused: 'bg-slate-400',
     };
+    const text = sla.status === 'breached' ? 'Breached'
+      : sla.status === 'warning' ? 'Warning'
+      : sla.status === 'paused' ? 'Waiting'
+      : 'On Track';
     return (
       <span
         className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded border uppercase tracking-wide ${colorMap[sla.status]}`}
         title={sla.label}
       >
         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotMap[sla.status]}`}></span>
-        {sla.status === 'breached' ? 'Breached' : sla.status === 'warning' ? 'Warning' : 'On Track'}
+        {text}
       </span>
     );
   })() : null;
@@ -477,7 +484,8 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     const inProgress = tickets.filter(t => t.status === 'IN_PROGRESS').length;
     const breached = tickets.filter(t => {
       if (!t.createdAt) return false;
-      return getSlaStatus(t.createdAt, t.severity, t.status === 'CLOSED', t.closedAt).status === 'breached';
+      return getSlaStatus(t.createdAt, t.severity, t.status === 'CLOSED', t.closedAt,
+        { slaActiveMs: t.slaActiveMs, slaRunningSince: t.slaRunningSince }).status === 'breached';
     }).length;
     return { total: tickets.length, open, inProgress, breached };
   }, [tickets]);
@@ -490,7 +498,8 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     if (quickFilter === 'breached') {
       result = result.filter(t => {
         if (!t.createdAt) return false;
-        return getSlaStatus(t.createdAt, t.severity, t.status === 'CLOSED', t.closedAt).status === 'breached';
+        return getSlaStatus(t.createdAt, t.severity, t.status === 'CLOSED', t.closedAt,
+          { slaActiveMs: t.slaActiveMs, slaRunningSince: t.slaRunningSince }).status === 'breached';
       });
     } else if (quickFilter === 'unassigned') {
       result = result.filter(t => !t.assignedToUsername);
@@ -512,9 +521,9 @@ const BillOpsAdminTicketsPage: React.FC = () => {
           if (aVal === -1) aVal = 99;
           if (bVal === -1) bVal = 99;
         } else if (sortField === 'sla') {
-          const order: Record<string, number> = { breached: 0, warning: 1, ok: 2 };
-          const aSla = a.createdAt ? getSlaStatus(a.createdAt, a.severity, a.status === 'CLOSED', a.closedAt).status : 'ok';
-          const bSla = b.createdAt ? getSlaStatus(b.createdAt, b.severity, b.status === 'CLOSED', b.closedAt).status : 'ok';
+          const order: Record<string, number> = { breached: 0, warning: 1, ok: 2, paused: 3 };
+          const aSla = a.createdAt ? getSlaStatus(a.createdAt, a.severity, a.status === 'CLOSED', a.closedAt, { slaActiveMs: a.slaActiveMs, slaRunningSince: a.slaRunningSince }).status : 'ok';
+          const bSla = b.createdAt ? getSlaStatus(b.createdAt, b.severity, b.status === 'CLOSED', b.closedAt, { slaActiveMs: b.slaActiveMs, slaRunningSince: b.slaRunningSince }).status : 'ok';
           aVal = order[aSla] ?? 2; bVal = order[bSla] ?? 2;
         } else if (sortField === 'createdAt') {
           aVal = a.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -587,7 +596,8 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     ];
     const rows = displayTickets.map(t => {
       const sla = t.createdAt
-        ? getSlaStatus(t.createdAt, t.severity, t.status === 'CLOSED', t.closedAt).status
+        ? getSlaStatus(t.createdAt, t.severity, t.status === 'CLOSED', t.closedAt,
+            { slaActiveMs: t.slaActiveMs, slaRunningSince: t.slaRunningSince }).status
         : '';
       return [
         t.id,

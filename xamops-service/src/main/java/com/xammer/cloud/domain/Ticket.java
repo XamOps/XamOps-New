@@ -84,6 +84,24 @@ public class Ticket {
     @Column(name = "reminder_sent_at")
     private LocalDateTime reminderSentAt;
 
+    /**
+     * Stop-the-clock resolution SLA. {@code slaActiveMs} is the banked "awaiting-admin" time —
+     * the total time the ball has been in support's court (creation→first admin reply, and each
+     * customer reply→next admin reply). The clock is paused while waiting on the customer.
+     * {@code slaRunningSince} is non-null only while the clock is currently running; effective
+     * elapsed = slaActiveMs + (slaRunningSince != null ? now - slaRunningSince : 0). Breach is
+     * elapsed > the severity target. Internal admin notes do not pause the clock.
+     *
+     * <p>slaActiveMs carries its own DEFAULT for the same reason as {@code source}: ddl-auto=update
+     * emits a bare NOT NULL ADD COLUMN that Postgres rejects on the already-populated ticket table.
+     */
+    @Column(name = "sla_active_ms", columnDefinition = "bigint not null default 0")
+    private long slaActiveMs = 0L;
+
+    /** Timestamp the SLA clock started running; null while paused (awaiting customer) or closed. */
+    @Column(name = "sla_running_since")
+    private LocalDateTime slaRunningSince;
+
     @OneToMany(mappedBy = "ticket", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<TicketReply> replies = new ArrayList<>();
 
@@ -223,6 +241,12 @@ public class Ticket {
 
     public LocalDateTime getReminderSentAt() { return reminderSentAt; }
     public void setReminderSentAt(LocalDateTime reminderSentAt) { this.reminderSentAt = reminderSentAt; }
+
+    public long getSlaActiveMs() { return slaActiveMs; }
+    public void setSlaActiveMs(long slaActiveMs) { this.slaActiveMs = slaActiveMs; }
+
+    public LocalDateTime getSlaRunningSince() { return slaRunningSince; }
+    public void setSlaRunningSince(LocalDateTime slaRunningSince) { this.slaRunningSince = slaRunningSince; }
 
     public String getSource() { return source; }
     public void setSource(String source) { this.source = source; }

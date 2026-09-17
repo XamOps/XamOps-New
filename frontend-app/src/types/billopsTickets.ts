@@ -31,6 +31,10 @@ export interface BillOpsTicket {
   creatorUsername?: string;
   creatorEmail?: string;
   hasUnreadAdminReply?: boolean;  // true = admin replied and user hasn't responded yet
+  // Stop-the-clock resolution SLA (backend Phase 1). slaActiveMs = banked awaiting-admin time;
+  // slaRunningSince = ISO timestamp while the clock runs, null/absent while paused.
+  slaActiveMs?: number;
+  slaRunningSince?: string | null;
   /** 'WEB' for tickets raised in the app, 'EMAIL' for ones ingested from the support mailbox. */
   source?: string;
   /**

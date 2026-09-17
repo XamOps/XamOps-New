@@ -31,6 +31,13 @@ public class TicketDto {
     private String assignedToUsername;
     private String creatorUsername;
 
+    /**
+     * Stop-the-clock resolution SLA (mirrors billops TicketDto). slaActiveMs is banked
+     * awaiting-admin time; slaRunningSince is non-null while the clock is currently running.
+     */
+    private long slaActiveMs;
+    private LocalDateTime slaRunningSince;
+
     // --- START: MODIFIED SECTION ---
     private List<TicketReplyDto> replies;
 

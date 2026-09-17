@@ -108,6 +108,10 @@ public class TicketService {
         ticket.setRegion(ticketDto.getRegion());
         ticket.setCreator(creator);
 
+        // SLA clock starts running the moment the ticket is created — the ball is in support's court.
+        ticket.setSlaActiveMs(0L);
+        ticket.setSlaRunningSince(ticket.getCreatedAt() != null ? ticket.getCreatedAt() : java.time.LocalDateTime.now());
+
         Ticket savedTicket = ticketRepository.save(ticket);
 
         // 4. Send Email
@@ -162,6 +166,12 @@ public class TicketService {
         ticket.setAccountId(ticketDto.getAccountId());
         ticket.setRegion(ticketDto.getRegion());
         ticket.setCreator(creator);
+
+        // Admin-raised ticket: the customer has not engaged yet, so the SLA clock starts PAUSED.
+        // It only begins once the customer acknowledges by replying (resumeSlaClock in
+        // addReplyToTicket), after which it follows the normal pause-on-admin/resume-on-customer flow.
+        ticket.setSlaActiveMs(0L);
+        ticket.setSlaRunningSince(null);
 
         Ticket savedTicket = ticketRepository.save(ticket);
 
@@ -528,6 +538,15 @@ public class TicketService {
             ticket.setReminderSentAt(null);
         }
 
+        // Stop-the-clock SLA. A non-internal admin reply hands the ball to the customer → pause
+        // and bank the elapsed running time. A customer reply hands it back to support → resume.
+        // Internal admin notes never pause the clock.
+        if (isAdminReply && !replyDto.isInternal()) {
+            pauseSlaClock(ticket);
+        } else if (!isAdminReply) {
+            resumeSlaClock(ticket);
+        }
+
         Ticket updatedTicket = ticketRepository.save(ticket);
 
         // Skip email notifications for internal admin notes
@@ -573,6 +592,8 @@ public class TicketService {
         ticket.setUpdatedAt(java.time.LocalDateTime.now());
         ticket.setLastAdminReplyAt(null);
         ticket.setReminderSentAt(null);
+        // Bank any running SLA time and stop the clock — a closed ticket is not awaiting a response.
+        pauseSlaClock(ticket);
         Ticket updatedTicket = ticketRepository.save(ticket);
 
         evictTicketCaches(updatedTicket.getCategory());
@@ -604,11 +625,37 @@ public class TicketService {
         ticket.setStatus("OPEN");
         ticket.setClosedAt(null);
         ticket.setUpdatedAt(java.time.LocalDateTime.now());
+        // Reopening puts the ball back in support's court — resume the SLA clock.
+        resumeSlaClock(ticket);
         Ticket updatedTicket = ticketRepository.save(ticket);
 
         evictTicketCaches(updatedTicket.getCategory());
 
         return attachEmailDetails(convertToDto(updatedTicket, true), updatedTicket);
+    }
+
+    /**
+     * Pause the stop-the-clock SLA: bank the currently-running interval into slaActiveMs and
+     * clear slaRunningSince. No-op if the clock is already paused.
+     */
+    private void pauseSlaClock(Ticket ticket) {
+        java.time.LocalDateTime runningSince = ticket.getSlaRunningSince();
+        if (runningSince != null) {
+            long delta = java.time.Duration.between(runningSince, java.time.LocalDateTime.now()).toMillis();
+            if (delta > 0) {
+                ticket.setSlaActiveMs(ticket.getSlaActiveMs() + delta);
+            }
+            ticket.setSlaRunningSince(null);
+        }
+    }
+
+    /**
+     * Resume the stop-the-clock SLA: start counting again from now. No-op if already running.
+     */
+    private void resumeSlaClock(Ticket ticket) {
+        if (ticket.getSlaRunningSince() == null && !"CLOSED".equalsIgnoreCase(ticket.getStatus())) {
+            ticket.setSlaRunningSince(java.time.LocalDateTime.now());
+        }
     }
 
     @Transactional
@@ -1449,6 +1496,9 @@ public class TicketService {
         // Source only — the full mail details need a per-ticket lookup, which the list cannot
         // afford. It is enough to mark which rows arrived by email.
         dto.setSource(ticket.getSource());
+        // Stop-the-clock SLA state so the admin list can show ON TRACK / BREACHED (computed live client-side).
+        dto.setSlaActiveMs(ticket.getSlaActiveMs());
+        dto.setSlaRunningSince(ticket.getSlaRunningSince());
         // Replies intentionally omitted for list view performance
         return dto;
     }
@@ -1493,6 +1543,9 @@ public class TicketService {
 
         dto.setHasUnreadUserReply(ticket.isHasNewUserReply());
         dto.setHasUnreadAdminReply(!ticket.isHasNewUserReply() && ticket.getChatStartedAt() != null);
+
+        dto.setSlaActiveMs(ticket.getSlaActiveMs());
+        dto.setSlaRunningSince(ticket.getSlaRunningSince());
 
         return dto;
     }

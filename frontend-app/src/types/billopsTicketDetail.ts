@@ -37,6 +37,11 @@ export interface Ticket {
   creatorId?: number;
   createdAt: string;
   updatedAt?: string;
+  closedAt?: string;
+  chatStartedAt?: string;
+  // Stop-the-clock resolution SLA (backend Phase 1).
+  slaActiveMs?: number;
+  slaRunningSince?: string | null;
   replies: TicketReply[];
 }
 

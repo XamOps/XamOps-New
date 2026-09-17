@@ -171,6 +171,10 @@ public class TicketService {
 
         ticket.setCreator(creator);
 
+        // SLA clock starts running the moment the ticket is created — the ball is in support's court.
+        ticket.setSlaActiveMs(0L);
+        ticket.setSlaRunningSince(ticket.getCreatedAt() != null ? ticket.getCreatedAt() : java.time.LocalDateTime.now());
+
         Ticket savedTicket = ticketRepository.save(ticket);
         evictCountCache(savedTicket.getCategory());
 
@@ -423,6 +427,15 @@ public class TicketService {
             ticket.setReminderSentAt(null);
         }
 
+        // Stop-the-clock SLA. Non-internal admin reply → pause (bank running time). Customer reply
+        // → resume. Internal admin notes never pause the clock. Kept consistent with billops since
+        // both services write the same ticket row.
+        if (isAdminReply && !replyDto.isInternal()) {
+            pauseSlaClock(ticket);
+        } else if (!isAdminReply) {
+            resumeSlaClock(ticket);
+        }
+
         Ticket updatedTicket = ticketRepository.save(ticket);
         evictCountCache(updatedTicket.getCategory());
 
@@ -490,6 +503,8 @@ public class TicketService {
         ticket.setUpdatedAt(java.time.LocalDateTime.now());
         ticket.setLastAdminReplyAt(null);
         ticket.setReminderSentAt(null);
+        // Bank any running SLA time and stop the clock — a closed ticket is not awaiting a response.
+        pauseSlaClock(ticket);
         Ticket updatedTicket = ticketRepository.save(ticket);
         evictCountCache(updatedTicket.getCategory());
         broadcastTicketChange();
@@ -525,10 +540,35 @@ public class TicketService {
         ticket.setStatus("OPEN");
         ticket.setClosedAt(null);
         ticket.setUpdatedAt(java.time.LocalDateTime.now());
+        // Reopening puts the ball back in support's court — resume the SLA clock.
+        resumeSlaClock(ticket);
         Ticket updatedTicket = ticketRepository.save(ticket);
         evictCountCache(updatedTicket.getCategory());
         broadcastTicketChange();
         return attachEmailDetails(convertToDto(updatedTicket), updatedTicket);
+    }
+
+    /**
+     * Pause the stop-the-clock SLA: bank the currently-running interval into slaActiveMs and
+     * clear slaRunningSince. No-op if the clock is already paused. Kept in step with the
+     * identical helper in billops TicketService since both write the same ticket row.
+     */
+    private void pauseSlaClock(Ticket ticket) {
+        java.time.LocalDateTime runningSince = ticket.getSlaRunningSince();
+        if (runningSince != null) {
+            long delta = java.time.Duration.between(runningSince, java.time.LocalDateTime.now()).toMillis();
+            if (delta > 0) {
+                ticket.setSlaActiveMs(ticket.getSlaActiveMs() + delta);
+            }
+            ticket.setSlaRunningSince(null);
+        }
+    }
+
+    /** Resume the stop-the-clock SLA: start counting again from now. No-op if already running or closed. */
+    private void resumeSlaClock(Ticket ticket) {
+        if (ticket.getSlaRunningSince() == null && !"CLOSED".equalsIgnoreCase(ticket.getStatus())) {
+            ticket.setSlaRunningSince(java.time.LocalDateTime.now());
+        }
     }
 
     // User-scoped cache key: tickets are filtered per user so each user gets their own Redis entry.
@@ -633,6 +673,9 @@ public class TicketService {
                             Comparator.nullsLast(Comparator.naturalOrder())))
                     .collect(Collectors.toList()));
         }
+
+        dto.setSlaActiveMs(ticket.getSlaActiveMs());
+        dto.setSlaRunningSince(ticket.getSlaRunningSince());
 
         return dto;
     }
@@ -798,6 +841,8 @@ public class TicketService {
                             Comparator.nullsLast(Comparator.naturalOrder())))
                     .collect(Collectors.toList()));
         }
+        dto.setSlaActiveMs(ticket.getSlaActiveMs());
+        dto.setSlaRunningSince(ticket.getSlaRunningSince());
         return dto;
     }
 

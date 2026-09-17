@@ -17,7 +17,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useBillOpsTicketDetail } from '../hooks/useBillOpsTicketDetail';
 import { RCAFormData, RCAFormSection, TicketReply } from '../types/billopsTickets';
 import { useTopbarActions } from '../contexts/TopbarContext';
-import { getSlaStatus, getResponseSlaLabel } from '../utils/timeUtils';
+import { getResponseSlaLabel } from '../utils/timeUtils';
+import { useSlaCountdown } from '../components/tickets/SlaCountdown';
 import { sanitizeRichText, htmlToPlainText, escapeHtml } from '../utils/sanitizeHtml';
 import CannedResponsesPicker from '../components/tickets/CannedResponsesPicker';
 import TicketEmailDetails from '../components/tickets/TicketEmailDetails';
@@ -172,6 +173,17 @@ const BillOpsTicketDetailPage: React.FC = () => {
   // Chat container ref for auto-scroll + scroll-to-bottom button
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+
+  // Live stop-the-clock resolution SLA. Called unconditionally (before any early return) to
+  // satisfy the rules of hooks; tolerates a not-yet-loaded ticket via safe defaults.
+  const { sla: slaStatus, bigLabel: slaBigLabel } = useSlaCountdown({
+    createdAt: ticket?.createdAt ?? '',
+    severity: ticket?.severity ?? '',
+    isClosed: ticket?.status === 'CLOSED',
+    closedAt: ticket?.closedAt,
+    slaActiveMs: ticket?.slaActiveMs,
+    slaRunningSince: ticket?.slaRunningSince,
+  });
 
   const getStatusBadgeClasses = (status: string) => {
     if (status === 'OPEN') return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
@@ -1179,7 +1191,6 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
   // SLA data
   const isClosed = ticket.status === 'CLOSED';
-  const slaStatus = getSlaStatus(ticket.createdAt, ticket.severity, isClosed, ticket.closedAt);
   const responseSlaLabel = getResponseSlaLabel(ticket.createdAt, ticket.severity, ticket.chatStartedAt);
 
   // System call summaries live in the reply list but are not conversation, so the
@@ -1288,18 +1299,20 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
                     slaStatus.status === 'ok' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
                     slaStatus.status === 'warning' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                    slaStatus.status === 'paused' ? 'bg-slate-50 text-slate-600 border-slate-200' :
                     'bg-red-50 text-red-700 border-red-200'
                   }`}>
                     <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
                       slaStatus.status === 'ok' ? 'bg-emerald-500' :
                       slaStatus.status === 'warning' ? 'bg-amber-500 animate-pulse' :
+                      slaStatus.status === 'paused' ? 'bg-slate-400' :
                       'bg-red-500 animate-pulse'
                     }`}></span>
                     <div className="flex-1 min-w-0">
                       <div className="text-[11px] font-semibold uppercase tracking-wide leading-none mb-1">
-                        Resolution SLA — {slaStatus.status === 'breached' ? 'Breached' : slaStatus.status === 'warning' ? 'At Risk' : 'On Track'}
+                        Resolution SLA — {slaStatus.status === 'breached' ? 'Breached' : slaStatus.status === 'warning' ? 'At Risk' : slaStatus.status === 'paused' ? 'Paused' : 'On Track'}
                       </div>
-                      <div className="text-[11px]">{slaStatus.label}</div>
+                      <div className="text-[11px] font-mono tabular-nums">{slaBigLabel}</div>
                     </div>
                     <div className="text-[11px] opacity-70 whitespace-nowrap">{responseSlaLabel}</div>
                   </div>
