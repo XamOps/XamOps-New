@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   triggerInvestigation,
-  listInvestigations,
+  listInvestigationsShared,
+  findLatestInvestigation,
+  invalidateInvestigationsCache,
   SreInvestigation,
   ResourceType,
   TriggerInvestigationRequest
@@ -14,6 +16,15 @@ interface Props {
   resourceName?: string;
   cloudAccountId?: number;
   alertPayload?: string;
+  /**
+   * The existing investigation for this resource, when the parent already knows it.
+   *
+   * Pass this from a list view that has fetched the investigations once. Supplying it skips the
+   * lookup below entirely, which matters when this component is rendered per row.
+   */
+  investigation?: SreInvestigation | null;
+  /** Set when `investigation` is authoritative, including when it is legitimately null. */
+  investigationResolved?: boolean;
 }
 
 const SreInvestigateButton: React.FC<Props> = ({
@@ -22,20 +33,33 @@ const SreInvestigateButton: React.FC<Props> = ({
   resourceName,
   cloudAccountId,
   alertPayload,
+  investigation,
+  investigationResolved = false,
 }) => {
   const navigate = useNavigate();
-  const [existing, setExisting] = useState<SreInvestigation | null>(null);
+  const [fetched, setFetched] = useState<SreInvestigation | null>(null);
   const [triggering, setTriggering] = useState(false);
 
+  // The parent's answer wins when it has one. Only fall back to looking it up ourselves, and then
+  // through the shared fetcher so N buttons still make one request rather than N.
+  const existing = investigationResolved ? investigation ?? null : fetched;
+
   useEffect(() => {
-    listInvestigations().then(investigations => {
-      // Find most recent investigation for this resource
-      const match = investigations
-        .filter(i => i.resourceId === resourceId && i.resourceType === resourceType)
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-      setExisting(match || null);
-    }).catch(() => {});
-  }, [resourceId, resourceType]);
+    if (investigationResolved) {
+      return;
+    }
+    let cancelled = false;
+    listInvestigationsShared()
+      .then(investigations => {
+        if (!cancelled) {
+          setFetched(findLatestInvestigation(investigations, resourceId, resourceType));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [resourceId, resourceType, investigationResolved]);
 
   const handleClick = async () => {
     if (existing?.status === 'COMPLETED') {
@@ -57,7 +81,9 @@ const SreInvestigateButton: React.FC<Props> = ({
         alertPayload,
       };
       const inv = await triggerInvestigation(req);
-      setExisting(inv);
+      // The shared list no longer reflects reality now that a new investigation exists.
+      invalidateInvestigationsCache();
+      setFetched(inv);
     } catch (e) {
       console.error('Failed to trigger investigation', e);
     } finally {
@@ -73,9 +99,10 @@ const SreInvestigateButton: React.FC<Props> = ({
       <button
         onClick={handleClick}
         title="View Investigation Report"
+        aria-label={`View investigation report for ${resourceName || resourceId}`}
         className="w-8 h-8 rounded-lg flex items-center justify-center bg-green-100 text-green-600 hover:bg-green-200 transition-colors"
       >
-        <i className="fas fa-check-circle text-sm" />
+        <i className="fas fa-check-circle text-sm" aria-hidden="true" />
       </button>
     );
   }
@@ -85,9 +112,10 @@ const SreInvestigateButton: React.FC<Props> = ({
       <button
         onClick={handleClick}
         title="Investigation in progress…"
+        aria-label={`Investigation in progress for ${resourceName || resourceId}`}
         className="w-8 h-8 rounded-lg flex items-center justify-center bg-yellow-100 text-yellow-600 cursor-pointer"
       >
-        <i className="fas fa-spinner fa-spin text-sm" />
+        <i className="fas fa-spinner fa-spin text-sm" aria-hidden="true" />
       </button>
     );
   }
@@ -97,11 +125,12 @@ const SreInvestigateButton: React.FC<Props> = ({
       onClick={handleClick}
       disabled={triggering}
       title="Investigate with AI"
+      aria-label={`Investigate ${resourceName || resourceId} with AI`}
       className="w-8 h-8 rounded-lg flex items-center justify-center bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
     >
       {triggering
-        ? <i className="fas fa-spinner fa-spin text-sm" />
-        : <i className="fas fa-search text-sm" />
+        ? <i className="fas fa-spinner fa-spin text-sm" aria-hidden="true" />
+        : <i className="fas fa-search text-sm" aria-hidden="true" />
       }
     </button>
   );

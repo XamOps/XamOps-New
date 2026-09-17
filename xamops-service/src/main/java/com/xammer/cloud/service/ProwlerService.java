@@ -36,6 +36,22 @@ public class ProwlerService {
     // 2 permits = safe for 4 GB container; raise to 4 when infra is 8 GB+.
     private static final Semaphore SCAN_SEMAPHORE = new Semaphore(2, true);
 
+    /** Redis lifetime for a cached findings list, in minutes. */
+    private static final int FINDINGS_TTL_MINUTES = 1440;
+
+    /**
+     * How old a persisted findings snapshot may be and still be served.
+     *
+     * <p>
+     * Matched to {@link #FINDINGS_TTL_MINUTES}. The DB tier exists to survive a Redis restart, not
+     * to outlive it. Without this bound the two tiers formed a loop that never terminated: the
+     * {@code cached_data} row has no expiry column, so reading it and re-warming Redis renewed the
+     * list's own lifetime on every read. A customer who had remediated their findings kept being
+     * shown them, and no amount of pressing Refresh could clear them, because Refresh only bypasses
+     * the tier that was being continuously re-filled from the one underneath.
+     */
+    private static final int SNAPSHOT_MAX_AGE_HOURS = 24;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final RedisCacheService redisCacheService;
     private final CloudAccountRepository cloudAccountRepository;
@@ -245,6 +261,12 @@ public class ProwlerService {
         String dbProwlerKey = "PROWLER::" + accountId + "::LATEST";
         Optional<com.xammer.cloud.domain.CachedData> dbData = cachedDataRepository.findById(dbProwlerKey);
         if (dbData.isPresent()) {
+            if (isSnapshotStale(dbData.get().getLastUpdated())) {
+                logger.info("[Prowler] Findings snapshot for account {} is older than {}h — ignoring it "
+                        + "rather than serving findings that may already be remediated",
+                        accountId, SNAPSHOT_MAX_AGE_HOURS);
+                return Collections.emptyList();
+            }
             try {
                 List<ProwlerFinding> findings = objectMapper.readValue(
                         dbData.get().getJsonData(),
@@ -253,7 +275,7 @@ public class ProwlerService {
                 logger.info("Loaded {} Prowler findings from DB for account {} (Redis miss)", findings.size(),
                         accountId);
                 // Re-populate Redis for future calls
-                redisCacheService.put(findingsKey, findings, 1440);
+                redisCacheService.put(findingsKey, findings, FINDINGS_TTL_MINUTES);
                 return findings;
             } catch (Exception e) {
                 logger.error("Failed to parse Prowler findings from DB for account {}: {}", accountId, e.getMessage());
@@ -342,15 +364,36 @@ public class ProwlerService {
         String dbKey = "PROWLER::GCP::" + projectId + "::LATEST";
         Optional<com.xammer.cloud.domain.CachedData> dbData = cachedDataRepository.findById(dbKey);
         if (dbData.isPresent()) {
+            if (isSnapshotStale(dbData.get().getLastUpdated())) {
+                logger.info("[Prowler] GCP findings snapshot for project {} is older than {}h — ignoring it "
+                        + "rather than serving findings that may already be remediated",
+                        projectId, SNAPSHOT_MAX_AGE_HOURS);
+                return Collections.emptyList();
+            }
             try {
                 List<ProwlerFinding> findings = objectMapper.readValue(dbData.get().getJsonData(), new TypeReference<List<ProwlerFinding>>() {});
-                redisCacheService.put(findingsKey, findings, 1440);
+                redisCacheService.put(findingsKey, findings, FINDINGS_TTL_MINUTES);
                 return findings;
             } catch (Exception e) {
                 logger.error("Failed to parse GCP Prowler findings from DB: {}", e.getMessage());
             }
         }
         return Collections.emptyList();
+    }
+
+    /**
+     * True when a persisted snapshot is too old to serve.
+     *
+     * <p>
+     * An absent timestamp counts as stale. A row of unknown age cannot be assumed current on a
+     * security surface, where "I do not know how old this is" has to mean "go and look again"
+     * rather than "assume it still holds".
+     */
+    private boolean isSnapshotStale(LocalDateTime lastUpdated) {
+        if (lastUpdated == null) {
+            return true;
+        }
+        return lastUpdated.isBefore(LocalDateTime.now().minusHours(SNAPSHOT_MAX_AGE_HOURS));
     }
 
     private List<ProwlerFinding> runInternalGcpScan(CloudAccount account, String[] complianceFrameworks) {

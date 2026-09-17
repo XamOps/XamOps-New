@@ -1335,7 +1335,9 @@ public class ProactiveCacheRefreshService {
                     String gcpProjectId = account.getGcpProjectId();
                     if (gcpProjectId == null || gcpProjectId.isEmpty()) continue;
                     try {
-                        gcpCloudGuardService.getAlerts(gcpProjectId, true).join();
+                        // notify=true: this scheduled run is the one place the alert digest is
+                        // allowed to be emailed. User-facing reads of the same data must not.
+                        gcpCloudGuardService.getAlerts(gcpProjectId, true, true).join();
                         logger.info("✓ GCP Alerts refreshed for project {}", gcpProjectId);
                         count++;
                     } catch (Exception e) {

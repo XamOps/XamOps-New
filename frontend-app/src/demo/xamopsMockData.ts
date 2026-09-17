@@ -1990,13 +1990,56 @@ export const demoGcpPerformanceSummary = {
 };
 
 // ─── GCP Alerts (/api/xamops/gcp/cloudguard/alerts) ──────────────────────────
-export const demoGcpAlerts = [
-  { id: 'gcp-alert-001', service: 'Compute Engine', name: 'CPU Quota — us-central1',  description: 'CPUS quota at 78% in us-central1',     status: 'WARNING',  usage: 78,  limit: 100, type: 'QUOTA',   region: 'us-central1'  },
-  { id: 'gcp-alert-002', service: 'BigQuery',        name: 'BigQuery Bytes Processed', description: 'Daily bytes processed quota at 91%',    status: 'HIGH',     usage: 91,  limit: 100, type: 'QUOTA',   region: 'global'       },
-  { id: 'gcp-alert-003', service: 'Cloud SQL',       name: 'Cost Anomaly — Cloud SQL', description: 'Unexpected 34% cost spike on Cloud SQL', status: 'CRITICAL', usage: 134, limit: 100, type: 'ANOMALY', region: 'us-central1'  },
-  { id: 'gcp-alert-004', service: 'Cloud Storage',   name: 'Bucket Egress Warning',   description: 'Inter-region egress near budget limit',  status: 'WARNING',  usage: 68,  limit: 100, type: 'QUOTA',   region: 'europe-west1' },
-  { id: 'gcp-alert-005', service: 'IAM',             name: 'Overprivileged SA',        description: 'Service account with owner role detected', status: 'HIGH',   usage: 1,   limit: 0,   type: 'SECURITY',region: 'global'       },
+// Envelope shape, matching GcpAlertsResponse. Security rows are grouped, so they carry
+// affectedCount and the resource list behind the group.
+const demoGcpAlertRows = [
+  { id: 'gcp-alert-001', service: 'Compute Engine', name: 'CPU Quota — us-central1',  description: 'CPUS quota at 78% in us-central1',     status: 'WARNING',  usage: 78,  limit: 100, type: 'QUOTA',   region: 'us-central1',  affectedCount: 0, resources: [] as string[] },
+  { id: 'gcp-alert-002', service: 'BigQuery',        name: 'BigQuery Bytes Processed', description: 'Daily bytes processed quota at 91%',    status: 'HIGH',     usage: 91,  limit: 100, type: 'QUOTA',   region: 'global',       affectedCount: 0, resources: [] as string[] },
+  { id: 'gcp-alert-003', service: 'Cloud SQL',       name: 'Cost Anomaly — Cloud SQL', description: 'Unexpected 34% cost spike on Cloud SQL', status: 'CRITICAL', usage: 134, limit: 100, type: 'ANOMALY', region: 'us-central1', affectedCount: 0, resources: [] as string[] },
+  { id: 'gcp-alert-004', service: 'Cloud Storage',   name: 'Bucket Egress Warning',   description: 'Inter-region egress near budget limit',  status: 'WARNING',  usage: 68,  limit: 100, type: 'QUOTA',   region: 'europe-west1', affectedCount: 0, resources: [] as string[] },
+  {
+    id: 'gcp-alert-005',
+    service: 'CONTAINER_IMAGE_VULNERABILITY',
+    name: 'Container image vulnerability',
+    description: 'Known vulnerabilities were found in stored container images. 214 findings across 3 resources.',
+    status: 'CRITICAL',
+    usage: 0,
+    limit: 0,
+    type: 'SECURITY',
+    region: 'global',
+    affectedCount: 214,
+    resources: [
+      '//artifactregistry.googleapis.com/projects/demo-project/locations/asia/repositories/gcr-registry-asia-dev/dockerImages/api-server@sha256:55b824a4a5fab685e0c84a17b28a911aa52fd82df31ab55d4fb48633f682b7408',
+      '//artifactregistry.googleapis.com/projects/demo-project/locations/asia/repositories/gcr-registry-asia-dev/dockerImages/worker@sha256:a2a335c7f347db9b3a0b4d3991c57e07ef5487eb648bf5be7fb58e8ea9d2f527',
+      '//artifactregistry.googleapis.com/projects/demo-project/locations/asia/repositories/gcr-registry-asia-dev/dockerImages/web@sha256:7a7541600168c7c13e4cec79d3a7a7798af63dc8b9982417bfde2a4a236ce258',
+    ],
+  },
+  {
+    id: 'gcp-alert-006',
+    service: 'IAM_ANOMALOUS_GRANT',
+    name: 'IAM anomalous grant',
+    description: 'A service account holds a primitive owner role. 2 findings across 2 resources.',
+    status: 'HIGH',
+    usage: 0,
+    limit: 0,
+    type: 'SECURITY',
+    region: 'global',
+    affectedCount: 2,
+    resources: [
+      '//cloudresourcemanager.googleapis.com/projects/demo-project/serviceAccounts/deploy-bot',
+      '//cloudresourcemanager.googleapis.com/projects/demo-project/serviceAccounts/ci-runner',
+    ],
+  },
 ];
+
+export const demoGcpAlerts = {
+  alerts: demoGcpAlertRows,
+  generatedAt: new Date().toISOString(),
+  degraded: false,
+  degradedReasons: [] as string[],
+  fromCache: false,
+  totalFindings: demoGcpAlertRows.reduce((sum, a) => sum + Math.max(a.affectedCount, 1), 0),
+};
 
 // ─── GCP Billing (/api/billops/billing/gcp/dashboard) ───────────────────────
 export const demoGcpBillingDashboard = {

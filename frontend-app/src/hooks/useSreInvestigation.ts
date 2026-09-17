@@ -61,6 +61,67 @@ export const listInvestigations = async (): Promise<SreInvestigation[]> => {
   return apiClient.get<SreInvestigation[]>('/api/sre/investigations');
 };
 
+// ─── Shared investigation list ──────────────────────────────────────────────
+//
+// SreInvestigateButton needs the investigation list to decide what to render, and it is used one
+// per row in tables. On a GCP project with 2,124 container image vulnerability alerts that meant
+// 2,124 identical GETs of the same endpoint on every page load, each returning the tenant's whole
+// investigation list. Browsers allow around six concurrent connections per host, so they queued and
+// the page appeared frozen — which is what "the Refresh button does not work" actually looked like
+// from a customer's side.
+//
+// Concurrent callers share one in-flight request, and the result is briefly cached so a re-render
+// does not start another round.
+
+const INVESTIGATIONS_TTL_MS = 30_000;
+
+let investigationsCache: { at: number; data: SreInvestigation[] } | null = null;
+let investigationsInFlight: Promise<SreInvestigation[]> | null = null;
+
+/**
+ * The investigation list, coalescing concurrent callers into a single request.
+ *
+ * Prefer this over {@link listInvestigations} anywhere the caller might be rendered more than once
+ * on a page.
+ */
+export const listInvestigationsShared = async (): Promise<SreInvestigation[]> => {
+  if (investigationsCache && Date.now() - investigationsCache.at < INVESTIGATIONS_TTL_MS) {
+    return investigationsCache.data;
+  }
+  if (investigationsInFlight) {
+    return investigationsInFlight;
+  }
+  investigationsInFlight = listInvestigations()
+    .then(data => {
+      investigationsCache = { at: Date.now(), data };
+      return data;
+    })
+    .finally(() => {
+      investigationsInFlight = null;
+    });
+  return investigationsInFlight;
+};
+
+/**
+ * Drop the cached list. Call after anything that changes it, so the next read is authoritative
+ * rather than up to {@link INVESTIGATIONS_TTL_MS} stale.
+ */
+export const invalidateInvestigationsCache = (): void => {
+  investigationsCache = null;
+};
+
+/** The most recent investigation for a resource, or null. */
+export const findLatestInvestigation = (
+  investigations: SreInvestigation[],
+  resourceId: string,
+  resourceType: ResourceType
+): SreInvestigation | null => {
+  const matches = investigations
+    .filter(i => i.resourceId === resourceId && i.resourceType === resourceType)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return matches[0] ?? null;
+};
+
 export const getInvestigation = async (id: number): Promise<SreInvestigation> => {
   return apiClient.get<SreInvestigation>(`/api/sre/investigations/${id}`);
 };
