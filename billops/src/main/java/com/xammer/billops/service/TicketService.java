@@ -1061,13 +1061,24 @@ public class TicketService {
         String allTicketsKey = getTenantCacheKey(TICKETS_ALL_CACHE_KEY);
         redisCache.evict(allTicketsKey);
 
-        // 2. Evict Specific Category Cache (If known)
+        // 2. Evict the per-user category caches.
+        //    getTicketsByCategory caches under "<prefix><category>:user:<userId>" (see the
+        //    TICKETS_CATEGORY_PREFIX + category + ":user:" + userId key). A plain evict of
+        //    "<prefix><category>" therefore missed every real key, so a user kept seeing a stale
+        //    list (missing a just-created ticket) until the 60-min TTL. Evict by prefix so ALL
+        //    users' cached views of this category are cleared. The tenant suffix from
+        //    getTenantCacheKey is applied by prefixing the base, then matching everything under it.
         if (category != null && !category.isEmpty()) {
-            String categoryKey = getTenantCacheKey(TICKETS_CATEGORY_PREFIX + category);
-            redisCache.evict(categoryKey);
-            logger.info("Evicted ticket caches: {} AND {}", allTicketsKey, categoryKey);
+            // Base (no user suffix) key, in case an older entry exists, plus all per-user variants.
+            String categoryBase = TICKETS_CATEGORY_PREFIX + category;
+            redisCache.evict(getTenantCacheKey(categoryBase));
+            redisCache.evictByPrefix(categoryBase + ":user:");
+            logger.info("Evicted ticket caches: {} AND all per-user views of category '{}'",
+                    allTicketsKey, category);
         } else {
-            logger.info("Evicted ticket cache: {}", allTicketsKey);
+            // Category unknown (e.g. cross-cutting change): clear every category's per-user views.
+            redisCache.evictByPrefix(TICKETS_CATEGORY_PREFIX);
+            logger.info("Evicted ticket cache: {} AND all per-user category views", allTicketsKey);
         }
     }
 

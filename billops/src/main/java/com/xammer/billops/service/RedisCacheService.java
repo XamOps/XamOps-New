@@ -68,4 +68,22 @@ public class RedisCacheService {
             logger.info("--- BILLOPS: EVICTED FROM REDIS CACHE: {} ---", key);
         }
     }
+
+    /**
+     * Evicts every key beginning with {@code prefix}. Needed for per-user cached lists whose
+     * key carries a variable suffix (e.g. "...:user:152"): a single-key evict cannot clear all
+     * of them because the eviction site doesn't know every user id. Uses SCAN via
+     * {@code keys(prefix*)} then deletes the matches.
+     */
+    public void evictByPrefix(String prefix) {
+        try {
+            java.util.Set<String> keys = redisTemplate.keys(prefix + "*");
+            if (keys != null && !keys.isEmpty()) {
+                redisTemplate.delete(keys);
+                logger.info("--- BILLOPS: EVICTED {} KEYS BY PREFIX: {}* ---", keys.size(), prefix);
+            }
+        } catch (Exception e) {
+            logger.warn("BILLOPS: prefix eviction failed for {}*: {}", prefix, e.getMessage());
+        }
+    }
 }
