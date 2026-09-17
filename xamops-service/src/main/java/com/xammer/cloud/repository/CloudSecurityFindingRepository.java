@@ -104,9 +104,28 @@ public interface CloudSecurityFindingRepository extends JpaRepository<CloudSecur
 
     // ── Retention ───────────────────────────────────────────────────────────
 
+    /**
+     * Deletes findings the provider closed, once they are past retention.
+     *
+     * <p>
+     * SUPPRESSED is deliberately spared. That status records a human decision — someone
+     * triaged the finding and said it does not apply — and the predicate used to be
+     * {@code status <> 'ACTIVE'}, which swept those rows up with the provider-resolved ones.
+     * The consequence was not merely losing an audit trail: the sticky-suppression guard in
+     * {@code SecurityFindingIngestService.upsert} can only protect a row that still exists, so
+     * after the purge the next redelivery of that finding recreated it as ACTIVE and the
+     * suppression silently undid itself. A decision that expires without being told to is
+     * worse than no suppression feature at all.
+     *
+     * <p>
+     * Note the asymmetry with the inventory plane: this is a hard {@code DELETE} with no
+     * tombstone, and neither Security Hub nor GuardDuty republishes a finding except on a state
+     * change. Anything deleted here is unrecoverable, which is why the predicate has to be
+     * exactly as narrow as its intent.
+     */
     @Modifying
     @Query("DELETE FROM CloudSecurityFinding f "
-            + "WHERE f.status <> 'ACTIVE' AND f.resolvedAt < :before")
+            + "WHERE f.status = 'RESOLVED' AND f.resolvedAt < :before")
     int purgeResolvedBefore(@Param("before") Instant before);
 
     /**
