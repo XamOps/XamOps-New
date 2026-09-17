@@ -259,10 +259,16 @@ public class GcpFinOpsReportService {
 
             // GCP Budget API doesn't expose per-budget actual spend.
             // Each budget is project-scoped, so actual spend = total project MTD spend (same as AWS behaviour).
+            //
+            // GcpBudgetService already backfills these from the billing export. Overwriting here
+            // reuses the MTD figure this report has just fetched in parallel, saving a second query —
+            // so the reason string it may have attached has to be cleared, or a stale "spend
+            // unavailable" note would ride alongside a figure that is now present.
             List<GcpBudgetDto> budgets = budgetsFuture.join();
             budgets.forEach(b -> {
                 b.setActualSpend(mtdSpend);
                 b.setForecastedSpend(kpis.getForecastedSpend());
+                b.setSpendUnavailableReason(null);
             });
             report.setBudgets(budgets);
 
@@ -421,10 +427,16 @@ public class GcpFinOpsReportService {
 
             // GCP Budget API doesn't expose per-budget actual spend.
             // Each budget is project-scoped, so actual spend = total project MTD spend (same as AWS behaviour).
+            //
+            // GcpBudgetService already backfills these from the billing export. Overwriting here
+            // reuses the MTD figure this report has just fetched in parallel, saving a second query —
+            // so the reason string it may have attached has to be cleared, or a stale "spend
+            // unavailable" note would ride alongside a figure that is now present.
             List<GcpBudgetDto> budgets = budgetsFuture.join();
             budgets.forEach(b -> {
                 b.setActualSpend(mtdSpend);
                 b.setForecastedSpend(kpis.getForecastedSpend());
+                b.setSpendUnavailableReason(null);
             });
             report.setBudgets(budgets);
 

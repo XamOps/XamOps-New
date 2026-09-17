@@ -324,11 +324,17 @@ const Sidebar: React.FC = () => {
                 {isXamTabAllowed('finops-reports') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-finops' : selectedAccountDisplay.provider === 'Azure' ? '/azure-finops' : '/finops'} icon="fas fa-file-invoice-dollar" label="FinOps Reports" isActive={isActive('/finops') || isActive('/gcp-finops') || isActive('/azure-finops')} />}
                 {isXamTabAllowed('finops-waste') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-waste' : selectedAccountDisplay.provider === 'Azure' ? '/azure-waste' : '/waste'} icon="fas fa-recycle" label="Waste Management" isActive={isActive('/waste') || isActive('/gcp-waste') || isActive('/azure-waste')} />}
                 {isXamTabAllowed('finops-rightsizing') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-rightsizing' : selectedAccountDisplay.provider === 'Azure' ? '/azure-rightsizing' : '/rightsizing'} icon="fas fa-compress-arrows-alt" label="Rightsizing" isActive={isActive('/rightsizing') || isActive('/gcp-rightsizing') || isActive('/azure-rightsizing')} />}
-                {isXamTabAllowed('finops-disk-rightsizing') && selectedAccountDisplay.provider === 'AWS' && (
-                  <NavItem href="/ebs-rightsizing" icon="fas fa-hdd" label="Disk Rightsizing" isActive={isActive('/ebs-rightsizing')} />
-                )}
-                {isXamTabAllowed('finops-disk-rightsizing') && selectedAccountDisplay.provider === 'GCP' && (
-                  <NavItem href="/gcp-disk-rightsizing" icon="fas fa-hdd" label="Disk Rightsizing" isActive={isActive('/gcp-disk-rightsizing')} />
+                {/* Provider-derived href, matching every other item in this section. The two
+                    provider-specific blocks this replaces covered AWS and GCP only, so
+                    /azure-disk-rightsizing — which exists as a route and in PROVIDER_PAGE_MAP —
+                    had no way in from the nav. */}
+                {isXamTabAllowed('finops-disk-rightsizing') && (
+                  <NavItem
+                    href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-disk-rightsizing' : selectedAccountDisplay.provider === 'Azure' ? '/azure-disk-rightsizing' : '/ebs-rightsizing'}
+                    icon="fas fa-hdd"
+                    label="Disk Rightsizing"
+                    isActive={isActive('/ebs-rightsizing') || isActive('/gcp-disk-rightsizing') || isActive('/azure-disk-rightsizing')}
+                  />
                 )}
                 {selectedAccountDisplay.provider === 'AWS' && (
                   <>

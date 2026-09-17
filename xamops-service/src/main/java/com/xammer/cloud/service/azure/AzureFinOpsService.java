@@ -24,10 +24,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
+import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -103,6 +107,11 @@ public class AzureFinOpsService {
             billingIngestionService.readCostHistory(subscriptionId);
 
         // --- STEP 1: Get KPIs from Redis Cache ---
+        //
+        // Every unset figure below stays null and is explained in kpisUnavailableReason. These were
+        // all defaulted to 0.0, which reported "no spend, no change" for a subscription whose
+        // billing ingestion simply had not run yet.
+        List<String> kpiGaps = new ArrayList<>();
         try {
             // Calculate Total Spend
             if (billingSummaryOpt.isPresent()) {
@@ -111,7 +120,7 @@ public class AzureFinOpsService {
                         .sum();
                 kpis.setTotalSpend(totalSpend);
             } else {
-                kpis.setTotalSpend(0.0);
+                kpiGaps.add("total spend (billing summary not yet ingested)");
             }
 
             // Calculate Forecasted Spend from cost history cache
@@ -155,45 +164,66 @@ public class AzureFinOpsService {
                         double current = actualCosts.get(0);
                         double previous = actualCosts.get(1);
                         kpis.setMomChange(((current - previous) / previous) * 100.0);
-                        logger.info("MoM change for {}: {:.2f}%", subscriptionId, kpis.getMomChange());
+                        logger.info("MoM change for {}: {}%", subscriptionId,
+                                String.format("%.2f", kpis.getMomChange()));
                     } else {
-                        kpis.setMomChange(0.0);
+                        kpiGaps.add("month-over-month change (needs two closed months of history)");
                     }
-                    kpis.setYoyChange(0.0);
+
+                    // Real YoY: compare the most recent closed month against the same month a year
+                    // earlier. This was hardcoded to 0.0 even on the success path, so the report
+                    // always claimed spend was exactly flat year on year.
+                    Double yoy = computeYoyChange(labels, costs, forecastFlags);
+                    if (yoy != null) {
+                        kpis.setYoyChange(yoy);
+                    } else {
+                        kpiGaps.add("year-over-year change (needs the same month one year earlier)");
+                    }
                 } else {
-                    // Set defaults if cost history data is malformed
-                    kpis.setForecastedSpend(0.0);
-                    kpis.setMomChange(0.0);
-                    kpis.setYoyChange(0.0);
+                    kpiGaps.add("forecast, month-over-month and year-over-year change "
+                            + "(cached cost history is malformed)");
                 }
             } else {
-                // Set defaults if cost history is missing entirely
-                kpis.setForecastedSpend(0.0);
-                kpis.setMomChange(0.0);
-                kpis.setYoyChange(0.0);
+                kpiGaps.add("forecast, month-over-month and year-over-year change "
+                        + "(cost history not yet ingested)");
             }
         } catch (Exception e) {
             logger.error("Failed to get KPIs from cache for Azure subscription {}: {}", subscriptionId, e.getMessage());
-            kpis.setTotalSpend(0.0);
-            kpis.setForecastedSpend(0.0);
-            kpis.setMomChange(0.0);
-            kpis.setYoyChange(0.0);
+            // Leave every figure null. Zeroing them here turned a cache or parse failure into a
+            // confident report of no spend and flat costs.
+            kpis.setTotalSpend(null);
+            kpis.setForecastedSpend(null);
+            kpis.setMomChange(null);
+            kpis.setYoyChange(null);
+            kpiGaps.clear();
+            kpiGaps.add("all KPIs (" + e.getMessage() + ")");
+        }
+        if (!kpiGaps.isEmpty()) {
+            report.setKpisUnavailableReason("Not available: " + String.join("; ", kpiGaps) + ".");
         }
         report.setKpis(kpis);
 
         // --- STEP 2: Get Cost Breakdown (Cost by Service) ---
         try {
             if (billingSummaryOpt.isPresent()) {
+                // Per-service month-over-month, derived from the per-service monthly series the
+                // billing ingestion already writes. The previous literal 0.0 meant a service whose
+                // spend had doubled still reported no change.
+                Map<String, Double> momByService = serviceMonthOverMonthChange(subscriptionId);
+
                 List<AzureFinOpsReportDto.CostBreakdown> breakdownList = billingSummaryOpt.get().stream()
                     .map(item -> new AzureFinOpsReportDto.CostBreakdown(
                         item.getService(),
                         item.getCost(),
-                        0.0  // MoM Change (Placeholder)
+                        // Absent rather than zero when the service has no prior closed month.
+                        momByService.get(item.getService())
                     ))
                     .collect(Collectors.toList());
 
                 report.setCostBreakdown(breakdownList);
-                logger.info("Added {} services to cost breakdown", breakdownList.size());
+                logger.info("Added {} services to cost breakdown ({} with a month-over-month figure)",
+                        breakdownList.size(),
+                        breakdownList.stream().filter(b -> b.getChange() != null).count());
             } else {
                 report.setCostBreakdown(Collections.emptyList());
             }
@@ -342,6 +372,118 @@ public class AzureFinOpsService {
         }
 
         return report;
+    }
+
+    /** Month labels are written by the billing ingestion as e.g. {@code Jan 2026}. */
+    private static final DateTimeFormatter MONTH_LABEL =
+            DateTimeFormatter.ofPattern("MMM yyyy", Locale.ENGLISH);
+
+    /**
+     * Parses a cost-history month label, tolerating the {@code (Forecast)} suffix.
+     *
+     * @return the month, or empty when the label is not a month label at all
+     */
+    private static Optional<YearMonth> parseMonthLabel(String label) {
+        if (label == null || label.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(YearMonth.parse(label.replace(" (Forecast)", "").trim(), MONTH_LABEL));
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Year-over-year change for the most recent closed month, as a percentage.
+     *
+     * <p>
+     * Compares that month against the same month one year earlier, both taken from the non-forecast
+     * entries of the cached history. Returns null — rather than zero — when the earlier month is
+     * absent or was itself zero, because "we have no comparison" and "spend did not change" are
+     * different answers and only one of them is a measurement.
+     */
+    // Package-private rather than private so the year-boundary and missing-comparison cases can be
+    // asserted directly; the surrounding report method needs Redis and four collaborators.
+    Double computeYoyChange(List<String> labels, List<Double> costs, List<Boolean> forecastFlags) {
+        if (labels == null || costs == null || labels.size() != costs.size()) {
+            return null;
+        }
+
+        Map<YearMonth, Double> actualByMonth = new HashMap<>();
+        for (int i = 0; i < labels.size(); i++) {
+            boolean isForecast = forecastFlags != null && i < forecastFlags.size()
+                    && Boolean.TRUE.equals(forecastFlags.get(i));
+            if (isForecast) {
+                continue;
+            }
+            Double cost = costs.get(i);
+            if (cost == null) {
+                continue;
+            }
+            parseMonthLabel(labels.get(i)).ifPresent(month -> actualByMonth.put(month, cost));
+        }
+
+        Optional<YearMonth> latest = actualByMonth.keySet().stream().max(Comparator.naturalOrder());
+        if (latest.isEmpty()) {
+            return null;
+        }
+
+        Double current = actualByMonth.get(latest.get());
+        Double yearAgo = actualByMonth.get(latest.get().minusYears(1));
+        if (current == null || yearAgo == null || yearAgo == 0.0) {
+            return null;
+        }
+        return ((current - yearAgo) / yearAgo) * 100.0;
+    }
+
+    /**
+     * Month-over-month change per service, keyed by service name.
+     *
+     * <p>
+     * Reads the per-service monthly series the billing ingestion caches — the same series the
+     * service-trend drawer uses — so the breakdown's change column and that chart cannot disagree.
+     * A service missing from the result has no prior closed month to compare against and is reported
+     * as unknown rather than unchanged.
+     */
+    private Map<String, Double> serviceMonthOverMonthChange(String subscriptionId) {
+        String cacheKey = AzureBillingDataIngestionService.AZURE_SERVICE_MONTHLY_CACHE_PREFIX + subscriptionId;
+
+        Optional<Map<String, Map<String, Double>>> cached =
+                redisCacheService.get(cacheKey, new TypeReference<Map<String, Map<String, Double>>>() {});
+        if (cached.isEmpty()) {
+            logger.info("No per-service monthly series cached for {}; per-service MoM reported as unknown",
+                    subscriptionId);
+            return Collections.emptyMap();
+        }
+
+        Map<String, Double> result = new HashMap<>();
+        cached.get().forEach((service, byMonth) -> {
+            if (service == null || byMonth == null || byMonth.size() < 2) {
+                return;
+            }
+            // Sort chronologically rather than by label, so "Feb 2026" follows "Jan 2026" instead of
+            // sorting alphabetically ahead of it.
+            List<YearMonth> months = byMonth.keySet().stream()
+                    .map(AzureFinOpsService::parseMonthLabel)
+                    .filter(Optional::isPresent)
+                    .map(Optional::get)
+                    .sorted()
+                    .collect(Collectors.toList());
+            if (months.size() < 2) {
+                return;
+            }
+
+            YearMonth currentMonth = months.get(months.size() - 1);
+            YearMonth previousMonth = months.get(months.size() - 2);
+            Double current = byMonth.get(currentMonth.format(MONTH_LABEL));
+            Double previous = byMonth.get(previousMonth.format(MONTH_LABEL));
+
+            if (current != null && previous != null && previous != 0.0) {
+                result.put(service, ((current - previous) / previous) * 100.0);
+            }
+        });
+        return result;
     }
 
     /**

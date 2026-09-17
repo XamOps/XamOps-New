@@ -472,7 +472,21 @@ public class GcpOptimizationService {
         summary.put("totalCuds", total);
         summary.put("activeCuds", active);
         summary.put("expiredCuds", expired);
-        summary.put("overallUtilizationPct", total > 0 ? (active * 100.0 / total) : 0.0);
+
+        // Utilization is left unset for the same reason the per-CUD path above leaves it unset:
+        // it needs per-hour commitment consumption, which GCP publishes only through the BigQuery
+        // billing export and not through the Compute commitments API this method reads.
+        //
+        // This previously reported `active * 100 / total` under the name overallUtilizationPct —
+        // the share of commitments that are ACTIVE, which is a different quantity entirely. Three
+        // active but completely idle commitments reported 100% utilization, which is the exact
+        // failure the per-CUD fix removed one method earlier.
+        summary.put("overallUtilizationPct", null);
+        summary.put("dataUnavailableReason",
+                "Commitment utilization requires the BigQuery billing export, which is not configured.");
+
+        // The ACTIVE share is still worth showing, under a name that says what it measures.
+        summary.put("activeCudsPct", total > 0 ? (active * 100.0 / total) : 0.0);
         summary.put("byRegion", inventory.stream().collect(Collectors.groupingBy(
                 d -> d.getRegion() != null ? d.getRegion() : "global", Collectors.counting())));
         summary.put("byPlan", inventory.stream().collect(Collectors.groupingBy(
@@ -533,6 +547,24 @@ public class GcpOptimizationService {
                 .filter(REGION_TO_LOCATION::containsKey)
                 .collect(Collectors.toSet());
 
+        // Zones holding Compute Engine instances.
+        //
+        // The VM machine-type recommender is ZONAL: its recommendations live at
+        // projects/{p}/locations/{zone}/recommenders/... (see Google's own example, which uses
+        // --location=us-central1-a). Querying it at "global" returns an empty page, which is what the
+        // call below used to do — so GCE rightsizing silently returned nothing at all while looking
+        // like a working feature with no recommendations.
+        //
+        // Derived from the instances themselves rather than from a static zone list: a project with no
+        // Compute Engine resources cannot have VM recommendations, so an empty set here is the right
+        // answer and skips the calls entirely.
+        Set<String> instanceZones = resources.stream()
+                .filter(r -> "Compute Engine".equals(r.getType()))
+                .map(com.xammer.cloud.dto.gcp.GcpResourceDto::getLocation)
+                .filter(loc -> loc != null && !loc.isEmpty() && !"global".equals(loc))
+                .filter(loc -> loc.split("-").length > 2)
+                .collect(Collectors.toSet());
+
         List<String> locations = regionSet.isEmpty() ? getDynamicRegions(gcpProjectId) : new ArrayList<>(regionSet);
         if (regionSet.isEmpty()) {
             log.warn("[GcpRightsizing] No active regions from resources — falling back to getDynamicRegions() for {}", gcpProjectId);
@@ -551,13 +583,29 @@ public class GcpOptimizationService {
 
         List<CompletableFuture<List<GcpOptimizationRecommendation>>> futures = new ArrayList<>();
 
-        // Compute Engine rightsizing (global scope — covers all zones)
-        futures.add(getRecommendationsForRecommender(
-                gcpProjectId, "google.compute.instance.MachineTypeRecommender", "global",
-                this::mapToRightsizingDto, true));
-        futures.add(getRecommendationsForRecommender(
-                gcpProjectId, "google.compute.instanceGroupManager.MachineTypeRecommender", "global",
-                this::mapToRightsizingDto, true));
+        // Compute Engine rightsizing — per zone, because the VM machine-type recommender is zonal.
+        // "global" is not a wildcard here; it is a location that holds no VM recommendations.
+        if (instanceZones.isEmpty()) {
+            log.info("[GcpRightsizing] No Compute Engine instance zones found for project {} — "
+                    + "skipping VM machine-type recommenders", gcpProjectId);
+        } else {
+            log.info("[GcpRightsizing] Querying VM machine-type recommender across {} zone(s) for project {}: {}",
+                    instanceZones.size(), gcpProjectId, instanceZones);
+        }
+        for (String zone : instanceZones) {
+            futures.add(getRecommendationsForRecommender(
+                    gcpProjectId, "google.compute.instance.MachineTypeRecommender", zone,
+                    this::mapToRightsizingDto, true));
+        }
+
+        // Managed instance groups are zonal or regional, so both scopes are queried.
+        Set<String> migLocations = new LinkedHashSet<>(instanceZones);
+        migLocations.addAll(regionSet);
+        for (String location : migLocations) {
+            futures.add(getRecommendationsForRecommender(
+                    gcpProjectId, "google.compute.instanceGroupManager.MachineTypeRecommender", location,
+                    this::mapToRightsizingDto, true));
+        }
 
         // Cloud SQL rightsizing — active regions only (Gap 3)
         for (String location : locations) {

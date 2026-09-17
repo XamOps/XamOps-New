@@ -189,29 +189,106 @@ public class AwsPricingService {
     }
 
     // ==========================================
+    //       PRICE PROVENANCE
+    // ==========================================
+
+    /**
+     * Where a rate came from.
+     *
+     * <p>This class deliberately keeps its 2024 static tables and its size-pattern estimator: the
+     * Calculator prices <em>hypothetical</em> configurations, so an approximate rate is the product,
+     * not a bug. The defect was that a caller could not tell an approximation from a live Price List
+     * rate, so estimates flowed unmarked into claims about a customer's real money — Cloudsitter
+     * savings and Cost Explorer gap-filling both did exactly that.
+     *
+     * <p>Mirrors {@code GcpPricingService.PriceSource} so both providers describe provenance the
+     * same way.
+     */
+    public enum PriceSource {
+        /** Live AWS Price List API rate for the requested type and region. */
+        PRICE_LIST,
+        /** 2024 us-east-1 table scaled by a regional multiplier. Approximate. */
+        STATIC_TABLE_2024,
+        /** Guessed from the size suffix in the instance type name. Very approximate. */
+        SIZE_PATTERN_ESTIMATE,
+        /** No rate could be produced at all. */
+        UNAVAILABLE;
+
+        /** True only for a rate fit to be presented as a customer's actual cost. */
+        public boolean isAuthoritative() {
+            return this == PRICE_LIST;
+        }
+    }
+
+    /**
+     * A rate together with where it came from.
+     *
+     * @param usdPerHour the rate, or 0.0 when {@code source} is {@link PriceSource#UNAVAILABLE}
+     * @param source     provenance; check {@link PriceSource#isAuthoritative()} before treating the
+     *                   figure as real spend
+     * @param note       human-readable explanation, suitable for a UI disclaimer
+     */
+    public record RateQuote(double usdPerHour, PriceSource source, String note) {
+
+        static RateQuote of(double usdPerHour, PriceSource source, String note) {
+            return new RateQuote(usdPerHour, source, note);
+        }
+
+        static RateQuote unavailable(String note) {
+            return new RateQuote(0.0, PriceSource.UNAVAILABLE, note);
+        }
+
+        /** True when this rate is a live Price List figure. */
+        public boolean isAuthoritative() {
+            return source.isAuthoritative();
+        }
+
+        /** True when a number is present at all, whatever its provenance. */
+        public boolean hasRate() {
+            return source != PriceSource.UNAVAILABLE && usdPerHour > 0.0;
+        }
+    }
+
+    // ==========================================
     //       SECTION 1: YOUR CALCULATOR CODE
     // ==========================================
 
     /**
      * Get the hourly cost for an EC2 instance type in a specific region.
      *
+     * <p>Returns the number only. Anything presenting this as a customer's actual spend should call
+     * {@link #getHourlyCostQuote(String, String)} instead and check
+     * {@link RateQuote#isAuthoritative()}; this overload cannot distinguish a live Price List rate
+     * from a 2024 table entry or a size-pattern guess.
+     *
      * @param instanceType The EC2 instance type (e.g., "t3.medium")
      * @param region       The AWS region (e.g., "us-east-1")
      * @return The hourly cost in USD, or 0.0 if pricing is not available
      */
     public double getHourlyCost(String instanceType, String region) {
+        return getHourlyCostQuote(instanceType, region).usdPerHour();
+    }
+
+    /**
+     * Hourly EC2 rate together with its provenance.
+     *
+     * <p>Same four-tier waterfall as before — cache, live Price List, 2024 static table, size-pattern
+     * estimate — but the tier that answered is now reported rather than only logged.
+     */
+    public RateQuote getHourlyCostQuote(String instanceType, String region) {
         if (instanceType == null || region == null) {
             logger.warn("Cannot calculate pricing: instanceType={}, region={}", instanceType, region);
-            return 0.0;
+            return RateQuote.unavailable("instance type or region not supplied");
         }
 
         String cacheKey = instanceType.toLowerCase() + ":" + region;
 
         // 1. In-memory cache, with a TTL. It previously had none, so a wrong or estimated
-        // price was pinned for the JVM's entire lifetime.
+        // price was pinned for the JVM's entire lifetime. The provenance is cached alongside the
+        // number, so a cache hit cannot launder an estimate into an authoritative rate.
         CachedPrice cached = livePriceCache.get(cacheKey);
         if (cached != null && !cached.isExpired()) {
-            return cached.pricePerHour();
+            return RateQuote.of(cached.pricePerHour(), cached.source(), cached.note());
         }
 
         // 2. Live AWS Pricing API first.
@@ -224,9 +301,11 @@ public class AwsPricingService {
         try {
             double livePrice = fetchLiveHourlyCost(instanceType, region);
             if (livePrice > 0.0) {
-                livePriceCache.put(cacheKey, CachedPrice.of(livePrice));
+                RateQuote quote = RateQuote.of(livePrice, PriceSource.PRICE_LIST,
+                        "AWS Price List on-demand rate for " + instanceType + " in " + region);
+                livePriceCache.put(cacheKey, CachedPrice.from(quote));
                 logger.debug("Live pricing for {} in {}: ${}/hour", instanceType, region, livePrice);
-                return livePrice;
+                return quote;
             }
         } catch (Exception e) {
             logger.warn("Live pricing lookup failed for {} in {}: {}", instanceType, region, e.getMessage());
@@ -235,25 +314,39 @@ public class AwsPricingService {
         // 3. Static table as a fallback only, so an API outage degrades rather than breaks.
         Double basePrice = US_EAST_1_PRICING.get(instanceType.toLowerCase());
         if (basePrice != null) {
-            double finalPrice = basePrice * REGIONAL_MULTIPLIERS.getOrDefault(region, 1.0);
-            livePriceCache.put(cacheKey, CachedPrice.of(finalPrice));
+            double multiplier = REGIONAL_MULTIPLIERS.getOrDefault(region, 1.0);
+            double finalPrice = basePrice * multiplier;
+            boolean regionKnown = REGIONAL_MULTIPLIERS.containsKey(region);
+            RateQuote quote = RateQuote.of(finalPrice, PriceSource.STATIC_TABLE_2024,
+                    "Estimated from a 2024 us-east-1 price"
+                            + (regionKnown
+                                    ? " scaled by a regional multiplier for " + region
+                                    : ", unscaled because no multiplier is known for " + region)
+                            + ". Not the live Price List rate.");
+            livePriceCache.put(cacheKey, CachedPrice.from(quote));
             logger.warn("Using static 2024 fallback price for {} in {}: ${}/hour. "
                     + "This figure is not authoritative.", instanceType, region, finalPrice);
-            return finalPrice;
+            return quote;
         }
 
         // 4. Pattern-based estimate as the last resort.
         double estimated = estimatePricing(instanceType);
-        livePriceCache.put(cacheKey, CachedPrice.of(estimated));
+        RateQuote quote = RateQuote.of(estimated, PriceSource.SIZE_PATTERN_ESTIMATE,
+                "Estimated from the size suffix of '" + instanceType
+                        + "'; no Price List rate or table entry was available.");
+        livePriceCache.put(cacheKey, CachedPrice.from(quote));
         logger.warn("Using a size-pattern estimate for unknown instance type {} in {}: ${}/hour. "
                 + "This figure is not authoritative.", instanceType, region, estimated);
-        return estimated;
+        return quote;
     }
 
-    /** A cached hourly price with its fetch time, so stale entries are refreshed. */
-    private record CachedPrice(double pricePerHour, java.time.Instant fetchedAt) {
-        static CachedPrice of(double pricePerHour) {
-            return new CachedPrice(pricePerHour, java.time.Instant.now());
+    /** A cached hourly price with its provenance and fetch time, so stale entries are refreshed. */
+    private record CachedPrice(double pricePerHour, PriceSource source, String note,
+            java.time.Instant fetchedAt) {
+
+        static CachedPrice from(RateQuote quote) {
+            return new CachedPrice(quote.usdPerHour(), quote.source(), quote.note(),
+                    java.time.Instant.now());
         }
 
         boolean isExpired() {
@@ -356,9 +449,16 @@ public class AwsPricingService {
      *               {@code PostgreSQL}, {@code Aurora MySQL}
      */
     public double getRdsHourlyCost(String dbInstanceClass, String region, String engine) {
+        return getRdsHourlyCostQuote(dbInstanceClass, region, engine).usdPerHour();
+    }
+
+    /**
+     * Hourly RDS rate together with its provenance. See {@link #getHourlyCostQuote}.
+     */
+    public RateQuote getRdsHourlyCostQuote(String dbInstanceClass, String region, String engine) {
         if (dbInstanceClass == null || region == null) {
             logger.warn("Cannot calculate RDS pricing: dbInstanceClass={}, region={}", dbInstanceClass, region);
-            return 0.0;
+            return RateQuote.unavailable("DB instance class or region not supplied");
         }
 
         String resolvedEngine = (engine == null || engine.isBlank()) ? "MySQL" : engine;
@@ -366,16 +466,19 @@ public class AwsPricingService {
 
         CachedPrice cached = livePriceCache.get(cacheKey);
         if (cached != null && !cached.isExpired()) {
-            return cached.pricePerHour();
+            return RateQuote.of(cached.pricePerHour(), cached.source(), cached.note());
         }
 
         try {
             double livePrice = fetchLiveRdsHourlyCost(dbInstanceClass, region, resolvedEngine);
             if (livePrice > 0.0) {
-                livePriceCache.put(cacheKey, CachedPrice.of(livePrice));
+                RateQuote quote = RateQuote.of(livePrice, PriceSource.PRICE_LIST,
+                        "AWS Price List on-demand rate for " + dbInstanceClass + " (" + resolvedEngine
+                                + ", Single-AZ) in " + region);
+                livePriceCache.put(cacheKey, CachedPrice.from(quote));
                 logger.debug("Live RDS pricing for {} ({}) in {}: ${}/hour",
                         dbInstanceClass, resolvedEngine, region, livePrice);
-                return livePrice;
+                return quote;
             }
         } catch (Exception e) {
             logger.warn("Live RDS pricing lookup failed for {} in {}: {}",
@@ -385,13 +488,22 @@ public class AwsPricingService {
         Double basePrice = RDS_US_EAST_1_PRICING.get(dbInstanceClass.toLowerCase());
         if (basePrice == null) {
             logger.warn("No RDS pricing data for instance class: {} — using size-based estimate", dbInstanceClass);
-            return estimateRdsPricing(dbInstanceClass);
+            return RateQuote.of(estimateRdsPricing(dbInstanceClass), PriceSource.SIZE_PATTERN_ESTIMATE,
+                    "Estimated from the size suffix of '" + dbInstanceClass
+                            + "'; no Price List rate or table entry was available.");
         }
         double finalPrice = basePrice * REGIONAL_MULTIPLIERS.getOrDefault(region, 1.0);
-        livePriceCache.put(cacheKey, CachedPrice.of(finalPrice));
+        boolean regionKnown = REGIONAL_MULTIPLIERS.containsKey(region);
+        RateQuote quote = RateQuote.of(finalPrice, PriceSource.STATIC_TABLE_2024,
+                "Estimated from a 2024 us-east-1 RDS price"
+                        + (regionKnown
+                                ? " scaled by a regional multiplier for " + region
+                                : ", unscaled because no multiplier is known for " + region)
+                        + ". Not the live Price List rate.");
+        livePriceCache.put(cacheKey, CachedPrice.from(quote));
         logger.warn("Using static 2024 fallback RDS price for {} in {}: ${}/hour. "
                 + "This figure is not authoritative.", dbInstanceClass, region, finalPrice);
-        return finalPrice;
+        return quote;
     }
 
     /**
@@ -455,25 +567,87 @@ public class AwsPricingService {
     /**
      * Estimates the cost for an EBS volume over a given number of days.
      * Formula: pricePerGbMonth × sizeGb × (days / 30.0) × regionalMultiplier
+     *
+     * <p>Always an estimate; see {@link #getEbsCostQuoteForPeriod}.
      */
     public double getEbsCostForPeriod(String volumeType, int sizeGb, String region, long days) {
-        if (volumeType == null || sizeGb <= 0 || region == null || days <= 0) return 0.0;
-        double pricePerGb = EBS_PRICING_PER_GB.getOrDefault(volumeType.toLowerCase(), 0.08);
+        return getEbsCostQuoteForPeriod(volumeType, sizeGb, region, days).usdPerHour();
+    }
+
+    /**
+     * EBS cost over a period, with provenance.
+     *
+     * <p>There is no live lookup behind this one at all: the rate comes from a 2024 us-east-1 table
+     * scaled by a multiplier, and an unrecognised volume type silently took the gp3 rate. So the
+     * quote is never {@link PriceSource#PRICE_LIST}. Real per-region EBS rates are available from
+     * {@code PricingService.getEbsGbMonthPrice}, which the waste detectors use; this method exists
+     * for the Calculator's hypothetical volumes.
+     *
+     * <p>The {@code usdPerHour} field carries the period cost rather than an hourly rate here — the
+     * record is reused for its provenance fields.
+     */
+    public RateQuote getEbsCostQuoteForPeriod(String volumeType, int sizeGb, String region, long days) {
+        if (volumeType == null || sizeGb <= 0 || region == null || days <= 0) {
+            return RateQuote.unavailable("volume type, size, region or period not supplied");
+        }
+        String normalised = volumeType.toLowerCase();
+        Double tableRate = EBS_PRICING_PER_GB.get(normalised);
+        double pricePerGb = tableRate != null ? tableRate : 0.08;
         double multiplier = REGIONAL_MULTIPLIERS.getOrDefault(region, 1.0);
-        return pricePerGb * sizeGb * (days / 30.0) * multiplier;
+        double cost = pricePerGb * sizeGb * (days / 30.0) * multiplier;
+
+        String note = "Estimated from a 2024 us-east-1 EBS rate"
+                + (tableRate != null ? "" : " for gp3, because volume type '" + volumeType + "' is unrecognised")
+                + (REGIONAL_MULTIPLIERS.containsKey(region)
+                        ? " scaled by a regional multiplier for " + region
+                        : ", unscaled because no multiplier is known for " + region)
+                + ". Not the live Price List rate.";
+        return RateQuote.of(cost, PriceSource.STATIC_TABLE_2024, note);
     }
 
     /**
      * Returns the base hourly rate for a load balancer by type.
      * Does not include LCU/NLCU because that requires live traffic metrics.
+     *
+     * <p>Always an estimate; see {@link #getElbHourlyRateQuote}.
      */
     public double getElbHourlyRate(String lbType) {
-        if (lbType == null) return 0.0225;
-        switch (lbType.toLowerCase()) {
-            case "gateway": return 0.0125;
-            case "classic": return 0.025;
-            default:        return 0.0225; // application / network
+        return getElbHourlyRateQuote(lbType).usdPerHour();
+    }
+
+    /**
+     * Load balancer base hourly rate, with provenance.
+     *
+     * <p>Hardcoded us-east-1 rates with no regional dimension and no live lookup, so this is never
+     * {@link PriceSource#PRICE_LIST}. It also excludes LCU/NLCU charges, which on a busy load
+     * balancer exceed the base rate — recorded in the note so a caller cannot mistake this for a
+     * total. {@code PricingService.getElbHourlyPrice} does query the Price List per region.
+     */
+    public RateQuote getElbHourlyRateQuote(String lbType) {
+        double rate;
+        String resolved;
+        if (lbType == null) {
+            rate = 0.0225;
+            resolved = "application";
+        } else {
+            switch (lbType.toLowerCase()) {
+                case "gateway":
+                    rate = 0.0125;
+                    resolved = "gateway";
+                    break;
+                case "classic":
+                    rate = 0.025;
+                    resolved = "classic";
+                    break;
+                default:
+                    rate = 0.0225;
+                    resolved = "application / network";
+                    break;
+            }
         }
+        return RateQuote.of(rate, PriceSource.STATIC_TABLE_2024,
+                "Base us-east-1 hourly rate for a " + resolved + " load balancer, with no regional "
+                        + "adjustment and excluding LCU/NLCU capacity charges. Not the live Price List rate.");
     }
 
     /**
@@ -486,13 +660,32 @@ public class AwsPricingService {
      * @return The estimated monthly savings in USD
      */
     public double calculateMonthlySavings(String instanceType, String region, int stoppedHoursPerMonth) {
-        double hourlyCost = getHourlyCost(instanceType, region);
-        double savings = hourlyCost * stoppedHoursPerMonth;
+        return calculateMonthlySavingsQuote(instanceType, region, stoppedHoursPerMonth).usdPerHour();
+    }
 
-        logger.debug("Monthly savings calculation: {} in {} - {} hours stopped = ${}/month",
-                instanceType, region, stoppedHoursPerMonth, savings);
+    /**
+     * Monthly saving from parking an instance, with the provenance of the rate behind it.
+     *
+     * <p>Callers presenting this to a customer as money they will save should check
+     * {@link RateQuote#isAuthoritative()}. A saving derived from a 2024 table entry or a size-pattern
+     * guess is a projection, not a figure to put a currency symbol in front of without qualification.
+     *
+     * <p>The {@code usdPerHour} field carries the monthly saving here; the record is reused for its
+     * provenance fields.
+     */
+    public RateQuote calculateMonthlySavingsQuote(String instanceType, String region,
+            int stoppedHoursPerMonth) {
+        RateQuote rate = getHourlyCostQuote(instanceType, region);
+        if (!rate.hasRate()) {
+            return RateQuote.unavailable("No hourly rate for " + instanceType + " in " + region
+                    + ", so the saving cannot be calculated: " + rate.note());
+        }
+        double savings = rate.usdPerHour() * stoppedHoursPerMonth;
 
-        return savings;
+        logger.debug("Monthly savings calculation: {} in {} - {} hours stopped = ${}/month ({})",
+                instanceType, region, stoppedHoursPerMonth, savings, rate.source());
+
+        return RateQuote.of(savings, rate.source(), rate.note());
     }
 
     // ==========================================

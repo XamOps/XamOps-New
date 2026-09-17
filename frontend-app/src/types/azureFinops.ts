@@ -4,17 +4,27 @@
  * Type definitions for the Azure FinOps Report page
  */
 
+/**
+ * Every figure is nullable because the backend now distinguishes "not measured" from zero.
+ *
+ * These are read from the billing-ingestion cache, so a subscription whose ingestion has not run
+ * yet has no spend figure at all. Rendering that as 0 told the user they had spent nothing and
+ * their costs were flat. Treat null as "not available" — do not `?? 0` it.
+ */
 export interface AzureFinOpsKPIs {
-  totalSpend: number;
-  forecastedSpend: number;
-  yoyChange: number;
-  momChange: number;
+  totalSpend: number | null;
+  forecastedSpend: number | null;
+  /** Null until 13 months of history exist. */
+  yoyChange: number | null;
+  /** Null until two closed months exist. */
+  momChange: number | null;
 }
 
 export interface AzureCostBreakdownItem {
   service: string;
   cost: number;
-  change: number; // Month over month change
+  /** Month over month change. Null when the service has no prior closed month to compare against. */
+  change: number | null;
 }
 
 export interface AzureCostByRegionItem {
@@ -86,6 +96,8 @@ export interface AzureFinOpsWasteItem {
 
 export interface AzureFinOpsReportData {
   kpis: AzureFinOpsKPIs;
+  /** Why one or more KPI figures are null, or absent when every figure was measured. */
+  kpisUnavailableReason?: string | null;
   costBreakdown: AzureCostBreakdownItem[];
   costByRegion: AzureCostByRegionItem[];
   totalPotentialSavings: number;

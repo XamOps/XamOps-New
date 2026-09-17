@@ -238,16 +238,35 @@ public class CloudsitterService {
     private double calculateMonthlySavings(CloudsitterPolicy policy, String instanceType, String region) {
         try {
             int stoppedHoursPerMonth = calculateStoppedHoursPerMonth(policy);
-            double computeSaving = pricingService.calculateMonthlySavings(instanceType, region, stoppedHoursPerMonth);
+            AwsPricingService.RateQuote quote =
+                    pricingService.calculateMonthlySavingsQuote(instanceType, region, stoppedHoursPerMonth);
+
+            if (!quote.hasRate()) {
+                logger.warn("CloudSitter: no usable rate for instance type {} in {} (policy '{}'), "
+                                + "so its saving is reported as 0 rather than guessed: {}",
+                        instanceType, region, policy.getName(), quote.note());
+                return 0.0;
+            }
+
+            // A saving built on a 2024 table entry or a size-pattern guess is a projection, not a
+            // figure to promise. It is still shown — a rough number beats an empty schedule page —
+            // but the provenance is logged so a systematically estimated account is visible rather
+            // than looking identical to a Price-List-backed one.
+            if (!quote.isAuthoritative()) {
+                logger.warn("CloudSitter: saving for {} in {} is derived from a non-authoritative rate "
+                                + "({}): {}",
+                        instanceType, region, quote.source(), quote.note());
+            }
 
             // Compute is the only component that stops billing; nothing is netted off here
             // because storage cost is the same whether the instance runs or not. Rounding is
             // applied once, at the end.
-            double roundedSavings = Math.round(computeSaving * 100.0) / 100.0;
+            double roundedSavings = Math.round(quote.usdPerHour() * 100.0) / 100.0;
 
             logger.debug("CloudSitter monthly savings — instance {} in {}, policy '{}', "
-                            + "stopped {} hrs/month, compute saving ${}",
-                    instanceType, region, policy.getName(), stoppedHoursPerMonth, roundedSavings);
+                            + "stopped {} hrs/month, compute saving ${} (source {})",
+                    instanceType, region, policy.getName(), stoppedHoursPerMonth, roundedSavings,
+                    quote.source());
 
             return roundedSavings;
         } catch (Exception e) {

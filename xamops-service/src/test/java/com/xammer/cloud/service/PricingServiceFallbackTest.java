@@ -19,12 +19,22 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 /**
- * Covers the service-cost lookups that replaced invented constants in the waste detectors.
+ * Covers the service-cost lookups behind the waste detectors.
  *
- * <p>The important property is that a failed or empty lookup falls back to a documented list
- * price rather than returning zero. A zero would be read downstream as "this resource is
- * free" and erase a real cost from the waste total — the same class of bug as pricing lookups
- * returning {@code 0.0} on failure.
+ * <p>These tests previously asserted that a failed lookup fell back to a documented us-east-1 list
+ * price, on the reasoning that returning zero would be read downstream as "this resource is free"
+ * and erase a real cost from the waste total.
+ *
+ * <p>That concern was correct, and it is still enforced — but at the detector rather than here.
+ * Substituting a constant traded one silent error for another: an EFS filesystem in São Paulo whose
+ * SKU lookup failed was reported at the Virginia rate and counted in the savings total as though
+ * measured, with nothing to distinguish it from a real figure. The lookups now return
+ * {@link PricingService#PRICE_UNAVAILABLE}, and {@code OptimizationService.wasteWithRate} turns that
+ * into a finding flagged {@code savingsUnknown} — so the resource is still surfaced (the original
+ * concern) while being excluded from the total instead of contributing a fabricated number.
+ *
+ * <p>{@code UnpricedFigureContractTest} guards the other half: that an unpriced finding is still
+ * reported and is left out of sums.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -83,34 +93,45 @@ class PricingServiceFallbackTest {
     }
 
     @Test
-    @DisplayName("an empty price list falls back to list price, never to zero")
-    void emptyPriceListFallsBackNotToZero() {
+    @DisplayName("an empty price list reports the price as unavailable, not as a us-east-1 constant")
+    void emptyPriceListReportsUnavailable() {
         when(pricingClient.getProducts(any(GetProductsRequest.class)))
                 .thenReturn(GetProductsResponse.builder().priceList(List.of()).build());
 
-        assertThat(service.getEfsGbMonthPrice("eu-west-1")).isEqualTo(0.30);
-        assertThat(service.getDynamoDbGbMonthPrice("eu-west-1")).isEqualTo(0.25);
-        assertThat(service.getEcrGbMonthPrice("eu-west-1")).isEqualTo(0.10);
-        assertThat(service.getEksClusterHourlyPrice("eu-west-1")).isEqualTo(0.10);
+        // eu-west-1 rates differ from us-east-1, so answering with the Virginia constant was wrong
+        // in a way no caller could detect.
+        assertThat(PricingService.isPriceAvailable(service.getEfsGbMonthPrice("eu-west-1"))).isFalse();
+        assertThat(PricingService.isPriceAvailable(service.getDynamoDbGbMonthPrice("eu-west-1"))).isFalse();
+        assertThat(PricingService.isPriceAvailable(service.getEcrGbMonthPrice("eu-west-1"))).isFalse();
+        assertThat(PricingService.isPriceAvailable(service.getEksClusterHourlyPrice("eu-west-1"))).isFalse();
     }
 
     @Test
-    @DisplayName("an API failure falls back to list price, never to zero")
-    void apiFailureFallsBackNotToZero() {
+    @DisplayName("an API failure reports the price as unavailable")
+    void apiFailureReportsUnavailable() {
         when(pricingClient.getProducts(any(GetProductsRequest.class)))
                 .thenThrow(new RuntimeException("Pricing API unavailable"));
 
-        assertThat(service.getEfsGbMonthPrice("us-east-1")).isEqualTo(0.30);
-        assertThat(service.getDynamoDbGbMonthPrice("us-east-1")).isEqualTo(0.25);
-        assertThat(service.getEcrGbMonthPrice("us-east-1")).isEqualTo(0.10);
-        assertThat(service.getEksClusterHourlyPrice("us-east-1")).isEqualTo(0.10);
+        assertThat(PricingService.isPriceAvailable(service.getEfsGbMonthPrice("us-east-1"))).isFalse();
+        assertThat(PricingService.isPriceAvailable(service.getDynamoDbGbMonthPrice("us-east-1"))).isFalse();
+        assertThat(PricingService.isPriceAvailable(service.getEcrGbMonthPrice("us-east-1"))).isFalse();
+        assertThat(PricingService.isPriceAvailable(service.getEksClusterHourlyPrice("us-east-1"))).isFalse();
     }
 
     @Test
-    @DisplayName("a null or blank region falls back rather than querying with no region")
-    void blankRegionFallsBack() {
-        assertThat(service.getEfsGbMonthPrice(null)).isEqualTo(0.30);
-        assertThat(service.getEfsGbMonthPrice("  ")).isEqualTo(0.30);
+    @DisplayName("a null or blank region reports unavailable rather than querying with no region")
+    void blankRegionReportsUnavailable() {
+        assertThat(PricingService.isPriceAvailable(service.getEfsGbMonthPrice(null))).isFalse();
+        assertThat(PricingService.isPriceAvailable(service.getEfsGbMonthPrice("  "))).isFalse();
+    }
+
+    @Test
+    @DisplayName("PRICE_UNAVAILABLE is not mistaken for a free resource")
+    void unavailableIsNotFree() {
+        // The sentinel is 0.0 for backward compatibility, so the guard is the only thing separating
+        // "could not price" from "costs nothing". Callers must use it rather than comparing to zero.
+        assertThat(PricingService.isPriceAvailable(PricingService.PRICE_UNAVAILABLE)).isFalse();
+        assertThat(PricingService.isPriceAvailable(0.01)).isTrue();
     }
 
     @Test

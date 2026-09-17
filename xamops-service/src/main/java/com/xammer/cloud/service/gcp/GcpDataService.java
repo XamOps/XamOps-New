@@ -143,10 +143,20 @@ public class GcpDataService {
     @Value("${tagging.compliance.required-tags}")
     private List<String> requiredTags;
 
+    /**
+     * When true, the cloudlist is enumerated with one Cloud Asset Inventory query instead of the ~30
+     * per-service clients below. Falls back automatically, so this is safe to flip per environment.
+     */
+    @Value("${xamops.gcp.asset-inventory.enabled:false}")
+    private boolean assetInventoryEnabled;
+
+    private final GcpAssetInventoryService gcpAssetInventoryService;
+
     public GcpDataService(GcpClientProvider gcpClientProvider,
             GcpCostService gcpCostService,
             GcpOptimizationService gcpOptimizationService,
             GcpSecurityService gcpSecurityService,
+            GcpAssetInventoryService gcpAssetInventoryService,
             com.xammer.cloud.repository.CloudAccountRepository cloudAccountRepository,
             CachedDataRepository cachedDataRepository,
             TransactionTemplate transactionTemplate,
@@ -156,6 +166,7 @@ public class GcpDataService {
         this.gcpCostService = gcpCostService;
         this.gcpOptimizationService = gcpOptimizationService;
         this.gcpSecurityService = gcpSecurityService;
+        this.gcpAssetInventoryService = gcpAssetInventoryService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.cachedDataRepository = cachedDataRepository;
         this.transactionTemplate = transactionTemplate;
@@ -700,6 +711,23 @@ public class GcpDataService {
         log.info("[GcpCloudList] Cache miss — live GCP scan starting for project: {}", gcpProjectId);
         final long startMs = System.currentTimeMillis();
 
+        // Single-query path: one Cloud Asset Inventory call instead of the ~30 per-service clients
+        // below. Ships disabled; falls back automatically, so enabling it is the only behavioural
+        // switch. See GcpAssetInventoryService for why this is a different shape rather than a
+        // faster version of the same shape.
+        if (assetInventoryEnabled) {
+            Optional<List<GcpResourceDto>> viaAsset = gcpAssetInventoryService.searchAllResources(gcpProjectId);
+            if (viaAsset.isPresent()) {
+                List<GcpResourceDto> merged = overlayComputeEngine(viaAsset.get(), gcpProjectId, forceRefresh);
+                log.info("[GcpCloudList] Asset Inventory scan complete — {} resources in {}ms for project: {}",
+                        merged.size(), System.currentTimeMillis() - startMs, gcpProjectId);
+                cacheCloudlist(redisKey, dbKey, tenantPrefix, gcpProjectId, merged);
+                return CompletableFuture.completedFuture(merged);
+            }
+            log.info("[GcpCloudList] Asset Inventory unavailable for project {} — using the per-service scan",
+                    gcpProjectId);
+        }
+
         List<CompletableFuture<List<GcpResourceDto>>> futures = List.of(
                 CompletableFuture.supplyAsync(() -> getComputeInstances(gcpProjectId, forceRefresh), backgroundTaskExecutor),
                 CompletableFuture.supplyAsync(() -> getPersistentDisks(gcpProjectId, forceRefresh), backgroundTaskExecutor),
@@ -743,19 +771,68 @@ public class GcpDataService {
                     log.info("[GcpCloudList] Live scan complete — {} resources in {}ms for project: {}",
                             allResources.size(), System.currentTimeMillis() - startMs, gcpProjectId);
 
-                    // Save flat list: Redis (60 min) + DB (permanent)
-                    redisCache.put(redisKey, allResources, 60);
-                    saveCloudlistFlatSnapshot(dbKey, allResources);
-
-                    // Build + cache grouped separately (Gap 5)
-                    List<GcpServicePaginatedResponse.GcpServiceGroupDto> grouped = buildGrouped(allResources);
-                    String groupedRedisKey = GCP_CLOUDLIST_GROUPED_REDIS + gcpProjectId;
-                    String groupedDbKey    = GCP_CLOUDLIST_GROUPED_DB + tenantPrefix + gcpProjectId;
-                    redisCache.put(groupedRedisKey, grouped, 60);
-                    saveCloudlistGroupedSnapshot(groupedDbKey, grouped);
+                    cacheCloudlist(redisKey, dbKey, tenantPrefix, gcpProjectId, allResources);
 
                     return allResources;
                 });
+    }
+
+    /**
+     * Replaces the Asset Inventory view of Compute Engine with the collector's.
+     *
+     * <p>Asset Inventory identifies an instance by name; Cloud Monitoring filters for GCE metrics
+     * need the numeric id GCE assigns. {@code GcpOptimizationService} builds a name-to-id map from
+     * this inventory for exactly that, so serving Asset Inventory's rows unmodified would leave every
+     * rightsizing recommendation without utilisation enrichment — a silent regression in a different
+     * feature.
+     *
+     * <p>One extra API call buys back that guarantee, and the arithmetic still holds: two calls
+     * rather than about thirty. If the collector fails, the Asset Inventory rows are kept — the
+     * instances are still listed, they simply lack numeric ids, which is the same position the
+     * enrichment code already handles.
+     */
+    private List<GcpResourceDto> overlayComputeEngine(List<GcpResourceDto> assetResources,
+            String gcpProjectId, boolean forceRefresh) {
+
+        List<GcpResourceDto> computeInstances;
+        try {
+            computeInstances = getComputeInstances(gcpProjectId, forceRefresh);
+        } catch (Exception e) {
+            log.warn("[GcpCloudList] Compute Engine overlay failed for project {} ({}); keeping Asset "
+                    + "Inventory rows, which carry instance names rather than numeric ids",
+                    gcpProjectId, e.getMessage());
+            return assetResources;
+        }
+
+        if (computeInstances == null || computeInstances.isEmpty()) {
+            return assetResources;
+        }
+
+        List<GcpResourceDto> merged = new ArrayList<>(assetResources.size() + computeInstances.size());
+        for (GcpResourceDto dto : assetResources) {
+            if (!"Compute Engine".equals(dto.getType())) {
+                merged.add(dto);
+            }
+        }
+        merged.addAll(computeInstances);
+        log.info("[GcpCloudList] Overlaid {} Compute Engine instance(s) with numeric ids for project {}",
+                computeInstances.size(), gcpProjectId);
+        return merged;
+    }
+
+    /** Writes the flat and grouped cloudlist views to Redis and the DB snapshot. */
+    private void cacheCloudlist(String redisKey, String dbKey, String tenantPrefix,
+            String gcpProjectId, List<GcpResourceDto> allResources) {
+        // Save flat list: Redis (60 min) + DB (permanent)
+        redisCache.put(redisKey, allResources, 60);
+        saveCloudlistFlatSnapshot(dbKey, allResources);
+
+        // Build + cache grouped separately (Gap 5)
+        List<GcpServicePaginatedResponse.GcpServiceGroupDto> grouped = buildGrouped(allResources);
+        String groupedRedisKey = GCP_CLOUDLIST_GROUPED_REDIS + gcpProjectId;
+        String groupedDbKey    = GCP_CLOUDLIST_GROUPED_DB + tenantPrefix + gcpProjectId;
+        redisCache.put(groupedRedisKey, grouped, 60);
+        saveCloudlistGroupedSnapshot(groupedDbKey, grouped);
     }
 
     /** Triggers a background async resource refresh (returns immediately, notifies via WebSocket). */

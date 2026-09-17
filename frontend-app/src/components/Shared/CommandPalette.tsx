@@ -84,6 +84,7 @@ const COMMANDS: RouteCommand[] = [
   { path: '/billops-gcp-billing', label: 'GCP Billing',               group: 'GCP',              icon: HiOutlineDocumentText },
   { path: '/gcp-autospotting',    label: 'GCP Spot Automation',       group: 'GCP',              icon: HiOutlineLightningBolt },
   { path: '/gcp-dataops',         label: 'GCP Data Operations',       group: 'GCP',              icon: HiOutlineServer, keywords: 'dataops' },
+  { path: '/gcp-disk-rightsizing', label: 'GCP Disk Rightsizing',     group: 'GCP',              icon: HiOutlineScale, keywords: 'disk persistent volume' },
 
   // Azure
   { path: '/azure-finops',        label: 'Azure FinOps',              group: 'Azure',            icon: HiOutlineCurrencyDollar },
@@ -98,6 +99,8 @@ const COMMANDS: RouteCommand[] = [
   { path: '/azure-performance',   label: 'Azure Performance',         group: 'Azure',            icon: HiOutlineTrendingUp },
   { path: '/azure-alerts',        label: 'Azure Alerts',              group: 'Azure',            icon: HiOutlineBell },
   { path: '/azure-autospotting',  label: 'Azure Spot Automation',     group: 'Azure',            icon: HiOutlineLightningBolt },
+  { path: '/azure-disk-rightsizing', label: 'Azure Disk Rightsizing', group: 'Azure',            icon: HiOutlineScale, keywords: 'disk managed volume' },
+  { path: '/azure-dataops',       label: 'Azure Data Operations',     group: 'Azure',            icon: HiOutlineServer, keywords: 'dataops dbops' },
 
   // DevOps & Tools
   { path: '/account-manager',     label: 'Account Manager',           group: 'DevOps & Tools',   icon: HiOutlineCog, keywords: 'accounts cloud' },
