@@ -40,11 +40,25 @@ public class AzureDashboardController {
     private CloudAccountRepository cloudAccountRepository;
 
     /**
-     * ✅ Get Azure dashboard data from DATABASE CACHE
+     * Get Azure dashboard data from the database snapshot.
      *
-     * Data is pre-cached by nightly scheduled job (4:30 AM IST).
-     * This endpoint ALWAYS returns cached data - no live API calls.
-     * force parameter is ignored for security (only scheduled jobs can refresh).
+     * <p>
+     * The snapshot is written by the daily scheduled refresh (04:30 IST, configurable via
+     * {@code xamops.azure.dashboard-refresh-cron}) and by a first refresh triggered when a
+     * subscription is connected. With {@code force=false} — which is what the UI sends on load and
+     * on its 60-second poll — this reads that snapshot and makes no Azure API calls. The response
+     * carries {@code snapshotAgeMinutes} and {@code stale} so the UI can say how old the figures
+     * are instead of implying they are current.
+     *
+     * <p>
+     * <b>{@code force=true} is honoured.</b> The previous version of this comment said the
+     * parameter was "ignored for security (only scheduled jobs can refresh)", which was simply not
+     * true — it was passed straight through then and now, and it triggers a full subscription-wide
+     * ARM enumeration plus inline cost ingestion. Documenting it as ignored was worse than not
+     * documenting it: anyone auditing this endpoint would have concluded there was no expensive
+     * path to protect. There is, it is reachable by any authenticated caller, and it is currently
+     * unthrottled and unlocked. Rate limiting it is tracked separately; this comment at least
+     * stops the code lying about it.
      *
      * Example: GET /api/xamops/azure/dashboard-data?accountId=subscription-id
      */

@@ -928,12 +928,29 @@ public class ProactiveCacheRefreshService {
     }
 
     // ===================================================================================
-    // 4:30 AM -> Azure Dashboard Refresh (Daily)
+    // 4:30 AM -> Azure Dashboard Refresh (daily)
     // Caches Azure dashboard data (cost, inventory, IAM) to database for fast access
+    //
+    // Was "0 30 4 * * WED,SUN" while the comment above it, and the controller javadoc,
+    // both claimed "daily". They were wrong: a Wednesday run meant Thursday, Friday and
+    // Saturday were all served a snapshot that got older every day, and a subscription
+    // connected on a Monday waited until Wednesday to show anything at all. GCP has been
+    // daily ("0 30 1 * * *") all along, so Azure was the odd one out rather than following
+    // a convention.
+    //
+    // Daily is affordable here for the same reason it is for GCP and not for AWS Cost
+    // Explorer: this reads an Azure Cost Management export and ARM list calls, neither of
+    // which is billed per request the way Cost Explorer's $0.01 is.
+    //
+    // Cron and zone are now both configurable. Every other Azure cron in the codebase is a
+    // hardcoded literal with no zone, which means the "4:30 AM" in this comment was only
+    // true if the container happened to run in IST. Pinning the zone makes the comment and
+    // the behaviour agree; making the cron a property means an environment can move it
+    // without a code change, matching xamops.cost.refresh-cron on the AWS side.
     // ===================================================================================
-    @Scheduled(cron = "0 30 4 * * WED,SUN")
+    @Scheduled(cron = "${xamops.azure.dashboard-refresh-cron:0 30 4 * * *}", zone = "Asia/Kolkata")
     public void refreshAzureDashboardData() {
-        logger.info("--- [4:30 AM] Starting Azure Dashboard Data Refresh ---");
+        logger.info("--- [4:30 AM IST] Starting Azure Dashboard Data Refresh ---");
         List<String> tenants = fetchActiveTenants();
 
         for (String tenantId : tenants) {

@@ -59,6 +59,17 @@ public class AccountManagerController {
     @Autowired
     private StackUpdateService stackUpdateService;
 
+    /**
+     * Where xamops-stack-updater.yml is published, for the one-click grant offered to an account
+     * connected before onboarding carried the updater role itself.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${cloudformation.template.s3.updater.url:https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-stack-updater.yml}")
+    private String updaterTemplateUrl;
+
+    /** Named so the updater stack falls inside the XamOps-* scope the grant itself uses. */
+    private static final String UPDATER_STACK_NAME = "XamOps-StackUpdater";
+
     @Autowired
     private ClientRepository clientRepository;
 
@@ -193,6 +204,77 @@ public class AccountManagerController {
                 ResponseEntity.ok(stackUpdateService.progress(account, Math.min(limit, 100))));
     }
 
+    /**
+     * Turns a missing-permission refusal into a link that fixes it in one click.
+     *
+     * <p>Only accounts connected before onboarding embedded the updater role reach this —
+     * newer ones carry the permission from their first deploy. For those older accounts the
+     * grant cannot come from XamOps: the permission to update a stack lives in the role that
+     * stack defines, and no role can widen its own permissions. Someone with access to the
+     * account has to approve it once. The link reduces that to reviewing and clicking Create.
+     *
+     * <p>The role name is filled in rather than left to the template default, because the
+     * default is wrong for most environments. The template assumes {@code XamOpsReadOnlyRole};
+     * UAT names it {@code XamOpsReadOnlyRole-uat}, and a stack pointed at a role that does not
+     * exist fails to create. That exact mistake is what the CLI instructions invited.
+     */
+    private void addGrant(Map<String, String> body, CloudAccount account, String message) {
+        String roleName = connectionRoleName(account, message);
+        String region = account.getStackRegion() != null && !account.getStackRegion().isBlank()
+                ? account.getStackRegion() : "us-east-1";
+
+        if (roleName == null) {
+            // Nothing trustworthy to prefill. Better an honest instruction than a link that
+            // creates a stack aimed at the wrong role.
+            body.put("remedy", "Deploy xamops-stack-updater.yml once in this account, setting "
+                    + "XamOpsRoleName to the name of the XamOps role there. After that this "
+                    + "button works on its own.");
+            return;
+        }
+
+        String grantUrl = String.format(
+                "https://console.aws.amazon.com/cloudformation/home?region=%s#/stacks/create/review"
+                        + "?templateURL=%s&stackName=%s&param_XamOpsRoleName=%s",
+                region,
+                java.net.URLEncoder.encode(updaterTemplateUrl, java.nio.charset.StandardCharsets.UTF_8),
+                UPDATER_STACK_NAME,
+                java.net.URLEncoder.encode(roleName, java.nio.charset.StandardCharsets.UTF_8));
+
+        body.put("grantUrl", grantUrl);
+        body.put("grantRoleName", roleName);
+        body.put("remedy", "This account was connected before updates could be applied from here, "
+                + "so it needs a one-time approval in AWS. Open the link, review, and click Create "
+                + "stack — it adds change-set permissions for XamOps stacks only and cannot affect "
+                + "the existing connection. Once it finishes (about a minute), run Update Stack "
+                + "again. You will not need to do this again for this account.");
+    }
+
+    /**
+     * The XamOps role in the account, from the stored role ARN or, failing that, the denial.
+     *
+     * <p>The ARN is preferred because it is what the connection actually uses. The denial is a
+     * reliable second source: AWS names the assumed role in every AccessDenied it returns
+     * ({@code assumed-role/XamOpsReadOnlyRole-uat/xamops-session-...}).
+     */
+    private String connectionRoleName(CloudAccount account, String message) {
+        String arn = account.getRoleArn();
+        if (arn != null && arn.contains(":role/")) {
+            String path = arn.substring(arn.indexOf(":role/") + ":role/".length());
+            String name = path.substring(path.lastIndexOf('/') + 1);
+            if (!name.isBlank()) {
+                return name;
+            }
+        }
+        if (message != null) {
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("assumed-role/([\\w+=,.@-]+)/").matcher(message);
+            if (m.find()) {
+                return m.group(1);
+            }
+        }
+        return null;
+    }
+
     /** The innermost message — the SDK buries the useful one several wrappers down. */
     private String rootMessage(Throwable e) {
         Throwable cause = e;
@@ -226,7 +308,9 @@ public class AccountManagerController {
             Map<String, String> body = new HashMap<>();
             body.put("verdict", e.getVerdict());
             body.put("error", e.getMessage());
-            if (e.getRemedy() != null) {
+            if ("NO_CFN_PERMISSION".equals(e.getVerdict())) {
+                addGrant(body, account, e.getMessage());
+            } else if (e.getRemedy() != null) {
                 body.put("remedy", e.getRemedy());
             }
             return ResponseEntity.status(409).body(body);
@@ -242,12 +326,7 @@ public class AccountManagerController {
             if (message.contains("AccessDenied") || message.contains("not authorized")) {
                 body.put("verdict", "NO_CFN_PERMISSION");
                 body.put("error", message);
-                body.put("remedy", "Deploy the XamOps stack updater in this account once "
-                        + "(xamops-stack-updater.yml, a small additive stack). It grants "
-                        + "change-set permissions scoped to XamOps-* stacks and cannot "
-                        + "affect the existing connection. After that this button works on "
-                        + "its own.");
-                body.put("grantTemplate", "xamops-stack-updater.yml");
+                addGrant(body, account, message);
                 return ResponseEntity.status(409).body(body);
             }
 

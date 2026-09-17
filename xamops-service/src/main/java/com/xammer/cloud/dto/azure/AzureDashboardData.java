@@ -85,6 +85,37 @@ public class AzureDashboardData {
     private String lastUpdated;
 
     /**
+     * Age of the snapshot this payload came from, in minutes, or null when it was just built live.
+     *
+     * <p>
+     * The Azure dashboard serves a {@code cached_data} row that has no TTL, so "the numbers on
+     * screen" and "the numbers in Azure" can be arbitrarily far apart with nothing saying so. The
+     * frontend previously showed {@code lastUpdated} as a bare timestamp, which reads as
+     * reassurance rather than as an age — a snapshot from three days ago and one from three
+     * minutes ago look equally authoritative.
+     *
+     * <p>
+     * Exposed as a number rather than a formatted string so the UI decides the threshold at which
+     * it starts warning, and so it can be asserted on in a test.
+     */
+    private Long snapshotAgeMinutes;
+
+    /**
+     * True when the snapshot is older than the refresh cadence should allow.
+     *
+     * <p>
+     * Set by the service rather than computed in the browser, because the cadence is a server-side
+     * configuration value and the browser has no way to know it.
+     */
+    private boolean stale;
+
+    public Long getSnapshotAgeMinutes() { return snapshotAgeMinutes; }
+    public void setSnapshotAgeMinutes(Long snapshotAgeMinutes) { this.snapshotAgeMinutes = snapshotAgeMinutes; }
+
+    public boolean isStale() { return stale; }
+    public void setStale(boolean stale) { this.stale = stale; }
+
+    /**
      * False when at least one section could not be populated, so the zeros in this payload are
      * placeholders rather than measurements.
      *

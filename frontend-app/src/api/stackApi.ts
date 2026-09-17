@@ -107,6 +107,14 @@ export class StackUpdateError extends Error {
     message: string,
     readonly verdict?: string,
     readonly remedy?: string,
+    /**
+     * A pre-filled AWS console link that grants the missing permission, when the refusal is
+     * one the customer can fix in a click — an account connected before onboarding carried
+     * the stack updater. Absent for every other refusal.
+     */
+    readonly grantUrl?: string,
+    /** The role the grant attaches to, shown so the reader can check it before approving. */
+    readonly grantRoleName?: string,
   ) {
     super(message);
     this.name = 'StackUpdateError';
@@ -121,7 +129,7 @@ const parse = async (res: Response): Promise<never> => {
   const message = body.detail && body.detail !== headline
     ? `${headline}: ${body.detail}`
     : headline;
-  throw new StackUpdateError(message, body.verdict, body.remedy);
+  throw new StackUpdateError(message, body.verdict, body.remedy, body.grantUrl, body.grantRoleName);
 };
 
 /** Builds a change set and describes it. Changes nothing. */

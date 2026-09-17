@@ -39,6 +39,23 @@ public class AzureDashboardService {
     // Database cache key prefix (same pattern as AWS)
     private static final String AZURE_DASHBOARD_DB_CACHE_PREFIX = "AZURE_DASHBOARD::";
 
+    /**
+     * How old a snapshot may be before the payload is marked stale.
+     *
+     * <p>
+     * Deliberately wider than the refresh cadence rather than equal to it: one missed run should
+     * not alarm anyone, two consecutive misses should. At the default daily cron that makes 1560
+     * minutes (26 hours) the point at which a refresh has demonstrably failed rather than merely
+     * not happened yet.
+     *
+     * <p>
+     * This does not evict anything. The snapshot has no TTL on purpose — a stale figure is more
+     * useful than a blank dashboard, and the AWS side proved that blanking on expiry is worse
+     * than serving something labelled old. This flag exists so the label can be honest.
+     */
+    @org.springframework.beans.factory.annotation.Value("${xamops.azure.dashboard.stale-after-minutes:1560}")
+    private long staleAfterMinutes;
+
     private final AzureClientProvider clientProvider;
     private final CloudAccountRepository cloudAccountRepository;
     private final CachedDataRepository cachedDataRepository;
@@ -93,21 +110,32 @@ public class AzureDashboardService {
         String dbCacheKey = AZURE_DASHBOARD_DB_CACHE_PREFIX + accountId;
 
         // ALWAYS return from database cache for normal requests (force=false)
-        // Live data is ONLY fetched during nightly scheduled jobs (force=true)
+        // Live data is ONLY fetched during scheduled jobs and explicit refreshes (force=true)
         if (!force) {
             AzureDashboardData dbCached = getDashboardFromDatabase(dbCacheKey);
             if (dbCached != null) {
-                log.info("✅ Returning cached Azure dashboard data from DATABASE for subscription: {}", accountId);
+                log.info("✅ Returning cached Azure dashboard data from DATABASE for subscription: {} (age {} min)",
+                        accountId, dbCached.getSnapshotAgeMinutes());
                 return dbCached;
             }
 
-            // If no cache exists, return empty data (user needs to wait for nightly
-            // refresh)
-            log.warn(
-                    "⚠️ No cached Azure dashboard data found for subscription: {}. Data will be available after nightly refresh.",
-                    accountId);
+            // No snapshot yet. This is a real state with a real cause — the subscription was
+            // connected after the last refresh — so say that rather than naming a cadence.
+            //
+            // The previous message read "will be available after nightly refresh", which was
+            // wrong twice over: the job ran twice a week, not nightly, so the wait could be
+            // three and a half days, and nothing triggered a refresh on connect. A newly
+            // onboarded subscription therefore sat on an empty dashboard with a message that
+            // understated the wait by an order of magnitude. Onboarding now schedules a first
+            // refresh (see AzureDashboardWarmupListener), so this window is minutes.
+            log.warn("⚠️ No cached Azure dashboard data for subscription {} — the first refresh has "
+                    + "either not run yet or did not complete.", accountId);
             AzureDashboardData emptyData = createEmptyAzureDashboardData();
-            emptyData.setLastUpdated("No data cached yet - will be available after nightly refresh");
+            emptyData.setLastUpdated("Collecting data for this subscription — this can take a few minutes "
+                    + "after connecting.");
+            emptyData.setStale(true);
+            emptyData.addDataWarning("No dashboard snapshot exists for this subscription yet, so every figure "
+                    + "below is a placeholder rather than a measurement.");
             return emptyData;
         }
 
@@ -246,9 +274,32 @@ public class AzureDashboardService {
             if (cached.isPresent()) {
                 AzureDashboardData data = objectMapper.readValue(cached.get().getJsonData(), AzureDashboardData.class);
                 // Add last updated timestamp to data
-                if (cached.get().getLastUpdated() != null) {
-                    data.setLastUpdated(cached.get().getLastUpdated()
-                            .format(DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+                LocalDateTime writtenAt = cached.get().getLastUpdated();
+                if (writtenAt != null) {
+                    data.setLastUpdated(writtenAt.format(DateTimeFormatter.ofPattern("MMM dd, HH:mm:ss")));
+
+                    // Age is computed here, at the one place that knows when the row was written.
+                    //
+                    // Both this row and the timestamp on it are written in Asia/Kolkata
+                    // (saveDashboardToDatabase), so the comparison has to be made in the same zone.
+                    // Using LocalDateTime.now() on a UTC container would have reported the snapshot
+                    // as ~5.5 hours older than it is, which on a daily cadence is the difference
+                    // between "fresh" and "stale" for a quarter of the day.
+                    long ageMinutes = java.time.temporal.ChronoUnit.MINUTES.between(
+                            writtenAt, LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+                    // Clamped at zero: a row written by another instance whose clock is marginally
+                    // ahead would otherwise surface as a negative age in the UI.
+                    data.setSnapshotAgeMinutes(Math.max(0L, ageMinutes));
+                    data.setStale(ageMinutes > staleAfterMinutes);
+
+                    if (data.isStale()) {
+                        log.warn("⚠️ Azure dashboard snapshot {} is {} min old (threshold {} min) — the "
+                                + "scheduled refresh may not be completing for this subscription.",
+                                cacheKey, ageMinutes, staleAfterMinutes);
+                        data.addDataWarning("These figures are " + ageMinutes + " minutes old. The scheduled "
+                                + "refresh has not updated this subscription recently, so the dashboard may "
+                                + "not reflect current Azure state.");
+                    }
                 }
                 return data;
             }
@@ -264,18 +315,19 @@ public class AzureDashboardService {
      */
     public AzureDashboardData refreshAndCacheDashboard(String subscriptionId) {
         log.info("🔄 Force refreshing Azure dashboard for subscription: {}", subscriptionId);
-        try {
-            // Force refresh data
-            AzureDashboardData data = getDashboardData(subscriptionId, true);
-            // Save to database
-            String dbCacheKey = AZURE_DASHBOARD_DB_CACHE_PREFIX + subscriptionId;
-            saveDashboardToDatabase(dbCacheKey, data);
-            log.info("✅ Azure dashboard refreshed and cached for subscription: {}", subscriptionId);
-            return data;
-        } catch (Exception e) {
-            log.error("❌ Failed to refresh Azure dashboard for subscription: {}", subscriptionId, e);
-            return null;
-        }
+        // getDashboardData(_, true) already writes the snapshot as its last step, so this used
+        // to call saveDashboardToDatabase a second time with the same object. Harmless but not
+        // free: it re-serialised the whole payload and took a second write on the row, and it
+        // ran the empty-overwrite guard twice, which made the log read as though two refreshes
+        // had happened.
+        //
+        // Exceptions are propagated rather than swallowed into a null. The caller is either the
+        // scheduler, which logs per-account and continues, or the controller, which needs the
+        // reason to put in the response — and returning null gave both of them a failure with no
+        // cause attached.
+        AzureDashboardData data = getDashboardData(subscriptionId, true);
+        log.info("✅ Azure dashboard refreshed and cached for subscription: {}", subscriptionId);
+        return data;
     }
 
     /**
