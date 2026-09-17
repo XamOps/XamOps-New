@@ -76,6 +76,19 @@ public class AzureBillingDataIngestionService {
     private static final String AZURE_SERVICE_MONTHLY_DB_PREFIX    = "AZURE_COST_SERVICE_MONTHLY::";
     public static final String AZURE_DAILY_SERVICE_COST_DB_PREFIX  = "AZURE_COST_DAILY_SERVICE::";
 
+    /**
+     * Billing currency, and Azure's own USD conversion of the monthly totals.
+     *
+     * <p>
+     * New keys rather than extra fields on the cached {@code CostHistory}, so a payload written by
+     * an earlier build stays readable — a reader that finds no currency key reports the currency as
+     * unknown, which is correct, instead of failing to deserialize the whole history.
+     */
+    public static final String AZURE_COST_CURRENCY_CACHE_PREFIX = "azure:cost-currency:";
+    public static final String AZURE_COST_USD_CACHE_PREFIX      = "azure:cost-usd:";
+    private static final String AZURE_COST_CURRENCY_DB_PREFIX   = "AZURE_COST_CURRENCY::";
+    private static final String AZURE_COST_USD_DB_PREFIX        = "AZURE_COST_USD::";
+
     public AzureBillingDataIngestionService(CloudAccountRepository cloudAccountRepository,
             AzureClientProvider clientProvider,
             RedisCacheService redisCache,
@@ -88,6 +101,89 @@ public class AzureBillingDataIngestionService {
         this.costQueryService = costQueryService;
         this.cachedDataRepository = cachedDataRepository;
         this.envConfig = envConfig;
+    }
+
+    /**
+     * Billing summary for a subscription: Redis, then the database mirror.
+     *
+     * <p>
+     * Exists because the two pages that matter most read Redis and stopped there. Every write in
+     * {@code processAndCacheData} puts the same payload in both tiers, and only
+     * {@code AzureCostService} — which neither the dashboard nor the FinOps report uses — ever
+     * consulted the database copy. So a cold or evicted Redis key showed zero spend on the
+     * dashboard and the FinOps page while the correct figure sat in {@code cached_data}, and it
+     * explained why cost appeared on some Azure pages and not others at the same moment.
+     *
+     * <p>
+     * A hit from the database re-warms Redis, so the next reader on any page skips the query.
+     */
+    public Optional<List<AzureDashboardData.BillingSummary>> readBillingSummary(String subscriptionId) {
+        String redisKey = AZURE_BILLING_SUMMARY_CACHE_PREFIX + subscriptionId;
+        Optional<List<AzureDashboardData.BillingSummary>> fromRedis =
+                redisCache.get(redisKey, new TypeReference<List<AzureDashboardData.BillingSummary>>() {});
+        if (fromRedis.isPresent()) {
+            return fromRedis;
+        }
+        Optional<List<AzureDashboardData.BillingSummary>> fromDb = readFromDb(
+                AZURE_COST_BILLING_SUMMARY_DB_PREFIX + subscriptionId,
+                new TypeReference<List<AzureDashboardData.BillingSummary>>() {});
+        fromDb.ifPresent(value -> {
+            log.info("Azure billing summary for {} served from the DB mirror — re-warming Redis", subscriptionId);
+            redisCache.put(redisKey, value, 60 * 24);
+        });
+        return fromDb;
+    }
+
+    /** Cost history for a subscription: Redis, then the database mirror. See {@link #readBillingSummary}. */
+    public Optional<AzureDashboardData.CostHistory> readCostHistory(String subscriptionId) {
+        String redisKey = AZURE_COST_HISTORY_CACHE_PREFIX + subscriptionId;
+        Optional<AzureDashboardData.CostHistory> fromRedis =
+                redisCache.get(redisKey, AzureDashboardData.CostHistory.class);
+        if (fromRedis.isPresent()) {
+            return fromRedis;
+        }
+        Optional<AzureDashboardData.CostHistory> fromDb = readFromDb(
+                AZURE_COST_HISTORY_DB_PREFIX + subscriptionId,
+                new TypeReference<AzureDashboardData.CostHistory>() {});
+        fromDb.ifPresent(value -> {
+            log.info("Azure cost history for {} served from the DB mirror — re-warming Redis", subscriptionId);
+            redisCache.put(redisKey, value, 60 * 24);
+        });
+        return fromDb;
+    }
+
+    /** Cost-by-region for a subscription: Redis, then the database mirror. */
+    public Optional<Map<String, Double>> readCostByRegion(String subscriptionId) {
+        String redisKey = AZURE_COST_BY_REGION_CACHE_PREFIX + subscriptionId;
+        Optional<Map<String, Double>> fromRedis =
+                redisCache.get(redisKey, new TypeReference<Map<String, Double>>() {});
+        if (fromRedis.isPresent()) {
+            return fromRedis;
+        }
+        Optional<Map<String, Double>> fromDb = readFromDb(
+                AZURE_COST_BY_REGION_DB_PREFIX + subscriptionId,
+                new TypeReference<Map<String, Double>>() {});
+        fromDb.ifPresent(value -> redisCache.put(redisKey, value, 60 * 24));
+        return fromDb;
+    }
+
+    private <T> Optional<T> readFromDb(String dbKey, TypeReference<T> type) {
+        try {
+            return cachedDataRepository.findById(dbKey)
+                    .map(CachedData::getJsonData)
+                    .filter(json -> json != null && !json.isBlank())
+                    .map(json -> {
+                        try {
+                            return objectMapper.<T>readValue(json, type);
+                        } catch (Exception e) {
+                            log.warn("Could not deserialize Azure cost DB snapshot {}: {}", dbKey, e.getMessage());
+                            return null;
+                        }
+                    });
+        } catch (Exception e) {
+            log.warn("Could not read Azure cost DB snapshot {}: {}", dbKey, e.getMessage());
+            return Optional.empty();
+        }
     }
 
     private void saveToDb(String dbKey, Object data) {
@@ -206,6 +302,59 @@ public class AzureBillingDataIngestionService {
                 ? data.costByRegion : data.currentMonthCostByRegion;
         processAndCacheData(subscriptionId, serviceMapForBilling, data.costByDate, regionMapForBilling,
                 new HashMap<>(), data.costByServiceByDate, data.costByServiceByDay);
+
+        // Currency and Azure's own USD conversion, cached beside the figures they describe.
+        //
+        // Kept in separate keys rather than widened into CostHistory so an existing cached payload
+        // stays readable: a reader that finds no currency key treats the currency as unknown, which
+        // is the honest answer, instead of failing to deserialize the whole history.
+        cacheCurrencyAndUsd(subscriptionId, data.currency, data.costUsdByDate);
+    }
+
+    /**
+     * Stores the billing currency and the USD series for a subscription.
+     *
+     * <p>
+     * Both are written to Redis and mirrored to the database on the same terms as every other cost
+     * key, so they survive a Redis restart and are readable by the same Redis-then-DB path.
+     */
+    private void cacheCurrencyAndUsd(String subscriptionId, String currency, Map<String, Double> costUsdByDate) {
+        if (currency != null && !currency.isBlank()) {
+            redisCache.put(AZURE_COST_CURRENCY_CACHE_PREFIX + subscriptionId, currency, 60 * 24);
+            saveToDb(AZURE_COST_CURRENCY_DB_PREFIX + subscriptionId, currency);
+            log.info("✅ Azure billing currency for {} is {}", subscriptionId, currency);
+        }
+        if (costUsdByDate != null && !costUsdByDate.isEmpty()) {
+            redisCache.put(AZURE_COST_USD_CACHE_PREFIX + subscriptionId, costUsdByDate, 60 * 24);
+            saveToDb(AZURE_COST_USD_DB_PREFIX + subscriptionId, costUsdByDate);
+        }
+    }
+
+    /** Billing currency code for a subscription: Redis, then the database mirror. */
+    public Optional<String> readCurrency(String subscriptionId) {
+        String redisKey = AZURE_COST_CURRENCY_CACHE_PREFIX + subscriptionId;
+        Optional<String> fromRedis = redisCache.get(redisKey, String.class);
+        if (fromRedis.isPresent()) {
+            return fromRedis;
+        }
+        Optional<String> fromDb = readFromDb(AZURE_COST_CURRENCY_DB_PREFIX + subscriptionId,
+                new TypeReference<String>() {});
+        fromDb.ifPresent(value -> redisCache.put(redisKey, value, 60 * 24));
+        return fromDb;
+    }
+
+    /** Month label to USD total, from Azure's own conversion: Redis, then the database mirror. */
+    public Optional<Map<String, Double>> readCostUsdByMonth(String subscriptionId) {
+        String redisKey = AZURE_COST_USD_CACHE_PREFIX + subscriptionId;
+        Optional<Map<String, Double>> fromRedis =
+                redisCache.get(redisKey, new TypeReference<Map<String, Double>>() {});
+        if (fromRedis.isPresent()) {
+            return fromRedis;
+        }
+        Optional<Map<String, Double>> fromDb = readFromDb(AZURE_COST_USD_DB_PREFIX + subscriptionId,
+                new TypeReference<Map<String, Double>>() {});
+        fromDb.ifPresent(value -> redisCache.put(redisKey, value, 60 * 24));
+        return fromDb;
     }
 
     private void ingestDataViaBlob(CloudAccount account) {
@@ -286,7 +435,10 @@ public class AzureBillingDataIngestionService {
 
             DateTimeFormatter azureDateFormatter = DateTimeFormatter.ofPattern("MM/dd/yyyy");
             LocalDate today = LocalDate.now();
-            String currentMonthKey = today.format(DateTimeFormatter.ofPattern("MMM yyyy"));
+            // Canonical, locale-pinned. Compared below against labels this same loop produces, so
+            // both sides move together — but pinning it means a label written today still matches
+            // one read after a locale change. See AzureMonthLabel.
+            String currentMonthKey = AzureMonthLabel.of(today);
 
             // Resolve cost column: new exports use "CostInUSD", old exports use "Cost"
             String costColumn;
@@ -332,7 +484,7 @@ public class AzureBillingDataIngestionService {
                     }
 
                     LocalDate date = LocalDate.parse(dateStr, azureDateFormatter);
-                    String monthYear = date.format(DateTimeFormatter.ofPattern("MMM yyyy"));
+                    String monthYear = AzureMonthLabel.of(date);
 
                     boolean isForecast = false;
                     if (forecastColumn != null) {
@@ -411,23 +563,39 @@ public class AzureBillingDataIngestionService {
             Map<String, Map<String, Double>> costByServiceByDate,
             Map<String, Map<String, Double>> costByServiceByDay) {
 
-        // Handle forecast calculation if missing (same logic as before)
+        // Handle forecast calculation if missing.
+        //
+        // The current month is located by resolving each key to a YearMonth rather than by building
+        // a label with the JVM default locale and calling containsKey. Keys already in the cache
+        // may have been written by a run under a different locale — "Sept 2026" against
+        // "Sep 2026" — and a containsKey miss produced no forecast at all, silently. See
+        // AzureMonthLabel.
         if (forecastByDate.isEmpty() && !costByDate.isEmpty()) {
             LocalDate today = LocalDate.now();
-            String currentMonth = today.format(DateTimeFormatter.ofPattern("MMM yyyy"));
+            java.time.YearMonth currentMonth = java.time.YearMonth.from(today);
 
-            if (costByDate.containsKey(currentMonth)) {
+            String currentMonthKey = costByDate.keySet().stream()
+                    .filter(key -> AzureMonthLabel.isMonth(key, currentMonth))
+                    .findFirst()
+                    .orElse(null);
+
+            if (currentMonthKey != null) {
                 int daysInMonth = today.lengthOfMonth();
-                int daysSoFar = today.getDayOfMonth();
+                // Days of usage actually represented, not days elapsed. The query's `to` bound is
+                // midnight today, so today contributes nothing; dividing by getDayOfMonth() spread
+                // the month's cost over one more day than produced it and under-forecast by about
+                // 1/dayOfMonth — worst early in the month, where it matters most.
+                int daysWithData = Math.max(1, today.getDayOfMonth() - 1);
 
-                if (daysSoFar < daysInMonth) {
-                    double costSoFar = costByDate.get(currentMonth);
-                    double dailyAverage = costSoFar / daysSoFar;
-                    double projectedCost = dailyAverage * daysInMonth;
+                double costSoFar = costByDate.get(currentMonthKey);
+                double dailyAverage = costSoFar / daysWithData;
+                double projectedCost = dailyAverage * daysInMonth;
 
-                    String forecastLabel = currentMonth + " (Forecast)";
-                    forecastByDate.put(forecastLabel, projectedCost);
-                }
+                // Emitted on the last day of the month as well. The old `daysSoFar < daysInMonth`
+                // guard skipped it, so the forecast row disappeared for a day and the dashboard's
+                // forecast KPI read zero every month-end. On the last day the projection equals
+                // the actual, which is the right answer rather than an absent one.
+                forecastByDate.put(AzureMonthLabel.forecastOf(currentMonth), projectedCost);
             }
         }
 
@@ -456,14 +624,16 @@ public class AzureBillingDataIngestionService {
         allMonths.addAll(forecastByDate.keySet());
 
         List<String> labels = new ArrayList<>(allMonths);
-        labels.sort(Comparator.comparing(s -> {
-            try {
-                String baseMonth = s.replace(" (Forecast)", "");
-                return LocalDate.parse("01 " + baseMonth, DateTimeFormatter.ofPattern("dd MMM yyyy"));
-            } catch (Exception e) {
-                return LocalDate.now();
-            }
-        }));
+        // Sorted through AzureMonthLabel for the same reason the lookups are: this used
+        // LocalDate.parse("01 " + label, ofPattern("dd MMM yyyy")) with the default locale, so a
+        // label spelled by another locale threw and fell back to LocalDate.now() — which silently
+        // collapsed every unparseable month to today and scrambled the chart's x-axis order.
+        // A month that genuinely cannot be parsed now sorts last instead of into the present.
+        labels.sort(Comparator.comparing(
+                (String s) -> AzureMonthLabel.parse(s).orElse(java.time.YearMonth.of(9999, 12)))
+                // Actual before forecast within the same month, so "Sep 2026" precedes
+                // "Sep 2026 (Forecast)" rather than depending on set iteration order.
+                .thenComparing(AzureMonthLabel::isForecast));
 
         List<Double> costs = new ArrayList<>();
         List<Boolean> forecastFlags = new ArrayList<>();

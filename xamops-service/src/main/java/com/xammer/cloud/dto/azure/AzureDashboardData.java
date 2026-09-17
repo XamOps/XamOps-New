@@ -116,6 +116,47 @@ public class AzureDashboardData {
     public void setStale(boolean stale) { this.stale = stale; }
 
     /**
+     * ISO code of the currency every cost figure in this payload is denominated in, e.g. "INR".
+     *
+     * <p>
+     * Azure reports cost in the subscription's billing currency and nothing recorded which that
+     * was, so the frontend guessed — twice, differently. {@code currency.ts} hardcoded ₹ for every
+     * Azure subscription, its comment asserting the value had been "converted to INR upstream"
+     * when no conversion existed anywhere in the Azure path, while {@code useUnifiedDashboard}
+     * divided the same figure by a fetched INR rate and labelled it $. Both are correct for an
+     * INR-billed subscription and wrong for any other, and the payload carried nothing that let a
+     * reader tell which case it was looking at.
+     *
+     * <p>
+     * Null when the billing pipeline has not reported a currency yet. A reader should treat null as
+     * unknown rather than assuming a default — that assumption is the bug this field closes.
+     */
+    private String currency;
+
+    /**
+     * Month-to-date spend in USD, from Azure's own {@code CostUSD} aggregation.
+     *
+     * <p>
+     * Populated only when the subscription bills in something other than USD. Provided so the
+     * multi-provider unified dashboard can total across clouds without applying a rate of its own:
+     * a live subscription returned 454.5288 INR as 4.752 USD, an implied 95.65 against the 83.33
+     * the frontend's hardcoded multiplier assumed — about 15% out, on every Azure figure in that
+     * view. Azure converts at the rate it actually billed, which no constant can track.
+     *
+     * <p>
+     * Null when unavailable, which a caller must distinguish from zero.
+     */
+    private Double monthToDateSpendUsd;
+
+    public String getCurrency() { return currency; }
+    public void setCurrency(String currency) { this.currency = currency; }
+
+    public Double getMonthToDateSpendUsd() { return monthToDateSpendUsd; }
+    public void setMonthToDateSpendUsd(Double monthToDateSpendUsd) {
+        this.monthToDateSpendUsd = monthToDateSpendUsd;
+    }
+
+    /**
      * False when at least one section could not be populated, so the zeros in this payload are
      * placeholders rather than measurements.
      *

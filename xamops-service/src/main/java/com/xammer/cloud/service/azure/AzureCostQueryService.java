@@ -231,7 +231,7 @@ public class AzureCostQueryService {
                         date = LocalDate.parse(dateObj.toString().substring(0, 10));
                     }
 
-                    String monthYear = date.format(java.time.format.DateTimeFormatter.ofPattern("MMM yyyy"));
+                    String monthYear = AzureMonthLabel.of(date);
                     costByDate.put(monthYear, costByDate.getOrDefault(monthYear, 0.0) + cost);
 
                 } catch (Exception e) {
@@ -281,6 +281,51 @@ public class AzureCostQueryService {
          * JSON cache without a key deserializer.
          */
         public Map<String, Map<String, Double>> costByServiceByDay = new HashMap<>();
+
+        /**
+         * ISO code of the currency every figure above is denominated in, e.g. {@code "INR"}.
+         *
+         * <p>
+         * Nothing recorded this before, and the consequence reached the UI. Cost Management returns
+         * the subscription's billing currency in a column literally named {@code Cost}, and the
+         * platform then guessed what it was in two places that disagreed: {@code currency.ts}
+         * hardcoded ₹ for every Azure subscription — its comment claiming the value was "converted
+         * to INR upstream", which was never true, no rate was applied anywhere — while
+         * {@code useUnifiedDashboard} divided the same number by a fetched INR rate and labelled it
+         * $. Both happen to be right for an INR-billed subscription and both are wrong for any
+         * other, with nothing in the payload to tell them apart.
+         *
+         * <p>
+         * Read from the {@code Currency} column, which Azure returns alongside the cost whether or
+         * not it is asked for.
+         */
+        public String currency;
+
+        /**
+         * The same totals in USD, from Cost Management's own {@code CostUSD} aggregation.
+         *
+         * <p>
+         * Asking Azure for the conversion rather than applying a rate locally. Verified against a
+         * live subscription: a row reading {@code 454.5288 INR} came back as {@code 4.752 CostUSD},
+         * an implied 95.65 — against the 83.33 the frontend's hardcoded 0.012 multiplier assumes,
+         * so the local conversion was roughly 15% out on every Azure figure in the unified view.
+         * Azure applies the rate it actually billed at, which no static constant can track.
+         *
+         * <p>
+         * Empty when the subscription bills in USD already, in which case {@link #costByDate} is
+         * the USD series.
+         */
+        public Map<String, Double> costUsdByDate = new HashMap<>();
+
+        /** True when {@link #costUsdByDate} was populated, so a caller knows USD is available. */
+        public boolean hasUsd() {
+            return !costUsdByDate.isEmpty();
+        }
+    }
+
+    /** Currency code reported by the last detailed fetch for a subscription, if it reported one. */
+    public Optional<String> currencyOf(AzureCostData data) {
+        return Optional.ofNullable(data == null ? null : data.currency);
     }
 
     /**
@@ -309,7 +354,11 @@ public class AzureCostQueryService {
                     "{\"type\":\"ActualCost\",\"timeframe\":\"Custom\"," +
                     "\"timePeriod\":{\"from\":\"%sT00:00:00Z\",\"to\":\"%sT00:00:00Z\"}," +
                     "\"dataset\":{\"granularity\":\"Daily\"," +
-                    "\"aggregation\":{\"TotalCost\":{\"name\":\"Cost\",\"function\":\"Sum\"}}," +
+                    // CostUSD alongside Cost, so the platform stops guessing the exchange rate.
+                    // Confirmed available on this endpoint against a live subscription: the response
+                    // carries Cost, CostUSD and Currency columns together.
+                    "\"aggregation\":{\"TotalCost\":{\"name\":\"Cost\",\"function\":\"Sum\"}," +
+                    "\"TotalCostUSD\":{\"name\":\"CostUSD\",\"function\":\"Sum\"}}," +
                     "\"grouping\":[" +
                     "{\"type\":\"Dimension\",\"name\":\"MeterCategory\"}," +
                     "{\"type\":\"Dimension\",\"name\":\"ResourceLocation\"}" +
@@ -328,12 +377,23 @@ public class AzureCostQueryService {
 
             // Build column index map from response column metadata
             int costIdx = 0, dateIdx = 1, productIdx = 2, locationIdx = 3; // positional defaults
+            // No positional default for these two: they are only present when the response carries
+            // them, and guessing an index would read a cost as a currency code or vice versa.
+            int costUsdIdx = -1, currencyIdx = -1;
             if (columns.isArray() && columns.size() > 0) {
                 costIdx = -1; dateIdx = -1; productIdx = -1; locationIdx = -1;
                 for (int i = 0; i < columns.size(); i++) {
                     String name = columns.get(i).path("name").asText();
-                    if (name.equalsIgnoreCase("Cost") || name.equalsIgnoreCase("TotalCost"))
+                    // CostUSD is checked before Cost. Both are exact-match comparisons so the
+                    // order is not strictly required, but the two names differ by a suffix and
+                    // relying on that is the kind of thing a later `startsWith` would break.
+                    if (name.equalsIgnoreCase("CostUSD") || name.equalsIgnoreCase("TotalCostUSD"))
+                        costUsdIdx = i;
+                    else if (name.equalsIgnoreCase("Cost") || name.equalsIgnoreCase("TotalCost"))
                         costIdx = i;
+                    else if (name.equalsIgnoreCase("Currency") || name.equalsIgnoreCase("BillingCurrency")
+                            || name.equalsIgnoreCase("BillingCurrencyCode"))
+                        currencyIdx = i;
                     else if (name.equalsIgnoreCase("UsageDate") || name.equalsIgnoreCase("BillingMonth")
                             || name.equalsIgnoreCase("Date"))
                         dateIdx = i;
@@ -385,8 +445,22 @@ public class AzureCostQueryService {
                     } else {
                         date = LocalDate.parse(dateNode.asText().substring(0, 10));
                     }
-                    String monthYear = date.format(java.time.format.DateTimeFormatter.ofPattern("MMM yyyy"));
+                    String monthYear = AzureMonthLabel.of(date);
                     data.costByDate.put(monthYear, data.costByDate.getOrDefault(monthYear, 0.0) + cost);
+
+                    // The same month total in USD, using Azure's own conversion. Accumulated in
+                    // parallel rather than derived, because the billed rate varies day to day and
+                    // any single rate applied after the fact would be wrong for most of the series.
+                    if (costUsdIdx != -1 && row.size() > costUsdIdx) {
+                        double costUsd = row.get(costUsdIdx).asDouble();
+                        data.costUsdByDate.merge(monthYear, costUsd, Double::sum);
+                    }
+                    if (data.currency == null && currencyIdx != -1 && row.size() > currencyIdx) {
+                        String code = row.get(currencyIdx).asText(null);
+                        if (code != null && !code.isBlank()) {
+                            data.currency = code;
+                        }
+                    }
 
                     // Track per-service monthly costs for service trend chart
                     data.costByServiceByDate
@@ -399,10 +473,10 @@ public class AzureCostQueryService {
                             .computeIfAbsent(service, k -> new HashMap<>())
                             .merge(date.toString(), cost, Double::sum);
 
-                    // Track current month costs per service and region for Billing Details
-                    String currentMonthLabel = LocalDate.now()
-                            .format(java.time.format.DateTimeFormatter.ofPattern("MMM yyyy"));
-                    if (monthYear.equals(currentMonthLabel)) {
+                    // Track current month costs per service and region for Billing Details.
+                    // Compared as a YearMonth, not as a formatted string, so the spelling the
+                    // default locale happens to produce cannot decide whether a row counts.
+                    if (AzureMonthLabel.isMonth(monthYear, java.time.YearMonth.now())) {
                         data.currentMonthCostByService.put(service,
                                 data.currentMonthCostByService.getOrDefault(service, 0.0) + cost);
                         data.currentMonthCostByRegion.put(region,

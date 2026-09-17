@@ -173,12 +173,13 @@ public class AzureDashboardController {
                     .map(m -> m.getOrDefault(serviceName, new HashMap<>()))
                     .orElse(new HashMap<>());
 
-            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MMM yyyy");
+            // Sorted via AzureMonthLabel rather than a default-locale parse. The old version fell
+            // back to YearMonth.now() on a parse failure, so a label spelled by a different locale
+            // silently sorted as the current month and scrambled the trend chart's order.
             List<String> labels = serviceData.keySet().stream()
-                    .sorted(Comparator.comparing(label -> {
-                        try { return YearMonth.parse(label, fmt); }
-                        catch (Exception e) { return YearMonth.now(); }
-                    }))
+                    .sorted(Comparator.comparing(
+                            label -> com.xammer.cloud.service.azure.AzureMonthLabel.parse(label)
+                                    .orElse(YearMonth.of(9999, 12))))
                     .collect(Collectors.toList());
 
             List<Double> costs = labels.stream()

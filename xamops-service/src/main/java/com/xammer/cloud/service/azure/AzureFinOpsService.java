@@ -68,6 +68,18 @@ public class AzureFinOpsService {
     private AzureCostAnomalyService costAnomalyService;
 
     /**
+     * Owns the cost cache keys, and now the Redis-then-database read for them.
+     *
+     * <p>
+     * Injected so this report stops reading Redis directly. Both tiers are written by the same
+     * ingestion pass, but only {@code AzureCostService} ever consulted the database copy and no
+     * page uses it — so a cold Redis key made this report show zero spend while the correct figure
+     * sat in {@code cached_data}.
+     */
+    @Autowired
+    private AzureBillingDataIngestionService billingIngestionService;
+
+    /**
      * Generates the main FinOps report for an Azure subscription
      */
     public AzureFinOpsReportDto getFinOpsReport(String subscriptionId) {
@@ -76,17 +88,19 @@ public class AzureFinOpsService {
         AzureFinOpsReportDto report = new AzureFinOpsReportDto();
         AzureFinOpsReportDto.Kpis kpis = new AzureFinOpsReportDto.Kpis();
 
-        String summaryCacheKey = "azure:billing-summary:" + subscriptionId;
-        String historyCacheKey = "azure:cost-history:" + subscriptionId;
         String regionCacheKey = AzureBillingDataIngestionService.AZURE_COST_BY_REGION_CACHE_PREFIX + subscriptionId;
 
-        // Get billing summary from cache
+        // Redis, then the database mirror.
+        //
+        // These were bare Redis reads, so a cold or evicted key made this report show zero spend
+        // even though the ingestion job had written the same payload to cached_data. That is what
+        // made cost visible on some Azure pages and absent on others at the same moment: only
+        // AzureCostService consulted the DB copy, and this page does not use it.
         Optional<List<AzureDashboardData.BillingSummary>> billingSummaryOpt =
-            redisCacheService.get(summaryCacheKey, new TypeReference<>() {});
+            billingIngestionService.readBillingSummary(subscriptionId);
 
-        // Get cost history from cache
         Optional<AzureDashboardData.CostHistory> costHistoryOpt =
-            redisCacheService.get(historyCacheKey, AzureDashboardData.CostHistory.class);
+            billingIngestionService.readCostHistory(subscriptionId);
 
         // --- STEP 1: Get KPIs from Redis Cache ---
         try {

@@ -515,14 +515,20 @@ public class AzureDashboardService {
         String historyCacheKey = AzureBillingDataIngestionService.AZURE_COST_HISTORY_CACHE_PREFIX + accountId;
 
         if (force) {
-            log.info(
-                    "Force refresh requested for Azure billing data for account {}. Evicting cache and triggering ingestion.",
+            log.info("Force refresh requested for Azure billing data for account {}. Triggering ingestion.",
                     accountId);
             try {
-                redisCache.evict(billingCacheKey);
-                redisCache.evict(historyCacheKey);
-                log.info("Cache evicted for {}.", accountId);
-
+                // No eviction before ingestion any more.
+                //
+                // This used to evict the billing-summary and cost-history keys and then ingest. The
+                // eviction was pointless on success — ingestion overwrites both keys anyway — and
+                // destructive on failure, which is the case that matters: every failure path in
+                // ingestDataForAccount returns without writing (no rows from Cost Management, no
+                // CSV in the export container, billing config absent). So a refresh that failed
+                // deleted the only copy in Redis and put nothing back, and because the dashboard
+                // and the FinOps report both read Redis with no fallback, cost disappeared from
+                // both until the next successful ingestion — up to a day. Overwriting in place
+                // means a failed ingestion is a no-op instead of a wipe.
                 billingIngestionService.ingestDataForAccount(account);
                 log.info("Force ingestion complete for {}.", accountId);
             } catch (Exception e) {
@@ -532,10 +538,13 @@ public class AzureDashboardService {
             }
         }
 
-        // 1. Get Billing Summary from Cache (Cost by Service)
-        Optional<List<AzureDashboardData.BillingSummary>> billingSummary = redisCache.get(billingCacheKey,
-                new TypeReference<>() {
-                });
+        // 1. Get Billing Summary (Cost by Service) — Redis, then the DB mirror.
+        //
+        // Was a bare Redis read. The ingestion job writes both tiers, but only AzureCostService
+        // ever read the database copy, and no page uses AzureCostService — so a cold Redis key
+        // rendered as zero spend here while the correct figure sat in cached_data.
+        Optional<List<AzureDashboardData.BillingSummary>> billingSummary =
+                billingIngestionService.readBillingSummary(accountId);
 
         // Whether this subscription has a cost export at all, which is the difference between
         // "the numbers are not in yet" and "the numbers are never coming". Onboarding saves the
@@ -559,15 +568,14 @@ public class AzureDashboardService {
             dashboardData.setBillingSummary(Collections.emptyList());
         }
 
-        // 1b. Get Cost by Region from Cache
-        String regionCacheKey = AzureBillingDataIngestionService.AZURE_COST_BY_REGION_CACHE_PREFIX + accountId;
-        Optional<java.util.Map<String, Double>> costByRegion = redisCache.get(regionCacheKey,
-                new TypeReference<java.util.Map<String, Double>>() {});
+        // 1b. Get Cost by Region — Redis, then the DB mirror.
+        Optional<java.util.Map<String, Double>> costByRegion =
+                billingIngestionService.readCostByRegion(accountId);
         dashboardData.setCostByRegion(costByRegion.orElse(new java.util.HashMap<>()));
 
-        // 2. Get Cost History from Cache
-        Optional<AzureDashboardData.CostHistory> costHistory = redisCache.get(historyCacheKey,
-                AzureDashboardData.CostHistory.class);
+        // 2. Get Cost History — Redis, then the DB mirror.
+        Optional<AzureDashboardData.CostHistory> costHistory =
+                billingIngestionService.readCostHistory(accountId);
 
         if (costHistory.isPresent()) {
             dashboardData.setCostHistory(costHistory.get());
@@ -578,15 +586,24 @@ public class AzureDashboardService {
             List<Boolean> forecastFlags = history.getForecast();
 
             if (labels != null && costs != null && forecastFlags != null && labels.size() == costs.size()) {
-                // Look up costs by month label — MTD = current month only, Last Month = previous month only
-                String currentMonthLabel = java.time.LocalDate.now()
-                        .format(DateTimeFormatter.ofPattern("MMM yyyy"));
-                String lastMonthLabel = java.time.LocalDate.now().minusMonths(1)
-                        .format(DateTimeFormatter.ofPattern("MMM yyyy"));
+                // Resolve each label to a YearMonth and compare that, rather than comparing the
+                // formatted strings.
+                //
+                // This was `label.equals(LocalDate.now().format(ofPattern("MMM yyyy")))`, and the
+                // pattern takes the JVM default locale: September formats as "Sept 2026" under
+                // en_GB and "Sep 2026" under en_US and Locale.ROOT. Producer and consumer share a
+                // JVM so they normally agree, but these labels are persisted — a day in Redis,
+                // forever in cached_data — so any change to the default locale between the write
+                // and the read makes every stored label unmatchable and silently sets MTD to 0.00
+                // while the cost chart beside it still renders the full history. Only September,
+                // October and December differ, so it would look seasonal. See AzureMonthLabel.
+                java.time.YearMonth currentMonth = java.time.YearMonth.now();
+                java.time.YearMonth lastMonth = currentMonth.minusMonths(1);
 
                 double mtdSpend = 0.0;
                 double lastMonthSpend = 0.0;
                 double forecastedSpend = 0.0;
+                boolean matchedCurrentMonth = false;
 
                 for (int i = 0; i < labels.size(); i++) {
                     String label = labels.get(i);
@@ -595,19 +612,48 @@ public class AzureDashboardService {
 
                     if (isForecast) {
                         forecastedSpend += cost;
-                    } else if (label.equals(currentMonthLabel)) {
+                    } else if (AzureMonthLabel.isMonth(label, currentMonth)) {
                         mtdSpend = cost;
-                    } else if (label.equals(lastMonthLabel)) {
+                        matchedCurrentMonth = true;
+                    } else if (AzureMonthLabel.isMonth(label, lastMonth)) {
                         lastMonthSpend = cost;
                     }
+                }
+
+                // A history that carries no row for the current month is a real state early in a
+                // billing period, but it is indistinguishable from the parse failure above unless
+                // it is called out. Without this the only symptom of a broken label was a zero
+                // that looked measured.
+                if (!matchedCurrentMonth && !labels.isEmpty()) {
+                    log.warn("No cost row for {} in the history for {} — labels present: {}. "
+                            + "Month-to-date is reported as 0.00.", currentMonth, accountId, labels);
+                    dashboardData.addDataWarning("No cost has been recorded for the current month yet, "
+                            + "so month-to-date spend is shown as zero rather than measured.");
                 }
 
                 dashboardData.setMonthToDateSpend(mtdSpend);
                 dashboardData.setForecastedSpend(forecastedSpend);
                 dashboardData.setLastMonthSpend(lastMonthSpend);
 
-                log.info("Dashboard KPIs for {} — MTD: {}, Last Month: {}, Forecasted: {}",
-                        accountId, mtdSpend, lastMonthSpend, forecastedSpend);
+                // Currency and the USD equivalent, so no reader has to guess either.
+                //
+                // The figures above are in the subscription's billing currency, whatever that is,
+                // and until now nothing said which. The frontend guessed in two places that
+                // disagreed — a hardcoded ₹ on the Azure pages and a locally-applied INR rate on
+                // the unified card — and both were unfalsifiable from the payload.
+                billingIngestionService.readCurrency(accountId)
+                        .ifPresent(dashboardData::setCurrency);
+                billingIngestionService.readCostUsdByMonth(accountId).ifPresent(usdByMonth -> {
+                    usdByMonth.entrySet().stream()
+                            .filter(entry -> AzureMonthLabel.isMonth(entry.getKey(), currentMonth))
+                            .map(java.util.Map.Entry::getValue)
+                            .findFirst()
+                            .ifPresent(dashboardData::setMonthToDateSpendUsd);
+                });
+
+                log.info("Dashboard KPIs for {} — MTD: {} {}, Last Month: {}, Forecasted: {}, MTD USD: {}",
+                        accountId, mtdSpend, dashboardData.getCurrency(), lastMonthSpend, forecastedSpend,
+                        dashboardData.getMonthToDateSpendUsd());
             } else {
                 dashboardData.setMonthToDateSpend(0.0);
                 dashboardData.setForecastedSpend(0.0);
