@@ -32,7 +32,22 @@ interface UseSecurityDataReturn {
   setSelectedCompliance: (compliance: string) => void;
   toggleSeverity: (severity: SeverityLevel) => void;
   getFindingsBySeverity: (severity: SeverityLevel) => SecurityFinding[];
+  resolveFinding: (finding: SecurityFinding) => Promise<void>;
+  restoreFinding: (finding: SecurityFinding) => Promise<void>;
+  resolvingKeys: string[];
+  lastResolved: SecurityFinding | null;
+  dismissLastResolved: () => void;
 }
+
+/**
+ * The identity of a finding, matching SecurityFindingKey on the server.
+ *
+ * A finding has no id: the same problem reaches this page from Prowler, from the describe-based
+ * checks and from the event stream, and only the last of those has a row anywhere. Resource plus
+ * control is what all three agree on, and it is already the pair the server dedupes them by.
+ */
+const findingKey = (finding: SecurityFinding): string =>
+  `${finding.resourceId ?? ''}|${finding.controlId ?? ''}`;
 
 export const useSecurityData = ({
   selectedAccountId,
@@ -44,6 +59,8 @@ export const useSecurityData = ({
   const [selectedCompliance, setSelectedCompliance] = useState<string>('All');
   const [openSeverities, setOpenSeverities] = useState<SeverityLevel[]>([]);
   const [prowlerStatus, setProwlerStatus] = useState<ProwlerStatus>({ status: 'UNKNOWN' });
+  const [resolvingKeys, setResolvingKeys] = useState<string[]>([]);
+  const [lastResolved, setLastResolved] = useState<SecurityFinding | null>(null);
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -127,6 +144,90 @@ export const useSecurityData = ({
     },
     [selectedAccountId, processFindings]
   );
+
+  /**
+   * Mark a finding fixed.
+   *
+   * Optimistic: the row leaves the list before the request returns, and is put back if the
+   * request fails. Reloading instead would be a multi-region scan on the fresh path, so the
+   * honest choice is to show the outcome immediately and undo it on error rather than make the
+   * user wait to find out whether their click landed.
+   */
+  const resolveFinding = useCallback(
+    async (finding: SecurityFinding) => {
+      if (!selectedAccountId) return;
+      const key = findingKey(finding);
+      if (resolvingKeys.includes(key)) return;
+
+      setResolvingKeys((prev) => [...prev, key]);
+      setFindings((prev) => prev.filter((f) => findingKey(f) !== key));
+
+      const params = new URLSearchParams({
+        accountId: selectedAccountId,
+        resourceId: finding.resourceId ?? '',
+        controlId: finding.controlId ?? '',
+        severity: finding.severity ?? '',
+        title: finding.description ?? '',
+      });
+
+      try {
+        const response = await fetch(`/api/xamops/security/findings/resolve?${params}`, {
+          method: 'POST',
+          credentials: 'include',
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        setLastResolved(finding);
+      } catch (err) {
+        // Put it back. A finding that silently vanished because a request failed is the one
+        // outcome worse than not having the button at all.
+        setFindings((prev) => [...prev, finding]);
+        console.error('Could not mark the finding fixed:', err);
+        alert('Could not mark that finding fixed. It is still on the list.');
+      } finally {
+        setResolvingKeys((prev) => prev.filter((k) => k !== key));
+      }
+    },
+    [selectedAccountId, resolvingKeys]
+  );
+
+  /**
+   * Put a finding back on the list.
+   *
+   * Marking the wrong row fixed is one misclick on a dense table, and for a finding that really is
+   * fixed no scan will ever contradict it — so without this the mistake would be permanent.
+   */
+  const restoreFinding = useCallback(
+    async (finding: SecurityFinding) => {
+      if (!selectedAccountId) return;
+      const params = new URLSearchParams({
+        accountId: selectedAccountId,
+        resourceId: finding.resourceId ?? '',
+        controlId: finding.controlId ?? '',
+      });
+
+      try {
+        const response = await fetch(`/api/xamops/security/findings/restore?${params}`, {
+          method: 'POST',
+          credentials: 'include',
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        setFindings((prev) =>
+          prev.some((f) => findingKey(f) === findingKey(finding)) ? prev : [...prev, finding]
+        );
+        setLastResolved(null);
+      } catch (err) {
+        console.error('Could not restore the finding:', err);
+        alert('Could not put that finding back. Refresh to see the current list.');
+      }
+    },
+    [selectedAccountId]
+  );
+
+  const dismissLastResolved = useCallback(() => setLastResolved(null), []);
 
   /**
    * Check Prowler scan status
@@ -304,6 +405,11 @@ export const useSecurityData = ({
     setSelectedCompliance,
     toggleSeverity,
     getFindingsBySeverity,
+    resolveFinding,
+    restoreFinding,
+    resolvingKeys,
+    lastResolved,
+    dismissLastResolved,
   };
 };
 

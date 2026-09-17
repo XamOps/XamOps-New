@@ -8,8 +8,10 @@ import com.xammer.cloud.dto.security.IdentityInventoryResponse;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.CloudListService;
+import com.xammer.cloud.domain.SecurityFindingResolution;
 import com.xammer.cloud.service.security.DetectorCoverageService;
 import com.xammer.cloud.service.security.SecurityFindingProjectionService;
+import com.xammer.cloud.service.security.SecurityFindingResolutionService;
 import com.xammer.cloud.service.DashboardDataService;
 import com.xammer.cloud.service.ExcelExportService;
 import com.xammer.cloud.service.ProwlerService;
@@ -85,6 +87,7 @@ public class SecurityController {
     private final ProwlerService prowlerService;
     private final SecurityFindingProjectionService liveFindings;
     private final DetectorCoverageService detectorCoverage;
+    private final SecurityFindingResolutionService resolutions;
 
     public SecurityController(SecurityService securityService,
             CloudAccountRepository cloudAccountRepository,
@@ -93,8 +96,10 @@ public class SecurityController {
             ExcelExportService excelExportService,
             ProwlerService prowlerService,
             SecurityFindingProjectionService liveFindings,
-            DetectorCoverageService detectorCoverage) {
+            DetectorCoverageService detectorCoverage,
+            SecurityFindingResolutionService resolutions) {
         this.detectorCoverage = detectorCoverage;
+        this.resolutions = resolutions;
         this.securityService = securityService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.cloudListService = cloudListService;
@@ -321,8 +326,15 @@ public class SecurityController {
                 // no expiry, so without the merge an event-driven finding would stay invisible
                 // until something happened to rewrite the snapshot — and the Redis tier in
                 // front of it has a 1440-minute TTL, so "something" could be a day away.
+                //
+                // Findings the user has marked fixed are dropped, but nothing here is allowed to
+                // retire a dismissal: this snapshot can be up to SECURITY_SNAPSHOT_MAX_AGE_HOURS
+                // old, so it may well predate the fix, and treating it as evidence would make the
+                // finding reappear until the next real scan. Only a fresh scan gets to disagree.
                 return CompletableFuture.completedFuture(ResponseEntity.ok(
-                        liveFindings.mergeInto(cachedFindings, cloudAccountId)));
+                        resolutions.filterResolved(
+                                liveFindings.mergeInto(cachedFindings, cloudAccountId),
+                                cloudAccountId)));
             }
         }
 
@@ -346,8 +358,14 @@ public class SecurityController {
                 .thenApply(findings -> {
                     List<DashboardData.SecurityFinding> merged =
                             liveFindings.mergeInto(findings, cloudAccountId);
+                    int beforeResolutions = merged.size();
+                    // This scan just ran, so it is current evidence. Any finding the user marked
+                    // fixed that still appears here was not fixed, and its dismissal is retired
+                    // rather than left to hide a live problem indefinitely.
+                    merged = resolutions.reconcileAgainstFreshScan(merged, cloudAccountId);
                     logger.info("Returning {} security findings for account {} ({} from the live "
-                            + "event stream)", merged.size(), accountId, merged.size() - findings.size());
+                            + "event stream, {} hidden as fixed)", merged.size(), accountId,
+                            beforeResolutions - findings.size(), beforeResolutions - merged.size());
                     return ResponseEntity.ok(merged);
                 })
                 .exceptionally(ex -> {
@@ -355,6 +373,138 @@ public class SecurityController {
                             accountId, ex);
                     return ResponseEntity.status(500).body(Collections.emptyList());
                 });
+    }
+
+    /**
+     * Marks a finding fixed.
+     *
+     * <p>
+     * The action {@code ExposureDetector} has been asking for all along: every derived finding
+     * ends its remediation with "mark the finding resolved once you have verified the fix", and
+     * until now there was nothing to mark. Without it a resource fixed silently stayed ACTIVE for
+     * the lifetime of the connection, because only Config and Security Hub controls close their
+     * own findings — GuardDuty does not, and a CloudTrail-derived finding cannot, since XamOps
+     * sees the change that opened the hole and never the one that closes it.
+     *
+     * <p>
+     * Keyed on {@code resourceId} plus {@code controlId} rather than a finding id, because the
+     * same problem reaches the page from three sources with three different identities and only
+     * one of them has a row in the database. See {@code SecurityFindingKey}.
+     *
+     * <p>
+     * Ownership-checked through {@link #resolveOwnedAccount}, unlike the read endpoints on this
+     * controller. A write that suppresses a security finding is the last thing that should be
+     * reachable by account id alone: without the check, anyone who could guess a 12-digit AWS
+     * account number could blind another tenant's Security Center.
+     */
+    @PostMapping("/findings/resolve")
+    public ResponseEntity<Map<String, Object>> resolveFinding(
+            @RequestParam String accountId,
+            @RequestParam(required = false) String resourceId,
+            @RequestParam(required = false) String controlId,
+            @RequestParam(required = false) String severity,
+            @RequestParam(required = false) String title,
+            @RequestParam(required = false) String note,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        try {
+            CloudAccount account = resolveOwnedAccount(accountId, userDetails);
+            String actor = userDetails == null ? null : userDetails.getUsername();
+            SecurityFindingResolution resolution = resolutions.resolve(
+                    account.getId(), resourceId, controlId, severity, title, note, actor);
+
+            return ResponseEntity.ok(Map.of(
+                    "status", "RESOLVED",
+                    "resourceId", resolution.getResourceId() == null ? "" : resolution.getResourceId(),
+                    "controlId", resolution.getControlId() == null ? "" : resolution.getControlId(),
+                    "resolvedBy", resolution.getResolvedBy(),
+                    "resolvedAt", resolution.getResolvedAt().toString(),
+                    "message", "Marked fixed. If a scan finds it again, it will come back."));
+        } catch (SecurityException e) {
+            logger.warn("Rejected resolve for account {}: {}", accountId, e.getMessage());
+            return ResponseEntity.status(403).body(Map.of("status", "FORBIDDEN"));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "status", "INVALID", "message", e.getMessage()));
+        } catch (Exception e) {
+            logger.error("Could not mark a finding fixed for account {}", accountId, e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "status", "ERROR", "message", "Could not record that. Try again."));
+        }
+    }
+
+    /**
+     * Undoes a dismissal.
+     *
+     * <p>
+     * Has to exist: marking the wrong row fixed is one misclick on a dense table, and for a
+     * finding that genuinely is fixed no scan will ever contradict it, so without this the mistake
+     * would be permanent.
+     */
+    @PostMapping("/findings/restore")
+    public ResponseEntity<Map<String, Object>> restoreFinding(
+            @RequestParam String accountId,
+            @RequestParam(required = false) String resourceId,
+            @RequestParam(required = false) String controlId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        try {
+            CloudAccount account = resolveOwnedAccount(accountId, userDetails);
+            String actor = userDetails == null ? null : userDetails.getUsername();
+            boolean restored = resolutions.restore(account.getId(), resourceId, controlId, actor);
+            return ResponseEntity.ok(Map.of(
+                    "status", restored ? "RESTORED" : "NOT_RESOLVED",
+                    "message", restored
+                            ? "Back on the list."
+                            : "That finding was not marked fixed."));
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403).body(Map.of("status", "FORBIDDEN"));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "status", "INVALID", "message", e.getMessage()));
+        } catch (Exception e) {
+            logger.error("Could not restore a finding for account {}", accountId, e);
+            return ResponseEntity.status(500).body(Map.of("status", "ERROR"));
+        }
+    }
+
+    /**
+     * What has been marked fixed, and what came back.
+     *
+     * <p>
+     * Returns retired resolutions too, with the reason. "This was marked fixed on Tuesday and the
+     * provider reported it again on Thursday" is the most useful thing this record holds, and a
+     * list of only the live ones would omit it.
+     */
+    @GetMapping("/findings/resolved")
+    public ResponseEntity<List<Map<String, Object>>> resolvedFindings(
+            @RequestParam String accountId,
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+
+        try {
+            CloudAccount account = resolveOwnedAccount(accountId, userDetails);
+            List<Map<String, Object>> body = resolutions.history(account.getId()).stream()
+                    .map(r -> {
+                        Map<String, Object> row = new HashMap<>();
+                        row.put("resourceId", r.getResourceId());
+                        row.put("controlId", r.getControlId());
+                        row.put("severity", r.getSeverity());
+                        row.put("title", r.getTitle());
+                        row.put("resolvedBy", r.getResolvedBy());
+                        row.put("resolvedAt", r.getResolvedAt() == null ? null
+                                : r.getResolvedAt().toString());
+                        row.put("note", r.getNote());
+                        row.put("live", r.isLive());
+                        row.put("retiredReason", r.getRetiredReason());
+                        return row;
+                    })
+                    .collect(java.util.stream.Collectors.toList());
+            return ResponseEntity.ok(body);
+        } catch (SecurityException e) {
+            return ResponseEntity.status(403).build();
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
+        }
     }
 
     @GetMapping("/export")

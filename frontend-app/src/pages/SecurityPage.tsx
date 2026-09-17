@@ -39,6 +39,11 @@ const SecurityPage: React.FC = () => {
     setSelectedCompliance,
     toggleSeverity,
     getFindingsBySeverity,
+    resolveFinding,
+    restoreFinding,
+    resolvingKeys,
+    lastResolved,
+    dismissLastResolved,
   } = useSecurityData({ selectedAccountId });
 
   const { setActions, clearActions } = useTopbar();
@@ -168,6 +173,8 @@ const SecurityPage: React.FC = () => {
                       findings={getFindingsBySeverity(severity)}
                       isOpen={openSeverities.includes(severity)}
                       onToggle={() => toggleSeverity(severity)}
+                      onResolve={resolveFinding}
+                      resolvingKeys={resolvingKeys}
                     />
                   </div>
                 ))}
@@ -176,6 +183,51 @@ const SecurityPage: React.FC = () => {
           )}
         </AnimatePresence>
       </div>
+
+      {/*
+        Undo, rather than a confirmation dialog before the fact. Marking a finding fixed is
+        reversible and low-stakes — the server retires the claim the moment a scan disagrees — so
+        a modal on every click would tax the common case to guard against a rare one. This also
+        states the self-correcting behaviour plainly, since a user who thinks "fixed" means
+        "hidden forever" would reasonably be reluctant to use it at all.
+      */}
+      <AnimatePresence>
+        {lastResolved && (
+          <motion.div
+            key="resolved-toast"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            role="status"
+            aria-live="polite"
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2.5 rounded-lg bg-[#111111] text-white shadow-lg border border-[rgba(255,255,255,0.1)]"
+          >
+            <Icon icon="mdi:check-circle" width={16} className="text-emerald-400 shrink-0" />
+            <div className="text-xs">
+              <div className="font-semibold">Marked fixed</div>
+              <div className="text-white/60">
+                It comes back if a scan finds it again.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => restoreFinding(lastResolved)}
+              className="text-xs font-semibold text-white underline underline-offset-2 hover:text-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 rounded px-1"
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              onClick={dismissLastResolved}
+              aria-label="Dismiss"
+              className="text-white/40 hover:text-white/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 rounded"
+            >
+              <Icon icon="mdi:close" width={14} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </main>
   );
 };

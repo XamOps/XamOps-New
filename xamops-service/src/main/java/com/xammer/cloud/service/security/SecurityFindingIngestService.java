@@ -3,14 +3,14 @@ package com.xammer.cloud.service.security;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.CloudSecurityFinding;
+import com.xammer.cloud.domain.SecurityFindingResolution;
 import com.xammer.cloud.repository.CloudSecurityFindingRepository;
+import com.xammer.cloud.repository.SecurityFindingResolutionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.Optional;
@@ -81,9 +81,12 @@ public class SecurityFindingIngestService {
     }
 
     private final CloudSecurityFindingRepository repository;
+    private final SecurityFindingResolutionRepository resolutionRepository;
 
-    public SecurityFindingIngestService(CloudSecurityFindingRepository repository) {
+    public SecurityFindingIngestService(CloudSecurityFindingRepository repository,
+            SecurityFindingResolutionRepository resolutionRepository) {
         this.repository = repository;
+        this.resolutionRepository = resolutionRepository;
     }
 
     /** Whether this envelope is one of the AWS-native security sources. */
@@ -404,6 +407,7 @@ public class SecurityFindingIngestService {
             copyMutable(row, severity, title, description, resourceArn, resourceType, region,
                     framework, controlId, remediation, eventTime, effectiveStatus, now);
             repository.save(row);
+            contradictResolution(account, resourceArn, controlId);
             log.info("[SecFinding] {} {} finding for account {} — {}",
                     severity, source, account.getAwsAccountId(), title);
             return Outcome.CREATED;
@@ -438,6 +442,7 @@ public class SecurityFindingIngestService {
             row.setFirstSeenAt(now);
             row.setNotifiedAt(null);
             repository.save(row);
+            contradictResolution(account, resourceArn, controlId);
             log.info("[SecFinding] Reopened {} finding for account {} — {}",
                     source, account.getAwsAccountId(), title);
             return Outcome.CREATED;
@@ -465,6 +470,40 @@ public class SecurityFindingIngestService {
             row.setResolvedAt(now);
         } else {
             row.setResolvedAt(null);
+        }
+    }
+
+    /**
+     * Retires a user's "I have fixed this" claim, because the provider disagrees.
+     *
+     * <p>
+     * Called from both branches that return {@link Outcome#CREATED} — a reopen, and a fresh row
+     * created after the retention purge removed the original. Both mean the provider currently
+     * considers the finding active, which is the strongest possible evidence against a dismissal.
+     * Without this, a resolution recorded once would keep hiding the finding forever, and marking
+     * something fixed would be indistinguishable from suppressing it.
+     *
+     * <p>
+     * A direct repository call rather than going through
+     * {@code SecurityFindingResolutionService}: that service depends on this package's finding
+     * repository and is itself a read-path collaborator of the controller, so injecting it here
+     * would add a cycle for the sake of one bulk update.
+     */
+    private void contradictResolution(CloudAccount account, String resourceArn, String controlId) {
+        try {
+            String hash = SecurityFindingKey.hashOf(resourceArn, controlId);
+            int retired = resolutionRepository.retire(account.getId(), java.util.List.of(hash),
+                    SecurityFindingResolution.RETIRED_REOPENED_BY_PROVIDER, Instant.now());
+            if (retired > 0) {
+                log.info("[SecFinding] {} was marked fixed for account {} but the provider reported "
+                        + "it again; showing it again", resourceArn, account.getAwsAccountId());
+            }
+        } catch (Exception e) {
+            // Never fail ingest over this. Losing the retirement means a finding stays hidden
+            // until the next scan contradicts it, which is recoverable; failing the message would
+            // have SQS redeliver and then DLQ a finding we had already stored correctly.
+            log.warn("[SecFinding] Could not retire the resolution for {}: {}",
+                    resourceArn, e.getMessage());
         }
     }
 
@@ -543,20 +582,13 @@ public class SecurityFindingIngestService {
      * Hashed rather than concatenated because the raw components can exceed the column width
      * and can contain characters that make the id awkward to handle; the hash is fixed-width
      * and stable across restarts, which is all the uniqueness constraint needs.
+     *
+     * <p>
+     * Delegates to {@link SecurityFindingKey}, which now owns the one implementation. Both this
+     * and the resolution key hash end up in a unique constraint, and two copies of a hash used
+     * that way stay identical only until someone improves one of them.
      */
     static String sha256Short(String value) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(value.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder();
-            for (int i = 0; i < 12; i++) {
-                hex.append(String.format("%02x", digest[i]));
-            }
-            return hex.toString();
-        } catch (Exception e) {
-            // SHA-256 is mandatory on every JVM; if it is genuinely missing, a stable
-            // fallback keeps ingest working rather than losing the finding.
-            return Integer.toHexString(value.hashCode());
-        }
+        return SecurityFindingKey.sha256Short(value);
     }
 }

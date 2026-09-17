@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.CloudSecurityFinding;
 import com.xammer.cloud.repository.CloudSecurityFindingRepository;
+import com.xammer.cloud.repository.SecurityFindingResolutionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -35,6 +36,7 @@ import static org.mockito.Mockito.when;
 class SecurityFindingIngestServiceTest {
 
     private CloudSecurityFindingRepository repository;
+    private SecurityFindingResolutionRepository resolutionRepository;
     private SecurityFindingIngestService service;
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -57,7 +59,12 @@ class SecurityFindingIngestServiceTest {
             return row;
         });
 
-        service = new SecurityFindingIngestService(repository);
+        // Retiring a "user marked this fixed" claim when the provider reports the finding again is
+        // a side effect of ingest, not something these tests assert on, so the mock's default
+        // zero-return is the right stand-in for "nothing was dismissed".
+        resolutionRepository = Mockito.mock(SecurityFindingResolutionRepository.class);
+
+        service = new SecurityFindingIngestService(repository, resolutionRepository);
     }
 
     private CloudAccount account() {

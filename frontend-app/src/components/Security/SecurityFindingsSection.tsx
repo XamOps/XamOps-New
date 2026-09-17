@@ -7,7 +7,17 @@ interface SecurityFindingsSectionProps {
   findings: SecurityFinding[];
   isOpen: boolean;
   onToggle: () => void;
+  /**
+   * Marks a finding fixed. Optional so the section still renders read-only wherever the action
+   * is not wired — the demo router, for one, has no account to write against.
+   */
+  onResolve?: (finding: SecurityFinding) => void;
+  /** Keys currently in flight, so the row can show it is doing something. */
+  resolvingKeys?: string[];
 }
+
+const findingKey = (finding: SecurityFinding): string =>
+  `${finding.resourceId ?? ''}|${finding.controlId ?? ''}`;
 
 const SEVERITY_CONFIG: Record<SeverityLevel, {
   iconBg: string;
@@ -22,7 +32,14 @@ const SEVERITY_CONFIG: Record<SeverityLevel, {
   Low:      { iconBg: 'bg-blue-500',   iconColor: 'text-white',     icon: 'mdi:information',   badgeBg: 'bg-blue-500',   badgeText: 'text-white' },
 };
 
-const SecurityFindingsSection: React.FC<SecurityFindingsSectionProps> = ({ severity, findings, isOpen, onToggle }) => {
+const SecurityFindingsSection: React.FC<SecurityFindingsSectionProps> = ({
+  severity,
+  findings,
+  isOpen,
+  onToggle,
+  onResolve,
+  resolvingKeys = [],
+}) => {
   if (findings.length === 0) return null;
 
   const cfg = SEVERITY_CONFIG[severity];
@@ -76,6 +93,11 @@ const SecurityFindingsSection: React.FC<SecurityFindingsSectionProps> = ({ sever
                   <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Description</th>
                   <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Resource</th>
                   <th className="px-4 py-2 text-left text-xs font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Source & Control</th>
+                  {onResolve && (
+                    <th className="px-4 py-2 text-right text-xs font-bold uppercase tracking-wider text-[rgba(0,0,0,0.4)]">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -105,6 +127,29 @@ const SecurityFindingsSection: React.FC<SecurityFindingsSectionProps> = ({ sever
                         {(finding.complianceFramework || 'Unknown') + (finding.controlId ? ` (${finding.controlId})` : '')}
                       </span>
                     </td>
+                    {onResolve && (
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => onResolve(finding)}
+                          disabled={resolvingKeys.includes(findingKey(finding))}
+                          title="Mark fixed. If a scan finds it again, it comes back."
+                          aria-label={`Mark fixed: ${finding.category} on ${finding.resourceId}`}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold text-[rgba(0,0,0,0.6)] border border-[rgba(0,0,0,0.12)] hover:text-emerald-700 hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          <Icon
+                            icon={
+                              resolvingKeys.includes(findingKey(finding))
+                                ? 'mdi:loading'
+                                : 'mdi:check-circle-outline'
+                            }
+                            width={14}
+                            className={resolvingKeys.includes(findingKey(finding)) ? 'animate-spin' : ''}
+                          />
+                          Mark fixed
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

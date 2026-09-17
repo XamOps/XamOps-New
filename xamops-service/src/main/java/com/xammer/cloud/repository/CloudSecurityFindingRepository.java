@@ -74,6 +74,16 @@ public interface CloudSecurityFindingRepository extends JpaRepository<CloudSecur
 
     long countByCloudAccountIdAndStatus(Long cloudAccountId, String status);
 
+    /**
+     * Findings for one connection in one status.
+     *
+     * <p>
+     * Exists for the restore path in {@code SecurityFindingResolutionService}, which has to find
+     * the rows a dismissal closed in order to reopen them. Unordered on purpose: the caller
+     * matches on the natural key and does not render this.
+     */
+    List<CloudSecurityFinding> findByCloudAccountIdAndStatus(Long cloudAccountId, String status);
+
     /** All findings against one resource, for the drill-down. */
     @Query("SELECT f FROM CloudSecurityFinding f "
             + "WHERE f.cloudAccountId = :cloudAccountId AND f.resourceArn = :arn "

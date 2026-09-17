@@ -55,6 +55,16 @@ public class SecurityFindingProjectionService {
         this.repository = repository;
     }
 
+    /*
+     * There is deliberately no resolution filter in this class. When a user marks a finding
+     * fixed, SecurityFindingResolutionService moves every matching row off ACTIVE in the same
+     * transaction, so findActive, findActiveBySeverityIn and countActiveBySeverity all stop
+     * returning it without knowing the feature exists — and so does the notifier, which selects
+     * on status. Only findings with no row here — Prowler results and SecurityService's
+     * describe-based checks — need filtering by key, and that happens once in SecurityController
+     * after the merge, where all three sources are in one list.
+     */
+
     public boolean isEnabled() {
         return enabled;
     }
