@@ -16,7 +16,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 import software.amazon.awssdk.services.resourceexplorer2.ResourceExplorer2Client;
 import software.amazon.awssdk.services.resourceexplorer2.model.ConflictException;
 import software.amazon.awssdk.services.resourceexplorer2.model.CreateIndexRequest;
+import software.amazon.awssdk.services.resourceexplorer2.model.GetIndexRequest;
+import software.amazon.awssdk.services.resourceexplorer2.model.GetIndexResponse;
 import software.amazon.awssdk.services.resourceexplorer2.model.Index;
+import software.amazon.awssdk.services.resourceexplorer2.model.IndexState;
 import software.amazon.awssdk.services.resourceexplorer2.model.ListIndexesRequest;
 import software.amazon.awssdk.services.resourceexplorer2.model.ListResourcesRequest;
 import software.amazon.awssdk.services.resourceexplorer2.model.ListResourcesResponse;
@@ -224,7 +227,18 @@ public class AwsInventoryReconciler {
                         System.currentTimeMillis() - startMs, msg);
             }
 
-            List<Resource> resources = fetchAll(account, indexInfo.region);
+            Fetched fetched = fetchInventory(account, indexInfo);
+            if (fetched.readRegions().isEmpty()) {
+                // Nothing could be read anywhere. Same outcome as the single read failing did
+                // before: the catch below records it and the account falls back to describes.
+                throw fetched.firstFailure() != null
+                        ? fetched.firstFailure()
+                        : new IllegalStateException("No indexed region could be read");
+            }
+            // Regions that failed or are still indexing were read incompletely, if at all, so
+            // their rows must not be swept on the strength of this run.
+            indexInfo = indexInfo.protecting(fetched.unsweepableRegions());
+            List<Resource> resources = fetched.resources();
 
             if (resources.isEmpty()) {
                 // An account with genuinely zero resources is possible but rare; far more
@@ -277,12 +291,41 @@ public class AwsInventoryReconciler {
          * deletion.
          */
         final Set<String> uncoveredRegions;
+        /**
+         * Regions to read. One entry for an aggregator, which answers for them all; every
+         * indexed region otherwise, since a LOCAL index answers only for its own.
+         */
+        final List<String> queryRegions;
+        /** Every region with an index — where to turn if the planned read fails outright. */
+        final List<String> indexedRegions;
 
         IndexInfo(String region, String indexType, Set<String> uncoveredRegions) {
+            this(region, indexType, uncoveredRegions, List.of(region), List.of(region));
+        }
+
+        IndexInfo(String region, String indexType, Set<String> uncoveredRegions,
+                  List<String> queryRegions, List<String> indexedRegions) {
             this.region = region;
             this.indexType = indexType;
             this.uncoveredRegions = uncoveredRegions == null ? Set.of() : uncoveredRegions;
+            this.queryRegions = queryRegions;
+            this.indexedRegions = indexedRegions;
         }
+
+        /** The same plan, with extra regions shielded from the sweep. */
+        IndexInfo protecting(Set<String> regions) {
+            if (regions.isEmpty()) {
+                return this;
+            }
+            Set<String> merged = new LinkedHashSet<>(uncoveredRegions);
+            merged.addAll(regions);
+            return new IndexInfo(region, indexType, merged, queryRegions, indexedRegions);
+        }
+    }
+
+    /** What a multi-region read produced, and which regions it could not rely on. */
+    private record Fetched(List<Resource> resources, List<String> readRegions,
+                           Set<String> unsweepableRegions, Exception firstFailure) {
     }
 
     /**
@@ -333,13 +376,32 @@ public class AwsInventoryReconciler {
             Set<String> uncovered = createMissingIndexes(
                     account, uncoveredRegions(account, indexedRegions));
 
+            // Stable order, default region first, so the per-region read below is deterministic
+            // and the region recorded in sync state does not change between identical runs.
+            List<String> allIndexed = indexedRegions.stream()
+                    .sorted((a, b) -> a.equals(defaultRegion) ? -1 : b.equals(defaultRegion) ? 1 : a.compareTo(b))
+                    .collect(Collectors.toList());
+
             Optional<Index> aggregator = indexes.stream()
                     .filter(i -> "AGGREGATOR".equalsIgnoreCase(i.typeAsString()))
                     .findFirst();
-            if (aggregator.isPresent()) {
+
+            // Only an ACTIVE aggregator answers for every region. ListIndexes reports the type
+            // AGGREGATOR the moment a promotion starts, while AWS is still replicating the other
+            // regions in — and a search against it during that window returns only the
+            // aggregator's own region, silently. That window can last hours, and it is exactly
+            // what a newly connected account is in right after promoteAggregator runs, so the
+            // type alone is not enough to trust it.
+            if (aggregator.isPresent() && !isActive(account, regionOf(aggregator.get()))) {
+                log.info("[Inventory] Account {} has an aggregator index in {} that is not ACTIVE yet — "
+                        + "reading each of its {} indexed region(s) directly until it is.",
+                        account.getAwsAccountId(), regionOf(aggregator.get()), allIndexed.size());
+                aggregator = Optional.empty();
+            } else if (aggregator.isPresent()) {
                 String region = regionOf(aggregator.get());
                 if (uncovered.isEmpty()) {
-                    return new IndexInfo(region, AwsInventorySyncState.INDEX_AGGREGATOR, uncovered);
+                    return new IndexInfo(region, AwsInventorySyncState.INDEX_AGGREGATOR, uncovered,
+                            List.of(region), allIndexed);
                 }
                 // Almost always AWS opt-in regions, which Resource Explorer does not index
                 // automatically. Flagged rather than ignored because the failure is silent:
@@ -349,43 +411,39 @@ public class AwsInventoryReconciler {
                         + "(commonly AWS opt-in regions). Their rows will not be swept, and the "
                         + "describe fallback remains responsible for them.",
                         account.getAwsAccountId(), uncovered.size(), uncovered);
-                return new IndexInfo(region, AwsInventorySyncState.INDEX_AGGREGATOR_INCOMPLETE, uncovered);
+                return new IndexInfo(region, AwsInventorySyncState.INDEX_AGGREGATOR_INCOMPLETE, uncovered,
+                        List.of(region), allIndexed);
             }
 
-            // Prefer the configured default region when it has an index, rather than
-            // whichever index AWS happened to list first. The queried region decides what
-            // the plane contains, so an arbitrary choice made that content arbitrary too.
-            String region = indexedRegions.contains(defaultRegion)
-                    ? defaultRegion
-                    : regionOf(indexes.get(0));
-
-            // No aggregator anywhere. Promote one, so this account stops being limited to a
-            // single region from the next sync onwards. Takes effect asynchronously, so this
-            // run still reports INDEX_LOCAL and protects the unqueried regions below.
-            promoteAggregator(account, indexes, region);
-
-            // Every other region is uncovered, because fetchAll() queries exactly one.
+            // No usable aggregator: read every region that has an index, one at a time. A LOCAL
+            // index answers for its own region, so between them they cover the account.
             //
-            // Without this the sweep tombstones them. uncovered was empty for these accounts
-            // — an index exists everywhere, nothing is missing — so persistInTransaction took
-            // the unrestricted sweepStaleResources path and marked every resource outside the
-            // queried region DELETED, once per sync. Observed on a real account: 9
-            // CloudFormation stacks sitting in DELETED that had never been deleted.
-            //
-            // A LOCAL index genuinely cannot see other regions, so their absence from this
-            // fetch carries no information about whether the resources still exist. That is
-            // precisely what uncoveredRegions means.
-            Set<String> unqueried = new LinkedHashSet<>(indexedRegions);
-            unqueried.addAll(uncovered);
-            unqueried.remove(region);
+            // This used to read only the first region and mark the rest "uncovered". The log
+            // said those regions stayed on the describe fallback; they did not. sync() treated
+            // the one-region read as a full success, the scheduler therefore never ran the
+            // fallback, and nothing else ever looked at the other regions. Their existing rows
+            // were protected from deletion but no new resource in them was ever discovered.
+            // Observed on a newly connected account: every bucket in ap-south-1 missing, every
+            // bucket in us-east-1 present, for hours.
+            String region = allIndexed.get(0);
 
-            log.warn("[Inventory] Account {} has only LOCAL indexes — enumeration is limited to "
-                    + "region {}, and resources in the other {} region(s) are invisible to this "
-                    + "sync. They are protected from the sweep, and the account stays on the "
-                    + "describe fallback. Promoting an aggregator index would make this one "
-                    + "cross-region query and put the account on the fast path.",
-                    account.getAwsAccountId(), region, unqueried.size());
-            return new IndexInfo(region, AwsInventorySyncState.INDEX_LOCAL, unqueried);
+            // Still worth promoting, because one cross-region query is cheaper than one per
+            // region. Only when none exists at all: an aggregator that is merely still building
+            // is not replaced, since AWS allows exactly one.
+            if (indexes.stream().noneMatch(i -> "AGGREGATOR".equalsIgnoreCase(i.typeAsString()))) {
+                promoteAggregator(account, indexes, region);
+            }
+
+            // Only regions with no index at all stay protected here. Every indexed region is
+            // read, so a resource absent from all of them is genuinely gone and may be swept;
+            // fetchInventory adds back any region whose read fails or whose index is not ACTIVE,
+            // since an incomplete read says nothing about what was deleted.
+            log.info("[Inventory] Account {} has no ACTIVE aggregator — reading {} indexed region(s) "
+                    + "individually{}.",
+                    account.getAwsAccountId(), allIndexed.size(),
+                    uncovered.isEmpty() ? "" : "; " + uncovered.size() + " region(s) have no index yet: " + uncovered);
+            return new IndexInfo(region, AwsInventorySyncState.INDEX_LOCAL, uncovered,
+                    allIndexed, allIndexed);
 
         } catch (Exception e) {
             log.info("[Inventory] ListIndexes unavailable for account {} ({}) — attempting partial search",
@@ -579,6 +637,108 @@ public class AwsInventoryReconciler {
      * {@code ListResources} exists precisely for full-inventory enumeration and paginates
      * properly.
      */
+    /**
+     * Reads the account's resources across whatever regions the index plan calls for.
+     *
+     * <p>
+     * An aggregator plan is one query. If that query fails outright — most often because the
+     * aggregator's region has no default view, which ListResources needs — the account is not
+     * written off: every indexed region is read individually instead, the same way an account
+     * without an aggregator is.
+     */
+    private Fetched fetchInventory(CloudAccount account, IndexInfo info) {
+        boolean aggregatorPlan = info.queryRegions.size() == 1
+                && (AwsInventorySyncState.INDEX_AGGREGATOR.equals(info.indexType)
+                    || AwsInventorySyncState.INDEX_AGGREGATOR_INCOMPLETE.equals(info.indexType));
+
+        // An aggregator was confirmed ACTIVE by resolveIndex, so its read needs no state check.
+        Fetched fetched = fetchRegions(account, info.queryRegions, !aggregatorPlan);
+
+        if (aggregatorPlan && fetched.readRegions().isEmpty() && info.indexedRegions.size() > 1) {
+            log.warn("[Inventory] Aggregator query in {} failed for account {} ({}) — reading the {} "
+                    + "indexed region(s) individually instead.",
+                    info.region, account.getAwsAccountId(),
+                    fetched.firstFailure() == null ? "no detail" : fetched.firstFailure().getMessage(),
+                    info.indexedRegions.size());
+            return fetchRegions(account, info.indexedRegions, true);
+        }
+        return fetched;
+    }
+
+    /**
+     * Reads each region in turn, isolating failures so one bad region cannot hide the others.
+     *
+     * <p>
+     * Reading and sweeping are held to different standards on purpose. A read only adds, so
+     * anything a region returns is kept even if its index is still building — that is what
+     * makes a new resource appear. Sweeping deletes, so it needs a complete read: a region
+     * whose index is not ACTIVE, or whose read failed, is reported back as unsweepable, and
+     * its existing rows are left alone rather than tombstoned on an incomplete picture.
+     *
+     * @param checkState whether to confirm each index is ACTIVE before trusting a sweep
+     */
+    private Fetched fetchRegions(CloudAccount account, List<String> regions, boolean checkState) {
+        Map<String, Resource> byArn = new java.util.LinkedHashMap<>();
+        List<String> read = new ArrayList<>();
+        Set<String> unsweepable = new LinkedHashSet<>();
+        Exception firstFailure = null;
+
+        for (String region : regions) {
+            try {
+                List<Resource> found = fetchAll(account, region);
+                for (Resource r : found) {
+                    // An aggregator and a LOCAL index can both return the same resource if a
+                    // read falls back mid-way; the ARN is the identity, so keep one.
+                    String key = r.arn() != null ? r.arn() : region + "#" + System.identityHashCode(r);
+                    byArn.putIfAbsent(key, r);
+                }
+                read.add(region);
+                if (checkState && !isActive(account, region)) {
+                    unsweepable.add(region);
+                }
+            } catch (Exception e) {
+                if (firstFailure == null) {
+                    firstFailure = e;
+                }
+                unsweepable.add(region);
+                String message = String.valueOf(e.getMessage());
+                boolean viewProblem = message.contains("Unauthorized") || message.contains("view");
+                log.warn("[Inventory] Could not read region {} for account {}: {}{}",
+                        region, account.getAwsAccountId(), message,
+                        viewProblem
+                                ? " — Resource Explorer needs a default view in this region to list "
+                                  + "resources. Its rows are protected from the sweep until it has one."
+                                : " — its rows are protected from the sweep for this run.");
+            }
+        }
+
+        if (regions.size() > 1) {
+            log.info("[Inventory] Read {} of {} region(s) for account {} — {} resource(s){}",
+                    read.size(), regions.size(), account.getAwsAccountId(), byArn.size(),
+                    unsweepable.isEmpty() ? "" : "; not swept this run: " + unsweepable);
+        }
+        return new Fetched(new ArrayList<>(byArn.values()), read, unsweepable, firstFailure);
+    }
+
+    /**
+     * Whether the Resource Explorer index in a region has finished building.
+     *
+     * <p>
+     * An unreadable state counts as not ACTIVE. Callers use this to decide whether a read is
+     * complete enough to delete on, and "unknown" is not a basis for deleting anything.
+     */
+    private boolean isActive(CloudAccount account, String region) {
+        try {
+            GetIndexResponse index = awsClientProvider.getResourceExplorerClient(account, region)
+                    .getIndex(GetIndexRequest.builder().build());
+            return index.state() == IndexState.ACTIVE;
+        } catch (Exception e) {
+            log.debug("[Inventory] Could not read index state in {} for account {}: {}",
+                    region, account.getAwsAccountId(), e.getMessage());
+            return false;
+        }
+    }
+
     private List<Resource> fetchAll(CloudAccount account, String region) {
         ResourceExplorer2Client client = awsClientProvider.getResourceExplorerClient(account, region);
         List<Resource> all = new ArrayList<>();
