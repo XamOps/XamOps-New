@@ -58,7 +58,7 @@ const AzureDashboard: React.FC = () => {
     return [];
   });
 
-  const { data, loading, error, refresh } = useAzureDashboardData({
+  const { data, loading, isRefreshing, error, refresh } = useAzureDashboardData({
     accountIds: selectedAccountIds,
     autoRefresh: true,
     refreshInterval: 60,
@@ -121,18 +121,26 @@ const AzureDashboard: React.FC = () => {
           <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Connected</span>
         </div>
+        {/*
+          Driven by isRefreshing, not loading.global.
+          loading.global is now true only when there is nothing on screen at all, so binding the
+          label to it made every routine snapshot read — the cheap call this page makes on mount
+          and every 60s — announce itself as "Refreshing…". That is what made opening the
+          dashboard look like it triggered a refresh. It never did: the only caller of the live
+          Azure path is this button.
+        */}
         <button
           onClick={refresh}
-          disabled={loading.global}
+          disabled={isRefreshing}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all disabled:opacity-50 shadow-lg shadow-blue-500/20"
         >
-          <Icon icon={loading.global ? 'mdi:loading' : 'mdi:refresh'} width={13} className={loading.global ? 'animate-spin' : ''} />
-          {loading.global ? 'Refreshing…' : 'Refresh'}
+          <Icon icon={isRefreshing ? 'mdi:loading' : 'mdi:refresh'} width={13} className={isRefreshing ? 'animate-spin' : ''} />
+          {isRefreshing ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, refresh, loading.global]);
+  }, [setActions, clearActions, refresh, isRefreshing]);
 
   if (accountsLoading && selectedAccountIds.length === 0) {
     return (
