@@ -406,8 +406,35 @@ public class DashboardDataService {
     }
 
     public Object getSecuritySnapshot(String key, TypeReference<?> typeRef) {
+        return getSecuritySnapshot(key, typeRef, 0);
+    }
+
+    /**
+     * A security snapshot, provided it is younger than {@code maxAgeHours}.
+     *
+     * <p>
+     * The age check exists because this row has no expiry and, for security findings, is rewritten
+     * only by the twice-weekly cron. Read unconditionally it could serve findings a customer fixed
+     * days earlier, and no amount of refreshing would clear them — the reported symptom on the GCP
+     * pages, present here by a different route. Returning null instead lets the caller fall through
+     * to a live scan.
+     *
+     * @param maxAgeHours 0 or less to accept any age, preserving the original behaviour for the
+     *     callers where a snapshot of record is wanted rather than a current one
+     */
+    public Object getSecuritySnapshot(String key, TypeReference<?> typeRef, int maxAgeHours) {
         Optional<CachedData> cached = cachedDataRepository.findById(key);
         if (cached.isPresent()) {
+            if (maxAgeHours > 0) {
+                LocalDateTime stamped = cached.get().getLastUpdated();
+                // An unstamped row is of unknown age; on a security surface that has to count as
+                // too old rather than be assumed current.
+                if (stamped == null || stamped.isBefore(LocalDateTime.now().minusHours(maxAgeHours))) {
+                    logger.info("Security snapshot {} is older than {}h — ignoring it so the caller scans live",
+                            key, maxAgeHours);
+                    return null;
+                }
+            }
             try {
                 return objectMapper.readValue(cached.get().getJsonData(), typeRef);
             } catch (JsonProcessingException e) {

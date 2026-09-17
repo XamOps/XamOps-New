@@ -65,6 +65,18 @@ public class SecurityController {
      */
     private static final int IDENTITY_DEADLINE_SECONDS = 45;
 
+    /**
+     * How old the cached findings snapshot may be and still be served.
+     *
+     * <p>
+     * Generous, because a live scan here is a multi-region fan-out and this snapshot is the only
+     * thing standing between the page and that cost. But not unbounded, which is what it was: the
+     * {@code cached_data} row carries no expiry and the refresh cron runs Wednesdays and Sundays, so
+     * a finding resolved on a Monday could be shown until Wednesday no matter how often the customer
+     * refreshed.
+     */
+    private static final int SECURITY_SNAPSHOT_MAX_AGE_HOURS = 12;
+
     private final SecurityService securityService;
     private final CloudAccountRepository cloudAccountRepository;
     private final CloudListService cloudListService;
@@ -292,11 +304,16 @@ public class SecurityController {
         Long cloudAccountId = accounts.isEmpty() ? null : accounts.get(0).getId();
 
         if (!forceRefresh) {
-            // ⭐ NEW: Check database cache first
+            // Database cache first, but only while it is young enough to be worth serving.
+            //
+            // This row has no expiry column and, for findings, is rewritten only by the twice-weekly
+            // cron — so read unconditionally it happily served findings a customer had fixed days
+            // earlier, and refreshing the page could never clear them. Past the cutoff we return
+            // null and fall through to a live scan instead.
             List<DashboardData.SecurityFinding> cachedFindings = (List<DashboardData.SecurityFinding>) dashboardDataService
                     .getSecuritySnapshot(
                             cacheKey, new TypeReference<List<DashboardData.SecurityFinding>>() {
-                            });
+                            }, SECURITY_SNAPSHOT_MAX_AGE_HOURS);
 
             if (cachedFindings != null) {
                 logger.info("Serving security findings from database cache for account {}", accountId);

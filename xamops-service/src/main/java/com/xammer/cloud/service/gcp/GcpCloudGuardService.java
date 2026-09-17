@@ -32,7 +32,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -60,6 +59,20 @@ public class GcpCloudGuardService {
     private static final String NETWORK_QUOTA_NAME = "NETWORKS";
     private static final double NETWORK_QUOTA_THRESHOLD = 75.0;
     private static final String DB_CACHE_PREFIX = "GCP_ALERTS::";
+
+    /** Redis lifetime for the alerts list, in minutes. */
+    private static final int ALERTS_CACHE_MINUTES = 60;
+
+    /**
+     * How old the DB snapshot may be and still be served.
+     *
+     * <p>
+     * Matched to the Redis TTL deliberately. The DB tier exists to survive a Redis restart, not to
+     * outlive it — and because this row has no expiry column, serving it unconditionally while also
+     * re-warming Redis meant a stale alert list renewed its own lifetime on every read and never
+     * aged out. Alerts are a "what needs attention now" surface, so an hour is already generous.
+     */
+    private static final int SNAPSHOT_MAX_AGE_MINUTES = ALERTS_CACHE_MINUTES;
 
     @Autowired
     public GcpCloudGuardService(
@@ -96,7 +109,9 @@ public class GcpCloudGuardService {
             CachedData entity = cachedDataRepository.findById(dbKey).orElse(new CachedData());
             entity.setCacheKey(dbKey);
             entity.setJsonData(json);
-            entity.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            // Same clock the staleness check above compares against. Stamping Asia/Kolkata while
+            // reading LocalDateTime.now() made every snapshot look 5.5h younger on a UTC host.
+            entity.setLastUpdated(LocalDateTime.now());
             cachedDataRepository.save(entity);
         } catch (Exception e) {
             log.warn("Failed to save GCP alerts DB snapshot for key {}: {}", dbKey, e.getMessage());
@@ -133,15 +148,25 @@ public class GcpCloudGuardService {
                 return CompletableFuture.completedFuture(cachedData.get());
             }
 
-            // 2. Try DB snapshot
+            // 2. Try DB snapshot, but only while it is still current enough to serve.
             try {
                 Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
                 if (dbSnapshot.isPresent()) {
-                    List<AlertDto> dbResult = objectMapper.readValue(
-                            dbSnapshot.get().getJsonData(), new TypeReference<>() {});
-                    log.info("✅ Returning DB-cached GCP alerts for project {} — re-warming Redis", gcpProjectId);
-                    redisCache.put(cacheKey, dbResult, 60);
-                    return CompletableFuture.completedFuture(dbResult);
+                    LocalDateTime stamped = dbSnapshot.get().getLastUpdated();
+                    // No timestamp counts as too old: a row of unknown age cannot be assumed
+                    // current on a page whose whole purpose is telling someone what is wrong now.
+                    boolean tooOld = stamped == null
+                            || stamped.isBefore(LocalDateTime.now().minusMinutes(SNAPSHOT_MAX_AGE_MINUTES));
+                    if (tooOld) {
+                        log.info("GCP alerts DB snapshot for project {} is older than {} min — ignoring it "
+                                + "and rebuilding live", gcpProjectId, SNAPSHOT_MAX_AGE_MINUTES);
+                    } else {
+                        List<AlertDto> dbResult = objectMapper.readValue(
+                                dbSnapshot.get().getJsonData(), new TypeReference<>() {});
+                        log.info("✅ Returning DB-cached GCP alerts for project {} — re-warming Redis", gcpProjectId);
+                        redisCache.put(cacheKey, dbResult, ALERTS_CACHE_MINUTES);
+                        return CompletableFuture.completedFuture(dbResult);
+                    }
                 }
             } catch (Exception e) {
                 log.warn("DB snapshot load failed for GCP alerts {}: {}", gcpProjectId, e.getMessage());
@@ -170,7 +195,7 @@ public class GcpCloudGuardService {
 
         CompletableFuture<List<AlertDto>> quotasFuture = checkQuotaAlerts(account);
         CompletableFuture<List<AlertDto>> anomaliesFuture = checkCostAnomalies(account);
-        CompletableFuture<List<AlertDto>> securityFuture = checkSecurityFindings(account);
+        CompletableFuture<List<AlertDto>> securityFuture = checkSecurityFindings(account, forceRefresh);
 
         return CompletableFuture.allOf(quotasFuture, anomaliesFuture, securityFuture)
                 .thenApply(v -> {
@@ -203,7 +228,7 @@ public class GcpCloudGuardService {
                         log.warn("No recipient emails configured for account {}, cannot send alert emails.", gcpProjectId);
                     }
 
-                    redisCache.put(cacheKey, alerts, 60);
+                    redisCache.put(cacheKey, alerts, ALERTS_CACHE_MINUTES);
                     saveToDb(dbKey, alerts);
                     log.info("✅ Returning {} total GCP alerts for project {}", alerts.size(), gcpProjectId);
                     return alerts;
@@ -342,14 +367,20 @@ public class GcpCloudGuardService {
         };
     }
 
-    private CompletableFuture<List<AlertDto>> checkSecurityFindings(CloudAccount account) {
+    /**
+     * @param forceRefresh passed through to the security service rather than dropped. It used to
+     *     call the no-arg overload, so a user pressing Refresh on the Alerts page rebuilt its
+     *     SECURITY rows out of the cached security findings — which is why resolved findings
+     *     appeared on both pages at once, and why refreshing either one did not clear them.
+     */
+    private CompletableFuture<List<AlertDto>> checkSecurityFindings(CloudAccount account, boolean forceRefresh) {
         return CompletableFuture.supplyAsync(() -> {
             List<AlertDto> alerts = new ArrayList<>();
             String gcpProjectId = account.getGcpProjectId();
-            log.info("Checking Security Findings for GCP project {}", gcpProjectId);
+            log.info("Checking Security Findings for GCP project {} (forceRefresh={})", gcpProjectId, forceRefresh);
             try {
-                // Fetch findings (will use cache if available)
-                List<GcpSecurityFinding> findings = gcpSecurityService.getSecurityFindings(gcpProjectId).join();
+                List<GcpSecurityFinding> findings =
+                        gcpSecurityService.getSecurityFindings(gcpProjectId, forceRefresh).join();
                 AtomicInteger counter = new AtomicInteger(1);
 
                 findings.stream()

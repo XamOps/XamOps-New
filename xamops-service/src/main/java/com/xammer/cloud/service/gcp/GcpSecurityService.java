@@ -27,7 +27,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -50,6 +49,18 @@ public class GcpSecurityService {
     private static final String REDIS_IAM_DRIFT_PREFIX  = "gcp:iam-policy-drift:";
     private static final String REDIS_CONTAINER_PREFIX  = "gcp:container-scanning:";
     private static final int    REDIS_TTL_MINUTES       = 1440; // Gap D: 24h aligned with staleness threshold
+
+    /**
+     * How old a DB snapshot may be and still be served.
+     *
+     * <p>
+     * Past this the snapshot is ignored rather than returned-and-refreshed-in-the-background. That
+     * older behaviour is what let a resolved finding persist: the row carries no expiry, so serving
+     * it also re-warmed Redis for another {@link #REDIS_TTL_MINUTES}, and the stale list renewed
+     * its own lifetime on every read. Falling through to a live scan costs a slow request; showing
+     * a customer findings they have already fixed costs their trust in the whole page.
+     */
+    private static final int SNAPSHOT_MAX_AGE_HOURS = 24;
 
     // Shared with the weekly scheduler via ProwlerFrameworks. They previously disagreed — the
     // scheduler asked for pci_3.2.1_gcp / iso27001_2013_gcp / gdpr_gcp / nist_csf_1.1_gcp, none of
@@ -94,22 +105,29 @@ public class GcpSecurityService {
                         return cached.get();
                     }
 
-                    // L2: DB LATEST (Gap B — dedicated LATEST key)
+                    // L2: DB LATEST (Gap B — dedicated LATEST key), but only while it is still
+                    // young enough to be worth trusting.
+                    //
+                    // This tier used to serve unconditionally AND push what it found back into
+                    // Redis for a further TTL. That combination is why a customer who had fixed
+                    // their findings kept seeing them: the row has no expiry column, so every read
+                    // renewed its own cache entry and the stale list never aged out. A snapshot
+                    // past the threshold is now skipped entirely so the request falls through to a
+                    // live scan — slower, and correct.
                     try {
                         Optional<CachedData> dbSnap = cachedDataRepository.findById(dbKeyLatest);
                         if (dbSnap.isPresent()) {
-                            List<GcpSecurityFinding> dbResult = objectMapper.readValue(
-                                    dbSnap.get().getJsonData(), new TypeReference<>() {});
-                            log.info("✅ DB LATEST hit for GCP security project={} ({} findings) — re-warming Redis",
-                                    gcpProjectId, dbResult.size());
-                            redisCacheService.put(redisKey, dbResult, REDIS_TTL_MINUTES);
-
-                            // Gap C: staleness check — if >24h old, fire background refresh
-                            if (dbSnap.get().getLastUpdated().isBefore(LocalDateTime.now().minusHours(24))) {
-                                log.info("[GcpSecurity] DB snapshot is stale (>24h) for project={} — triggering background refresh", gcpProjectId);
-                                triggerBackgroundRefresh(gcpProjectId);
+                            if (isStale(dbSnap.get().getLastUpdated())) {
+                                log.info("[GcpSecurity] DB snapshot for project={} is older than {}h — ignoring it "
+                                        + "and scanning live", gcpProjectId, SNAPSHOT_MAX_AGE_HOURS);
+                            } else {
+                                List<GcpSecurityFinding> dbResult = objectMapper.readValue(
+                                        dbSnap.get().getJsonData(), new TypeReference<>() {});
+                                log.info("✅ DB LATEST hit for GCP security project={} ({} findings) — re-warming Redis",
+                                        gcpProjectId, dbResult.size());
+                                redisCacheService.put(redisKey, dbResult, REDIS_TTL_MINUTES);
+                                return dbResult;
                             }
-                            return dbResult;
                         }
                     } catch (Exception e) {
                         log.warn("[GcpSecurity] DB LATEST load failed for project={}: {}", gcpProjectId, e.getMessage());
@@ -118,25 +136,42 @@ public class GcpSecurityService {
 
                 // L3: Live SCC API
                 log.info("🔍 Fetching fresh GCP security findings from SCC for project={}", gcpProjectId);
-                List<GcpSecurityFinding> sccFindings = fetchFromScc(gcpProjectId);
+                SccScan scan = fetchFromScc(gcpProjectId);
 
                 // Gap E: merge Prowler cached findings
                 List<GcpSecurityFinding> prowlerFindings = mapProwlerFindings(gcpProjectId);
                 log.info("[GcpSecurity] Merging {} SCC + {} Prowler findings for project={}",
-                        sccFindings.size(), prowlerFindings.size(), gcpProjectId);
-                List<GcpSecurityFinding> combined = new ArrayList<>(sccFindings);
+                        scan.findings().size(), prowlerFindings.size(), gcpProjectId);
+                List<GcpSecurityFinding> combined = new ArrayList<>(scan.findings());
                 combined.addAll(prowlerFindings);
 
-                // Gap F: only save to DB/Redis if we got real data (don't overwrite good snapshot with empty)
-                if (!combined.isEmpty()) {
+                // Persist on the strength of whether the scan SUCCEEDED, not whether it returned
+                // anything.
+                //
+                // The previous rule was "never overwrite a good snapshot with an empty one", which
+                // sounds protective and is the whole bug: a customer who has just remediated
+                // everything is exactly the customer whose correct answer is an empty list, and
+                // that answer was the one being thrown away. Because the row has no expiry, the
+                // old findings then came back on the next read and stayed indefinitely.
+                //
+                // The distinction that actually matters is success versus failure, which the
+                // scan now reports rather than flattening both into an empty list.
+                if (scan.succeeded()) {
                     redisCacheService.put(redisKey, combined, REDIS_TTL_MINUTES);
                     archiveFindings(gcpProjectId, combined, dbKeyLatest, dbKeyDate);
-                } else if (forceRefresh) {
-                    // On explicit forceRefresh, save even empty to record the scan happened
-                    redisCacheService.put(redisKey, combined, REDIS_TTL_MINUTES);
-                    archiveFindings(gcpProjectId, combined, dbKeyLatest, dbKeyDate);
+                    if (combined.isEmpty()) {
+                        log.info("[GcpSecurity] Scan succeeded with no active findings for project={} — recording "
+                                + "the clean result", gcpProjectId);
+                    }
                 } else {
-                    log.warn("[GcpSecurity] SCC returned empty for project={} — NOT overwriting DB snapshot", gcpProjectId);
+                    // Could not reach SCC. Keep the last known snapshot rather than blanking the
+                    // page, and serve it, so an outage does not read as "you are now secure".
+                    log.warn("[GcpSecurity] SCC scan FAILED for project={} — keeping the previous snapshot",
+                            gcpProjectId);
+                    List<GcpSecurityFinding> lastKnown = lastKnownSnapshot(dbKeyLatest, gcpProjectId);
+                    if (lastKnown != null) {
+                        return lastKnown;
+                    }
                 }
 
                 return combined;
@@ -498,12 +533,55 @@ public class GcpSecurityService {
     // SCC fetch
     // -------------------------------------------------------------------------
 
-    private List<GcpSecurityFinding> fetchFromScc(String gcpProjectId) {
+    /**
+     * Outcome of one SCC read.
+     *
+     * <p>
+     * The point of this type is the {@code succeeded} flag. {@code fetchFromScc} used to return a
+     * bare list and swallow every failure, so "this project has no active findings" and "we could
+     * not reach Security Command Center" arrived as the same empty list — and the caller had to
+     * guess. Guessing wrongly in one direction tells a customer they are secure during an API
+     * outage; guessing wrongly in the other keeps showing findings they have fixed. Neither is
+     * acceptable, so the two are now distinguishable.
+     */
+    private record SccScan(List<GcpSecurityFinding> findings, boolean succeeded) {
+        static SccScan failed() {
+            return new SccScan(List.of(), false);
+        }
+    }
+
+    /** True when a snapshot timestamp is older than {@link #SNAPSHOT_MAX_AGE_HOURS}. */
+    private boolean isStale(LocalDateTime lastUpdated) {
+        // Absent timestamp counts as stale: an un-stamped row is of unknown age, and on a security
+        // page unknown age has to mean "go and look" rather than "assume it is current".
+        if (lastUpdated == null) {
+            return true;
+        }
+        return lastUpdated.isBefore(LocalDateTime.now().minusHours(SNAPSHOT_MAX_AGE_HOURS));
+    }
+
+    /** The last archived list regardless of age, for use when a live scan could not run. */
+    private List<GcpSecurityFinding> lastKnownSnapshot(String dbKeyLatest, String gcpProjectId) {
+        try {
+            Optional<CachedData> snap = cachedDataRepository.findById(dbKeyLatest);
+            if (snap.isPresent()) {
+                return objectMapper.readValue(snap.get().getJsonData(), new TypeReference<>() {});
+            }
+        } catch (Exception e) {
+            log.warn("[GcpSecurity] Could not read the previous snapshot for project={}: {}",
+                    gcpProjectId, e.getMessage());
+        }
+        return null;
+    }
+
+    private SccScan fetchFromScc(String gcpProjectId) {
         List<GcpSecurityFinding> findings = new ArrayList<>();
         Optional<SecurityCenterClient> clientOpt = gcpClientProvider.getSecurityCenterV2Client(gcpProjectId);
         if (clientOpt.isEmpty()) {
+            // No client is a failure, not an empty account — usually a missing credential or a
+            // disabled API, and reporting it as "no findings" would be a false all-clear.
             log.warn("[GcpSecurity] SCC V2 client not available for project={}", gcpProjectId);
-            return findings;
+            return SccScan.failed();
         }
         try (SecurityCenterClient client = clientOpt.get()) {
             String parent = String.format("projects/%s/sources/-", gcpProjectId);
@@ -516,10 +594,11 @@ public class GcpSecurityService {
                 findings.add(mapToDto(result.getFinding()));
             }
             log.info("[GcpSecurity] Fetched {} active SCC findings for project={}", findings.size(), gcpProjectId);
+            return new SccScan(findings, true);
         } catch (Exception e) {
             log.error("[GcpSecurity] SCC fetch failed for project={}: {}", gcpProjectId, e.getMessage(), e);
+            return SccScan.failed();
         }
-        return findings;
     }
 
     // -------------------------------------------------------------------------
@@ -530,7 +609,10 @@ public class GcpSecurityService {
                                   String dbKeyLatest, String dbKeyDate) {
         try {
             String json = objectMapper.writeValueAsString(findings);
-            LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Kolkata"));
+            // Same clock the staleness check compares against. These were stamped in
+            // Asia/Kolkata while isStale() reads LocalDateTime.now(), so on a UTC deployment every
+            // snapshot looked 5.5 hours younger than it was and aged out that much late.
+            LocalDateTime now = LocalDateTime.now();
             // LATEST — fast fallback on restart
             saveToDb(dbKeyLatest, json, now);
             // Dated — one row per day, audit trail

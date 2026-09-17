@@ -51,8 +51,18 @@ public class GcpSecurityController {
         log.info("[GcpSecurity] /findings START — project={} forceRefresh={}", accountId, forceRefresh);
         final long startMs = System.currentTimeMillis();
 
+        // forceRefresh goes through refreshSecurityFindings, not getSecurityFindings(id, true).
+        //
+        // Both re-read Security Command Center, but only the former also kicks a Prowler rescan.
+        // Prowler findings are merged in from their own never-expiring cache, so without this the
+        // Refresh button cleared SCC-sourced findings while Prowler-sourced ones the customer had
+        // already fixed stayed on the page until the nightly job — which is what made Refresh look
+        // broken. The scan itself is fire-and-forget and skipped when one is already running, so
+        // this does not slow the response or stack scans on repeated presses.
         return CompletableFuture
-                .supplyAsync(() -> gcpSecurityService.getSecurityFindings(accountId, forceRefresh).join(),
+                .supplyAsync(() -> forceRefresh
+                                ? gcpSecurityService.refreshSecurityFindings(accountId).join()
+                                : gcpSecurityService.getSecurityFindings(accountId, false).join(),
                         backgroundTaskExecutor)
                 .orTimeout(55, TimeUnit.SECONDS)
                 .<ResponseEntity<?>>thenApply(findings -> {

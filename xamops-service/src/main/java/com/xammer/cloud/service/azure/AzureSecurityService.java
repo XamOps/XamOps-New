@@ -20,7 +20,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -43,6 +42,18 @@ public class AzureSecurityService {
     private static final String CACHE_PREFIX = "azure:security:";
     private static final String DB_CACHE_PREFIX = "AZURE_SECURITY::";
     private static final int CACHE_TTL_MINUTES = 60;
+
+    /**
+     * How old the DB snapshot may be and still be served.
+     *
+     * <p>
+     * Tied to the Redis TTL on purpose. The DB tier is a restart cushion, not a second cache with a
+     * longer life — and since {@code cached_data} has no expiry column, serving this row while also
+     * re-warming Redis from it meant a stale posture snapshot renewed its own lifetime on every
+     * read. A customer who had remediated their Defender findings would keep seeing them, which is
+     * the same bug reported on the GCP pages.
+     */
+    private static final int SNAPSHOT_MAX_AGE_MINUTES = CACHE_TTL_MINUTES;
     private static final String BASE_URL = "https://management.azure.com/subscriptions/";
     private static final String SCOPE = "https://management.azure.com/.default";
 
@@ -80,15 +91,25 @@ public class AzureSecurityService {
                 }
             }
 
-            // 2. Try DB snapshot
+            // 2. Try DB snapshot, but only while it is still current enough to serve.
             try {
                 Optional<CachedData> dbSnapshot = cachedDataRepository.findById(dbKey);
                 if (dbSnapshot.isPresent()) {
-                    AzureSecurityResponse response = objectMapper.readValue(
-                            dbSnapshot.get().getJsonData(), AzureSecurityResponse.class);
-                    log.info("Returning DB-cached security response for {} — re-warming Redis", subscriptionId);
-                    redisCache.put(cacheKey, response, CACHE_TTL_MINUTES);
-                    return response;
+                    LocalDateTime stamped = dbSnapshot.get().getLastUpdated();
+                    // An unstamped row is of unknown age, which on a security page has to mean
+                    // "go and look" rather than "assume it is current".
+                    boolean tooOld = stamped == null
+                            || stamped.isBefore(LocalDateTime.now().minusMinutes(SNAPSHOT_MAX_AGE_MINUTES));
+                    if (tooOld) {
+                        log.info("Azure security DB snapshot for {} is older than {} min — ignoring it and "
+                                + "querying Defender", subscriptionId, SNAPSHOT_MAX_AGE_MINUTES);
+                    } else {
+                        AzureSecurityResponse response = objectMapper.readValue(
+                                dbSnapshot.get().getJsonData(), AzureSecurityResponse.class);
+                        log.info("Returning DB-cached security response for {} — re-warming Redis", subscriptionId);
+                        redisCache.put(cacheKey, response, CACHE_TTL_MINUTES);
+                        return response;
+                    }
                 }
             } catch (Exception e) {
                 log.warn("DB snapshot load failed for security {}: {}", subscriptionId, e.getMessage());
@@ -96,8 +117,21 @@ public class AzureSecurityService {
         }
 
         AzureSecurityResponse response = fetchFromDefender(subscriptionId);
-        redisCache.put(cacheKey, response, CACHE_TTL_MINUTES);
-        saveToDb(dbKey, response);
+
+        // Cache only a response Defender actually answered. PERMISSION_ERROR and API_ERROR are
+        // failures carrying a zero score and empty lists; storing them would replace a good
+        // snapshot with an outage and report the subscription as having nothing wrong with it.
+        // A genuine NO_DATA result — reachable, nothing to report — is stored, because that is
+        // the honest answer for a clean subscription and the one a remediating customer needs.
+        boolean answered = response.getStatus() != AzureSecurityResponse.Status.PERMISSION_ERROR
+                && response.getStatus() != AzureSecurityResponse.Status.API_ERROR;
+        if (answered) {
+            redisCache.put(cacheKey, response, CACHE_TTL_MINUTES);
+            saveToDb(dbKey, response);
+        } else {
+            log.warn("Azure security fetch for {} returned {} — not caching, keeping any previous snapshot",
+                    subscriptionId, response.getStatus());
+        }
         return response;
     }
 
@@ -107,7 +141,9 @@ public class AzureSecurityService {
             CachedData entity = cachedDataRepository.findById(dbKey).orElse(new CachedData());
             entity.setCacheKey(dbKey);
             entity.setJsonData(json);
-            entity.setLastUpdated(LocalDateTime.now(ZoneId.of("Asia/Kolkata")));
+            // Same clock the staleness check compares against; Asia/Kolkata made every snapshot
+            // look 5.5h younger than it was on a UTC host.
+            entity.setLastUpdated(LocalDateTime.now());
             cachedDataRepository.save(entity);
             log.info("✅ DB snapshot saved for Azure security: {}", dbKey);
         } catch (Exception e) {

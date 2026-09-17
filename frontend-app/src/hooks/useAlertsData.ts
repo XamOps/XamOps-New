@@ -133,28 +133,17 @@ export const useAlertsData = ({
       abortControllerRef.current = new AbortController();
       const { signal } = abortControllerRef.current;
 
-      const cacheKey = `alertsData-${selectedAccountId}`;
-      const cachedData = sessionStorage.getItem(cacheKey);
-
-      // Use cached data if available and not forcing refresh
-      if (cachedData && !forceRefresh) {
-        console.log('[Alerts] Loading from cache...');
-        const cached: AlertsResponse = JSON.parse(cachedData);
-        setAlerts(cached.alerts || []);
-        setErrors(cached.errors || []);
-        setMetadata(cached.metadata || null);
-        setIsLoading(false);
-        return;
-      }
-
-      // Show loading state only on first load
-      if (!cachedData) {
-        setIsLoading(true);
-      }
+      // No browser-side cache.
+      //
+      // This read a sessionStorage blob that had no TTL — it wrote an `alerts_last_loaded`
+      // timestamp and then never read it anywhere — so a page refresh re-rendered the same JSON
+      // without contacting the server. On an alerts surface that meant resolved alerts could not be
+      // cleared by refreshing at all, only by the in-app Refresh button. The server caches this
+      // list already, with an expiry and an eviction path; a copy in the tab had neither.
+      setIsLoading(true);
 
       if (forceRefresh) {
         setIsRefreshing(true);
-        sessionStorage.removeItem(cacheKey);
         setErrors([]); // Clear previous errors on refresh
       }
 
@@ -188,10 +177,6 @@ export const useAlertsData = ({
 
         const data: AlertsResponse = await response.json();
         const processedAlerts = processAlerts(data.alerts || []);
-
-        // Cache the full response
-        sessionStorage.setItem(cacheKey, JSON.stringify(data));
-        sessionStorage.setItem('alerts_last_loaded', Date.now().toString());
 
         setAlerts(processedAlerts);
         setErrors(data.errors || []);

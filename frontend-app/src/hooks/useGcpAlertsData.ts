@@ -29,27 +29,18 @@ export const useGcpAlertsData = ({ selectedAccountId }: UseGcpAlertsDataOptions)
                 return;
             }
 
-            const cacheKey = `gcpAlertsData-${selectedAccountId}`;
-
-            // Handle refresh state
+            // No browser-side cache.
+            //
+            // This used to read a sessionStorage blob written with no timestamp and no TTL. Because
+            // sessionStorage survives a reload, refreshing the page re-rendered the identical JSON
+            // and never contacted the server — so a customer who had resolved their findings could
+            // not clear them by refreshing, only by pressing the in-app Refresh button. The server
+            // already caches this list in Redis, where it has an expiry and can be evicted; a second
+            // copy in the tab was invisible staleness nobody could reach.
             if (forceRefresh) {
                 setIsRefreshing(true);
-                sessionStorage.removeItem(cacheKey);
             } else {
                 setIsLoading(true);
-
-                // Check sessionStorage cache first
-                const cached = sessionStorage.getItem(cacheKey);
-                if (cached) {
-                    try {
-                        const cachedData = JSON.parse(cached) as GcpAlert[];
-                        setAlerts(processAlerts(cachedData));
-                        setIsLoading(false);
-                        return;
-                    } catch (err) {
-                        console.error('Failed to parse cached alerts data', err);
-                    }
-                }
             }
 
             try {
@@ -70,10 +61,6 @@ export const useGcpAlertsData = ({ selectedAccountId }: UseGcpAlertsDataOptions)
                     status: alert.status || 'UNKNOWN'
                 }));
 
-                // Cache the data
-                sessionStorage.setItem(cacheKey, JSON.stringify(processedAlerts));
-
-                // Sort and set alerts
                 setAlerts(processAlerts(processedAlerts));
             } catch (err) {
                 console.error('Failed to load GCP alert data', err);

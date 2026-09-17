@@ -12,7 +12,16 @@ interface UseAzureSecurityDataReturn {
   loadSecurityData: (forceRefresh?: boolean) => Promise<void>;
 }
 
-const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+/**
+ * Browser-side cache lifetime.
+ *
+ * <p>Was 24 hours, which on a security surface meant a customer who had remediated their findings
+ * kept seeing them for a day — and because this is `localStorage` rather than `sessionStorage`, not
+ * even closing the browser cleared it. The server already caches this response in Redis with its own
+ * expiry; the only job left for a copy in the browser is to avoid refetching while someone navigates
+ * between tabs, which wants seconds, not hours.
+ */
+const CACHE_DURATION = 2 * 60 * 1000; // 2 minutes
 
 export const useAzureSecurityData = ({
   selectedAccountId,
