@@ -45,7 +45,13 @@ const CLOUD_SVG = (
 
 interface KPICardProps {
   label: string;
-  rawValue: number;
+  /**
+   * Null means the backend could not measure this figure.
+   *
+   * Rendering null as 0 is what made a subscription with no ingested billing data look like a
+   * subscription that had spent nothing, so this card shows an explicit unavailable state instead.
+   */
+  rawValue: number | null;
   icon: string;
   iconColor: string;
   iconBg: string;
@@ -55,32 +61,43 @@ interface KPICardProps {
   index: number;
 }
 
+const UNAVAILABLE_STYLE: React.CSSProperties = {
+  fontFamily: "'Inter', sans-serif",
+  fontSize: '15px',
+  fontWeight: 500,
+  lineHeight: '32px',
+  color: 'rgba(0,0,0,0.45)',
+};
+
 const KPICard: React.FC<KPICardProps> = ({ label, rawValue, icon, iconColor, iconBg, changePercent, changeLabel, isSavings, index }) => {
+  const isUnavailable = rawValue == null;
+  const numericValue = rawValue ?? 0;
   const animRef = useRef<number | undefined>(undefined);
-  const prevRawValue = useRef(rawValue);
-  const [animCount, setAnimCount] = useState(rawValue);
+  const prevRawValue = useRef(numericValue);
+  const [animCount, setAnimCount] = useState(numericValue);
 
   useEffect(() => {
-    if (rawValue === prevRawValue.current) return;
+    if (numericValue === prevRawValue.current) return;
     const prev = prevRawValue.current;
-    prevRawValue.current = rawValue;
+    prevRawValue.current = numericValue;
     if (animRef.current) cancelAnimationFrame(animRef.current);
-    if (rawValue === 0) { setAnimCount(0); return; }
+    if (numericValue === 0) { setAnimCount(0); return; }
     const duration = 1050;
     const startTime = performance.now();
     const step = (now: number) => {
       const t = Math.min((now - startTime) / duration, 1);
       const eased = 1 - Math.pow(1 - t, 3);
-      setAnimCount(prev + eased * (rawValue - prev));
+      setAnimCount(prev + eased * (numericValue - prev));
       if (t < 1) animRef.current = requestAnimationFrame(step);
-      else setAnimCount(rawValue);
+      else setAnimCount(numericValue);
     };
     animRef.current = requestAnimationFrame(step);
     return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
-  }, [rawValue]);
+  }, [numericValue]);
 
   const split = splitValue(formatCurrency(animCount));
-  const hasChange = changePercent != null && !isNaN(changePercent) && isFinite(changePercent) && changePercent !== 0;
+  const hasChange = !isUnavailable && changePercent != null && !isNaN(changePercent)
+    && isFinite(changePercent) && changePercent !== 0;
   const isGood = isSavings ? true : (changePercent ?? 0) < 0;
   const badgeText = hasChange ? `${(changePercent ?? 0) >= 0 ? '+' : ''}${Math.abs(changePercent ?? 0).toFixed(1)}%` : '';
 
@@ -93,10 +110,14 @@ const KPICard: React.FC<KPICardProps> = ({ label, rawValue, icon, iconColor, ico
       <div className="relative z-10">
         <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">{label}</p>
         <div className="flex items-end justify-between mb-3">
-          <p className="leading-8 flex items-baseline gap-0.5">
-            <span style={NUM_STYLE}>{split.main}</span>
-            {split.cents && <span style={CENTS_STYLE}>{split.cents}</span>}
-          </p>
+          {isUnavailable ? (
+            <p className="leading-8" style={UNAVAILABLE_STYLE}>Not available</p>
+          ) : (
+            <p className="leading-8 flex items-baseline gap-0.5">
+              <span style={NUM_STYLE}>{split.main}</span>
+              {split.cents && <span style={CENTS_STYLE}>{split.cents}</span>}
+            </p>
+          )}
           <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mb-0.5" style={{ backgroundColor: iconBg }}>
             <Icon icon={icon} width={18} color={iconColor} />
           </div>
@@ -167,18 +188,38 @@ const AzureFinOpsKPICards: React.FC<AzureFinOpsKPICardsProps> = ({ reportData, i
     );
   }
 
-  const totalSpend = reportData?.kpis?.totalSpend ?? 0;
-  const forecastedSpend = reportData?.kpis?.forecastedSpend ?? 0;
-  const momChange = reportData?.kpis?.momChange ?? 0;
+  // Deliberately not defaulted to 0. The backend sends null when the billing ingestion has not
+  // produced a figure yet, and "we don't know" must not render as "zero".
+  const totalSpend = reportData?.kpis?.totalSpend ?? null;
+  const forecastedSpend = reportData?.kpis?.forecastedSpend ?? null;
+  const momChange = reportData?.kpis?.momChange ?? null;
   const totalPotentialSavings = reportData?.totalPotentialSavings ?? 0;
+  const kpisUnavailableReason = reportData?.kpisUnavailableReason ?? null;
+
+  const momUnknown = momChange == null;
+  const momDisplay = momUnknown
+    ? '—'
+    : `${momChange >= 0 ? '+' : ''}${momChange.toFixed(1)}%`;
+  const momColor = momUnknown
+    ? 'rgba(0,0,0,0.45)'
+    : momChange === 0 ? 'rgb(10,10,10)' : momChange > 0 ? '#DC2626' : '#16A34A';
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      <KPICard    index={0} label="Month-to-Date Spend" rawValue={totalSpend}           icon="mdi:currency-usd"                                         iconColor="#0078D4" iconBg="#0078D414" changeLabel="current month actual" />
-      <KPICard    index={1} label="Forecasted Spend"     rawValue={forecastedSpend}      icon="mdi:chart-line"                                           iconColor="#D97706" iconBg="#FFB90014" changeLabel="ML-powered estimate" />
-      <KPICardRaw index={2} label="MoM Change"           displayValue={`${momChange >= 0 ? '+' : ''}${momChange.toFixed(1)}%`} icon={momChange >= 0 ? 'mdi:trending-up' : 'mdi:trending-down'} iconColor={momChange === 0 ? '#6B7280' : momChange > 0 ? '#DC2626' : '#16A34A'} iconBg={momChange === 0 ? 'rgba(0,0,0,0.04)' : momChange > 0 ? '#FEE2E214' : '#DCFCE714'} valueColor={momChange === 0 ? 'rgb(10,10,10)' : momChange > 0 ? '#DC2626' : '#16A34A'} changeLabel="vs last month" />
-      <KPICard    index={3} label="Potential Savings"    rawValue={totalPotentialSavings} icon="mdi:piggy-bank"                                          iconColor="#16A34A" iconBg="#16A34A14" changeLabel="available to reclaim" isSavings />
-    </div>
+    <>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KPICard    index={0} label="Month-to-Date Spend" rawValue={totalSpend}           icon="mdi:currency-usd" iconColor="#0078D4" iconBg="#0078D414" changeLabel="current month actual" />
+        <KPICard    index={1} label="Forecasted Spend"     rawValue={forecastedSpend}      icon="mdi:chart-line"   iconColor="#D97706" iconBg="#FFB90014" changeLabel="ML-powered estimate" />
+        <KPICardRaw index={2} label="MoM Change" displayValue={momDisplay} icon={momUnknown ? 'mdi:help-circle-outline' : momChange >= 0 ? 'mdi:trending-up' : 'mdi:trending-down'} iconColor={momUnknown || momChange === 0 ? '#6B7280' : momChange > 0 ? '#DC2626' : '#16A34A'} iconBg={momUnknown || momChange === 0 ? 'rgba(0,0,0,0.04)' : momChange > 0 ? '#FEE2E214' : '#DCFCE714'} valueColor={momColor} changeLabel={momUnknown ? 'not enough history' : 'vs last month'} />
+        <KPICard    index={3} label="Potential Savings"    rawValue={totalPotentialSavings} icon="mdi:piggy-bank"  iconColor="#16A34A" iconBg="#16A34A14" changeLabel="available to reclaim" isSavings />
+      </div>
+
+      {kpisUnavailableReason && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.02)] px-3 py-2">
+          <Icon icon="mdi:information-outline" width={15} className="mt-0.5 flex-shrink-0" color="rgba(0,0,0,0.45)" />
+          <p className="text-[11px] leading-[16px] text-[rgba(0,0,0,0.55)]">{kpisUnavailableReason}</p>
+        </div>
+      )}
+    </>
   );
 };
 

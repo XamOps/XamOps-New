@@ -654,7 +654,24 @@ public class AzureDashboardService {
                 log.info("Dashboard KPIs for {} — MTD: {} {}, Last Month: {}, Forecasted: {}, MTD USD: {}",
                         accountId, mtdSpend, dashboardData.getCurrency(), lastMonthSpend, forecastedSpend,
                         dashboardData.getMonthToDateSpendUsd());
+
+                // A cached history that holds only forecast rows, or none for either month, yields
+                // zeros that are absences rather than measurements. Say so, on the same channel the
+                // no-history branch below uses.
+                if (mtdSpend == 0.0 && lastMonthSpend == 0.0) {
+                    dashboardData.addDataWarning("Month-to-date and last-month spend are unavailable: "
+                            + "the ingested cost history contains no closed-month totals for this "
+                            + "subscription yet.");
+                }
             } else {
+                // Unlike the branch below, this one previously set three zeros and said nothing, so a
+                // malformed cache rendered as a measured $0 with no warning and dataComplete stayed
+                // true — which also let saveDashboardToDatabase write the zeros over a good snapshot.
+                log.warn("Cached cost history for {} is malformed (labels/costs/forecast flags "
+                        + "inconsistent). Reporting spend as unavailable.", accountId);
+                dashboardData.addDataWarning("Month-to-date, last-month and forecast spend are "
+                        + "unavailable: the ingested cost history for this subscription is malformed. "
+                        + "It will be rebuilt on the next ingestion run.");
                 dashboardData.setMonthToDateSpend(0.0);
                 dashboardData.setForecastedSpend(0.0);
                 dashboardData.setLastMonthSpend(0.0);

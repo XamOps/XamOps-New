@@ -42,15 +42,37 @@ public class AzureFinOpsReportDto {
     /** Why {@link #budgets} is empty, or null when Azure returned the list normally. */
     private String budgetsUnavailableReason;
 
+    /**
+     * Why the KPI block is wholly or partly unset, or null when every figure was measured.
+     *
+     * <p>
+     * Needed because the KPIs are read from the billing-ingestion cache rather than computed live: a
+     * subscription whose ingestion has not run yet is indistinguishable from one that genuinely spent
+     * nothing, and the second reading is the dangerous one.
+     */
+    private String kpisUnavailableReason;
+
     // Inner class for KPIs
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
     public static class Kpis {
-        private double totalSpend;
-        private double forecastedSpend;
-        private double yoyChange;
-        private double momChange;
+        /**
+         * Every figure is nullable on purpose.
+         *
+         * <p>
+         * These were primitive doubles defaulted to {@code 0.0} on every failure path — a cold
+         * ingestion cache, a malformed history, fewer than two closed months, or an exception. A
+         * zero here is indistinguishable from a measurement, so the report asserted "you spent
+         * nothing and your costs are flat" whenever it in fact knew nothing. Null forces the client
+         * to render an explicit "not available".
+         */
+        private Double totalSpend;
+        private Double forecastedSpend;
+        /** Year-over-year change. Null until 13 months of history exist. */
+        private Double yoyChange;
+        /** Month-over-month change. Null until two closed months exist. */
+        private Double momChange;
     }
 
     // Inner class for Cost Breakdown
@@ -60,7 +82,16 @@ public class AzureFinOpsReportDto {
     public static class CostBreakdown {
         private String service;
         private double cost;
-        private double change; // MoM change
+        /**
+         * Month-over-month change for this service, as a percentage. Null when the service has no
+         * prior closed month to compare against.
+         *
+         * <p>
+         * This was a literal {@code 0.0} placeholder for every service, so a service whose spend had
+         * doubled reported no change at all. It is now derived from the per-service monthly series
+         * the billing ingestion already caches.
+         */
+        private Double change;
     }
 
     // Inner class for Cost by Region

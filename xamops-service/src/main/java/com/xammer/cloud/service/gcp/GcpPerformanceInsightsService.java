@@ -38,11 +38,27 @@ public class GcpPerformanceInsightsService {
     private final GcpMetricsService gcpMetricsService;
     private final GcpDataService gcpDataService;
     private final GcpOptimizationService gcpOptimizationService;
+    private final GcpPricingService gcpPricingService;
     private final RedisCacheService redisCache;
     private final ObjectMapper objectMapper;
     private final CachedDataRepository cachedDataRepository;
 
     private static final String DB_CACHE_PREFIX = "GCP_PERFORMANCE::";
+
+    /** Compute Engine bills a 730-hour month (365 * 24 / 12). */
+    private static final double HOURS_PER_MONTH = 730.0;
+
+    /**
+     * Average CPU below which an instance is treated as idle rather than merely oversized.
+     *
+     * <p>The distinction decides what saving can honestly be claimed: an idle instance can be
+     * stopped, so the whole compute rate is recoverable, whereas an oversized one only yields the
+     * difference to a smaller machine type — a figure that needs a named target to be real.
+     */
+    private static final double IDLE_CPU_THRESHOLD = 5.0;
+
+    /** Average CPU below which an instance is reported as underutilized at all. */
+    private static final double UNDERUTILIZED_CPU_THRESHOLD = 10.0;
 
     @Autowired
     public GcpPerformanceInsightsService(
@@ -51,6 +67,7 @@ public class GcpPerformanceInsightsService {
             GcpMetricsService gcpMetricsService,
             @Lazy GcpDataService gcpDataService,
             @Lazy GcpOptimizationService gcpOptimizationService,
+            GcpPricingService gcpPricingService,
             RedisCacheService redisCache,
             ObjectMapper objectMapper,
             CachedDataRepository cachedDataRepository) {
@@ -59,9 +76,37 @@ public class GcpPerformanceInsightsService {
         this.gcpMetricsService = gcpMetricsService;
         this.gcpDataService = gcpDataService;
         this.gcpOptimizationService = gcpOptimizationService;
+        this.gcpPricingService = gcpPricingService;
         this.redisCache = redisCache;
         this.objectMapper = objectMapper;
         this.cachedDataRepository = cachedDataRepository;
+    }
+
+    /**
+     * Last path segment of a Compute Engine resource URL.
+     *
+     * <p>The API returns fully-qualified selfLinks ({@code .../machineTypes/e2-medium}) wherever a
+     * bare name is wanted.
+     */
+    private static String lastSegment(String resourceUrl) {
+        if (resourceUrl == null || resourceUrl.isBlank()) {
+            return "";
+        }
+        int slash = resourceUrl.lastIndexOf('/');
+        return slash < 0 ? resourceUrl : resourceUrl.substring(slash + 1);
+    }
+
+    /**
+     * The region containing a zone, e.g. {@code asia-south1-a} -> {@code asia-south1}.
+     *
+     * <p>Pricing is published per region, while instances and zonal disks report a zone.
+     */
+    private static String regionOfZone(String zone) {
+        if (zone == null || zone.isBlank()) {
+            return "";
+        }
+        int lastDash = zone.lastIndexOf('-');
+        return lastDash <= 0 ? zone : zone.substring(0, lastDash);
     }
 
     private void saveToDb(String dbKey, Object data) {
@@ -204,11 +249,22 @@ public class GcpPerformanceInsightsService {
                                 String zone = instance.getZone().substring(instance.getZone().lastIndexOf('/') + 1);
 
                                 // Flag underutilized instances
-                                if (avgCpu < 10.0) {
-                                    String severity = avgCpu < 5.0 ? "CRITICAL" : "WARNING";
-                                    insights.add(new PerformanceInsightDto(
+                                if (avgCpu < UNDERUTILIZED_CPU_THRESHOLD) {
+                                    boolean idle = avgCpu < IDLE_CPU_THRESHOLD;
+                                    String severity = idle ? "CRITICAL" : "WARNING";
+                                    String machineType = lastSegment(instance.getMachineType());
+                                    String region = regionOfZone(zone);
+
+                                    GcpPricingService.PricingInfo price = gcpPricingService
+                                            .getMachineTypePricing(machineType, region, gcpProjectId);
+                                    double monthlyCost = price.isPriced()
+                                            ? price.getOnDemandPrice() * HOURS_PER_MONTH
+                                            : 0.0;
+
+                                    PerformanceInsightDto dto = new PerformanceInsightDto(
                                             "gce-" + instance.getId() + "-underutilized",
-                                            "Compute Engine instance " + instance.getName() + " is underutilized (" + String.format("%.1f", avgCpu) + "% avg CPU).",
+                                            "Compute Engine instance " + instance.getName() + " is underutilized ("
+                                                    + String.format("%.1f", avgCpu) + "% avg CPU).",
                                             "Low resource utilization detected. Consider downsizing or stopping this instance.",
                                             PerformanceInsightDto.InsightSeverity.valueOf(severity),
                                             PerformanceInsightDto.InsightCategory.COST,
@@ -216,12 +272,33 @@ public class GcpPerformanceInsightsService {
                                             1,
                                             "Compute Engine",
                                             String.valueOf(instance.getId()),
-                                            "Consider downsizing this instance to " + (instance.getMachineType().contains("e2") ? "smaller e2 type" : "smaller n1 type") + ". Check rightsizing recommendations.",
+                                            idle
+                                                    ? "Stop or delete this " + machineType + " instance. It has averaged "
+                                                            + String.format("%.1f", avgCpu)
+                                                            + "% CPU, so the whole compute charge is recoverable."
+                                                    : "Downsize this " + machineType
+                                                            + " instance. See Rightsizing for the machine type GCP's "
+                                                            + "Recommender suggests and the saving that follows from it.",
                                             "/docs/gce-rightsizing",
-                                            50.0, // Placeholder savings
+                                            // An idle instance can be stopped, so the full compute rate is the
+                                            // saving. An oversized one yields only the delta to a smaller machine
+                                            // type, which needs a named target — Rightsizing owns that, and
+                                            // inventing a figure here is what previously put a flat $50 against
+                                            // every instance regardless of its size or region.
+                                            idle ? monthlyCost : 0.0,
                                             zone,
-                                            Instant.now().toString()
-                                    ));
+                                            Instant.now().toString());
+
+                                    if (!idle) {
+                                        dto.withUnknownSavings("Downsizing saves the difference to a smaller "
+                                                + "machine type, which depends on the target size. See Rightsizing "
+                                                + "for the priced recommendation.");
+                                    } else if (!price.isPriced()) {
+                                        dto.withUnknownSavings("Compute Engine list price unavailable for "
+                                                + machineType + " in " + region + ": " + price.getNote());
+                                    }
+
+                                    insights.add(dto);
                                 }
                             } catch (IOException e) {
                                 log.warn("Could not fetch metrics for GCE instance {}: {}", instance.getName(), e.getMessage());
@@ -262,22 +339,35 @@ public class GcpPerformanceInsightsService {
                 // Filter Cloud SQL recommendations
                 recs.stream()
                         .filter(rec -> rec != null && "Cloud SQL".equals(rec.getService()) && !rec.isCostIncrease())
-                        .forEach(rec -> insights.add(new PerformanceInsightDto(
-                                "sql-" + rec.getResourceName() + "-overprovisioned",
-                                "Cloud SQL instance " + rec.getResourceName() + " may be overprovisioned.",
-                                rec.getReasonSummary(),
-                                PerformanceInsightDto.InsightSeverity.WARNING,
-                                PerformanceInsightDto.InsightCategory.COST,
-                                account.getGcpProjectId(),
-                                1,
-                                "Cloud SQL",
-                                rec.getResourceName(),
-                                "Consider rightsizing to " + rec.getRecommendedMachineType() + ". " + rec.getReasonSummary(),
-                                "/docs/sql-rightsizing",
-                                rec.getMonthlySavings(),
-                                rec.getLocation(),
-                                Instant.now().toString()
-                        )));
+                        .forEach(rec -> {
+                            PerformanceInsightDto dto = new PerformanceInsightDto(
+                                    "sql-" + rec.getResourceName() + "-overprovisioned",
+                                    "Cloud SQL instance " + rec.getResourceName() + " may be overprovisioned.",
+                                    rec.getReasonSummary(),
+                                    PerformanceInsightDto.InsightSeverity.WARNING,
+                                    PerformanceInsightDto.InsightCategory.COST,
+                                    account.getGcpProjectId(),
+                                    1,
+                                    "Cloud SQL",
+                                    rec.getResourceName(),
+                                    "Consider rightsizing to " + rec.getRecommendedMachineType() + ". "
+                                            + rec.getReasonSummary(),
+                                    "/docs/sql-rightsizing",
+                                    rec.getMonthlySavings(),
+                                    rec.getLocation(),
+                                    Instant.now().toString());
+
+                            // GcpOptimizationService returns 0.0 as its PRICE_UNKNOWN sentinel. A
+                            // downsize recommendation that saves exactly nothing is not a
+                            // recommendation, so a zero here means the tier could not be priced —
+                            // report that rather than showing the user "$0".
+                            if (rec.getMonthlySavings() <= 0.0) {
+                                dto.withUnknownSavings("The Cloud Billing Catalog did not return a rate "
+                                        + "for this Cloud SQL tier, so the saving could not be priced.");
+                            }
+
+                            insights.add(dto);
+                        });
             } catch (ClassCastException cce) {
                 log.error("ClassCastException during Cloud SQL insights processing for project {}. Data structure might be unexpected: {}", gcpProjectId, cce.getMessage());
             } catch (Exception e) {
@@ -308,11 +398,21 @@ public class GcpPerformanceInsightsService {
                 StreamSupport.stream(client.aggregatedList(gcpProjectId).iterateAll().spliterator(), false)
                         .flatMap(entry -> entry.getValue().getDisksList().stream())
                         .forEach(disk -> {
-                            String zone = disk.getZone().substring(disk.getZone().lastIndexOf('/') + 1);
-                            
+                            // A regional disk reports no zone but does report a region, and is a
+                            // separate, more expensive SKU. Reading only the zone priced those at the
+                            // zonal rate.
+                            boolean regional = disk.getZone() == null || disk.getZone().isBlank();
+                            String zone = regional ? "" : lastSegment(disk.getZone());
+                            String region = regional ? lastSegment(disk.getRegion()) : regionOfZone(zone);
+                            String location = regional ? region : zone;
+
                             // Check for unattached disks
                             if (disk.getUsersList().isEmpty()) {
-                                insights.add(new PerformanceInsightDto(
+                                String diskType = lastSegment(disk.getType());
+                                GcpPricingService.DiskPriceInfo price = gcpPricingService
+                                        .getPersistentDiskPricing(diskType, region, regional, gcpProjectId);
+
+                                PerformanceInsightDto dto = new PerformanceInsightDto(
                                         "disk-" + disk.getId() + "-unattached",
                                         "Persistent Disk " + disk.getName() + " is unattached.",
                                         "Unattached disks incur costs without being used.",
@@ -324,10 +424,20 @@ public class GcpPerformanceInsightsService {
                                         String.valueOf(disk.getId()),
                                         "Consider deleting this disk if no longer needed, or attach it to an instance.",
                                         "/docs/gcp-disks",
-                                        disk.getSizeGb() * 0.04, // Approx cost for pd-standard per GB/month
-                                        zone,
-                                        Instant.now().toString()
-                                ));
+                                        // Real per-region, per-type capacity rate from the Cloud Billing
+                                        // Catalog. This was size * 0.04 — a single pd-standard rate applied
+                                        // to every disk type in every region, so an SSD in a costly region
+                                        // was understated several-fold.
+                                        price.isPriced() ? price.getUsdPerGibMonth() * disk.getSizeGb() : 0.0,
+                                        location,
+                                        Instant.now().toString());
+
+                                if (!price.isPriced()) {
+                                    dto.withUnknownSavings("Persistent Disk list price unavailable for "
+                                            + diskType + " in " + region + ": " + price.getNote());
+                                }
+
+                                insights.add(dto);
                             }
                         });
             } catch (Exception e) {
@@ -393,10 +503,27 @@ public class GcpPerformanceInsightsService {
         summary.put("weakWarning", allInsights.stream()
                 .filter(i -> i != null && i.getSeverity() == PerformanceInsightDto.InsightSeverity.WEAK_WARNING)
                 .count());
-        summary.put("potentialSavings", allInsights.stream()
+        // Only priced findings contribute. This total used to be a count of findings multiplied by
+        // a flat $50 placeholder plus a guessed disk rate; it is now the sum of real Cloud Billing
+        // Catalog rates, and findings that could not be priced are reported separately rather than
+        // folded in as zero — so the amount and the count describe the same set.
+        List<PerformanceInsightDto> costInsights = allInsights.stream()
                 .filter(i -> i != null && i.getCategory() == PerformanceInsightDto.InsightCategory.COST)
+                .collect(Collectors.toList());
+
+        long unpricedCount = costInsights.stream().filter(PerformanceInsightDto::isSavingsUnknown).count();
+
+        summary.put("potentialSavings", costInsights.stream()
+                .filter(i -> !i.isSavingsUnknown())
                 .mapToDouble(PerformanceInsightDto::getPotentialSavings)
                 .sum());
+        summary.put("pricedFindings", costInsights.size() - unpricedCount);
+        summary.put("unpricedFindings", unpricedCount);
+        summary.put("savingsCurrency", "USD");
+        if (unpricedCount > 0) {
+            summary.put("savingsIncompleteReason", unpricedCount + " of " + costInsights.size()
+                    + " cost findings could not be priced, so the total is a lower bound.");
+        }
         summary.put("performanceScore", calculatePerformanceScore(allInsights));
 
         // Cache summary

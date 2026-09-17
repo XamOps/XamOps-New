@@ -30,6 +30,14 @@ public class GcpBudgetService {
     private final EmailService emailService;
     private final BudgetEmailBuilder budgetEmailBuilder;
 
+    /**
+     * Source of the spend figures the Budgets API does not return.
+     *
+     * <p>Lazy because the FinOps report reaches budgets through the cost service, and eager wiring
+     * in both directions would be a startup cycle.
+     */
+    private final GcpCostService gcpCostService;
+
     @Value("${gcp.budget.mock:false}")
     private boolean useMockData;
 
@@ -41,13 +49,55 @@ public class GcpBudgetService {
             UserRepository userRepository,
             RedisCacheService redisCacheService,
             EmailService emailService,
-            BudgetEmailBuilder budgetEmailBuilder) {
+            BudgetEmailBuilder budgetEmailBuilder,
+            @org.springframework.context.annotation.Lazy GcpCostService gcpCostService) {
         this.gcpClientProvider = gcpClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.userRepository = userRepository;
         this.redisCacheService = redisCacheService;
         this.emailService = emailService;
         this.budgetEmailBuilder = budgetEmailBuilder;
+        this.gcpCostService = gcpCostService;
+    }
+
+    /**
+     * Fills in the spend figures the Cloud Billing Budgets API does not return.
+     *
+     * <p>The API describes a budget's configuration — name, amount, thresholds — but not its
+     * consumption, which lives in the billing export. Both fields were previously left at a
+     * hardcoded {@code 0.0}, so every budget in the list rendered at 0% however much had been spent
+     * against it.
+     *
+     * <p>Spend is the project's month-to-date total, which is the figure a project-scoped budget is
+     * evaluated against. A budget narrowed by service or label will read high here; that is recorded
+     * in {@code spendUnavailableReason} rather than left for the reader to infer.
+     */
+    private void backfillSpend(List<GcpBudgetDto> budgets, String gcpProjectId) {
+        if (budgets == null || budgets.isEmpty()) {
+            return;
+        }
+        try {
+            double mtdSpend = gcpCostService.getUnfilteredMonthToDateSpend(gcpProjectId).join();
+            double forecast = gcpCostService.calculateForecastedSpend(mtdSpend);
+            budgets.forEach(b -> {
+                b.setActualSpend(mtdSpend);
+                b.setForecastedSpend(forecast);
+            });
+            log.info("Backfilled spend for {} budget(s) on project {}: MTD {}, forecast {}",
+                    budgets.size(), gcpProjectId, mtdSpend, forecast);
+        } catch (Exception e) {
+            // Null, not zero. A budget showing 0% because the billing export could not be read is
+            // indistinguishable from one that is genuinely untouched, and only one of those is safe
+            // to ignore.
+            log.warn("Could not read month-to-date spend for project {}; budget spend reported as "
+                    + "unavailable: {}", gcpProjectId, e.getMessage());
+            budgets.forEach(b -> {
+                b.setActualSpend(null);
+                b.setForecastedSpend(null);
+                b.setSpendUnavailableReason("Spend against this budget could not be read: the BigQuery "
+                        + "billing export for this project returned no month-to-date total.");
+            });
+        }
     }
 
     /**
@@ -121,6 +171,10 @@ public class GcpBudgetService {
                 log.error("Failed to fetch GCP budgets for project {}: {}", gcpProjectId, e.getMessage());
             }
         }
+
+        // The Budgets API returns configuration only, so spend has to come from the billing export.
+        // Without this the list served real budget names and limits with every spend field at zero.
+        backfillSpend(allBudgets, gcpProjectId);
 
         redisCacheService.put(cacheKey, allBudgets, 10);
         return allBudgets;
@@ -341,7 +395,12 @@ public class GcpBudgetService {
             log.info("Successfully created GCP budget via API: {}", createdBudget.getName());
 
             evictBudgetCache(accountId, gcpProjectId);
-            return new GcpBudgetDto(request.getBudgetName(), request.getBudgetLimit(), 0.0, 0.0);
+            // Report the real spend the new budget starts life against rather than an assumed zero:
+            // a budget created mid-month already has the month's spend counting towards it.
+            GcpBudgetDto created =
+                    new GcpBudgetDto(request.getBudgetName(), request.getBudgetLimit(), null, null);
+            backfillSpend(List.of(created), gcpProjectId);
+            return created;
 
         } catch (com.google.api.gax.rpc.ApiException e) {
             String details = "";
@@ -507,11 +566,10 @@ public class GcpBudgetService {
             Money money = budget.getAmount().getSpecifiedAmount();
             limit = money.getUnits() + (money.getNanos() / 1_000_000_000.0);
         }
-        // GCP Budget API doesn't provide actual spend directly - would need to query
-        // billing data
-        double actual = 0.0;
-        double forecast = 0.0;
-        return new GcpBudgetDto(budget.getDisplayName(), limit, actual, forecast);
+        // Spend is left null here and filled in by backfillSpend, which reads the billing export.
+        // These were hardcoded to 0.0, and because that is a perfectly plausible spend figure the
+        // zero travelled all the way to the progress bar as though it had been measured.
+        return new GcpBudgetDto(budget.getDisplayName(), limit, null, null);
     }
 
     /**
