@@ -1,5 +1,9 @@
 // Currency helpers for multi-cloud dashboards.
-// AWS spend is reported in USD; GCP and Azure are converted to INR upstream.
+// AWS spend is reported in USD. GCP is converted to INR upstream.
+//
+// Azure is reported in whatever currency the subscription is billed in, and the payload now says
+// which via `currency`. Pass that code to these helpers wherever it is available; the
+// provider-based fallback below is a guess kept only for callers that do not have it yet.
 
 export type CloudProvider = 'AWS' | 'GCP' | 'Azure';
 
@@ -8,10 +12,40 @@ export interface CurrencyMeta {
   locale: string;
 }
 
-export const currencyMeta = (provider?: string): CurrencyMeta =>
-  provider === 'GCP' || provider === 'Azure'
+const BY_CODE: Record<string, CurrencyMeta> = {
+  USD: { symbol: '$', locale: 'en-US' },
+  INR: { symbol: '₹', locale: 'en-IN' },
+  EUR: { symbol: '€', locale: 'de-DE' },
+  GBP: { symbol: '£', locale: 'en-GB' },
+  AUD: { symbol: 'A$', locale: 'en-AU' },
+  CAD: { symbol: 'C$', locale: 'en-CA' },
+  JPY: { symbol: '¥', locale: 'ja-JP' },
+  SGD: { symbol: 'S$', locale: 'en-SG' },
+  AED: { symbol: 'AED ', locale: 'en-AE' },
+};
+
+/**
+ * Symbol and locale for a figure.
+ *
+ * An explicit ISO currency code always wins. This previously took only the provider and hardcoded
+ * ₹ for Azure, asserting in a comment that Azure spend was "converted to INR upstream" — which was
+ * never true, no conversion existed anywhere in the Azure path. The result was that an Azure
+ * subscription billed in USD, EUR or anything else had its figures labelled ₹ while being neither
+ * converted nor flagged. Azure reports its billing currency and the backend now carries it through,
+ * so a caller with the payload in hand should pass the code and stop guessing.
+ */
+export const currencyMeta = (provider?: string, code?: string | null): CurrencyMeta => {
+  if (code) {
+    const known = BY_CODE[code.toUpperCase()];
+    if (known) return known;
+    // An unmapped but stated code is still better than a guessed symbol: show the code itself
+    // rather than implying a currency the figure is not in.
+    return { symbol: `${code.toUpperCase()} `, locale: 'en-US' };
+  }
+  return provider === 'GCP' || provider === 'Azure'
     ? { symbol: '₹', locale: 'en-IN' }
     : { symbol: '$', locale: 'en-US' };
+};
 
 /** Full money string, e.g. "$1,234.56" / "₹1,23,456.00". */
 export const fmtMoney = (

@@ -189,11 +189,21 @@ export const useUnifiedDashboard = () => {
   }, [convert]);
 
   // -------------------------------------------------------------------------
-  // Derive processed provider data (with USD conversion for GCP/Azure)
+  // Derive processed provider data (with USD conversion for GCP)
   // -------------------------------------------------------------------------
   const awsData = awsQuery.data ?? null;
   const gcpData = gcpQuery.data ? convertToUSD(gcpQuery.data) : null;
-  const azureData = azureQuery.data ? convertToUSD(azureQuery.data) : null;
+  // Azure is no longer converted here.
+  //
+  // The backend now returns these figures already in USD, using Azure's own CostUSD aggregation —
+  // the rate Azure actually billed at. Converting again would divide by roughly 83 a second time.
+  //
+  // Even before that, converting here was wrong twice over: it assumed every Azure subscription
+  // bills in INR, which nothing verified, and it applied a static rate. Measured against a live
+  // subscription, Azure reported 454.5288 INR as 4.752 USD — an implied 95.65 against the 83.33
+  // this multiplier assumes, so every Azure figure on this dashboard was around 15% out even when
+  // the INR assumption happened to hold.
+  const azureData = azureQuery.data ?? null;
   const healthData = healthQuery.data ?? null;
   const ticketCount = ticketsQuery.data ?? 0;
 

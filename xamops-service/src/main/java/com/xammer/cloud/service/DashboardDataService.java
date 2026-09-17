@@ -932,23 +932,37 @@ public class DashboardDataService {
         String prebuiltKey = SNAPSHOT_KEY_AWS + "::" + tenantId + "::system::"
                 + (clientId != null ? clientId : "system");
 
-        // 3. Try to fetch from user-scoped cache, then fall back to pre-built client
-        // snapshot
+        // 3. Prefer the pre-built snapshot the scheduler writes; fall back to the user-scoped copy.
+        //
+        // This order used to be reversed, and that pinned the unified dashboard to stale data
+        // permanently. Only prebuiltKey is ever written by buildAndSaveUnifiedAwsSnapshot;
+        // scopedKey is populated once, here, as a copy. Because saveSnapshot writes a cached_data
+        // row with no expiry and getSnapshot re-warms Redis from that row on every miss, the copy
+        // never aged out and nothing invalidated it — so once it existed, the scheduler could
+        // refresh prebuiltKey nightly for months and this method would keep returning the first
+        // copy it ever made. Observed as a unified dashboard showing a "Synced Jul 10" timestamp
+        // in mid-September, beside FinOps and Cost pages reading live Redis and showing today's
+        // figures. Only the Refresh button escaped it, because forceRefresh rewrites scopedKey.
+        //
+        // Reading prebuiltKey first makes the scheduler's output authoritative and reduces the copy
+        // to what it was presumably meant to be: a fallback for the clientId == null case, which
+        // the builder never writes a prebuilt key for.
         if (!forceRefresh) {
+            DashboardData prebuilt = getSnapshot(prebuiltKey);
+            if (prebuilt != null) {
+                if (!scopedKey.equals(prebuiltKey))
+                    saveSnapshot(scopedKey, prebuilt);
+                logger.info("Returning pre-built AWS Snapshot for Unified View (Tenant: {} | User: {})", tenantId,
+                        isAdmin ? "Global/Admin" : userDetails.getUsername());
+                populateAvailableAccounts(prebuilt, userDetails);
+                return prebuilt;
+            }
             DashboardData cached = getSnapshot(scopedKey);
             if (cached != null) {
                 logger.info("Returning Cached AWS Snapshot for Unified View (Tenant: {} | User: {})", tenantId,
                         isAdmin ? "Global/Admin" : userDetails.getUsername());
                 populateAvailableAccounts(cached, userDetails);
                 return cached;
-            }
-            // Check if scheduled job already built a snapshot for this client
-            DashboardData prebuilt = getSnapshot(prebuiltKey);
-            if (prebuilt != null) {
-                if (!scopedKey.equals(prebuiltKey))
-                    saveSnapshot(scopedKey, prebuilt);
-                populateAvailableAccounts(prebuilt, userDetails);
-                return prebuilt;
             }
         }
 
@@ -985,20 +999,24 @@ public class DashboardDataService {
         String prebuiltKey = SNAPSHOT_KEY_GCP + "::" + tenantId + "::system::"
                 + (clientId != null ? clientId : "system");
 
+        // Pre-built first, user-scoped copy second. See getUnifiedAwsData for why this order
+        // matters: the reverse pinned the view to the first copy it ever made, forever.
         if (!forceRefresh) {
+            DashboardData prebuilt = getSnapshot(prebuiltKey);
+            if (prebuilt != null) {
+                if (!scopedKey.equals(prebuiltKey))
+                    saveSnapshot(scopedKey, prebuilt);
+                logger.info("Returning pre-built GCP Snapshot for Unified View (Tenant: {} | User: {})", tenantId,
+                        isAdmin ? "Global/Admin" : userDetails.getUsername());
+                populateAvailableAccounts(prebuilt, userDetails);
+                return prebuilt;
+            }
             DashboardData cached = getSnapshot(scopedKey);
             if (cached != null) {
                 logger.info("Returning Cached GCP Snapshot for Unified View (Tenant: {} | User: {})", tenantId,
                         isAdmin ? "Global/Admin" : userDetails.getUsername());
                 populateAvailableAccounts(cached, userDetails);
                 return cached;
-            }
-            DashboardData prebuilt = getSnapshot(prebuiltKey);
-            if (prebuilt != null) {
-                if (!scopedKey.equals(prebuiltKey))
-                    saveSnapshot(scopedKey, prebuilt);
-                populateAvailableAccounts(prebuilt, userDetails);
-                return prebuilt;
             }
         }
 
@@ -1033,20 +1051,25 @@ public class DashboardDataService {
         String prebuiltKey = SNAPSHOT_KEY_AZURE + "::" + tenantId + "::system::"
                 + (clientId != null ? clientId : "system");
 
+        // Pre-built first, user-scoped copy second. See getUnifiedAwsData for why this order
+        // matters: the reverse pinned the view to the first copy it ever made, forever. This is the
+        // path the reported "Synced Jul 10" Azure dashboard came through.
         if (!forceRefresh) {
+            DashboardData prebuilt = getSnapshot(prebuiltKey);
+            if (prebuilt != null) {
+                if (!scopedKey.equals(prebuiltKey))
+                    saveSnapshot(scopedKey, prebuilt);
+                logger.info("Returning pre-built Azure Snapshot for Unified View (Tenant: {} | User: {})", tenantId,
+                        isAdmin ? "Global/Admin" : userDetails.getUsername());
+                populateAvailableAccounts(prebuilt, userDetails);
+                return prebuilt;
+            }
             DashboardData cached = getSnapshot(scopedKey);
             if (cached != null) {
                 logger.info("Returning Cached Azure Snapshot for Unified View (Tenant: {} | User: {})", tenantId,
                         isAdmin ? "Global/Admin" : userDetails.getUsername());
                 populateAvailableAccounts(cached, userDetails);
                 return cached;
-            }
-            DashboardData prebuilt = getSnapshot(prebuiltKey);
-            if (prebuilt != null) {
-                if (!scopedKey.equals(prebuiltKey))
-                    saveSnapshot(scopedKey, prebuilt);
-                populateAvailableAccounts(prebuilt, userDetails);
-                return prebuilt;
             }
         }
 
@@ -3275,8 +3298,26 @@ public class DashboardDataService {
             mainAccount.setIamResources(new DashboardData.IamResources(0, 0, 0, 0));
         }
 
-        mainAccount.setMonthToDateSpend(azureData.getMonthToDateSpend());
+        // USD when Azure gave us a USD figure, native currency otherwise.
+        //
+        // This mapping feeds the unified multi-provider dashboard, which totals AWS, GCP and Azure
+        // into one number and therefore needs one currency. It used to copy the native figure
+        // through and leave the frontend to convert with a hardcoded 0.012 (an implied 83.33
+        // INR/USD). Azure's own CostUSD for the same rows implies 95.65 — the rate it actually
+        // billed at — so the local conversion was around 15% out on every Azure figure in that
+        // view, and completely wrong for a subscription that bills in anything but INR.
+        //
+        // Falls back to the native figure when no USD is available, which is also the correct
+        // no-op for a subscription already billed in USD.
+        Double azureMtdUsd = azureData.getMonthToDateSpendUsd();
+        mainAccount.setMonthToDateSpend(azureMtdUsd != null ? azureMtdUsd : azureData.getMonthToDateSpend());
         mainAccount.setForecastedSpend(azureData.getForecastedSpend());
+        if (azureMtdUsd == null && azureData.getCurrency() != null
+                && !"USD".equalsIgnoreCase(azureData.getCurrency())) {
+            logger.warn("[Unified] Azure subscription {} reports {} but no USD conversion — its spend is "
+                    + "being totalled in {} alongside USD figures from other providers.",
+                    account.getAzureSubscriptionId(), azureData.getCurrency(), azureData.getCurrency());
+        }
 
         if (azureData.getCostHistory() != null) {
             mainAccount.setCostHistory(new DashboardData.CostHistory(
