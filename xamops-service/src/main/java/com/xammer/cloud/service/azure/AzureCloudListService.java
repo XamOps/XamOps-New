@@ -146,16 +146,27 @@ public class AzureCloudListService {
     private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper;
 
+    private final AzureResourceGraphService resourceGraphService;
+
+    /**
+     * When true, the cloudlist is enumerated with one Resource Graph query instead of the 30 per-type
+     * SDK calls. Falls back automatically, so this is safe to flip per environment.
+     */
+    @org.springframework.beans.factory.annotation.Value("${xamops.azure.resource-graph.enabled:false}")
+    private boolean resourceGraphEnabled;
+
     public AzureCloudListService(AzureClientProvider clientProvider,
                                   CloudAccountRepository cloudAccountRepository,
                                   RedisCacheService redisCache,
                                   CachedDataRepository cachedDataRepository,
-                                  ObjectMapper objectMapper) {
+                                  ObjectMapper objectMapper,
+                                  AzureResourceGraphService resourceGraphService) {
         this.clientProvider = clientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.redisCache = redisCache;
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
+        this.resourceGraphService = resourceGraphService;
     }
 
     private void saveToDb(String dbKey, Object data) {
@@ -215,6 +226,28 @@ public class AzureCloudListService {
                     })
                     .orElseThrow(() -> new IllegalArgumentException("Azure account not found for ID: " + accountId));
             String actualSubscriptionId = account.getAzureSubscriptionId();
+
+            // Single-query path: one Resource Graph query instead of the 30 per-type SDK calls below.
+            // Ships disabled; falls back automatically, so enabling it is the only behavioural switch.
+            // See AzureResourceGraphService for why this is a different shape, not a faster version of
+            // the same one.
+            if (resourceGraphEnabled) {
+                Optional<List<ResourceDto>> viaGraph =
+                        resourceGraphService.listAllResources(actualSubscriptionId, this::resolveGraphLabel);
+                if (viaGraph.isPresent()) {
+                    List<DashboardData.ServiceGroupDto> result = groupByType(viaGraph.get());
+                    log.info("Azure cloudlist via Resource Graph for account {}: {} resources in {} service groups",
+                            accountId, viaGraph.get().size(), result.size());
+                    if (!result.isEmpty()) {
+                        redisCache.put(cacheKey, result, CACHE_TTL_MINUTES);
+                        saveToDb(dbKey, result);
+                    }
+                    return result;
+                }
+                log.info("Resource Graph unavailable for subscription {} — using the per-type scan",
+                        actualSubscriptionId);
+            }
+
             AzureResourceManager azure = clientProvider.getAzureClient(actualSubscriptionId);
 
             // Thread-safe list — all fetch tasks write to this concurrently
@@ -267,20 +300,7 @@ public class AzureCloudListService {
 
             log.info("Total resources fetched for Azure account {}: {}", accountId, allResources.size());
 
-            // Group resources by service type
-            Map<String, List<ResourceDto>> groupedResources = allResources.stream()
-                    .collect(Collectors.groupingBy(ResourceDto::getType));
-
-            // Convert to ServiceGroupDto and sort by resource count
-            List<DashboardData.ServiceGroupDto> result = groupedResources.entrySet().stream()
-                    .map(entry -> {
-                        DashboardData.ServiceGroupDto groupDto = new DashboardData.ServiceGroupDto();
-                        groupDto.setServiceType(entry.getKey());
-                        groupDto.setResources(entry.getValue());
-                        return groupDto;
-                    })
-                    .sorted((a, b) -> Integer.compare(b.getResources().size(), a.getResources().size()))
-                    .collect(Collectors.toList());
+            List<DashboardData.ServiceGroupDto> result = groupByType(allResources);
 
             if (!result.isEmpty()) {
                 redisCache.put(cacheKey, result, CACHE_TTL_MINUTES);
@@ -297,6 +317,27 @@ public class AzureCloudListService {
         } finally {
             executor.shutdown();
         }
+    }
+
+    /**
+     * Groups a flat resource list into the cloudlist's service groups, largest group first.
+     *
+     * <p>Shared by the Resource Graph path and the per-type scan so both produce an identical payload
+     * shape — the grouping was inline in the scan, which would have meant two copies drifting apart.
+     */
+    private List<DashboardData.ServiceGroupDto> groupByType(List<ResourceDto> allResources) {
+        Map<String, List<ResourceDto>> groupedResources = allResources.stream()
+                .collect(Collectors.groupingBy(ResourceDto::getType));
+
+        return groupedResources.entrySet().stream()
+                .map(entry -> {
+                    DashboardData.ServiceGroupDto groupDto = new DashboardData.ServiceGroupDto();
+                    groupDto.setServiceType(entry.getKey());
+                    groupDto.setResources(entry.getValue());
+                    return groupDto;
+                })
+                .sorted((a, b) -> Integer.compare(b.getResources().size(), a.getResources().size()))
+                .collect(Collectors.toList());
     }
 
     // ================================================================================
@@ -1276,6 +1317,81 @@ public class AzureCloudListService {
         }
         String result = sb.toString().trim();
         return result.isEmpty() ? "Other Resources" : result;
+    }
+
+    /**
+     * Display labels for the ARM types that have a dedicated fetcher.
+     *
+     * <p>Those fetchers each hardcode their label inline ({@code dto.setType("Virtual Machines")}),
+     * so the mapping existed only as thirty scattered string literals. The Resource Graph path has no
+     * per-type fetchers to read them from, so they are collected here once — and this map is now the
+     * single place that decides what a Virtual Machine is called, whichever path produced it.
+     */
+    private static final java.util.Map<String, String> DEDICATED_FETCHER_LABELS = java.util.Map.ofEntries(
+            java.util.Map.entry("microsoft.compute/virtualmachines", "Virtual Machines"),
+            java.util.Map.entry("microsoft.compute/virtualmachinescalesets", "Virtual Machine Scale Sets"),
+            java.util.Map.entry("microsoft.compute/disks", "Disks"),
+            java.util.Map.entry("microsoft.compute/snapshots", "Snapshots"),
+            java.util.Map.entry("microsoft.compute/availabilitysets", "Availability Sets"),
+            java.util.Map.entry("microsoft.storage/storageaccounts", "Storage Accounts"),
+            java.util.Map.entry("microsoft.web/sites", "App Services"),
+            java.util.Map.entry("microsoft.containerservice/managedclusters", "Kubernetes Services"),
+            java.util.Map.entry("microsoft.sql/servers/databases", "SQL Databases"),
+            java.util.Map.entry("microsoft.network/virtualnetworks", "Virtual Networks"),
+            java.util.Map.entry("microsoft.network/loadbalancers", "Load Balancers"),
+            java.util.Map.entry("microsoft.network/publicipaddresses", "Public IP Addresses"),
+            java.util.Map.entry("microsoft.network/networksecuritygroups", "Network Security Groups"),
+            java.util.Map.entry("microsoft.network/networkinterfaces", "Network Interfaces"),
+            java.util.Map.entry("microsoft.network/applicationgateways", "Application Gateways"),
+            java.util.Map.entry("microsoft.network/virtualnetworkgateways", "VPN Gateways"),
+            java.util.Map.entry("microsoft.network/expressroutecircuits", "ExpressRoute Circuits"),
+            java.util.Map.entry("microsoft.network/dnszones", "DNS Zones"),
+            java.util.Map.entry("microsoft.network/trafficmanagerprofiles", "Traffic Manager"),
+            java.util.Map.entry("microsoft.containerregistry/registries", "Container Registries"),
+            java.util.Map.entry("microsoft.containerinstance/containergroups", "Container Instances"),
+            java.util.Map.entry("microsoft.keyvault/vaults", "Key Vaults"),
+            java.util.Map.entry("microsoft.cache/redis", "Redis Cache"),
+            java.util.Map.entry("microsoft.documentdb/databaseaccounts", "CosmosDB"),
+            java.util.Map.entry("microsoft.servicebus/namespaces", "Service Bus"),
+            java.util.Map.entry("microsoft.eventhub/namespaces", "Event Hubs"),
+            java.util.Map.entry("microsoft.search/searchservices", "Search Services"),
+            java.util.Map.entry("microsoft.cdn/profiles", "CDN Profiles"));
+
+    /**
+     * Resolves the display label for a Resource Graph row, or null to leave the row out.
+     *
+     * <p>Passed to {@link AzureResourceGraphService} so label policy lives in one place. It applies
+     * the same rules the per-type scan's catch-all applies, in the same order, so the two paths
+     * cannot disagree about what a resource is called or whether it is worth showing:
+     *
+     * <ol>
+     *   <li>a type with a dedicated fetcher keeps that fetcher's label;
+     *   <li>noise and auto-generated types are dropped;
+     *   <li>a child resource is dropped, since its parent represents it — except where a nested type
+     *       is the thing itself, as with {@code sql/servers/databases};
+     *   <li>a curated name is used when one exists;
+     *   <li>otherwise the label is derived from the ARM type.
+     * </ol>
+     */
+    String resolveGraphLabel(String armType) {
+        if (armType == null || armType.isBlank()) {
+            return null;
+        }
+        String type = armType.toLowerCase(java.util.Locale.ROOT);
+
+        String dedicated = DEDICATED_FETCHER_LABELS.get(type);
+        if (dedicated != null) {
+            return dedicated;
+        }
+        if (SKIP_TYPES.contains(type)) {
+            return null;
+        }
+        // Child resources are represented by their parent. Checked after the dedicated map so a
+        // legitimately nested type such as sql/servers/databases survives.
+        if (type.chars().filter(c -> c == '/').count() > 1) {
+            return null;
+        }
+        return FRIENDLY_TYPE_NAMES.getOrDefault(type, friendlyAzureType(armType));
     }
 
     private void fetchCdnProfiles(AzureResourceManager azure, String accountId, List<ResourceDto> allResources) {
