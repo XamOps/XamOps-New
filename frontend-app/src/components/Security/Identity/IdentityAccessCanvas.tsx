@@ -99,7 +99,35 @@ interface IdentityAccessCanvasProps {
    */
   onRefresh: () => void;
   isRefreshing: boolean;
+  /**
+   * When the inventory on screen was produced, as an ISO-8601 instant.
+   *
+   * <p>Shown next to Reload because that is where someone goes when they suspect the data is
+   * old, and the age answers the question the button was about to be pressed to answer. Absent
+   * on GCP and Azure, whose inventories do not pass through the snapshot cache.
+   */
+  lastUpdated?: string | null;
+  /** True when the server is rebuilding this snapshot behind the response. */
+  isRefreshingSnapshot?: boolean;
 }
+
+/**
+ * "4 minutes ago", for a snapshot timestamp.
+ *
+ * <p>Relative rather than absolute because the only question being asked of it is whether the
+ * data is old enough to distrust, and "2:47 AM" makes the reader do that subtraction themselves.
+ * Falls back to the raw value if it will not parse, which is better than rendering "Invalid Date".
+ */
+const describeAge = (iso: string): string | null => {
+  const then = Date.parse(iso);
+  if (!Number.isFinite(then)) return null;
+  const minutes = Math.floor((Date.now() - then) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+};
 
 const BEBAS = {
   fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif",
@@ -148,6 +176,8 @@ const IdentityAccessCanvas: React.FC<IdentityAccessCanvasProps> = ({
   onCopy,
   onRefresh,
   isRefreshing,
+  lastUpdated = null,
+  isRefreshingSnapshot = false,
 }) => {
   const [kind, setKind] = useState<IdentityKind>('users');
   const [view, setView] = useState<ViewMode>(loadView);
@@ -402,15 +432,28 @@ const IdentityAccessCanvas: React.FC<IdentityAccessCanvasProps> = ({
           </button>
         )}
 
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={isRefreshing}
-          className="flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.65)] hover:bg-[rgba(0,0,0,0.02)] transition-colors disabled:opacity-50 self-start"
-        >
-          <Icon icon="mdi:sync" width={13} className={isRefreshing ? 'animate-spin' : ''} />
-          {isRefreshing ? 'Reloading...' : 'Reload identities'}
-        </button>
+        <div className="flex items-center gap-3 self-start">
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.65)] hover:bg-[rgba(0,0,0,0.02)] transition-colors disabled:opacity-50"
+          >
+            <Icon icon="mdi:sync" width={13} className={isRefreshing ? 'animate-spin' : ''} />
+            {isRefreshing ? 'Reloading...' : 'Reload identities'}
+          </button>
+
+          {/* Age, not a spinner. The list below is already usable, so a prominent loading
+              treatment here would overstate what is happening — the honest reading is "this is
+              from 20 minutes ago, and a newer one is on its way". */}
+          {!isLoading && lastUpdated && describeAge(lastUpdated) && (
+            <span className="text-[11px] text-[rgba(0,0,0,0.42)] whitespace-nowrap">
+              {isRefreshingSnapshot
+                ? `Updated ${describeAge(lastUpdated)} · refreshing`
+                : `Updated ${describeAge(lastUpdated)}`}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Canvas */}

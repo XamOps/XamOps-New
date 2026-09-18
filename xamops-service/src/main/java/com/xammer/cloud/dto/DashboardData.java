@@ -819,6 +819,35 @@ public class DashboardData {
      */
     private boolean permissionAnalysisPending;
 
+    /**
+     * When this scan was produced, as an ISO-8601 instant.
+     *
+     * <p>
+     * Present because this payload is now served from a durable snapshot rather than only from
+     * a live scan, and an access review is not something to show without saying how old it is.
+     * "Three users hold AdministratorAccess" means something different if it was true last
+     * Tuesday.
+     *
+     * <p>
+     * An instant rather than a formatted string so the browser can render it in the viewer's
+     * own timezone. Null only on payloads that never went through the cache — the GCP and Azure
+     * builders, which assemble {@code IamDetail} inside their own dashboard aggregates.
+     */
+    private String lastUpdated;
+
+    /**
+     * True when this result was served from cache and a rescan is already running behind it.
+     *
+     * <p>
+     * Distinct from {@link #permissionAnalysisPending}, which is about the risk scoring half of
+     * one scan. This says the whole snapshot is being rebuilt, which is the normal path after
+     * the durable snapshot goes stale or an IAM change event arrives: the request is answered
+     * from what we have and the fresh result lands a moment later. Without the flag the UI has
+     * no way to know a newer answer is coming, so it would sit on the old one until the user
+     * pressed Reload.
+     */
+    private boolean refreshing;
+
     public IamDetail(List<IamUserDetail> users, List<IamRoleDetail> roles) {
       this.users = users;
       this.roles = roles;

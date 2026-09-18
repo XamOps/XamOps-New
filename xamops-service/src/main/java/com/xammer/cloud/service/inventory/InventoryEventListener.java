@@ -6,12 +6,14 @@ import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.config.SchedulingEnvironmentConfig;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.DashboardDataService;
 import com.xammer.cloud.service.RedisCacheService;
 import com.xammer.cloud.service.security.SecurityFindingIngestService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -53,6 +55,26 @@ public class InventoryEventListener {
     /** Same topic the reconciler uses, so the frontend needs one subscription. */
     private static final String TOPIC = "/topic/inventory-refresh";
 
+    /**
+     * CloudTrail's event source for every IAM mutation.
+     *
+     * <p>
+     * IAM is global, so these arrive tagged us-east-1 regardless of where the caller was.
+     */
+    private static final String IAM_EVENT_SOURCE = "iam.amazonaws.com";
+
+    /**
+     * Prefixes that read rather than write.
+     *
+     * <p>
+     * Belt and braces. The EventBridge rules only forward mutating IAM calls, so nothing here
+     * should match — but this is the guard between an event and a full IAM scan, and the rules
+     * live in a CloudFormation template that is versioned separately from this service. If a
+     * future rule widens, the cost of being wrong is a rescan per API call.
+     */
+    private static final Set<String> READ_ONLY_EVENT_PREFIXES =
+            Set.of("Get", "List", "Describe", "Simulate", "Generate");
+
     private final SqsClient sqsClient;
     private final CloudAccountRepository cloudAccountRepository;
     private final InventoryEventIngestService ingestService;
@@ -61,6 +83,7 @@ public class InventoryEventListener {
     private final SchedulingEnvironmentConfig envConfig;
     private final ObjectMapper objectMapper;
     private final SecurityFindingIngestService securityIngest;
+    private final DashboardDataService dashboardDataService;
 
     @Value("${xamops.inventory.events.enabled:false}")
     private boolean enabled;
@@ -124,7 +147,11 @@ public class InventoryEventListener {
             InventoryChangeNotifier notifier,
             SchedulingEnvironmentConfig envConfig,
             ObjectMapper objectMapper,
-            SecurityFindingIngestService securityIngest) {
+            SecurityFindingIngestService securityIngest,
+            // @Lazy because DashboardDataService sits at the top of a wide dependency fan-out and
+            // this listener is constructed early. Only ever called from the poll loop, long after
+            // the context is up, so the proxy costs nothing at runtime.
+            @Lazy DashboardDataService dashboardDataService) {
         this.sqsClient = sqsClient;
         this.cloudAccountRepository = cloudAccountRepository;
         this.ingestService = ingestService;
@@ -133,6 +160,7 @@ public class InventoryEventListener {
         this.envConfig = envConfig;
         this.objectMapper = objectMapper;
         this.securityIngest = securityIngest;
+        this.dashboardDataService = dashboardDataService;
     }
 
     /**
@@ -186,11 +214,22 @@ public class InventoryEventListener {
         // separate from changesByAccount because the two drive different follow-up: a finding
         // does not invalidate an inventory projection, and a new resource is not a finding.
         Map<String, int[]> findingsByAccount = new HashMap<>();
+        // Accounts whose IAM changed in this batch.
+        //
+        // Its own accumulator rather than a reading of changesByAccount, because IAM events
+        // cannot reach that one. The forwarder's ARN builder resolves only roleName for
+        // iam.amazonaws.com, so CreateUser, CreateAccessKey and AttachUserPolicy all arrive with
+        // an empty arns array and take handleMessage's "no ARN, leave it to the reconciler"
+        // branch — created and deleted both stay zero, and the eviction gate below never opens.
+        // That is why adding a new IAM user used to leave the Identity tab showing the old list
+        // until its cache aged out.
+        Set<String> iamChanged = new HashSet<>();
         List<DeleteMessageBatchRequestEntry> toDelete = new ArrayList<>();
 
         for (Message message : messages) {
             try {
-                CloudAccount touched = handleMessage(message.body(), changesByAccount, findingsByAccount);
+                CloudAccount touched = handleMessage(message.body(), changesByAccount,
+                        findingsByAccount, iamChanged);
                 if (touched != null) {
                     accountsTouched.put(touched.getAwsAccountId(), touched);
                 }
@@ -249,7 +288,61 @@ public class InventoryEventListener {
                 log.info("[SecFinding] Account {} — {} new, {} updated, {} resolved finding(s)",
                         entry.getKey(), findings[0], findings[1], findings[2]);
             }
+
+            if (iamChanged.contains(entry.getKey())) {
+                refreshIdentities(entry.getValue());
+            }
         }
+    }
+
+    /**
+     * Rebuilds an account's identity snapshot after its IAM changed.
+     *
+     * <p>
+     * A rescan rather than an eviction, unlike {@link #invalidateProjections}. The difference is
+     * what the two caches cost to rebuild on demand: a cloudlist projection is rebuilt from the
+     * inventory table in milliseconds, so dropping it and letting the next reader pay is free. An
+     * identity snapshot is a few hundred IAM calls plus a serial policy audit, so evicting would
+     * hand the next visitor a cold scan — the exact experience this is meant to remove. Scanning
+     * now means the answer is already in both cache tiers before anyone opens the tab.
+     *
+     * <p>
+     * Rate limiting lives in {@code DashboardDataService.refreshIamDetailsAfterChange} rather than
+     * here, because the burst that needs collapsing spans batches: one Terraform apply produces
+     * far more IAM calls than fit in a single ten-message receive.
+     */
+    private void refreshIdentities(CloudAccount account) {
+        try {
+            if (dashboardDataService.refreshIamDetailsAfterChange(account)) {
+                log.info("[InventoryEvent] IAM changed on account {} — rescanning identities",
+                        account.getAwsAccountId());
+            }
+        } catch (Exception e) {
+            // A failed rescan leaves the previous snapshot in place, which is still served. Not
+            // worth failing the batch over — the nightly job and the staleness window both catch
+            // up regardless.
+            log.warn("[InventoryEvent] Could not rescan identities for {}: {}",
+                    account.getAwsAccountId(), e.getMessage());
+        }
+    }
+
+    /**
+     * Whether this envelope represents someone changing IAM.
+     *
+     * <p>
+     * Keyed on {@code detail.eventSource} rather than on a list of event names. The name list
+     * would need to track every IAM mutation CloudTrail can emit and would silently miss whatever
+     * AWS adds next; the source is one value and cannot drift. The read-only prefix check is the
+     * only name-based filter, and it exists to fail safe rather than to classify.
+     */
+    private boolean isIamChange(JsonNode root) {
+        JsonNode detail = root.path("detail");
+        String eventSource = detail.path("eventSource").asText("");
+        if (!IAM_EVENT_SOURCE.equals(eventSource)) {
+            return false;
+        }
+        String eventName = detail.path("eventName").asText(root.path("eventName").asText(""));
+        return READ_ONLY_EVENT_PREFIXES.stream().noneMatch(eventName::startsWith);
     }
 
     /**
@@ -258,7 +351,7 @@ public class InventoryEventListener {
      * @return the connection touched, or null if the message was not actionable
      */
     private CloudAccount handleMessage(String body, Map<String, int[]> changesByAccount,
-            Map<String, int[]> findingsByAccount) throws Exception {
+            Map<String, int[]> findingsByAccount, Set<String> iamChanged) throws Exception {
         JsonNode root = objectMapper.readTree(body);
 
         String awsAccountId = root.path("account").asText(null);
@@ -282,6 +375,14 @@ public class InventoryEventListener {
         // Tracked so the product can tell an account whose stack predates the exposure
         // detectors from one where nothing dangerous has happened. Both produce no findings.
         int schemaVersion = root.path("schemaVersion").asInt(0);
+
+        // Recorded here, ahead of every branch below. An IAM event exits this method by at least
+        // two different routes — the exposure detectors return through the no-ARN branch, a
+        // CreateRole carries an ARN and returns from the bottom — and noting it after the fact in
+        // either one would miss the other.
+        if (isIamChange(root)) {
+            iamChanged.add(awsAccountId);
+        }
 
         // Security findings, before the ARN check below.
         //

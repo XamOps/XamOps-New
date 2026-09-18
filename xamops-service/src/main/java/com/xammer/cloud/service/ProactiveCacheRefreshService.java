@@ -249,6 +249,14 @@ public class ProactiveCacheRefreshService {
 
                     try { performanceService.getInsights(accountId, "ALL", false); }
                     catch (Exception e) { logger.debug("[Seed] Performance skipped for {}: {}", accountId, e.getMessage()); }
+
+                    // Identity & Access. Not joined, unlike its neighbours above: with a snapshot
+                    // on disk this call completes on the spot — DB read, Redis re-warm, return —
+                    // and with nothing on disk it hands a scan to the background executor. Joining
+                    // would make the second case hold startup open for a full IAM scan per
+                    // account, which is the cost this seed pass exists to avoid paying at boot.
+                    try { dashboardDataService.getIamDetails(account, false); }
+                    catch (Exception e) { logger.debug("[Seed] IAM identities skipped for {}: {}", accountId, e.getMessage()); }
                 }
                 // Pre-warm all historical closed months (2025-01 → last month) into Redis from DB snapshots
                 seedHistoricalCostMonths(accounts);
@@ -737,6 +745,77 @@ public class ProactiveCacheRefreshService {
 
             } catch (Exception e) {
                 logger.error("❌ Failed sec/perf refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 2:50 AM -> IAM Identity Snapshots (Daily, AWS only)
+    //
+    // Daily rather than twice-weekly like its neighbours, and its own job rather than a line
+    // inside refreshAwsDashboardData, for the same reason: this is the only scan on the
+    // Security Center's Identity & Access tab, and nothing else warmed it. Before this job the
+    // iamDetailsV2 key was written exclusively by a user opening the tab, so the first visitor
+    // after any deploy, eviction or idle hour paid a full IAM scan in the foreground and often
+    // hit the request deadline instead of seeing identities.
+    //
+    // Costs nothing in the currency that matters here: IAM list/get calls, no Cost Explorer.
+    // That is what makes daily affordable where the dashboard aggregate is not.
+    // ===================================================================================
+    @Scheduled(cron = "0 50 2 * * *")
+    public void refreshIamIdentities() {
+        logger.info("--- [2:50 AM] Starting IAM Identity Snapshot Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_IAM_IDENTITIES", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    // AWS only. GCP and Azure assemble iamDetails inside their own dashboard
+                    // builders, which the per-provider jobs below already refresh.
+                    if (!"AWS".equals(account.getProvider()) || account.getAwsAccountId() == null) {
+                        continue;
+                    }
+                    try {
+                        // Joined rather than fired and forgotten, so accounts are scanned one at
+                        // a time. IAM is a single low-TPS global endpoint per account and the
+                        // privilege audit is serial by nature; launching every account at once
+                        // would have them throttle each other and is how an overnight job ends up
+                        // slower than the foreground scan it exists to replace.
+                        //
+                        // forceRefresh=true because the point is to write a snapshot dated today,
+                        // not to confirm yesterday's is readable.
+                        dashboardDataService.getIamDetails(account, true).join();
+                        logger.info("✓ IAM identities cached for account {}", account.getAwsAccountId());
+                        count++;
+                    } catch (Exception e) {
+                        // One account's missing iam:List* permission must not stop the rest.
+                        logger.error("Failed IAM identity refresh for account {}: {}",
+                                account.getAwsAccountId(), e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+                logger.info("✅ IAM identity refresh complete for tenant {} — {} account(s)", tenantId, count);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed IAM identity refresh for tenant {}", tenantId, e);
                 if (jobHistory.getId() != null) {
                     jobHistory.setStatus("FAILURE");
                     jobHistory.setErrorMessage(e.getMessage());

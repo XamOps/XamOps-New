@@ -40,6 +40,8 @@ const IdentityAccessTab: React.FC = () => {
     analysisNote,
     analysisPending,
     riskAnalysisAvailable,
+    lastUpdated,
+    isRefreshingSnapshot,
     fetchData,
   } = useUserManagement();
 
@@ -73,6 +75,8 @@ const IdentityAccessTab: React.FC = () => {
       onCopy={copyToClipboard}
       onRefresh={() => fetchData(true)}
       isRefreshing={loading}
+      lastUpdated={lastUpdated}
+      isRefreshingSnapshot={isRefreshingSnapshot}
     />
   );
 };
