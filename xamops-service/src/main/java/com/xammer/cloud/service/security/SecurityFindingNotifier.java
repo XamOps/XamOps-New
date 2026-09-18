@@ -13,6 +13,7 @@ import com.xammer.cloud.repository.SecurityNotificationPreferenceRepository;
 import com.xammer.cloud.repository.SecurityNotificationRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.EmailService;
+import com.xammer.cloud.service.NotificationRecipientResolver;
 import com.xammer.cloud.service.RedisCacheService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -73,7 +74,14 @@ public class SecurityFindingNotifier {
     private final CloudSecurityFindingRepository findingRepository;
     private final SecurityNotificationRepository notificationRepository;
     private final SecurityNotificationPreferenceRepository preferenceRepository;
+
+    /**
+     * Still needed for {@link #pushToClientUsers}: the in-app push goes to every user of the
+     * client regardless of their email preference, so it resolves users directly rather than
+     * through {@link NotificationRecipientResolver}. Email recipients come from the resolver.
+     */
     private final UserRepository userRepository;
+    private final NotificationRecipientResolver recipientResolver;
     private final EmailService emailService;
     private final SecurityFindingEmailBuilder emailBuilder;
     private final RedisCacheService redisCache;
@@ -105,6 +113,7 @@ public class SecurityFindingNotifier {
             SecurityNotificationRepository notificationRepository,
             SecurityNotificationPreferenceRepository preferenceRepository,
             UserRepository userRepository,
+            NotificationRecipientResolver recipientResolver,
             EmailService emailService,
             SecurityFindingEmailBuilder emailBuilder,
             RedisCacheService redisCache,
@@ -117,6 +126,7 @@ public class SecurityFindingNotifier {
         this.notificationRepository = notificationRepository;
         this.preferenceRepository = preferenceRepository;
         this.userRepository = userRepository;
+        this.recipientResolver = recipientResolver;
         this.emailService = emailService;
         this.emailBuilder = emailBuilder;
         this.redisCache = redisCache;
@@ -195,7 +205,21 @@ public class SecurityFindingNotifier {
             pending = pending.subList(0, maxBatch);
         }
 
-        boolean wantsEmail = prefs.isEmailEnabled() && !recipientsFor(clientId).isEmpty();
+        // Two independent gates, and the order matters for cost rather than correctness. The
+        // per-client switch is a field already in hand; the recipient list is a query, so it is
+        // only run once the client wants email at all.
+        //
+        // Resolved once and carried into sendEmail. This previously called the recipient query
+        // here to test emptiness and again inside sendEmail, running it twice per account on
+        // every five-minute pass across the whole estate.
+        //
+        // An empty list now has two meanings — the client has no addressable users, or every one
+        // of them has security email switched off in BillOps admin. Both mean "do not email", and
+        // NotificationRecipientResolver logs which at debug so the difference is recoverable.
+        List<String> recipients = prefs.isEmailEnabled()
+                ? recipientResolver.emailsForClient(clientId)
+                : List.<String>of();
+        boolean wantsEmail = !recipients.isEmpty();
 
         // Cap checked before anything is written. Returning early rather than writing the inbox
         // row and skipping only the email is deliberate: if the row were written now and the
@@ -215,7 +239,7 @@ public class SecurityFindingNotifier {
 
         boolean emailSent = false;
         if (wantsEmail) {
-            emailSent = sendEmail(clientId, pending, accountName, account.getAwsAccountId());
+            emailSent = sendEmail(recipients, pending, accountName, account.getAwsAccountId());
             if (emailSent) {
                 recordEmailSent(account.getAwsAccountId());
             }
@@ -318,35 +342,14 @@ public class SecurityFindingNotifier {
     // ── Email ───────────────────────────────────────────────────────────────
 
     /**
-     * Recipient addresses for a client.
-     *
-     * <p>
-     * Copied from the resolution {@code CloudGuardService} already uses, including the fallback
-     * to {@code username} when it looks like an address, so security email reaches exactly the
-     * people the existing alert digest reaches. Diverging here would mean two different answers
-     * to "who gets notified" in the same product.
+     * @param recipients already resolved by the caller through
+     *                   {@link NotificationRecipientResolver}, which is also where the per-user
+     *                   email opt-out is applied. Taking the list rather than a client id means
+     *                   the lookup happens once per account per pass instead of twice.
+     * @return true when at least one recipient was successfully sent to
      */
-    private List<String> recipientsFor(Long clientId) {
-        try {
-            return userRepository.findByClientId(clientId).stream()
-                    .map(u -> (u.getEmail() != null && !u.getEmail().isBlank())
-                            ? u.getEmail()
-                            : (u.getUsername() != null && u.getUsername().contains("@")
-                                    ? u.getUsername() : null))
-                    .filter(e -> e != null)
-                    .distinct()
-                    .collect(Collectors.toList());
-        } catch (Exception e) {
-            log.warn("[SecNotify] Could not resolve recipients for client {}: {}",
-                    clientId, e.getMessage());
-            return List.of();
-        }
-    }
-
-    /** @return true when at least one recipient was successfully sent to */
-    private boolean sendEmail(Long clientId, List<CloudSecurityFinding> findings,
+    private boolean sendEmail(List<String> recipients, List<CloudSecurityFinding> findings,
             String accountName, String awsAccountId) {
-        List<String> recipients = recipientsFor(clientId);
         if (recipients.isEmpty()) {
             return false;
         }

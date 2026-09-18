@@ -6,8 +6,8 @@ import com.xammer.cloud.dto.war.WarReport;
 import com.xammer.cloud.event.CloudAccountConnectedEvent;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
-import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.EmailService;
+import com.xammer.cloud.service.NotificationRecipientResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,7 +22,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 /**
  * Runs the first WAR scan when an account is onboarded and emails the result.
@@ -75,20 +74,20 @@ public class WarOnboardingReportService {
     private static final String SENT_KEY_PREFIX = "WAR_ONBOARDING_EMAIL::";
 
     private final CloudAccountRepository cloudAccountRepository;
-    private final UserRepository userRepository;
+    private final NotificationRecipientResolver recipientResolver;
     private final CachedDataRepository cachedDataRepository;
     private final WarScanDispatcher scanDispatcher;
     private final WarEmailBuilder emailBuilder;
     private final EmailService emailService;
 
     public WarOnboardingReportService(CloudAccountRepository cloudAccountRepository,
-            UserRepository userRepository,
+            NotificationRecipientResolver recipientResolver,
             CachedDataRepository cachedDataRepository,
             WarScanDispatcher scanDispatcher,
             WarEmailBuilder emailBuilder,
             EmailService emailService) {
         this.cloudAccountRepository = cloudAccountRepository;
-        this.userRepository = userRepository;
+        this.recipientResolver = recipientResolver;
         this.cachedDataRepository = cachedDataRepository;
         this.scanDispatcher = scanDispatcher;
         this.emailBuilder = emailBuilder;
@@ -142,9 +141,15 @@ public class WarOnboardingReportService {
 
         // Resolved inside the transaction: client is a LAZY @ManyToOne and users are a
         // separate query, both of which need the session this method holds open.
-        List<String> recipients = resolveRecipients(account);
+        //
+        // Empty now covers two cases — the tenant has no usable address, or every user on it has
+        // security email switched off in BillOps admin. Both mean skip, and skipping before the
+        // scan rather than after is deliberate: a scan nobody will be mailed about is minutes of
+        // API calls against the customer's account for nothing.
+        List<String> recipients = recipientResolver.emailsForAccount(account);
         if (recipients.isEmpty()) {
-            log.warn("[WAR-onboarding] no email address for the tenant owning account {} — skipping",
+            log.warn("[WAR-onboarding] no recipient for the tenant owning account {} — either no "
+                    + "email address on file or every user has security email disabled. Skipping.",
                     cloudAccountId);
             return;
         }
@@ -281,32 +286,4 @@ public class WarOnboardingReportService {
         }
     }
 
-    // ── Recipients ──────────────────────────────────────────────────────────
-
-    /**
-     * Every user on the owning tenant.
-     *
-     * <p>
-     * Same resolution {@code MonthlyDigestService} uses, including the username
-     * fallback: {@code User.email} is nullable and older rows carry the address in
-     * {@code username} instead.
-     */
-    private List<String> resolveRecipients(CloudAccount account) {
-        if (account.getClient() == null) {
-            return List.of();
-        }
-        return userRepository.findByClientId(account.getClient().getId()).stream()
-                .map(user -> {
-                    if (user.getEmail() != null && !user.getEmail().isBlank()) {
-                        return user.getEmail();
-                    }
-                    if (user.getUsername() != null && user.getUsername().contains("@")) {
-                        return user.getUsername();
-                    }
-                    return null;
-                })
-                .filter(email -> email != null)
-                .distinct()
-                .collect(Collectors.toList());
-    }
 }

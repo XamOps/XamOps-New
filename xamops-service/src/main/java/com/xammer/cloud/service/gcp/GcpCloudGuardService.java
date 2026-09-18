@@ -19,13 +19,12 @@ import com.xammer.cloud.dto.AlertDto;
 import com.xammer.cloud.dto.gcp.GcpAlertsResponse;
 import com.xammer.cloud.dto.gcp.GcpCostDto;
 import com.xammer.cloud.dto.gcp.GcpSecurityFinding;
-import com.xammer.cloud.domain.User;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
-import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.AlertEmailBuilder;
 import com.xammer.cloud.service.AlertNotificationDeduplicator;
 import com.xammer.cloud.service.EmailService;
+import com.xammer.cloud.service.NotificationRecipientResolver;
 import com.xammer.cloud.service.RedisCacheService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,7 +51,7 @@ public class GcpCloudGuardService {
     private final EmailService emailService;
     private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper;
-    private final UserRepository userRepository;
+    private final NotificationRecipientResolver recipientResolver;
     private final AlertEmailBuilder alertEmailBuilder;
     private final AlertNotificationDeduplicator deduplicator;
 
@@ -94,7 +93,7 @@ public class GcpCloudGuardService {
             EmailService emailService,
             CachedDataRepository cachedDataRepository,
             ObjectMapper objectMapper,
-            UserRepository userRepository,
+            NotificationRecipientResolver recipientResolver,
             AlertEmailBuilder alertEmailBuilder,
             AlertNotificationDeduplicator deduplicator
     ) {
@@ -107,7 +106,7 @@ public class GcpCloudGuardService {
         this.emailService = emailService;
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
-        this.userRepository = userRepository;
+        this.recipientResolver = recipientResolver;
         this.alertEmailBuilder = alertEmailBuilder;
         this.deduplicator = deduplicator;
     }
@@ -215,23 +214,14 @@ public class GcpCloudGuardService {
 
         CloudAccount account = getAccount(gcpProjectId);
 
-        // Eagerly fetch all sub-user emails before async operations
-        List<String> recipientEmails = Collections.emptyList();
-        try {
-            if (account.getClient() != null) {
-                recipientEmails = userRepository.findByClientId(account.getClient().getId()).stream()
-                        .map(u -> (u.getEmail() != null && !u.getEmail().isBlank()) ? u.getEmail()
-                                : (u.getUsername() != null && u.getUsername().contains("@") ? u.getUsername() : null))
-                        .filter(e -> e != null)
-                        .distinct()
-                        .collect(Collectors.toList());
-            } else {
-                log.warn("Client is null for account {}", gcpProjectId);
-            }
-        } catch (Exception e) {
-            log.error("Error fetching recipient emails for account {}: {}", gcpProjectId, e.getMessage(), e);
-        }
-        final List<String> recipients = recipientEmails;
+        // Resolved eagerly, before the async fan-out below: the client is a LAZY @ManyToOne and
+        // the futures run on another thread with no persistence session, so a lazy load from
+        // inside the callback would fail.
+        //
+        // Users who have security email disabled in BillOps admin are filtered out here, which is
+        // also why an empty list is not an error — it can simply mean nobody on this tenant wants
+        // the digest. The resolver never throws, so no try/catch is needed around it.
+        final List<String> recipients = recipientResolver.emailsForAccount(account);
 
         CompletableFuture<CheckOutcome> quotasFuture = checkQuotaAlerts(account);
         CompletableFuture<CheckOutcome> anomaliesFuture = checkCostAnomalies(account, forceRefresh);

@@ -87,6 +87,35 @@ public class User {
     @Column(name = "last_login_at", nullable = true)
     private LocalDateTime lastLoginAt;
 
+    /**
+     * Whether this user receives security and WAR email.
+     *
+     * Defaults TRUE, and the column is NOT NULL DEFAULT TRUE, so every existing user and every
+     * user created after this keeps receiving mail until an admin says otherwise. Defaulting the
+     * other way would silently stop security delivery across the whole estate on deploy.
+     *
+     * Narrow by design. It suppresses the WAR onboarding report, security finding notifications
+     * and the AWS/GCP alert digests. It does not touch cost or operational email (monthly digest,
+     * budget alerts, DB health), login OTP, password reset, invitations, ticket correspondence, or
+     * the in-app notification bell — muting a mailbox must not lock anyone out or hide a finding
+     * from them inside the product. {@code NotificationRecipientResolver} is the only reader and
+     * carries the full reasoning.
+     *
+     * Not named {@code enabled}: {@link #setEnabled(boolean)} already exists as a stub that
+     * throws, and Lombok's generated setter would collide with it.
+     *
+     * {@code columnDefinition} carries the default for the same reason
+     * {@code Client.xamSecureOnboardingEnabled} does. Local runs use
+     * {@code ddl-auto=update} with Flyway disabled, and a bare {@code NOT NULL} add against a
+     * populated {@code app_user} fails — Hibernate logs that failure as a warning and starts
+     * anyway, so the column is absent while every read still selects it. The symptom is not a
+     * startup error but every user lookup in the service throwing
+     * {@code SQLGrammarException: column email_notifications_enabled does not exist}.
+     */
+    @Column(name = "email_notifications_enabled", nullable = false,
+            columnDefinition = "boolean default true")
+    private boolean emailNotificationsEnabled = true;
+
     public void setEnabled(boolean b) {
         // TODO Auto-generated method stub
         throw new UnsupportedOperationException("Unimplemented method 'setEnabled'");

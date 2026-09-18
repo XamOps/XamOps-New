@@ -13,6 +13,7 @@ import com.xammer.cloud.repository.SecurityNotificationPreferenceRepository;
 import com.xammer.cloud.repository.SecurityNotificationRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.EmailService;
+import com.xammer.cloud.service.NotificationRecipientResolver;
 import com.xammer.cloud.service.RedisCacheService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -86,8 +87,13 @@ class SecurityFindingNotifierTest {
         when(txManager.getTransaction(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(Mockito.mock(org.springframework.transaction.TransactionStatus.class));
 
+        // A real resolver over the mocked repository rather than a mocked resolver. The recipient
+        // rules — the username fallback and the per-user email opt-out — are the thing several of
+        // these cases are actually asserting, and stubbing the resolver would assert nothing but
+        // the stub. The existing findByClientId stubs drive it unchanged.
         notifier = new SecurityFindingNotifier(accountRepository, findingRepository,
-                notificationRepository, preferenceRepository, userRepository, emailService,
+                notificationRepository, preferenceRepository, userRepository,
+                new NotificationRecipientResolver(userRepository), emailService,
                 new SecurityFindingEmailBuilder(), redisCache, messagingTemplate, envConfig,
                 txManager);
         ReflectionTestUtils.setField(notifier, "enabled", true);
@@ -328,6 +334,83 @@ class SecurityFindingNotifierTest {
         notifier.notifyForAccount(account());
 
         verify(findingRepository).markNotified(anyList(), any());
+    }
+
+    // ── Per-user opt-out ────────────────────────────────────────────────────
+
+    /**
+     * A user switched off in BillOps admin is skipped while their colleagues still get the mail.
+     *
+     * <p>
+     * The whole point of the per-user flag: the pre-existing switches were client-scoped, so
+     * quietening one person meant silencing the tenant. Asserted with {@code never()} on the
+     * specific address rather than by counting sends, because the failure mode is a recipient
+     * quietly surviving the filter, not a change in volume.
+     */
+    @Test
+    void aUserWhoOptedOutIsNotEmailedButTheirColleaguesAre() {
+        User muted = new User();
+        muted.setId(1L);
+        muted.setEmail("muted@example.com");
+        muted.setEmailNotificationsEnabled(false);
+        User subscribed = new User();
+        subscribed.setId(2L);
+        subscribed.setEmail("subscribed@example.com");
+        when(userRepository.findByClientId(CLIENT_ID)).thenReturn(List.of(muted, subscribed));
+
+        pending(finding(1L, "CRITICAL", "Bucket public"));
+        notifier.notifyForAccount(account());
+
+        verify(emailService, never()).sendHtmlEmail(eq("muted@example.com"), anyString(), anyString());
+        verify(emailService).sendHtmlEmail(eq("subscribed@example.com"), anyString(), anyString());
+    }
+
+    /**
+     * Everyone opting out stops the email but must not stop the rest of the pipeline.
+     *
+     * <p>
+     * The findings still have to reach the inbox row, the socket push and {@code markNotified}.
+     * Treating "nobody wants email" as "nothing to do" would hide findings from the Security
+     * Center page and leave them unmarked, which the next sweep would then reprocess forever.
+     */
+    @Test
+    void everyUserOptingOutSuppressesEmailWithoutSuppressingTheInboxOrTheMarking() {
+        User muted = new User();
+        muted.setId(1L);
+        muted.setEmail("muted@example.com");
+        muted.setEmailNotificationsEnabled(false);
+        when(userRepository.findByClientId(CLIENT_ID)).thenReturn(List.of(muted));
+
+        pending(finding(1L, "CRITICAL", "Bucket public"));
+        notifier.notifyForAccount(account());
+
+        verify(emailService, never()).sendHtmlEmail(anyString(), anyString(), anyString());
+        verify(notificationRepository).save(any(SecurityNotification.class));
+        verify(findingRepository).markNotified(anyList(), any());
+    }
+
+    /**
+     * Opting out of email must not remove the finding from the product.
+     *
+     * <p>
+     * The flag is named for email deliberately. Someone who muted their mailbox still sees findings
+     * on the Security Center page and still gets the live push, because the alternative is an admin
+     * silently revoking a colleague's visibility of their own security posture through what reads
+     * as a mail preference.
+     */
+    @Test
+    void optingOutOfEmailStillPushesToTheUserInApp() {
+        User muted = new User();
+        muted.setId(11L);
+        muted.setEmail("muted@example.com");
+        muted.setEmailNotificationsEnabled(false);
+        when(userRepository.findByClientId(CLIENT_ID)).thenReturn(List.of(muted));
+
+        pending(finding(1L, "CRITICAL", "Bucket public"));
+        notifier.notifyForAccount(account());
+
+        verify(messagingTemplate).convertAndSendToUser(
+                eq("11"), eq(SecurityFindingNotifier.USER_QUEUE), any());
     }
 
     /** One bad address must not deny the others in the same batch. */

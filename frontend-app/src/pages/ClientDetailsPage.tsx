@@ -29,6 +29,16 @@ interface BillOpsUser {
     accountAccessIds: number[];
     parentId?: number | null;  // null/undefined = primary user; set = sub-user
     lastLoginAt?: string | null;  // ISO datetime string from backend
+    /**
+     * Whether this user receives security and WAR email — the WAR onboarding report, security
+     * finding notifications, and the AWS/GCP alert digests.
+     *
+     * Optional because a client list cached before this field existed will not carry it, and
+     * defaulted to TRUE at every read site to match the column default. True is the safe direction
+     * for an unknown value here: rendering a subscribed user as muted would invite an admin to
+     * "fix" a toggle that was never off, and the click would then genuinely switch their mail off.
+     */
+    emailNotificationsEnabled?: boolean;
 }
 
 interface ClientDetails {
@@ -169,6 +179,52 @@ const UpwindAdminCell: React.FC<{ client: ClientDetails }> = ({ client }) => {
         </div>
     );
 };
+
+/**
+ * Per-user switch for security and WAR email.
+ *
+ * A real switch rather than the small icon buttons used for the client-level SMS/WhatsApp flags.
+ * Those sit in a header row where one glance covers one client; this one appears once per user in a
+ * table an admin scans down, and an icon that means "on" in one colour and "off" in another is hard
+ * to read in a column. State is spelled out in words next to the track for the same reason —
+ * colour alone is not an accessible way to communicate it.
+ *
+ * The label deliberately says "security email" and not "notifications". This does not touch cost or
+ * operational mail, login OTP, password reset, ticket replies, or the in-app notification bell, and
+ * the tooltip says so — an admin flipping this needs to know how far it reaches before they promise
+ * a customer it stops everything.
+ */
+const SecurityEmailSwitch: React.FC<{
+    enabled: boolean;
+    userLabel: string;
+    onChange: (enabled: boolean) => void;
+}> = ({ enabled, userLabel, onChange }) => (
+    <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-label={`${enabled ? 'Disable' : 'Enable'} security email for ${userLabel}`}
+        onClick={() => onChange(!enabled)}
+        title={enabled
+            ? 'Receiving security email: WAR reports, security findings and AWS/GCP alert digests. Click to stop. Login codes, ticket replies and in-app notifications are unaffected.'
+            : 'Not receiving security email. Click to resume WAR reports, security findings and AWS/GCP alert digests.'}
+        className="group flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 rounded"
+    >
+        <span
+            aria-hidden="true"
+            className={`relative inline-flex h-4 w-7 flex-shrink-0 items-center rounded-full transition-colors duration-200 ${
+                enabled ? 'bg-emerald-500 group-hover:bg-emerald-600' : 'bg-gray-300 group-hover:bg-gray-400'}`}
+        >
+            <span
+                className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform duration-200 ${
+                    enabled ? 'translate-x-3.5' : 'translate-x-0.5'}`}
+            />
+        </span>
+        <span className={`text-[11px] font-medium ${enabled ? 'text-emerald-600' : 'text-gray-400'}`}>
+            {enabled ? 'On' : 'Off'}
+        </span>
+    </button>
+);
 
 const ClientDetailsPage: React.FC = () => {
     const [clients, setClients] = useState<ClientDetails[]>([]);
@@ -394,6 +450,42 @@ const ClientDetailsPage: React.FC = () => {
                 setClients(prev => prev.map(c =>
                     c.id === clientId ? { ...c, [field]: !enabled } : c));
                 console.error(`Failed to update ${channel} notification entitlement:`, err);
+            }
+        }, []);
+
+    /**
+     * Switch security and WAR email on or off for one user of a client.
+     *
+     * Per user rather than per client, which is the point: the client-level switches could only
+     * silence a whole tenant, so a tenant where two people own security had everyone else
+     * receiving finding digests they could not act on.
+     *
+     * Sends the intended state rather than toggling server-side, matching the client-level
+     * switches — a double-click or a retry must not silently reverse the decision.
+     *
+     * Optimistic with rollback. The alternative is refetching the whole client list on every click,
+     * which is a five-minute-cached call returning every client's accounts, users and cost figures.
+     */
+    const setUserEmailNotifications = useCallback(
+        async (clientId: number, userId: number, enabled: boolean) => {
+            const apply = (value: boolean) => setClients(prev => prev.map(c =>
+                c.id === clientId
+                    ? {
+                        ...c,
+                        users: c.users.map(u =>
+                            u.id === userId ? { ...u, emailNotificationsEnabled: value } : u),
+                    }
+                    : c));
+
+            apply(enabled);
+            try {
+                await apiClient.post(
+                    `/api/xamops/billops-admin/clients/${clientId}/users/${userId}/email-notifications`,
+                    { enabled });
+                localStorage.removeItem(CACHE_KEY);
+            } catch (err) {
+                apply(!enabled);
+                console.error('Failed to update security email preference:', err);
             }
         }, []);
 
@@ -868,13 +960,22 @@ const ClientDetailsPage: React.FC = () => {
                                                             <th className="px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-widest">Email</th>
                                                             <th className="px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-widest">Account Access</th>
                                                             <th className="px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-widest">Last Active</th>
+                                                            {/* Scoped to the security family — WAR reports, findings, AWS/GCP
+                                                                digests. Named for that rather than "Notifications" so nobody
+                                                                reads it as a switch for OTP or ticket mail. */}
+                                                            <th
+                                                                className="px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-widest"
+                                                                title="WAR reports, security findings and AWS/GCP alert digests. Does not affect login codes, ticket replies, cost reports or in-app notifications."
+                                                            >
+                                                                Security Email
+                                                            </th>
                                                             <th className="px-4 py-2.5 text-[11px] font-semibold text-gray-500 uppercase tracking-widest text-right">Actions</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-gray-100">
                                                         {primaryUsers.length === 0 && (
                                                             <tr>
-                                                                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                                                                <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
                                                                     No users found for this client.
                                                                 </td>
                                                             </tr>
@@ -925,6 +1026,13 @@ const ClientDetailsPage: React.FC = () => {
                                                                                 <span className="text-xs text-gray-300 italic">Never</span>
                                                                             )}
                                                                         </td>
+                                                                        <td className="px-4 py-3.5">
+                                                                            <SecurityEmailSwitch
+                                                                                enabled={primary.emailNotificationsEnabled !== false}
+                                                                                userLabel={primary.username}
+                                                                                onChange={(next) => setUserEmailNotifications(client.id, primary.id, next)}
+                                                                            />
+                                                                        </td>
                                                                         <td className="px-6 py-3.5 text-right">
                                                                             <button
                                                                                 onClick={() => handleLoginAs(primary.id, client, primary)}
@@ -960,6 +1068,13 @@ const ClientDetailsPage: React.FC = () => {
                                                                                 ) : (
                                                                                     <span className="text-xs text-gray-300 italic">Never</span>
                                                                                 )}
+                                                                            </td>
+                                                                            <td className="px-4 py-3">
+                                                                                <SecurityEmailSwitch
+                                                                                    enabled={sub.emailNotificationsEnabled !== false}
+                                                                                    userLabel={sub.username}
+                                                                                    onChange={(next) => setUserEmailNotifications(client.id, sub.id, next)}
+                                                                                />
                                                                             </td>
                                                                             <td className="px-6 py-3 text-right">
                                                                                 <button

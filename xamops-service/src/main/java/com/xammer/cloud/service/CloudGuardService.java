@@ -3,9 +3,7 @@ package com.xammer.cloud.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.*;
-import com.xammer.cloud.domain.User;
 import com.xammer.cloud.repository.CloudAccountRepository;
-import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.inventory.InventoryProjectionService;
 import com.xammer.cloud.service.security.SecurityFindingProjectionService;
 import org.slf4j.Logger;
@@ -49,7 +47,7 @@ public class CloudGuardService {
     private final DashboardDataService dashboardDataService;
     private final AwsSecurityHubService securityHubService;
     private final AlertEmailBuilder alertEmailBuilder;
-    private final UserRepository userRepository;
+    private final NotificationRecipientResolver recipientResolver;
     private final AlertNotificationDeduplicator deduplicator;
 
     /**
@@ -77,7 +75,7 @@ public class CloudGuardService {
             @Lazy DashboardDataService dashboardDataService,
             AwsSecurityHubService securityHubService,
             AlertEmailBuilder alertEmailBuilder,
-            UserRepository userRepository,
+            NotificationRecipientResolver recipientResolver,
             AlertNotificationDeduplicator deduplicator) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
@@ -88,7 +86,7 @@ public class CloudGuardService {
         this.dashboardDataService = dashboardDataService;
         this.securityHubService = securityHubService;
         this.alertEmailBuilder = alertEmailBuilder;
-        this.userRepository = userRepository;
+        this.recipientResolver = recipientResolver;
         this.deduplicator = deduplicator;
     }
 
@@ -445,22 +443,14 @@ public class CloudGuardService {
                     .build());
         }
 
-        // Eagerly fetch all sub-user emails before async
-        List<String> recipientEmails = java.util.Collections.emptyList();
-        try {
-            if (account.getClient() != null) {
-                recipientEmails = userRepository.findByClientId(account.getClient().getId()).stream()
-                        .map(u -> (u.getEmail() != null && !u.getEmail().isBlank()) ? u.getEmail()
-                                : (u.getUsername() != null && u.getUsername().contains("@") ? u.getUsername() : null))
-                        .filter(e -> e != null)
-                        .distinct()
-                        .collect(Collectors.toList());
-            }
-        } catch (Exception e) {
-            logger.warn("Could not fetch recipient emails for account {}: {}", accountId, e.getMessage());
-        }
-
-        final List<String> recipients = recipientEmails;
+        // Resolved eagerly, before the async fan-out below: the client is a LAZY @ManyToOne and
+        // the futures run on another thread with no persistence session, so a lazy load from
+        // inside the callback would fail.
+        //
+        // Users who have security email disabled in BillOps admin are filtered out here, which is
+        // also why an empty list is not an error — it can simply mean nobody on this tenant wants
+        // the digest. The resolver never throws, so no try/catch is needed around it.
+        final List<String> recipients = recipientResolver.emailsForAccount(account);
         final String accountName = account.getAccountName() != null ? account.getAccountName() : accountId;
 
         // Fetch all alert types in parallel

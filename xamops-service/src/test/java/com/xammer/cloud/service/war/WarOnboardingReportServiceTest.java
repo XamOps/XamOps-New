@@ -9,6 +9,7 @@ import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.EmailService;
+import com.xammer.cloud.service.NotificationRecipientResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -57,7 +58,11 @@ class WarOnboardingReportServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new WarOnboardingReportService(cloudAccountRepository, userRepository,
+        // A real resolver over the mocked repository rather than a mocked resolver, so the
+        // recipient rules the service depends on — the username fallback and the per-user email
+        // opt-out — are exercised rather than stubbed past. The findByClientId stub below drives it.
+        service = new WarOnboardingReportService(cloudAccountRepository,
+                new NotificationRecipientResolver(userRepository),
                 cachedDataRepository, scanDispatcher, emailBuilder, emailService);
         // @Value is not processed outside a Spring context.
         ReflectionTestUtils.setField(service, "scanTimeoutMinutes", 1L);
@@ -245,6 +250,42 @@ class WarOnboardingReportServiceTest {
         verify(emailService, never()).sendHtmlEmail(anyString(), anyString(), anyString());
     }
 
+    // ── Per-user opt-out ────────────────────────────────────────────────────
+
+    /** A user switched off in BillOps admin is skipped; their colleagues still get the report. */
+    @Test
+    void aUserWhoOptedOutIsNotEmailedTheReport() {
+        when(userRepository.findByClientId(7L))
+                .thenReturn(List.of(mutedUser("muted@acme.com"), user("ops@acme.com")));
+        stubScan(report(true, 3, 1));
+
+        service.deliverReport(ACCOUNT_ID);
+
+        verify(emailService, never()).sendHtmlEmail(eq("muted@acme.com"), anyString(), anyString());
+        verify(emailService).sendHtmlEmail(eq("ops@acme.com"), anyString(), anyString());
+    }
+
+    /**
+     * Every user opting out skips the scan entirely, not just the email.
+     *
+     * <p>
+     * Recipients are resolved before the scan is dispatched, so a tenant nobody will be mailed on
+     * costs nothing. Running a multi-minute scan across the customer's account to build a report
+     * with no addressee would be pure waste, and the {@code cachedDataRepository} assertion is what
+     * keeps the send marker from being written for a mail that never went out — that marker would
+     * suppress the real report for 24 hours if someone re-enabled their email in the meantime.
+     */
+    @Test
+    void everyUserOptingOutSkipsTheScanAndRecordsNoSendMarker() {
+        when(userRepository.findByClientId(7L)).thenReturn(List.of(mutedUser("muted@acme.com")));
+
+        service.deliverReport(ACCOUNT_ID);
+
+        verify(scanDispatcher, never()).scan(any(), anyBoolean());
+        verify(emailService, never()).sendHtmlEmail(anyString(), anyString(), anyString());
+        verify(cachedDataRepository, never()).save(any());
+    }
+
     // ── Fixtures ────────────────────────────────────────────────────────────
 
     private void stubScan(WarReport report) {
@@ -269,6 +310,13 @@ class WarOnboardingReportServiceTest {
     private User user(String email) {
         User user = new User();
         user.setEmail(email);
+        return user;
+    }
+
+    /** A user who has security email switched off in BillOps admin. */
+    private User mutedUser(String email) {
+        User user = user(email);
+        user.setEmailNotificationsEnabled(false);
         return user;
     }
 

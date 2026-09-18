@@ -118,6 +118,13 @@ public class BillOpsClientsCacheWarmingService {
         public List<Long> accountAccessIds;
         public Long parentId;
         public java.time.LocalDateTime lastLoginAt;
+        /**
+         * Mirrors BillOpsUserDto in BillOpsAdminController. Present here because this service
+         * writes the same Redis key the controller reads — omitting it would make the warmed copy
+         * deserialise with the field absent, and the toggle would render as its default for the
+         * first five minutes after every restart regardless of what the database says.
+         */
+        public boolean emailNotificationsEnabled = true;
 
         public BillOpsUserDto() {}
     }
@@ -259,6 +266,7 @@ public class BillOpsClientsCacheWarmingService {
                 userDto.email = user.getEmail();
                 userDto.parentId = user.getCreatedBy();
                 userDto.lastLoginAt = user.getLastLoginAt();
+                userDto.emailNotificationsEnabled = user.isEmailNotificationsEnabled();
                 userDto.accountAccessIds = accountAccessByUserId.getOrDefault(user.getId(), new ArrayList<>());
                 dto.users.add(userDto);
             }

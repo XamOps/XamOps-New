@@ -162,6 +162,13 @@ class BillOpsUserDto {
     private List<Long> accountAccessIds;
     private Long parentId;  // null = primary user, set = sub-user of that parent
     private java.time.LocalDateTime lastLoginAt;
+    /**
+     * Whether this user receives security and WAR email. Defaults TRUE, matching the column
+     * default, so a client list cached before this field existed renders every user as subscribed
+     * rather than as muted — the direction that cannot make an admin think delivery is off when it
+     * is on.
+     */
+    private boolean emailNotificationsEnabled = true;
 
     // Getters and Setters
     public Long getId() {
@@ -210,6 +217,14 @@ class BillOpsUserDto {
 
     public void setLastLoginAt(java.time.LocalDateTime lastLoginAt) {
         this.lastLoginAt = lastLoginAt;
+    }
+
+    public boolean isEmailNotificationsEnabled() {
+        return emailNotificationsEnabled;
+    }
+
+    public void setEmailNotificationsEnabled(boolean emailNotificationsEnabled) {
+        this.emailNotificationsEnabled = emailNotificationsEnabled;
     }
 }
 
@@ -578,6 +593,84 @@ public class BillOpsAdminController {
         return ResponseEntity.ok(response);
     }
 
+    /**
+     * Switch security and WAR email on or off for a single user of a client.
+     *
+     * <p>
+     * The gap this fills: every notification switch that existed before was client-scoped, so
+     * quietening one person meant silencing the whole tenant. A ten-user tenant where two people
+     * own security had eight people receiving WAR reports and finding digests they could not act
+     * on, and the usual response to that is a mail rule — after which nobody on the tenant reads
+     * them either.
+     *
+     * <p>
+     * Scope is narrow and worth stating precisely, because "email notifications off" invites a
+     * wider reading than this implements. Suppressed: the WAR onboarding report, security finding
+     * notifications, and the AWS and GCP alert digests. Not suppressed: cost and operational mail
+     * (monthly digest, budget alerts, DB health), login OTP, password reset, invitations, ticket
+     * correspondence, and the in-app notification bell. Someone who is off the security rota may
+     * still own the bill, still needs to sign in, and should still see findings in the product.
+     *
+     * <p>
+     * Explicit value rather than a toggle, matching {@code /xamsecure-onboarding} and
+     * {@code /notification-channel}: a double-submitted request or a retry must not silently
+     * reverse the decision. Sending the intended state makes it idempotent.
+     *
+     * <p>
+     * {@code userId} is validated against {@code clientId} rather than trusted on its own. A full
+     * BillOps admin can see every client so this is not a privilege boundary, but it does mean a
+     * stale page cannot write to a user it is no longer displaying — it gets a 404 instead.
+     *
+     * <p>
+     * Restricted to {@code ROLE_BILLOPS_ADMIN} / {@code ROLE_SUPER_ADMIN}, consistent with the
+     * other write endpoints here: sub-admins can view the client list but not change it.
+     */
+    @PostMapping("/clients/{clientId}/users/{userId}/email-notifications")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN') or hasAuthority('ROLE_SUPER_ADMIN')")
+    public ResponseEntity<Map<String, Object>> setUserEmailNotifications(
+            @PathVariable Long clientId,
+            @PathVariable Long userId,
+            @RequestBody Map<String, Object> body) {
+        Object raw = body.get("enabled");
+        if (!(raw instanceof Boolean)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Body must be {\"enabled\": true|false}"));
+        }
+        boolean enabled = (Boolean) raw;
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "User not found: " + userId));
+
+        Long ownerClientId = user.getClient() == null ? null : user.getClient().getId();
+        if (!clientId.equals(ownerClientId)) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.NOT_FOUND,
+                    "User " + userId + " does not belong to client " + clientId);
+        }
+
+        user.setEmailNotificationsEnabled(enabled);
+        userRepository.save(user);
+
+        // Both cache tiers, not just the primary one. The client list is cached for five minutes
+        // under a shared key and additionally per sub-admin under ":sub:{id}", so evicting only
+        // the shared key would leave a sub-admin looking at the old state of a toggle whose entire
+        // purpose is to be trusted at a glance.
+        redisCacheService.evict(CLIENTS_CACHE_KEY);
+        redisCacheService.evictByPattern(CLIENTS_CACHE_KEY + ":sub:*");
+
+        // Deliberately at info: this is the audit trail for "why did this person stop receiving
+        // security mail", and the answer needs to be findable months later.
+        log.info("User {} ({}) on client {} emailNotificationsEnabled={}",
+                userId, user.getUsername(), clientId, enabled);
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("clientId", clientId);
+        response.put("userId", userId);
+        response.put("emailNotificationsEnabled", enabled);
+        return ResponseEntity.ok(response);
+    }
+
     /** Debug: check last_login_at values directly from DB (bypasses Redis cache) */
     @GetMapping("/debug/last-login")
     public ResponseEntity<List<java.util.Map<String, Object>>> debugLastLogin() {
@@ -934,6 +1027,7 @@ public class BillOpsAdminController {
                 userDto.setAccountAccessIds(accountAccessByUserId.getOrDefault(user.getId(), new ArrayList<>()));
                 userDto.setParentId(user.getCreatedBy());
                 userDto.setLastLoginAt(user.getLastLoginAt());
+                userDto.setEmailNotificationsEnabled(user.isEmailNotificationsEnabled());
                 userDtos.add(userDto);
             }
             clientDto.setUsers(userDtos);
