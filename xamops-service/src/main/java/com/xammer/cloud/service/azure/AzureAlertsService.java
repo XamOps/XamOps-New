@@ -9,6 +9,7 @@ import com.xammer.cloud.dto.AlertDto;
 import com.xammer.cloud.dto.azure.AzureAlertsResponse;
 import com.xammer.cloud.dto.azure.AzureMonitorAlert;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.AlertDigestSeverityGate;
 import com.xammer.cloud.service.AlertEmailBuilder;
 import com.xammer.cloud.service.AlertNotificationDeduplicator;
 import com.xammer.cloud.service.EmailService;
@@ -22,6 +23,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -46,6 +48,7 @@ public class AzureAlertsService {
     private final EmailService emailService;
     private final AlertEmailBuilder alertEmailBuilder;
     private final AlertNotificationDeduplicator deduplicator;
+    private final AlertDigestSeverityGate severityGate;
     private final CloudAccountRepository cloudAccountRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -54,12 +57,14 @@ public class AzureAlertsService {
                                EmailService emailService,
                                AlertEmailBuilder alertEmailBuilder,
                                AlertNotificationDeduplicator deduplicator,
+                               AlertDigestSeverityGate severityGate,
                                CloudAccountRepository cloudAccountRepository) {
         this.clientProvider = clientProvider;
         this.redisCache = redisCache;
         this.emailService = emailService;
         this.alertEmailBuilder = alertEmailBuilder;
         this.deduplicator = deduplicator;
+        this.severityGate = severityGate;
         this.cloudAccountRepository = cloudAccountRepository;
     }
 
@@ -154,10 +159,8 @@ public class AzureAlertsService {
                     ? AzureAlertsResponse.Status.NO_DATA
                     : AzureAlertsResponse.Status.OK;
 
-            if (status == AzureAlertsResponse.Status.OK) {
-                maybeSendDigest(subscriptionId, allAlerts);
-            }
-
+            // No email from here — this is the Alerts page's own read path. Notification is
+            // driven by the scheduler through notifyNewAlerts.
             return new AzureAlertsResponse(status, allAlerts);
 
         } catch (Exception e) {
@@ -224,43 +227,92 @@ public class AzureAlertsService {
         return result;
     }
 
-    private void maybeSendDigest(String subscriptionId, List<AzureMonitorAlert> rawAlerts) {
+    /**
+     * Emails the account about alerts that are new since the last notification.
+     *
+     * <p>Public and scheduler-driven. It used to be called from inside {@link #getAlerts},
+     * which is what the Alerts page requests — so opening that page mailed the customer.
+     * Azure had no scheduled alert job at all, meaning a page load was the <em>only</em>
+     * thing that ever sent an Azure digest.
+     *
+     * <p>Sends nothing when the only change is that alerts were resolved.
+     */
+    public void notifyNewAlerts(String subscriptionId) {
         try {
-            List<AlertDto> alerts = toAlertDtos(rawAlerts);
-            String fingerprint = AlertNotificationDeduplicator.computeFingerprint(alerts);
-            if (deduplicator.azureDigestAlreadySentForContent(subscriptionId, fingerprint)) {
-                log.info("Azure alert digest unchanged for {}, skipping email", subscriptionId);
+            AzureAlertsResponse response = getAlerts(subscriptionId, true);
+            List<AlertDto> alerts = response != null && response.getAlerts() != null
+                    ? toAlertDtos(response.getAlerts())
+                    : Collections.emptyList();
+
+            AlertNotificationDeduplicator.AlertDelta delta =
+                    deduplicator.detectNewAlerts("azure", subscriptionId, alerts);
+            deduplicator.markSeen("azure", subscriptionId, alerts);
+
+            if (!delta.worthSending()) {
+                log.info("[AzureAlerts] No new alerts for subscription {} ({} open) — no email",
+                        subscriptionId, delta.totalOpen());
                 return;
             }
+
             Optional<CloudAccount> accountOpt = cloudAccountRepository.findByAzureSubscriptionId(subscriptionId);
-            String accountName = accountOpt.map(a -> a.getAccountName() != null ? a.getAccountName() : subscriptionId).orElse(subscriptionId);
-            String recipientEmail = accountOpt.map(a -> a.getClient() != null ? a.getClient().getEmail() : null).orElse(null);
-            if (recipientEmail == null || recipientEmail.isBlank()) {
-                log.info("No recipient email for Azure subscription {}, skipping digest", subscriptionId);
+            String accountName = accountOpt
+                    .map(a -> a.getAccountName() != null ? a.getAccountName() : subscriptionId)
+                    .orElse(subscriptionId);
+
+            // Threshold applied to the new alerts only; the seen-set above already recorded
+            // everything, so lowering the threshold later cannot resurface old findings as new.
+            List<AlertDto> notifiable = severityGate.notifiable(accountOpt.orElse(null), delta.newAlerts());
+            if (notifiable.isEmpty()) {
+                log.info("[AzureAlerts] {} new alert(s) for subscription {} all below the digest "
+                        + "severity threshold — no email", delta.newAlerts().size(), subscriptionId);
                 return;
             }
-            String subject = String.format("[XamOps] Azure Alert Digest — %d alert%s for %s",
-                    alerts.size(), alerts.size() == 1 ? "" : "s", accountName);
-            String html = alertEmailBuilder.buildAlertDigestEmail(alerts, accountName, subscriptionId);
+
+            String recipientEmail = accountOpt
+                    .map(a -> a.getClient() != null ? a.getClient().getEmail() : null)
+                    .orElse(null);
+            if (recipientEmail == null || recipientEmail.isBlank()) {
+                log.info("[AzureAlerts] {} new alert(s) for subscription {} but no recipient email",
+                        notifiable.size(), subscriptionId);
+                return;
+            }
+
+            String subject = delta.coldStart()
+                    ? String.format("[XamOps] Azure Alert Digest — %d alert%s for %s",
+                            delta.totalOpen(), delta.totalOpen() == 1 ? "" : "s", accountName)
+                    : String.format("[XamOps] %d new Azure alert%s for %s (%d open)",
+                            notifiable.size(), notifiable.size() == 1 ? "" : "s",
+                            accountName, delta.totalOpen());
+            String html = alertEmailBuilder.buildNewAlertsDigestEmail(
+                    notifiable, delta.totalOpen(), delta.coldStart(), accountName, subscriptionId);
+
             emailService.sendHtmlEmail(recipientEmail, subject, html);
-            deduplicator.markAzureDigestSent(subscriptionId, fingerprint);
-            log.info("Azure alert digest sent to {} for subscription {}", recipientEmail, subscriptionId);
+            log.info("[AzureAlerts] Sent digest to {} for subscription {} ({} new, {} open)",
+                    recipientEmail, subscriptionId, notifiable.size(), delta.totalOpen());
         } catch (Exception e) {
-            log.warn("Failed to send Azure alert digest for {}: {}", subscriptionId, e.getMessage());
+            log.warn("[AzureAlerts] Notification run failed for {}: {}", subscriptionId, e.getMessage());
         }
     }
 
     private List<AlertDto> toAlertDtos(List<AzureMonitorAlert> rawAlerts) {
-        return rawAlerts.stream().map(a -> new AlertDto(
-                a.getAlertId(),
-                a.getResourceType(),
-                a.getAlertName(),
-                a.getDescription(),
-                mapSeverityToStatus(a.getSeverityLabel()),
-                0, 0,
-                mapSignalTypeToAlertType(a.getSignalType()),
-                a.getResourceGroup()
-        )).collect(java.util.stream.Collectors.toList());
+        return rawAlerts.stream().map(a -> {
+            AlertDto dto = new AlertDto(
+                    a.getAlertId(),
+                    a.getResourceType(),
+                    a.getAlertName(),
+                    a.getDescription(),
+                    mapSeverityToStatus(a.getSeverityLabel()),
+                    0, 0,
+                    mapSignalTypeToAlertType(a.getSignalType()),
+                    a.getResourceGroup());
+
+            // From the raw label, not from the status above. Azure has five bands and the
+            // status mapping folds them into three — Sev1 "Error" comes out as CRITICAL, so a
+            // client asking to hear only about criticals would be paged for every Sev1.
+            // Normalising the original label keeps Error at HIGH where it belongs.
+            dto.setSeverity(a.getSeverityLabel());
+            return dto;
+        }).collect(java.util.stream.Collectors.toList());
     }
 
     private String mapSeverityToStatus(String severityLabel) {

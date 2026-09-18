@@ -48,7 +48,10 @@ public class GrafanaAlertCache {
         dto.setStatus(gAlert.getStatus());
         dto.setService("Grafana");
         dto.setRegion(gAlert.getLabels().getOrDefault("region", "default"));
-        // We can re-use the AlertDto from your code
+        // Grafana's status is firing/resolved, which is not a severity — deriving from it would
+        // put every Grafana alert in the same band. The severity label is the conventional
+        // place; when a rule does not set one, severity falls back to the MEDIUM default.
+        dto.setSeverity(gAlert.getLabels().get("severity"));
         return dto;
     }
 }

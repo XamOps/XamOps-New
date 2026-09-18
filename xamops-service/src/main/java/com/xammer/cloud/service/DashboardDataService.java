@@ -43,6 +43,7 @@ import software.amazon.awssdk.services.servicequotas.model.ServiceQuota;
 
 import javax.sql.DataSource;
 import java.io.IOException;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -2726,8 +2727,42 @@ public class DashboardDataService {
      */
     private static final int AUDIT_WAIT_SECONDS = 12;
 
-    /** Cache lifetime for an IAM scan, in minutes. */
+    /** Redis lifetime for an IAM scan, in minutes. */
     private static final int IAM_CACHE_MINUTES = 60;
+
+    /**
+     * How old the durable snapshot may be before a read rebuilds it behind the request.
+     *
+     * <p>
+     * This is a refresh trigger, not an expiry: past this age the snapshot is still served, and
+     * the rescan happens in the background. Nothing here ever makes a user wait on IAM for data
+     * we already hold, because the failure this whole tier exists to remove is the request that
+     * waits and then times out anyway.
+     *
+     * <p>
+     * Six hours rather than the Redis TTL's sixty minutes. The two windows answer different
+     * questions — Redis decides how long to avoid a database read, this decides how long an
+     * access review may go unverified — and tying them together is what made the tab re-scan
+     * roughly every visit: Redis is also the session store, so it is restarted and evicted far
+     * more often than IAM actually changes. Real IAM changes do not wait for this window at all;
+     * they arrive as events. See {@code InventoryEventListener}.
+     */
+    private static final int IAM_SNAPSHOT_REFRESH_MINUTES = 6 * 60;
+
+    /**
+     * Shortest gap between two change-triggered rescans of the same account.
+     *
+     * <p>
+     * Terraform applying an IAM module emits dozens of {@code CreateRole} and
+     * {@code AttachRolePolicy} calls in under a minute. Rescanning per event would turn one
+     * deploy into dozens of full IAM scans against a low-TPS global endpoint, which is how a
+     * freshness feature becomes a throttling incident. One scan a few minutes after the burst
+     * sees the same end state.
+     */
+    private static final long IAM_CHANGE_RESCAN_COOLDOWN_MS = 3 * 60 * 1000L;
+
+    /** Earliest time a change event may trigger another rescan, per account. */
+    private final Map<String, Long> iamChangeRescanFloor = new ConcurrentHashMap<>();
 
     /**
      * Scans in flight, so a retry joins the running scan instead of starting a second one.
@@ -2760,30 +2795,85 @@ public class DashboardDataService {
      * access review. Now the inventory is cached the moment it exists, and the audit is a
      * separate pass that rewrites the entry when it finishes. The worst case degrades from "no
      * identities at all" to "identities without risk badges, scored shortly".
+     *
+     * <p>
+     * Read order is Redis, then the durable {@code cached_data} snapshot, then a live scan — and
+     * only the last of those makes anyone wait. Redis alone was not a cache for this feature so
+     * much as a sixty-minute grace period: it is the same instance that stores HTTP sessions, so
+     * it is restarted on every deploy and evicted under pressure, and with nothing behind it the
+     * next visitor after any of that paid a full IAM scan and frequently hit the request deadline
+     * instead of seeing identities. An account that has been scanned once now answers from disk
+     * in milliseconds for as long as the connection exists, and goes stale on its own schedule
+     * rather than the session store's.
+     *
+     * <p>
+     * Not {@code @Async} any more, deliberately. The body no longer blocks — Redis read, at most
+     * one indexed row read, then {@code supplyAsync} for the scan itself — so the hop bought
+     * nothing, and it cost correctness: {@code backgroundTaskExecutor} is the one executor in
+     * {@code AwsConfig} without {@code tenantTaskDecorator}, and {@code TenantContext} is an
+     * {@code InheritableThreadLocal}, so a pooled thread carries whichever tenant happened to
+     * create it. Reading the snapshot there would have queried an arbitrary tenant's database.
+     * Running on the caller's thread means the tenant is the caller's, which is the only correct
+     * answer. The scan is still handed to the executor, and the self-invocation from
+     * {@link #getDashboardData} never went through the proxy anyway, so nothing became
+     * synchronous that was not already.
      */
-    @Async("backgroundTaskExecutor")
     public CompletableFuture<DashboardData.IamDetail> getIamDetails(CloudAccount account, boolean forceRefresh) {
-        // Version suffix bumped when permission-risk fields were added. Entries written by the
-        // previous build carry no risk data, and the frontend's staleness guard only checks that
-        // iamDetails exists — so without a new key an hour-old entry would render every identity
-        // as unflagged, which is precisely the false reassurance this feature exists to remove.
-        String cacheKey = "iamDetailsV2-" + account.getAwsAccountId();
+        String cacheKey = iamCacheKey(account.getAwsAccountId());
+
         if (!forceRefresh) {
             Optional<DashboardData.IamDetail> cachedData = redisCache.get(cacheKey, DashboardData.IamDetail.class);
             if (cachedData.isPresent()) {
-                return CompletableFuture.completedFuture(cachedData.get());
+                return CompletableFuture.completedFuture(withRefreshFlag(cachedData.get(), account));
+            }
+
+            // Redis is cold. That is the common case rather than the exceptional one — a deploy,
+            // an eviction, or simply an hour passing — and before the durable tier existed it
+            // meant a full IAM scan with the user watching.
+            IamSnapshot snapshot = readIamSnapshot(cacheKey);
+            if (snapshot != null) {
+                // Re-warmed before the flags are set, so the copy in Redis stays a clean record
+                // of the scan and does not bake in one request's "a rescan is running" state.
+                redisCache.put(cacheKey, snapshot.detail(), IAM_CACHE_MINUTES);
+                if (snapshot.olderThanMinutes(IAM_SNAPSHOT_REFRESH_MINUTES)) {
+                    logger.info("[IAM] Snapshot for account {} is from {} — serving it and "
+                            + "rescanning in the background", account.getAwsAccountId(),
+                            snapshot.writtenAt());
+                    startIamScan(account, cacheKey, "stale snapshot");
+                }
+                return CompletableFuture.completedFuture(withRefreshFlag(snapshot.detail(), account));
             }
         }
 
-        // Join a scan already running for this account rather than starting a rival one.
-        //
-        // computeIfAbsent rather than get-then-put: two requests arriving together both saw an
-        // empty map under the naive version and both started a full scan, which is the exact
-        // pile-up this is here to prevent. The mapping function only allocates — the scan itself
-        // runs on the executor — so nothing blocks while the bin lock is held.
-        String inFlightKey = account.getAwsAccountId();
-        return iamScansInFlight.computeIfAbsent(inFlightKey, key -> {
-            logger.info("[IAM] Starting scan for account {} (forceRefresh={})", key, forceRefresh);
+        return startIamScan(account, cacheKey, forceRefresh ? "forced refresh" : "no snapshot yet");
+    }
+
+    /**
+     * The cache key for one account's identity snapshot, shared by Redis and {@code cached_data}.
+     *
+     * <p>
+     * Version suffix bumped when permission-risk fields were added. Entries written by the
+     * previous build carry no risk data, and the frontend's staleness guard only checks that
+     * iamDetails exists — so without a new key an old entry would render every identity as
+     * unflagged, which is precisely the false reassurance this feature exists to remove.
+     */
+    private static String iamCacheKey(String awsAccountId) {
+        return "iamDetailsV2-" + awsAccountId;
+    }
+
+    /**
+     * Starts a scan, or hands back the one already running for this account.
+     *
+     * <p>
+     * computeIfAbsent rather than get-then-put: two requests arriving together both saw an empty
+     * map under the naive version and both started a full scan, which is the exact pile-up this
+     * is here to prevent. The mapping function only allocates — the scan itself runs on the
+     * executor — so nothing blocks while the bin lock is held.
+     */
+    private CompletableFuture<DashboardData.IamDetail> startIamScan(
+            CloudAccount account, String cacheKey, String reason) {
+        return iamScansInFlight.computeIfAbsent(account.getAwsAccountId(), key -> {
+            logger.info("[IAM] Starting scan for account {} ({})", key, reason);
             // backgroundTaskExecutor rather than the common pool. supplyAsync with no executor put
             // this whole scan on ForkJoinPool.commonPool, where the nested parallelStream calls
             // compete for the same few workers, every blocking IAM call occupies a carrier thread
@@ -2795,6 +2885,178 @@ public class DashboardDataService {
             started.whenComplete((r, e) -> iamScansInFlight.remove(key, started));
             return started;
         });
+    }
+
+    /**
+     * Rescans an account's identities because IAM changed, not because time passed.
+     *
+     * <p>
+     * The reason the tab is allowed a six-hour refresh window at all. A window that long would
+     * be indefensible on its own — an access review showing a role that was deleted this morning
+     * is worse than no review — but IAM mutations reach us as events within seconds, so the
+     * window only ever governs what we might have missed, never what we were told about.
+     *
+     * <p>
+     * Force-scans rather than evicting. Eviction would leave the next visitor to pay for the
+     * change, which is the behaviour being removed; this way the fresh result is already in both
+     * tiers before anyone asks. Cooldown-guarded because IAM changes arrive in bursts — see
+     * {@link #IAM_CHANGE_RESCAN_COOLDOWN_MS}.
+     *
+     * @return true when a rescan was started, false when one is already covered by the cooldown
+     */
+    public boolean refreshIamDetailsAfterChange(CloudAccount account) {
+        String accountId = account == null ? null : account.getAwsAccountId();
+        if (accountId == null || accountId.isBlank()) {
+            return false;
+        }
+
+        long now = System.currentTimeMillis();
+        // compute rather than get-then-put. ConcurrentHashMap runs the remapping function under
+        // the bin lock, so exactly one caller can claim the window even when two event batches for
+        // the same account are processed at once — with get-then-put both would read the same
+        // expired floor and both would scan.
+        boolean[] claimed = { false };
+        iamChangeRescanFloor.compute(accountId, (key, floor) -> {
+            if (floor != null && floor > now) {
+                return floor;
+            }
+            claimed[0] = true;
+            return now + IAM_CHANGE_RESCAN_COOLDOWN_MS;
+        });
+
+        if (!claimed[0]) {
+            logger.debug("[IAM] Change event for account {} is inside the rescan cooldown, skipping",
+                    accountId);
+            return false;
+        }
+
+        startIamScan(account, iamCacheKey(accountId), "IAM change event");
+        return true;
+    }
+
+    /**
+     * Drops an account's identity snapshot from both tiers.
+     *
+     * <p>
+     * For disconnection rather than for freshness: while a connection exists a stale snapshot is
+     * strictly better than none, so nothing on the read path calls this. Removing the durable row
+     * matters because it has no expiry — left behind, it would still answer for an account whose
+     * credentials were revoked.
+     */
+    public void evictIamDetails(String awsAccountId) {
+        if (awsAccountId == null || awsAccountId.isBlank()) {
+            return;
+        }
+        String cacheKey = iamCacheKey(awsAccountId);
+        try {
+            redisCache.evict(cacheKey);
+        } catch (Exception e) {
+            logger.debug("[IAM] Could not evict {} from Redis: {}", cacheKey, e.getMessage());
+        }
+        try {
+            cachedDataRepository.deleteById(cacheKey);
+        } catch (Exception e) {
+            logger.debug("[IAM] Could not delete the snapshot row {}: {}", cacheKey, e.getMessage());
+        }
+        iamChangeRescanFloor.remove(awsAccountId);
+    }
+
+    /**
+     * Tells the caller whether a newer answer is already on its way.
+     *
+     * <p>
+     * Set on the response rather than inferred by the client, because only this side knows a scan
+     * is running. Without it a cached payload and a cached-but-superseded payload look identical,
+     * so the UI would settle on the old one until someone pressed Reload — and the whole point of
+     * serving stale is that the fresh result arrives without being asked for.
+     */
+    private DashboardData.IamDetail withRefreshFlag(DashboardData.IamDetail detail, CloudAccount account) {
+        if (detail != null) {
+            detail.setRefreshing(iamScansInFlight.containsKey(account.getAwsAccountId()));
+        }
+        return detail;
+    }
+
+    /**
+     * A durable snapshot, with the age of the row it came from.
+     *
+     * <p>
+     * The row's {@code lastUpdated} column is the authority on age rather than the DTO field,
+     * because the column is written by the code that saves and cannot be wrong about when that
+     * happened. The DTO field exists to be shown to a person.
+     */
+    private record IamSnapshot(DashboardData.IamDetail detail, LocalDateTime writtenAt) {
+        boolean olderThanMinutes(long minutes) {
+            // An unstamped row is of unknown age. On an access-review surface that counts as
+            // due for a rescan rather than as current — the snapshot is still served either way,
+            // so treating it as old costs one background scan and nothing else.
+            return writtenAt == null || writtenAt.isBefore(LocalDateTime.now().minusMinutes(minutes));
+        }
+    }
+
+    /**
+     * Reads the durable snapshot, or null when there is nothing usable.
+     *
+     * <p>
+     * Every failure here is non-fatal by design: the caller falls through to a live scan, which
+     * is exactly what happened on every request before this tier existed.
+     */
+    private IamSnapshot readIamSnapshot(String cacheKey) {
+        try {
+            Optional<CachedData> row = cachedDataRepository.findById(cacheKey);
+            if (row.isEmpty() || !StringUtils.hasText(row.get().getJsonData())) {
+                return null;
+            }
+            DashboardData.IamDetail detail = objectMapper.readValue(
+                    row.get().getJsonData(), DashboardData.IamDetail.class);
+            return new IamSnapshot(detail, row.get().getLastUpdated());
+        } catch (Exception e) {
+            // Most likely a shape change between builds. Deleted rather than left to fail on
+            // every subsequent read, since the scan that replaces it will write the new shape.
+            logger.warn("[IAM] Unreadable snapshot {} — discarding it and scanning live: {}",
+                    cacheKey, e.getMessage());
+            try {
+                cachedDataRepository.deleteById(cacheKey);
+            } catch (Exception ignored) {
+                // Nothing to do: the live scan overwrites this row anyway.
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Writes a scan result to Redis and to {@code cached_data}.
+     *
+     * @param tenantId the tenant captured on the thread that asked for the scan; see
+     *     {@link #runIamScan} for why it cannot be read from {@code TenantContext} here
+     */
+    private void writeIamCache(String cacheKey, DashboardData.IamDetail detail, String tenantId) {
+        detail.setLastUpdated(Instant.now().toString());
+        redisCache.put(cacheKey, detail, IAM_CACHE_MINUTES);
+
+        String previous = TenantContext.getCurrentTenant();
+        try {
+            if (tenantId != null) {
+                TenantContext.setCurrentTenant(tenantId);
+            }
+            CachedData row = cachedDataRepository.findById(cacheKey).orElseGet(CachedData::new);
+            row.setCacheKey(cacheKey);
+            row.setJsonData(objectMapper.writeValueAsString(detail));
+            row.setLastUpdated(LocalDateTime.now());
+            cachedDataRepository.save(row);
+            logger.info("[IAM] Snapshot persisted for {}", cacheKey);
+        } catch (Exception e) {
+            // Redis already holds the result, so this request and the next hour are unaffected.
+            // All that is lost is the survive-a-restart property, which is worth a warning and
+            // not worth failing a scan over.
+            logger.warn("[IAM] Could not persist the snapshot for {}: {}", cacheKey, e.getMessage());
+        } finally {
+            if (previous == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.setCurrentTenant(previous);
+            }
+        }
     }
 
     /**
@@ -2811,6 +3073,15 @@ public class DashboardDataService {
         String accountId = account.getAwsAccountId();
         IamClient iam = awsClientProvider.getIamClient(account);
 
+        // Captured here, on the thread that asked for the scan, and carried into both cache
+        // writes below. It cannot be read inside them: they run on backgroundTaskExecutor, which
+        // is the one executor in AwsConfig without tenantTaskDecorator, and TenantContext is an
+        // InheritableThreadLocal — a pooled thread holds whichever tenant happened to be set when
+        // that thread was created, which after the pool warms up is effectively arbitrary. Saving
+        // the snapshot under it would write one customer's identity inventory into another
+        // customer's database.
+        String tenantId = TenantContext.getCurrentTenant();
+
         return CompletableFuture.supplyAsync(() -> {
             long startedAt = System.currentTimeMillis();
             DashboardData.IamDetail inventory = scanIamInventory(iam, account);
@@ -2824,7 +3095,7 @@ public class DashboardDataService {
             inventory.setPermissionAnalysisNote(
                     "Identities are listed. The access assessment is still running and will appear here "
                             + "shortly.");
-            redisCache.put(cacheKey, inventory, IAM_CACHE_MINUTES);
+            writeIamCache(cacheKey, inventory, tenantId);
             return inventory;
         }, backgroundTaskExecutor).thenCompose(inventory -> {
             // The analyzer mutates the DTOs it is given, so it gets its own copy. Handing it the
@@ -2850,9 +3121,10 @@ public class DashboardDataService {
                                     + "without a risk assessment.");
                 }
                 auditTarget.setPermissionAnalysisPending(false);
-                // Overwrites the inventory-only entry written above, so the next load is fully
-                // scored whether or not the request that started this is still listening.
-                redisCache.put(cacheKey, auditTarget, IAM_CACHE_MINUTES);
+                // Overwrites the inventory-only entry written above in both tiers, so the next
+                // load is fully scored whether or not the request that started this is still
+                // listening — and whether or not Redis survives until then.
+                writeIamCache(cacheKey, auditTarget, tenantId);
                 logger.info("[IAM] Privilege audit for account {} took {} ms", accountId,
                         System.currentTimeMillis() - auditStart);
                 return auditTarget;

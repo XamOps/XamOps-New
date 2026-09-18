@@ -68,6 +68,15 @@ public final class SecuritySeverity {
             case "INFORMATIONAL":
             case "INFO":
             case "NONE":
+            // Quota checks report a healthy resource as OK. Without this it fell through to
+            // the MEDIUM default, so a quota sitting comfortably under its limit ranked the
+            // same as a real warning and would clear a MEDIUM notification threshold.
+            case "OK":
+            case "HEALTHY":
+            // Azure Monitor's Sev4. Below Informational in Azure's own ordering, and there is
+            // no band under INFORMATIONAL here, so it lands on the floor rather than defaulting
+            // to MEDIUM and out-ranking a genuine warning.
+            case "VERBOSE":
                 return INFORMATIONAL;
             default:
                 return MEDIUM;

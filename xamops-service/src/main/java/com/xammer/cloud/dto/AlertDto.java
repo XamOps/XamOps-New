@@ -1,10 +1,26 @@
 package com.xammer.cloud.dto;
 
+import com.xammer.cloud.service.security.SecuritySeverity;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
 
+/**
+ * One alert on the CloudGuard / Alerts page, for any provider.
+ *
+ * <p><b>On {@link #status} versus {@link #severity}.</b> {@code status} carries two different
+ * vocabularies depending on who built the alert: quota checks put {@code CRITICAL/WARNING/OK}
+ * in it, while Security Hub and GCP Security Command Center put their real finding severity
+ * ({@code CRITICAL/HIGH/MEDIUM/LOW}) in the same slot. That made a severity threshold
+ * impossible to express — "only email me about criticals" cannot be written against a field
+ * where {@code WARNING} and {@code MEDIUM} mean the same thing and {@code OK} means "not a
+ * problem at all".
+ *
+ * <p>{@link #getSeverity()} is that threshold-able value: always one of
+ * {@link SecuritySeverity#RANKED}, never null. {@code status} is left exactly as it was because
+ * the frontend renders it directly and filters on it.
+ */
 @Data
 @NoArgsConstructor
 public class AlertDto {
@@ -12,11 +28,40 @@ public class AlertDto {
     private String service;
     private String name;
     private String description;
+
+    /**
+     * Display state, provider-specific. Rendered verbatim by the UI badge.
+     *
+     * <p>Do not gate notifications on this — use {@link #getSeverity()}.
+     */
     private String status;
+
     private double usage;
     private double limit;
     private String type;
     private String region; // MODIFIED: Added field for region
+
+    /**
+     * Explicitly-set severity, or null to derive from {@link #status}.
+     *
+     * <p>Read through {@link #getSeverity()}, which never returns null. Deriving in the getter
+     * rather than in a constructor or in {@code setStatus} matters for three reasons: the
+     * setter-based build sites ({@code new AlertDto()} then setters) would otherwise keep
+     * whatever the field was initialised to; deriving inside {@code setStatus} would clobber an
+     * explicit severity depending on call order; and alert lists already cached in Redis and
+     * {@code CachedData} have no {@code severity} key, so they deserialise to null here and
+     * still resolve correctly instead of all arriving as one wrong band.
+     */
+    private String severity;
+
+    /**
+     * Currency symbol for alerts whose figure is money, so the UI does not have to guess.
+     *
+     * <p>Null for alerts that carry no monetary amount. The GCP anomaly pill used to print a
+     * hard-coded {@code $} in front of {@link #usage}, which is wrong for every project not
+     * billed in USD.
+     */
+    private String currencySymbol;
 
     // ── Roll-up ──────────────────────────────────────────────────────────────
     //
@@ -81,5 +126,22 @@ public class AlertDto {
     /** The number of findings behind this row, treating an ungrouped alert as one. */
     public int effectiveCount() {
         return Math.max(affectedCount, 1);
+    }
+
+    /**
+     * Normalised severity. Never null.
+     *
+     * <p>Falls back to {@link #status}, which is the right answer for security findings — their
+     * status already <em>is</em> a severity — and for quota alerts, where {@code CRITICAL} stays
+     * critical, {@code WARNING} becomes {@code MEDIUM} and {@code OK} becomes
+     * {@code INFORMATIONAL}.
+     */
+    public String getSeverity() {
+        return severity != null ? severity : SecuritySeverity.normalize(status);
+    }
+
+    /** Normalises on the way in, so an unrecognised provider severity cannot bypass a threshold. */
+    public void setSeverity(String severity) {
+        this.severity = severity == null ? null : SecuritySeverity.normalize(severity);
     }
 }

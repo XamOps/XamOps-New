@@ -8,28 +8,38 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import com.fasterxml.jackson.core.type.TypeReference;
+
 import java.time.YearMonth;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * Prevents sending duplicate alert notification emails.
  *
- * Digest alerts (AWS / GCP): content-fingerprint approach — the email is only
- * sent when the set of active alerts actually changes. The fingerprint of the
- * last-sent alert set is stored in Redis indefinitely (1-year TTL); as long as
- * the alerts are identical, no email is sent — regardless of how many days pass.
+ * Digest alerts (AWS / GCP / Azure): per-alert tracking. The set of alert keys last
+ * notified is stored per account, and an email is sent only when that set gains a
+ * member. A finding being resolved updates the stored set but sends nothing — the
+ * account getting healthier is not news that warrants an alert email.
+ *
+ * This replaced a single set-level fingerprint, which changed on any membership
+ * change in either direction. Two consequences on a real account with ~2000 GCP
+ * alerts: a resolved finding re-sent the whole digest, and because the digest listed
+ * every alert by name, each of those emails ran to two thousand rows.
  *
  * Budget alerts: threshold-breach approach — one email per threshold per account
  * per calendar month (TTL until month-end).
  *
  * Redis keys:
- *   notif::aws-digest-fp::{accountId}           → last-sent fingerprint, TTL 1 year
- *   notif::gcp-digest-fp::{projectId}           → last-sent fingerprint, TTL 1 year
- *   notif::azure-digest-fp::{subscriptionId}    → last-sent fingerprint, TTL 1 year
+ *   notif::seen-alerts::{provider}::{accountId}  → keys last notified, TTL 1 year
+ *   notif::aws-digest-fp::{accountId}            → legacy fingerprint, TTL 1 year
+ *   notif::gcp-digest-fp::{projectId}            → legacy fingerprint, TTL 1 year
+ *   notif::azure-digest-fp::{subscriptionId}     → legacy fingerprint, TTL 1 year
  *   notif::budget::{accountId}::{name}::{pct}::{yearMonth}  → TTL until month-end
  */
 @Service
@@ -43,6 +53,106 @@ public class AlertNotificationDeduplicator {
 
     public AlertNotificationDeduplicator(RedisCacheService redisCache) {
         this.redisCache = redisCache;
+    }
+
+    // ── New-finding detection (all providers) ─────────────────────────────────
+
+    /**
+     * What changed since the last notification for an account.
+     *
+     * @param newAlerts alerts not present at the previous notification
+     * @param totalOpen size of the current alert set, so the email can say "N total"
+     *                  without re-listing all of it
+     * @param coldStart no previous state existed — every alert looks new, which is a
+     *                  different situation from genuinely-new and must be worded as a
+     *                  baseline rather than as N new findings
+     */
+    public record AlertDelta(List<AlertDto> newAlerts, int totalOpen, boolean coldStart) {
+
+        /** True when there is something worth emailing about. */
+        public boolean worthSending() {
+            return !newAlerts.isEmpty();
+        }
+    }
+
+    /**
+     * Compares the current alert set against the last notified set.
+     *
+     * <p>This replaces a single set-level fingerprint. That fingerprint changed whenever
+     * <em>membership</em> changed in either direction, so an alert being <em>resolved</em>
+     * re-sent the entire digest — the product improving generated an alert email. It also
+     * meant that on an account with two thousand alerts, any one of them appearing or
+     * clearing re-mailed all two thousand.
+     *
+     * <p>Keys deliberately exclude {@code usage} and {@code limit}, matching
+     * {@link #computeFingerprint}: a quota alert drifting from 76% to 77% is the same
+     * finding and must not read as a new one.
+     */
+    public AlertDelta detectNewAlerts(String provider, String accountId, List<AlertDto> current) {
+        List<AlertDto> alerts = current != null ? current : List.of();
+        String key = seenKey(provider, accountId);
+
+        Optional<List<String>> stored = redisCache.get(key, new TypeReference<List<String>>() {
+        });
+
+        if (stored.isEmpty()) {
+            // No prior state: a first run, or Redis was flushed. Reporting two thousand
+            // "new" findings would be false — they are simply the ones we have not told
+            // this account about yet.
+            logger.info("[Dedup] No prior alert state for {} {} — treating {} alert(s) as a baseline",
+                    provider, accountId, alerts.size());
+            return new AlertDelta(alerts, alerts.size(), true);
+        }
+
+        Set<String> seen = new HashSet<>(stored.get());
+        List<AlertDto> added = alerts.stream()
+                .filter(a -> !seen.contains(alertKey(a)))
+                .collect(Collectors.toList());
+
+        long resolved = seen.size() - (alerts.size() - added.size());
+        if (added.isEmpty() && resolved > 0) {
+            logger.info("[Dedup] {} {}: {} alert(s) resolved, none new — no email", provider, accountId, resolved);
+        }
+        return new AlertDelta(added, alerts.size(), false);
+    }
+
+    /**
+     * Records the current alert set as notified.
+     *
+     * <p>Must be called even when no email was sent, so that a resolved alert stops being
+     * remembered and cannot re-appear as "new" later.
+     */
+    public void markSeen(String provider, String accountId, List<AlertDto> current) {
+        List<String> keys = (current != null ? current : List.<AlertDto>of()).stream()
+                .map(AlertNotificationDeduplicator::alertKey)
+                .distinct()
+                .collect(Collectors.toList());
+        redisCache.put(seenKey(provider, accountId), keys, ONE_YEAR_MINUTES);
+        logger.debug("[Dedup] Recorded {} alert key(s) as seen for {} {}", keys.size(), provider, accountId);
+    }
+
+    /** Forgets an account's notified set, so the next run re-baselines. */
+    public void clearSeen(String provider, String accountId) {
+        redisCache.evict(seenKey(provider, accountId));
+    }
+
+    /**
+     * Stable identity for one alert.
+     *
+     * <p>Same fields as {@link #computeFingerprint} so the two cannot disagree about what
+     * makes an alert "the same alert".
+     */
+    static String alertKey(AlertDto a) {
+        return String.join("|",
+                nullSafe(a.getType()),
+                nullSafe(a.getName()),
+                nullSafe(a.getService()),
+                nullSafe(a.getRegion()),
+                nullSafe(a.getStatus()));
+    }
+
+    private String seenKey(String provider, String accountId) {
+        return "notif::seen-alerts::" + provider.toLowerCase(java.util.Locale.ROOT) + "::" + accountId;
     }
 
     // ── AWS digest ────────────────────────────────────────────────────────────

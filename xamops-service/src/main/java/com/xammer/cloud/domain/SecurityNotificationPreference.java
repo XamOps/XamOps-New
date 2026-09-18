@@ -39,6 +39,18 @@ public class SecurityNotificationPreference {
 
     public static final int DEFAULT_MAX_EMAILS_PER_HOUR = 4;
 
+    /**
+     * The digest admits everything by default.
+     *
+     * <p>Deliberately not {@link #DEFAULT_SEVERITY_THRESHOLD}. That default exists because an
+     * immediate per-finding email should mean "stop what you are doing". The digest is the
+     * opposite kind of message — a periodic summary that has always included quota warnings —
+     * so defaulting it to CRITICAL would silently stop sending most of what customers get
+     * today. {@code INFORMATIONAL} is the floor of the ranked vocabulary, so this admits every
+     * severity and the knob exists to be raised, not to raise it.
+     */
+    public static final String DEFAULT_DIGEST_SEVERITY_THRESHOLD = "INFORMATIONAL";
+
     /** Not generated: the client id <em>is</em> the key, one preference row per client. */
     @Id
     @Column(name = "client_id")
@@ -47,8 +59,18 @@ public class SecurityNotificationPreference {
     @Column(name = "email_enabled", nullable = false)
     private boolean emailEnabled = true;
 
+    /** Threshold for the <em>immediate</em> per-finding security email. */
     @Column(name = "severity_threshold", nullable = false, length = 16)
     private String severityThreshold = DEFAULT_SEVERITY_THRESHOLD;
+
+    /**
+     * Threshold for the periodic cloud alert digest, which is a different message.
+     *
+     * <p>See {@link #DEFAULT_DIGEST_SEVERITY_THRESHOLD} for why this is not the same field as
+     * {@link #severityThreshold}.
+     */
+    @Column(name = "digest_severity_threshold", nullable = false, length = 16)
+    private String digestSeverityThreshold = DEFAULT_DIGEST_SEVERITY_THRESHOLD;
 
     @Column(name = "max_emails_per_hour", nullable = false)
     private Integer maxEmailsPerHour = DEFAULT_MAX_EMAILS_PER_HOUR;

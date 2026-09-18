@@ -249,7 +249,10 @@ public class AzureCostAnomalyService {
                     service,
                     unexpectedSpend,
                     day,
-                    day));
+                    day,
+                    // Carried through rather than discarded, so a consumer can report the
+                    // multiple rather than only the excess.
+                    Math.round(trailingAverage * 100.0) / 100.0));
         }
 
         return found;

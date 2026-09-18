@@ -98,6 +98,24 @@ export interface IamDetails {
    * the same way it presents an account with no findings.
    */
   permissionAnalysisPending?: boolean;
+
+  /**
+   * When this scan was produced, as an ISO-8601 instant.
+   *
+   * <p>Present because the backend serves this from a durable snapshot that can outlive a
+   * working day, not only from a live scan. Absent on GCP and Azure, which assemble the
+   * inventory inside their own dashboard aggregates and never pass through that cache.
+   */
+  lastUpdated?: string | null;
+
+  /**
+   * True when this came from cache and the server is already rebuilding it.
+   *
+   * <p>Separate from `permissionAnalysisPending`, which is about the risk-scoring half of one
+   * scan. This says the whole snapshot is being replaced — the normal path after it ages out or
+   * after an IAM change event — so a newer answer is coming without the user asking for it.
+   */
+  refreshing?: boolean;
 }
 
 /**

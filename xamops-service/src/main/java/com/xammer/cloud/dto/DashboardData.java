@@ -553,14 +553,60 @@ public class DashboardData {
   }
 
   @Data
-  @AllArgsConstructor
   @NoArgsConstructor
   public static class CostAnomaly {
     private String anomalyId;
     private String service;
+
+    /** Spend above the baseline, not the total. The total on its own is not an anomaly. */
     private double unexpectedSpend;
+
     private LocalDate startDate;
     private LocalDate endDate;
+
+    /**
+     * What this service normally spends per day, so the anomaly can be explained rather than
+     * asserted.
+     *
+     * <p>Every detector that produces one of these already computes a trailing average and
+     * then threw it away, leaving an alert that said "unexpected spend: 4,200" with nothing to
+     * judge it against. A reader cannot tell whether that is a catastrophe or a rounding error
+     * without knowing the baseline it deviated from.
+     *
+     * <p>Zero when the detector did not supply one, which reads as "unknown" — see
+     * {@link #getChangeRatio()}.
+     */
+    private double baselineSpend;
+
+    /** The five-field shape, for detectors that do not report a baseline. */
+    public CostAnomaly(String anomalyId, String service, double unexpectedSpend,
+        LocalDate startDate, LocalDate endDate) {
+      this(anomalyId, service, unexpectedSpend, startDate, endDate, 0.0);
+    }
+
+    public CostAnomaly(String anomalyId, String service, double unexpectedSpend,
+        LocalDate startDate, LocalDate endDate, double baselineSpend) {
+      this.anomalyId = anomalyId;
+      this.service = service;
+      this.unexpectedSpend = unexpectedSpend;
+      this.startDate = startDate;
+      this.endDate = endDate;
+      this.baselineSpend = baselineSpend;
+    }
+
+    /**
+     * How many times its normal spend this service reached, or 0 when unknown.
+     *
+     * <p>{@code 0} rather than {@code 1} for the unknown case: a caller grading severity by
+     * ratio must be able to tell "no baseline" apart from "exactly normal", and 1.0 would
+     * silently claim the latter.
+     */
+    public double getChangeRatio() {
+      if (baselineSpend <= 0) {
+        return 0.0;
+      }
+      return (baselineSpend + unexpectedSpend) / baselineSpend;
+    }
   }
 
   @Data
@@ -772,6 +818,35 @@ public class DashboardData {
      * bill of health on identities nobody had inspected yet.
      */
     private boolean permissionAnalysisPending;
+
+    /**
+     * When this scan was produced, as an ISO-8601 instant.
+     *
+     * <p>
+     * Present because this payload is now served from a durable snapshot rather than only from
+     * a live scan, and an access review is not something to show without saying how old it is.
+     * "Three users hold AdministratorAccess" means something different if it was true last
+     * Tuesday.
+     *
+     * <p>
+     * An instant rather than a formatted string so the browser can render it in the viewer's
+     * own timezone. Null only on payloads that never went through the cache — the GCP and Azure
+     * builders, which assemble {@code IamDetail} inside their own dashboard aggregates.
+     */
+    private String lastUpdated;
+
+    /**
+     * True when this result was served from cache and a rescan is already running behind it.
+     *
+     * <p>
+     * Distinct from {@link #permissionAnalysisPending}, which is about the risk scoring half of
+     * one scan. This says the whole snapshot is being rebuilt, which is the normal path after
+     * the durable snapshot goes stale or an IAM change event arrives: the request is answered
+     * from what we have and the fresh result lands a moment later. Without the flag the UI has
+     * no way to know a newer answer is coming, so it would sit on the old one until the user
+     * pressed Reload.
+     */
+    private boolean refreshing;
 
     public IamDetail(List<IamUserDetail> users, List<IamRoleDetail> roles) {
       this.users = users;

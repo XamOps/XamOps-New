@@ -8,6 +8,7 @@ import com.xammer.cloud.dto.FinOpsReportDto;
 import com.xammer.cloud.dto.ReservationDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.JobExecutionHistoryRepository;
+import com.xammer.cloud.service.azure.AzureAlertsService;
 import com.xammer.cloud.service.azure.AzureBillingDataIngestionService;
 import com.xammer.cloud.service.azure.AzureCloudListService;
 import com.xammer.cloud.service.azure.AzureCostService;
@@ -82,6 +83,7 @@ public class ProactiveCacheRefreshService {
     private final AzureCloudListService azureCloudListService;
     private final AzureCostService azureCostService;
     private final AzureBillingDataIngestionService azureBillingDataIngestionService;
+    private final AzureAlertsService azureAlertsService;
 
     private final JobExecutionHistoryRepository jobExecutionHistoryRepository;
     private final JdbcTemplate masterJdbcTemplate;
@@ -130,6 +132,7 @@ public class ProactiveCacheRefreshService {
             AzureCloudListService azureCloudListService,
             AzureCostService azureCostService,
             AzureBillingDataIngestionService azureBillingDataIngestionService,
+            AzureAlertsService azureAlertsService,
             JobExecutionHistoryRepository jobExecutionHistoryRepository,
             @Qualifier("masterDataSource") DataSource masterDataSource,
             com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig,
@@ -164,6 +167,7 @@ public class ProactiveCacheRefreshService {
         this.azureCloudListService = azureCloudListService;
         this.azureCostService = azureCostService;
         this.azureBillingDataIngestionService = azureBillingDataIngestionService;
+        this.azureAlertsService = azureAlertsService;
         this.jobExecutionHistoryRepository = jobExecutionHistoryRepository;
         this.masterJdbcTemplate = new JdbcTemplate(masterDataSource);
         this.envConfig = envConfig;
@@ -245,6 +249,14 @@ public class ProactiveCacheRefreshService {
 
                     try { performanceService.getInsights(accountId, "ALL", false); }
                     catch (Exception e) { logger.debug("[Seed] Performance skipped for {}: {}", accountId, e.getMessage()); }
+
+                    // Identity & Access. Not joined, unlike its neighbours above: with a snapshot
+                    // on disk this call completes on the spot — DB read, Redis re-warm, return —
+                    // and with nothing on disk it hands a scan to the background executor. Joining
+                    // would make the second case hold startup open for a full IAM scan per
+                    // account, which is the cost this seed pass exists to avoid paying at boot.
+                    try { dashboardDataService.getIamDetails(account, false); }
+                    catch (Exception e) { logger.debug("[Seed] IAM identities skipped for {}: {}", accountId, e.getMessage()); }
                 }
                 // Pre-warm all historical closed months (2025-01 → last month) into Redis from DB snapshots
                 seedHistoricalCostMonths(accounts);
@@ -746,6 +758,77 @@ public class ProactiveCacheRefreshService {
     }
 
     // ===================================================================================
+    // 2:50 AM -> IAM Identity Snapshots (Daily, AWS only)
+    //
+    // Daily rather than twice-weekly like its neighbours, and its own job rather than a line
+    // inside refreshAwsDashboardData, for the same reason: this is the only scan on the
+    // Security Center's Identity & Access tab, and nothing else warmed it. Before this job the
+    // iamDetailsV2 key was written exclusively by a user opening the tab, so the first visitor
+    // after any deploy, eviction or idle hour paid a full IAM scan in the foreground and often
+    // hit the request deadline instead of seeing identities.
+    //
+    // Costs nothing in the currency that matters here: IAM list/get calls, no Cost Explorer.
+    // That is what makes daily affordable where the dashboard aggregate is not.
+    // ===================================================================================
+    @Scheduled(cron = "0 50 2 * * *")
+    public void refreshIamIdentities() {
+        logger.info("--- [2:50 AM] Starting IAM Identity Snapshot Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_IAM_IDENTITIES", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    // AWS only. GCP and Azure assemble iamDetails inside their own dashboard
+                    // builders, which the per-provider jobs below already refresh.
+                    if (!"AWS".equals(account.getProvider()) || account.getAwsAccountId() == null) {
+                        continue;
+                    }
+                    try {
+                        // Joined rather than fired and forgotten, so accounts are scanned one at
+                        // a time. IAM is a single low-TPS global endpoint per account and the
+                        // privilege audit is serial by nature; launching every account at once
+                        // would have them throttle each other and is how an overnight job ends up
+                        // slower than the foreground scan it exists to replace.
+                        //
+                        // forceRefresh=true because the point is to write a snapshot dated today,
+                        // not to confirm yesterday's is readable.
+                        dashboardDataService.getIamDetails(account, true).join();
+                        logger.info("✓ IAM identities cached for account {}", account.getAwsAccountId());
+                        count++;
+                    } catch (Exception e) {
+                        // One account's missing iam:List* permission must not stop the rest.
+                        logger.error("Failed IAM identity refresh for account {}: {}",
+                                account.getAwsAccountId(), e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setItemsProcessed(count);
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobExecutionHistoryRepository.save(jobHistory);
+                logger.info("✅ IAM identity refresh complete for tenant {} — {} account(s)", tenantId, count);
+
+            } catch (Exception e) {
+                logger.error("❌ Failed IAM identity refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
     // 5:10 AM -> Build Unified Dashboard Snapshots (AWS + GCP + Azure) — Wed/Sun
     // Reads already-written per-account snapshots from DB — zero API calls, pure aggregation.
     // AWS:   reads DASHBOARD_KPI         (written 3:30 AM)
@@ -901,6 +984,11 @@ public class ProactiveCacheRefreshService {
                         dashboardDataService.saveAlertsSnapshot(alertsKey, alerts);
                         int alertCount = alerts.getAlerts() != null ? alerts.getAlerts().size() : 0;
                         logger.info("✓ Alerts cached for {} (database) - {} alerts", accountId, alertCount);
+
+                        // Notify from here rather than from getAlerts, so a page load cannot email.
+                        // Reuses the list just fetched instead of asking AWS a second time.
+                        cloudGuardService.notifyNewAlerts(accountId,
+                                alerts.getAlerts() != null ? alerts.getAlerts() : java.util.List.of());
 
                         count++;
                     } catch (Exception e) {
@@ -1352,6 +1440,59 @@ public class ProactiveCacheRefreshService {
 
             } catch (Exception e) {
                 logger.error("❌ Failed GCP Alerts refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 3:25 AM -> Azure Alerts Refresh + Notification (Daily — every night)
+    //
+    // Azure had no scheduled alerts job at all. Its digest was sent from inside getAlerts, so the
+    // only thing that ever mailed an Azure customer was somebody opening the Alerts page. Now that
+    // the send has moved out of the read path, this job is what delivers it.
+    // ===================================================================================
+    @Scheduled(cron = "0 25 3 * * *")
+    public void refreshAzureAlertsData() {
+        logger.info("--- [3:25 AM] Starting Azure Alerts Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_AZURE_ALERTS", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"Azure".equalsIgnoreCase(account.getProvider())) continue;
+                    String subscriptionId = account.getAzureSubscriptionId();
+                    if (subscriptionId == null || subscriptionId.isEmpty()) continue;
+                    try {
+                        azureAlertsService.notifyNewAlerts(subscriptionId);
+                        logger.info("✓ Azure Alerts refreshed for subscription {}", subscriptionId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed Azure Alerts refresh for {}: {}", subscriptionId, e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobHistory.setItemsProcessed(count);
+                jobExecutionHistoryRepository.save(jobHistory);
+                logger.info("--- Azure Alerts Refresh complete for tenant {} ({} subscriptions) ---",
+                        tenantId, count);
+            } catch (Exception e) {
+                logger.error("❌ Failed Azure Alerts refresh for tenant {}", tenantId, e);
                 if (jobHistory.getId() != null) {
                     jobHistory.setStatus("FAILURE");
                     jobHistory.setErrorMessage(e.getMessage());

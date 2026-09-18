@@ -16,21 +16,25 @@ import com.google.cloud.compute.v1.RegionsClient;
 import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.AlertDto;
+import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.gcp.GcpAlertsResponse;
 import com.xammer.cloud.dto.gcp.GcpCostDto;
 import com.xammer.cloud.dto.gcp.GcpSecurityFinding;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.AlertDigestSeverityGate;
 import com.xammer.cloud.service.AlertEmailBuilder;
 import com.xammer.cloud.service.AlertNotificationDeduplicator;
 import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.NotificationRecipientResolver;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.service.security.SecuritySeverity;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -54,6 +58,7 @@ public class GcpCloudGuardService {
     private final NotificationRecipientResolver recipientResolver;
     private final AlertEmailBuilder alertEmailBuilder;
     private final AlertNotificationDeduplicator deduplicator;
+    private final AlertDigestSeverityGate severityGate;
 
     // Define Quota details
     private static final String NETWORK_QUOTA_NAME = "NETWORKS";
@@ -95,7 +100,8 @@ public class GcpCloudGuardService {
             ObjectMapper objectMapper,
             NotificationRecipientResolver recipientResolver,
             AlertEmailBuilder alertEmailBuilder,
-            AlertNotificationDeduplicator deduplicator
+            AlertNotificationDeduplicator deduplicator,
+            AlertDigestSeverityGate severityGate
     ) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.gcpClientProvider = gcpClientProvider;
@@ -109,6 +115,7 @@ public class GcpCloudGuardService {
         this.recipientResolver = recipientResolver;
         this.alertEmailBuilder = alertEmailBuilder;
         this.deduplicator = deduplicator;
+        this.severityGate = severityGate;
     }
 
     private void saveToDb(String dbKey, Object data) {
@@ -257,27 +264,52 @@ public class GcpCloudGuardService {
                         // recovers, because the dedup marker only remembers what was last sent.
                         log.warn("[Dedup] Skipping GCP alert digest for project {} — the scan was degraded ({})",
                                 gcpProjectId, String.join("; ", response.getDegradedReasons()));
-                    } else if (!recipients.isEmpty() && !alerts.isEmpty()) {
-                        String fingerprint = AlertNotificationDeduplicator.computeFingerprint(alerts);
-                        if (deduplicator.gcpDigestAlreadySentForContent(gcpProjectId, fingerprint)) {
-                            log.info("[Dedup] Same alerts already notified for project {} — skipping email", gcpProjectId);
+                    } else {
+                        // Per-alert delta, not a fingerprint over the whole set.
+                        //
+                        // The fingerprint this replaces changed whenever membership changed in
+                        // *either* direction, so an alert being resolved re-sent the entire digest —
+                        // the account getting healthier generated an alert email. On a project with
+                        // two thousand alerts, any single one appearing or clearing re-mailed all
+                        // two thousand.
+                        AlertNotificationDeduplicator.AlertDelta delta =
+                                deduplicator.detectNewAlerts("gcp", gcpProjectId, alerts);
+
+                        // Recorded even when nothing is sent, so a resolved alert stops being
+                        // remembered and its later return reads as genuinely new.
+                        deduplicator.markSeen("gcp", gcpProjectId, alerts);
+
+                        List<AlertDto> notifiable = severityGate.notifiable(account, delta.newAlerts());
+
+                        if (!delta.worthSending()) {
+                            log.info("[Dedup] No new alerts for project {} ({} open) — no email",
+                                    gcpProjectId, delta.totalOpen());
+                        } else if (notifiable.isEmpty()) {
+                            log.info("[Dedup] {} new alert(s) for project {} all below the digest severity "
+                                    + "threshold — no email", delta.newAlerts().size(), gcpProjectId);
+                        } else if (recipients.isEmpty()) {
+                            log.warn("No recipient emails configured for account {}, cannot send alert emails.",
+                                    gcpProjectId);
                         } else {
                             String accountName = account.getAccountName() != null ? account.getAccountName() : gcpProjectId;
-                            String htmlBody = alertEmailBuilder.buildAlertDigestEmail(alerts, accountName, gcpProjectId);
-                            String subject = String.format("[XamOps] GCP Alert Digest — %d alert%s for %s",
-                                    alerts.size(), alerts.size() == 1 ? "" : "s", accountName);
+                            String htmlBody = alertEmailBuilder.buildNewAlertsDigestEmail(
+                                    notifiable, delta.totalOpen(), delta.coldStart(), accountName, gcpProjectId);
+                            String subject = delta.coldStart()
+                                    ? String.format("[XamOps] GCP Alert Digest — %d alert%s for %s",
+                                            delta.totalOpen(), delta.totalOpen() == 1 ? "" : "s", accountName)
+                                    : String.format("[XamOps] %d new GCP alert%s for %s (%d open)",
+                                            notifiable.size(), notifiable.size() == 1 ? "" : "s",
+                                            accountName, delta.totalOpen());
                             for (String email : recipients) {
                                 try {
                                     emailService.sendHtmlEmail(email, subject, htmlBody);
-                                    log.info("Sent GCP alert digest email to {}", email);
+                                    log.info("Sent GCP alert digest email to {} ({} new, {} open)",
+                                            email, notifiable.size(), delta.totalOpen());
                                 } catch (Exception e) {
                                     log.error("Failed to send GCP alert digest email to {}: {}", email, e.getMessage());
                                 }
                             }
-                            deduplicator.markGcpDigestSent(gcpProjectId, fingerprint);
                         }
-                    } else if (!alerts.isEmpty()) {
-                        log.warn("No recipient emails configured for account {}, cannot send alert emails.", gcpProjectId);
                     }
 
                     // Only cache a complete result. Persisting a degraded one would hand the next
@@ -313,7 +345,8 @@ public class GcpCloudGuardService {
      * source that legitimately found nothing. Three silent failures produced an empty list and a
      * green "All Clear!" — a false all-clear on a page people rely on to tell them what is wrong.
      */
-    private record CheckOutcome(List<AlertDto> alerts, boolean failed, String reason) {
+    // Package-private rather than private: visible for testing alongside checkCostAnomalies.
+    record CheckOutcome(List<AlertDto> alerts, boolean failed, String reason) {
 
         static CheckOutcome ok(List<AlertDto> alerts) {
             return new CheckOutcome(alerts, false, null);
@@ -422,41 +455,87 @@ public class GcpCloudGuardService {
 
 
     /**
-     * @param forceRefresh passed through to the cost service rather than dropped. This used to call
-     *     the single-argument {@code getHistoricalCostsSync(id)}, which hardcodes
-     *     {@code forceRefresh=false}, so ANOMALY rows were served from the historical-cost cache no
-     *     matter what the user pressed. Those rows drive the "critical" count in the KPI strip, so
-     *     a resolved anomaly kept inflating the headline number after a refresh.
+     * How recent a cost anomaly has to be to still be worth alerting on.
+     *
+     * <p>The detector looks back 60 days because the FinOps chart wants that history. An alert is a
+     * different thing from a chart: a spike from seven weeks ago is either already explained or
+     * already paid for, and listing it forever is how a customer learns to ignore the page.
+     * Fourteen days covers "we noticed late" without becoming an archive.
      */
-    private CompletableFuture<CheckOutcome> checkCostAnomalies(CloudAccount account, boolean forceRefresh) {
+    private static final int ANOMALY_ALERT_MAX_AGE_DAYS = 14;
+
+    /**
+     * Cost anomaly rows for the Alerts page.
+     *
+     * <p>This used to read the {@code isAnomaly} flag off {@code getHistoricalCostsSync}, which is a
+     * month-over-month comparison of the project's <em>whole</em> bill
+     * ({@code thisMonth > lastMonth * 1.2}). Four things were wrong with that, and together they
+     * produced the "this makes no sense" report:
+     *
+     * <ul>
+     * <li>It flagged growth, not anomalies. Any account whose spend rises 20% in a month — that is,
+     *     any growing account — had every month flagged, permanently.
+     * <li>Every flagged month stayed on the page. A rise last May is not an actionable alert in
+     *     September, but it was still listed, and still CRITICAL.
+     * <li>The figure shown was the month's <em>total</em> spend, not the increase. A project billing
+     *     66 million a month rendered "66,706,578" in the anomaly column, which is a true number
+     *     that answers a question nobody asked.
+     * <li>The current month is partial, so a half-finished month was compared against a complete
+     *     one. Early in the month that hides real spikes; at month end it guarantees a flag on
+     *     anything growing.
+     * </ul>
+     *
+     * <p>{@code GcpCostService.getCostAnomaliesSync} was already in the codebase doing this properly
+     * for the FinOps page: per <em>service</em>, per <em>day</em>, against that service's own
+     * trailing seven-day average, reporting the excess over the baseline rather than the total. The
+     * Alerts page simply was not using it.
+     *
+     * @param forceRefresh passed through to the cost service rather than dropped, so a user pressing
+     *     Refresh re-runs detection instead of being served the cached anomaly list. Those rows
+     *     drive the "critical" count in the KPI strip, so a resolved anomaly kept inflating the
+     *     headline number after a refresh.
+     */
+    // Package-private rather than private: visible for testing, so the alert shape can be asserted
+    // without standing up the whole Alerts page read path.
+    CompletableFuture<CheckOutcome> checkCostAnomalies(CloudAccount account, boolean forceRefresh) {
         return CompletableFuture.supplyAsync(() -> {
             List<AlertDto> alerts = new ArrayList<>();
             String gcpProjectId = account.getGcpProjectId();
             log.info("Checking Cost Anomalies for GCP project {} (forceRefresh={})", gcpProjectId, forceRefresh);
             try {
                 String symbol = currencySymbol(gcpCostService.getProjectCurrencyCode(gcpProjectId));
-                List<GcpCostDto> historicalCosts =
-                        gcpCostService.getHistoricalCostsSync(gcpProjectId, forceRefresh);
-                AtomicInteger counter = new AtomicInteger(1);
+                LocalDate cutoff = LocalDate.now().minusDays(ANOMALY_ALERT_MAX_AGE_DAYS);
 
-                historicalCosts.stream()
-                        .filter(GcpCostDto::isAnomaly)
-                        .forEach(anomaly -> {
-                            String uniqueId = String.format("anomaly-gcp-%s-%d", anomaly.getName(), counter.getAndIncrement());
-                            alerts.add(new AlertDto(
-                                    uniqueId,
-                                    "Billing",
-                                    "Cost Anomaly Detected",
-                                    String.format("Potential cost anomaly detected for period %s. Cost: %s%.2f",
-                                            anomaly.getName(), symbol, anomaly.getAmount()),
-                                    "CRITICAL",
-                                    anomaly.getAmount(),
-                                    0,
-                                    "ANOMALY",
-                                    "Global"
-                            ));
-                        });
-                log.info("Found {} GCP cost anomaly alerts for project {}", alerts.size(), gcpProjectId);
+                List<DashboardData.CostAnomaly> anomalies =
+                        gcpCostService.getCostAnomaliesSync(gcpProjectId, forceRefresh);
+
+                for (DashboardData.CostAnomaly anomaly : anomalies) {
+                    LocalDate when = anomaly.getStartDate();
+                    if (when != null && when.isBefore(cutoff)) {
+                        continue;
+                    }
+
+                    AlertDto alert = new AlertDto(
+                            anomaly.getAnomalyId(),
+                            anomaly.getService() != null ? anomaly.getService() : "Billing",
+                            "Cost Spike — " + (anomaly.getService() != null ? anomaly.getService() : "Unknown service"),
+                            describeAnomaly(anomaly, symbol),
+                            anomalyStatus(anomaly),
+                            // The excess over the baseline, which is the part that is actually
+                            // unexpected. The old code put the whole month's bill here.
+                            round2(anomaly.getUnexpectedSpend()),
+                            0,
+                            "ANOMALY",
+                            "Global");
+                    alert.setSeverity(anomalySeverity(anomaly));
+                    // So the UI stops printing a hard-coded dollar sign in front of a figure that
+                    // may well be rupees.
+                    alert.setCurrencySymbol(symbol);
+                    alerts.add(alert);
+                }
+                log.info("Found {} GCP cost anomaly alert(s) for project {} ({} detected, {} older than {} days)",
+                        alerts.size(), gcpProjectId, anomalies.size(), anomalies.size() - alerts.size(),
+                        ANOMALY_ALERT_MAX_AGE_DAYS);
             } catch (Exception e) {
                 log.error("Error checking GCP cost anomalies for project {}: {}", gcpProjectId, e.getMessage(), e);
                 return CheckOutcome.partial(alerts,
@@ -464,6 +543,56 @@ public class GcpCloudGuardService {
             }
             return CheckOutcome.ok(alerts);
         });
+    }
+
+    /** Names the service, the day, the excess and what it deviated from. */
+    private String describeAnomaly(DashboardData.CostAnomaly anomaly, String symbol) {
+        String service = anomaly.getService() != null ? anomaly.getService() : "This service";
+        String excess = symbol + fmtMoney(anomaly.getUnexpectedSpend());
+
+        double ratio = anomaly.getChangeRatio();
+        if (ratio <= 0) {
+            // No baseline came through, so state only what is known rather than implying a
+            // comparison that was never made.
+            return String.format("%s spent %s more than expected on %s.",
+                    service, excess, anomaly.getStartDate());
+        }
+        return String.format("%s spent %s above its usual %s/day on %s — %.1f× normal.",
+                service, excess, symbol + fmtMoney(anomaly.getBaselineSpend()),
+                anomaly.getStartDate(), ratio);
+    }
+
+    /**
+     * Severity from the size of the deviation, not a constant.
+     *
+     * <p>Every cost anomaly used to be CRITICAL, which is why the page showed four criticals for
+     * what was really one growth trend. Graded on the multiple rather than an absolute amount,
+     * because an absolute threshold cannot hold across currencies or across accounts that differ by
+     * three orders of magnitude in size.
+     */
+    private String anomalySeverity(DashboardData.CostAnomaly anomaly) {
+        double ratio = anomaly.getChangeRatio();
+        if (ratio >= 5.0) return SecuritySeverity.CRITICAL;
+        if (ratio >= 2.5) return SecuritySeverity.HIGH;
+        // Baseline unknown, or a modest overshoot. MEDIUM rather than a guess in either direction:
+        // the detector's own 1.5x floor means something did happen, but without the baseline we
+        // cannot say how big.
+        return SecuritySeverity.MEDIUM;
+    }
+
+    /** The page's own CRITICAL/WARNING vocabulary, kept in step with the graded severity. */
+    private String anomalyStatus(DashboardData.CostAnomaly anomaly) {
+        return SecuritySeverity.CRITICAL.equals(anomalySeverity(anomaly)) ? "CRITICAL" : "WARNING";
+    }
+
+    private static double round2(double v) {
+        return Math.round(v * 100.0) / 100.0;
+    }
+
+    /** Thousands separators and no decimals above 100 — a spike is not a bookkeeping figure. */
+    private static String fmtMoney(double v) {
+        double abs = Math.abs(v);
+        return abs >= 100 ? String.format("%,.0f", v) : String.format("%,.2f", v);
     }
 
     private String currencySymbol(String currencyCode) {

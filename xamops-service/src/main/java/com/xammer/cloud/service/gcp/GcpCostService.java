@@ -634,9 +634,34 @@ public class GcpCostService {
             result = executeQuery(bigquery, query, gcpProjectId);
         }
 
+        clearCurrentMonthAnomalyFlag(result, currentYm);
+
         redisCacheService.put(cacheKey, result, 60 * 24);
         saveToDb(dbKey, result);
         return result;
+    }
+
+    /**
+     * The month in progress cannot be compared against a completed one.
+     *
+     * <p>Both branches above flag a month when it exceeds the previous month by 20%, and both
+     * include the current month, which has only run for as many days as have elapsed. That
+     * comparison is wrong in both directions: on the 3rd of the month a genuine spike is hidden
+     * because three days of spend is still less than last month's total, and on the 30th any
+     * account growing at all trips the threshold. Either way the flag says nothing about the
+     * current month, so it is cleared rather than shown.
+     *
+     * <p>Day-level spikes inside the current month are not lost — that is what
+     * {@link #getCostAnomaliesSync} detects, per service, against a trailing daily baseline.
+     */
+    private void clearCurrentMonthAnomalyFlag(List<GcpCostDto> months, YearMonth currentYm) {
+        if (months == null || currentYm == null) {
+            return;
+        }
+        String current = currentYm.toString();
+        months.stream()
+                .filter(m -> current.equals(m.getName()))
+                .forEach(m -> m.setAnomaly(false));
     }
 
     // ===== COST BY REGION =====
@@ -1331,15 +1356,20 @@ public class GcpCostService {
                 String serviceName = row.get("service_name").isNull() ? "Unknown"
                         : row.get("service_name").getStringValue();
                 LocalDate costDate = LocalDate.parse(row.get("cost_date").getStringValue());
-                double unexpectedSpend = row.get("daily_cost").getDoubleValue() -
-                        (row.get("avg_prev_7_days").isNull() ? 0 : row.get("avg_prev_7_days").getDoubleValue());
+                double baseline = row.get("avg_prev_7_days").isNull() ? 0
+                        : row.get("avg_prev_7_days").getDoubleValue();
+                double unexpectedSpend = row.get("daily_cost").getDoubleValue() - baseline;
 
                 anomalies.add(new com.xammer.cloud.dto.DashboardData.CostAnomaly(
                         "GCP-ANOMALY-" + gcpProjectId.hashCode() + "-" + anomalyCounter++,
                         serviceName,
                         unexpectedSpend,
                         costDate,
-                        costDate));
+                        costDate,
+                        // The query already computes this to apply its 1.5x threshold; carrying
+                        // it through is what lets the alert say "3.1x its usual" instead of
+                        // quoting a bare number the reader has no way to size up.
+                        baseline));
             }
 
             redisCacheService.put(cacheKey, anomalies, 60);

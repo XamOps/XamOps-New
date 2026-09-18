@@ -203,7 +203,177 @@ class AlertEmailBuilderTest {
         assertThat(html).containsIgnoringCase("Cloud Cost Management");
     }
 
+    // ── New-alerts digest (bounded) ────────────────────────────────────────────
+    //
+    // The old digest itemised the entire active set with no cap. A GCP customer with 2000
+    // alerts received a mail listing all 2000 every time anything changed — past the size at
+    // which Gmail clips a message. These tests pin the cap and the total-count reporting.
+
+    private static final int CAP = 20;
+
+    @Test
+    void newAlertsDigest_leadsWithTheNewCount() {
+        String html = builder.buildNewAlertsDigestEmail(
+                List.of(quotaAlert("CRITICAL"), securityAlert("WARNING")), 57, false, "Acme", "123");
+
+        assertThat(html).contains("2 New Alerts");
+    }
+
+    @Test
+    void newAlertsDigest_singleNewAlertUsesSingularWording() {
+        String html = builder.buildNewAlertsDigestEmail(
+                List.of(quotaAlert("CRITICAL")), 12, false, "Acme", "123");
+
+        assertThat(html).contains("1 New Alert");
+        assertThat(html).doesNotContain("1 New Alerts");
+    }
+
+    @Test
+    void newAlertsDigest_reportsTotalOpenAsAFigure() {
+        String html = builder.buildNewAlertsDigestEmail(
+                List.of(quotaAlert("CRITICAL")), 57, false, "Acme", "123");
+
+        assertThat(html).contains("Total Open");
+        assertThat(html).contains(">57<");
+    }
+
+    @Test
+    void newAlertsDigest_coldStartIsWordedAsABaselineNotAsNewFindings() {
+        // After a Redis flush every alert looks new. Saying "2000 New Alerts" would be false.
+        String html = builder.buildNewAlertsDigestEmail(
+                List.of(quotaAlert("CRITICAL"), securityAlert("WARNING")), 2, true, "Acme", "123");
+
+        assertThat(html).contains("Alert Digest");
+        // No "N New Alerts" heading, and the lead stat is labelled Total rather than New.
+        assertThat(html).doesNotContain("New Alert");
+        assertThat(html).contains("Total");
+    }
+
+    @Test
+    void newAlertsDigest_itemisesAtMostTwentyAlerts() {
+        List<AlertDto> many = manyAlerts(2000);
+
+        String html = builder.buildNewAlertsDigestEmail(many, 2000, false, "Big Corp", "999");
+
+        // The first CAP alerts are listed; nothing beyond that is.
+        assertThat(html).contains("alert-name-0");
+        assertThat(html).contains("alert-name-" + (CAP - 1));
+        assertThat(html).doesNotContain("alert-name-" + CAP);
+        assertThat(html).doesNotContain("alert-name-1999");
+    }
+
+    @Test
+    void newAlertsDigest_tellsYouHowManyItLeftOut() {
+        String html = builder.buildNewAlertsDigestEmail(manyAlerts(2000), 2000, false, "Big Corp", "999");
+
+        assertThat(html).contains("and " + (2000 - CAP) + " more new alerts");
+        assertThat(html).contains("2000 alerts open in total");
+    }
+
+    @Test
+    void newAlertsDigest_twoThousandAlertsStaysUnderGmailClipThreshold() {
+        // Gmail clips around 102KB. The uncapped builder blew past that.
+        String html = builder.buildNewAlertsDigestEmail(manyAlerts(2000), 2000, false, "Big Corp", "999");
+
+        assertThat(html.getBytes(java.nio.charset.StandardCharsets.UTF_8).length)
+                .isLessThan(102_000);
+    }
+
+    @Test
+    void newAlertsDigest_exactlyAtCap_showsNoMoreNotice() {
+        String html = builder.buildNewAlertsDigestEmail(manyAlerts(CAP), CAP, false, "Acme", "123");
+
+        assertThat(html).contains("alert-name-" + (CAP - 1));
+        assertThat(html).doesNotContain("more new alert");
+    }
+
+    @Test
+    void newAlertsDigest_oneOverCap_saysAndOneMoreSingular() {
+        String html = builder.buildNewAlertsDigestEmail(manyAlerts(CAP + 1), CAP + 1, false, "Acme", "123");
+
+        assertThat(html).contains("and 1 more new alert");
+        assertThat(html).doesNotContain("and 1 more new alerts");
+    }
+
+    @Test
+    void newAlertsDigest_smallListIsFullyItemised() {
+        String html = builder.buildNewAlertsDigestEmail(manyAlerts(3), 3, false, "Acme", "123");
+
+        assertThat(html).contains("alert-name-0").contains("alert-name-1").contains("alert-name-2");
+        assertThat(html).doesNotContain("more new alert");
+    }
+
+    @Test
+    void newAlertsDigest_containsAccountNameAndId() {
+        String html = builder.buildNewAlertsDigestEmail(
+                List.of(quotaAlert("CRITICAL")), 1, false, "Acme Corp", "999888777666");
+
+        assertThat(html).contains("Acme Corp").contains("999888777666");
+    }
+
+    @Test
+    void newAlertsDigest_capKeepsTheCriticalAndDropsTheInformational() {
+        // The cap has to be applied to a ranked list. Twenty OK rows arriving ahead of one
+        // critical would otherwise push the only thing worth reading into "and N more".
+        List<AlertDto> unsorted = new java.util.ArrayList<>();
+        for (int i = 0; i < 40; i++) {
+            unsorted.add(alertFull("QUOTA", "healthy-" + i, "d", "EC2", "us-east-1", "OK", 10, 100));
+        }
+        unsorted.add(alertFull("SECURITY", "the-critical-one", "d", "S3", "us-east-1", "CRITICAL", 0, 0));
+
+        String html = builder.buildNewAlertsDigestEmail(unsorted, 41, false, "Acme", "123");
+
+        assertThat(html).contains("the-critical-one");
+        assertThat(html).contains("and 21 more new alerts");
+    }
+
+    @Test
+    void newAlertsDigest_itemisesInSeverityOrder() {
+        List<AlertDto> unsorted = List.of(
+                alertFull("QUOTA", "informational-row", "d", "EC2", "us-east-1", "OK", 10, 100),
+                alertFull("SECURITY", "critical-row", "d", "S3", "us-east-1", "CRITICAL", 0, 0),
+                alertFull("QUOTA", "warning-row", "d", "VPC", "us-east-1", "WARNING", 80, 100));
+
+        String html = builder.buildNewAlertsDigestEmail(unsorted, 3, false, "Acme", "123");
+
+        assertThat(html.indexOf("critical-row")).isLessThan(html.indexOf("warning-row"));
+        assertThat(html.indexOf("warning-row")).isLessThan(html.indexOf("informational-row"));
+    }
+
+    @Test
+    void newAlertsDigest_criticalCountUsesSeverityNotStatusText() {
+        // Azure's Sev1 arrives with status CRITICAL but a true severity of HIGH. Counting the
+        // status string called it critical; counting severity does not.
+        AlertDto azureSev1 = alertFull("ANOMALY", "Sev1 alert", "d", "VM", "eastus", "CRITICAL", 0, 0);
+        azureSev1.setSeverity("Error");
+        AlertDto realCritical = alertFull("SECURITY", "Real critical", "d", "S3", "us-east-1", "CRITICAL", 0, 0);
+
+        String html = builder.buildNewAlertsDigestEmail(
+                List.of(azureSev1, realCritical), 2, false, "Acme", "123");
+
+        // One critical, and the Sev1 counted among the warnings band instead.
+        assertThat(html).contains(">1</div><div style='color:#dc2626;font-size:11px");
+    }
+
+    @Test
+    void newAlertsDigest_escapesAccountNameToPreventInjection() {
+        String html = builder.buildNewAlertsDigestEmail(
+                List.of(quotaAlert("CRITICAL")), 1, false, "<script>alert(1)</script>", "123");
+
+        assertThat(html).doesNotContain("<script>alert(1)</script>");
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /** Distinctly-named alerts so a test can tell which ones made it into the HTML. */
+    private List<AlertDto> manyAlerts(int count) {
+        List<AlertDto> alerts = new java.util.ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            alerts.add(alertFull("QUOTA", "alert-name-" + i, "description " + i,
+                    "EC2", "us-east-1", "WARNING", 80, 100));
+        }
+        return alerts;
+    }
 
     private AlertDto quotaAlert(String status) {
         return alertFull("QUOTA", "VPC Limit", "VPC is near limit", "VPC", "us-east-1", status, 80, 100);

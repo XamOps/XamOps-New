@@ -1,11 +1,20 @@
 /**
  * useUserManagement Hook
  *
- * Custom hook for managing IAM users and roles data
- * Handles fetching, filtering, and formatting of user management data
+ * Backs the Security Center's Identity & Access tab: resolves the selected account, fetches its
+ * IAM inventory, and derives the filtering and risk tallies the canvas renders.
+ *
+ * <p>Fetching goes through React Query on the app-wide client rather than through local state.
+ * That is not a stylistic preference — the tab is mounted conditionally inside an
+ * `AnimatePresence` block, so switching to Findings and back unmounts it and threw every piece of
+ * local state away. On remount the hook saw an empty user list and started another scan, which is
+ * why opening the tab almost always looked like a cold load. The query cache lives above the
+ * component tree, so a remount now reads the previous answer and fires no request at all unless
+ * the data has actually gone stale.
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { IamUser, IamRole, IamRiskFields, IdentityInventoryResponse } from '../types/userManagement';
 
 /**
@@ -17,11 +26,41 @@ import type { IamUser, IamRole, IamRiskFields, IdentityInventoryResponse } from 
  */
 const REQUEST_TIMEOUT_MS = 120_000;
 
-/** Gap between checks for the background privilege audit's result. */
+/**
+ * How long a fetched inventory is treated as current.
+ *
+ * <p>Matches the client's default rather than the server's snapshot window, because the two
+ * govern different things: this decides whether navigating back to the tab re-asks, while the
+ * server decides whether the answer it gives is worth rebuilding. Asking again is cheap now that
+ * the answer comes from a cache, so the client can afford to be the more eager of the two.
+ */
+const IDENTITY_STALE_MS = 5 * 60 * 1000;
+
+/** Kept well past the stale window so a tab switch is always a cache read. */
+const IDENTITY_GC_MS = 24 * 60 * 60 * 1000;
+
+/** Gap between checks for work the server said it is still doing. */
 const PENDING_POLL_INTERVAL_MS = 15_000;
 
-/** How many times to check before leaving the "still scoring" banner up for good. */
+/** How many times to check before leaving the "still working" banner up for good. */
 const PENDING_POLL_LIMIT = 4;
+
+/**
+ * A failed identity request, carrying whether waiting would help.
+ *
+ * <p>The distinction drives retry behaviour, and getting it wrong is expensive in both
+ * directions: retrying a 403 is pure noise, while not retrying a 503 shows the user an error for
+ * a scan that was about to succeed — which is the failure this tab was most often displaying.
+ */
+class IdentityFetchError extends Error {
+  readonly retryable: boolean;
+
+  constructor(message: string, retryable: boolean) {
+    super(message);
+    this.name = 'IdentityFetchError';
+    this.retryable = retryable;
+  }
+}
 
 /**
  * Turns a failed response into something worth showing a person.
@@ -31,41 +70,49 @@ const PENDING_POLL_LIMIT = 4;
  * banner rendered `Status: 504 <html><head><title>504 Gateway Time-out</title>…` as prose.
  * The status code already carries the meaning; the body is only useful when it is our own JSON.
  */
-function describeFailure(status: number, body: string): string {
+function describeFailure(status: number, body: string): IdentityFetchError {
   switch (status) {
     case 503:
       // Our own deadline, not the proxy's. The scan was not cancelled — it is still running and
-      // will write its result to the cache — so a retry shortly is genuinely the right advice.
-      return 'The identity scan is taking longer than usual and is still running in the '
-        + 'background. Reload identities in a moment to pick up the result.';
+      // will write its result to the cache — so waiting and asking again is what resolves this,
+      // and the retry policy below does exactly that without involving the user.
+      return new IdentityFetchError(
+        'The identity scan is taking longer than usual and is still running in the background.',
+        true);
     case 504:
       // The proxy gave up before the app could answer, so nothing is known about the scan's fate.
-      return 'The request timed out before the server responded. Reload identities to try again.';
+      return new IdentityFetchError(
+        'The request timed out before the server responded. Retrying.', true);
     case 502:
-      return 'The identity scan failed. If this persists, the account\'s role may be missing IAM '
-        + 'read permissions.';
+      // Not retried: a missing IAM read permission produces this on every attempt, and repeating
+      // it only delays showing the user the one thing that would fix it.
+      return new IdentityFetchError(
+        'The identity scan failed. If this persists, the account\'s role may be missing IAM '
+        + 'read permissions.', false);
     case 401:
-      return 'Your session expired. Sign in again to view identities.';
+      return new IdentityFetchError('Your session expired. Sign in again to view identities.', false);
     case 403:
-      return 'You do not have access to this account.';
+      return new IdentityFetchError('You do not have access to this account.', false);
     case 404:
-      return 'That account is no longer connected.';
+      return new IdentityFetchError('That account is no longer connected.', false);
     default:
       break;
   }
 
   const trimmed = body.trim();
   if (!trimmed || /^<(!doctype|html)/i.test(trimmed)) {
-    return `Could not load identities (${status}).`;
+    return new IdentityFetchError(`Could not load identities (${status}).`, status >= 500);
   }
   try {
     const parsed = JSON.parse(trimmed);
     const message = parsed?.error ?? parsed?.message;
-    if (typeof message === 'string' && message) return message;
+    if (typeof message === 'string' && message) {
+      return new IdentityFetchError(message, status >= 500);
+    }
   } catch {
     // Not JSON — fall through rather than surface a parser complaint.
   }
-  return `Could not load identities (${status}).`;
+  return new IdentityFetchError(`Could not load identities (${status}).`, status >= 500);
 }
 
 /**
@@ -83,18 +130,95 @@ function byRiskThenName<T extends IamRiskFields>(name: (item: T) => string) {
   };
 }
 
+/**
+ * Query keys for the identity inventory.
+ *
+ * <p>Exported so anything that changes IAM from inside the app — an access review action, an
+ * account reconnect — can invalidate this without reaching into the hook.
+ */
+export const identityKeys = {
+  all: ['security', 'identities'] as const,
+  account: (accountId: string) => ['security', 'identities', accountId] as const,
+};
+
+/** Shared empties, so a data-less render does not hand `useMemo` a new array each time. */
+const NO_USERS: IamUser[] = [];
+const NO_ROLES: IamRole[] = [];
+
+/**
+ * One identity request.
+ *
+ * <p>Targets the dedicated identities endpoint rather than the dashboard aggregate. The
+ * aggregate joins ~18 AWS collectors and blocks on all of them, so this tab used to inherit
+ * Cost Explorer's latency and got the gateway's HTML 504 instead of data whenever the cache
+ * was cold. Same reason `forceRefresh` is safe to hand to the Reload button: it re-runs the IAM
+ * scan, not the entire dashboard.
+ */
+async function fetchIdentities(
+  accountId: string,
+  forceRefresh: boolean,
+  outerSignal: AbortSignal | undefined,
+): Promise<IdentityInventoryResponse> {
+  // Our own controller, chained to React Query's. Its signal handles unmount and account
+  // switches; this one adds the wall-clock ceiling, and a socket that hangs open needs both.
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const relayAbort = () => controller.abort();
+  outerSignal?.addEventListener('abort', relayAbort);
+
+  try {
+    const url = `/api/xamops/security/identities?accountId=${encodeURIComponent(accountId)}`
+      + `&forceRefresh=${forceRefresh}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      credentials: 'include',
+      // The query cache is the cache now. Leaving the HTTP one in play as well would mean two
+      // layers with different lifetimes deciding what "current" means.
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw describeFailure(response.status, await response.text().catch(() => ''));
+    }
+
+    const data: IdentityInventoryResponse | null = await response.json();
+    if (!data) {
+      throw new IdentityFetchError(
+        'Could not load identities: the server returned an empty response.', false);
+    }
+    return data;
+  } catch (err) {
+    // A hit on our own ceiling, as opposed to React Query cancelling us. Only the former is the
+    // user's problem; a cancelled request is rethrown untouched so the cache discards it rather
+    // than storing an error for a request nobody is waiting on.
+    if (err instanceof DOMException && err.name === 'AbortError' && !outerSignal?.aborted) {
+      throw new IdentityFetchError(
+        'The identity scan took too long to respond. Reload identities to try again.', true);
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timeout);
+    outerSignal?.removeEventListener('abort', relayAbort);
+  }
+}
+
 export const useUserManagement = () => {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [accountName, setAccountName] = useState('');
+  const queryClient = useQueryClient();
+
   const [accountId, setAccountId] = useState('');
-  const [provider, setProvider] = useState<'AWS' | 'GCP' | 'Azure'>('AWS');
-  const [users, setUsers] = useState<IamUser[]>([]);
-  const [roles, setRoles] = useState<IamRole[]>([]);
+  const [storedProvider, setStoredProvider] = useState<'AWS' | 'GCP' | 'Azure'>('AWS');
   const [searchQuery, setSearchQuery] = useState('');
 
-  /** Abort handle for the in-flight identity request, so account switches cannot race. */
-  const inFlightRef = useRef<AbortController | null>(null);
+  /**
+   * "No account is selected" — kept apart from fetch failures.
+   *
+   * <p>It is not a fetch failure, it precedes any fetch, and it must survive the query being
+   * disabled. Folding it into the query's error would mean either faking an error or losing it.
+   */
+  const [selectionError, setSelectionError] = useState<string | null>(null);
 
   /**
    * When true, show only identities carrying a HIGH or CRITICAL risk.
@@ -105,49 +229,32 @@ export const useUserManagement = () => {
   const [flaggedOnly, setFlaggedOnly] = useState(false);
 
   /**
-   * Whether the permission audit could read every policy document.
+   * Set just before a fetch that must bypass the server cache, and consumed by the next one.
    *
-   * <p>Surfaced because an unaudited identity and a least-privilege identity both render
-   * as an unflagged card. Without this the console would quietly imply the former is safe.
+   * <p>A flag rather than part of the query key. Putting `forceRefresh` in the key — the pattern
+   * the unified dashboard uses — creates a separate cache entry per press, so the tab would
+   * accumulate entries and a later navigation could read a stale one. Here every fetch for an
+   * account lands in the same entry, and this decides how that entry gets filled.
    */
-  const [analysisDegraded, setAnalysisDegraded] = useState(false);
-  const [analysisNote, setAnalysisNote] = useState<string | null>(null);
+  const forceNextRef = useRef(false);
+
+  /** Polls spent waiting on server-side work, reset per account and per manual reload. */
+  const [pollsSpent, setPollsSpent] = useState(0);
+
+  /** Account whose empty-inventory retry has already been spent. */
+  const nullRetryRef = useRef<string | null>(null);
 
   /**
-   * Whether the backend is still scoring this account in the background.
+   * Resolves the selected account from storage.
    *
-   * <p>The audit is the expensive half of the scan, so a large account gets its inventory
-   * returned first and its risk fields shortly after. This drives both the banner and the
-   * bounded poll below, so the badges arrive without the user being told to press anything.
+   * <p>No longer decides whether to fetch, which is the substantive change. It used to call
+   * `fetchData` directly under `accountId !== targetId || users.length === 0`, and since it runs
+   * on every mount and on every `account-changed` event, the second half of that condition made a
+   * remount with no data indistinguishable from an account switch. Setting the id is now the only
+   * thing it does; whether that needs a request is the query cache's judgement, not this
+   * function's.
    */
-  const [analysisPending, setAnalysisPending] = useState(false);
-
-  /** Poll attempts spent waiting for the audit, reset per account. */
-  const pendingPollsRef = useRef(0);
-
-  /**
-   * Determine provider from cached accounts
-   */
-  const determineProvider = useCallback((accountId: string) => {
-    try {
-      const cached = sessionStorage.getItem('cached_accounts');
-      if (cached) {
-        const accounts = JSON.parse(cached);
-        const account = accounts.find((a: any) => a.id === accountId);
-        if (account && account.provider) {
-          setProvider(account.provider);
-          return;
-        }
-      }
-    } catch (e) {
-      console.error('Error determining provider', e);
-    }
-  }, []);
-
-  /**
-   * Load account from storage
-   */
-  const loadAccountFromStorage = useCallback(() => {
+  const resolveSelectedAccount = useCallback(() => {
     let targetId: string | null = null;
     const storedIds = sessionStorage.getItem('selectedAccountIds');
 
@@ -170,147 +277,172 @@ export const useUserManagement = () => {
       targetId = new URLSearchParams(window.location.search).get('accountId');
     }
 
-    if (targetId) {
-      if (accountId !== targetId || users.length === 0) {
-        setAccountId(targetId);
-        determineProvider(targetId);
-        fetchData(false, targetId);
-      }
-    } else {
-      setError('Please select an account from the sidebar.');
-      setUsers([]);
-      setRoles([]);
+    if (!targetId) {
+      setSelectionError('Please select an account from the sidebar.');
+      setAccountId('');
+      return;
     }
-  }, [accountId, users.length, determineProvider]);
 
-  /**
-   * Fetch the identity inventory.
-   *
-   * <p>Targets the dedicated identities endpoint rather than the dashboard aggregate. The
-   * aggregate joins ~18 AWS collectors and blocks on all of them, so this tab used to inherit
-   * Cost Explorer's latency and got the gateway's HTML 504 instead of data whenever the cache
-   * was cold. Same reason `forceRefresh` is now safe to hand to the Reload button: it re-runs
-   * the IAM scan, not the entire dashboard.
-   */
-  const fetchData = useCallback(async (forceRefresh = false, specificAccountId: string | null = null) => {
-    const idToFetch = specificAccountId || accountId;
-    if (!idToFetch) return;
+    setSelectionError(null);
+    setAccountId(targetId);
 
-    // One request in flight at a time. Switching accounts mid-scan otherwise races, and the
-    // slower response wins — showing one account's identities under another's name.
-    inFlightRef.current?.abort();
-    const controller = new AbortController();
-    inFlightRef.current = controller;
-    const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-    setLoading(true);
-    setError(null);
-
+    // Provider from the account list the sidebar already cached, so labels are right on the
+    // first paint instead of after the response lands.
     try {
-      const url = `/api/xamops/security/identities?accountId=${encodeURIComponent(idToFetch)}`
-        + `&forceRefresh=${forceRefresh}`;
-
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-        credentials: 'include',
-        cache: 'no-store',
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw new Error(describeFailure(response.status, await response.text().catch(() => '')));
+      const cached = sessionStorage.getItem('cached_accounts');
+      if (cached) {
+        const accounts = JSON.parse(cached);
+        const account = accounts.find((a: any) => a.id === targetId);
+        if (account?.provider) setStoredProvider(account.provider);
       }
-
-      const data: IdentityInventoryResponse = await response.json();
-      if (!data) {
-        throw new Error('Could not load identities: the server returned an empty response.');
-      }
-
-      setProvider(data.provider || 'AWS');
-      if (data.accountName) setAccountName(data.accountName);
-      if (data.accountId) setAccountId(data.accountId);
-
-      // A null inventory means the scan produced nothing rather than that the account is empty,
-      // so retry once against a bypassed cache before believing it.
-      if (!data.iamDetails && !forceRefresh) {
-        await fetchData(true, idToFetch);
-        return;
-      }
-
-      if (data.iamDetails) {
-        setUsers(data.iamDetails.users || []);
-        setRoles(data.iamDetails.roles || []);
-        setAnalysisDegraded(Boolean(data.iamDetails.permissionAnalysisDegraded));
-        setAnalysisNote(data.iamDetails.permissionAnalysisNote ?? null);
-        setAnalysisPending(Boolean(data.iamDetails.permissionAnalysisPending));
-      } else {
-        setUsers([]);
-        setRoles([]);
-        setError('The identity scan returned no data for this account. Reload identities to retry.');
-      }
-    } catch (err) {
-      // An abort is either our own timeout or a superseded request; only the former is worth
-      // reporting, and a superseded request must not overwrite the newer one's state.
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        if (inFlightRef.current === controller) {
-          setError('The identity scan took too long to respond. Reload identities to try again.');
-        }
-        return;
-      }
-      console.error('Identity fetch failed:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load identities');
-    } finally {
-      window.clearTimeout(timeout);
-      if (inFlightRef.current === controller) {
-        inFlightRef.current = null;
-        setLoading(false);
-      }
+    } catch (e) {
+      console.error('Error determining provider', e);
     }
-  }, [accountId]);
+  }, []);
 
-  /**
-   * Pick up the risk scores once the background audit lands.
-   *
-   * <p>Bounded rather than open-ended: the audit either finishes within a minute or it hit the
-   * analyzer's own document cap, and a poll that never gives up would keep a tab making requests
-   * for as long as it is open. On the last attempt the banner is left in place, which is honest —
-   * the inventory is real, the scoring is not there yet.
-   *
-   * <p>`fetchData(false)` on purpose: the refresh must read the cache the audit writes to. Forcing
-   * a refresh would start a whole new scan and never observe the result it is waiting for.
-   */
   useEffect(() => {
-    if (!analysisPending || !accountId) return;
-    if (pendingPollsRef.current >= PENDING_POLL_LIMIT) return;
+    resolveSelectedAccount();
 
-    const timer = window.setTimeout(() => {
-      pendingPollsRef.current += 1;
-      fetchData(false, accountId);
-    }, PENDING_POLL_INTERVAL_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [analysisPending, accountId, fetchData]);
-
-  /** A new account gets a fresh budget of polls. */
-  useEffect(() => {
-    pendingPollsRef.current = 0;
-  }, [accountId]);
-
-  /**
-   * Initialize data on mount
-   */
-  useEffect(() => {
-    loadAccountFromStorage();
-
-    // Listen for account changes
-    const handleAccountChange = () => loadAccountFromStorage();
+    const handleAccountChange = () => resolveSelectedAccount();
     window.addEventListener('account-changed', handleAccountChange);
 
     return () => {
       window.removeEventListener('account-changed', handleAccountChange);
     };
-  }, [loadAccountFromStorage]);
+  }, [resolveSelectedAccount]);
+
+  const {
+    data,
+    error: fetchError,
+    isFetching,
+    refetch,
+  } = useQuery({
+    queryKey: identityKeys.account(accountId),
+    queryFn: ({ signal }) => {
+      const force = forceNextRef.current;
+      forceNextRef.current = false;
+      return fetchIdentities(accountId, force, signal);
+    },
+    enabled: Boolean(accountId),
+    staleTime: IDENTITY_STALE_MS,
+    gcTime: IDENTITY_GC_MS,
+    /**
+     * Waits out a scan rather than reporting it as a failure.
+     *
+     * <p>This is the fix for the banner users saw most. A 503 here means "the scan is running and
+     * will finish", so the honest response is to ask again shortly — and because React Query
+     * stays in a fetching state across retries, the tab holds its skeleton instead of flashing an
+     * error at someone who only has to wait. Non-retryable statuses opt out via
+     * {@link IdentityFetchError}, so a 403 still surfaces immediately.
+     */
+    retry: (failureCount, error) =>
+      error instanceof IdentityFetchError && error.retryable && failureCount < PENDING_POLL_LIMIT,
+    retryDelay: PENDING_POLL_INTERVAL_MS,
+  });
+
+  const details = data?.iamDetails ?? null;
+  const users = details?.users ?? NO_USERS;
+  const roles = details?.roles ?? NO_ROLES;
+  const hasData = users.length > 0 || roles.length > 0;
+
+  const analysisDegraded = Boolean(details?.permissionAnalysisDegraded);
+  const analysisNote = details?.permissionAnalysisNote ?? null;
+  const analysisPending = Boolean(details?.permissionAnalysisPending);
+
+  /**
+   * Whether the server said it is still working on this account.
+   *
+   * <p>Two different jobs, one poll. `permissionAnalysisPending` is the risk audit finishing
+   * after the inventory; `refreshing` is the whole snapshot being rebuilt because it aged out or
+   * because an IAM change event arrived. Either way a better answer is coming without anyone
+   * asking, and the only thing the client has to do is look again.
+   */
+  const awaitingServer = analysisPending || Boolean(details?.refreshing);
+
+  /**
+   * Picks up server-side work once it lands.
+   *
+   * <p>Bounded rather than open-ended: the work either finishes within a minute or it hit a
+   * limit it will not clear, and a poll that never gives up would keep a tab making requests for
+   * as long as it is open. On the last attempt the banner is left in place, which is honest — the
+   * inventory is real, the rest of it is not there yet.
+   *
+   * <p>A plain refetch on purpose, not a forced one: it has to read the cache the background work
+   * writes to, and forcing would start a rival scan and never observe the result it is waiting
+   * for.
+   */
+  useEffect(() => {
+    if (!awaitingServer || !accountId) return;
+    if (pollsSpent >= PENDING_POLL_LIMIT) return;
+
+    const timer = window.setTimeout(() => {
+      setPollsSpent((spent) => spent + 1);
+      refetch();
+    }, PENDING_POLL_INTERVAL_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [awaitingServer, accountId, pollsSpent, refetch]);
+
+  /** A new account gets a fresh budget of polls. */
+  useEffect(() => {
+    setPollsSpent(0);
+  }, [accountId]);
+
+  /**
+   * A null inventory means the scan produced nothing rather than that the account is empty, so
+   * retry once against a bypassed cache before believing it.
+   *
+   * <p>Once per account, tracked in a ref: an account that genuinely returns nothing would
+   * otherwise have this and the response that triggers it chase each other indefinitely.
+   */
+  useEffect(() => {
+    if (!accountId || !data || data.iamDetails) return;
+    if (nullRetryRef.current === accountId) return;
+    nullRetryRef.current = accountId;
+    forceNextRef.current = true;
+    refetch();
+  }, [accountId, data, refetch]);
+
+  /**
+   * Re-runs the IAM scan.
+   *
+   * <p>`forceRefresh` bypasses the server's cache; without it this just re-reads whatever the
+   * server already has, which is what the pending-work poll above wants and not what the Reload
+   * button means.
+   */
+  const fetchData = useCallback(async (forceRefresh = false) => {
+    if (!accountId) return;
+    setPollsSpent(0);
+    nullRetryRef.current = null;
+    forceNextRef.current = forceRefresh;
+    await refetch();
+  }, [accountId, refetch]);
+
+  /** Drops every cached inventory. For an action that invalidates all accounts at once. */
+  const invalidateAll = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: identityKeys.all });
+  }, [queryClient]);
+
+  const provider = data?.provider ?? storedProvider;
+  const accountName = data?.accountName ?? '';
+  const resolvedAccountId = data?.accountId ?? accountId;
+
+  /**
+   * What to tell the user, if anything.
+   *
+   * <p>The "showing the last result" suffix exists because the query cache keeps the previous
+   * answer through a failure, so an error can now appear over a populated list. Reporting only
+   * "could not load identities" above a full table would read as a contradiction; what matters
+   * is that the list is real but not current.
+   */
+  const error = useMemo(() => {
+    if (selectionError) return selectionError;
+    if (!fetchError) return null;
+    const message = fetchError instanceof Error
+      ? fetchError.message
+      : 'Failed to load identities';
+    return hasData ? `${message} Showing the last result that loaded.` : message;
+  }, [selectionError, fetchError, hasData]);
 
   /**
    * Filtered users based on search query, worst risk first.
@@ -430,10 +562,10 @@ export const useUserManagement = () => {
   }), [provider]);
 
   return {
-    loading,
+    loading: isFetching,
     error,
     accountName,
-    accountId,
+    accountId: resolvedAccountId,
     provider,
     users,
     roles,
@@ -447,6 +579,7 @@ export const useUserManagement = () => {
     copyToClipboard,
     labels,
     fetchData,
+    invalidateAll,
     isAws: provider === 'AWS',
     isGcp: provider === 'GCP',
     isAzure: provider === 'Azure',
@@ -458,6 +591,20 @@ export const useUserManagement = () => {
     analysisDegraded,
     analysisNote,
     analysisPending,
+
+    /**
+     * When the inventory on screen was produced, as an ISO-8601 instant.
+     *
+     * <p>Shown because this payload is served from a cache that can outlive a working day. An
+     * access review with no date on it invites the reader to assume it is live, which for the
+     * one question this tab answers — who currently holds administrator access — is the
+     * assumption most worth preventing.
+     */
+    lastUpdated: details?.lastUpdated ?? null,
+
+    /** True when the server is rebuilding this snapshot behind the response. */
+    isRefreshingSnapshot: Boolean(details?.refreshing),
+
     /**
      * Whether risk scoring ran at all for this provider.
      *

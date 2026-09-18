@@ -17,6 +17,15 @@ export type GcpAlertType = 'QUOTA' | 'ANOMALY' | 'SECURITY';
 export type GcpAlertStatus = 'CRITICAL' | 'HIGH' | 'WARNING' | 'OK' | 'UNKNOWN';
 
 /**
+ * The one normalised severity vocabulary, matching the backend's SecuritySeverity.
+ *
+ * Distinct from GcpAlertStatus, which is a display state. Quota rows put CRITICAL/WARNING/OK in
+ * `status` while security rows put a real finding severity in that same slot, so `status` cannot be
+ * compared or thresholded — that is what `severity` is for.
+ */
+export type GcpAlertSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL';
+
+/**
  * Main GCP Alert interface (matches backend AlertDto)
  */
 export interface GcpAlert {
@@ -24,11 +33,24 @@ export interface GcpAlert {
   service: string;
   name: string;
   description: string;
+
+  /** Display state, rendered verbatim by the badge. Use `severity` to compare or threshold. */
   status: GcpAlertStatus;
+
+  /**
+   * For QUOTA: units consumed, against `limit`.
+   * For ANOMALY: spend *above* the service's usual daily baseline — not a total.
+   */
   usage: number;
   limit: number;
   type: GcpAlertType;
   region: string;
+
+  /** Normalised severity from the backend. Always present on freshly-served alerts. */
+  severity?: GcpAlertSeverity;
+
+  /** Set only when `usage` is money. Absent means there is no monetary figure to label. */
+  currencySymbol?: string;
 
   /**
    * How many underlying findings this row stands for.

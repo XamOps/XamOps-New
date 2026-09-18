@@ -182,8 +182,19 @@ const GcpAlertsTable: React.FC<Props> = ({
                         </div>
                       </div>
                     ) : alert.type === 'ANOMALY' ? (
-                      <span className="inline-flex items-center px-2.5 py-1 rounded text-[12px] font-bold bg-red-50 text-red-700 border border-red-200 tabular-nums">
-                        {alert.usage ? alert.usage.toLocaleString() : 'N/A'}
+                      /*
+                       * The figure is the spend *above* this service's usual daily baseline, not a
+                       * total — hence the leading "+". Currency comes from the backend, which knows
+                       * the project's billing currency; the pill used to render a bare number, so a
+                       * rupee amount and a dollar amount were indistinguishable.
+                       */
+                      <span
+                        className="inline-flex items-center px-2.5 py-1 rounded text-[12px] font-bold bg-red-50 text-red-700 border border-red-200 tabular-nums"
+                        title="Spend above this service's usual daily average"
+                      >
+                        {alert.usage
+                          ? `+${alert.currencySymbol ?? '$'}${alert.usage.toLocaleString()}`
+                          : 'N/A'}
                       </span>
                     ) : firstResource ? (
                       <div className="min-w-0">
