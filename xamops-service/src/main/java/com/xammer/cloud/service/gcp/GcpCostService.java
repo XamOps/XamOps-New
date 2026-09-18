@@ -69,13 +69,15 @@ public class GcpCostService {
     private static final String GCP_COST_SVC_REGION_DB     = "GCP_COST_SVC_REGION::";
 
     private final CspBillingQueryService cspBillingQueryService;
+    private final GcpBillingStatusService gcpBillingStatusService;
 
     public GcpCostService(GcpClientProvider gcpClientProvider, RedisCacheService redisCacheService,
             CloudAccountRepository cloudAccountRepository,
             CachedDataRepository cachedDataRepository,
             ObjectMapper objectMapper,
             GcpCostDataSnapshotService gcpCostDataSnapshotService,
-            CspBillingQueryService cspBillingQueryService) {
+            CspBillingQueryService cspBillingQueryService,
+            GcpBillingStatusService gcpBillingStatusService) {
         this.gcpClientProvider = gcpClientProvider;
         this.redisCacheService = redisCacheService;
         this.cloudAccountRepository = cloudAccountRepository;
@@ -83,6 +85,7 @@ public class GcpCostService {
         this.objectMapper = objectMapper;
         this.gcpCostDataSnapshotService = gcpCostDataSnapshotService;
         this.cspBillingQueryService = cspBillingQueryService;
+        this.gcpBillingStatusService = gcpBillingStatusService;
     }
 
     // =====================================================================================
@@ -1074,57 +1077,24 @@ public class GcpCostService {
             }
         }
 
+        // The billing-source status is derived from the same table this eviction exists to
+        // stop trusting, so it has to go too — otherwise the page keeps explaining a problem
+        // against the old source after the operator has repointed the account.
+        gcpBillingStatusService.evictStatus(gcpProjectId);
+
         log.info("✅ Cleared all GCP cost caches (Redis + DB) for project {}", gcpProjectId);
     }
 
+    /**
+     * Delegates to {@link GcpBillingStatusService}, which owns table resolution.
+     *
+     * <p>This used to be a second copy of the same three-tier lookup. Two copies meant the
+     * status the UI is told and the table the query actually reads could disagree, which is
+     * the one thing a "why is this empty" feature must never do. Behaviour for the read path
+     * is unchanged, including falling through to discovery when a stored table is malformed.
+     */
     private Optional<String> getBillingTableName(BigQuery bigquery, String gcpProjectId) {
-        // Priority 1: Check billing table stored in CloudAccount
-        try {
-            Optional<CloudAccount> accountOpt = cloudAccountRepository.findByGcpProjectId(gcpProjectId);
-            if (accountOpt.isPresent()) {
-                String storedTable = accountOpt.get().getBillingExportTable();
-                if (storedTable != null && !storedTable.isBlank()) {
-                    if (storedTable.chars().filter(c -> c == '.').count() == 2) {
-                        log.info("Using billing table from CloudAccount for project {}: {}", gcpProjectId, storedTable);
-                        return Optional.of(storedTable);
-                    } else {
-                        log.warn("Stored billing table '{}' for project {} is not fully qualified (expected project.dataset.table). Falling back to discovery.", storedTable, gcpProjectId);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.warn("Failed to lookup billing table from CloudAccount for project {}: {}", gcpProjectId, e.getMessage());
-        }
-
-        // Priority 2: Check application property
-        if (billingExportTableName != null && !billingExportTableName.isBlank())
-            return Optional.of(billingExportTableName);
-
-        // Priority 3: Dynamic discovery from BigQuery datasets
-        try {
-            for (Dataset dataset : bigquery.listDatasets(gcpProjectId).iterateAll()) {
-                for (Table table : bigquery.listTables(dataset.getDatasetId()).iterateAll()) {
-                    String tableId = table.getTableId().getTable();
-                    if (tableId.startsWith("gcp_billing_export_v1")
-                            || tableId.startsWith("gcp_billing_export_resource_v1")) {
-                        String fullName = String.format("%s.%s.%s",
-                                table.getTableId().getProject(),
-                                table.getTableId().getDataset(),
-                                tableId);
-                        log.info("Dynamically found billing table: {}", fullName);
-                        return Optional.of(fullName);
-                    }
-                }
-
-            }
-        } catch (Exception e) {
-            log.error("Failed to discover BigQuery billing table for project {}: {}", gcpProjectId, e.getMessage());
-        }
-
-        log.warn(
-                "Could not find a GCP billing export table for project {}. Please configure gcp.billing.export-table-name.",
-                gcpProjectId);
-        return Optional.empty();
+        return gcpBillingStatusService.resolveExportTable(bigquery, gcpProjectId);
     }
 
     // ===== DATE RANGE FILTERING METHODS =====

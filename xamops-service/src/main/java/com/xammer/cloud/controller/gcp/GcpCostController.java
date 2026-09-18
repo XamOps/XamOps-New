@@ -1,6 +1,8 @@
 package com.xammer.cloud.controller.gcp;
 
+import com.xammer.cloud.dto.gcp.GcpBillingStatusDto;
 import com.xammer.cloud.dto.gcp.GcpCostDto;
+import com.xammer.cloud.service.gcp.GcpBillingStatusService;
 import com.xammer.cloud.service.gcp.GcpCostService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -22,9 +24,40 @@ import java.util.concurrent.TimeoutException;
 public class GcpCostController {
 
     private final GcpCostService gcpCostService;
+    private final GcpBillingStatusService gcpBillingStatusService;
 
-    public GcpCostController(GcpCostService gcpCostService) {
+    public GcpCostController(GcpCostService gcpCostService,
+            GcpBillingStatusService gcpBillingStatusService) {
         this.gcpCostService = gcpCostService;
+        this.gcpBillingStatusService = gcpBillingStatusService;
+    }
+
+    /**
+     * GET /api/xamops/gcp/costs/billing-status
+     * Why this project's cost data looks the way it does.
+     *
+     * <p>Separate endpoint rather than an envelope on {@code /breakdown} because that
+     * endpoint returns a bare array which existing callers iterate directly — wrapping it
+     * would break them. This is cheap enough to call alongside every cost page load: it
+     * performs BigQuery metadata reads only, never a query.
+     */
+    @GetMapping("/billing-status")
+    public CompletableFuture<ResponseEntity<GcpBillingStatusDto>> getBillingStatus(
+            @RequestParam String accountId,
+            @RequestParam(defaultValue = "false") boolean forceRefresh) {
+
+        return CompletableFuture
+                .supplyAsync(() -> gcpBillingStatusService.getStatus(accountId, forceRefresh))
+                .orTimeout(15, TimeUnit.SECONDS)
+                .thenApply(ResponseEntity::ok)
+                .exceptionally(ex -> {
+                    // A failure to explain the absence of data must not itself become a
+                    // silent absence of data — that is the bug this endpoint exists to fix.
+                    log.error("[GcpCost] billing-status ERROR — account={}", accountId, ex);
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    return ResponseEntity.ok(GcpBillingStatusDto.unknown(
+                            accountId, null, cause.getMessage()));
+                });
     }
 
     /**

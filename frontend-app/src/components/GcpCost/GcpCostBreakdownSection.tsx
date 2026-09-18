@@ -1,6 +1,11 @@
 import React, { useEffect, useRef, useMemo } from 'react';
 import { Chart, ChartConfiguration, ArcElement, DoughnutController, Tooltip, Legend } from 'chart.js';
-import type { GcpCostDataItem, GcpCostFilters, GcpGroupByType } from '../../types/gcpCost';
+import type {
+  GcpBillingStatus,
+  GcpCostDataItem,
+  GcpCostFilters,
+  GcpGroupByType,
+} from '../../types/gcpCost';
 
 Chart.register(ArcElement, DoughnutController, Tooltip, Legend);
 
@@ -9,7 +14,54 @@ interface GcpCostBreakdownSectionProps {
   filters: GcpCostFilters;
   isLoading: boolean;
   onFiltersChange: (filters: Partial<GcpCostFilters>) => void;
+  /**
+   * Why there may be no data. Optional so the component still renders if the status
+   * request failed — it just falls back to the old neutral message rather than
+   * asserting a reason it does not have.
+   */
+  billingStatus?: GcpBillingStatus | null;
 }
+
+/** What the empty panel should say, derived from the billing source's readiness. */
+interface EmptyStateCopy {
+  title: string;
+  detail: string | null;
+  icon: string;
+  tone: 'neutral' | 'problem';
+}
+
+/**
+ * Turns billing-source readiness into the empty panel's wording.
+ *
+ * The backend owns every sentence that names a customer action, matching how
+ * PermissionGapService builds its summary — the fix is a specific console or Account
+ * Manager step, so the copy has to travel with the state that knows which one. Only the
+ * two cases with nothing to explain are worded here.
+ */
+const emptyStateFor = (billingStatus?: GcpBillingStatus | null): EmptyStateCopy => {
+  // No status (request failed, or an older backend). Say only what is certainly true.
+  if (!billingStatus) {
+    return { title: 'No cost data available', detail: null, icon: 'fa-dollar-sign', tone: 'neutral' };
+  }
+
+  // Source is healthy and returned nothing: that is a real answer, not a failure.
+  if (billingStatus.state === 'READY') {
+    return {
+      title: 'No spend in this period',
+      detail: 'Billing data is connected and reporting normally. Try a wider date range or a different grouping.',
+      icon: 'fa-check-circle',
+      tone: 'neutral',
+    };
+  }
+
+  const pending = billingStatus.state === 'EXPORT_PENDING';
+  return {
+    title: pending ? 'Billing export is still populating' : 'Cost data unavailable',
+    detail: billingStatus.summary,
+    icon: pending ? 'fa-hourglass-half' : 'fa-triangle-exclamation',
+    tone: pending ? 'neutral' : 'problem',
+  };
+};
 
 const COLORS = [
   '#f97316', '#f59e0b', '#ef4444', '#fb923c', '#fbbf24',
@@ -23,9 +75,12 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
   filters,
   isLoading,
   onFiltersChange,
+  billingStatus,
 }) => {
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstanceRef = useRef<Chart<'doughnut'> | null>(null);
+
+  const emptyState = useMemo(() => emptyStateFor(billingStatus), [billingStatus]);
 
   const formatCurrency = (value: number): string =>
     '₹' + (value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -137,13 +192,26 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
         </div>
       )}
 
-      {/* Empty */}
+      {/* Empty — explains itself when the billing source is why */}
       {!isLoading && costData.length === 0 && (
-        <div className="py-16 text-center">
-          <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-4">
-            <i className="fas fa-dollar-sign text-[rgba(0,0,0,0.2)] text-xl"></i>
+        <div className="py-16 px-6 text-center">
+          <div
+            className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 ${
+              emptyState.tone === 'problem' ? 'bg-[rgba(239,68,68,0.08)]' : 'bg-[rgba(0,0,0,0.04)]'
+            }`}
+          >
+            <i
+              className={`fas ${emptyState.icon} text-xl ${
+                emptyState.tone === 'problem' ? 'text-[#dc2626]' : 'text-[rgba(0,0,0,0.2)]'
+              }`}
+            ></i>
           </div>
-          <p className="text-[14px] font-medium text-[rgba(0,0,0,0.5)]">No cost data available</p>
+          <p className="text-[14px] font-semibold text-[rgba(0,0,0,0.7)]">{emptyState.title}</p>
+          {emptyState.detail && (
+            <p className="mt-2 mx-auto max-w-xl text-[13px] leading-relaxed text-[rgba(0,0,0,0.55)]">
+              {emptyState.detail}
+            </p>
+          )}
         </div>
       )}
 
