@@ -13,7 +13,9 @@ import com.xammer.cloud.domain.CurSource;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.cur.CurAutoRegistrationService;
+import com.xammer.cloud.service.cur.CurSourceValidationService;
 import com.xammer.cloud.service.cur.CurCostDataSource;
+import com.xammer.cloud.service.cur.CurInsightCache;
 import com.xammer.cloud.service.cur.CurSourceResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,6 +61,7 @@ public class CostService {
         private final CurSourceResolver curSourceResolver;
         private final CurCostDataSource curCostDataSource;
         private final CurAutoRegistrationService curAutoRegistrationService;
+        private final CurSourceValidationService curSourceValidationService;
 
         @Value("${aws.costexplorer.mock:false}")
         private boolean useMockData;
@@ -75,7 +78,8 @@ public class CostService {
                         CostDataSnapshotService snapshotService,
                         CurSourceResolver curSourceResolver,
                         CurCostDataSource curCostDataSource,
-                        CurAutoRegistrationService curAutoRegistrationService) {
+                        CurAutoRegistrationService curAutoRegistrationService,
+                        CurSourceValidationService curSourceValidationService) {
                 this.cloudAccountRepository = cloudAccountRepository;
                 this.awsClientProvider = awsClientProvider;
                 this.redisCache = redisCache;
@@ -88,6 +92,7 @@ public class CostService {
                 this.curSourceResolver = curSourceResolver;
                 this.curCostDataSource = curCostDataSource;
                 this.curAutoRegistrationService = curAutoRegistrationService;
+                this.curSourceValidationService = curSourceValidationService;
 
                 logger.info("CostService initialized (Mock Mode: {})", useMockData);
         }
@@ -734,6 +739,43 @@ public class CostService {
          * Cost and FinOps pages without knowing which source filled it.
          */
         /**
+         * Drops the dashboard's saved cost panels so they rebuild from what was just written.
+         *
+         * <p>The dashboard does not read the cost keys this refresh writes; it reads whole-panel
+         * snapshots of its own. Without this the Cost and FinOps pages show the new figures
+         * while the dashboard keeps showing whatever it saved last — which, after a stretch of
+         * expired credentials, was $0.
+         *
+         * <p>Only the two cost panels. Inventory and optimisation are untouched by a CUR refresh,
+         * and rebuilding them is what runs the Compute Optimizer scans that outlast the client's
+         * 45s timeout. With these gone, the page's non-forced reload rebuilds just the cost panels
+         * from the cost cache, which is cheap.
+         *
+         * <p>Both stores, not just Redis: a snapshot missing from Redis is read back from
+         * cached_data and re-warmed, so evicting Redis alone would restore the stale copy.
+         */
+        private void evictDashboardCostSnapshots(String accountId) {
+                // FINOPS_COST_HISTORY / costHistory: the dashboard's month-to-date is not stored
+                // anywhere — dashboardApi.ts takes it as the LAST POINT of the cost history, and
+                // derives the forecast from it. Clearing only DASHBOARD_KPI rebuilt the panel
+                // from a history still holding the pre-refresh $0 for the current month, so MTD
+                // and forecast stayed at $0 while Top Services, which reads the breakdown this
+                // refresh does write, came right.
+                for (String prefix : List.of("DASHBOARD_KPI::", "DASHBOARD_COST::",
+                                "FINOPS_COST_HISTORY::", "costHistory-")) {
+                        String key = prefix + accountId;
+                        try {
+                                redisCache.evict(key);
+                                cachedDataRepository.deleteById(key);
+                        } catch (Exception e) {
+                                // A snapshot left in place shows stale numbers until the next
+                                // forced refresh — not worth failing a refresh that succeeded.
+                                logger.warn("Could not evict dashboard snapshot {}: {}", key, e.getMessage());
+                        }
+                }
+        }
+
+        /**
          * Refreshes this month's cost data from the CUR only, refusing to fall back.
          *
          * <p>Exists because the normal refresh cannot answer "is this account actually
@@ -766,15 +808,33 @@ public class CostService {
                 // Idempotent — an account already wired up just gets its existing source.
                 CurSource source = curAutoRegistrationService.ensureRegistered(account);
 
-                if (curSourceResolver.resolve(account, start, today).isEmpty()) {
-                        // Registered and ACTIVE, yet the resolver still declines. The reason is
-                        // never the setup at this point — it is the flag being off, or the range
-                        // falling outside what the report covers.
+                CurSourceResolver.Coverage coverage =
+                                curSourceResolver.describeCoverage(account, start, today, false);
+
+                // A stale source is the one reason this button can fix by itself.
+                //
+                // Staleness means "not revalidated within xamops.cur.max-validation-age-hours",
+                // and the only thing that revalidates is the 01:45 job. On a machine that is
+                // not running at 01:45 — every developer laptop — or whose credentials had
+                // expired when it ran, a perfectly healthy report ages past the limit in two
+                // days and this button then refuses to read it. Someone pressing "refresh from
+                // the report" is asking for exactly the check the nightly job would have done,
+                // so do it now rather than telling them to wait for tonight.
+                if (!coverage.covered() && "STALE".equals(coverage.reason())) {
+                        logger.info("[CUR] Source for {} is stale — revalidating before refresh", accountId);
+                        source = curSourceValidationService.validate(source, account);
+                        coverage = curSourceResolver.describeCoverage(account, start, today, false);
+                }
+
+                if (!coverage.covered()) {
+                        // The resolver's own reason, not a guess at one. This used to assert
+                        // that the cause was "never the setup" and name only the flag and the
+                        // date range — so a stale source, or one with no ACTIVE row, produced a
+                        // message pointing at two things that were both fine.
                         throw new IllegalStateException(
-                                        "The report for account " + accountId + " is connected but cannot serve "
-                                        + YearMonth.from(start) + ". Check that xamops.cur.enabled is true, and that"
-                                        + " the report covers this period (it starts at "
-                                        + source.getEarliestBillingPeriod() + ").");
+                                        "The report for account " + accountId + " cannot serve "
+                                        + YearMonth.from(start) + ": " + coverage.message()
+                                        + " [" + coverage.reason() + "]");
                 }
 
                 // Deliberately not wrapped in try/catch: an Athena failure must surface to
@@ -805,6 +865,18 @@ public class CostService {
                 result.put("serviceCount", breakdown.size());
                 result.put("services", breakdown);
                 result.put("period", start + " to " + today);
+
+                evictDashboardCostSnapshots(accountId);
+                // The CUR sections on the Cost and FinOps pages cache their own answers. This
+                // button promises the report as it is now, so those go too — otherwise the
+                // headline figures would update and the breakdowns beneath them would not.
+                String insightPrefix = CurInsightCache.PREFIX + accountId + "::";
+                try {
+                        redisCache.evictByPattern(insightPrefix + "*");
+                        cachedDataRepository.deleteByCacheKeyPrefix(insightPrefix);
+                } catch (Exception e) {
+                        logger.warn("Could not clear cached CUR insights for {}: {}", accountId, e.getMessage());
+                }
                 return result;
         }
 

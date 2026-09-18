@@ -4,6 +4,7 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.CurSource;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.cur.CurAdvancedMetricsService;
+import com.xammer.cloud.service.cur.CurInsightCache;
 import com.xammer.cloud.service.cur.CurSourceResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +36,7 @@ public class CurInsightsController {
     private final CloudAccountRepository cloudAccountRepository;
     private final CurSourceResolver curSourceResolver;
     private final CurAdvancedMetricsService metricsService;
+    private final CurInsightCache insightCache;
 
     /** The tags an owned resource is expected to carry. Shared with the inventory scan. */
     private final List<String> requiredTags;
@@ -42,10 +44,12 @@ public class CurInsightsController {
     public CurInsightsController(CloudAccountRepository cloudAccountRepository,
                                  CurSourceResolver curSourceResolver,
                                  CurAdvancedMetricsService metricsService,
+                                 CurInsightCache insightCache,
                                  @Value("${tagging.compliance.required-tags}") List<String> requiredTags) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.curSourceResolver = curSourceResolver;
         this.metricsService = metricsService;
+        this.insightCache = insightCache;
         this.requiredTags = requiredTags;
     }
 
@@ -218,6 +222,10 @@ public class CurInsightsController {
     @GetMapping("/price-vs-volume/{accountId}")
     public ResponseEntity<?> priceVsVolume(@PathVariable String accountId,
                                            @RequestParam(required = false) String period) {
+        return insightCache.getOrCompute(accountId, () -> computePriceVsVolume(accountId, period));
+    }
+
+    private ResponseEntity<?> computePriceVsVolume(String accountId, String period) {
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {
             return ResponseEntity.notFound().build();
@@ -250,6 +258,12 @@ public class CurInsightsController {
     }
 
     private ResponseEntity<?> withSource(String accountId, String period, SourceQuery query) {
+        // Every section on the Cost and FinOps pages that reads the report comes through
+        // here, so this one wrap is what stops them waiting on Athena per visit.
+        return insightCache.getOrCompute(accountId, () -> runWithSource(accountId, period, query));
+    }
+
+    private ResponseEntity<?> runWithSource(String accountId, String period, SourceQuery query) {
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {
             return ResponseEntity.notFound().build();
