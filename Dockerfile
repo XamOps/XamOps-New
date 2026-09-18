@@ -63,6 +63,9 @@ WORKDIR /app
 
 # 1. Install Core Utilities & Dependencies (including Python & Docker CLI)
 ENV DEBIAN_FRONTEND=noninteractive
+# Fetch Ubuntu packages over HTTPS: the office FortiGate's Application Control blocks
+# apt on plain HTTP ("Ubuntu.Update") with a 403. The base image already ships ca-certificates.
+RUN sed -i 's|http://|https://|g' /etc/apt/sources.list
 RUN apt-get update && apt-get install -y \
     curl \
     wget \
