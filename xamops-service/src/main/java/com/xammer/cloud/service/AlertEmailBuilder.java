@@ -1,11 +1,14 @@
 package com.xammer.cloud.service;
 
 import com.xammer.cloud.dto.AlertDto;
+import com.xammer.cloud.service.security.SecuritySeverity;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.Year;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -33,6 +36,130 @@ public class AlertEmailBuilder {
     // Public API
     // ─────────────────────────────────────────────────────────────────────────
 
+    /**
+     * Most alerts itemised by name in one email.
+     *
+     * <p>A real GCP project reached ~2000 alerts, and because this digest listed every one,
+     * each email ran to two thousand rows — past the point of being readable and close to
+     * the size at which clients clip a message. The cap keeps the email a summary; the count
+     * beside it and the console link carry the rest.
+     */
+    private static final int MAX_ITEMISED_ALERTS = 20;
+
+    /**
+     * Digest of alerts that are new since the last notification.
+     *
+     * <p>Prefer this over {@link #buildAlertDigestEmail}: it leads with what changed, states
+     * the total open count without listing it, and caps the itemised rows. The older method
+     * re-listed the entire active set on every send.
+     *
+     * @param newAlerts alerts not present at the previous notification
+     * @param totalOpen size of the whole current alert set, reported as a figure only
+     * @param coldStart true when there was no previous state, so these are a baseline rather
+     *                  than genuinely new findings — the wording changes accordingly
+     */
+    public String buildNewAlertsDigestEmail(List<AlertDto> newAlerts, int totalOpen, boolean coldStart,
+            String accountName, String accountId) {
+
+        // Worst first, before the cap is applied. Sorting here as well as in the caller is
+        // deliberate: a cap taken off an unsorted list can itemise twenty informational rows
+        // and push the one critical finding into the "and N more" line, which would make the
+        // cap actively harmful rather than merely lossy.
+        List<AlertDto> ranked = newAlerts.stream()
+                .sorted(Comparator.comparingInt(a -> SecuritySeverity.rank(a.getSeverity())))
+                .collect(Collectors.toList());
+
+        List<AlertDto> shown = ranked.size() > MAX_ITEMISED_ALERTS
+                ? ranked.subList(0, MAX_ITEMISED_ALERTS)
+                : ranked;
+        int hidden = ranked.size() - shown.size();
+
+        String date = LocalDate.now().format(DateTimeFormatter.ofPattern("MMMM dd, yyyy"));
+
+        // LinkedHashMap, not the default HashMap. `shown` is already worst-first, so encounter
+        // order puts the section containing the most severe alert first and the whole email
+        // becomes deterministic. Plain groupingBy ordered the sections by hash, which meant the
+        // same alert set could render with quota above security or below it from run to run.
+        Map<String, List<AlertDto>> byType = shown.stream()
+                .collect(Collectors.groupingBy(AlertDto::getType, LinkedHashMap::new, Collectors.toList()));
+
+        // Counted off severity rather than status. status carries CRITICAL/WARNING/OK from the
+        // quota checks but a raw provider severity from the security ones, so counting it
+        // missed Azure's Sev1 and every finding labelled HIGH by one provider and Error by
+        // another.
+        long critical = newAlerts.stream()
+                .filter(a -> SecuritySeverity.CRITICAL.equals(a.getSeverity()))
+                .count();
+        long warning = newAlerts.stream()
+                .filter(a -> SecuritySeverity.HIGH.equals(a.getSeverity())
+                        || SecuritySeverity.MEDIUM.equals(a.getSeverity()))
+                .count();
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(htmlHead("XamOps Alert Digest — " + accountName));
+        sb.append("<body style='margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,Arial,sans-serif;'>");
+        sb.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0'>");
+        sb.append("<tr><td style='padding:32px 16px;'>");
+        sb.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='max-width:680px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);border:1px solid #e2e8f0;'>");
+
+        sb.append(newAlertsHeader(accountName, accountId, date, newAlerts.size(), totalOpen, coldStart,
+                critical, warning));
+        sb.append(summaryStrip(newAlerts));
+        sb.append(alertSections(byType));
+        if (hidden > 0) {
+            sb.append(moreAlertsNotice(hidden, totalOpen));
+        }
+        sb.append(footer(date));
+
+        sb.append("</table>");
+        sb.append("</td></tr></table>");
+        sb.append("</body></html>");
+        return sb.toString();
+    }
+
+    /** Header that leads with what changed, and reports the total as a number only. */
+    private String newAlertsHeader(String accountName, String accountId, String date, int newCount,
+            int totalOpen, boolean coldStart, long critical, long warning) {
+
+        String title = coldStart ? "Alert Digest" : newCount + (newCount == 1 ? " New Alert" : " New Alerts");
+        return "<tr><td style='background:" + BRAND_GRADIENT + ";padding:40px 40px 32px;'>" +
+               "<table role='presentation' width='100%' cellpadding='0' cellspacing='0'><tr><td>" +
+               "<div style='margin-bottom:20px;'>" +
+               "<span style='display:inline-block;background:#ffffff;color:#000000;padding:5px 14px;border-radius:6px;font-size:11px;font-weight:900;letter-spacing:2px;text-transform:uppercase;'>XamOps</span>" +
+               "</div>" +
+               "<h1 style='margin:0 0 6px;color:#fff;font-size:26px;font-weight:700;letter-spacing:-0.5px;'>" + esc(title) + "</h1>" +
+               "<p style='margin:0 0 4px;color:rgba(255,255,255,0.8);font-size:15px;'>" + esc(accountName) + "</p>" +
+               "<p style='margin:0 0 20px;color:rgba(255,255,255,0.55);font-size:12px;font-family:monospace;'>" + esc(accountId) + "</p>" +
+               "<table role='presentation' cellpadding='0' cellspacing='0'><tr>" +
+               statPill(String.valueOf(coldStart ? totalOpen : newCount), coldStart ? "Total" : "New",
+                       "rgba(255,255,255,0.25)", "#fff") +
+               statPill(String.valueOf(totalOpen), "Total Open", "rgba(255,255,255,0.15)", "#fff") +
+               statPill(String.valueOf(critical), "Critical", "#fef2f2", CRITICAL_COLOR) +
+               statPill(String.valueOf(warning), "Warnings", "#fffbeb", WARNING_COLOR) +
+               "</tr></table>" +
+               "</td><td style='text-align:right;vertical-align:top;'>" +
+               "<p style='margin:0;color:rgba(255,255,255,0.6);font-size:12px;'>" + esc(date) + "</p>" +
+               "</td></tr></table>" +
+               "</td></tr>";
+    }
+
+    /** Stands in for the alerts the cap left out, rather than printing all of them. */
+    private String moreAlertsNotice(int hidden, int totalOpen) {
+        return "<tr><td style='padding:0 40px 24px;'>" +
+               "<div style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:18px 20px;text-align:center;'>" +
+               "<p style='margin:0 0 4px;color:#1e293b;font-size:15px;font-weight:600;'>and " + hidden
+               + " more new alert" + (hidden == 1 ? "" : "s") + "</p>" +
+               "<p style='margin:0;color:#64748b;font-size:12px;'>" + totalOpen
+               + " alert" + (totalOpen == 1 ? "" : "s") + " open in total. Open XamOps to review the full list.</p>" +
+               "</div></td></tr>";
+    }
+
+    /**
+     * @deprecated Re-lists the entire active alert set on every send, with no cap. Use
+     *             {@link #buildNewAlertsDigestEmail} so the email reports what changed and
+     *             stays a bounded length. Retained for the single-alert and legacy paths.
+     */
+    @Deprecated
     public String buildAlertDigestEmail(List<AlertDto> alerts, String accountName, String accountId) {
         String date = LocalDate.now().format(DateTimeFormatter.ofPattern("MMMM dd, yyyy"));
         Map<String, List<AlertDto>> byType = alerts.stream()

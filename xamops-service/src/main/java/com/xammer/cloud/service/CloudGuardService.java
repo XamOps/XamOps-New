@@ -49,6 +49,7 @@ public class CloudGuardService {
     private final AlertEmailBuilder alertEmailBuilder;
     private final NotificationRecipientResolver recipientResolver;
     private final AlertNotificationDeduplicator deduplicator;
+    private final AlertDigestSeverityGate severityGate;
 
     /**
      * Optional: absent when the inventory plane is disabled, in which case the quota
@@ -76,7 +77,8 @@ public class CloudGuardService {
             AwsSecurityHubService securityHubService,
             AlertEmailBuilder alertEmailBuilder,
             NotificationRecipientResolver recipientResolver,
-            AlertNotificationDeduplicator deduplicator) {
+            AlertNotificationDeduplicator deduplicator,
+            AlertDigestSeverityGate severityGate) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.awsClientProvider = awsClientProvider;
         this.redisCache = redisCache;
@@ -88,6 +90,7 @@ public class CloudGuardService {
         this.alertEmailBuilder = alertEmailBuilder;
         this.recipientResolver = recipientResolver;
         this.deduplicator = deduplicator;
+        this.severityGate = severityGate;
     }
 
     private CloudAccount getAccount(String accountId) {
@@ -388,6 +391,113 @@ public class CloudGuardService {
 
     @Async("awsTaskExecutor")
     @Transactional(readOnly = true)
+    /**
+     * Emails the account's users about alerts that are new since the last notification.
+     *
+     * <p>Separate from {@link #getAlerts} on purpose: that method backs the Alerts page, so
+     * sending from it meant a page load — and every restart, via the cache warm-up — mailed
+     * everyone. Only the scheduler calls this.
+     *
+     * <p>Sends nothing when the only change is that alerts were resolved. The stored set is
+     * still updated, so a finding that clears and later returns is reported as new.
+     */
+    public void notifyNewAlerts(String accountId) {
+        AlertsResponseDto response = getAlerts(accountId, true).join();
+        notifyNewAlerts(accountId, response != null && response.getAlerts() != null
+                ? response.getAlerts()
+                : java.util.Collections.emptyList());
+    }
+
+    /**
+     * Overload for a caller that has already fetched the alerts.
+     *
+     * <p>The nightly refresh needs the alert list anyway to write its snapshot; re-fetching
+     * inside the notifier would double every Service Quotas and Cost Explorer call it makes.
+     */
+    public void notifyNewAlerts(String accountId, List<AlertDto> alerts) {
+        try {
+            AlertNotificationDeduplicator.AlertDelta delta =
+                    deduplicator.detectNewAlerts("aws", accountId, alerts);
+            deduplicator.markSeen("aws", accountId, alerts);
+
+            if (!delta.worthSending()) {
+                logger.info("[AwsAlerts] No new alerts for account {} ({} open) — no email",
+                        accountId, delta.totalOpen());
+                return;
+            }
+
+            CloudAccount account = cloudAccountRepository.findByAwsAccountId(accountId)
+                    .stream().findFirst().orElse(null);
+            if (account == null) {
+                logger.warn("[AwsAlerts] Account {} not found — cannot notify", accountId);
+                return;
+            }
+            String accountName = account.getAccountName() != null ? account.getAccountName() : accountId;
+
+            // Threshold applied to the new alerts only; the seen-set above already recorded
+            // everything, so lowering the threshold later cannot resurface old findings as new.
+            List<AlertDto> notifiable = severityGate.notifiable(account, delta.newAlerts());
+            if (notifiable.isEmpty()) {
+                logger.info("[AwsAlerts] {} new alert(s) for account {} all below the digest "
+                        + "severity threshold — no email", delta.newAlerts().size(), accountId);
+                return;
+            }
+
+            // Through the shared resolver, so a user who switched security email off in BillOps
+            // admin is excluded from this digest too. An empty list is not an error — it can simply
+            // mean nobody on the tenant wants it.
+            List<String> recipients = recipientResolver.emailsForAccount(account);
+            if (recipients.isEmpty()) {
+                logger.warn("[AwsAlerts] {} new alert(s) for account {} but no recipients configured",
+                        notifiable.size(), accountId);
+                return;
+            }
+
+            String html = alertEmailBuilder.buildNewAlertsDigestEmail(
+                    notifiable, delta.totalOpen(), delta.coldStart(), accountName, accountId);
+            String subject = delta.coldStart()
+                    ? String.format("[XamOps] Alert Digest — %d alert%s for %s",
+                            delta.totalOpen(), delta.totalOpen() == 1 ? "" : "s", accountName)
+                    : String.format("[XamOps] %d new alert%s for %s (%d open)",
+                            notifiable.size(), notifiable.size() == 1 ? "" : "s",
+                            accountName, delta.totalOpen());
+
+            for (String email : recipients) {
+                try {
+                    emailService.sendHtmlEmail(email, subject, html);
+                    logger.info("[AwsAlerts] Sent digest to {} ({} new, {} open)",
+                            email, notifiable.size(), delta.totalOpen());
+                } catch (Exception e) {
+                    logger.error("[AwsAlerts] Failed to send digest to {}: {}", email, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.error("[AwsAlerts] Notification run failed for account {}: {}", accountId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Names the service and the day alongside the excess.
+     *
+     * <p>The previous wording was "Unexpected spend of $1234.00" and nothing else — no service,
+     * no date. On an account with several anomalies every row read identically apart from the
+     * number, so there was no way to tell which one to look at first.
+     */
+    private String describeAwsAnomaly(DashboardData.CostAnomaly a) {
+        String service = a.getService() != null && !a.getService().isBlank()
+                ? a.getService()
+                : "An unidentified service";
+        String excess = String.format("$%,.2f", a.getUnexpectedSpend());
+        if (a.getStartDate() == null) {
+            return String.format("%s: unexpected spend of %s.", service, excess);
+        }
+        if (a.getEndDate() != null && !a.getEndDate().equals(a.getStartDate())) {
+            return String.format("%s: unexpected spend of %s between %s and %s.",
+                    service, excess, a.getStartDate(), a.getEndDate());
+        }
+        return String.format("%s: unexpected spend of %s on %s.", service, excess, a.getStartDate());
+    }
+
     public CompletableFuture<AlertsResponseDto> getAlerts(String accountId, boolean forceRefresh) {
         long startTime = System.currentTimeMillis();
         logger.info("🔍 Fetching alerts for account: {}", accountId);
@@ -443,15 +553,12 @@ public class CloudGuardService {
                     .build());
         }
 
-        // Resolved eagerly, before the async fan-out below: the client is a LAZY @ManyToOne and
-        // the futures run on another thread with no persistence session, so a lazy load from
-        // inside the callback would fail.
-        //
-        // Users who have security email disabled in BillOps admin are filtered out here, which is
-        // also why an empty list is not an error — it can simply mean nobody on this tenant wants
-        // the digest. The resolver never throws, so no try/catch is needed around it.
-        final List<String> recipients = recipientResolver.emailsForAccount(account);
-        final String accountName = account.getAccountName() != null ? account.getAccountName() : accountId;
+        // Recipients are deliberately NOT resolved here any more. This method backs
+        // GET /cloudguard/alerts, so the digest it used to send meant a page load — and every
+        // restart, via the cache warm-up — mailed everyone on the account. The send now lives in
+        // notifyNewAlerts, which the nightly scheduler is the only caller of, and which resolves
+        // recipients through the same NotificationRecipientResolver so per-user opt-out still
+        // applies.
 
         // Fetch all alert types in parallel
         CompletableFuture<List<DashboardData.ServiceQuotaInfo>> vpcQuotasFuture = getVpcQuotaAlerts(accountId,
@@ -530,16 +637,29 @@ public class CloudGuardService {
                                                 : String.format("anomaly-%s-%d", a.getService(),
                                                         counter.getAndIncrement());
 
-                                        return new AlertDto(
+                                        AlertDto anomalyAlert = new AlertDto(
                                                 uniqueId,
                                                 a.getService(),
                                                 "Cost Anomaly Detected",
-                                                String.format("Unexpected spend of $%.2f", a.getUnexpectedSpend()),
+                                                describeAwsAnomaly(a),
+                                                // Left at CRITICAL, unlike the GCP path which
+                                                // grades by multiple. These come from Cost
+                                                // Explorer's own anomaly detector, which has
+                                                // already made that judgement; re-grading them
+                                                // against a baseline we do not have would be
+                                                // guessing.
                                                 "CRITICAL",
                                                 a.getUnexpectedSpend(),
                                                 0,
                                                 "ANOMALY",
                                                 "Global");
+                                        // Cost Explorer reports impact in the payer account's
+                                        // billing currency, which this class does not fetch. USD
+                                        // is the existing assumption — stated here rather than
+                                        // buried in a format string, so it is visible when an
+                                        // account bills in something else.
+                                        anomalyAlert.setCurrencySymbol("$");
+                                        return anomalyAlert;
                                     })
                                     .collect(Collectors.toList());
                             alerts.addAll(anomalyAlerts);
@@ -603,27 +723,10 @@ public class CloudGuardService {
                     }
                     securityCount += liveFindingCount;
 
-                    // Send HTML email digest only when alert content changes
-                    if (!recipients.isEmpty() && !alerts.isEmpty()) {
-                        String fingerprint = AlertNotificationDeduplicator.computeFingerprint(alerts);
-                        if (deduplicator.awsDigestAlreadySentForContent(accountId, fingerprint)) {
-                            logger.info("[Dedup] Same alerts already notified for account {} — skipping email", accountId);
-                        } else {
-                            String htmlBody = alertEmailBuilder.buildAlertDigestEmail(alerts, accountName, accountId);
-                            String subject = String.format("[XamOps] Alert Digest — %d alert%s for %s",
-                                    alerts.size(), alerts.size() == 1 ? "" : "s", accountName);
-                            for (String email : recipients) {
-                                try {
-                                    emailService.sendHtmlEmail(email, subject, htmlBody);
-                                    logger.info("Sent alert digest email to {}", email);
-                                } catch (Exception e) {
-                                    logger.error("Failed to send alert digest email to {}: {}", email, e.getMessage());
-                                }
-                            }
-                            deduplicator.markAwsDigestSent(accountId, fingerprint);
-                        }
-                    }
-
+                    // No email from here. This method backs GET /cloudguard/alerts, so sending from
+                    // it meant a page load mailed every user on the account, as did each restart
+                    // via the cache warm-up. Notification lives in notifyNewAlerts, reachable only
+                    // from the scheduler.
                     long duration = System.currentTimeMillis() - startTime;
                     AlertsMetadataDto metadata = AlertsMetadataDto.builder()
                             .totalAlerts(alerts.size())

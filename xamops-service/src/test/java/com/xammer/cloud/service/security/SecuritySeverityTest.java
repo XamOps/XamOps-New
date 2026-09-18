@@ -139,4 +139,39 @@ class SecuritySeverityTest {
         assertEquals("High", SecuritySeverity.toTitleCase("HIGH"));
         assertEquals("Informational", SecuritySeverity.toTitleCase("informational"));
     }
+
+    /**
+     * A healthy quota is not a mid-severity problem.
+     *
+     * <p>Quota checks report a resource comfortably under its limit as {@code OK}. That fell
+     * through to the MEDIUM default, so "this is fine" ranked identically to a real warning and
+     * would have cleared a MEDIUM digest threshold — the alert equivalent of a false positive
+     * that no amount of threshold tuning could remove.
+     */
+    @Test
+    void healthyStatesLandOnTheFloorNotTheMediumDefault() {
+        assertEquals(SecuritySeverity.INFORMATIONAL, SecuritySeverity.normalize("OK"));
+        assertEquals(SecuritySeverity.INFORMATIONAL, SecuritySeverity.normalize("ok"));
+        assertEquals(SecuritySeverity.INFORMATIONAL, SecuritySeverity.normalize("HEALTHY"));
+    }
+
+    /**
+     * Azure Monitor's Sev4. Below Informational in Azure's own ordering, and there is no band
+     * beneath INFORMATIONAL here, so it belongs on the floor rather than out-ranking a warning.
+     */
+    @Test
+    void azureVerboseIsInformational() {
+        assertEquals(SecuritySeverity.INFORMATIONAL, SecuritySeverity.normalize("Verbose"));
+    }
+
+    /**
+     * Azure folds five bands into three on its way to {@code status}, turning Sev1 Error into
+     * CRITICAL. Normalising the raw label keeps Error at HIGH, which is what stops a
+     * critical-only threshold from paging on every Sev1.
+     */
+    @Test
+    void azureErrorIsHighNotCritical() {
+        assertEquals(SecuritySeverity.HIGH, SecuritySeverity.normalize("Error"));
+        assertEquals(SecuritySeverity.CRITICAL, SecuritySeverity.normalize("Critical"));
+    }
 }

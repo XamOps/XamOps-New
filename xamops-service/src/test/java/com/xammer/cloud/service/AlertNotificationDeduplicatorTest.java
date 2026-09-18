@@ -230,6 +230,217 @@ class AlertNotificationDeduplicatorTest {
         assertThat(fp).hasSize(64);  // SHA-256 hex = 64 chars
     }
 
+    // ── detectNewAlerts / markSeen — per-alert tracking ───────────────────────
+    //
+    // These replace the set-level fingerprint. The fingerprint changed whenever membership
+    // changed in *either* direction, so resolving an alert re-sent the whole digest, and on
+    // a 2000-alert account any single change re-mailed all 2000. The tests below pin the two
+    // properties that fixes: only additions are reported, and removals are silent.
+
+    private static final String AWS_SEEN_KEY = "notif::seen-alerts::aws::acct-1";
+
+    @SuppressWarnings("unchecked")
+    private void seenInRedis(String key, List<String> keys) {
+        when(redisCache.get(eq(key), any(com.fasterxml.jackson.core.type.TypeReference.class)))
+                .thenReturn(Optional.of(keys));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void noSeenStateInRedis() {
+        when(redisCache.get(anyString(), any(com.fasterxml.jackson.core.type.TypeReference.class)))
+                .thenReturn(Optional.empty());
+    }
+
+    @Test
+    void detectNewAlerts_noPriorState_isColdStartBaselineNotNewFindings() {
+        noSeenStateInRedis();
+        List<AlertDto> current = List.of(
+                alert("QUOTA", "VPC limit", "VPC", "us-east-1", "ACTIVE"),
+                alert("COST", "EC2 spike", "EC2", "us-east-1", "ACTIVE"));
+
+        AlertNotificationDeduplicator.AlertDelta delta = dedup.detectNewAlerts("aws", "acct-1", current);
+
+        assertThat(delta.coldStart()).isTrue();
+        assertThat(delta.newAlerts()).hasSize(2);
+        assertThat(delta.totalOpen()).isEqualTo(2);
+        assertThat(delta.worthSending()).isTrue();
+    }
+
+    @Test
+    void detectNewAlerts_everythingAlreadySeen_sendsNothing() {
+        AlertDto a = alert("QUOTA", "VPC limit", "VPC", "us-east-1", "ACTIVE");
+        AlertDto b = alert("COST", "EC2 spike", "EC2", "us-east-1", "ACTIVE");
+        seenInRedis(AWS_SEEN_KEY, List.of(
+                AlertNotificationDeduplicator.alertKey(a),
+                AlertNotificationDeduplicator.alertKey(b)));
+
+        AlertNotificationDeduplicator.AlertDelta delta = dedup.detectNewAlerts("aws", "acct-1", List.of(a, b));
+
+        assertThat(delta.worthSending()).isFalse();
+        assertThat(delta.newAlerts()).isEmpty();
+        assertThat(delta.coldStart()).isFalse();
+        assertThat(delta.totalOpen()).isEqualTo(2);
+    }
+
+    @Test
+    void detectNewAlerts_onlyTheAddedAlertIsReported() {
+        AlertDto known = alert("QUOTA", "VPC limit", "VPC", "us-east-1", "ACTIVE");
+        AlertDto fresh = alert("SECURITY", "Public bucket", "S3", "us-east-1", "CRITICAL");
+        seenInRedis(AWS_SEEN_KEY, List.of(AlertNotificationDeduplicator.alertKey(known)));
+
+        AlertNotificationDeduplicator.AlertDelta delta =
+                dedup.detectNewAlerts("aws", "acct-1", List.of(known, fresh));
+
+        assertThat(delta.newAlerts()).hasSize(1);
+        assertThat(delta.newAlerts().get(0).getName()).isEqualTo("Public bucket");
+        // The email still reports the whole open set as a figure.
+        assertThat(delta.totalOpen()).isEqualTo(2);
+    }
+
+    @Test
+    void detectNewAlerts_resolutionOnly_sendsNothing() {
+        // This is the regression the old fingerprint had: the account got *healthier*
+        // and that generated an alert email.
+        AlertDto stillOpen = alert("QUOTA", "VPC limit", "VPC", "us-east-1", "ACTIVE");
+        AlertDto resolved = alert("COST", "EC2 spike", "EC2", "us-east-1", "ACTIVE");
+        seenInRedis(AWS_SEEN_KEY, List.of(
+                AlertNotificationDeduplicator.alertKey(stillOpen),
+                AlertNotificationDeduplicator.alertKey(resolved)));
+
+        AlertNotificationDeduplicator.AlertDelta delta =
+                dedup.detectNewAlerts("aws", "acct-1", List.of(stillOpen));
+
+        assertThat(delta.worthSending()).isFalse();
+        assertThat(delta.newAlerts()).isEmpty();
+        assertThat(delta.totalOpen()).isEqualTo(1);
+    }
+
+    @Test
+    void detectNewAlerts_allAlertsResolved_sendsNothing() {
+        seenInRedis(AWS_SEEN_KEY, List.of(
+                AlertNotificationDeduplicator.alertKey(alert("QUOTA", "VPC limit", "VPC", "us-east-1", "ACTIVE"))));
+
+        AlertNotificationDeduplicator.AlertDelta delta = dedup.detectNewAlerts("aws", "acct-1", List.of());
+
+        assertThat(delta.worthSending()).isFalse();
+        assertThat(delta.totalOpen()).isZero();
+    }
+
+    @Test
+    void detectNewAlerts_usageDrift_isNotANewAlert() {
+        // A quota alert creeping from 76% to 77% is the same finding. If usage were part of
+        // the identity, a busy account would mail every night forever.
+        AlertDto before = alert("QUOTA", "VPC limit", "VPC", "us-east-1", "ACTIVE");
+        before.setUsage(76.0);
+        before.setLimit(100.0);
+        seenInRedis(AWS_SEEN_KEY, List.of(AlertNotificationDeduplicator.alertKey(before)));
+
+        AlertDto after = alert("QUOTA", "VPC limit", "VPC", "us-east-1", "ACTIVE");
+        after.setUsage(77.0);
+        after.setLimit(100.0);
+
+        AlertNotificationDeduplicator.AlertDelta delta = dedup.detectNewAlerts("aws", "acct-1", List.of(after));
+
+        assertThat(delta.newAlerts()).isEmpty();
+        assertThat(delta.worthSending()).isFalse();
+    }
+
+    @Test
+    void detectNewAlerts_alertThatClearedAndReturned_countsAsNewAgain() {
+        // markSeen is called even on silent runs, so the resolved alert was forgotten.
+        // Its return is genuinely news.
+        AlertDto returning = alert("COST", "EC2 spike", "EC2", "us-east-1", "ACTIVE");
+        seenInRedis(AWS_SEEN_KEY, List.of(
+                AlertNotificationDeduplicator.alertKey(alert("QUOTA", "VPC limit", "VPC", "us-east-1", "ACTIVE"))));
+
+        AlertNotificationDeduplicator.AlertDelta delta =
+                dedup.detectNewAlerts("aws", "acct-1", List.of(returning));
+
+        assertThat(delta.newAlerts()).hasSize(1);
+        assertThat(delta.newAlerts().get(0).getName()).isEqualTo("EC2 spike");
+    }
+
+    @Test
+    void detectNewAlerts_nullList_treatedAsEmpty() {
+        noSeenStateInRedis();
+
+        AlertNotificationDeduplicator.AlertDelta delta = dedup.detectNewAlerts("aws", "acct-1", null);
+
+        assertThat(delta.newAlerts()).isEmpty();
+        assertThat(delta.totalOpen()).isZero();
+        assertThat(delta.worthSending()).isFalse();
+    }
+
+    @Test
+    void detectNewAlerts_isPerProviderAndPerAccount() {
+        noSeenStateInRedis();
+        dedup.detectNewAlerts("gcp", "my-project", List.of());
+
+        verify(redisCache).get(eq("notif::seen-alerts::gcp::my-project"),
+                any(com.fasterxml.jackson.core.type.TypeReference.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void markSeen_storesAlertKeysWithOneYearTtl() {
+        dedup.markSeen("aws", "acct-1", List.of(
+                alert("QUOTA", "VPC limit", "VPC", "us-east-1", "ACTIVE"),
+                alert("COST", "EC2 spike", "EC2", "us-east-1", "ACTIVE")));
+
+        ArgumentCaptor<List<String>> keysCaptor = ArgumentCaptor.forClass(List.class);
+        verify(redisCache).put(eq(AWS_SEEN_KEY), keysCaptor.capture(), eq(365 * 24 * 60));
+        assertThat(keysCaptor.getValue()).hasSize(2);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void markSeen_deduplicatesIdenticalAlerts() {
+        AlertDto a = alert("QUOTA", "VPC limit", "VPC", "us-east-1", "ACTIVE");
+        AlertDto sameAgain = alert("QUOTA", "VPC limit", "VPC", "us-east-1", "ACTIVE");
+
+        dedup.markSeen("aws", "acct-1", List.of(a, sameAgain));
+
+        ArgumentCaptor<List<String>> keysCaptor = ArgumentCaptor.forClass(List.class);
+        verify(redisCache).put(eq(AWS_SEEN_KEY), keysCaptor.capture(), anyInt());
+        assertThat(keysCaptor.getValue()).hasSize(1);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void markSeen_emptyList_clearsTheRememberedSet() {
+        dedup.markSeen("aws", "acct-1", List.of());
+
+        ArgumentCaptor<List<String>> keysCaptor = ArgumentCaptor.forClass(List.class);
+        verify(redisCache).put(eq(AWS_SEEN_KEY), keysCaptor.capture(), anyInt());
+        assertThat(keysCaptor.getValue()).isEmpty();
+    }
+
+    @Test
+    void clearSeen_evictsTheAccountsKey() {
+        dedup.clearSeen("azure", "sub-123");
+
+        verify(redisCache).evict("notif::seen-alerts::azure::sub-123");
+    }
+
+    @Test
+    void alertKey_matchesFingerprintFields_ignoringUsageAndLimit() {
+        AlertDto low = alert("QUOTA", "VPC limit", "VPC", "us-east-1", "ACTIVE");
+        low.setUsage(10.0);
+        AlertDto high = alert("QUOTA", "VPC limit", "VPC", "us-east-1", "ACTIVE");
+        high.setUsage(99.0);
+
+        assertThat(AlertNotificationDeduplicator.alertKey(low))
+                .isEqualTo(AlertNotificationDeduplicator.alertKey(high));
+    }
+
+    @Test
+    void alertKey_differentRegion_isADifferentAlert() {
+        assertThat(AlertNotificationDeduplicator.alertKey(
+                alert("QUOTA", "VPC limit", "VPC", "us-east-1", "ACTIVE")))
+                .isNotEqualTo(AlertNotificationDeduplicator.alertKey(
+                        alert("QUOTA", "VPC limit", "VPC", "eu-west-1", "ACTIVE")));
+    }
+
     // ── Helper ────────────────────────────────────────────────────────────────
 
     private AlertDto alert(String type, String name, String service, String region, String status) {

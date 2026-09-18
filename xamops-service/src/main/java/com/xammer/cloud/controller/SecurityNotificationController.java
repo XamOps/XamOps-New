@@ -182,6 +182,13 @@ public class SecurityNotificationController {
             prefs.setSeverityThreshold(
                     SecuritySeverity.normalize(String.valueOf(body.get("severityThreshold"))));
         }
+        if (body.get("digestSeverityThreshold") != null) {
+            // Separate knob from severityThreshold above: that one gates the immediate
+            // per-finding email, this one gates the periodic cloud alert digest. Same
+            // normalisation, for the same reason.
+            prefs.setDigestSeverityThreshold(
+                    SecuritySeverity.normalize(String.valueOf(body.get("digestSeverityThreshold"))));
+        }
         if (body.get("maxEmailsPerHour") != null) {
             try {
                 int max = Integer.parseInt(String.valueOf(body.get("maxEmailsPerHour")));

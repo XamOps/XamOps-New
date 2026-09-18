@@ -8,6 +8,7 @@ import com.xammer.cloud.dto.FinOpsReportDto;
 import com.xammer.cloud.dto.ReservationDto;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.JobExecutionHistoryRepository;
+import com.xammer.cloud.service.azure.AzureAlertsService;
 import com.xammer.cloud.service.azure.AzureBillingDataIngestionService;
 import com.xammer.cloud.service.azure.AzureCloudListService;
 import com.xammer.cloud.service.azure.AzureCostService;
@@ -82,6 +83,7 @@ public class ProactiveCacheRefreshService {
     private final AzureCloudListService azureCloudListService;
     private final AzureCostService azureCostService;
     private final AzureBillingDataIngestionService azureBillingDataIngestionService;
+    private final AzureAlertsService azureAlertsService;
 
     private final JobExecutionHistoryRepository jobExecutionHistoryRepository;
     private final JdbcTemplate masterJdbcTemplate;
@@ -130,6 +132,7 @@ public class ProactiveCacheRefreshService {
             AzureCloudListService azureCloudListService,
             AzureCostService azureCostService,
             AzureBillingDataIngestionService azureBillingDataIngestionService,
+            AzureAlertsService azureAlertsService,
             JobExecutionHistoryRepository jobExecutionHistoryRepository,
             @Qualifier("masterDataSource") DataSource masterDataSource,
             com.xammer.cloud.config.SchedulingEnvironmentConfig envConfig,
@@ -164,6 +167,7 @@ public class ProactiveCacheRefreshService {
         this.azureCloudListService = azureCloudListService;
         this.azureCostService = azureCostService;
         this.azureBillingDataIngestionService = azureBillingDataIngestionService;
+        this.azureAlertsService = azureAlertsService;
         this.jobExecutionHistoryRepository = jobExecutionHistoryRepository;
         this.masterJdbcTemplate = new JdbcTemplate(masterDataSource);
         this.envConfig = envConfig;
@@ -902,6 +906,11 @@ public class ProactiveCacheRefreshService {
                         int alertCount = alerts.getAlerts() != null ? alerts.getAlerts().size() : 0;
                         logger.info("✓ Alerts cached for {} (database) - {} alerts", accountId, alertCount);
 
+                        // Notify from here rather than from getAlerts, so a page load cannot email.
+                        // Reuses the list just fetched instead of asking AWS a second time.
+                        cloudGuardService.notifyNewAlerts(accountId,
+                                alerts.getAlerts() != null ? alerts.getAlerts() : java.util.List.of());
+
                         count++;
                     } catch (Exception e) {
                         logger.error("Failed Alerts refresh for {}", accountId, e);
@@ -1352,6 +1361,59 @@ public class ProactiveCacheRefreshService {
 
             } catch (Exception e) {
                 logger.error("❌ Failed GCP Alerts refresh for tenant {}", tenantId, e);
+                if (jobHistory.getId() != null) {
+                    jobHistory.setStatus("FAILURE");
+                    jobHistory.setErrorMessage(e.getMessage());
+                    jobHistory.setEndTime(LocalDateTime.now());
+                    jobExecutionHistoryRepository.save(jobHistory);
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }
+    }
+
+    // ===================================================================================
+    // 3:25 AM -> Azure Alerts Refresh + Notification (Daily — every night)
+    //
+    // Azure had no scheduled alerts job at all. Its digest was sent from inside getAlerts, so the
+    // only thing that ever mailed an Azure customer was somebody opening the Alerts page. Now that
+    // the send has moved out of the read path, this job is what delivers it.
+    // ===================================================================================
+    @Scheduled(cron = "0 25 3 * * *")
+    public void refreshAzureAlertsData() {
+        logger.info("--- [3:25 AM] Starting Azure Alerts Refresh ---");
+        List<String> tenants = fetchActiveTenants();
+
+        for (String tenantId : tenants) {
+            JobExecutionHistory jobHistory = new JobExecutionHistory("REFRESH_AZURE_ALERTS", tenantId,
+                    LocalDateTime.now(), "RUNNING");
+            try {
+                TenantContext.setCurrentTenant(tenantId);
+                jobHistory = jobExecutionHistoryRepository.save(jobHistory);
+
+                int count = 0;
+                for (CloudAccount account : getAllAccounts()) {
+                    if (!"Azure".equalsIgnoreCase(account.getProvider())) continue;
+                    String subscriptionId = account.getAzureSubscriptionId();
+                    if (subscriptionId == null || subscriptionId.isEmpty()) continue;
+                    try {
+                        azureAlertsService.notifyNewAlerts(subscriptionId);
+                        logger.info("✓ Azure Alerts refreshed for subscription {}", subscriptionId);
+                        count++;
+                    } catch (Exception e) {
+                        logger.error("Failed Azure Alerts refresh for {}: {}", subscriptionId, e.getMessage());
+                    }
+                }
+
+                jobHistory.setStatus("SUCCESS");
+                jobHistory.setEndTime(LocalDateTime.now());
+                jobHistory.setItemsProcessed(count);
+                jobExecutionHistoryRepository.save(jobHistory);
+                logger.info("--- Azure Alerts Refresh complete for tenant {} ({} subscriptions) ---",
+                        tenantId, count);
+            } catch (Exception e) {
+                logger.error("❌ Failed Azure Alerts refresh for tenant {}", tenantId, e);
                 if (jobHistory.getId() != null) {
                     jobHistory.setStatus("FAILURE");
                     jobHistory.setErrorMessage(e.getMessage());

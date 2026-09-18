@@ -553,14 +553,60 @@ public class DashboardData {
   }
 
   @Data
-  @AllArgsConstructor
   @NoArgsConstructor
   public static class CostAnomaly {
     private String anomalyId;
     private String service;
+
+    /** Spend above the baseline, not the total. The total on its own is not an anomaly. */
     private double unexpectedSpend;
+
     private LocalDate startDate;
     private LocalDate endDate;
+
+    /**
+     * What this service normally spends per day, so the anomaly can be explained rather than
+     * asserted.
+     *
+     * <p>Every detector that produces one of these already computes a trailing average and
+     * then threw it away, leaving an alert that said "unexpected spend: 4,200" with nothing to
+     * judge it against. A reader cannot tell whether that is a catastrophe or a rounding error
+     * without knowing the baseline it deviated from.
+     *
+     * <p>Zero when the detector did not supply one, which reads as "unknown" — see
+     * {@link #getChangeRatio()}.
+     */
+    private double baselineSpend;
+
+    /** The five-field shape, for detectors that do not report a baseline. */
+    public CostAnomaly(String anomalyId, String service, double unexpectedSpend,
+        LocalDate startDate, LocalDate endDate) {
+      this(anomalyId, service, unexpectedSpend, startDate, endDate, 0.0);
+    }
+
+    public CostAnomaly(String anomalyId, String service, double unexpectedSpend,
+        LocalDate startDate, LocalDate endDate, double baselineSpend) {
+      this.anomalyId = anomalyId;
+      this.service = service;
+      this.unexpectedSpend = unexpectedSpend;
+      this.startDate = startDate;
+      this.endDate = endDate;
+      this.baselineSpend = baselineSpend;
+    }
+
+    /**
+     * How many times its normal spend this service reached, or 0 when unknown.
+     *
+     * <p>{@code 0} rather than {@code 1} for the unknown case: a caller grading severity by
+     * ratio must be able to tell "no baseline" apart from "exactly normal", and 1.0 would
+     * silently claim the latter.
+     */
+    public double getChangeRatio() {
+      if (baselineSpend <= 0) {
+        return 0.0;
+      }
+      return (baselineSpend + unexpectedSpend) / baselineSpend;
+    }
   }
 
   @Data
