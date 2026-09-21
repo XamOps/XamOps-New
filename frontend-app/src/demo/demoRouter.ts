@@ -107,6 +107,17 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   if (url.includes('/api/xamops/tickets'))
     return makeResponse({ content: xamops.demoTickets, totalElements: xamops.demoTickets.length, totalPages: 1 });
 
+  // CUR insights — Cost page sections that read the Cost and Usage Report. No Cost
+  // Explorer fallback, so without a mock the request falls through to the real backend,
+  // gets a 409 (the demo account has no CUR), and each section hides itself. Specific
+  // paths only; there is no cur-insights catch-all so any unmocked one still 409s.
+  if (url.includes('/api/xamops/cur-insights/charges-by-service'))
+    return makeResponse(xamops.demoChargesByService);
+  if (url.includes('/api/xamops/cur-insights/top-resources'))
+    return makeResponse(xamops.demoTopResources);
+  if (url.includes('/api/xamops/cur-insights/data-transfer'))
+    return makeResponse(xamops.demoDataTransferCosts);
+
   // Costs (with "s") — breakdown, historical trend, forecast
   if (url.includes('/api/xamops/costs/breakdown'))
     return makeResponse(xamops.demoCostBreakdown);
