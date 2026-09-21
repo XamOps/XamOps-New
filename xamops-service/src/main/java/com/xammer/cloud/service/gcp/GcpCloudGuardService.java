@@ -15,6 +15,10 @@ import com.google.cloud.compute.v1.Quota;
 import com.google.cloud.compute.v1.RegionsClient;
 import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.permissions.GcpDenialClassifier;
+import com.xammer.cloud.permissions.PermissionGap;
+import com.xammer.cloud.permissions.PermissionGapRegistry;
+import com.xammer.cloud.permissions.PermissionGaps;
 import com.xammer.cloud.dto.AlertDto;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.gcp.GcpAlertsResponse;
@@ -59,6 +63,7 @@ public class GcpCloudGuardService {
     private final AlertEmailBuilder alertEmailBuilder;
     private final AlertNotificationDeduplicator deduplicator;
     private final AlertDigestSeverityGate severityGate;
+    private final PermissionGapRegistry permissionGapRegistry;
 
     // Define Quota details
     private static final String NETWORK_QUOTA_NAME = "NETWORKS";
@@ -101,7 +106,8 @@ public class GcpCloudGuardService {
             NotificationRecipientResolver recipientResolver,
             AlertEmailBuilder alertEmailBuilder,
             AlertNotificationDeduplicator deduplicator,
-            AlertDigestSeverityGate severityGate
+            AlertDigestSeverityGate severityGate,
+            PermissionGapRegistry permissionGapRegistry
     ) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.gcpClientProvider = gcpClientProvider;
@@ -116,6 +122,7 @@ public class GcpCloudGuardService {
         this.alertEmailBuilder = alertEmailBuilder;
         this.deduplicator = deduplicator;
         this.severityGate = severityGate;
+        this.permissionGapRegistry = permissionGapRegistry;
     }
 
     private void saveToDb(String dbKey, Object data) {
@@ -444,13 +451,55 @@ public class GcpCloudGuardService {
                     }
                 }
                 log.info("Found {} GCP quota alerts for project {}", alerts.size(), gcpProjectId);
+                // The scan worked, so clear any gap a previous run recorded. Catch-block
+                // instrumentation has no success hook of its own, unlike the AWS interceptor.
+                resolveQuotaPermissionGap(gcpProjectId);
 
             } catch (Exception e) {
                 log.error("Error checking GCP quotas for project {}: {}", gcpProjectId, e.getMessage(), e);
+                // Classify before returning. This is the line that put a raw
+                // "invalid_grant: Invalid JWT Signature" string on the Alerts page: the banner
+                // explained nothing because the failure was never recorded as a permission gap,
+                // only rendered as a degraded-scan reason.
+                recordQuotaPermissionGap(gcpProjectId, e);
                 return CheckOutcome.partial(alerts, "Quota usage could not be read: " + e.getMessage());
             }
             return CheckOutcome.ok(alerts);
         });
+    }
+
+    /**
+     * Records a quota-check failure as a permission gap when it is one.
+     *
+     * <p>Attributed to {@code compute.regions.list} rather than to credentials generally,
+     * because that is the permission the check actually needs — which is what lets the banner
+     * name the missing permission instead of quoting an exception.
+     */
+    private void resolveQuotaPermissionGap(String gcpProjectId) {
+        try {
+            permissionGapRegistry.resolveIfKnown(gcpProjectId, "compute.regions.list");
+        } catch (Exception e) {
+            log.debug("Could not resolve GCP quota permission gap for {}: {}", gcpProjectId, e.getMessage());
+        }
+    }
+
+    private void recordQuotaPermissionGap(String gcpProjectId, Throwable failure) {
+        try {
+            GcpDenialClassifier.Result denial = GcpDenialClassifier.classify(failure);
+            if (denial == null) {
+                return;
+            }
+            if (denial.getKind() == PermissionGap.Kind.ROLE_UNREACHABLE) {
+                permissionGapRegistry.record(PermissionGaps.gcpUnreachable(
+                        gcpProjectId, denial.getErrorCode(), denial.getMessage()));
+            } else {
+                permissionGapRegistry.record(PermissionGaps.gcpDenied(
+                        gcpProjectId, "compute.regions.list",
+                        denial.getErrorCode(), denial.getMessage(), denial.getKind()));
+            }
+        } catch (Exception e) {
+            log.debug("Could not record GCP quota permission gap for {}: {}", gcpProjectId, e.getMessage());
+        }
     }
 
 

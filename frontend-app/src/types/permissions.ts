@@ -8,11 +8,20 @@
  */
 
 export type PermissionGapKind =
-  /** The IAM role is missing the action — policy edited or role replaced. */
+  /**
+   * The identity is missing the action — an AWS policy edited or role replaced, a GCP role
+   * removed from the service account, or an Azure role assignment dropped.
+   */
   | 'PERMISSION'
-  /** The AWS service itself is not enabled/opted in for the account. */
+  /**
+   * The service itself is switched off for the account: not opted in on AWS, or the API
+   * disabled on a GCP project. A different fix from a permission, hence a separate kind.
+   */
   | 'SERVICE_NOT_ENABLED'
-  /** XamOps cannot assume the cross-account role at all. */
+  /**
+   * XamOps cannot authenticate at all, so nothing loads: an unassumable AWS role, a revoked
+   * GCP service-account key, or an expired Azure client secret.
+   */
   | 'ROLE_UNREACHABLE';
 
 export type AccountHealth = 'HEALTHY' | 'DEGRADED' | 'UNREACHABLE';
@@ -104,8 +113,8 @@ const ROUTE_FEATURES: Array<[string, string]> = [
 
 /**
  * Resolves a route to its feature key. Provider-prefixed variants (/gcp-waste,
- * /azure-cost) map to the same feature as their AWS counterpart — the gap data
- * is AWS-only today, but the page identity is shared.
+ * /azure-cost) map to the same feature as their AWS counterpart, because the page
+ * identity is shared and gap data now exists for all three providers.
  */
 export const featureForRoute = (pathname: string): string | null => {
   const normalized = pathname.replace(/^\/(gcp|azure)-/, '/');

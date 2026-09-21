@@ -61,6 +61,10 @@ import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
 import com.google.cloud.aiplatform.v1.EndpointServiceSettings; // ✅ CORRECT
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.permissions.GcpDenialClassifier;
+import com.xammer.cloud.permissions.PermissionGap;
+import com.xammer.cloud.permissions.PermissionGapRegistry;
+import com.xammer.cloud.permissions.PermissionGaps;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.google.cloud.aiplatform.v1.EndpointServiceClient;
 import com.google.cloud.aiplatform.v1.ModelServiceClient;
@@ -94,9 +98,58 @@ import java.util.Optional;
 public class GcpClientProvider {
 
     private final CloudAccountRepository cloudAccountRepository;
+    private final PermissionGapRegistry permissionGapRegistry;
 
-    public GcpClientProvider(CloudAccountRepository cloudAccountRepository) {
+    public GcpClientProvider(CloudAccountRepository cloudAccountRepository,
+            PermissionGapRegistry permissionGapRegistry) {
         this.cloudAccountRepository = cloudAccountRepository;
+        this.permissionGapRegistry = permissionGapRegistry;
+    }
+
+    /**
+     * Records a credential failure against the project, if it is an access problem.
+     *
+     * <p>GCP has no equivalent of the AWS SDK's {@code ExecutionInterceptor}, so there is no
+     * single seam that sees every failed call. This is the next best thing: every one of the
+     * {@code getXxxClient} methods below resolves credentials through {@link #getCredentials},
+     * so a dead key is caught once here rather than in sixty catch blocks.
+     *
+     * <p>Silent on anything the classifier does not recognise. A network blip reported as a
+     * revoked key would send a customer rotating credentials for no reason.
+     */
+    private void recordCredentialFailure(String gcpProjectId, Throwable failure) {
+        try {
+            GcpDenialClassifier.Result denial = GcpDenialClassifier.classify(failure);
+            if (denial == null) {
+                return;
+            }
+            if (denial.getKind() == PermissionGap.Kind.ROLE_UNREACHABLE) {
+                permissionGapRegistry.record(PermissionGaps.gcpUnreachable(
+                        gcpProjectId, denial.getErrorCode(), denial.getMessage()));
+            } else {
+                permissionGapRegistry.record(PermissionGaps.gcpDenied(
+                        gcpProjectId, "iam.serviceAccounts.getAccessToken",
+                        denial.getErrorCode(), denial.getMessage(), denial.getKind()));
+            }
+        } catch (Exception e) {
+            // Never let the permission tracker turn a failed GCP call into a different failure.
+            log.debug("Could not record GCP permission gap for project {}: {}", gcpProjectId, e.getMessage());
+        }
+    }
+
+    /**
+     * Clears a previously-recorded credential gap once the project authenticates again.
+     *
+     * <p>The AWS path gets this for free from the interceptor's success hook. Explicit
+     * catch-block instrumentation has no such hook, so without this a gap would linger until
+     * its 24-hour TTL expired even after the customer fixed the key.
+     */
+    private void resolveCredentialGap(String gcpProjectId) {
+        try {
+            permissionGapRegistry.resolveIfKnown(gcpProjectId, "iam.serviceAccounts.getAccessToken");
+        } catch (Exception e) {
+            log.debug("Could not resolve GCP permission gap for project {}: {}", gcpProjectId, e.getMessage());
+        }
     }
 
     public Optional<AssetServiceClient> getAssetServiceClient(String gcpProjectId) {
@@ -131,6 +184,11 @@ public class GcpClientProvider {
                     .createScoped("https://www.googleapis.com/auth/cloud-platform"));
         } catch (IOException e) {
             log.error("Failed to create GoogleCredentials for project ID: {}", gcpProjectId, e);
+            // Malformed or truncated key material. Note this does NOT catch a revoked key:
+            // fromStream only parses the JSON and never contacts Google, so a key that is
+            // well-formed but no longer valid succeeds here and fails later at token refresh.
+            // See getAccessToken.
+            recordCredentialFailure(gcpProjectId, e);
             return Optional.empty();
         }
     }
@@ -170,10 +228,16 @@ public class GcpClientProvider {
     public Optional<String> getAccessToken(String gcpProjectId) {
         return getCredentials(gcpProjectId).map(credentials -> {
             try {
+                // The first point that actually talks to Google. A deleted, disabled or rotated
+                // service-account key fails here with invalid_grant, which is the single most
+                // common way GCP access dies — and it is invisible upstream, because building
+                // the credentials object is a local parse.
                 credentials.refreshIfExpired();
+                resolveCredentialGap(gcpProjectId);
                 return credentials.getAccessToken().getTokenValue();
             } catch (IOException e) {
                 log.error("Failed to obtain access token for project ID: {}", gcpProjectId, e);
+                recordCredentialFailure(gcpProjectId, e);
                 return null;
             }
         });
