@@ -94,10 +94,19 @@ public class GcpCostService {
     // A CSP-managed project has NO billing export of its own — its costs live in the
     // reseller's dataset under a flattened schema (project_id, cost_at_list,
     // service_description, region, ...). The standard-export SQL in this class
-    // (SUM(cost), project.id, service.description, location.region) cannot read it, and
-    // getBillingTableName() cannot find a table for it, so every query returned empty.
-    // These helpers let the cost getters read the reseller dataset directly instead of
-    // depending on the nightly ingestion having pre-warmed exactly the right cache key.
+    // (net cost over cost/credits, project.id, service.description, location.region)
+    // cannot read it, and getBillingTableName() cannot find a table for it, so every query
+    // returned empty. These helpers let the cost getters read the reseller dataset directly
+    // instead of depending on the nightly ingestion having pre-warmed the right cache key.
+    //
+    // NOTE: the reseller path sums cost_at_list, which is LIST price — before negotiated
+    // discounts and before credits. The standard-export path now reports net cost (see
+    // GcpBillingSql.NET_COST_SUM), so the two are not directly comparable, and a CSP project
+    // will read higher than a direct project with identical usage. Correcting it needs a
+    // business decision rather than a code change: whether a resold customer should see list
+    // cost, Xammer's cost, or the repriced customer_cost depends on the reseller agreement,
+    // and this dataset is a custom flattened view whose columns are configured per tenant
+    // (CspBillingConfig.datasetId/tableId), so it may not even carry a credits array.
     // =====================================================================================
 
     /** A CSP-managed project's reseller config plus a BigQuery client authorised for it. */
@@ -255,7 +264,7 @@ public class GcpCostService {
                 "SELECT " +
                         "    service.description as service, " +
                         "    location.region as region, " +
-                        "    SUM(cost) as total_cost " +
+                        "    " + GcpBillingSql.NET_COST_SUM + " as total_cost " +
                         "FROM `%s` " +
                         "WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
                         "GROUP BY 1, 2 " +
@@ -350,7 +359,8 @@ public class GcpCostService {
         LocalDate today = LocalDate.now();
         LocalDate startDate = today.withDayOfMonth(1);
         String query = String.format(
-                "SELECT l.value as name, SUM(cost) as total_cost, false as is_anomaly " +
+                "SELECT l.value as name, " + GcpBillingSql.NET_COST_SUM
+                        + " as total_cost, false as is_anomaly " +
                         "FROM `%s`, UNNEST(labels) as l " +
                         "WHERE project.id = '%s' AND l.key = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
                         "GROUP BY 1 ORDER BY total_cost DESC",
@@ -438,7 +448,7 @@ public class GcpCostService {
         LocalDate today = LocalDate.now();
         LocalDate startDate = today.withDayOfMonth(1);
         String query = String.format(
-                "SELECT SUM(cost) as total_cost FROM `%s` WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s'",
+                "SELECT " + GcpBillingSql.NET_COST_SUM + " as total_cost FROM `%s` WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s'",
                 tableNameOpt.get(), gcpProjectId,
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 today.format(DateTimeFormatter.ISO_LOCAL_DATE));
@@ -605,7 +615,7 @@ public class GcpCostService {
             String monthStart = today.withDayOfMonth(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
             String monthEnd   = today.format(DateTimeFormatter.ISO_LOCAL_DATE);
             String currentQuery = String.format(
-                    "SELECT SUM(cost) as total_cost FROM `%s` WHERE project.id = '%s' " +
+                    "SELECT " + GcpBillingSql.NET_COST_SUM + " as total_cost FROM `%s` WHERE project.id = '%s' " +
                     "AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s'",
                     tableNameOpt.get(), gcpProjectId, monthStart, monthEnd);
             try {
@@ -630,7 +640,9 @@ public class GcpCostService {
             String endDate   = today.format(DateTimeFormatter.ISO_LOCAL_DATE);
             String startDate = today.minusMonths(6).withDayOfMonth(1).format(DateTimeFormatter.ISO_LOCAL_DATE);
             String query = String.format(
-                    "WITH MonthlyCosts AS (SELECT FORMAT_DATE('%%Y-%%m', DATE(usage_start_time)) as name, SUM(cost) as total_cost FROM `%s` WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' GROUP BY 1), "
+                    "WITH MonthlyCosts AS (SELECT FORMAT_DATE('%%Y-%%m', DATE(usage_start_time)) as name, "
+                            + GcpBillingSql.NET_COST_SUM
+                            + " as total_cost FROM `%s` WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' GROUP BY 1), "
                             + "MonthlyCostsWithLag AS (SELECT name, total_cost, LAG(total_cost, 1, 0) OVER (ORDER BY name) as prev_month_cost FROM MonthlyCosts) "
                             + "SELECT name, total_cost, (total_cost > prev_month_cost * 1.2 AND prev_month_cost > 10) as is_anomaly FROM MonthlyCostsWithLag ORDER BY name",
                     tableNameOpt.get(), gcpProjectId, startDate, endDate);
@@ -800,7 +812,9 @@ public class GcpCostService {
                 : "";
 
         String query = String.format(
-                "SELECT FORMAT_DATE('%%Y-%%m-%%d', DATE(usage_start_time)) as date, SUM(cost) as cost FROM `%s` WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) < '%s' %s GROUP BY 1 ORDER BY 1",
+                "SELECT FORMAT_DATE('%%Y-%%m-%%d', DATE(usage_start_time)) as date, "
+                        + GcpBillingSql.NET_COST_SUM
+                        + " as cost FROM `%s` WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) < '%s' %s GROUP BY 1 ORDER BY 1",
                 tableNameOpt.get(), gcpProjectId,
                 startDate.toString(),
                 endDate.toString(),
@@ -959,7 +973,8 @@ public class GcpCostService {
             return Collections.emptyList();
 
         String query = String.format(
-                "SELECT COALESCE(%s, 'Uncategorized') as name, SUM(cost) as total_cost, false as is_anomaly FROM `%s` WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' GROUP BY 1 HAVING total_cost > 0 ORDER BY total_cost DESC",
+                "SELECT COALESCE(%s, 'Uncategorized') as name, " + GcpBillingSql.NET_COST_SUM
+                        + " as total_cost, false as is_anomaly FROM `%s` WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' GROUP BY 1 HAVING total_cost > 0 ORDER BY total_cost DESC",
                 dimension, tableNameOpt.get(), gcpProjectId, startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 endDate.format(DateTimeFormatter.ISO_LOCAL_DATE));
         return executeQuery(bigquery, query, gcpProjectId);
@@ -1212,7 +1227,7 @@ public class GcpCostService {
                 return Collections.emptyList();
 
             String query = String.format(
-                    "SELECT COALESCE(l.value, 'Untagged') as labelValue, SUM(cost) as cost " +
+                    "SELECT COALESCE(l.value, 'Untagged') as labelValue, " + GcpBillingSql.NET_COST_SUM + " as cost " +
                             "FROM `%s`, UNNEST(labels) as l " +
                             "WHERE project.id = '%s' AND l.key = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' "
                             +
@@ -1296,7 +1311,7 @@ public class GcpCostService {
                 "WITH DailyCosts AS (" +
                         "  SELECT DATE(usage_start_time) as cost_date, " +
                         "         service.description as service_name, " +
-                        "         SUM(cost) as daily_cost " +
+                        "         " + GcpBillingSql.NET_COST_SUM + " as daily_cost " +
                         "  FROM `%s` " +
                         "  WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
                         "  GROUP BY 1, 2 " +

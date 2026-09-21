@@ -7,7 +7,14 @@ package com.xammer.cloud.permissions;
  * UNAUTHENTICATED (code 16) for auth failures. Both mean the caller lacks
  * permission; we distinguish them for the summary message.
  *
- * Uses reflection to avoid hard dependency on GCP SDK in permissions-common.
+ * <p>Three shapes are checked, in order of reliability. The gRPC status code is
+ * authoritative and comes first. The message patterns after it exist because two
+ * important failures never produce a gRPC status at all: a revoked service-account key
+ * fails at the OAuth token endpoint with {@code invalid_grant}, and a project with the
+ * API switched off answers {@code SERVICE_DISABLED}. Both would otherwise be classified
+ * as "not a permissions problem" and stay invisible.
+ *
+ * <p>Uses reflection to avoid a hard dependency on the GCP SDK in permissions-common.
  */
 public final class GcpDenialClassifier {
 
@@ -49,6 +56,29 @@ public final class GcpDenialClassifier {
             }
             if (msg.contains("UNAUTHENTICATED") || msg.contains("Unauthenticated")) {
                 return new Result(PermissionGap.Kind.ROLE_UNREACHABLE, "UNAUTHENTICATED", msg);
+            }
+            // A service-account key that has been deleted, disabled, or had its project
+            // removed. This is the most common way GCP access dies in practice, and none of
+            // the patterns above match it: the OAuth token endpoint answers 400 with
+            // invalid_grant long before any gRPC status exists, so there is no
+            // PERMISSION_DENIED or UNAUTHENTICATED anywhere in the exception. Without this
+            // branch the failure is invisible to the tracker and surfaces only as a raw
+            // error string on the page.
+            if (msg.contains("invalid_grant")
+                    || msg.contains("Invalid JWT")
+                    || msg.contains("Invalid grant")
+                    || msg.contains("invalid_rapt")) {
+                return new Result(PermissionGap.Kind.ROLE_UNREACHABLE, "INVALID_GRANT", msg);
+            }
+            // The key itself is fine but the project has the API switched off. Not a policy
+            // problem, and telling the customer to edit IAM roles would send them to the
+            // wrong screen — this needs "enable the API", which is why it maps to
+            // SERVICE_NOT_ENABLED rather than PERMISSION.
+            if (msg.contains("SERVICE_DISABLED")
+                    || msg.contains("has not been used in project")
+                    || msg.contains("is disabled. Enable it by visiting")
+                    || msg.contains("accessNotConfigured")) {
+                return new Result(PermissionGap.Kind.SERVICE_NOT_ENABLED, "SERVICE_DISABLED", msg);
             }
         }
 

@@ -36,10 +36,10 @@ public class PermissionGapService {
         dto.setProvider(account.getProvider());
         dto.setAccessType(account.getAccessType());
 
-        // Currently only AWS is instrumented for permission tracking
-        List<PermissionGap> gaps = "AWS".equalsIgnoreCase(account.getProvider())
-                ? registry.findByAccount(account.getProviderAccountId())
-                : List.of();
+        // All three providers are instrumented. The registry keys on the opaque provider
+        // account id, so it needs no provider argument — getProviderAccountId already resolves
+        // to the AWS account id, GCP project id or Azure subscription id as appropriate.
+        List<PermissionGap> gaps = registry.findByAccount(account.getProviderAccountId());
 
         if (feature != null) {
             gaps = gaps.stream()
@@ -78,8 +78,7 @@ public class PermissionGapService {
                 : account.getProviderAccountId();
 
         if (roleUnreachable) {
-            return "XamOps can no longer assume the " + roleName + " role in " + accountLabel
-                    + ". No data can be loaded for this account until the role and its trust policy are restored.";
+            return unreachableSummary(account, accountLabel, roleName);
         }
 
         boolean onlyNotEnabled = gaps.stream()
@@ -90,7 +89,8 @@ public class PermissionGapService {
                     .distinct()
                     .collect(Collectors.joining(", "));
             return services + " is not enabled in " + accountLabel
-                    + ", so this data is not available. Enable it in the AWS console and the data will appear on the next refresh.";
+                    + ", so this data is not available. Enable it in the " + consoleNameOf(account)
+                    + " and the data will appear on the next refresh.";
         }
 
         List<String> actions = gaps.stream()
@@ -104,11 +104,81 @@ public class PermissionGapService {
                 ? String.join(", ", actions)
                 : String.join(", ", actions.subList(0, 3)) + " and " + (actions.size() - 3) + " more";
 
-        return scope + " is hidden because the " + roleName + " role in " + accountLabel
-                + " is missing " + actionList + ". Re-apply the XamOps policy to this role to restore it.";
+        return scope + " is hidden because " + identityPhraseOf(account, roleName) + " in " + accountLabel
+                + " is missing " + actionList + ". " + remediationOf(account);
     }
 
-    /** The onboarding stack names the role by access type; fall back to the ARN's role name. */
+    /**
+     * What is broken when nothing at all can be read.
+     *
+     * <p>Worth three separate sentences rather than one generic one, because the fix is in a
+     * different place for each provider and a customer following AWS instructions on a GCP
+     * project gets nowhere.
+     */
+    private String unreachableSummary(CloudAccount account, String accountLabel, String roleName) {
+        if (isGcp(account)) {
+            return "XamOps can no longer authenticate to " + accountLabel
+                    + ". The service account key has been deleted, disabled, or rotated. No data can be"
+                    + " loaded for this project until a new key is supplied.";
+        }
+        if (isAzure(account)) {
+            return "XamOps can no longer authenticate to " + accountLabel
+                    + ". The service principal's client secret has expired or its app registration was"
+                    + " removed. No data can be loaded for this subscription until it is restored.";
+        }
+        return "XamOps can no longer assume the " + roleName + " role in " + accountLabel
+                + ". No data can be loaded for this account until the role and its trust policy are restored.";
+    }
+
+    /** How to refer to the thing holding the permissions. */
+    private String identityPhraseOf(CloudAccount account, String roleName) {
+        if (isGcp(account)) {
+            return "the XamOps service account";
+        }
+        if (isAzure(account)) {
+            return "the XamOps service principal";
+        }
+        return "the " + roleName + " role";
+    }
+
+    /** The action that actually fixes it, per provider. */
+    private String remediationOf(CloudAccount account) {
+        if (isGcp(account)) {
+            return "Re-run the XamOps setup script for this project to grant the missing roles.";
+        }
+        if (isAzure(account)) {
+            return "Add the XamOps role assignment back on this subscription to restore it.";
+        }
+        return "Re-apply the XamOps policy to this role to restore it.";
+    }
+
+    private String consoleNameOf(CloudAccount account) {
+        if (isGcp(account)) {
+            return "Google Cloud console";
+        }
+        if (isAzure(account)) {
+            return "Azure portal";
+        }
+        return "AWS console";
+    }
+
+    // equalsIgnoreCase throughout: the provider column holds "Azure" rather than "AZURE", and
+    // CloudAccount.getProviderAccountId switches on it case-sensitively, so assuming a casing
+    // here is how a provider silently falls through to the AWS wording.
+    private boolean isGcp(CloudAccount account) {
+        return "GCP".equalsIgnoreCase(account.getProvider());
+    }
+
+    private boolean isAzure(CloudAccount account) {
+        return "Azure".equalsIgnoreCase(account.getProvider());
+    }
+
+    /**
+     * The onboarding stack names the role by access type; fall back to the ARN's role name.
+     *
+     * <p>AWS-only by nature. GCP and Azure never reach the call sites that use it — see
+     * {@link #identityPhraseOf}.
+     */
     private String roleNameOf(CloudAccount account) {
         String roleArn = account.getRoleArn();
         if (roleArn != null && roleArn.contains("/")) {

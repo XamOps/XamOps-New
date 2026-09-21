@@ -36,12 +36,16 @@ export const usePermissionGaps = (): UsePermissionGapsResult => {
 
   const feature = featureForRoute(location.pathname);
 
-  // Only AWS accounts are instrumented; asking about a GCP-only selection would
-  // always come back empty and just add a request per navigation.
-  const awsAccountIds = selectedAccountIds.filter(id =>
-    accounts.some(account => account.id === id && account.provider === 'AWS')
+  // All three providers are instrumented, so every selected account is worth asking about.
+  // The filter that used to sit here kept only provider === 'AWS', which meant a GCP or Azure
+  // account could never show a banner no matter what the backend recorded.
+  //
+  // Still filtered to accounts we can resolve a provider for: an id with no matching account
+  // has not loaded yet, and sending it would ask the backend about nothing.
+  const trackedAccountIds = selectedAccountIds.filter(id =>
+    accounts.some(account => account.id === id)
   );
-  const accountKey = awsAccountIds.join(',');
+  const accountKey = trackedAccountIds.join(',');
 
   const load = useCallback(async () => {
     if (!accountKey) {

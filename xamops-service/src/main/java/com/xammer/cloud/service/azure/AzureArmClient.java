@@ -4,6 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.azure.core.credential.TokenCredential;
 import com.azure.core.credential.TokenRequestContext;
+import com.xammer.cloud.permissions.AzureDenialClassifier;
+import com.xammer.cloud.permissions.PermissionGap;
+import com.xammer.cloud.permissions.PermissionGapRegistry;
+import com.xammer.cloud.permissions.PermissionGaps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -128,12 +132,131 @@ public class AzureArmClient {
     private final HttpClient httpClient;
     private final Map<String, CachedToken> tokenCache = new ConcurrentHashMap<>();
 
-    public AzureArmClient(AzureClientProvider clientProvider) {
+    private final PermissionGapRegistry permissionGapRegistry;
+
+    public AzureArmClient(AzureClientProvider clientProvider, PermissionGapRegistry permissionGapRegistry) {
         this.clientProvider = clientProvider;
+        this.permissionGapRegistry = permissionGapRegistry;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(CONNECT_TIMEOUT)
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
+    }
+
+    // ── Permission-gap tracking ──────────────────────────────────────────────
+    //
+    // Azure has no interceptor seam like the AWS SDK's ExecutionInterceptor, so denials are
+    // recorded from the two places that see them: getToken for authentication failures, and the
+    // 401/403 branch of send for authorisation failures. Every read path in this class funnels
+    // through send, so those two cover the whole Azure integration.
+    //
+    // All four helpers swallow their own exceptions. Permission tracking is diagnostic; it must
+    // never convert a failed Azure call into a different failure.
+
+    /** The service principal could not authenticate at all. */
+    private void recordUnreachable(String subscriptionId, Throwable failure) {
+        try {
+            AzureDenialClassifier.Result denial = AzureDenialClassifier.classify(failure);
+            // Recorded even when the classifier does not recognise the cause: reaching this point
+            // means the token call failed outright, and without a token nothing about this
+            // subscription can be read. The classifier only refines the error code.
+            String code = denial != null ? denial.getErrorCode() : "AuthenticationFailed";
+            String message = denial != null ? denial.getMessage() : failure.getMessage();
+            permissionGapRegistry.record(PermissionGaps.azureUnreachable(subscriptionId, code, message));
+        } catch (Exception e) {
+            logger.debug("Could not record Azure permission gap for {}: {}", subscriptionId, e.getMessage());
+        }
+    }
+
+    /** A 401 or 403 on a specific ARM request. */
+    private void recordHttpDenial(String url, int status) {
+        try {
+            String subscriptionId = subscriptionIdFrom(url);
+            if (subscriptionId == null) {
+                return;
+            }
+            String action = actionFrom(url);
+            if (status == 401) {
+                permissionGapRegistry.record(PermissionGaps.azureUnreachable(
+                        subscriptionId, "Unauthorized", "Azure rejected the ARM token for " + action));
+            } else {
+                permissionGapRegistry.record(PermissionGaps.azureDenied(
+                        subscriptionId, action, "AuthorizationFailed",
+                        "The service principal is not authorised to call " + action,
+                        PermissionGap.Kind.PERMISSION));
+            }
+        } catch (Exception e) {
+            logger.debug("Could not record Azure permission gap for {}: {}", url, e.getMessage());
+        }
+    }
+
+    private void resolveGapForUrl(String url) {
+        String subscriptionId = subscriptionIdFrom(url);
+        if (subscriptionId != null) {
+            resolveGap(subscriptionId, actionFrom(url));
+        }
+    }
+
+    private void resolveGap(String subscriptionId, String action) {
+        try {
+            permissionGapRegistry.resolveIfKnown(subscriptionId, action);
+        } catch (Exception e) {
+            logger.debug("Could not resolve Azure permission gap for {}: {}", subscriptionId, e.getMessage());
+        }
+    }
+
+    /**
+     * Pulls the subscription id out of an ARM URL.
+     *
+     * <p>{@code send} is handed only a URL and a bearer token, not the subscription it belongs
+     * to. Rather than thread an extra parameter through four public methods and every caller,
+     * it is recovered from the path — every ARM URL this client builds contains
+     * {@code /subscriptions/<id>/}.
+     */
+    static String subscriptionIdFrom(String url) {
+        if (url == null) {
+            return null;
+        }
+        int start = url.indexOf("/subscriptions/");
+        if (start < 0) {
+            return null;
+        }
+        start += "/subscriptions/".length();
+        int end = start;
+        while (end < url.length() && url.charAt(end) != '/' && url.charAt(end) != '?') {
+            end++;
+        }
+        return end > start ? url.substring(start, end) : null;
+    }
+
+    /**
+     * The RBAC action an ARM URL represents, as far as the path reveals it.
+     *
+     * <p>Good enough for the catalog lookup, which only needs the resource provider — the part
+     * after {@code /providers/}. Falls back to a subscription read, which is what a URL with no
+     * provider segment is in practice.
+     */
+    static String actionFrom(String url) {
+        String fallback = "Microsoft.Resources/subscriptions/read";
+        if (url == null) {
+            return fallback;
+        }
+        int start = url.indexOf("/providers/");
+        if (start < 0) {
+            return fallback;
+        }
+        start += "/providers/".length();
+        int end = start;
+        int slashes = 0;
+        // Provider plus one resource-type segment, e.g. Microsoft.Compute/virtualMachines.
+        while (end < url.length() && url.charAt(end) != '?') {
+            if (url.charAt(end) == '/' && ++slashes == 2) {
+                break;
+            }
+            end++;
+        }
+        String path = url.substring(start, end);
+        return path.isBlank() ? fallback : path + "/read";
     }
 
     /**
@@ -154,10 +277,16 @@ public class AzureArmClient {
             }
             CachedToken fresh = new CachedToken(accessToken.getToken(), accessToken.getExpiresAt());
             tokenCache.put(subscriptionId, fresh);
+            // Authentication works, so retract any gap a previous run recorded.
+            resolveGap(subscriptionId, "Microsoft.Resources/subscriptions/read");
             return fresh.token();
         } catch (AzureArmException e) {
             throw e;
         } catch (Exception e) {
+            // The service principal itself could not authenticate — an expired client secret,
+            // a wrong tenant, or a removed app registration. Distinct from a 403 below: nothing
+            // at all loads for this subscription, so it is recorded as unreachable.
+            recordUnreachable(subscriptionId, e);
             throw new AzureArmException(
                     "Failed to obtain ARM token for subscription " + subscriptionId + ": " + e.getMessage(), e);
         }
@@ -226,6 +355,7 @@ public class AzureArmClient {
                     if (attempt > 1) {
                         logger.info("ARM {} {} succeeded on attempt {}", method, url, attempt);
                     }
+                    resolveGapForUrl(url);
                     return Optional.of(response.body());
                 }
                 if (status == 404) {
@@ -234,6 +364,10 @@ public class AzureArmClient {
                 }
                 // Actionable configuration problems, not absent data — and not worth retrying.
                 if (status == 401 || status == 403) {
+                    // Recorded before throwing, so the banner can name the missing action rather
+                    // than the customer seeing only a degraded page. The ARM URL carries both the
+                    // subscription id and the resource provider, which is everything the gap needs.
+                    recordHttpDenial(url, status);
                     throw new AzureArmException(String.format(
                             "Azure denied access (HTTP %d). Check the service principal's role assignments. URL: %s",
                             status, url));

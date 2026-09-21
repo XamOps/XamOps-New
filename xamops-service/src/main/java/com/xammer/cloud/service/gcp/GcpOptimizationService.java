@@ -3384,13 +3384,16 @@ public class GcpOptimizationService {
                                            LocalDate today, String gcpProjectId,
                                            String sqlInstanceLabelKey, String instanceName) {
         return String.format(
-                "SELECT SUM(cost) as total_cost, currency "
+                "SELECT " + GcpBillingSql.NET_COST_SUM + " as total_cost, currency "
                         + "FROM `%s` "
                         + "WHERE DATE(%s) >= '%s' "
                         + "  AND DATE(%s) < '%s' "
                         + "  AND service.description = 'Cloud SQL' "
                         + "  AND project.id = '%s' "
                         + "  AND EXISTS (SELECT 1 FROM UNNEST(labels) AS l WHERE l.key = '%s' AND l.value = '%s') "
+                        // Keeps only rows that incurred a charge. Deliberately still filters on
+                        // gross cost: a row whose cost is fully offset by a credit is real usage
+                        // and belongs in the total, so filtering on the net figure would drop it.
                         + "  AND cost > 0 "
                         + "GROUP BY currency",
                 tableName,

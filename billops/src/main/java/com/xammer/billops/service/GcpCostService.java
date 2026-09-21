@@ -152,7 +152,7 @@ public class GcpCostService {
         LocalDate startDate = today.withDayOfMonth(1);
 
         String query = String.format(
-                "SELECT resource.name as resource_name, SUM(cost) as total_cost " +
+                "SELECT resource.name as resource_name, " + GcpBillingSql.NET_COST_SUM + " as total_cost " +
                         "FROM %s " +
                         "WHERE project.id = '%s' AND service.description = '%s' AND resource.name IS NOT NULL " +
                         "AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
@@ -290,7 +290,8 @@ public class GcpCostService {
 
         String query = String.format(
                 "WITH MonthlyCosts AS (" +
-                        "  SELECT FORMAT_DATE('%%Y-%%m', usage_start_time) as name, SUM(cost) as total_cost " +
+                        "  SELECT FORMAT_DATE('%%Y-%%m', usage_start_time) as name, "
+                        + GcpBillingSql.NET_COST_SUM + " as total_cost " +
                         "  FROM %s " +
                         "  WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
                         "  GROUP BY 1" +
@@ -322,7 +323,7 @@ public class GcpCostService {
         LocalDate startDate = today.withDayOfMonth(1);
 
         String query = String.format(
-                "SELECT service.description as service_name, SUM(cost) as total_cost " +
+                "SELECT service.description as service_name, " + GcpBillingSql.NET_COST_SUM + " as total_cost " +
                         "FROM %s " +
                         "WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
                         "GROUP BY 1 HAVING total_cost > 0 ORDER BY total_cost DESC",
@@ -346,7 +347,7 @@ public class GcpCostService {
             throws InterruptedException {
         LocalDate startDate = today.withDayOfMonth(1);
         String query = String.format(
-                "SELECT SUM(cost) as total_cost FROM %s WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s'",
+                "SELECT " + GcpBillingSql.NET_COST_SUM + " as total_cost FROM %s WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s'",
                 tableName, gcpProjectId,
                 startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 today.format(DateTimeFormatter.ISO_LOCAL_DATE));
