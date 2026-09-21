@@ -28,6 +28,7 @@ public class InvoiceUpdateDto {
         private String resourceName;
         private String usageQuantity;
         private String unit;
+        private String usageType;
         private BigDecimal cost;
                 private boolean hidden;
 
@@ -41,6 +42,8 @@ public class InvoiceUpdateDto {
         public void setUsageQuantity(String usageQuantity) { this.usageQuantity = usageQuantity; }
         public String getUnit() { return unit; }
         public void setUnit(String unit) { this.unit = unit; }
+        public String getUsageType() { return usageType; }
+        public void setUsageType(String usageType) { this.usageType = usageType; }
         public BigDecimal getCost() { return cost; }
         public void setCost(BigDecimal cost) { this.cost = cost; }
         public boolean isHidden() { return hidden; }

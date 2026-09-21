@@ -75,6 +75,8 @@ public class CurIngestionService {
     private static final String K_DAILY      = "AWS_CUR_DAILY::";
     private static final String K_SVC_REGION = "AWS_CUR_SVC_REGION::";
     private static final String K_SVC_USAGE  = "AWS_CUR_SVC_USAGE::";
+    private static final String K_MARKETPLACE = "AWS_CUR_MARKETPLACE::";
+    private static final String K_CHARGES    = "AWS_CUR_CHARGES::";
     private static final String K_STATE      = "AWS_CUR_STATE::";
 
     /**
@@ -127,6 +129,8 @@ public class CurIngestionService {
     public static String keyDaily(String accountId, YearMonth ym)     { return K_DAILY + accountId + "::" + ym; }
     public static String keySvcRegion(String accountId, YearMonth ym) { return K_SVC_REGION + accountId + "::" + ym; }
     public static String keySvcUsage(String accountId, YearMonth ym)  { return K_SVC_USAGE + accountId + "::" + ym; }
+    public static String keyMarketplace(String accountId, YearMonth ym) { return K_MARKETPLACE + accountId + "::" + ym; }
+    public static String keyCharges(String accountId, YearMonth ym)   { return K_CHARGES + accountId + "::" + ym; }
     public static String keyState(String accountId, YearMonth ym)     { return K_STATE + accountId + "::" + ym; }
 
     /** True when this account has a CUR export configured at all. */
@@ -226,6 +230,49 @@ public class CurIngestionService {
 
     public Optional<List<CurAggregates.SvcUsageEntry>> readSvcUsage(String accountId, YearMonth ym) {
         return read(keySvcUsage(accountId, ym), new TypeReference<List<CurAggregates.SvcUsageEntry>>() {});
+    }
+
+    /**
+     * Marketplace charges for the month, when the aggregate measured them.
+     *
+     * <p>Empty means unmeasured, not zero — see {@link CurAggregates#getMarketplace()}.
+     * A caller that cannot fall back to Cost Explorer must treat empty as a reason to
+     * stop, because billing zero for charges that exist is the worse failure.
+     */
+    public Optional<Double> readMarketplace(String accountId, YearMonth ym) {
+        return read(keyMarketplace(accountId, ym), new TypeReference<Double>() {});
+    }
+
+    /**
+     * The month's rate lines, as the bill lists them. Empty when the month was stored by
+     * a path that never read at that grain — the CSV ingestion below does not.
+     */
+    public Optional<List<CurAggregates.ChargeEntry>> readCharges(String accountId, YearMonth ym) {
+        return read(keyCharges(accountId, ym), new TypeReference<List<CurAggregates.ChargeEntry>>() {});
+    }
+
+    /**
+     * Reads the completeness sentinel, which carries when the month was last built.
+     *
+     * <p>The Athena reader uses the timestamp to decide whether an open month's
+     * aggregate is too old to serve — a closed month never changes, but the current
+     * one is rewritten by AWS several times a day.
+     */
+    public Optional<CurIngestState> readState(String accountId, YearMonth ym) {
+        return read(keyState(accountId, ym), new TypeReference<CurIngestState>() {});
+    }
+
+    /**
+     * Persists an aggregate produced elsewhere — specifically by the Athena reader,
+     * which is the only path that can read a Parquet CUR 1.0 report.
+     *
+     * <p>Exposed rather than made public on {@code persistAll} so that the ordering
+     * guarantee documented there stays owned by this class: whoever produced the
+     * figures, the sentinel is still written last and a month is still either wholly
+     * readable or absent.
+     */
+    public void storeAggregates(String accountId, YearMonth ym, CurAggregates aggregates) {
+        persistAll(accountId, ym, aggregates);
     }
 
     private <T> Optional<T> read(String key, TypeReference<T> typeRef) {
@@ -766,6 +813,10 @@ public class CurIngestionService {
         persist(keyDaily(accountId, ym), agg.getDaily());
         persist(keySvcRegion(accountId, ym), agg.getSvcRegion());
         persist(keySvcUsage(accountId, ym), agg.getSvcUsage());
+        // Written even when null, so "no row" always means "no aggregate for this month"
+        // rather than the ambiguous "written by a path that predates this key".
+        persist(keyMarketplace(accountId, ym), agg.getMarketplace());
+        persist(keyCharges(accountId, ym), agg.getCharges());
 
         CurIngestState state = new CurIngestState();
         state.setAssemblyId(agg.getAssemblyId());

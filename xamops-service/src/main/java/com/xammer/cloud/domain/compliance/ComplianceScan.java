@@ -68,8 +68,9 @@ public class ComplianceScan {
     private String errorMessage;
 
     /**
-     * Severity-weighted score at scan time, denormalised so the trend chart is one
-     * indexed read. Null when the scan produced nothing scoreable.
+     * Unweighted compliance score at scan time — the same figure the page headlines — denormalised
+     * so the trend chart is one indexed read. Null when the scan settled too little of its control
+     * set to rate.
      */
     @Column
     private Integer score;

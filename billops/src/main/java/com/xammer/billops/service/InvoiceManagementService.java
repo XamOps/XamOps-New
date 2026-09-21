@@ -30,6 +30,9 @@ import com.xammer.billops.dto.cur.CurAggregates;
 import com.xammer.billops.service.cdn.CloudFrontBill;
 import com.xammer.billops.service.cdn.CloudFrontBillLine;
 import com.xammer.billops.service.cdn.CloudFrontPricingService;
+import com.xammer.billops.service.cur.CurInvoiceDataService;
+import com.xammer.billops.service.cur.CurUnavailable;
+import com.xammer.billops.service.cur.CurUnavailableException;
 import com.xammer.cloud.domain.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -86,6 +89,7 @@ public class InvoiceManagementService {
     private final ClientRepository clientRepository;
     private final RedisCacheService redisCache;
     private AccountAccessHelper accountAccessHelper;
+    private final CurInvoiceDataService curInvoiceDataService;
 
     private static final String INVOICE_LIST_CACHE_KEY = "billops:invoices:list:admin";
     private static final long CACHE_TTL_MINUTES = 60;
@@ -134,7 +138,8 @@ public class InvoiceManagementService {
             CloudFrontPricingService cloudFrontPricingService,
             ClientRepository clientRepository,
             RedisCacheService redisCache,
-            AccountAccessHelper accountAccessHelper) {
+            AccountAccessHelper accountAccessHelper,
+            CurInvoiceDataService curInvoiceDataService) {
         this.invoiceRepository = invoiceRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.discountRepository = discountRepository;
@@ -149,6 +154,7 @@ public class InvoiceManagementService {
         this.clientRepository = clientRepository;
         this.redisCache = redisCache;
         this.accountAccessHelper = accountAccessHelper;
+        this.curInvoiceDataService = curInvoiceDataService;
     }
 
     @PostConstruct
@@ -958,7 +964,7 @@ public class InvoiceManagementService {
                             .setBackgroundColor(regionBg)
                             .setBorder(new SolidBorder(new DeviceRgb(210, 215, 230), 0.3f))
                             .setPaddingLeft(14).setPaddingTop(3).setPaddingBottom(3);
-                    rgnCell.add(new Paragraph(rgnName).setItalic().setFontSize(8)
+                    rgnCell.add(new Paragraph(regionDisplayName(rgnName)).setItalic().setFontSize(8)
                             .setFontColor(new DeviceRgb(60, 80, 130)));
                     table.addCell(rgnCell);
 
@@ -971,37 +977,47 @@ public class InvoiceManagementService {
                             .setFontColor(new DeviceRgb(60, 80, 130)));
                     table.addCell(rgnAmt);
 
-                    // Resource rows
+                    // Lines built from the Cost and Usage Report carry a usage type and sit
+                    // one level deeper, under it, as they do on the AWS bill and the detail
+                    // page. Lines without one — Cost Explorer invoices, repriced CloudFront —
+                    // stay directly under the region, exactly as before. Usage types keep the
+                    // order their first line appears in.
+                    Map<String, List<InvoiceDto.LineItemDto>> byUsageType = new LinkedHashMap<>();
+                    List<InvoiceDto.LineItemDto> ungrouped = new ArrayList<>();
                     for (InvoiceDto.LineItemDto li : rgnItems) {
-                        String resource = li.getResourceName() != null ? li.getResourceName() : "";
-                        String qty      = li.getUsageQuantity() != null ? li.getUsageQuantity() : "";
-                        String unit     = li.getUnit() != null ? li.getUnit() : "";
-                        double cost     = li.getCost() != null ? li.getCost().doubleValue() : 0.0;
+                        if (li.getUsageType() == null || li.getUsageType().isBlank()) {
+                            ungrouped.add(li);
+                        } else {
+                            byUsageType.computeIfAbsent(li.getUsageType(), k -> new ArrayList<>()).add(li);
+                        }
+                    }
 
-                        Cell resCell = new Cell()
+                    for (Map.Entry<String, List<InvoiceDto.LineItemDto>> utEntry : byUsageType.entrySet()) {
+                        BigDecimal utTotal = utEntry.getValue().stream()
+                                .map(li -> li.getCost() != null ? li.getCost() : BigDecimal.ZERO)
+                                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                        Cell utCell = new Cell(1, 3)
                                 .setBorder(new SolidBorder(new DeviceRgb(225, 228, 235), 0.3f))
-                                .setPaddingLeft(24).setPaddingTop(2).setPaddingBottom(2);
-                        resCell.add(new Paragraph(resource).setFontSize(7.5f));
-                        table.addCell(resCell);
+                                .setPaddingLeft(22).setPaddingTop(2).setPaddingBottom(2);
+                        utCell.add(new Paragraph(utEntry.getKey()).setBold().setFontSize(7.5f));
+                        table.addCell(utCell);
 
-                        Cell qtyCell = new Cell()
-                                .setBorder(new SolidBorder(new DeviceRgb(225, 228, 235), 0.3f))
-                                .setPaddingRight(4).setPaddingTop(2).setPaddingBottom(2);
-                        qtyCell.add(new Paragraph(qty).setFontSize(7.5f).setTextAlignment(TextAlignment.RIGHT));
-                        table.addCell(qtyCell);
-
-                        Cell unitCell = new Cell()
-                                .setBorder(new SolidBorder(new DeviceRgb(225, 228, 235), 0.3f))
-                                .setPaddingRight(4).setPaddingTop(2).setPaddingBottom(2);
-                        unitCell.add(new Paragraph(unit).setFontSize(7.5f).setTextAlignment(TextAlignment.RIGHT));
-                        table.addCell(unitCell);
-
-                        Cell costCell = new Cell()
+                        Cell utAmt = new Cell()
                                 .setBorder(new SolidBorder(new DeviceRgb(225, 228, 235), 0.3f))
                                 .setPaddingRight(6).setPaddingTop(2).setPaddingBottom(2);
-                        costCell.add(new Paragraph(String.format("$%.4f", cost))
-                                .setFontSize(7.5f).setTextAlignment(TextAlignment.RIGHT));
-                        table.addCell(costCell);
+                        utAmt.add(new Paragraph(String.format("$%.4f", utTotal.doubleValue()))
+                                .setBold().setFontSize(7.5f).setTextAlignment(TextAlignment.RIGHT));
+                        table.addCell(utAmt);
+
+                        for (InvoiceDto.LineItemDto li : utEntry.getValue()) {
+                            addDetailLineRow(table, li, 32);
+                        }
+                    }
+
+                    // Resource rows
+                    for (InvoiceDto.LineItemDto li : ungrouped) {
+                        addDetailLineRow(table, li, 24);
                     }
                 }
             }
@@ -1244,10 +1260,32 @@ public class InvoiceManagementService {
         return invoice;
     }
 
+    /**
+     * Builds and saves a draft invoice.
+     *
+     * <p>For an AWS account, {@code source} decides where the figures come from, and the
+     * two paths do not mix:
+     * <ul>
+     *   <li>{@link Invoice.DataSource#CUR} reads the customer's Cost and Usage Report
+     *       and nothing else. When the report cannot answer — none connected, the month
+     *       predates it, Athena failed — it throws {@link CurUnavailableException}
+     *       carrying the reason, and <em>no Cost Explorer call is made</em>. Deciding to
+     *       fall back is left to the admin, because the two sources legitimately
+     *       disagree and silently switching between them would change a customer's bill
+     *       depending on which one happened to answer.</li>
+     *   <li>{@link Invoice.DataSource#COST_EXPLORER} is the path this method always had,
+     *       unchanged. It is only reached when an admin explicitly chose it.</li>
+     * </ul>
+     *
+     * <p>GCP and Azure accounts ignore {@code source}; they have their own billing
+     * exports and never touched Cost Explorer.
+     */
     @Transactional
     @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
-    public Invoice generateDraftInvoice(String accountId, int year, int month, boolean includeIrn) {
-        logger.info("[InvoiceGen] generateDraftInvoice called: accountId='{}', year={}, month={}, includeIrn={}", accountId, year, month, includeIrn);
+    public Invoice generateDraftInvoice(String accountId, int year, int month, boolean includeIrn,
+                                        Invoice.DataSource source) {
+        logger.info("[InvoiceGen] generateDraftInvoice called: accountId='{}', year={}, month={}, includeIrn={}, source={}",
+                accountId, year, month, includeIrn, source);
         // ✅ 1. Find Account by ANY Provider ID (AWS, GCP, or Azure)
         CloudAccount cloudAccount = cloudAccountRepository
                 .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
@@ -1255,8 +1293,37 @@ public class InvoiceManagementService {
 
         List<ServiceCostDetailDto> detailedReport = new ArrayList<>();
 
+        boolean isAws = !"GCP".equals(cloudAccount.getProvider()) && !"Azure".equals(cloudAccount.getProvider());
+        boolean fromCur = isAws && source == Invoice.DataSource.CUR;
+        YearMonth period = YearMonth.of(year, month);
+
+        // What the report said for this month. Only set on the CUR path; the Cost
+        // Explorer path keeps its own lookups below.
+        List<CurAggregates.ChargeEntry> curCharges = List.of();
+        Double curMarketplace = null;
+
         // ✅ 2. Handle Logic Based on Provider
-        if ("GCP".equals(cloudAccount.getProvider())) {
+        if (fromCur) {
+            // Everything this branch touches is the report or the stored copy of it.
+            // ensureMonthLoaded throws with a reason rather than returning empty, so no
+            // code below this line can be reached without CUR data — and nothing in it
+            // calls Cost Explorer.
+            CurAggregates reportMonth = curInvoiceDataService.ensureMonthLoaded(cloudAccount, period, false);
+
+            curCharges = Optional.ofNullable(reportMonth.getCharges()).orElse(List.of());
+            if (curCharges.isEmpty()) {
+                throw new CurUnavailableException(CurUnavailable.NO_DATA_FOR_MONTH,
+                        "the report holds no billable lines for " + period);
+            }
+            curMarketplace = reportMonth.getMarketplace();
+            if (curMarketplace == null) {
+                throw new CurUnavailableException(CurUnavailable.MARKETPLACE_UNMEASURED);
+            }
+
+            logger.info("[InvoiceGen] AWS invoice built from the Cost and Usage Report for {} — {} lines, total=${}",
+                    period, curCharges.size(),
+                    String.format("%.2f", curCharges.stream().mapToDouble(CurAggregates.ChargeEntry::getCost).sum()));
+        } else if ("GCP".equals(cloudAccount.getProvider())) {
             try {
                 GcpBillingDashboardDto dashboardDto = gcpCostService.getGcpBillingDashboardDtoAndCache(accountId)
                         .orElse(null);
@@ -1490,16 +1557,27 @@ public class InvoiceManagementService {
                 }
             }
         }
+        // The report's own rate lines, built directly rather than through the loop above:
+        // that loop drops every line at or below zero, which on this path would bill
+        // Savings-Plan-covered usage without the negation that offsets it.
+        lineItems.addAll(lineItemsFromCharges(invoice, curCharges));
         invoice.setLineItems(lineItems);
         invoice.setIncludeIrn(includeIrn);
+        if (isAws) {
+            invoice.setDataSource(fromCur ? Invoice.DataSource.CUR : Invoice.DataSource.COST_EXPLORER);
+            // Provisional whichever source built it: Cost Explorer's open month is no
+            // more final than the report's, it just does not say so.
+            invoice.setProvisional(!period.isBefore(YearMonth.now()));
+        }
 
         // AWS Marketplace charge (BILLING_ENTITY = "AWS Marketplace"). The consumption
         // total (preDiscountTotal) already includes this amount, so we store it
         // separately to (a) show it as its own "AWS Consumption Charge - Marketplace"
         // line and (b) exclude it from any discount.
-        if (!"GCP".equals(cloudAccount.getProvider()) && !"Azure".equals(cloudAccount.getProvider())
-                && cloudAccount.getAwsAccountId() != null) {
-            double marketplace = billingService.getMarketplaceCharge(cloudAccount.getAwsAccountId(), year, month, false);
+        if (isAws && cloudAccount.getAwsAccountId() != null) {
+            double marketplace = fromCur
+                    ? curMarketplace
+                    : billingService.getMarketplaceCharge(cloudAccount.getAwsAccountId(), year, month, false);
             if (marketplace > 0) {
                 invoice.setMarketplaceCharge(BigDecimal.valueOf(marketplace).setScale(4, RoundingMode.HALF_UP));
             }
@@ -1508,7 +1586,7 @@ public class InvoiceManagementService {
         // CloudFront is resold under a private pricing agreement, so its line items are
         // repriced from usage rather than passed through at AWS cost. Done after the loop
         // above so the generic path stays untouched and the swap is one explicit step.
-        repriceCloudFrontAtPrivateRates(lineItems, invoice, cloudAccount, year, month);
+        repriceCloudFrontAtPrivateRates(lineItems, invoice, cloudAccount, year, month, fromCur);
 
         recalculateTotals(invoice);
         logger.info("[InvoiceGen] Draft invoice computed for account='{}' {}/{}: {} line items, total={}, includeIrn={}",
@@ -1516,6 +1594,108 @@ public class InvoiceManagementService {
         Invoice saved = invoiceRepository.save(invoice);
         evictInvoiceListCache();
         return saved;
+    }
+
+    /** One line of the detail bill: text, quantity, unit and amount, indented to its level. */
+    private void addDetailLineRow(Table table, InvoiceDto.LineItemDto li, float indent) {
+        String resource = li.getResourceName() != null ? li.getResourceName() : "";
+        String qty      = li.getUsageQuantity() != null ? li.getUsageQuantity() : "";
+        String unit     = li.getUnit() != null ? li.getUnit() : "";
+        double cost     = li.getCost() != null ? li.getCost().doubleValue() : 0.0;
+
+        Cell resCell = new Cell()
+                .setBorder(new SolidBorder(new DeviceRgb(225, 228, 235), 0.3f))
+                .setPaddingLeft(indent).setPaddingTop(2).setPaddingBottom(2);
+        resCell.add(new Paragraph(resource).setFontSize(7.5f));
+        table.addCell(resCell);
+
+        Cell qtyCell = new Cell()
+                .setBorder(new SolidBorder(new DeviceRgb(225, 228, 235), 0.3f))
+                .setPaddingRight(4).setPaddingTop(2).setPaddingBottom(2);
+        qtyCell.add(new Paragraph(qty).setFontSize(7.5f).setTextAlignment(TextAlignment.RIGHT));
+        table.addCell(qtyCell);
+
+        Cell unitCell = new Cell()
+                .setBorder(new SolidBorder(new DeviceRgb(225, 228, 235), 0.3f))
+                .setPaddingRight(4).setPaddingTop(2).setPaddingBottom(2);
+        unitCell.add(new Paragraph(unit).setFontSize(7.5f).setTextAlignment(TextAlignment.RIGHT));
+        table.addCell(unitCell);
+
+        Cell costCell = new Cell()
+                .setBorder(new SolidBorder(new DeviceRgb(225, 228, 235), 0.3f))
+                .setPaddingRight(6).setPaddingTop(2).setPaddingBottom(2);
+        costCell.add(new Paragraph(String.format("$%.4f", cost))
+                .setFontSize(7.5f).setTextAlignment(TextAlignment.RIGHT));
+        table.addCell(costCell);
+    }
+
+    /**
+     * "Asia Pacific (Mumbai)" for "ap-south-1", as the AWS bill and the cost page print it.
+     *
+     * Taken from the SDK's own region metadata rather than a hand-kept map, so a region
+     * AWS adds later is named correctly without anyone updating this file. Anything the
+     * SDK does not recognise — "Global", or a label a Cost Explorer invoice already
+     * carried — is shown unchanged.
+     */
+    static String regionDisplayName(String region) {
+        if (region == null || region.isBlank()) {
+            return "";
+        }
+        try {
+            software.amazon.awssdk.regions.RegionMetadata metadata =
+                    software.amazon.awssdk.regions.Region.of(region).metadata();
+            return metadata != null && metadata.description() != null ? metadata.description() : region;
+        } catch (Exception e) {
+            return region;
+        }
+    }
+
+    /** Width of the invoice_line_item text columns, which ddl-auto=update will never widen. */
+    private static final int LINE_TEXT_MAX = 255;
+
+    /**
+     * One invoice line per rate line of the Cost and Usage Report — the grain of the
+     * "Charges by service" section on the cost page, so the invoice and that section list
+     * the same lines with the same amounts.
+     *
+     * <p>Negative lines are kept. On this path they are Savings Plan negations and credits,
+     * and the line they offset is on the invoice too; dropping the negative half would
+     * bill the covered usage at full on-demand rate.
+     *
+     * <p>The rate line's description goes in {@code resourceName}, where the detail page
+     * and detail bill already show a line's text, and its usage type in {@code usageType},
+     * which they group by.
+     */
+    private List<InvoiceLineItem> lineItemsFromCharges(Invoice invoice, List<CurAggregates.ChargeEntry> charges) {
+        List<InvoiceLineItem> lines = new ArrayList<>(charges.size());
+        for (CurAggregates.ChargeEntry charge : charges) {
+            InvoiceLineItem line = new InvoiceLineItem();
+            line.setInvoice(invoice);
+            line.setServiceName(clip(charge.getService()));
+            line.setRegionName(clip(charge.getRegion()));
+            line.setUsageType(clip(charge.getUsageType()));
+            line.setResourceName(clip(charge.getDescription()));
+            // Plain decimal, no fixed scale: quantities run from 0.000012 GB to 147 million
+            // requests, and three decimals would show the first as zero.
+            line.setUsageQuantity(BigDecimal.valueOf(charge.getQuantity())
+                    .setScale(6, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString());
+            line.setUnit(clip(charge.getUnit()));
+            line.setCost(BigDecimal.valueOf(charge.getCost()).setScale(4, RoundingMode.HALF_UP));
+            lines.add(line);
+        }
+        return lines;
+    }
+
+    /**
+     * Fits text to the column. The longest description on a live report was 107
+     * characters, but Marketplace product descriptions are free text, and one over the
+     * limit would fail the whole invoice's insert rather than just that line.
+     */
+    private static String clip(String value) {
+        if (value == null || value.length() <= LINE_TEXT_MAX) {
+            return value;
+        }
+        return value.substring(0, LINE_TEXT_MAX - 1) + "…";
     }
 
     /**
@@ -1537,7 +1717,8 @@ public class InvoiceManagementService {
      * far worse than billing it at cost.
      */
     private void repriceCloudFrontAtPrivateRates(List<InvoiceLineItem> lineItems, Invoice invoice,
-                                                 CloudAccount cloudAccount, int year, int month) {
+                                                 CloudAccount cloudAccount, int year, int month,
+                                                 boolean fromCur) {
         if ("GCP".equals(cloudAccount.getProvider()) || "Azure".equals(cloudAccount.getProvider())
                 || cloudAccount.getAwsAccountId() == null) {
             return;
@@ -1547,10 +1728,27 @@ public class InvoiceManagementService {
             return;
         }
 
+        YearMonth period = YearMonth.of(year, month);
+        List<CloudFrontUsageDto> usage;
+        if (fromCur) {
+            // Outside the try below on purpose: that block swallows failures and keeps
+            // cost-based lines, which is right for a pricing bug but wrong here. Charges
+            // with no usage to reprice them from would go out at AWS's own cost instead
+            // of the contract rate, so the draft is refused and the admin decides.
+            usage = cloudFrontUsageService.getUsageFromCurForInvoice(cloudAccount.getAwsAccountId(), period);
+            boolean billsCloudFront = lineItems.stream()
+                    .anyMatch(li -> CLOUDFRONT_SERVICE.equalsIgnoreCase(li.getServiceName()));
+            if ((usage == null || usage.isEmpty()) && billsCloudFront) {
+                throw new CurUnavailableException(CurUnavailable.CLOUDFRONT_USAGE_MISSING);
+            }
+        } else {
+            usage = null; // Fetched inside the try, exactly as before.
+        }
+
         try {
-            YearMonth period = YearMonth.of(year, month);
-            List<CloudFrontUsageDto> usage =
-                    cloudFrontUsageService.getUsageFromAws(cloudAccount.getAwsAccountId(), period);
+            if (!fromCur) {
+                usage = cloudFrontUsageService.getUsageFromAws(cloudAccount.getAwsAccountId(), period);
+            }
             if (usage == null || usage.isEmpty()) {
                 return;
             }
@@ -1869,6 +2067,9 @@ public class InvoiceManagementService {
             newLineItem.setResourceName(itemDto.getResourceName());
             newLineItem.setUsageQuantity(itemDto.getUsageQuantity());
             newLineItem.setUnit(itemDto.getUnit());
+            // Carried through so editing a report-built invoice does not flatten its
+            // usage-type level back into a list of bare descriptions.
+            newLineItem.setUsageType(itemDto.getUsageType());
             BigDecimal itemCost = Optional.ofNullable(itemDto.getCost()).orElse(BigDecimal.ZERO);
             newLineItem.setCost(itemCost.setScale(4, RoundingMode.HALF_UP));
             newLineItem.setHidden(itemDto.isHidden());

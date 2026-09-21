@@ -79,6 +79,26 @@ public class CloudFrontUsageService {
         if (period == null || !period.isBefore(YearMonth.now())) {
             return List.of(); // open month is not final in CUR
         }
+        return readCurUsage(accountId, period);
+    }
+
+    /**
+     * CloudFront usage for an invoice the admin chose to build from the report.
+     *
+     * <p>Serves the open month as well, unlike the path above: that one silently
+     * prefers CUR for the billing page and so waits for a final month, whereas here the
+     * admin asked for the report and the invoice is marked provisional. Reads only the
+     * stored aggregate and never falls through to Cost Explorer — an empty list is the
+     * caller's cue to refuse, not to fetch from somewhere else.
+     */
+    public List<CloudFrontUsageDto> getUsageFromCurForInvoice(String accountId, YearMonth period) {
+        if (period == null) {
+            return List.of();
+        }
+        return readCurUsage(accountId, period);
+    }
+
+    private List<CloudFrontUsageDto> readCurUsage(String accountId, YearMonth period) {
         if (!curIngestionService.hasCurData(accountId, period)) {
             return List.of();
         }

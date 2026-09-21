@@ -18,6 +18,14 @@ export interface ComplianceCounts {
   failedControls: number;
   manualControls: number;
   waivedControls: number;
+  /**
+   * passed + failed + waived — the score's denominator, sent by the server rather than
+   * re-derived here. The header used to add up its own and drifted from the one the score
+   * was calculated over, which is how the dial and the caption beside it disagreed.
+   */
+  settledControls: number;
+  /** Controls whose severity the scanner did not classify. Weighted as medium on an assumption. */
+  unclassifiedSeverity: number;
   passedResources: number;
   failedResources: number;
   critical: number;
@@ -36,13 +44,28 @@ export interface ComplianceFrameworkScore {
   failedControls: number;
   manualControls: number;
   waivedControls: number;
+  /** passed + failed + waived, for this framework's mapped checks. */
+  settledControls: number;
+  /** Unweighted share of settled controls that pass. Same rules as the overall score. */
   score: number | null;
+  /** Severity-weighted pass rate. A risk view of this framework, not a compliance one. */
+  riskWeightedScore: number | null;
+  /** Share of this framework's mapped checks that reached a settled outcome. */
+  coverage: number | null;
   assessable: boolean;
   critical: number;
   high: number;
   medium: number;
   low: number;
+  /** Distinct framework clauses this scan actually touched. */
   frameworkControlCount: number;
+  /**
+   * Total requirements the framework defines, from the backend baseline. Null when no baseline
+   * is on record for this provider and version — in which case the UI must not imply one.
+   */
+  baselineControlCount: number | null;
+  /** frameworkControlCount as a share of baselineControlCount. Null whenever the baseline is. */
+  clauseCoverage: number | null;
 }
 
 export interface ComplianceFrameworkRef {
@@ -145,7 +168,21 @@ export interface ComplianceReport {
   regions: string[];
   frameworksRequested: string[];
   scannerVersion: string | null;
+  /**
+   * The headline: unweighted share of settled controls that pass. Null when not assessable.
+   *
+   * Unweighted deliberately — frameworks do not rank their own controls, so severity travels
+   * separately as `riskWeightedScore` instead of being folded in here.
+   */
   score: number | null;
+  /** Severity-weighted pass rate. A risk indicator, labelled as such. Never the headline. */
+  riskWeightedScore: number | null;
+  /** `score` with waived controls counted as met — the auditor's met-with-exception reading. */
+  scoreWithExceptions: number | null;
+  /** Percentage of the scan's control set that reached a settled outcome. */
+  coverage: number | null;
+  /** Whether coverage clears the floor required to publish a score at all. */
+  coverageAdequate: boolean;
   assessable: boolean;
   scoreLabel: string;
   scoreMethod: string | null;

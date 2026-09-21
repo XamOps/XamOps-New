@@ -113,9 +113,7 @@ public class ComplianceOpsService {
         report.setRegions(split(scan.getRegions()));
         report.setFrameworksRequested(split(scan.getFrameworks()));
         report.setScannerVersion(scan.getProwlerVersion());
-        report.setScoreMethod("Severity-weighted across evaluated controls "
-                + "(critical 10, high 6, medium 3, low 1). Manual and waived controls are "
-                + "excluded from the denominator.");
+        report.setScoreMethod(ComplianceScoring.method());
 
         List<ComplianceControlResult> results = resultRepo.findByScanId(scanId);
         if (results.isEmpty()) {
@@ -150,13 +148,20 @@ public class ComplianceOpsService {
         report.setControls(controls);
 
         report.setCounts(buildCounts(results, effectiveStatus, diff));
+
         ComplianceScoring.Accumulator acc = new ComplianceScoring.Accumulator();
         results.forEach(r -> acc.add(r.getSeverity(), effectiveStatus.get(r.getCheckId())));
         report.setScore(acc.score());
+        report.setRiskWeightedScore(acc.riskWeightedScore());
+        report.setScoreWithExceptions(acc.scoreWithExceptions());
+        report.setCoverage(acc.coverage());
+        report.setCoverageAdequate(acc.coverageAdequate());
         report.setAssessable(acc.assessable());
+        // Banded on the compliance score, never the risk score. Two numbers, one verdict.
         report.setScoreLabel(ComplianceScoring.label(acc.score()));
 
-        report.setFrameworks(buildFrameworkScores(frameworkByCheck, results, effectiveStatus));
+        report.setFrameworks(buildFrameworkScores(
+                frameworkByCheck, results, effectiveStatus, scan.getProvider()));
         report.setTopRisks(controls.stream()
                 .filter(c -> ComplianceControlResult.FAIL.equals(c.getStatus()))
                 .limit(TOP_RISKS)
@@ -164,7 +169,7 @@ public class ComplianceOpsService {
         report.setTrend(buildTrend(accountId, trendDays));
         report.setProgram(buildProgramHealth(accountId, results, effectiveStatus, owners, now));
 
-        addNotes(report, scan, results, effectiveStatus);
+        addNotes(report, scan);
         stampLiveDrift(report, accountId, controls);
         return report;
     }
@@ -520,6 +525,9 @@ public class ComplianceOpsService {
             String status = effectiveStatus.get(r.getCheckId());
             c.setPassedResources(c.getPassedResources() + r.getPassedResources());
             c.setFailedResources(c.getFailedResources() + r.getFailedResources());
+            if (ComplianceScoring.isUnclassified(r.getSeverity())) {
+                c.setUnclassifiedSeverity(c.getUnclassifiedSeverity() + 1);
+            }
             if (ComplianceControlResult.PASS.equals(status)) {
                 c.setPassedControls(c.getPassedControls() + 1);
             } else if (ComplianceControlResult.FAIL.equals(status)) {
@@ -531,6 +539,8 @@ public class ComplianceOpsService {
                 c.setManualControls(c.getManualControls() + 1);
             }
         }
+        // Computed here, once, so no consumer has to reconstruct the score's denominator.
+        c.setSettledControls(c.getPassedControls() + c.getFailedControls() + c.getWaivedControls());
         if (diff.hasPrevious) {
             c.setNewlyFailing((int) diff.failingNow.stream()
                     .filter(diff.passingPrevious::contains).count());
@@ -540,13 +550,23 @@ public class ComplianceOpsService {
         return c;
     }
 
+    /**
+     * Severity buckets for the failing-work breakdown.
+     *
+     * <p>
+     * INFORMATIONAL lands in {@code low}, and anything unclassified lands in {@code medium} to
+     * match the weight {@link ComplianceScoring#weight} gives it. Routing an unknown to {@code low}
+     * while weighting it as a medium would make the breakdown disagree with the risk score.
+     */
     private void bumpSeverity(ComplianceReport.Counts c, String severity) {
-        String s = severity == null ? "LOW" : severity.toUpperCase();
+        String s = severity == null ? "" : severity.toUpperCase();
         switch (s) {
-            case "CRITICAL": c.setCritical(c.getCritical() + 1); break;
-            case "HIGH":     c.setHigh(c.getHigh() + 1); break;
-            case "MEDIUM":   c.setMedium(c.getMedium() + 1); break;
-            default:         c.setLow(c.getLow() + 1);
+            case "CRITICAL":      c.setCritical(c.getCritical() + 1); break;
+            case "HIGH":          c.setHigh(c.getHigh() + 1); break;
+            case "MEDIUM":        c.setMedium(c.getMedium() + 1); break;
+            case "LOW":
+            case "INFORMATIONAL": c.setLow(c.getLow() + 1); break;
+            default:              c.setMedium(c.getMedium() + 1);
         }
     }
 
@@ -560,11 +580,15 @@ public class ComplianceOpsService {
     private List<ComplianceReport.FrameworkScore> buildFrameworkScores(
             Map<String, List<ComplianceControlFramework>> frameworkByCheck,
             List<ComplianceControlResult> results,
-            Map<String, String> effectiveStatus) {
+            Map<String, String> effectiveStatus,
+            String provider) {
 
-        Map<String, String> severityByCheck = results.stream()
-                .collect(Collectors.toMap(ComplianceControlResult::getCheckId,
-                        r -> r.getSeverity() == null ? "LOW" : r.getSeverity(), (a, b) -> a));
+        // Null severity is passed through as null rather than relabelled "LOW", so the scoring
+        // model sees an unknown and treats it as one instead of inheriting a fabricated floor.
+        Map<String, String> severityByCheck = new HashMap<>();
+        for (ComplianceControlResult r : results) {
+            severityByCheck.putIfAbsent(r.getCheckId(), r.getSeverity());
+        }
 
         Map<String, Set<String>> checksByFramework = new LinkedHashMap<>();
         Map<String, Set<String>> refsByFramework = new LinkedHashMap<>();
@@ -601,8 +625,20 @@ public class ComplianceOpsService {
                     fs.setManualControls(fs.getManualControls() + 1);
                 }
             }
+            fs.setSettledControls(acc.settled());
             fs.setScore(acc.score());
+            fs.setRiskWeightedScore(acc.riskWeightedScore());
+            fs.setCoverage(acc.coverage());
             fs.setAssessable(acc.assessable());
+
+            // How much of the framework exists, against how much this scan touched. Null when
+            // there is no baseline on record — an absent denominator beats an invented one.
+            Integer baseline = ComplianceFrameworkBaseline.requirementCount(provider, framework);
+            fs.setBaselineControlCount(baseline);
+            if (baseline != null && baseline > 0) {
+                int mapped = Math.min(fs.getFrameworkControlCount(), baseline);
+                fs.setClauseCoverage((int) Math.round(100.0 * mapped / baseline));
+            }
             out.add(fs);
         });
 
@@ -711,25 +747,47 @@ public class ComplianceOpsService {
 
     // ── Notes ───────────────────────────────────────────────────────────────
 
-    private void addNotes(ComplianceReport report, ComplianceScan scan,
-            List<ComplianceControlResult> results, Map<String, String> effectiveStatus) {
+    private void addNotes(ComplianceReport report, ComplianceScan scan) {
+
+        ComplianceReport.Counts counts = report.getCounts();
 
         if (report.getTrend().size() < 2) {
             report.getNotes().add("Only one completed scan is on record, so there is no trend "
                     + "to plot yet. A second scan will produce the first comparison.");
         }
 
-        long manual = effectiveStatus.values().stream()
-                .filter(ComplianceControlResult.MANUAL::equals).count();
-        if (manual > 0 && manual * 2 > results.size()) {
-            report.getNotes().add(manual + " of " + results.size() + " controls could not be "
-                    + "decided automatically, so the score reflects a minority of the control set.");
+        // Coverage is reported well before it becomes disqualifying. The old threshold only spoke
+        // up past 50% undecided, which let a scan that settled half its control set publish a
+        // confident score in total silence.
+        int manual = counts.getManualControls();
+        if (!report.isAssessable() && counts.getSettledControls() > 0) {
+            report.getNotes().add("No score is shown: only " + counts.getSettledControls()
+                    + " of " + counts.getTotalControls() + " controls reached a pass or fail, "
+                    + "which is too little of the control set to rate. The failing controls below "
+                    + "are still accurate.");
+        } else if (manual > 0 && report.getCoverage() != null && report.getCoverage() < 90) {
+            report.getNotes().add(manual + " of " + counts.getTotalControls() + " controls could "
+                    + "not be decided automatically, so the score covers "
+                    + report.getCoverage() + "% of the control set. Raising coverage changes the "
+                    + "score independently of any remediation.");
         }
 
-        if (report.getCounts().getWaivedControls() > 0) {
-            report.getNotes().add(report.getCounts().getWaivedControls()
-                    + " control(s) are covered by an approved exception and are excluded from "
-                    + "the score. They are not passing.");
+        if (counts.getWaivedControls() > 0) {
+            String extra = report.getScoreWithExceptions() != null
+                    && report.getScore() != null
+                    && !report.getScoreWithExceptions().equals(report.getScore())
+                    ? " Counting them as met would read " + report.getScoreWithExceptions() + "%."
+                    : "";
+            report.getNotes().add(counts.getWaivedControls()
+                    + " control(s) are covered by an approved exception. They stay in the score's "
+                    + "denominator and do not count as passing, so a waiver cannot raise the "
+                    + "score." + extra);
+        }
+
+        if (counts.getUnclassifiedSeverity() > 0) {
+            report.getNotes().add(counts.getUnclassifiedSeverity() + " control(s) arrived without "
+                    + "a severity the scanner recognised. They are treated as medium for the "
+                    + "risk-weighted score and do not affect the compliance score.");
         }
 
         if (report.getRegions().isEmpty()) {
@@ -737,10 +795,14 @@ public class ComplianceOpsService {
                     + "coverage cannot be confirmed.");
         }
 
+        // Should now be rare: waivers are score-neutral, so the recomputed figure normally equals
+        // the stored one. When it does diverge, the trend plots the stored value and the reader
+        // deserves to know which number they are looking at.
         if (scan.getScore() != null && report.getScore() != null
                 && !scan.getScore().equals(report.getScore())) {
-            report.getNotes().add("The score shown reflects exceptions approved after the scan ran; "
-                    + "the score recorded at scan time was " + scan.getScore() + "%.");
+            report.getNotes().add("The score above is recomputed from the current control "
+                    + "statuses; the score recorded at scan time, and plotted on the trend, was "
+                    + scan.getScore() + "%.");
         }
     }
 

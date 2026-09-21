@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ComplianceControl,
+  ComplianceFrameworkScore,
   ComplianceReport,
   ComplianceStatus,
 } from '../types/compliance';
@@ -59,7 +60,8 @@ const asArray = <T,>(value: T[] | null | undefined): T[] => (Array.isArray(value
 
 const EMPTY_COUNTS: ComplianceReport['counts'] = {
   totalControls: 0, passedControls: 0, failedControls: 0, manualControls: 0,
-  waivedControls: 0, passedResources: 0, failedResources: 0,
+  waivedControls: 0, settledControls: 0, unclassifiedSeverity: 0,
+  passedResources: 0, failedResources: 0,
   critical: 0, high: 0, medium: 0, low: 0, newlyFailing: 0, newlyPassing: 0,
 };
 
@@ -68,6 +70,56 @@ const EMPTY_PROGRAM: ComplianceReport['program'] = {
   failingControlsWithOwner: 0, failingControlsWithoutOwner: 0,
   remediationOpen: 0, remediationInProgress: 0, remediationAwaitingVerification: 0,
   remediationOverdue: 0, completedScans: 0, previousScanAt: null,
+};
+
+/**
+ * Counts, with the score's denominator reconstructed if the payload predates it.
+ *
+ * `settledControls` is normally computed server-side precisely so no client has to. But a report
+ * cached before that field existed would spread as 0, and the header divides by it — a caption
+ * reading "11 of 0 controls" is worse than recomputing here. The fallback is the same sum the
+ * backend does.
+ */
+const normalizeCounts = (
+  partial: Partial<ComplianceReport['counts']> | null | undefined,
+): ComplianceReport['counts'] => {
+  const counts = { ...EMPTY_COUNTS, ...(partial ?? {}) };
+  if (!counts.settledControls) {
+    counts.settledControls =
+      counts.passedControls + counts.failedControls + counts.waivedControls;
+  }
+  return counts;
+};
+
+/** Same reconstruction, per framework card. */
+const normalizeFramework = (
+  f: Partial<ComplianceFrameworkScore>,
+): ComplianceFrameworkScore => {
+  const passed = f.passedControls ?? 0;
+  const failed = f.failedControls ?? 0;
+  const waived = f.waivedControls ?? 0;
+  return {
+    ...f,
+    framework: f.framework ?? '',
+    totalControls: f.totalControls ?? 0,
+    passedControls: passed,
+    failedControls: failed,
+    manualControls: f.manualControls ?? 0,
+    waivedControls: waived,
+    settledControls: f.settledControls || passed + failed + waived,
+    score: f.score ?? null,
+    riskWeightedScore: f.riskWeightedScore ?? null,
+    coverage: f.coverage ?? null,
+    assessable: f.assessable ?? false,
+    critical: f.critical ?? 0,
+    high: f.high ?? 0,
+    medium: f.medium ?? 0,
+    low: f.low ?? 0,
+    frameworkControlCount: f.frameworkControlCount ?? 0,
+    // Null, not zero: "no baseline on record" must not render as "0 requirements".
+    baselineControlCount: f.baselineControlCount ?? null,
+    clauseCoverage: f.clauseCoverage ?? null,
+  };
 };
 
 /**
@@ -110,10 +162,14 @@ export const normalizeReport = (
     regions: asArray(data.regions),
     frameworksRequested: asArray(data.frameworksRequested),
     score: data.score ?? null,
+    riskWeightedScore: data.riskWeightedScore ?? null,
+    scoreWithExceptions: data.scoreWithExceptions ?? null,
+    coverage: data.coverage ?? null,
+    coverageAdequate: data.coverageAdequate ?? false,
     assessable: data.assessable ?? false,
     scoreLabel: data.scoreLabel ?? 'Unable to assess',
-    counts: { ...EMPTY_COUNTS, ...(data.counts ?? {}) },
-    frameworks: asArray(data.frameworks),
+    counts: normalizeCounts(data.counts),
+    frameworks: asArray(data.frameworks).map(normalizeFramework),
     controls: asArray(data.controls).map(normalizeControl),
     topRisks: asArray(data.topRisks).map(normalizeControl),
     trend: asArray(data.trend),
