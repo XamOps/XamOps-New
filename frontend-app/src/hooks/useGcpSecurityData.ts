@@ -19,6 +19,9 @@ interface UseGcpSecurityDataOptions {
   selectedAccountId: string | null;
 }
 
+/** Sections that can be included in an exported report. */
+export type GcpExportSection = 'findings' | 'iamDrift' | 'vulnerabilities';
+
 interface UseGcpSecurityDataReturn {
   findings: GcpSecurityFinding[];
   filteredFindings: GcpSecurityFinding[];
@@ -36,7 +39,7 @@ interface UseGcpSecurityDataReturn {
   selectedFinding: GcpSecurityFinding | null;
   remediationSteps: string;
   loadAllData: (forceRefresh?: boolean) => void;
-  exportData: () => void;
+  exportData: (sections?: GcpExportSection[]) => void;
   setSelectedCategory: (category: string) => void;
   toggleSeverity: (severity: GcpSeverityLevel) => void;
   toggleSection: (section: string) => void;
@@ -115,17 +118,6 @@ export const useGcpSecurityData = ({
   );
 
   /**
-   * Export data to CSV
-   */
-  const exportData = useCallback(() => {
-    setIsExporting(true);
-    setTimeout(() => {
-      alert('Export functionality for GCP is not yet implemented.');
-      setIsExporting(false);
-    }, 500);
-  }, []);
-
-  /**
    * Get unique categories from findings
    */
   const categories = useMemo(() => {
@@ -141,6 +133,85 @@ export const useGcpSecurityData = ({
     }
     return findings.filter((f) => f.category === selectedCategory);
   }, [findings, selectedCategory]);
+
+  /**
+   * Export the selected sections to a single CSV file.
+   *
+   * Each requested section is written as its own titled block with its own
+   * header row, separated by a blank line, so one download can carry findings,
+   * IAM drift, and container vulnerabilities together. Findings respect the
+   * active category filter; the other two sections are always exported in full.
+   */
+  const exportData = useCallback(
+    (sections: GcpExportSection[] = ['findings', 'iamDrift', 'vulnerabilities']) => {
+      // csv-escape: wrap in quotes and double any embedded quotes.
+      const cell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+      const active = new Set(sections);
+      const blocks: string[] = [];
+
+      if (active.has('findings')) {
+        const headers = ['Category', 'Severity', 'Description', 'Resource', 'Compliance'];
+        const rows = filteredFindings.map((f) => [
+          cell(f.category),
+          cell(f.severity),
+          cell(f.description),
+          cell(f.resourceName),
+          cell(f.complianceControl || 'GCP Best Practice'),
+        ].join(','));
+        blocks.push(['Security Findings', headers.join(','), ...rows].join('\n'));
+      }
+
+      if (active.has('iamDrift')) {
+        const headers = ['Resource', 'Member', 'Role', 'Risk'];
+        const rows = iamDrift.flatMap((drift) =>
+          (drift.driftDetails || []).map((d) => [
+            cell(drift.resourceName),
+            cell(d.member),
+            cell(d.role),
+            cell(d.status),
+          ].join(','))
+        );
+        blocks.push(['IAM Policy Drift', headers.join(','), ...rows].join('\n'));
+      }
+
+      if (active.has('vulnerabilities')) {
+        const headers = ['Severity', 'CVE', 'Package', 'Version', 'Image', 'Description'];
+        const rows = vulnerabilities.map((v) => [
+          cell(v.severity),
+          cell(v.cveId),
+          cell(v.packageName),
+          cell(v.version),
+          cell(v.imageName),
+          cell(v.description),
+        ].join(','));
+        blocks.push(['Container Vulnerabilities', headers.join(','), ...rows].join('\n'));
+      }
+
+      if (blocks.length === 0) return;
+
+      setIsExporting(true);
+      let url: string | null = null;
+      try {
+        // Use a Blob object URL rather than a `data:` URI. A data URI is parsed
+        // as a URL, so any `#` in a finding description (e.g. doc anchor links)
+        // would start a fragment and silently truncate the rest of the file.
+        // \uFEFF BOM keeps Excel from mangling UTF-8 characters.
+        const csvContent = '\uFEFF' + blocks.join('\n\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'gcp_security_report.csv');
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      } finally {
+        if (url) URL.revokeObjectURL(url);
+        setIsExporting(false);
+      }
+    },
+    [filteredFindings, iamDrift, vulnerabilities]
+  );
 
   /**
    * Calculate severity counts

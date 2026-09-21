@@ -16,6 +16,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useGcpCostData } from '../hooks/useGcpCostData';
+import { useGcpBillingStatus } from '../hooks/useGcpBillingStatus';
 import { useGcpBudgetData } from '../hooks/useGcpBudgetData';
 import type { GcpCostFilters, GcpForecastDataPoint } from '../types/gcpCost';
 import type { NewBudget } from '../types/finops';
@@ -85,6 +86,12 @@ const GcpCostPage: React.FC = () => {
   } = useGcpCostData({
     selectedAccountId,
     filters,
+  });
+
+  // Why the cost data looks the way it does, so an empty chart can explain itself
+  // instead of reading as "you spent nothing".
+  const { billingStatus, reload: reloadBillingStatus } = useGcpBillingStatus({
+    selectedAccountId,
   });
 
   // Budget data
@@ -202,11 +209,13 @@ const GcpCostPage: React.FC = () => {
     }
   }, [selectedAccountId]);
 
-  // Refresh handler
+  // Refresh handler. Re-checks the billing source too, so this doubles as the
+  // "I've enabled the export / fixed the permission, look again" action — otherwise a
+  // customer who just fixed their setup would sit behind a cached failure.
   const handleRefresh = useCallback(async () => {
-    await refreshAll();
+    await Promise.all([refreshAll(), reloadBillingStatus(true)]);
     await loadForecastData();
-  }, [refreshAll, loadForecastData]);
+  }, [refreshAll, reloadBillingStatus, loadForecastData]);
 
   return (
     <main className="flex-1 flex flex-col min-h-screen bg-transparent">
@@ -258,6 +267,7 @@ const GcpCostPage: React.FC = () => {
                 filters={filters}
                 isLoading={isLoading}
                 onFiltersChange={handleFiltersChange}
+                billingStatus={billingStatus}
               />
             </RevealSection>
 

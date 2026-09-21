@@ -8,6 +8,7 @@ import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.AwsClientProvider;
+import com.xammer.cloud.service.azure.AzureClientProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -49,19 +50,22 @@ public class AccountHealthController {
     private final UserRepository userRepository;
     private final UserCloudAccountAccessRepository userCloudAccountAccessRepository;
     private final AwsClientProvider awsClientProvider;
+    private final AzureClientProvider azureClientProvider;
 
     public AccountHealthController(PermissionGapService permissionGapService,
             PermissionGapRegistry registry,
             CloudAccountRepository cloudAccountRepository,
             UserRepository userRepository,
             UserCloudAccountAccessRepository userCloudAccountAccessRepository,
-            AwsClientProvider awsClientProvider) {
+            AwsClientProvider awsClientProvider,
+            AzureClientProvider azureClientProvider) {
         this.permissionGapService = permissionGapService;
         this.registry = registry;
         this.cloudAccountRepository = cloudAccountRepository;
         this.userRepository = userRepository;
         this.userCloudAccountAccessRepository = userCloudAccountAccessRepository;
         this.awsClientProvider = awsClientProvider;
+        this.azureClientProvider = azureClientProvider;
     }
 
     /**
@@ -117,9 +121,9 @@ public class AccountHealthController {
     }
 
     /**
-     * Forgets what we know about an account's permissions and drops its cached AWS
-     * clients, so the next data refresh re-tests the role from scratch. This is the
-     * "I fixed my policy, check again" button.
+     * Forgets what we know about an account's permissions and drops its cached credentials, so
+     * the next data refresh re-tests access from scratch. This is the "I fixed my policy, check
+     * again" button.
      */
     @PostMapping("/permissions/recheck")
     public ResponseEntity<?> recheck(@AuthenticationPrincipal ClientUserDetails userDetails,
@@ -129,20 +133,45 @@ public class AccountHealthController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Authentication required"));
         }
 
-        boolean allowed = accessibleAccounts(userDetails).stream()
-                .anyMatch(account -> accountId.equals(account.getProviderAccountId()));
-        if (!allowed) {
+        CloudAccount account = accessibleAccounts(userDetails).stream()
+                .filter(candidate -> accountId.equals(candidate.getProviderAccountId()))
+                .findFirst()
+                .orElse(null);
+        if (account == null) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("error", "You do not have access to this account"));
         }
 
         registry.clear(accountId);
-        awsClientProvider.evictAccount(accountId);
-        logger.info("Permission gaps cleared and clients evicted for account {} on user request", accountId);
+        evictCachedCredentials(account, accountId);
+        logger.info("Permission gaps cleared and credentials evicted for {} account {} on user request",
+                account.getProvider(), accountId);
 
         return ResponseEntity.ok(Map.of(
                 "message", "Access re-check started. Refresh the page in a minute to see updated results.",
                 "accountId", accountId));
+    }
+
+    /**
+     * Drops whatever the provider caches, so the re-check actually re-authenticates.
+     *
+     * <p>Clearing the registry alone is not enough: a cached client or bearer token would keep
+     * succeeding or failing exactly as before, and the button would appear to do nothing. Each
+     * provider caches differently, so each needs its own eviction.
+     */
+    private void evictCachedCredentials(CloudAccount account, String accountId) {
+        String provider = account.getProvider();
+        if ("Azure".equalsIgnoreCase(provider)) {
+            azureClientProvider.evict(accountId);
+            return;
+        }
+        if ("GCP".equalsIgnoreCase(provider)) {
+            // Nothing to evict. GcpClientProvider rebuilds credentials from the stored key on
+            // every call — its @Cacheable sits on a private method, so Spring's proxy never
+            // applies it — which means the next call re-authenticates regardless.
+            return;
+        }
+        awsClientProvider.evictAccount(accountId);
     }
 
     private Map<String, Object> emptyResponse() {

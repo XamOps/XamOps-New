@@ -7,6 +7,7 @@ import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.service.NotificationRecipientResolver;
+import com.xammer.cloud.permissions.PermissionGapRegistry;
 import com.xammer.cloud.service.AlertDigestSeverityGate;
 import com.xammer.cloud.service.AlertEmailBuilder;
 import com.xammer.cloud.service.AlertNotificationDeduplicator;
@@ -50,6 +51,7 @@ class GcpCostAnomalyAlertTest {
     @Mock private NotificationRecipientResolver recipientResolver;
     @Mock private AlertNotificationDeduplicator deduplicator;
     @Mock private AlertDigestSeverityGate severityGate;
+    @Mock private PermissionGapRegistry permissionGapRegistry;
 
     private GcpCloudGuardService service;
     private CloudAccount account;
@@ -62,7 +64,7 @@ class GcpCostAnomalyAlertTest {
                 cloudAccountRepository, gcpClientProvider, redisCache, gcpDataService,
                 gcpCostService, gcpSecurityService, emailService, cachedDataRepository,
                 new ObjectMapper(), recipientResolver, new AlertEmailBuilder(), deduplicator,
-                severityGate);
+                severityGate, permissionGapRegistry);
 
         account = new CloudAccount();
         account.setGcpProjectId(PROJECT);

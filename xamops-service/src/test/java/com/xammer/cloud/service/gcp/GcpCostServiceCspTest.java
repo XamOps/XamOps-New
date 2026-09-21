@@ -42,6 +42,7 @@ class GcpCostServiceCspTest {
     @Mock CachedDataRepository cachedDataRepository;
     @Mock GcpCostDataSnapshotService gcpCostDataSnapshotService;
     @Mock CspBillingQueryService cspBillingQueryService;
+    @Mock GcpBillingStatusService gcpBillingStatusService;
     @Mock BigQuery cspClient;
 
     GcpCostService service;
@@ -51,7 +52,7 @@ class GcpCostServiceCspTest {
     void setUp() {
         service = new GcpCostService(gcpClientProvider, redisCacheService, cloudAccountRepository,
                 cachedDataRepository, new ObjectMapper(), gcpCostDataSnapshotService,
-                cspBillingQueryService);
+                cspBillingQueryService, gcpBillingStatusService);
 
         config = new CspBillingConfig();
         config.setName("SISL");

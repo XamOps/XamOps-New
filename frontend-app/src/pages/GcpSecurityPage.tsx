@@ -1,9 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useGcpSecurityData } from '../hooks/useGcpSecurityData';
+import type { GcpExportSection } from '../hooks/useGcpSecurityData';
 import type { GcpSeverityLevel } from '../types/gcpSecurity';
 import { DialogRoot, DialogPanel, AriaTabGroup } from '../components/ui';
 import { sanitizeRichText } from '../utils/sanitizeHtml';
@@ -55,6 +56,129 @@ const VULN_SEVERITY_CONFIG: Record<string, BadgeStyle> = {
   LOW:      { bg: 'bg-blue-50',   text: 'text-blue-700',   border: 'border-blue-200',   dot: 'bg-blue-400' },
 };
 
+interface ExportSectionOption {
+  id: GcpExportSection;
+  label: string;
+  count: number;
+}
+
+interface ExportReportMenuProps {
+  options: ExportSectionOption[];
+  isExporting: boolean;
+  onExport: (sections: GcpExportSection[]) => void;
+}
+
+/**
+ * Export Report control with a hover/focus dropdown that lets the user pick
+ * which sections to include before downloading. Opens on hover and on keyboard
+ * focus, and closes when the pointer leaves the whole control or focus moves out.
+ */
+const ExportReportMenu: React.FC<ExportReportMenuProps> = ({ options, isExporting, onExport }) => {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<GcpExportSection>>(
+    () => new Set(options.map((o) => o.id))
+  );
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelClose = () => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+  // Small delay before closing so moving between button and panel doesn't flicker.
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimer.current = setTimeout(() => setOpen(false), 160);
+  };
+
+  useEffect(() => () => cancelClose(), []);
+
+  const toggle = (id: GcpExportSection) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectedList = options.map((o) => o.id).filter((id) => selected.has(id));
+  const nothingSelected = selectedList.length === 0;
+
+  const handleDownload = () => {
+    if (nothingSelected || isExporting) return;
+    onExport(selectedList);
+  };
+
+  return (
+    <div
+      className="relative"
+      onMouseEnter={() => { cancelClose(); setOpen(true); }}
+      onMouseLeave={scheduleClose}
+      onFocus={() => { cancelClose(); setOpen(true); }}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpen(false); }}
+    >
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={isExporting}
+        onClick={handleDownload}
+        className="flex items-center gap-2 px-4 py-2 bg-white text-emerald-600 text-xs font-bold rounded-xl border border-emerald-100 shadow-sm hover:shadow-md transition-all disabled:opacity-50"
+      >
+        <Icon icon={isExporting ? 'mdi:loading' : 'mdi:microsoft-excel'} width={14} className={isExporting ? 'animate-spin' : ''} />
+        <span>{isExporting ? 'Exporting...' : 'Export Report'}</span>
+        <Icon icon="mdi:chevron-down" width={14} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      <div
+        className={`absolute right-0 top-full pt-2 z-50 w-64 origin-top-right transition-all duration-150 ${open ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 -translate-y-1 pointer-events-none'}`}
+        role="menu"
+      >
+        <div className="bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-gray-100">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Include in report</p>
+          </div>
+          <div className="py-1">
+            {options.map((opt) => {
+              const checked = selected.has(opt.id);
+              return (
+                <label
+                  key={opt.id}
+                  className="flex items-center justify-between gap-3 px-4 py-2 text-sm cursor-pointer hover:bg-gray-50 transition-colors"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggle(opt.id)}
+                      className="w-4 h-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-400 focus:ring-offset-0"
+                    />
+                    <span className="text-gray-700 font-medium">{opt.label}</span>
+                  </span>
+                  <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 tabular-nums">{opt.count}</span>
+                </label>
+              );
+            })}
+          </div>
+          <div className="px-3 py-2.5 border-t border-gray-100">
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={nothingSelected || isExporting}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Icon icon="mdi:download" width={14} />
+              <span>{nothingSelected ? 'Select a section' : 'Download CSV'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const GcpSecurityPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
@@ -96,14 +220,15 @@ const GcpSecurityPage: React.FC = () => {
 
     setActions(
       <div className="flex items-center gap-3">
-        <button
-          onClick={exportData}
-          disabled={isExporting}
-          className="flex items-center gap-2 px-4 py-2 bg-white text-emerald-600 text-xs font-bold rounded-xl border border-emerald-100 shadow-sm hover:shadow-md transition-all disabled:opacity-50"
-        >
-          <Icon icon={isExporting ? 'mdi:loading' : 'mdi:microsoft-excel'} width={14} className={isExporting ? 'animate-spin' : ''} />
-          <span>{isExporting ? 'Exporting...' : 'Export Report'}</span>
-        </button>
+        <ExportReportMenu
+          isExporting={isExporting}
+          onExport={exportData}
+          options={[
+            { id: 'findings', label: 'Security Findings', count: filteredFindings.length },
+            { id: 'iamDrift', label: 'IAM Policy Drift', count: iamDrift.length },
+            { id: 'vulnerabilities', label: 'Container Vulnerabilities', count: vulnerabilities.length },
+          ]}
+        />
         <button
           onClick={() => loadAllData(true)}
           disabled={isRefreshing}
@@ -115,7 +240,7 @@ const GcpSecurityPage: React.FC = () => {
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, activeTab, isRefreshing, isExporting, exportData, loadAllData]);
+  }, [setActions, clearActions, activeTab, isRefreshing, isExporting, exportData, loadAllData, filteredFindings.length, iamDrift.length, vulnerabilities.length]);
 
   return (
     <main className="flex-1 flex flex-col min-h-screen bg-gray-50">
