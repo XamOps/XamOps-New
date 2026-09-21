@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { fetchChargesByService, type ServiceCharge } from '../../api/curInsightsApi';
 import { useCurInsight } from '../../hooks/useCurInsight';
-import { AWS_REGIONS } from '../../types/flexCompute';
+import { awsRegionName } from '../../utils/awsRegionNames';
 
 /**
  * Charges by service, in the exact shape of the AWS invoice:
@@ -87,12 +87,11 @@ const quantity = (v: number): string => {
   return v.toLocaleString('en-US', { maximumFractionDigits: 6 });
 };
 
-/** CUR carries region codes; the invoice shows display names. Reuses the existing map. */
-const REGION_LABELS: Record<string, string> = Object.fromEntries(
-  AWS_REGIONS.map((r) => [r.value, r.label]),
-);
-const regionLabel = (code: string): string =>
-  code === 'Global' ? 'Global' : (REGION_LABELS[code] ?? code);
+/**
+ * CUR carries region codes; the invoice shows display names. Shared with the BillOps
+ * invoice detail page, which lists these same lines.
+ */
+const regionLabel = awsRegionName;
 
 interface UsageTypeNode {
   usageType: string;

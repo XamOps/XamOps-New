@@ -1,41 +1,270 @@
 /**
- * BillOps Admin Invoices Page
+ * BillOps Admin — Invoices
  *
- * Converted from: billops/admin_invoices.html
+ * Every invoice across every account, laid out like the AWS Billing console's lists:
+ * a summary strip, one table with its filters above it, and a single primary action.
  *
- * Admin interface for managing all invoices:
- * - View all invoices across all accounts
- * - Generate new draft invoices
- * - Merge compatible invoices (Standard + CloudFront)
- * - Download invoice previews
- * - Navigate to invoice detail page
+ * - Stat tiles summarise the account in view and double as status filters.
+ * - Search, account, status and period filters narrow the table; columns sort.
+ * - "Create draft" opens a dialog. AWS drafts are read from the Cost and Usage Report;
+ *   when it cannot cover the month the dialog says why, and Cost Explorer is only
+ *   reached if the admin chooses it there.
+ * - Two compatible drafts (same account and period) can be merged from the selection bar.
  *
  * For: ROLE_BILLOPS_ADMIN
  */
 
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useBillOpsAdminInvoices from '../hooks/useBillOpsAdminInvoices';
 import { useTopbar } from '../contexts/TopbarContext';
-import type { AdminInvoiceItem } from '../types/billopsAdminInvoices';
-import { AlertDialog } from '../components/ui';
-import '../styles/billopsAdminInvoices.css';
+import type {
+  AdminInvoiceItem,
+  CloudAccount,
+  CurUnavailableNotice,
+  GenerationParams,
+} from '../types/billopsAdminInvoices';
+import { AlertDialog, DialogPanel, DialogRoot } from '../components/ui';
+import '../styles/billopsInvoiceUi.css';
 
-const YEARS = [2026, 2025, 2024];
-const MONTHS = [
-  { value: 1, label: 'January' },
-  { value: 2, label: 'February' },
-  { value: 3, label: 'March' },
-  { value: 4, label: 'April' },
-  { value: 5, label: 'May' },
-  { value: 6, label: 'June' },
-  { value: 7, label: 'July' },
-  { value: 8, label: 'August' },
-  { value: 9, label: 'September' },
-  { value: 10, label: 'October' },
-  { value: 11, label: 'November' },
-  { value: 12, label: 'December' },
-];
+// ─── Formatting ──────────────────────────────────────────────────────────────
+
+const usd = (value: number | null | undefined): string =>
+  new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value ?? 0);
+
+/** Stat-tile money: compact at scale ("$12.9K"), exact below it. */
+const usdCompact = (value: number): string =>
+  Math.abs(value) >= 10_000
+    ? new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        notation: 'compact',
+        maximumFractionDigits: 1,
+      }).format(value)
+    : usd(value);
+
+/** "2026-09" → "Sep 2026" (or "September 2026" with {@code long}). */
+const formatPeriod = (period: string | null | undefined, long = false): string => {
+  if (!period) return '—';
+  const [y, m] = period.split('-').map(Number);
+  if (!y || !m) return period;
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: long ? 'long' : 'short', year: 'numeric' });
+};
+
+/** The last 24 billing periods, newest first — the months a draft can reasonably be for. */
+const periodOptions = (): { value: string; label: string }[] => {
+  const out: { value: string; label: string }[] = [];
+  const d = new Date();
+  d.setDate(1);
+  for (let i = 0; i < 24; i++) {
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    out.push({ value, label: formatPeriod(value, true) + (i === 0 ? ' (month to date)' : '') });
+    d.setMonth(d.getMonth() - 1);
+  }
+  return out;
+};
+
+const accountIdOf = (invoice: AdminInvoiceItem): string => {
+  if (invoice.awsAccountId && invoice.awsAccountId !== 'N/A') return invoice.awsAccountId;
+  if (invoice.gcpProjectId && invoice.gcpProjectId !== 'N/A') return invoice.gcpProjectId;
+  return invoice.azureSubscriptionId || '';
+};
+
+// ─── Small pieces ────────────────────────────────────────────────────────────
+
+const StatusPill: React.FC<{ status: AdminInvoiceItem['status'] }> = ({ status }) => {
+  const cls = status === 'FINALIZED' ? 'inv-pill--finalized' : status === 'DRAFT' ? 'inv-pill--draft' : 'inv-pill--void';
+  const icon = status === 'FINALIZED' ? 'fa-check' : status === 'DRAFT' ? 'fa-pen' : 'fa-ban';
+  const label = status === 'FINALIZED' ? 'Finalized' : status === 'DRAFT' ? 'Draft' : 'Void';
+  return (
+    <span className={`inv-pill ${cls}`}>
+      <i className={`fas ${icon}`} aria-hidden="true" />
+      {label}
+    </span>
+  );
+};
+
+const SourcePills: React.FC<{ invoice: Pick<AdminInvoiceItem, 'dataSource' | 'provisional'> }> = ({ invoice }) => (
+  <span className="inline-flex flex-wrap gap-1">
+    {invoice.dataSource === 'CUR' && (
+      <span className="inv-pill inv-pill--cur" title="Built from the Cost and Usage Report">CUR</span>
+    )}
+    {invoice.dataSource === 'COST_EXPLORER' && (
+      <span className="inv-pill inv-pill--ce" title="Built from Cost Explorer">Cost Explorer</span>
+    )}
+    {invoice.provisional && (
+      <span
+        className="inv-pill inv-pill--provisional"
+        title="The month had not closed when this was built. AWS may still change these figures."
+      >
+        Provisional
+      </span>
+    )}
+    {!invoice.dataSource && !invoice.provisional && <span className="inv-muted">—</span>}
+  </span>
+);
+
+type StatusFilter = 'ALL' | 'DRAFT' | 'FINALIZED' | 'VOID';
+type SortKey = 'newest' | 'account' | 'period' | 'total';
+interface SortState { key: SortKey; dir: 'asc' | 'desc' }
+
+const PAGE_SIZE = 20;
+
+// ─── Create draft dialog ─────────────────────────────────────────────────────
+
+interface CreateDraftDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  accounts: CloudAccount[];
+  generation: GenerationParams;
+  setGeneration: React.Dispatch<React.SetStateAction<GenerationParams>>;
+  generating: boolean;
+  onCreate: () => void;
+  onFallback: () => void;
+  notice: CurUnavailableNotice | null;
+}
+
+const CreateDraftDialog: React.FC<CreateDraftDialogProps> = ({
+  isOpen, onClose, accounts, generation, setGeneration, generating, onCreate, onFallback, notice,
+}) => {
+  const periods = useMemo(periodOptions, []);
+  const periodValue = `${generation.year}-${String(generation.month).padStart(2, '0')}`;
+  const account = accounts.find(a => a.identifier === generation.accountId);
+  const isAws = !account || account.provider === 'AWS';
+
+  return (
+    <DialogRoot isOpen={isOpen} onClose={generating ? () => undefined : onClose} maxWidth="max-w-xl">
+      <DialogPanel
+        title="Create draft invoice"
+        onClose={generating ? () => undefined : onClose}
+        footer={
+          <>
+            <button type="button" className="inv-btn inv-btn--ghost" onClick={onClose} disabled={generating}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="inv-btn inv-btn--primary"
+              onClick={onCreate}
+              disabled={!generation.accountId || generating}
+            >
+              {generating && !notice
+                ? <><i className="fas fa-spinner fa-spin" aria-hidden="true" /> Reading charges…</>
+                : 'Create draft'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="inv-field-label" htmlFor="draft-account">Account</label>
+            <select
+              id="draft-account"
+              className="inv-select"
+              value={generation.accountId}
+              onChange={e => setGeneration(prev => ({ ...prev, accountId: e.target.value }))}
+            >
+              <option value="">Select an account…</option>
+              {accounts.map(acc => (
+                <option key={acc.id} value={acc.identifier}>
+                  {acc.name} · {acc.identifier} ({acc.provider})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="inv-field-label" htmlFor="draft-period">Billing period</label>
+            <select
+              id="draft-period"
+              className="inv-select"
+              value={periodValue}
+              onChange={e => {
+                const [y, m] = e.target.value.split('-').map(Number);
+                setGeneration(prev => ({ ...prev, year: y, month: m }));
+              }}
+            >
+              {periods.map(p => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <fieldset>
+            <legend className="inv-field-label">Invoice type</legend>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <label className="inv-choice" data-selected={!generation.includeIrn}>
+                <input
+                  type="radio"
+                  name="draft-type"
+                  checked={!generation.includeIrn}
+                  onChange={() => setGeneration(prev => ({ ...prev, includeIrn: false }))}
+                />
+                <span>
+                  <span className="block text-[13px] font-semibold" style={{ color: 'var(--inv-ink)' }}>Proforma invoice</span>
+                  <span className="block text-[12px] inv-muted">No IRN on the PDF</span>
+                </span>
+              </label>
+              <label className="inv-choice" data-selected={generation.includeIrn}>
+                <input
+                  type="radio"
+                  name="draft-type"
+                  checked={generation.includeIrn}
+                  onChange={() => setGeneration(prev => ({ ...prev, includeIrn: true }))}
+                />
+                <span>
+                  <span className="block text-[13px] font-semibold" style={{ color: 'var(--inv-ink)' }}>Tax invoice</span>
+                  <span className="block text-[12px] inv-muted">IRN, Ack no., Ack date and QR code</span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
+          {!notice && (
+            <p className="text-[12.5px] inv-muted leading-relaxed">
+              {isAws
+                ? 'Charges are read from the account’s Cost and Usage Report. If the report can’t cover this month, you’ll see why here before anything is read from Cost Explorer.'
+                : 'Charges are read from the account’s billing export.'}
+            </p>
+          )}
+
+          {notice && (
+            <div className="inv-alert inv-alert--warning" role="alert">
+              <i className="fas fa-exclamation-triangle" aria-hidden="true" />
+              <div className="min-w-0">
+                <p className="inv-alert__title">The Cost and Usage Report can&rsquo;t build this draft</p>
+                <p className="mt-0.5">{notice.message}</p>
+                <p className="mt-1 text-[12px] opacity-80">
+                  Nothing has been read from Cost Explorer.
+                  {notice.canUseCostExplorer && ' You can build this draft from Cost Explorer instead. Its figures can differ from the report’s.'}
+                </p>
+                {notice.canUseCostExplorer && (
+                  <button
+                    type="button"
+                    className="inv-btn inv-btn--fallback inv-btn--sm mt-3"
+                    onClick={onFallback}
+                    disabled={generating}
+                  >
+                    {generating
+                      ? <><i className="fas fa-spinner fa-spin" aria-hidden="true" /> Fetching from Cost Explorer…</>
+                      : <><i className="fas fa-cloud-download-alt" aria-hidden="true" /> Fetch from Cost Explorer</>}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </DialogPanel>
+    </DialogRoot>
+  );
+};
+
+// ─── Page ────────────────────────────────────────────────────────────────────
 
 const BillOpsAdminInvoicesPage: React.FC = () => {
   const navigate = useNavigate();
@@ -49,6 +278,7 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
     selectedIds,
     generation,
     generating,
+    curUnavailable,
     filteredInvoices,
     canMergeSelection,
     mergeButtonText,
@@ -56,6 +286,8 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
     accounts,
     fetchData,
     generateInvoice,
+    generateFromCostExplorer,
+    dismissCurUnavailable,
     setSelectedIds,
     setFilterIds,
     setGeneration,
@@ -69,461 +301,529 @@ const BillOpsAdminInvoicesPage: React.FC = () => {
     cancelDelete,
     confirmDelete,
     pendingDelete,
+    dismissMergeSuccess,
+    clearUpdateError,
   } = useBillOpsAdminInvoices();
 
   const { setActions, clearActions } = useTopbar();
 
-  /**
-   * Format currency for display
-   */
-  const formatCurrency = useCallback((value: number): string => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 4,
-    }).format(value || 0);
-  }, []);
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<StatusFilter>('ALL');
+  const [period, setPeriod] = useState('');
+  const [sort, setSort] = useState<SortState>({ key: 'newest', dir: 'desc' });
+  const [page, setPage] = useState(0);
+  const [createOpen, setCreateOpen] = useState(false);
 
-  /**
-   * Get display account ID from invoice
-   */
-  const getDisplayAccountId = useCallback((invoice: AdminInvoiceItem): string => {
-    if (invoice.awsAccountId && invoice.awsAccountId !== 'N/A') {
-      return invoice.awsAccountId;
-    }
-    if (invoice.gcpProjectId && invoice.gcpProjectId !== 'N/A') {
-      return invoice.gcpProjectId;
-    }
-    return invoice.azureSubscriptionId || '';
-  }, []);
-
-  /**
-   * Handle checkbox change
-   */
-  const handleCheckboxChange = useCallback((invoiceId: string, checked: boolean) => {
-    setSelectedIds(prev => {
-      if (checked) {
-        return [...prev, invoiceId];
-      } else {
-        return prev.filter(id => id !== invoiceId);
-      }
-    });
-  }, [setSelectedIds]);
-
-  /**
-   * Navigate to invoice detail page
-   */
-  const navigateToDetail = useCallback((invoiceId: number) => {
-    navigate(`/billops-admin-invoice-detail?id=${invoiceId}`);
-  }, [navigate]);
-
-  /**
-   * Set Topbar Actions
-   */
+  // ── Topbar: freshness and refresh, as on the other BillOps pages ──────────
   useEffect(() => {
     setActions(
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         {lastUpdatedDisplay && (
-          <div className="text-xs text-slate-500 font-medium hidden md:block">
-            Last Updated: {lastUpdatedDisplay}
-          </div>
+          <span className="text-xs text-slate-500 font-medium hidden md:block">Updated {lastUpdatedDisplay}</span>
         )}
-        <div className="flex items-center bg-slate-100 rounded-xl px-4 py-2 border border-slate-200">
-          <span className="text-xs font-bold text-slate-600">Total: {filteredInvoices.length}</span>
-        </div>
         <button
+          type="button"
           onClick={() => fetchData(true)}
           disabled={loading || isUpdating}
-          className="w-10 h-10 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-xl transition-all disabled:opacity-50"
-          title="Refresh List"
+          className="w-9 h-9 flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-all disabled:opacity-50"
+          title="Refresh invoices"
+          aria-label="Refresh invoices"
         >
-          <i className={`fas fa-sync-alt ${isUpdating ? 'animate-spin' : ''}`} />
+          <i className={`fas fa-sync-alt ${isUpdating ? 'animate-spin' : ''}`} aria-hidden="true" />
         </button>
       </div>
     );
     return () => clearActions();
-  }, [setActions, clearActions, lastUpdatedDisplay, filteredInvoices.length, loading, isUpdating, fetchData]);
+  }, [setActions, clearActions, lastUpdatedDisplay, loading, isUpdating, fetchData]);
+
+  // ── Derived lists ─────────────────────────────────────────────────────────
+
+  /** Account-scoped invoices — what the tiles summarise. */
+  const scoped = filteredInvoices;
+
+  const counts = useMemo(() => ({
+    all: scoped.length,
+    draft: scoped.filter(i => i.status === 'DRAFT').length,
+    finalized: scoped.filter(i => i.status === 'FINALIZED').length,
+    void: scoped.filter(i => i.status === 'VOID').length,
+    finalizedValue: scoped.filter(i => i.status === 'FINALIZED').reduce((s, i) => s + (i.amount || 0), 0),
+    draftValue: scoped.filter(i => i.status === 'DRAFT').reduce((s, i) => s + (i.amount || 0), 0),
+  }), [scoped]);
+
+  const periodsInData = useMemo(
+    () => Array.from(new Set(scoped.map(i => i.billingPeriod).filter(Boolean))).sort().reverse(),
+    [scoped],
+  );
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const rows = scoped.filter(inv => {
+      if (status !== 'ALL' && inv.status !== status) return false;
+      if (period && inv.billingPeriod !== period) return false;
+      if (!q) return true;
+      return [inv.invoiceNumber, inv.accountName, accountIdOf(inv), inv.billingPeriod, formatPeriod(inv.billingPeriod, true)]
+        .some(v => (v || '').toLowerCase().includes(q));
+    });
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      switch (sort.key) {
+        case 'account': return dir * (a.accountName || '').localeCompare(b.accountName || '');
+        case 'period': return dir * (a.billingPeriod || '').localeCompare(b.billingPeriod || '') || b.id - a.id;
+        case 'total': return dir * ((a.amount || 0) - (b.amount || 0));
+        default: return dir * (a.id - b.id);
+      }
+    });
+  }, [scoped, search, status, period, sort]);
+
+  // Back to the first page whenever the set being paged changes.
+  useEffect(() => { setPage(0); }, [search, status, period, sort, filterIds]);
+
+  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const pageRows = visible.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+  const filtersActive = Boolean(search || status !== 'ALL' || period || filterIds.length);
+
+  const clearFilters = () => {
+    setSearch('');
+    setStatus('ALL');
+    setPeriod('');
+    setFilterIds([]);
+  };
+
+  const toggleSort = (key: SortKey) =>
+    setSort(prev => (prev.key === key
+      ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+      : { key, dir: key === 'account' ? 'asc' : 'desc' }));
+
+  const sortIcon = (key: SortKey) =>
+    sort.key !== key ? 'fa-sort' : sort.dir === 'asc' ? 'fa-sort-up' : 'fa-sort-down';
+
+  const ariaSort = (key: SortKey): React.AriaAttributes['aria-sort'] =>
+    sort.key !== key ? 'none' : sort.dir === 'asc' ? 'ascending' : 'descending';
+
+  const toggleSelected = (id: string, checked: boolean) =>
+    setSelectedIds(prev => (checked ? [...prev, id] : prev.filter(x => x !== id)));
+
+  const openDetail = useCallback((id: number) => navigate(`/billops-admin-invoice-detail?id=${id}`), [navigate]);
+
+  // ── Create draft ──────────────────────────────────────────────────────────
+
+  const openCreate = () => {
+    // Pre-fill the account being viewed, when exactly one is.
+    if (filterIds.length === 1) {
+      const acc = accounts.find(a => String(a.id) === filterIds[0]);
+      if (acc) setGeneration(prev => ({ ...prev, accountId: acc.identifier }));
+    }
+    setCreateOpen(true);
+  };
+
+  const closeCreate = () => {
+    setCreateOpen(false);
+    dismissCurUnavailable();
+  };
+
+  const afterCreate = (id: number | null) => {
+    if (id == null) return; // Refused (notice shown in the dialog) or failed (alerted).
+    setCreateOpen(false);
+    openDetail(id);
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  const pendingDeleteInvoice = scoped.find(i => i.id === pendingDelete);
 
   return (
-    <div className="admin-invoices-page flex-1 flex flex-col h-full overflow-hidden bg-transparent">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
       <AlertDialog
         isOpen={!!pendingMerge}
-        title="Merge Invoices?"
-        description="This will combine line items and permanently delete the source invoice."
+        title="Merge these invoices?"
+        description={`${mergeButtonText}. The line items are combined into one invoice and the other draft is deleted.`}
         confirmLabel="Merge"
         variant="warning"
         onConfirm={mergeSelectedInvoices}
         onCancel={cancelMerge}
       />
-
       <AlertDialog
         isOpen={pendingDelete !== null}
-        title="Delete Draft Invoice?"
-        description="This will permanently remove this draft invoice. This cannot be undone."
-        confirmLabel="Delete"
-        variant="warning"
+        title="Delete this draft?"
+        description={`${pendingDeleteInvoice?.invoiceNumber ?? 'This draft'} will be permanently removed. This can't be undone.`}
+        confirmLabel="Delete draft"
+        variant="danger"
         onConfirm={confirmDelete}
         onCancel={cancelDelete}
       />
+      <CreateDraftDialog
+        isOpen={createOpen}
+        onClose={closeCreate}
+        accounts={accounts}
+        generation={generation}
+        setGeneration={setGeneration}
+        generating={generating}
+        notice={curUnavailable}
+        onCreate={async () => afterCreate(await generateInvoice())}
+        onFallback={async () => afterCreate(await generateFromCostExplorer())}
+      />
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-y-auto p-8 space-y-6 admin-invoices-scrollbar">
-        {/* Generate New Draft Invoice Form */}
-        <div className="invoice-generate-card p-6">
-          <h3 className="card-title">
-            <i className="fas fa-plus-circle" />
-            Generate New Draft Invoice
-          </h3>
-
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-            {/* Target Account (Dropdown) */}
-            <div>
-              <label className="invoice-form-label">Target Account</label>
-              <select
-                value={generation.accountId}
-                onChange={(e) => setGeneration(prev => ({ ...prev, accountId: e.target.value }))}
-                className="invoice-form-input"
-              >
-                <option value="">— Select Account —</option>
-                {accounts.map(acc => (
-                  <option key={acc.id} value={acc.identifier}>
-                    {acc.name} ({acc.identifier})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Year */}
-            <div>
-              <label className="invoice-form-label">Year</label>
-              <select
-                value={generation.year}
-                onChange={(e) => setGeneration(prev => ({ ...prev, year: Number(e.target.value) }))}
-                className="invoice-form-input"
-              >
-                {YEARS.map(y => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Month */}
-            <div>
-              <label className="invoice-form-label">Month</label>
-              <select
-                value={generation.month}
-                onChange={(e) => setGeneration(prev => ({ ...prev, month: Number(e.target.value) }))}
-                className="invoice-form-input"
-              >
-                {MONTHS.map(m => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Generate Button */}
-            <button
-              onClick={generateInvoice}
-              disabled={!generation.accountId || generating}
-              className="invoice-generate-btn"
-            >
-              {generating ? (
-                <>
-                  <i className="fas fa-spinner fa-spin" />
-                  Processing...
-                </>
-              ) : (
-                'Generate Standard Draft'
-              )}
-            </button>
+      <main className="inv-page">
+        {/* Page header */}
+        <div className="flex items-end justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="inv-h1">Invoices</h1>
+            <p className="inv-desc">
+              Draft, review and finalize customer invoices. AWS drafts are built from each account&rsquo;s Cost and Usage Report.
+            </p>
           </div>
-
-          {/* IRN Toggle */}
-          <div className="mt-4 flex items-start gap-3">
-            <label className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 cursor-pointer transition-all select-none ${
-              generation.includeIrn
-                ? 'border-indigo-400 bg-indigo-50'
-                : 'border-slate-200 bg-slate-50 hover:border-slate-300'
-            }`}>
-              <input
-                type="checkbox"
-                checked={generation.includeIrn}
-                onChange={(e) => setGeneration(prev => ({ ...prev, includeIrn: e.target.checked }))}
-                className="w-4 h-4 accent-indigo-600"
-              />
-              <div>
-                <p className="text-sm font-semibold text-slate-700">
-                  <i className="fas fa-stamp mr-1.5 text-indigo-500" />
-                  Include IRN
-                  {generation.includeIrn
-                    ? <span className="ml-2 text-xs font-medium text-white bg-indigo-500 px-2 py-0.5 rounded-full">Tax Invoice</span>
-                    : <span className="ml-2 text-xs font-medium text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">Performa Invoice</span>
-                  }
-                </p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {generation.includeIrn
-                    ? 'PDF will include IRN, Ack No., Ack Date and QR code (e-Invoice)'
-                    : 'PDF will be generated as a Performa Invoice (no IRN)'}
-                </p>
-              </div>
-            </label>
-          </div>
+          <button type="button" className="inv-btn inv-btn--primary" onClick={openCreate}>
+            <i className="fas fa-plus" aria-hidden="true" />
+            Create draft
+          </button>
         </div>
 
-        {/* Update Error Alert */}
-        {updateError && !loading && (
-          <div className="invoice-alert invoice-alert-warning">
-            <div className="invoice-alert-icon">
-              <i className="fas fa-exclamation-triangle" />
-            </div>
-            <div>
-              <p className="text-sm text-yellow-700">
-                <span className="font-bold">Update Failed:</span> {updateError}. Showing cached data.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Critical Error Alert */}
-        {error && !loading && filteredInvoices.length === 0 && (
-          <div className="invoice-alert invoice-alert-error">
-            <div className="invoice-alert-icon">
-              <i className="fas fa-times-circle" />
-            </div>
-            <div>
-              <p className="text-sm text-red-700 font-bold">Error loading invoices</p>
-              <p className="text-sm text-red-600">{error}</p>
-              <button
-                onClick={() => fetchData(true)}
-                className="mt-2 text-sm font-medium text-red-800 hover:underline"
-              >
-                Try Again
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Merge Success Alert */}
+        {/* Notices */}
         {mergeSuccess && (
-          <div className="invoice-alert invoice-alert-success invoice-fade-in">
-            <div className="invoice-alert-icon">
-              <i className="fas fa-check-circle" />
-            </div>
-            <p className="text-sm text-green-700 font-bold">Invoices Merged Successfully!</p>
-          </div>
-        )}
-
-        {/* Account Filter */}
-        <div className="flex items-center gap-3">
-          <label className="text-xs font-semibold text-slate-500 whitespace-nowrap">
-            <i className="fas fa-filter mr-1" />
-            Filter by Account:
-          </label>
-          <select
-            value={filterIds[0] || ''}
-            onChange={(e) => {
-              const val = e.target.value;
-              setFilterIds(val ? [val] : []);
-            }}
-            className="invoice-form-input max-w-xs text-sm"
-          >
-            <option value="">All Accounts</option>
-            {accounts.map(acc => (
-              <option key={acc.id} value={String(acc.id)}>
-                {acc.name} ({acc.identifier})
-              </option>
-            ))}
-          </select>
-          {filterIds.length > 0 && (
-            <button
-              onClick={() => setFilterIds([])}
-              className="text-xs text-indigo-600 hover:underline"
-            >
-              Clear filter
+          <div className="inv-alert inv-alert--success" role="status">
+            <i className="fas fa-check-circle" aria-hidden="true" />
+            <p className="flex-1">Invoices merged.</p>
+            <button type="button" className="inv-icon-btn" onClick={dismissMergeSuccess} aria-label="Dismiss">
+              <i className="fas fa-times" aria-hidden="true" />
             </button>
-          )}
-        </div>
-
-        {/* Selection & Merge Panel */}
-        {selectedIds.length > 0 && (
-          <div className="invoice-selection-panel invoice-fade-in">
-            <div className="flex items-center gap-3">
-              <span className="invoice-selection-badge">
-                {selectedIds.length} Selected
-              </span>
-              <span className={`text-sm ${!canMergeSelection ? 'text-red-600' : 'text-gray-600'}`}>
-                {selectedIds.length !== 2 && 'Select exactly 2 drafts to enable merging.'}
-                {selectedIds.length === 2 && !canMergeSelection && 'Incompatible selection (Check Account/Period/Status).'}
-              </span>
-            </div>
-
-            <div>
-              <button
-                onClick={requestMerge}
-                disabled={!canMergeSelection}
-                className={`invoice-merge-btn ${canMergeSelection ? 'invoice-merge-btn-active' : 'invoice-merge-btn-disabled'}`}
-              >
-                <i className="fas fa-code-branch" />
-                {mergeButtonText}
-              </button>
-            </div>
+          </div>
+        )}
+        {updateError && !loading && (
+          <div className="inv-alert inv-alert--warning" role="alert">
+            <i className="fas fa-exclamation-triangle" aria-hidden="true" />
+            <p className="flex-1">Couldn&rsquo;t refresh: {updateError}</p>
+            <button type="button" className="inv-icon-btn" onClick={clearUpdateError} aria-label="Dismiss">
+              <i className="fas fa-times" aria-hidden="true" />
+            </button>
           </div>
         )}
 
-        {/* Invoice Table */}
-        <div className="invoice-table-container invoice-glass-card">
-          {/* Loading Skeleton */}
-          {loading && (
-            <div className="p-6 space-y-4">
-              <div className="h-4 invoice-skeleton-pulse w-full" />
-              <div className="h-4 invoice-skeleton-pulse w-full" />
-              <div className="h-4 invoice-skeleton-pulse w-full" />
-              <div className="h-4 invoice-skeleton-pulse w-3/4" />
+        {/* Summary strip — the tiles are also the quickest status filter */}
+        <section className="inv-card overflow-hidden" aria-label="Summary">
+          <div className="inv-kpis">
+            <button
+              type="button"
+              className="inv-kpi"
+              onClick={() => setStatus('ALL')}
+              title="Show every status"
+            >
+              <p className="inv-kpi__label">Invoices</p>
+              <p className="inv-kpi__value">{loading ? '—' : counts.all.toLocaleString()}</p>
+              <p className="inv-kpi__sub">
+                {filterIds.length ? 'For the selected account' : 'Across all accounts'}
+              </p>
+            </button>
+            <button
+              type="button"
+              className="inv-kpi"
+              aria-pressed={status === 'DRAFT'}
+              onClick={() => setStatus(status === 'DRAFT' ? 'ALL' : 'DRAFT')}
+            >
+              <p className="inv-kpi__label">Drafts to review</p>
+              <p className="inv-kpi__value">{loading ? '—' : counts.draft.toLocaleString()}</p>
+              <p className="inv-kpi__sub" title={usd(counts.draftValue)}>{usdCompact(counts.draftValue)} in drafts</p>
+            </button>
+            <button
+              type="button"
+              className="inv-kpi"
+              aria-pressed={status === 'FINALIZED'}
+              onClick={() => setStatus(status === 'FINALIZED' ? 'ALL' : 'FINALIZED')}
+            >
+              <p className="inv-kpi__label">Finalized</p>
+              <p className="inv-kpi__value">{loading ? '—' : counts.finalized.toLocaleString()}</p>
+              <p className="inv-kpi__sub">Sent to clients</p>
+            </button>
+            <div className="inv-kpi">
+              <p className="inv-kpi__label">Finalized value</p>
+              <p className="inv-kpi__value" title={usd(counts.finalizedValue)}>
+                {loading ? '—' : usdCompact(counts.finalizedValue)}
+              </p>
+              <p className="inv-kpi__sub">Including tax</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Invoices table */}
+        <section className="inv-card" aria-labelledby="invoices-heading">
+          <div className="inv-card__header">
+            <div>
+              <h2 id="invoices-heading" className="inv-h2">
+                Invoices <span className="inv-count">({visible.length.toLocaleString()})</span>
+              </h2>
+              <p className="inv-desc">Select a draft to review its charges, apply discounts and finalize it.</p>
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="flex flex-wrap items-center gap-2.5 px-5 py-3" style={{ borderBottom: '1px solid var(--inv-divider)' }}>
+            <div className="inv-search flex-1 max-w-sm">
+              <i className="fas fa-search" aria-hidden="true" />
+              <input
+                type="search"
+                className="inv-input"
+                placeholder="Find by invoice, account or period"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                aria-label="Search invoices"
+              />
+            </div>
+            <select
+              className="inv-select"
+              style={{ width: 'auto', minWidth: 190 }}
+              value={filterIds[0] || ''}
+              onChange={e => setFilterIds(e.target.value ? [e.target.value] : [])}
+              aria-label="Filter by account"
+            >
+              <option value="">All accounts</option>
+              {accounts.map(acc => (
+                <option key={acc.id} value={String(acc.id)}>{acc.name} ({acc.identifier})</option>
+              ))}
+            </select>
+            <select
+              className="inv-select"
+              style={{ width: 'auto', minWidth: 150 }}
+              value={period}
+              onChange={e => setPeriod(e.target.value)}
+              aria-label="Filter by billing period"
+            >
+              <option value="">All periods</option>
+              {periodsInData.map(p => (
+                <option key={p} value={p}>{formatPeriod(p, true)}</option>
+              ))}
+            </select>
+            <div className="inv-segmented" role="group" aria-label="Filter by status">
+              {(['ALL', 'DRAFT', 'FINALIZED', 'VOID'] as StatusFilter[]).map(s => (
+                <button key={s} type="button" aria-pressed={status === s} onClick={() => setStatus(s)}>
+                  {s === 'ALL' ? 'All' : s === 'DRAFT' ? 'Draft' : s === 'FINALIZED' ? 'Finalized' : 'Void'}
+                  {s !== 'ALL' && (
+                    <span className="inv-seg-count">
+                      {s === 'DRAFT' ? counts.draft : s === 'FINALIZED' ? counts.finalized : counts.void}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+            {filtersActive && (
+              <button type="button" className="inv-btn inv-btn--ghost inv-btn--sm" onClick={clearFilters}>
+                Clear filters
+              </button>
+            )}
+          </div>
+
+          {/* Selection & merge */}
+          {selectedIds.length > 0 && (
+            <div className="inv-selection" role="status">
+              <span>
+                <strong style={{ color: 'var(--inv-ink)' }}>{selectedIds.length} selected</strong>
+                <span className="ml-2">
+                  {selectedIds.length !== 2
+                    ? 'Select exactly two drafts for the same account and period to merge them.'
+                    : !canMergeSelection
+                      ? 'These two can’t be merged — they must be drafts for the same account and period.'
+                      : mergeButtonText}
+                </span>
+              </span>
+              <span className="flex items-center gap-2">
+                <button type="button" className="inv-btn inv-btn--ghost inv-btn--sm" onClick={() => setSelectedIds([])}>
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  className="inv-btn inv-btn--primary inv-btn--sm"
+                  onClick={requestMerge}
+                  disabled={!canMergeSelection}
+                >
+                  <i className="fas fa-code-branch" aria-hidden="true" />
+                  Merge
+                </button>
+              </span>
             </div>
           )}
 
-          {/* Invoice Table */}
-          {!loading && (
-            <table className="invoice-table">
-              <thead>
-                <tr>
-                  <th></th>
-                  <th>Invoice #</th>
-                  <th>Account</th>
-                  <th>Period</th>
-                  <th className="text-right">Total</th>
-                  <th className="text-center">Status</th>
-                  <th className="text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredInvoices.map((invoice) => {
-                  const isSelected = selectedIds.includes(String(invoice.id));
-                  const isDraft = invoice.status === 'DRAFT';
+          {/* Critical error with nothing cached */}
+          {error && !loading && scoped.length === 0 ? (
+            <div className="p-5">
+              <div className="inv-alert inv-alert--error" role="alert">
+                <i className="fas fa-times-circle" aria-hidden="true" />
+                <div className="flex-1">
+                  <p className="inv-alert__title">Couldn&rsquo;t load invoices</p>
+                  <p>{error}</p>
+                </div>
+                <button type="button" className="inv-btn inv-btn--sm" onClick={() => fetchData(true)}>Try again</button>
+              </div>
+            </div>
+          ) : (
+            <div className="inv-table-wrap">
+              <table className="inv-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 44 }}><span className="sr-only">Select</span></th>
+                    <th aria-sort={ariaSort('newest')}>
+                      <button type="button" className="inv-sort" onClick={() => toggleSort('newest')}>
+                        Invoice <i className={`fas ${sortIcon('newest')}`} aria-hidden="true" />
+                      </button>
+                    </th>
+                    <th aria-sort={ariaSort('account')}>
+                      <button type="button" className="inv-sort" onClick={() => toggleSort('account')}>
+                        Account <i className={`fas ${sortIcon('account')}`} aria-hidden="true" />
+                      </button>
+                    </th>
+                    <th aria-sort={ariaSort('period')}>
+                      <button type="button" className="inv-sort" onClick={() => toggleSort('period')}>
+                        Billing period <i className={`fas ${sortIcon('period')}`} aria-hidden="true" />
+                      </button>
+                    </th>
+                    <th>Source</th>
+                    <th>Status</th>
+                    <th className="is-num" aria-sort={ariaSort('total')}>
+                      <button type="button" className="inv-sort" onClick={() => toggleSort('total')}>
+                        Total (USD) <i className={`fas ${sortIcon('total')}`} aria-hidden="true" />
+                      </button>
+                    </th>
+                    <th className="is-num"><span className="sr-only">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading && Array.from({ length: 6 }).map((_, i) => (
+                    <tr key={`sk-${i}`}>
+                      <td><div className="inv-shimmer" style={{ width: 15, height: 15 }} /></td>
+                      <td><div className="inv-shimmer" style={{ width: 150, height: 12 }} /></td>
+                      <td><div className="inv-shimmer" style={{ width: 170, height: 12 }} /></td>
+                      <td><div className="inv-shimmer" style={{ width: 80, height: 12 }} /></td>
+                      <td><div className="inv-shimmer" style={{ width: 50, height: 12 }} /></td>
+                      <td><div className="inv-shimmer" style={{ width: 70, height: 18, borderRadius: 999 }} /></td>
+                      <td className="is-num"><div className="inv-shimmer ml-auto" style={{ width: 80, height: 12 }} /></td>
+                      <td />
+                    </tr>
+                  ))}
 
-                  return (
-                    <tr
-                      key={invoice.id}
-                      className={isSelected ? 'selected' : ''}
-                    >
-                      {/* Checkbox */}
-                      <td>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={(e) => handleCheckboxChange(String(invoice.id), e.target.checked)}
-                          disabled={!isDraft}
-                          className="invoice-checkbox"
-                        />
-                      </td>
-
-                      {/* Invoice Number */}
-                      <td>
-                        <div className="flex items-center">
-                          <span
-                            className={`invoice-type-badge ${isCloudFront(invoice) ? 'invoice-type-cloudfront' : 'invoice-type-standard'}`}
-                          >
-                            {isCloudFront(invoice) ? 'CF' : 'STD'}
+                  {!loading && pageRows.map(invoice => {
+                    const id = String(invoice.id);
+                    const selected = selectedIds.includes(id);
+                    const isDraft = invoice.status === 'DRAFT';
+                    const cf = isCloudFront(invoice);
+                    return (
+                      <tr
+                        key={invoice.id}
+                        className={`is-clickable ${selected ? 'is-selected' : ''}`}
+                        onClick={() => openDetail(invoice.id)}
+                      >
+                        <td onClick={e => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            className="inv-checkbox"
+                            checked={selected}
+                            disabled={!isDraft}
+                            onChange={e => toggleSelected(id, e.target.checked)}
+                            aria-label={`Select ${invoice.invoiceNumber}`}
+                            title={isDraft ? 'Select to merge' : 'Only drafts can be merged'}
+                          />
+                        </td>
+                        <td>
+                          <span className={`inv-type-tag ${cf ? 'inv-type-tag--cf' : ''}`} title={cf ? 'CloudFront invoice' : 'Standard invoice'}>
+                            {cf ? 'CF' : 'STD'}
                           </span>
                           <button
-                            onClick={() => navigateToDetail(invoice.id)}
-                            className="invoice-number-link"
+                            type="button"
+                            className="inv-link"
+                            onClick={e => { e.stopPropagation(); openDetail(invoice.id); }}
                           >
                             {invoice.invoiceNumber}
                           </button>
-                        </div>
-                      </td>
-
-                      {/* Account */}
-                      <td>
-                        <div className="invoice-account-name">{invoice.accountName}</div>
-                        <div className="invoice-account-id">{getDisplayAccountId(invoice)}</div>
-                      </td>
-
-                      {/* Period */}
-                      <td>
-                        <span className="invoice-period-badge">
-                          <i className="far fa-calendar-alt" />
-                          {invoice.billingPeriod}
-                        </span>
-                      </td>
-
-                      {/* Total */}
-                      <td className="text-right">
-                        <span className="invoice-amount">{formatCurrency(invoice.amount)}</span>
-                      </td>
-
-                      {/* Status */}
-                      <td className="text-center">
-                        <span
-                          className={`invoice-status-badge ${invoice.status === 'FINALIZED'
-                              ? 'invoice-status-finalized'
-                              : invoice.status === 'DRAFT'
-                                ? 'invoice-status-draft'
-                                : 'invoice-status-void'
-                            }`}
-                        >
-                          <i
-                            className={`fas ${invoice.status === 'FINALIZED' ? 'fa-check' : 'fa-pencil-alt'
-                              }`}
-                          />
-                          {invoice.status}
-                        </span>
-                      </td>
-
-                      {/* Actions */}
-                      <td>
-                        <div className="invoice-actions">
+                        </td>
+                        <td>
+                          <div className="font-semibold" style={{ color: 'var(--inv-ink)' }}>{invoice.accountName}</div>
+                          <div className="text-[12px] inv-muted inv-num">{accountIdOf(invoice)}</div>
+                        </td>
+                        <td className="whitespace-nowrap" title={formatPeriod(invoice.billingPeriod, true)}>
+                          {formatPeriod(invoice.billingPeriod)}
+                        </td>
+                        <td><SourcePills invoice={invoice} /></td>
+                        <td><StatusPill status={invoice.status} /></td>
+                        <td className="is-num inv-num font-semibold whitespace-nowrap">{usd(invoice.amount)}</td>
+                        <td className="is-num whitespace-nowrap" onClick={e => e.stopPropagation()}>
                           <button
+                            type="button"
+                            className="inv-icon-btn"
                             onClick={() => downloadPreview(invoice)}
-                            className="invoice-action-btn"
-                            title="Download Preview PDF"
+                            title="Download PDF"
+                            aria-label={`Download PDF for ${invoice.invoiceNumber}`}
                           >
-                            <i className="fas fa-file-pdf fa-lg" />
+                            <i className="fas fa-file-pdf" aria-hidden="true" />
                           </button>
-
-                          {isDraft && (
-                            <button
-                              onClick={() => requestDelete(invoice.id)}
-                              className="invoice-action-btn text-red-500 hover:text-red-700"
-                              title="Delete Draft Invoice"
-                            >
-                              <i className="fas fa-trash fa-lg" />
-                            </button>
-                          )}
-
                           <button
-                            onClick={() => navigateToDetail(invoice.id)}
-                            className="invoice-manage-btn"
+                            type="button"
+                            className="inv-icon-btn inv-icon-btn--danger"
+                            onClick={() => requestDelete(invoice.id)}
+                            disabled={!isDraft}
+                            title={isDraft ? 'Delete draft' : 'Only drafts can be deleted'}
+                            aria-label={`Delete ${invoice.invoiceNumber}`}
                           >
-                            Manage
+                            <i className="fas fa-trash-alt" aria-hidden="true" />
                           </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
 
-                {/* Empty State */}
-                {filteredInvoices.length === 0 && (
-                  <tr>
-                    <td colSpan={7}>
-                      <div className="invoice-empty-state">
-                        <i className="fas fa-folder-open" />
-                        <p>
-                          {filterIds.length > 0
-                            ? 'No invoices found for the selected account.'
-                            : 'No invoices found.'}
-                        </p>
+              {!loading && visible.length === 0 && (
+                <div className="inv-empty">
+                  {scoped.length === 0 ? (
+                    <>
+                      <i className="fas fa-file-invoice-dollar" aria-hidden="true" />
+                      <strong>No invoices yet</strong>
+                      Create a draft to start billing this account.
+                      <div className="mt-4">
+                        <button type="button" className="inv-btn inv-btn--primary" onClick={openCreate}>
+                          <i className="fas fa-plus" aria-hidden="true" /> Create draft
+                        </button>
                       </div>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                    </>
+                  ) : (
+                    <>
+                      <i className="fas fa-filter" aria-hidden="true" />
+                      <strong>No invoices match these filters</strong>
+                      <div className="mt-3">
+                        <button type="button" className="inv-btn inv-btn--sm" onClick={clearFilters}>Clear filters</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           )}
-        </div>
+
+          {!loading && visible.length > PAGE_SIZE && (
+            <div className="inv-pager">
+              <span className="inv-num">
+                {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, visible.length)} of {visible.length}
+              </span>
+              <span className="flex items-center gap-1">
+                <button
+                  type="button"
+                  className="inv-icon-btn"
+                  onClick={() => setPage(p => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  aria-label="Previous page"
+                >
+                  <i className="fas fa-chevron-left" aria-hidden="true" />
+                </button>
+                <span className="inv-num px-1">Page {page + 1} of {pageCount}</span>
+                <button
+                  type="button"
+                  className="inv-icon-btn"
+                  onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}
+                  disabled={page >= pageCount - 1}
+                  aria-label="Next page"
+                >
+                  <i className="fas fa-chevron-right" aria-hidden="true" />
+                </button>
+              </span>
+            </div>
+          )}
+        </section>
       </main>
     </div>
   );

@@ -1,30 +1,40 @@
 /**
- * BillOps Admin Invoice Detail Page
+ * BillOps Admin — Invoice detail
  *
- * Admin interface for managing a single invoice:
- * - View full invoice (line items grouped by service, discounts, totals)
- * - Apply / remove discounts  (DRAFT only)
- * - Finalize invoice           (DRAFT only)
- * - Download PDF preview
+ * One invoice, laid out like a bill in the AWS Billing console:
+ * - a summary that leads with the total due and shows how it is reached
+ *   (charges, discounts, taxable value, GST);
+ * - "Charges by service", the same service → region → usage type → rate line breakdown
+ *   as the cost page and the AWS bill, searchable and expandable;
+ * - discounts, and finalizing, for drafts.
  *
  * Route: /billops-admin-invoice-detail?id=<invoiceId>
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../utils/apiClient';
-import '../styles/billopsAdminInvoices.css';
+import { awsRegionName } from '../utils/awsRegionNames';
+import { AlertDialog, AriaTabGroup } from '../components/ui';
+import '../styles/billopsInvoiceUi.css';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface LineItemDto {
   id: number;
   serviceName: string;
   regionName: string;
+  /** The rate line's description on report-built invoices; the resource or usage type otherwise. */
   resourceName: string;
   usageQuantity: string;
   unit: string;
   cost: number;
+  /**
+   * Set on invoices built from the Cost and Usage Report, where lines sit under their
+   * usage type as they do on the AWS bill. Absent on Cost Explorer invoices and repriced
+   * CloudFront lines, which stay directly under their region.
+   */
+  usageType?: string | null;
 }
 
 interface DiscountDto {
@@ -50,27 +60,126 @@ interface InvoiceDetail {
   discountAmount: number;
   taxAmount: number;
   amount: number;
+  marketplaceCharge?: number | null;
+  includeIrn?: boolean;
   lineItems: LineItemDto[];
   discounts: DiscountDto[];
+  dataSource?: 'CUR' | 'COST_EXPLORER' | null;
+  provisional?: boolean;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+interface UsageTypeNode { usageType: string; total: number; lines: LineItemDto[] }
+interface RegionNode { key: string; region: string; total: number; usageTypes: UsageTypeNode[]; flat: LineItemDto[] }
+interface ServiceNode { service: string; total: number; regions: RegionNode[]; lineCount: number }
 
-const fmt = (v: number | null | undefined): string =>
-  new Intl.NumberFormat('en-US', {
+// ─── Formatting ──────────────────────────────────────────────────────────────
+
+const usd = (v: number | null | undefined): string => {
+  const value = v ?? 0;
+  // Sub-cent lines keep their digits; rounding them to $0.00 would hide real charges.
+  const small = value !== 0 && Math.abs(value) < 0.01;
+  return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     minimumFractionDigits: 2,
-    maximumFractionDigits: 4,
-  }).format(v ?? 0);
+    maximumFractionDigits: small ? 4 : 2,
+  }).format(value);
+};
 
-const getAccountId = (inv: InvoiceDetail): string => {
+const inr = (v: number): string =>
+  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(v);
+
+/**
+ * Usage quantities span a huge range — 0.000012 GB-Mo to 147,128,739 Requests — so a
+ * fixed number of decimals is unreadable at one end and misleading at the other. Same
+ * rule as the cost page's "Charges by service", so the two read identically.
+ */
+const formatQuantity = (raw: string | null | undefined): string => {
+  const v = Number(raw);
+  if (raw == null || raw === '' || Number.isNaN(v)) return '';
+  if (v === 0) return '0';
+  const abs = Math.abs(v);
+  if (abs >= 1000) return v.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  if (abs >= 1) return v.toLocaleString('en-US', { maximumFractionDigits: 3 });
+  return v.toLocaleString('en-US', { maximumFractionDigits: 6 });
+};
+
+const formatPeriod = (period: string | null | undefined): string => {
+  if (!period) return '—';
+  const [y, m] = period.split('-').map(Number);
+  if (!y || !m) return period;
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+};
+
+const formatDate = (iso: string | null | undefined): string => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+};
+
+const accountIdOf = (inv: InvoiceDetail): string => {
   if (inv.awsAccountId && inv.awsAccountId !== 'N/A') return inv.awsAccountId;
   if (inv.gcpProjectId && inv.gcpProjectId !== 'N/A') return inv.gcpProjectId;
   return inv.azureSubscriptionId || '—';
 };
 
-// ─── Component ────────────────────────────────────────────────────────────────
+const regionLabel = awsRegionName;
+
+// ─── Charges tree ────────────────────────────────────────────────────────────
+
+/**
+ * Service → region → usage type → line, the breakdown of the AWS bill and of the cost
+ * page's "Charges by service". Lines without a usage type (Cost Explorer invoices,
+ * repriced CloudFront) skip that level and sit straight under their region.
+ */
+const buildTree = (lines: LineItemDto[]): ServiceNode[] => {
+  const services = new Map<string, Map<string, { byUsage: Map<string, LineItemDto[]>; flat: LineItemDto[] }>>();
+  for (const line of lines) {
+    const svc = line.serviceName || 'Other';
+    const rgn = line.regionName || 'Global';
+    const regions = services.get(svc) ?? new Map();
+    const bucket = regions.get(rgn) ?? { byUsage: new Map<string, LineItemDto[]>(), flat: [] as LineItemDto[] };
+    if (line.usageType) {
+      const list = bucket.byUsage.get(line.usageType) ?? [];
+      list.push(line);
+      bucket.byUsage.set(line.usageType, list);
+    } else {
+      bucket.flat.push(line);
+    }
+    regions.set(rgn, bucket);
+    services.set(svc, regions);
+  }
+
+  const sum = (ls: LineItemDto[]) => ls.reduce((s, l) => s + (l.cost ?? 0), 0);
+  const byCost = (a: LineItemDto, b: LineItemDto) => (b.cost ?? 0) - (a.cost ?? 0);
+
+  return [...services.entries()]
+    .map(([service, regionMap]) => {
+      const regions: RegionNode[] = [...regionMap.entries()]
+        .map(([region, { byUsage, flat }]) => {
+          const usageTypes = [...byUsage.entries()]
+            .map(([usageType, ls]) => ({ usageType, total: sum(ls), lines: [...ls].sort(byCost) }))
+            .sort((a, b) => b.total - a.total);
+          return {
+            key: `${service}|${region}`,
+            region,
+            total: usageTypes.reduce((s, u) => s + u.total, 0) + sum(flat),
+            usageTypes,
+            flat: [...flat].sort(byCost),
+          };
+        })
+        .sort((a, b) => b.total - a.total);
+      return {
+        service,
+        total: regions.reduce((s, r) => s + r.total, 0),
+        regions,
+        lineCount: regions.reduce((n, r) => n + r.flat.length + r.usageTypes.reduce((m, u) => m + u.lines.length, 0), 0),
+      };
+    })
+    .sort((a, b) => b.total - a.total);
+};
+
+// ─── Page ────────────────────────────────────────────────────────────────────
 
 const BillOpsAdminInvoiceDetailPage: React.FC = () => {
   const navigate = useNavigate();
@@ -81,26 +190,24 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Discount form
+  const [tab, setTab] = useState<'charges' | 'discounts'>('charges');
+  const [query, setQuery] = useState('');
+  const [openServices, setOpenServices] = useState<Set<string>>(new Set());
+  const [openRegions, setOpenRegions] = useState<Set<string>>(new Set());
+
   const [discountService, setDiscountService] = useState('');
   const [discountPct, setDiscountPct] = useState('');
   const [applyingDiscount, setApplyingDiscount] = useState(false);
   const [discountError, setDiscountError] = useState<string | null>(null);
 
-  // Finalize
   const [finalizing, setFinalizing] = useState(false);
   const [confirmFinalize, setConfirmFinalize] = useState(false);
+  const [downloading, setDownloading] = useState<'pdf' | 'detail' | null>(null);
 
-  // Expanded service / region groups
-  const [expandedServices, setExpandedServices] = useState<Set<string>>(new Set());
-  const [expandedRegions, setExpandedRegions] = useState<Set<string>>(new Set());
-
-  // Live USD→INR exchange rate
   const [usdRate, setUsdRate] = useState<number | null>(null);
   const [rateDate, setRateDate] = useState<string | null>(null);
-  const [rateLoading, setRateLoading] = useState(true);
 
-  // ── Fetch invoice ──────────────────────────────────────────────────────────
+  // ── Load ──────────────────────────────────────────────────────────────────
 
   const fetchInvoice = useCallback(async () => {
     if (!invoiceId) return;
@@ -113,10 +220,9 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
           navigate('/');
           return;
         }
-        throw new Error(`Server error: ${res.status}`);
+        throw new Error(res.status === 404 ? 'This invoice no longer exists.' : `Server error: ${res.status}`);
       }
-      const data: InvoiceDetail = await res.json();
-      setInvoice(data);
+      setInvoice(await res.json());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load invoice.');
     } finally {
@@ -124,11 +230,9 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
     }
   }, [invoiceId, navigate]);
 
-  useEffect(() => {
-    fetchInvoice();
-  }, [fetchInvoice]);
+  useEffect(() => { fetchInvoice(); }, [fetchInvoice]);
 
-  // ── Fetch live USD→INR rate (fawazahmed0/exchange-api) ────────────────────
+  // Live USD→INR, for the equivalent shown under the total (fawazahmed0/exchange-api).
   useEffect(() => {
     const endpoints = [
       'https://latest.currency-api.pages.dev/v1/currencies/usd.min.json',
@@ -144,77 +248,67 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
           if (rate && rate > 1) {
             setUsdRate(rate);
             setRateDate(data?.date ?? null);
-            setRateLoading(false);
             return;
           }
         } catch {
-          // try next endpoint
+          // try the next endpoint
         }
       }
-      setRateLoading(false); // all failed
     })();
   }, []);
 
-  // ── Group line items by service ───────────────────────────────────────────
+  // ── Charges ───────────────────────────────────────────────────────────────
 
-  const serviceGroups = useMemo(() => {
-    if (!invoice?.lineItems) return [];
-    const svcMap = new Map<string, { total: number; regionMap: Map<string, { regionTotal: number; items: LineItemDto[] }> }>();
-    for (const item of invoice.lineItems) {
-      const svcKey = item.serviceName || 'Other';
-      if (!svcMap.has(svcKey)) svcMap.set(svcKey, { total: 0, regionMap: new Map() });
-      const svcGroup = svcMap.get(svcKey)!;
-      svcGroup.total += item.cost ?? 0;
-      const regionKey = item.regionName || 'Global';
-      if (!svcGroup.regionMap.has(regionKey)) svcGroup.regionMap.set(regionKey, { regionTotal: 0, items: [] });
-      const rGroup = svcGroup.regionMap.get(regionKey)!;
-      rGroup.regionTotal += item.cost ?? 0;
-      rGroup.items.push(item);
-    }
-    return Array.from(svcMap.entries())
-      .map(([service, { total, regionMap }]) => ({
-        service,
-        total,
-        regions: Array.from(regionMap.entries())
-          .map(([regionName, { regionTotal, items }]) => ({ regionName, regionTotal, items }))
-          .sort((a, b) => b.regionTotal - a.regionTotal),
-      }))
-      .sort((a, b) => b.total - a.total);
-  }, [invoice]);
+  const allLines = useMemo(() => invoice?.lineItems ?? [], [invoice]);
+  const chargesTotal = useMemo(() => allLines.reduce((s, l) => s + (l.cost ?? 0), 0), [allLines]);
 
-  const serviceNames = useMemo(() => {
-    if (!invoice?.lineItems) return [];
-    return Array.from(new Set(invoice.lineItems.map(i => i.serviceName || 'Other'))).sort();
-  }, [invoice]);
+  const q = query.trim().toLowerCase();
+  const matchingLines = useMemo(() => {
+    if (!q) return allLines;
+    return allLines.filter(l =>
+      [l.serviceName, l.regionName, regionLabel(l.regionName || ''), l.usageType, l.resourceName]
+        .some(v => (v || '').toLowerCase().includes(q)));
+  }, [allLines, q]);
 
-  const toggleService = (service: string) => {
-    setExpandedServices(prev => {
+  const tree = useMemo(() => buildTree(matchingLines), [matchingLines]);
+  const fullTree = useMemo(() => buildTree(allLines), [allLines]);
+
+  // A lone service opens by itself; there is nothing else to choose between.
+  useEffect(() => {
+    if (fullTree.length === 1) setOpenServices(new Set([fullTree[0].service]));
+  }, [fullTree]);
+
+  // While searching, everything that matched is shown open.
+  const isServiceOpen = (s: string) => Boolean(q) || openServices.has(s);
+  const isRegionOpen = (k: string) => Boolean(q) || openRegions.has(k);
+
+  const toggle = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, key: string) =>
+    setter(prev => {
       const next = new Set(prev);
-      if (next.has(service)) next.delete(service);
-      else next.add(service);
+      if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
+
+  const expandAll = () => {
+    setOpenServices(new Set(fullTree.map(s => s.service)));
+    setOpenRegions(new Set(fullTree.flatMap(s => s.regions.map(r => r.key))));
+  };
+  const collapseAll = () => {
+    setOpenServices(new Set());
+    setOpenRegions(new Set());
   };
 
-  const toggleRegion = (service: string, region: string) => {
-    const key = `${service}-${region}`;
-    setExpandedRegions(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
+  const serviceNames = useMemo(() => fullTree.map(s => s.service).sort(), [fullTree]);
 
-  // ── Apply discount ────────────────────────────────────────────────────────
+  // ── Actions ───────────────────────────────────────────────────────────────
 
   const applyDiscount = useCallback(async () => {
     if (!invoice || !discountService.trim() || !discountPct.trim()) {
-      setDiscountError('Please enter service name and percentage.');
+      setDiscountError('Choose what to discount and enter a percentage.');
       return;
     }
     const pct = parseFloat(discountPct);
-    if (isNaN(pct) || pct <= 0 || pct > 100) {
+    if (Number.isNaN(pct) || pct <= 0 || pct > 100) {
       setDiscountError('Percentage must be between 0.01 and 100.');
       return;
     }
@@ -228,18 +322,15 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
         body: JSON.stringify({ serviceName: discountService.trim(), percentage: pct }),
       });
       if (!res.ok) throw new Error('Failed to apply discount.');
-      const updated: InvoiceDetail = await res.json();
-      setInvoice(updated);
+      setInvoice(await res.json());
       setDiscountService('');
       setDiscountPct('');
     } catch (err) {
-      setDiscountError(err instanceof Error ? err.message : 'Unknown error');
+      setDiscountError(err instanceof Error ? err.message : 'Failed to apply discount.');
     } finally {
       setApplyingDiscount(false);
     }
   }, [invoice, discountService, discountPct]);
-
-  // ── Remove discount ────────────────────────────────────────────────────────
 
   const removeDiscount = useCallback(async (discountId: number) => {
     if (!invoice) return;
@@ -249,27 +340,23 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
         credentials: 'include',
       });
       if (!res.ok) throw new Error('Failed to remove discount.');
-      const updated: InvoiceDetail = await res.json();
-      setInvoice(updated);
+      setInvoice(await res.json());
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to remove discount.');
+      setDiscountError(err instanceof Error ? err.message : 'Failed to remove discount.');
     }
   }, [invoice]);
 
-  // ── Finalize ───────────────────────────────────────────────────────────────
-
   const finalizeInvoice = useCallback(async () => {
     if (!invoice) return;
-    setFinalizing(true);
     setConfirmFinalize(false);
+    setFinalizing(true);
     try {
       const res = await apiFetch(`/api/admin/invoices/${invoice.id}/finalize`, {
         method: 'POST',
         credentials: 'include',
       });
       if (!res.ok) throw new Error('Failed to finalize invoice.');
-      const updated: InvoiceDetail = await res.json();
-      setInvoice(updated);
+      setInvoice(await res.json());
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to finalize invoice.');
     } finally {
@@ -277,431 +364,548 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
     }
   }, [invoice]);
 
-  // ── Download PDF ───────────────────────────────────────────────────────────
-
-  const downloadPdf = useCallback(async () => {
+  const download = useCallback(async (kind: 'pdf' | 'detail') => {
     if (!invoice) return;
+    setDownloading(kind);
     try {
       const detailRes = await apiFetch(`/api/admin/invoices/${invoice.id}`, { credentials: 'include' });
       if (!detailRes.ok) throw new Error('Failed to fetch invoice.');
       const fullDto = await detailRes.json();
 
-      const pdfRes = await apiFetch('/api/billops/invoices/download-preview', {
+      const endpoint = kind === 'pdf' ? '/api/billops/invoices/download-preview' : '/api/billops/invoices/download-detail';
+      const pdfRes = await apiFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify(fullDto),
       });
-      if (!pdfRes.ok) throw new Error('PDF generation failed.');
+      if (!pdfRes.ok) throw new Error(kind === 'pdf' ? 'PDF generation failed.' : 'Detail bill generation failed.');
 
       const blob = await pdfRes.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.style.display = 'none';
       a.href = url;
-      a.download = `preview-${invoice.invoiceNumber}.pdf`;
+      a.download = `${kind === 'pdf' ? 'preview' : 'detail-bill'}-${invoice.invoiceNumber}.pdf`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Download failed.');
+    } finally {
+      setDownloading(null);
     }
   }, [invoice]);
 
-  const downloadDetailBill = useCallback(async () => {
-    if (!invoice) return;
-    try {
-      const detailRes = await apiFetch(`/api/admin/invoices/${invoice.id}`, { credentials: 'include' });
-      if (!detailRes.ok) throw new Error('Failed to fetch invoice.');
-      const fullDto = await detailRes.json();
+  // ── States ────────────────────────────────────────────────────────────────
 
-      const pdfRes = await apiFetch('/api/billops/invoices/download-detail', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(fullDto),
-      });
-      if (!pdfRes.ok) throw new Error('Detail bill generation failed.');
-
-      const blob = await pdfRes.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = url;
-      a.download = `detail-bill-${invoice.invoiceNumber}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Download failed.');
-    }
-  }, [invoice]);
-
-  // ── Render ─────────────────────────────────────────────────────────────────
+  const backToInvoices = () => navigate('/billops-admin-invoices');
 
   if (!invoiceId) {
     return (
-      <div className="admin-invoices-page flex-1 flex items-center justify-center">
-        <p className="text-red-500 font-medium">No invoice ID provided.</p>
-      </div>
+      <main className="inv-page">
+        <div className="inv-alert inv-alert--error" role="alert">
+          <i className="fas fa-times-circle" aria-hidden="true" />
+          <p className="flex-1">No invoice was specified.</p>
+          <button type="button" className="inv-btn inv-btn--sm" onClick={backToInvoices}>Back to invoices</button>
+        </div>
+      </main>
     );
   }
 
-  if (loading) {
+  if (loading && !invoice) {
     return (
-      <div className="admin-invoices-page flex-1 flex flex-col h-full overflow-hidden bg-transparent">
-        <div className="p-8 space-y-4">
-          <div className="h-8 invoice-skeleton-pulse w-48 rounded-lg" />
-          <div className="h-40 invoice-skeleton-pulse w-full rounded-xl" />
-          <div className="h-64 invoice-skeleton-pulse w-full rounded-xl" />
+      <main className="inv-page" aria-busy="true">
+        <div className="inv-shimmer" style={{ width: 180, height: 12 }} />
+        <div className="inv-shimmer" style={{ width: 280, height: 26 }} />
+        <div className="inv-card" style={{ height: 180 }}>
+          <div className="p-6 space-y-3">
+            <div className="inv-shimmer" style={{ width: 120, height: 12 }} />
+            <div className="inv-shimmer" style={{ width: 240, height: 40 }} />
+          </div>
         </div>
-      </div>
+        <div className="inv-card" style={{ height: 320 }} />
+      </main>
     );
   }
 
   if (error || !invoice) {
     return (
-      <div className="admin-invoices-page flex-1 flex flex-col h-full overflow-hidden bg-transparent">
-        <div className="p-8">
-          <div className="invoice-alert invoice-alert-error">
-            <div className="invoice-alert-icon"><i className="fas fa-times-circle" /></div>
-            <div>
-              <p className="text-sm text-red-700 font-bold">Error loading invoice</p>
-              <p className="text-sm text-red-600">{error}</p>
-              <button onClick={() => navigate('/billops-admin-invoices')} className="mt-2 text-sm font-medium text-red-800 hover:underline">
-                ← Back to Invoices
-              </button>
-            </div>
+      <main className="inv-page">
+        <div className="inv-alert inv-alert--error" role="alert">
+          <i className="fas fa-times-circle" aria-hidden="true" />
+          <div className="flex-1">
+            <p className="inv-alert__title">Couldn&rsquo;t load this invoice</p>
+            <p>{error ?? 'Unknown error.'}</p>
           </div>
+          <button type="button" className="inv-btn inv-btn--sm" onClick={fetchInvoice}>Try again</button>
+          <button type="button" className="inv-btn inv-btn--ghost inv-btn--sm" onClick={backToInvoices}>Back</button>
         </div>
-      </div>
+      </main>
     );
   }
 
   const isDraft = invoice.status === 'DRAFT';
-  const accountId = getAccountId(invoice);
+  const marketplace = invoice.marketplaceCharge ?? 0;
+  const taxable = (invoice.preDiscountTotal ?? 0) - (invoice.discountAmount ?? 0);
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="admin-invoices-page flex-1 flex flex-col h-full overflow-hidden bg-transparent">
-      <main className="flex-1 overflow-y-auto p-8 space-y-6 admin-invoices-scrollbar">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-transparent">
+      <AlertDialog
+        isOpen={confirmFinalize}
+        title="Finalize this invoice?"
+        description={`${invoice.invoiceNumber} will be marked finalized and sent to the client. Discounts can no longer be changed, and this can't be undone.`}
+        confirmLabel="Finalize"
+        variant="warning"
+        onConfirm={finalizeInvoice}
+        onCancel={() => setConfirmFinalize(false)}
+      />
 
-        {/* ── Header Bar ────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => navigate('/billops-admin-invoices')}
-              className="flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-indigo-600 transition-colors"
-            >
-              <i className="fas fa-arrow-left" />
-              Back to Invoices
-            </button>
-            <div className="h-5 w-px bg-slate-200" />
-            <h2 className="text-xl font-bold text-slate-800">{invoice.invoiceNumber}</h2>
-            <span className={`invoice-status-badge ${
-              invoice.status === 'FINALIZED' ? 'invoice-status-finalized' :
-              invoice.status === 'DRAFT' ? 'invoice-status-draft' :
-              'invoice-status-void'
-            }`}>
-              <i className={`fas ${invoice.status === 'FINALIZED' ? 'fa-check' : invoice.status === 'VOID' ? 'fa-ban' : 'fa-pencil-alt'}`} />
-              {invoice.status}
-            </span>
+      <main className="inv-page">
+        {/* Breadcrumb */}
+        <nav className="inv-breadcrumb" aria-label="Breadcrumb">
+          <button type="button" onClick={backToInvoices}>Invoices</button>
+          <i className="fas fa-chevron-right text-[9px]" aria-hidden="true" />
+          <span aria-current="page">{invoice.invoiceNumber}</span>
+        </nav>
+
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4 flex-wrap" style={{ marginTop: 10 }}>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="inv-h1 inv-num">{invoice.invoiceNumber}</h1>
+              <span className={`inv-pill ${isDraft ? 'inv-pill--draft' : invoice.status === 'FINALIZED' ? 'inv-pill--finalized' : 'inv-pill--void'}`}>
+                <i className={`fas ${isDraft ? 'fa-pen' : invoice.status === 'FINALIZED' ? 'fa-check' : 'fa-ban'}`} aria-hidden="true" />
+                {isDraft ? 'Draft' : invoice.status === 'FINALIZED' ? 'Finalized' : 'Void'}
+              </span>
+              {invoice.dataSource === 'CUR' && (
+                <span className="inv-pill inv-pill--cur" title="Built from the Cost and Usage Report">CUR</span>
+              )}
+              {invoice.dataSource === 'COST_EXPLORER' && (
+                <span className="inv-pill inv-pill--ce" title="Built from Cost Explorer">Cost Explorer</span>
+              )}
+              {invoice.provisional && <span className="inv-pill inv-pill--provisional">Provisional</span>}
+            </div>
+            <p className="inv-desc" style={{ fontSize: 13 }}>
+              {invoice.accountName} · <span className="inv-num inv-muted">{accountIdOf(invoice)}</span> · {formatPeriod(invoice.billingPeriod)}
+            </p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <button onClick={downloadPdf} className="invoice-action-btn flex items-center gap-2 px-4 py-2 text-sm font-medium" title="Download PDF Preview">
-              <i className="fas fa-file-pdf" />
+          <div className="flex items-center gap-2 flex-wrap">
+            <button type="button" className="inv-btn" onClick={() => download('pdf')} disabled={downloading !== null}>
+              <i className={`fas ${downloading === 'pdf' ? 'fa-spinner fa-spin' : 'fa-file-pdf'}`} aria-hidden="true" />
               Download PDF
             </button>
-            <button onClick={downloadDetailBill} className="invoice-action-btn flex items-center gap-2 px-4 py-2 text-sm font-medium" title="Download Detail Bill (without tax)">
-              <i className="fas fa-file-invoice" />
-              Download Detail Bill
+            <button
+              type="button"
+              className="inv-btn"
+              onClick={() => download('detail')}
+              disabled={downloading !== null}
+              title="Every charge line, without tax"
+            >
+              <i className={`fas ${downloading === 'detail' ? 'fa-spinner fa-spin' : 'fa-file-invoice'}`} aria-hidden="true" />
+              Detail bill
             </button>
             {isDraft && (
               <button
+                type="button"
+                className="inv-btn inv-btn--primary"
                 onClick={() => setConfirmFinalize(true)}
                 disabled={finalizing}
-                className="invoice-generate-btn flex items-center gap-2 px-5 py-2 text-sm"
               >
-                {finalizing ? <><i className="fas fa-spinner fa-spin" /> Finalizing…</> : <><i className="fas fa-check-circle" /> Finalize Invoice</>}
+                <i className={`fas ${finalizing ? 'fa-spinner fa-spin' : 'fa-check-circle'}`} aria-hidden="true" />
+                {finalizing ? 'Finalizing…' : 'Finalize'}
               </button>
             )}
           </div>
         </div>
 
-        {/* ── Invoice Info Card ──────────────────────────────────────────── */}
-        <div className="invoice-glass-card p-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+        {invoice.provisional && (
+          <div className="inv-alert inv-alert--info" role="note">
+            <i className="fas fa-info-circle" aria-hidden="true" />
             <div>
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Account</p>
-              <p className="text-sm font-semibold text-slate-800">{invoice.accountName}</p>
-              <p className="text-xs text-slate-500">{accountId}</p>
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Client</p>
-              <p className="text-sm font-semibold text-slate-800">{invoice.clientName || '—'}</p>
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Billing Period</p>
-              <p className="text-sm font-semibold text-slate-800">{invoice.billingPeriod}</p>
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Invoice Date</p>
-              <p className="text-sm font-semibold text-slate-800">{invoice.invoiceDate || '—'}</p>
+              <p className="inv-alert__title">Month-to-date estimate</p>
+              <p>
+                {formatPeriod(invoice.billingPeriod)} hadn&rsquo;t closed when this draft was built, so AWS may still change these
+                figures. Create a new draft after the month closes for the final bill.
+              </p>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* ── Financial Summary ─────────────────────────────────────────── */}
-        <div className="invoice-glass-card p-6">
-          <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
-            <h3 className="card-title">
-              <i className="fas fa-calculator" />
-              Financial Summary
-            </h3>
-            {/* Live exchange rate badge */}
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border ${
-              rateLoading
-                ? 'bg-slate-50 border-slate-200 text-slate-400'
-                : usdRate
-                ? 'bg-blue-50 border-blue-200 text-blue-700'
-                : 'bg-amber-50 border-amber-200 text-amber-600'
-            }`}>
-              <i className={`fas ${rateLoading ? 'fa-spinner fa-spin' : usdRate ? 'fa-exchange-alt' : 'fa-exclamation-triangle'}`} />
-              {rateLoading
-                ? 'Fetching rate…'
-                : usdRate
-                ? <>1 USD&nbsp;=&nbsp;<span className="font-bold">₹{usdRate.toFixed(2)}</span>{rateDate && <span className="ml-1.5 font-normal text-blue-500">({rateDate})</span>}</>
-                : 'Rate unavailable'}
-            </div>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            <div className="text-center p-4 bg-slate-50 rounded-xl">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Pre-Discount</p>
-              <p className="text-lg font-bold text-slate-700">{fmt(invoice.preDiscountTotal)}</p>
-            </div>
-            <div className="text-center p-4 bg-green-50 rounded-xl">
-              <p className="text-xs font-semibold text-green-500 uppercase tracking-wide mb-1">Discount</p>
-              <p className="text-lg font-bold text-green-600">−{fmt(invoice.discountAmount)}</p>
-            </div>
-            <div className="text-center p-4 bg-amber-50 rounded-xl">
-              <p className="text-xs font-semibold text-amber-500 uppercase tracking-wide mb-1">Tax</p>
-              <p className="text-lg font-bold text-amber-600">+{fmt(invoice.taxAmount)}</p>
-            </div>
-            <div className="text-center p-4 bg-indigo-50 rounded-xl border-2 border-indigo-200">
-              <p className="text-xs font-semibold text-indigo-500 uppercase tracking-wide mb-1">Total Due</p>
-              <p className="text-xl font-extrabold text-indigo-700">{fmt(invoice.amount)}</p>
-            </div>
-          </div>
-        </div>
+        {/* Summary */}
+        <section className="inv-card overflow-hidden" aria-label="Invoice summary">
+          <div className="inv-summary">
+            <div className="inv-summary__hero">
+              <p className="inv-kpi__label">Total due</p>
+              <p className="inv-hero-value">{usd(invoice.amount)}</p>
+              <p className="inv-hero-sub">
+                {usdRate
+                  ? <>≈ {inr((invoice.amount ?? 0) * usdRate)} at ₹{usdRate.toFixed(2)} per USD{rateDate ? ` (${rateDate})` : ''}</>
+                  : 'USD, including tax'}
+              </p>
 
-        {/* ── Applied Discounts ─────────────────────────────────────────── */}
-        {invoice.discounts && invoice.discounts.length > 0 && (
-          <div className="invoice-glass-card p-6">
-            <h3 className="card-title mb-4">
-              <i className="fas fa-tag" />
-              Applied Discounts
-            </h3>
-            <div className="space-y-2">
-              {invoice.discounts.map(d => (
-                <div key={d.id} className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-100">
-                  <div>
-                    <span className="text-sm font-semibold text-green-800">{d.serviceName}</span>
-                    <span className="ml-3 text-sm text-green-600">{d.percentage}% off</span>
-                    {d.description && <span className="ml-2 text-xs text-green-500">— {d.description}</span>}
-                  </div>
-                  {isDraft && (
-                    <button
-                      onClick={() => removeDiscount(d.id)}
-                      className="text-red-400 hover:text-red-600 transition-colors p-1"
-                      title="Remove discount"
-                    >
-                      <i className="fas fa-times" />
-                    </button>
+              {/* Who and what this bill is for, beside the figure it arrives at. */}
+              <dl className="inv-kv" style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--inv-divider)' }}>
+                <div>
+                  <dt>Account</dt>
+                  <dd>{invoice.accountName}<small className="inv-num">{accountIdOf(invoice)}</small></dd>
+                </div>
+                <div>
+                  <dt>Client</dt>
+                  <dd>{invoice.clientName || '—'}</dd>
+                </div>
+                <div>
+                  <dt>Invoice date</dt>
+                  <dd>{formatDate(invoice.invoiceDate)}</dd>
+                </div>
+                <div>
+                  <dt>Invoice type</dt>
+                  <dd>{invoice.includeIrn ? 'Tax invoice (with IRN)' : 'Proforma invoice'}</dd>
+                </div>
+                <div>
+                  <dt>Figures from</dt>
+                  <dd>
+                    {invoice.dataSource === 'CUR'
+                      ? 'Cost and Usage Report'
+                      : invoice.dataSource === 'COST_EXPLORER'
+                        ? 'Cost Explorer'
+                        : invoice.provider && invoice.provider !== 'AWS' ? `${invoice.provider} billing export` : '—'}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+            <div className="inv-summary__lines">
+              <div className="inv-summary-line">
+                <span>
+                  Charges
+                  <small>
+                    {fullTree.length} service{fullTree.length === 1 ? '' : 's'}, {allLines.length} line{allLines.length === 1 ? '' : 's'}
+                    {marketplace > 0 && <> · includes {usd(marketplace)} AWS Marketplace, never discounted</>}
+                  </small>
+                </span>
+                <strong className="inv-num">{usd(invoice.preDiscountTotal)}</strong>
+              </div>
+              <div className="inv-summary-line">
+                <span>
+                  Discounts
+                  {invoice.discounts?.length > 0 && (
+                    <small>{invoice.discounts.length} applied</small>
+                  )}
+                </span>
+                <strong className="inv-num">{invoice.discountAmount ? `−${usd(invoice.discountAmount)}` : usd(0)}</strong>
+              </div>
+              <div className="inv-summary-line">
+                <span>Taxable value</span>
+                <strong className="inv-num">{usd(taxable)}</strong>
+              </div>
+              <div className="inv-summary-line">
+                <span>GST</span>
+                <strong className="inv-num">{usd(invoice.taxAmount)}</strong>
+              </div>
+              <div className="inv-summary-line inv-summary-line--total">
+                <span>Total due</span>
+                <span className="inv-num">{usd(invoice.amount)}</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Charges & discounts */}
+        <section className="inv-card">
+          <div className="px-5 pt-2">
+            <AriaTabGroup
+              tabs={[
+                { id: 'charges', label: `Charges by service (${fullTree.length})` },
+                { id: 'discounts', label: `Discounts (${invoice.discounts?.length ?? 0})` },
+              ]}
+              selectedKey={tab}
+              onSelectionChange={key => setTab(key as 'charges' | 'discounts')}
+            />
+          </div>
+
+          {tab === 'charges' && (
+            <div role="tabpanel" aria-label="Charges by service">
+              <div className="flex items-center justify-between gap-3 flex-wrap px-5 py-3">
+                <div className="inv-search flex-1 max-w-md">
+                  <i className="fas fa-search" aria-hidden="true" />
+                  <input
+                    type="search"
+                    className="inv-input"
+                    placeholder="Find a service, region, usage type or charge"
+                    value={query}
+                    onChange={e => setQuery(e.target.value)}
+                    aria-label="Search charges"
+                  />
+                </div>
+                <div className="flex items-center gap-1">
+                  {q ? (
+                    <span className="text-[12.5px] inv-muted">
+                      {matchingLines.length} of {allLines.length} lines match
+                    </span>
+                  ) : (
+                    <>
+                      <button type="button" className="inv-btn inv-btn--ghost inv-btn--sm" onClick={expandAll}>Expand all</button>
+                      <button type="button" className="inv-btn inv-btn--ghost inv-btn--sm" onClick={collapseAll}>Collapse all</button>
+                    </>
                   )}
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── Apply Discount Form (DRAFT only) ─────────────────────────── */}
-        {isDraft && (
-          <div className="invoice-generate-card p-6">
-            <h3 className="card-title mb-4">
-              <i className="fas fa-percent" />
-              Apply Discount
-            </h3>
-            {discountError && (
-              <div className="invoice-alert invoice-alert-warning mb-4">
-                <div className="invoice-alert-icon"><i className="fas fa-exclamation-triangle" /></div>
-                <p className="text-sm text-yellow-700">{discountError}</p>
               </div>
-            )}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-              <div>
-                <label className="invoice-form-label">Service Name</label>
-                <select
-                  value={discountService}
-                  onChange={e => setDiscountService(e.target.value)}
-                  className="invoice-form-input"
-                >
-                  <option value="">Select a service…</option>
-                  <option value="ALL">ALL (entire invoice)</option>
-                  {serviceNames.map(name => (
-                    <option key={name} value={name}>{name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="invoice-form-label">Discount %</label>
-                <input
-                  type="number"
-                  value={discountPct}
-                  onChange={e => setDiscountPct(e.target.value)}
-                  placeholder="e.g. 10"
-                  min="0.01"
-                  max="100"
-                  step="0.01"
-                  className="invoice-form-input"
-                />
-              </div>
-              <button
-                onClick={applyDiscount}
-                disabled={applyingDiscount || !discountService.trim() || !discountPct.trim()}
-                className="invoice-generate-btn"
-              >
-                {applyingDiscount ? <><i className="fas fa-spinner fa-spin" /> Applying…</> : 'Apply Discount'}
-              </button>
-            </div>
-          </div>
-        )}
 
-        {/* ── Line Items ────────────────────────────────────────────────── */}
-        <div className="invoice-glass-card p-6">
-          <h3 className="card-title mb-4">
-            <i className="fas fa-list-ul" />
-            Line Items
-            <span className="ml-2 text-xs font-normal text-slate-400">({invoice.lineItems?.length ?? 0} items)</span>
-          </h3>
-
-          {serviceGroups.length === 0 ? (
-            <div className="invoice-empty-state">
-              <i className="fas fa-inbox" />
-              <p>No line items found.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="w-8 px-2 py-3" />
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Service / Resource</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Usage Quantity</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wide">Amount (USD)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {serviceGroups.map(({ service, total, regions }) => (
-                    <React.Fragment key={service}>
-                      {/* Service row */}
-                      <tr
-                        onClick={() => toggleService(service)}
-                        className={`cursor-pointer transition-colors hover:bg-gray-50/80 border-b border-slate-50 ${expandedServices.has(service) ? 'bg-indigo-50/30' : ''}`}
-                      >
-                        <td className="px-2 py-4 text-center text-gray-400">
-                          <i className={`fas fa-chevron-right text-xs transition-transform duration-200 ${expandedServices.has(service) ? 'rotate-90 text-indigo-500' : ''}`} />
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="flex items-center">
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center mr-3 transition-colors ${expandedServices.has(service) ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-500'}`}>
-                              <i className="fas fa-cube text-xs" />
-                            </div>
-                            <span className="font-semibold text-gray-900">{service}</span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4 text-right text-slate-400 text-xs">—</td>
-                        <td className="px-4 py-4 text-right font-bold text-slate-700">{fmt(total)}</td>
+              {allLines.length === 0 ? (
+                <div className="inv-empty">
+                  <i className="fas fa-inbox" aria-hidden="true" />
+                  <strong>No charges on this invoice</strong>
+                </div>
+              ) : tree.length === 0 ? (
+                <div className="inv-empty">
+                  <i className="fas fa-search" aria-hidden="true" />
+                  <strong>Nothing matches &ldquo;{query}&rdquo;</strong>
+                  <div className="mt-3">
+                    <button type="button" className="inv-btn inv-btn--sm" onClick={() => setQuery('')}>Clear search</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="inv-table-wrap">
+                  <table className="inv-table inv-tree">
+                    <thead>
+                      <tr>
+                        <th>Description</th>
+                        <th className="hidden md:table-cell inv-col-share">Share of charges</th>
+                        <th className="is-num inv-col-qty">Usage quantity</th>
+                        <th className="is-num inv-col-amt">Amount (USD)</th>
                       </tr>
-
-                      {/* Region rows */}
-                      {expandedServices.has(service) && regions.map(({ regionName, regionTotal, items }) => (
-                        <React.Fragment key={`${service}-${regionName}`}>
-                          <tr
-                            onClick={() => toggleRegion(service, regionName)}
-                            className={`cursor-pointer transition-colors hover:bg-gray-50 border-b border-slate-50 ${expandedRegions.has(`${service}-${regionName}`) ? 'bg-gray-50' : ''}`}
-                          >
-                            <td className="px-2 py-3 text-center text-gray-300">
-                              <i className={`fas fa-chevron-right text-xs transition-transform duration-200 ml-2 ${expandedRegions.has(`${service}-${regionName}`) ? 'rotate-90 text-gray-500' : ''}`} />
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center pl-10">
-                                <i className="fas fa-globe-americas text-gray-400 mr-2 text-xs" />
-                                <span className="text-gray-700 font-medium text-sm">{regionName}</span>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-right text-slate-400 text-xs">—</td>
-                            <td className="px-4 py-3 text-right font-semibold text-slate-600 text-sm">{fmt(regionTotal)}</td>
-                          </tr>
-
-                          {/* Resource rows */}
-                          {expandedRegions.has(`${service}-${regionName}`) && items.map((item, idx) => (
-                            <tr key={`${item.id}-${idx}`} className="hover:bg-gray-50/50 transition-colors border-b border-slate-50">
-                              <td className="px-2 py-2" />
-                              <td className="px-4 py-2">
-                                <div className="pl-16 flex items-center">
-                                  <div className="w-1.5 h-1.5 bg-gray-300 rounded-full mr-3 flex-shrink-0" />
-                                  <span className="text-gray-600 text-xs font-mono truncate max-w-md" title={item.resourceName}>
-                                    {item.resourceName || '—'}
+                    </thead>
+                    <tbody>
+                      {tree.map(svc => {
+                        const svcOpen = isServiceOpen(svc.service);
+                        const share = chargesTotal > 0 ? Math.max(0, svc.total / chargesTotal) : 0;
+                        return (
+                          <React.Fragment key={svc.service}>
+                            <tr className="inv-tree-row--service">
+                              <td className="inv-tree-cell">
+                                <button
+                                  type="button"
+                                  className="inv-tree-toggle"
+                                  aria-expanded={svcOpen}
+                                  onClick={() => toggle(setOpenServices, svc.service)}
+                                  disabled={Boolean(q)}
+                                >
+                                  <i className="fas fa-chevron-right inv-chevron" aria-hidden="true" />
+                                  {svc.service}
+                                </button>
+                              </td>
+                              <td className="hidden md:table-cell">
+                                {chargesTotal > 0 && (
+                                  <span className="inv-share" title={`${(share * 100).toFixed(1)}% of charges`}>
+                                    <span className="inv-meter" aria-hidden="true">
+                                      <span className="inv-meter__fill" style={{ width: `${Math.min(100, share * 100)}%`, display: 'block' }} />
+                                    </span>
+                                    <span className="inv-num">{share >= 0.001 ? `${(share * 100).toFixed(1)}%` : '<0.1%'}</span>
                                   </span>
-                                </div>
+                                )}
                               </td>
-                              <td className="px-4 py-2 text-right text-gray-500 text-xs font-mono">
-                                {item.usageQuantity != null ? `${Number(item.usageQuantity).toFixed(3)} ${item.unit || ''}`.trim() : 'N/A'}
-                              </td>
-                              <td className="px-4 py-2 text-right text-gray-600 text-sm font-medium">{fmt(item.cost)}</td>
+                              <td className="is-num inv-qty-cell" />
+                              <td className="is-num inv-num">{usd(svc.total)}</td>
                             </tr>
-                          ))}
-                        </React.Fragment>
-                      ))}
-                    </React.Fragment>
-                  ))}
-                </tbody>
-              </table>
+
+                            {svcOpen && svc.regions.map(rgn => {
+                              const rgnOpen = isRegionOpen(rgn.key);
+                              return (
+                                <React.Fragment key={rgn.key}>
+                                  <tr className="inv-tree-row--region">
+                                    <td className="inv-tree-cell">
+                                      <button
+                                        type="button"
+                                        className="inv-tree-toggle"
+                                        aria-expanded={rgnOpen}
+                                        onClick={() => toggle(setOpenRegions, rgn.key)}
+                                        disabled={Boolean(q)}
+                                      >
+                                        <i className="fas fa-chevron-right inv-chevron" aria-hidden="true" />
+                                        {regionLabel(rgn.region)}
+                                      </button>
+                                    </td>
+                                    <td className="hidden md:table-cell" />
+                                    <td className="is-num inv-qty-cell" />
+                                    <td className="is-num inv-num">{usd(rgn.total)}</td>
+                                  </tr>
+
+                                  {rgnOpen && rgn.usageTypes.map(ut => (
+                                    <React.Fragment key={`${rgn.key}|${ut.usageType}`}>
+                                      <tr className="inv-tree-row--usage">
+                                        <td className="inv-tree-cell">{ut.usageType}</td>
+                                        <td className="hidden md:table-cell" />
+                                        <td className="is-num inv-qty-cell" />
+                                        <td className="is-num inv-num">{usd(ut.total)}</td>
+                                      </tr>
+                                      {ut.lines.map(line => (
+                                        <tr key={line.id} className="inv-tree-row--line">
+                                          <td className="inv-tree-cell">
+                                            {line.resourceName || '—'}
+                                            <span className="inv-inline-qty inv-num">
+                                              {formatQuantity(line.usageQuantity)} {line.unit}
+                                            </span>
+                                          </td>
+                                          <td className="hidden md:table-cell" />
+                                          <td className="is-num inv-num whitespace-nowrap inv-qty-cell">
+                                            {formatQuantity(line.usageQuantity)}
+                                            {line.unit && <span className="inv-muted ml-1">{line.unit}</span>}
+                                          </td>
+                                          <td className="is-num inv-num whitespace-nowrap">{usd(line.cost)}</td>
+                                        </tr>
+                                      ))}
+                                    </React.Fragment>
+                                  ))}
+
+                                  {rgnOpen && rgn.flat.map(line => (
+                                    <tr key={line.id} className="inv-tree-row--line is-flat">
+                                      <td className="inv-tree-cell">
+                                        {line.resourceName || '—'}
+                                        <span className="inv-inline-qty inv-num">
+                                          {formatQuantity(line.usageQuantity)} {line.unit && line.unit !== 'N/A' ? line.unit : ''}
+                                        </span>
+                                      </td>
+                                      <td className="hidden md:table-cell" />
+                                      <td className="is-num inv-num whitespace-nowrap inv-qty-cell">
+                                        {formatQuantity(line.usageQuantity)}
+                                        {line.unit && line.unit !== 'N/A' && <span className="inv-muted ml-1">{line.unit}</span>}
+                                      </td>
+                                      <td className="is-num inv-num whitespace-nowrap">{usd(line.cost)}</td>
+                                    </tr>
+                                  ))}
+                                </React.Fragment>
+                              );
+                            })}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                    {!q && (
+                      <tfoot>
+                        <tr>
+                          <td className="font-bold" style={{ borderTop: '1px solid var(--inv-border)', padding: '12px 16px' }}>
+                            Total charges
+                          </td>
+                          <td className="hidden md:table-cell" style={{ borderTop: '1px solid var(--inv-border)' }} />
+                          <td className="inv-qty-cell" style={{ borderTop: '1px solid var(--inv-border)' }} />
+                          <td className="is-num inv-num font-bold" style={{ borderTop: '1px solid var(--inv-border)', padding: '12px 16px' }}>
+                            {usd(chargesTotal)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                  <p className="px-5 py-3 text-[11.5px] inv-muted leading-relaxed" style={{ borderTop: '1px solid var(--inv-divider)' }}>
+                    Negative amounts are credits, or usage covered by a Savings Plan or Reserved Instance.
+                    {invoice.dataSource === 'CUR' && ' Built from the same Cost and Usage Report lines as the cost page’s “Charges by service”.'}
+                  </p>
+                </div>
+              )}
             </div>
           )}
-        </div>
 
-        {/* ── Finalize Confirmation ─────────────────────────────────────── */}
-        {confirmFinalize && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4">
-              <div className="flex items-center justify-center w-16 h-16 mx-auto mb-4 bg-amber-100 rounded-full">
-                <i className="fas fa-exclamation-triangle text-amber-500 text-2xl" />
-              </div>
-              <h2 className="text-xl font-bold text-center text-slate-800 mb-2">Finalize Invoice?</h2>
-              <p className="text-sm text-slate-500 text-center mb-6">
-                This will mark <span className="font-semibold text-slate-700">{invoice.invoiceNumber}</span> as finalized and send it to the client. This action cannot be undone.
+          {tab === 'discounts' && (
+            <div role="tabpanel" aria-label="Discounts" className="inv-card__body space-y-4">
+              {discountError && (
+                <div className="inv-alert inv-alert--warning" role="alert">
+                  <i className="fas fa-exclamation-triangle" aria-hidden="true" />
+                  <p className="flex-1">{discountError}</p>
+                  <button type="button" className="inv-icon-btn" onClick={() => setDiscountError(null)} aria-label="Dismiss">
+                    <i className="fas fa-times" aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+
+              {isDraft && (
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_160px_auto] gap-3 items-end">
+                  <div>
+                    <label className="inv-field-label" htmlFor="discount-scope">Apply to</label>
+                    <select
+                      id="discount-scope"
+                      className="inv-select"
+                      value={discountService}
+                      onChange={e => setDiscountService(e.target.value)}
+                    >
+                      <option value="">Choose what to discount…</option>
+                      <option value="ALL">Entire invoice</option>
+                      {serviceNames.map(name => <option key={name} value={name}>{name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="inv-field-label" htmlFor="discount-pct">Discount (%)</label>
+                    <input
+                      id="discount-pct"
+                      type="number"
+                      className="inv-input inv-num"
+                      value={discountPct}
+                      onChange={e => setDiscountPct(e.target.value)}
+                      placeholder="e.g. 10"
+                      min="0.01"
+                      max="100"
+                      step="0.01"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="inv-btn inv-btn--primary"
+                    onClick={applyDiscount}
+                    disabled={applyingDiscount || !discountService || !discountPct}
+                  >
+                    {applyingDiscount ? <><i className="fas fa-spinner fa-spin" aria-hidden="true" /> Applying…</> : 'Apply discount'}
+                  </button>
+                </div>
+              )}
+
+              {invoice.discounts?.length ? (
+                <div className="inv-card overflow-hidden" style={{ boxShadow: 'none' }}>
+                  <table className="inv-table">
+                    <thead>
+                      <tr>
+                        <th>Applies to</th>
+                        <th className="is-num">Discount</th>
+                        <th>Note</th>
+                        {isDraft && <th className="is-num"><span className="sr-only">Remove</span></th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {invoice.discounts.map(d => (
+                        <tr key={d.id}>
+                          <td className="font-semibold">{d.serviceName === 'ALL' ? 'Entire invoice' : d.serviceName}</td>
+                          <td className="is-num inv-num">{d.percentage}%</td>
+                          <td className="inv-ink-2">{d.description || '—'}</td>
+                          {isDraft && (
+                            <td className="is-num">
+                              <button
+                                type="button"
+                                className="inv-icon-btn inv-icon-btn--danger"
+                                onClick={() => removeDiscount(d.id)}
+                                aria-label={`Remove discount on ${d.serviceName}`}
+                                title="Remove discount"
+                              >
+                                <i className="fas fa-times" aria-hidden="true" />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-[13px] inv-muted">No discounts applied.</p>
+              )}
+
+              <p className="text-[12px] inv-muted">
+                AWS Marketplace charges are never discounted.
+                {!isDraft && ' This invoice is finalized, so its discounts can no longer be changed.'}
               </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setConfirmFinalize(false)}
-                  className="flex-1 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={finalizeInvoice}
-                  className="flex-1 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors"
-                >
-                  Yes, Finalize
-                </button>
-              </div>
             </div>
-          </div>
-        )}
-
+          )}
+        </section>
       </main>
     </div>
   );

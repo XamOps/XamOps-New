@@ -23,12 +23,24 @@ import { apiFetch } from '../utils/apiClient';
 import type {
   AdminInvoiceItem,
   CloudAccount,
+  CurUnavailableNotice,
   GenerationParams,
+  InvoiceDataSource,
   MergeOrder,
   UseBillOpsAdminInvoicesReturn
 } from '../types/billopsAdminInvoices';
 
 const CACHE_KEY = 'admin_invoices_list';
+
+/**
+ * Deadline for generating a draft.
+ *
+ * The first draft for a month reads it from the Cost and Usage Report — two Athena
+ * queries, each allowed up to 60s server-side. The 45s default would give up while
+ * the server carried on and saved the draft anyway, and the retry would then create a
+ * second one.
+ */
+const GENERATE_TIMEOUT_MS = 150_000;
 
 export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
   // Core state
@@ -54,6 +66,7 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
     includeIrn: false,
   });
   const [generating, setGenerating] = useState(false);
+  const [curUnavailable, setCurUnavailable] = useState<CurUnavailableNotice | null>(null);
   const [pendingMerge, setPendingMerge] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<number | null>(null);
 
@@ -184,40 +197,96 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
     }
   }, [invoices.length, updateLastUpdatedDisplay]);
 
-  /**
-   * Generate a new draft invoice
-   */
-  const generateInvoice = useCallback(async () => {
-    if (!generation.accountId) {
-      alert('No account selected. Please select an account from the sidebar.');
-      return;
-    }
+  // A refusal describes one account and month. Once the form moves on it no longer
+  // applies, and leaving it up would offer a Cost Explorer fallback for a request the
+  // admin is no longer making.
+  useEffect(() => {
+    setCurUnavailable(null);
+  }, [generation]);
 
+  /**
+   * Posts a draft request against one source.
+   *
+   * A 409 CUR_UNAVAILABLE is not an error: the report could not answer and the server
+   * made no Cost Explorer call. It becomes a notice the page renders with the reason
+   * and a way to fall back, instead of an alert that leaves the admin nowhere to go.
+   */
+  const submitDraft = useCallback(async (
+    params: GenerationParams,
+    source: InvoiceDataSource,
+  ): Promise<number | null> => {
     setGenerating(true);
 
     try {
       const response = await apiFetch('/api/admin/invoices/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(generation),
+        body: JSON.stringify({ ...params, source }),
         credentials: 'include',
+        timeoutMs: GENERATE_TIMEOUT_MS,
       });
+
+      if (response.status === 409) {
+        const body = await response.json().catch(() => null);
+        if (body?.error === 'CUR_UNAVAILABLE') {
+          if (isMountedRef.current) {
+            setCurUnavailable({
+              reason: String(body.reason ?? ''),
+              message: String(body.message ?? 'The Cost and Usage Report could not build this invoice.'),
+              canUseCostExplorer: body.canUseCostExplorer !== false,
+              params,
+            });
+          }
+          return null;
+        }
+      }
 
       if (!response.ok) {
         throw new Error('Failed to generate invoice.');
       }
 
-      // Refresh the list
+      const created = await response.json().catch(() => null);
+      if (isMountedRef.current) {
+        setCurUnavailable(null);
+      }
       await fetchData(true);
+      return typeof created?.id === 'number' ? created.id : null;
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to generate invoice.';
       alert(msg);
+      return null;
     } finally {
       if (isMountedRef.current) {
         setGenerating(false);
       }
     }
-  }, [generation, fetchData]);
+  }, [fetchData]);
+
+  /**
+   * Generate a new draft invoice from the Cost and Usage Report.
+   */
+  const generateInvoice = useCallback(async (): Promise<number | null> => {
+    if (!generation.accountId) {
+      alert('No account selected. Please select an account from the sidebar.');
+      return null;
+    }
+    return submitDraft(generation, 'CUR');
+  }, [generation, submitDraft]);
+
+  /**
+   * Repeats the request the report refused, against Cost Explorer.
+   *
+   * Uses the params stored with the refusal rather than the current form, so the
+   * fallback is always for the account and month the admin was just told about.
+   */
+  const generateFromCostExplorer = useCallback(async (): Promise<number | null> => {
+    if (!curUnavailable || !curUnavailable.canUseCostExplorer) {
+      return null;
+    }
+    return submitDraft(curUnavailable.params, 'COST_EXPLORER');
+  }, [curUnavailable, submitDraft]);
+
+  const dismissCurUnavailable = useCallback(() => setCurUnavailable(null), []);
 
   /**
    * Check if invoice is CloudFront type
@@ -541,6 +610,7 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
     filterIds,
     generation,
     generating,
+    curUnavailable,
 
     // Computed
     filteredInvoices,
@@ -550,6 +620,8 @@ export const useBillOpsAdminInvoices = (): UseBillOpsAdminInvoicesReturn => {
     // Actions
     fetchData,
     generateInvoice,
+    generateFromCostExplorer,
+    dismissCurUnavailable,
     setSelectedIds,
     setFilterIds,
     setGeneration,

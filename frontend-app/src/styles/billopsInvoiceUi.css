@@ -1,0 +1,824 @@
+/*
+ * BillOps invoices — list and detail.
+ *
+ * Laid out after the AWS Billing console's Bills page: a summary strip, then the charges
+ * by service as an expandable table, in the same crisp, low-chroma aesthetic as the
+ * XamOps cost page and the BillOps admin dashboard.
+ *
+ * Every colour is a token with a light and a dark value. The app's global dark-mode
+ * rules repaint most elements with !important, so the tokens alone do not survive dark
+ * mode; the last section of this file restates them at a specificity those rules
+ * cannot outrank. Read it before adding a colour here.
+ */
+
+:root {
+  --inv-surface: #ffffff;
+  --inv-surface-sunken: #f8f9fb;
+  --inv-border: rgba(0, 0, 0, 0.09);
+  --inv-divider: rgba(0, 0, 0, 0.055);
+  --inv-ink: #0f141a;
+  --inv-ink-2: rgba(0, 0, 0, 0.64);
+  --inv-ink-3: rgba(0, 0, 0, 0.46);
+  --inv-row-hover: rgba(0, 0, 0, 0.022);
+  --inv-row-selected: rgba(79, 70, 229, 0.06);
+  --inv-accent: #4f46e5;
+  --inv-accent-hover: #4338ca;
+  --inv-accent-ink: #ffffff;
+  --inv-link: #4338ca;
+  --inv-focus: rgba(99, 102, 241, 0.45);
+  /* Share meters: one hue, track a lighter step of the same ramp. Both pairs checked
+     with the dataviz validator (--ordinal) against this file's surfaces. */
+  --inv-meter-track: #a1b0fb;
+  --inv-meter-fill: #3730a3;
+  --inv-shimmer-a: #f1f3f5;
+  --inv-shimmer-b: #e8eaed;
+}
+
+html.dark {
+  --inv-surface: #161b27;
+  --inv-surface-sunken: #121622;
+  --inv-border: rgba(255, 255, 255, 0.08);
+  --inv-divider: rgba(255, 255, 255, 0.055);
+  --inv-ink: #f1f5f9;
+  --inv-ink-2: #cbd5e1;
+  --inv-ink-3: #94a3b8;
+  --inv-row-hover: rgba(255, 255, 255, 0.03);
+  --inv-row-selected: rgba(129, 140, 248, 0.1);
+  --inv-accent: #6366f1;
+  --inv-accent-hover: #818cf8;
+  --inv-accent-ink: #ffffff;
+  --inv-link: #a5b4fc;
+  --inv-focus: rgba(129, 140, 248, 0.5);
+  --inv-meter-track: #454c9e;
+  --inv-meter-fill: #a5b4fc;
+  --inv-shimmer-a: #1a2032;
+  --inv-shimmer-b: #232b40;
+}
+
+/* ── Page ───────────────────────────────────────────────────────────────── */
+
+.inv-page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 32px 48px;
+  font-family: 'Inter', 'DM Sans', system-ui, -apple-system, sans-serif;
+  color: var(--inv-ink);
+}
+.inv-page > * + * { margin-top: 20px; }
+
+@media (max-width: 768px) {
+  .inv-page { padding: 16px 16px 40px; }
+}
+
+/* ── Card ───────────────────────────────────────────────────────────────── */
+
+.inv-card {
+  background: var(--inv-surface);
+  border: 1px solid var(--inv-border);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.inv-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--inv-divider);
+}
+
+.inv-card__body { padding: 16px 20px; }
+
+.inv-h1 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--inv-ink);
+  line-height: 1.2;
+}
+
+.inv-h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--inv-ink);
+}
+.inv-h2 .inv-count { font-weight: 500; color: var(--inv-ink-3); }
+
+.inv-desc {
+  font-size: 12.5px;
+  color: var(--inv-ink-3);
+  margin-top: 2px;
+  line-height: 1.5;
+}
+
+.inv-muted { color: var(--inv-ink-3); }
+.inv-ink-2 { color: var(--inv-ink-2); }
+.inv-num { font-variant-numeric: tabular-nums; }
+
+/* ── Breadcrumb ─────────────────────────────────────────────────────────── */
+
+.inv-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--inv-ink-3);
+}
+.inv-breadcrumb a,
+.inv-breadcrumb button {
+  color: var(--inv-link);
+  font-weight: 500;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.inv-breadcrumb a:hover,
+.inv-breadcrumb button:hover { text-decoration: underline; }
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+
+.inv-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  border: 1px solid var(--inv-border);
+  background: var(--inv-surface);
+  color: var(--inv-ink);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.inv-btn:hover:not(:disabled) { border-color: var(--inv-ink-3); }
+.inv-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--inv-focus); }
+.inv-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.inv-btn i { font-size: 12px; }
+
+.inv-btn--primary {
+  background: var(--inv-accent);
+  border-color: var(--inv-accent);
+  color: var(--inv-accent-ink);
+}
+.inv-btn--primary:hover:not(:disabled) {
+  background: var(--inv-accent-hover);
+  border-color: var(--inv-accent-hover);
+}
+
+/* The one control that reaches Cost Explorer: deliberately not the brand accent, so it
+   never reads as the default next step. */
+.inv-btn--fallback {
+  background: #b45309;
+  border-color: #b45309;
+  color: #ffffff;
+}
+.inv-btn--fallback:hover:not(:disabled) { background: #92400e; border-color: #92400e; }
+
+.inv-btn--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--inv-ink-2);
+}
+.inv-btn--ghost:hover:not(:disabled) { background: var(--inv-row-hover); border-color: transparent; }
+
+.inv-btn--sm { height: 28px; padding: 0 10px; font-size: 12px; }
+
+.inv-icon-btn {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  border: 0;
+  background: transparent;
+  color: var(--inv-ink-3);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.inv-icon-btn:hover:not(:disabled) { background: var(--inv-row-hover); color: var(--inv-ink); }
+.inv-icon-btn--danger:hover:not(:disabled) { color: #dc2626; }
+.inv-icon-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--inv-focus); }
+.inv-icon-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ── Form controls ──────────────────────────────────────────────────────── */
+
+.inv-field-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--inv-ink-2);
+  margin-bottom: 6px;
+}
+
+.inv-input,
+.inv-select {
+  height: 34px;
+  width: 100%;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--inv-border);
+  background: var(--inv-surface);
+  color: var(--inv-ink);
+  font-size: 13px;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.inv-input::placeholder { color: var(--inv-ink-3); }
+.inv-input:focus,
+.inv-select:focus {
+  outline: none;
+  border-color: var(--inv-accent);
+  box-shadow: 0 0 0 3px var(--inv-focus);
+}
+
+.inv-search {
+  position: relative;
+  min-width: 220px;
+}
+.inv-search i {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  color: var(--inv-ink-3);
+  pointer-events: none;
+}
+.inv-search .inv-input { padding-left: 32px; }
+
+/* Segmented control — status filter */
+.inv-segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 9px;
+  background: var(--inv-surface-sunken);
+  border: 1px solid var(--inv-border);
+}
+.inv-segmented button {
+  height: 26px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--inv-ink-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.inv-segmented button[aria-pressed='true'] {
+  background: var(--inv-surface);
+  color: var(--inv-ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+.inv-segmented button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--inv-focus); }
+.inv-segmented .inv-seg-count { margin-left: 5px; color: var(--inv-ink-3); font-weight: 500; }
+
+/* Choice cards — invoice type in the create dialog */
+.inv-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--inv-border);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.inv-choice:hover { border-color: var(--inv-ink-3); }
+.inv-choice[data-selected='true'] {
+  border-color: var(--inv-accent);
+  background: var(--inv-row-selected);
+}
+.inv-choice input { margin-top: 3px; accent-color: var(--inv-accent); }
+
+/* ── Stat tiles ─────────────────────────────────────────────────────────── */
+
+.inv-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.inv-kpi {
+  padding: 16px 20px;
+  border-left: 1px solid var(--inv-divider);
+  text-align: left;
+  background: none;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  color: inherit;
+  font: inherit;
+}
+.inv-kpi:first-child { border-left: 0; }
+button.inv-kpi { cursor: pointer; transition: background 0.12s ease; }
+button.inv-kpi:hover { background: var(--inv-row-hover); }
+button.inv-kpi:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--inv-focus); }
+button.inv-kpi[aria-pressed='true'] { background: var(--inv-row-selected); }
+.inv-kpi__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--inv-ink-3);
+}
+.inv-kpi__value {
+  font-size: 24px;
+  font-weight: 650;
+  color: var(--inv-ink);
+  line-height: 1.15;
+  margin-top: 6px;
+}
+.inv-kpi__sub {
+  font-size: 11.5px;
+  color: var(--inv-ink-3);
+  margin-top: 4px;
+}
+
+@media (max-width: 900px) {
+  .inv-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inv-kpi:nth-child(3) { border-left: 0; }
+  .inv-kpi:nth-child(n + 3) { border-top: 1px solid var(--inv-divider); }
+}
+
+/* ── Summary (invoice detail) ───────────────────────────────────────────── */
+
+.inv-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+}
+.inv-summary__hero {
+  padding: 22px 24px;
+  border-right: 1px solid var(--inv-divider);
+}
+.inv-hero-value {
+  font-size: 48px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  color: var(--inv-ink);
+  margin-top: 8px;
+}
+.inv-hero-sub {
+  font-size: 12.5px;
+  color: var(--inv-ink-3);
+  margin-top: 8px;
+}
+.inv-summary__lines { padding: 14px 24px; }
+.inv-summary-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--inv-divider);
+  font-size: 13.5px;
+  color: var(--inv-ink-2);
+}
+.inv-summary-line:last-child { border-bottom: 0; }
+.inv-summary-line strong { color: var(--inv-ink); font-weight: 600; }
+.inv-summary-line--total { color: var(--inv-ink); font-weight: 700; }
+.inv-summary-line small { display: block; font-size: 11.5px; color: var(--inv-ink-3); margin-top: 2px; }
+
+@media (max-width: 900px) {
+  .inv-summary { grid-template-columns: 1fr; }
+  .inv-summary__hero { border-right: 0; border-bottom: 1px solid var(--inv-divider); }
+  .inv-hero-value { font-size: 40px; }
+}
+
+/* Key/value details */
+.inv-kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px 24px;
+}
+.inv-kv dt {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--inv-ink-3);
+}
+.inv-kv dd {
+  font-size: 13.5px;
+  color: var(--inv-ink);
+  margin-top: 3px;
+  word-break: break-word;
+}
+.inv-kv dd small { display: block; font-size: 12px; color: var(--inv-ink-3); }
+
+/* ── Pills ──────────────────────────────────────────────────────────────── */
+
+.inv-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 9999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.inv-pill i { font-size: 9px; }
+
+.inv-pill--draft       { background: #fffaeb; color: #b45309; border-color: #fde68a; }
+.inv-pill--finalized   { background: #ecfdf3; color: #158045; border-color: #c7f0d6; }
+.inv-pill--void        { background: #f4f5f7; color: #475569; border-color: #d8dde5; }
+.inv-pill--cur         { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
+.inv-pill--ce          { background: #f4f5f7; color: #475569; border-color: #d8dde5; }
+.inv-pill--provisional { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+.inv-pill--type        { background: transparent; color: var(--inv-ink-3); border-color: var(--inv-border); }
+
+html.dark .inv-pill--draft       { background: rgba(245, 158, 11, 0.12); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
+html.dark .inv-pill--finalized   { background: rgba(34, 197, 94, 0.12); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
+html.dark .inv-pill--void        { background: rgba(148, 163, 184, 0.1); color: #94a3b8; border-color: rgba(148, 163, 184, 0.25); }
+html.dark .inv-pill--cur         { background: rgba(129, 140, 248, 0.14); color: #a5b4fc; border-color: rgba(129, 140, 248, 0.3); }
+html.dark .inv-pill--ce          { background: rgba(148, 163, 184, 0.1); color: #cbd5e1; border-color: rgba(148, 163, 184, 0.25); }
+html.dark .inv-pill--provisional { background: rgba(245, 158, 11, 0.12); color: #fcd34d; border-color: rgba(245, 158, 11, 0.3); }
+
+/* ── Alerts ─────────────────────────────────────────────────────────────── */
+
+.inv-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.inv-alert > i { margin-top: 3px; font-size: 13px; flex-shrink: 0; }
+.inv-alert__title { font-weight: 700; }
+
+.inv-alert--info    { background: #eff6ff; border-color: #bfdbfe; color: #1e3a8a; }
+.inv-alert--warning { background: #fffbeb; border-color: #fde68a; color: #78350f; }
+.inv-alert--error   { background: #fef2f2; border-color: #fecaca; color: #7f1d1d; }
+.inv-alert--success { background: #ecfdf3; border-color: #c7f0d6; color: #14532d; }
+
+html.dark .inv-alert--info    { background: rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.3); color: #bfdbfe; }
+html.dark .inv-alert--warning { background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); color: #fde68a; }
+html.dark .inv-alert--error   { background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); color: #fecaca; }
+html.dark .inv-alert--success { background: rgba(34, 197, 94, 0.1); border-color: rgba(34, 197, 94, 0.3); color: #bbf7d0; }
+
+/* ── Table ──────────────────────────────────────────────────────────────── */
+
+.inv-table-wrap { overflow-x: auto; }
+
+.inv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.inv-table th {
+  padding: 9px 16px;
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--inv-ink-3);
+  background: var(--inv-surface-sunken);
+  border-bottom: 1px solid var(--inv-divider);
+  white-space: nowrap;
+}
+.inv-table th.is-num,
+.inv-table td.is-num { text-align: right; }
+.inv-table td {
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--inv-divider);
+  vertical-align: middle;
+  color: var(--inv-ink);
+}
+.inv-table tbody tr:last-child td { border-bottom: 0; }
+.inv-table tbody tr.is-clickable { cursor: pointer; }
+.inv-table tbody tr { transition: background 0.1s ease; }
+.inv-table tbody tr:hover { background: var(--inv-row-hover); }
+.inv-table tbody tr.is-selected { background: var(--inv-row-selected); }
+
+.inv-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.inv-sort:hover { color: var(--inv-ink); }
+.inv-sort i { font-size: 9px; opacity: 0.8; }
+
+.inv-link {
+  color: var(--inv-link);
+  font-weight: 600;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.inv-link:hover { text-decoration: underline; }
+
+.inv-type-tag {
+  display: inline-block;
+  min-width: 30px;
+  text-align: center;
+  padding: 1px 5px;
+  margin-right: 8px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--inv-ink-3);
+  border: 1px solid var(--inv-border);
+}
+.inv-type-tag--cf { color: #c2410c; border-color: rgba(194, 65, 12, 0.3); }
+html.dark .inv-type-tag--cf { color: #fdba74; border-color: rgba(253, 186, 116, 0.3); }
+
+.inv-checkbox { width: 15px; height: 15px; accent-color: var(--inv-accent); cursor: pointer; }
+.inv-checkbox:disabled { cursor: not-allowed; opacity: 0.35; }
+
+/* Pagination */
+.inv-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-top: 1px solid var(--inv-divider);
+  font-size: 12.5px;
+  color: var(--inv-ink-3);
+}
+
+/* Selection bar */
+.inv-selection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 20px;
+  background: var(--inv-row-selected);
+  border-bottom: 1px solid var(--inv-divider);
+  font-size: 12.5px;
+  color: var(--inv-ink-2);
+}
+
+/* ── Charges tree (invoice detail) ──────────────────────────────────────── */
+
+/* Fixed layout, so expanding a service does not re-flow every column to fit a long rate
+   line's description: the numbers stay where the eye left them. */
+.inv-tree { table-layout: fixed; }
+.inv-tree .inv-col-share { width: 170px; }
+.inv-tree .inv-col-qty { width: 160px; }
+.inv-tree .inv-col-amt { width: 130px; }
+.inv-tree td { padding-top: 9px; padding-bottom: 9px; overflow-wrap: break-word; }
+/* Quantity shown under the description on a phone, where it has no column of its own. */
+.inv-inline-qty { display: none; margin-top: 2px; font-size: 11.5px; color: var(--inv-ink-3); }
+html.dark .inv-inline-qty:not(#inv-dark) { color: var(--inv-ink-3) !important; }
+.inv-tree td.is-num { white-space: nowrap; overflow-wrap: normal; }
+
+/* On a phone there is no room to reserve: fixed widths would leave the description a
+   sliver. Let the numbers take what they need and the text wrap in the rest. */
+@media (max-width: 640px) {
+  .inv-tree { table-layout: auto; }
+  .inv-tree .inv-col-amt { width: auto; }
+  .inv-tree .inv-col-qty,
+  .inv-tree .inv-qty-cell { display: none; }
+  .inv-inline-qty { display: block; }
+  .inv-tree th,
+  .inv-tree td { padding-left: 10px; padding-right: 10px; }
+  .inv-tree-row--region .inv-tree-cell { padding-left: 16px; }
+  .inv-tree-row--usage .inv-tree-cell { padding-left: 24px; }
+  .inv-tree-row--line .inv-tree-cell { padding-left: 32px; }
+  .inv-tree-row--line.is-flat .inv-tree-cell { padding-left: 24px; }
+}
+
+.inv-tree-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.inv-tree-toggle:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--inv-focus); border-radius: 4px; }
+.inv-tree-toggle .inv-chevron {
+  width: 12px;
+  font-size: 10px;
+  color: var(--inv-ink-3);
+  transition: transform 0.15s ease;
+}
+.inv-tree-toggle[aria-expanded='true'] .inv-chevron { transform: rotate(90deg); }
+/* Held open while a search is active; not a control until the search is cleared. */
+.inv-tree-toggle:disabled { cursor: default; }
+
+.inv-tree-row--service td { font-weight: 650; }
+.inv-tree-row--service { border-top: 1px solid var(--inv-divider); }
+.inv-tree-row--region td { font-weight: 600; color: var(--inv-ink-2); }
+.inv-tree-row--region .inv-tree-cell { padding-left: 26px; }
+.inv-tree-row--usage td { font-weight: 500; color: var(--inv-ink-2); }
+.inv-tree-row--usage .inv-tree-cell { padding-left: 52px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; }
+.inv-tree-row--line td { background: var(--inv-surface-sunken); font-size: 12.5px; color: var(--inv-ink-2); }
+.inv-tree-row--line .inv-tree-cell { padding-left: 72px; }
+.inv-tree-row--line.is-flat .inv-tree-cell { padding-left: 52px; }
+.inv-tree-row--line td.is-num { color: var(--inv-ink); }
+
+.inv-share {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--inv-ink-3);
+}
+.inv-meter {
+  width: 72px;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--inv-meter-track);
+  overflow: hidden;
+}
+.inv-meter__fill {
+  height: 100%;
+  border-radius: 9999px;
+  background: var(--inv-meter-fill);
+}
+
+/* ── Empty / loading ────────────────────────────────────────────────────── */
+
+.inv-empty {
+  padding: 48px 20px;
+  text-align: center;
+  color: var(--inv-ink-3);
+  font-size: 13px;
+}
+.inv-empty i { font-size: 26px; opacity: 0.5; margin-bottom: 10px; display: block; }
+.inv-empty strong { display: block; color: var(--inv-ink); font-size: 14px; margin-bottom: 4px; }
+
+.inv-shimmer {
+  border-radius: 6px;
+  background: var(--inv-shimmer-a);
+  background-image: linear-gradient(90deg, var(--inv-shimmer-a) 0%, var(--inv-shimmer-b) 40%, var(--inv-shimmer-a) 80%);
+  background-size: 600px 100%;
+  animation: invShimmer 1.4s ease-in-out infinite;
+}
+@keyframes invShimmer {
+  0% { background-position: -600px 0; }
+  100% { background-position: 600px 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inv-shimmer { animation: none; }
+  .inv-tree-toggle .inv-chevron { transition: none; }
+}
+
+/* ── Dark mode: outranking the global stylesheet ────────────────────────────
+ *
+ * style.css repaints nearly every element in dark mode, with !important and high
+ * specificity: `.dark button:not(…)` (0,6,1) gives every button a grey box and primary
+ * text, `.dark span/div/p:not(…)` (0,8,1) forces primary text, `.dark *:not(…)`
+ * (0,8,4) sets `color: inherit` on everything, table rows are zebra-striped and cells
+ * made transparent, and anything whose class contains "alert" is flattened. A plain
+ * class rule cannot win against that, so this page's muted text, pills, buttons and
+ * table surfaces would all come out as the same white-on-grey.
+ *
+ * Each dark colour this page relies on is therefore restated here with
+ * `:not(#inv-dark)`, which matches every element (no element has that id) but carries
+ * ID-level specificity (1,0,0), plus !important. Every selector names one of this
+ * file's own classes, so nothing outside these two pages is affected.
+ */
+
+/* Text hierarchy */
+html.dark .inv-muted:not(#inv-dark),
+html.dark .inv-desc:not(#inv-dark),
+html.dark .inv-count:not(#inv-dark),
+html.dark .inv-seg-count:not(#inv-dark),
+html.dark .inv-kpi__label:not(#inv-dark),
+html.dark .inv-kpi__sub:not(#inv-dark),
+html.dark .inv-hero-sub:not(#inv-dark),
+html.dark .inv-kv dt:not(#inv-dark),
+html.dark .inv-kv dd small:not(#inv-dark),
+html.dark .inv-summary-line small:not(#inv-dark),
+html.dark .inv-breadcrumb:not(#inv-dark),
+html.dark .inv-breadcrumb span:not(#inv-dark),
+html.dark .inv-share:not(#inv-dark),
+html.dark .inv-share span:not(#inv-dark),
+html.dark .inv-pager:not(#inv-dark),
+html.dark .inv-pager span:not(#inv-dark),
+html.dark .inv-empty:not(#inv-dark) { color: var(--inv-ink-3) !important; }
+
+html.dark .inv-ink-2:not(#inv-dark),
+html.dark .inv-field-label:not(#inv-dark),
+html.dark .inv-selection:not(#inv-dark),
+html.dark .inv-selection span:not(#inv-dark),
+html.dark .inv-summary-line > span:first-child:not(#inv-dark),
+html.dark .inv-tree-row--region td:not(#inv-dark),
+html.dark .inv-tree-row--usage td:not(#inv-dark),
+html.dark .inv-tree-row--line td:not(#inv-dark) { color: var(--inv-ink-2) !important; }
+
+html.dark .inv-kv dd:not(#inv-dark),
+html.dark .inv-empty strong:not(#inv-dark),
+html.dark .inv-summary-line strong:not(#inv-dark),
+html.dark .inv-summary-line--total span:not(#inv-dark),
+html.dark .inv-tree-row--service td:not(#inv-dark),
+html.dark .inv-tree-row--line td.is-num:not(#inv-dark) { color: var(--inv-ink) !important; }
+
+/* Buttons */
+html.dark .inv-btn:not(#inv-dark) {
+  background-color: var(--inv-surface) !important;
+  border-color: var(--inv-border) !important;
+  color: var(--inv-ink) !important;
+}
+html.dark .inv-btn--primary:not(#inv-dark) {
+  background-color: var(--inv-accent) !important;
+  border-color: var(--inv-accent) !important;
+  color: var(--inv-accent-ink) !important;
+}
+html.dark .inv-btn--primary:not(#inv-dark):hover:not(:disabled) {
+  background-color: var(--inv-accent-hover) !important;
+  border-color: var(--inv-accent-hover) !important;
+}
+html.dark .inv-btn--fallback:not(#inv-dark) {
+  background-color: #b45309 !important;
+  border-color: #b45309 !important;
+  color: #ffffff !important;
+}
+html.dark .inv-btn--ghost:not(#inv-dark),
+html.dark .inv-icon-btn:not(#inv-dark),
+html.dark .inv-tree-toggle:not(#inv-dark),
+html.dark .inv-sort:not(#inv-dark),
+html.dark .inv-kpi:not(#inv-dark),
+html.dark .inv-segmented button:not(#inv-dark) {
+  background-color: transparent !important;
+  border-color: transparent !important;
+}
+html.dark .inv-btn--ghost:not(#inv-dark),
+html.dark .inv-segmented button:not(#inv-dark) { color: var(--inv-ink-2) !important; }
+html.dark .inv-icon-btn:not(#inv-dark) { color: var(--inv-ink-3) !important; }
+html.dark .inv-tree-toggle:not(#inv-dark),
+html.dark .inv-sort:not(#inv-dark),
+html.dark .inv-kpi:not(#inv-dark) { color: inherit !important; }
+/* The tiles' dividers are borders; restore them after the reset above. */
+html.dark .inv-kpi:not(#inv-dark) { border-left-color: var(--inv-divider) !important; }
+html.dark .inv-kpi:not(#inv-dark):first-child { border-left-color: transparent !important; }
+html.dark .inv-btn--ghost:not(#inv-dark):hover:not(:disabled),
+html.dark .inv-icon-btn:not(#inv-dark):hover:not(:disabled),
+html.dark button.inv-kpi:not(#inv-dark):hover { background-color: var(--inv-row-hover) !important; color: var(--inv-ink) !important; }
+html.dark button.inv-kpi[aria-pressed='true']:not(#inv-dark) { background-color: var(--inv-row-selected) !important; }
+html.dark .inv-icon-btn--danger:not(#inv-dark):hover:not(:disabled) { color: #f87171 !important; }
+html.dark .inv-segmented button[aria-pressed='true']:not(#inv-dark) {
+  background-color: var(--inv-surface) !important;
+  color: var(--inv-ink) !important;
+}
+html.dark .inv-link:not(#inv-dark),
+html.dark .inv-breadcrumb button:not(#inv-dark) {
+  background-color: transparent !important;
+  border-color: transparent !important;
+  color: var(--inv-link) !important;
+}
+
+/* Pills and tags (spans, which the global rules force to primary text) */
+html.dark .inv-pill--draft:not(#inv-dark)       { color: #fbbf24 !important; }
+html.dark .inv-pill--finalized:not(#inv-dark)   { color: #4ade80 !important; }
+html.dark .inv-pill--void:not(#inv-dark)        { color: #94a3b8 !important; }
+html.dark .inv-pill--cur:not(#inv-dark)         { color: #a5b4fc !important; }
+html.dark .inv-pill--ce:not(#inv-dark)          { color: #cbd5e1 !important; }
+html.dark .inv-pill--provisional:not(#inv-dark) { color: #fcd34d !important; }
+html.dark .inv-pill--type:not(#inv-dark)        { color: var(--inv-ink-3) !important; }
+html.dark .inv-type-tag:not(#inv-dark)          { color: var(--inv-ink-3) !important; }
+html.dark .inv-type-tag--cf:not(#inv-dark)      { color: #fdba74 !important; }
+
+/* Alerts — `[class*="alert"]` would otherwise flatten them to plain surface */
+html.dark .inv-alert--info:not(#inv-dark)    { background-color: rgba(59, 130, 246, 0.1) !important;  border-color: rgba(59, 130, 246, 0.3) !important; }
+html.dark .inv-alert--warning:not(#inv-dark) { background-color: rgba(245, 158, 11, 0.1) !important;  border-color: rgba(245, 158, 11, 0.3) !important; }
+html.dark .inv-alert--error:not(#inv-dark)   { background-color: rgba(239, 68, 68, 0.1) !important;   border-color: rgba(239, 68, 68, 0.3) !important; }
+html.dark .inv-alert--success:not(#inv-dark) { background-color: rgba(34, 197, 94, 0.1) !important;   border-color: rgba(34, 197, 94, 0.3) !important; }
+html.dark .inv-alert--info:not(#inv-dark),
+html.dark .inv-alert--info :not(#inv-dark):not(button):not(i)    { color: #bfdbfe !important; }
+html.dark .inv-alert--warning:not(#inv-dark),
+html.dark .inv-alert--warning :not(#inv-dark):not(button):not(i) { color: #fde68a !important; }
+html.dark .inv-alert--error:not(#inv-dark),
+html.dark .inv-alert--error :not(#inv-dark):not(button):not(i)   { color: #fecaca !important; }
+html.dark .inv-alert--success:not(#inv-dark),
+html.dark .inv-alert--success :not(#inv-dark):not(button):not(i) { color: #bbf7d0 !important; }
+
+/* Tables — no zebra striping, a sunken header, sunken rate lines */
+html.dark .inv-table tbody tr:not(#inv-dark) { background-color: transparent !important; }
+html.dark .inv-table tbody tr:not(#inv-dark):hover { background-color: var(--inv-row-hover) !important; }
+html.dark .inv-table tbody tr.is-selected:not(#inv-dark) { background-color: var(--inv-row-selected) !important; }
+html.dark .inv-table th:not(#inv-dark) {
+  background-color: var(--inv-surface-sunken) !important;
+  color: var(--inv-ink-3) !important;
+}
+html.dark .inv-tree-row--line td:not(#inv-dark) { background-color: var(--inv-surface-sunken) !important; }
