@@ -220,7 +220,7 @@ public class GcpCostDataSnapshotService {
     private double fetchMonthlyTotal(BigQuery bq, String table, String projectId,
                                      String start, String end) throws InterruptedException {
         String query = String.format(
-                "SELECT SUM(cost) as total_cost FROM `%s` " +
+                "SELECT " + GcpBillingSql.NET_COST_SUM + " as total_cost FROM `%s` " +
                 "WHERE project.id = '%s' " +
                 "AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s'",
                 table, projectId, start, end);
@@ -233,7 +233,7 @@ public class GcpCostDataSnapshotService {
     private List<GcpCostDto> fetchBillingSvc(BigQuery bq, String table, String projectId,
                                               String start, String end) throws InterruptedException {
         String query = String.format(
-                "SELECT service.description as name, SUM(cost) as amount " +
+                "SELECT service.description as name, " + GcpBillingSql.NET_COST_SUM + " as amount " +
                 "FROM `%s` " +
                 "WHERE project.id = '%s' " +
                 "AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
