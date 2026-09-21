@@ -33,6 +33,10 @@ public class InvoiceDto {
     private BigDecimal amount;
     private BigDecimal marketplaceCharge;
     private boolean includeIrn;
+    /** "CUR" or "COST_EXPLORER"; null for invoices generated before the source was recorded. */
+    private String dataSource;
+    /** True when built from a month that had not yet closed — an estimate, not the final bill. */
+    private boolean provisional;
     private long lastUpdated;
     private List<LineItemDto> lineItems;
     private List<DiscountDto> discounts;
@@ -75,6 +79,8 @@ public class InvoiceDto {
         dto.setAmount(invoice.getAmount());
         dto.setMarketplaceCharge(invoice.getMarketplaceCharge());
         dto.setIncludeIrn(invoice.isIncludeIrn());
+        dto.setDataSource(invoice.getDataSource() != null ? invoice.getDataSource().name() : null);
+        dto.setProvisional(invoice.isProvisional());
 
         // Convert line items (only non-hidden items)
         List<LineItemDto> items = Optional.ofNullable(invoice.getLineItems())
@@ -245,6 +251,22 @@ public class InvoiceDto {
         return includeIrn;
     }
 
+    public String getDataSource() {
+        return dataSource;
+    }
+
+    public void setDataSource(String dataSource) {
+        this.dataSource = dataSource;
+    }
+
+    public boolean isProvisional() {
+        return provisional;
+    }
+
+    public void setProvisional(boolean provisional) {
+        this.provisional = provisional;
+    }
+
     public void setIncludeIrn(boolean includeIrn) {
         this.includeIrn = includeIrn;
     }
@@ -281,6 +303,8 @@ public class InvoiceDto {
         private String resourceName;
         private String usageQuantity;
         private String unit;
+        /** Usage type a rate line sits under; null except on invoices built from the report. */
+        private String usageType;
         private BigDecimal cost;
         private boolean hidden;
         private BigDecimal quantity;
@@ -294,6 +318,7 @@ public class InvoiceDto {
             dto.setResourceName(item.getResourceName());
             dto.setUsageQuantity(item.getUsageQuantity());
             dto.setUnit(item.getUnit());
+            dto.setUsageType(item.getUsageType());
             dto.setCost(item.getCost());
             dto.setHidden(item.isHidden());
 
@@ -358,6 +383,14 @@ public class InvoiceDto {
 
         public void setUnit(String unit) {
             this.unit = unit;
+        }
+
+        public String getUsageType() {
+            return usageType;
+        }
+
+        public void setUsageType(String usageType) {
+            this.usageType = usageType;
         }
 
         public BigDecimal getCost() {

@@ -14,6 +14,7 @@ import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.athena.AthenaClient;
 import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.elasticloadbalancingv2.ElasticLoadBalancingV2Client;
@@ -112,6 +113,10 @@ public class AwsClientProvider {
             return (T) LightsailClient.builder().region(Region.of(region)).credentialsProvider(credentialsProvider)
                     .overrideConfiguration(trackingConfig(account, "LightsailClient", region)).build();
         }
+        if (clientClass.equals(AthenaClient.class)) {
+            return (T) AthenaClient.builder().region(Region.of(region)).credentialsProvider(credentialsProvider)
+                    .overrideConfiguration(trackingConfig(account, "AthenaClient", region)).build();
+        }
 
         throw new IllegalArgumentException("Unsupported AWS client type: " + clientClass.getName());
     }
@@ -169,6 +174,17 @@ public class AwsClientProvider {
 
     public S3Client getS3Client(CloudAccount account) {
         return getClient(account, "us-east-1", S3Client.class);
+    }
+
+    /**
+     * Athena client for reading a customer's CUR.
+     *
+     * Region comes from the CUR source rather than being pinned here: the table lives
+     * in the same region as the report, and a CUR 1.0 report only exists in us-east-1
+     * today, but a XamOps-owned export does not have to.
+     */
+    public AthenaClient getAthenaClient(CloudAccount account, String region) {
+        return getClient(account, region, AthenaClient.class);
     }
 
     /**

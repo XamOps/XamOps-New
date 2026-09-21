@@ -178,6 +178,16 @@
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>costexplorer</artifactId>
         </dependency>
+        <!--
+            Athena reads the customer's CUR 1.0 export, which is Parquet. The alternative
+            was a Parquet reader in-process (parquet-hadoop and its transitive Hadoop
+            tree) to do by hand what Athena already does against the table xamops-service
+            provisions from the same manifest.
+        -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>athena</artifactId>
+        </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>ec2</artifactId>

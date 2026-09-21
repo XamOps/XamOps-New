@@ -31,9 +31,28 @@ public class CurAggregates {
     /** Number of CUR rows folded in. Diagnostic only; a sudden drop signals a partial export. */
     private long rowCount;
 
+    /**
+     * Charges billed through AWS Marketplace rather than by AWS itself
+     * ({@code bill/BillingEntity = "AWS Marketplace"}), which the invoice shows as its
+     * own line and excludes from discount.
+     *
+     * <p>Nullable, and the distinction matters: null means "this aggregate was produced
+     * by a path that never measured it", zero means "measured, and there were none".
+     * Treating the first as zero would silently drop a real charge from an invoice, so
+     * the CUR-only invoice path refuses a month whose marketplace figure is null rather
+     * than billing what it cannot see.
+     */
+    private Double marketplace;
+
     private List<DailyEntry> daily = new ArrayList<>();
     private List<SvcRegionEntry> svcRegion = new ArrayList<>();
     private List<SvcUsageEntry> svcUsage = new ArrayList<>();
+
+    /**
+     * The month as the AWS bill lists it: one row per rate line. Null when the producer
+     * never read at this level — only the Athena reader does.
+     */
+    private List<ChargeEntry> charges;
 
     public double getTotal() { return total; }
     public void setTotal(double total) { this.total = total; }
@@ -47,6 +66,9 @@ public class CurAggregates {
     public long getRowCount() { return rowCount; }
     public void setRowCount(long rowCount) { this.rowCount = rowCount; }
 
+    public Double getMarketplace() { return marketplace; }
+    public void setMarketplace(Double marketplace) { this.marketplace = marketplace; }
+
     public List<DailyEntry> getDaily() { return daily; }
     public void setDaily(List<DailyEntry> daily) { this.daily = daily; }
 
@@ -55,6 +77,9 @@ public class CurAggregates {
 
     public List<SvcUsageEntry> getSvcUsage() { return svcUsage; }
     public void setSvcUsage(List<SvcUsageEntry> svcUsage) { this.svcUsage = svcUsage; }
+
+    public List<ChargeEntry> getCharges() { return charges; }
+    public void setCharges(List<ChargeEntry> charges) { this.charges = charges; }
 
     /**
      * One day of the billing period. Present because DAILY granularity is what
@@ -139,5 +164,52 @@ public class CurAggregates {
         public void setQuantity(double quantity) { this.quantity = quantity; }
         public String getUnit() { return unit; }
         public void setUnit(String unit) { this.unit = unit; }
+    }
+
+    /**
+     * One rate line of the bill: "$0.2121 per On Demand Linux m7i.xlarge Instance Hour,
+     * 449.67 Hrs, $95.38", under its service, region and usage type.
+     *
+     * The same grain as the "Charges by service" section on the XamOps cost page, and
+     * produced by the same grouping, so an invoice built from these rows and that
+     * section agree line for line. Negative rows — a Savings Plan negation, a credit —
+     * are kept: dropping them would bill the covered usage without its offset.
+     */
+    public static class ChargeEntry {
+        private String service;
+        private String region;
+        private String usageType;
+        private String description;
+        private String unit;
+        private double quantity;
+        private double cost;
+
+        public ChargeEntry() {}
+
+        public ChargeEntry(String service, String region, String usageType, String description,
+                           String unit, double quantity, double cost) {
+            this.service = service;
+            this.region = region;
+            this.usageType = usageType;
+            this.description = description;
+            this.unit = unit;
+            this.quantity = quantity;
+            this.cost = cost;
+        }
+
+        public String getService() { return service; }
+        public void setService(String service) { this.service = service; }
+        public String getRegion() { return region; }
+        public void setRegion(String region) { this.region = region; }
+        public String getUsageType() { return usageType; }
+        public void setUsageType(String usageType) { this.usageType = usageType; }
+        public String getDescription() { return description; }
+        public void setDescription(String description) { this.description = description; }
+        public String getUnit() { return unit; }
+        public void setUnit(String unit) { this.unit = unit; }
+        public double getQuantity() { return quantity; }
+        public void setQuantity(double quantity) { this.quantity = quantity; }
+        public double getCost() { return cost; }
+        public void setCost(double cost) { this.cost = cost; }
     }
 }

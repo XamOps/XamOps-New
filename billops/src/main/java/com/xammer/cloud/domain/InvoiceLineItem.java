@@ -26,6 +26,19 @@ public class InvoiceLineItem {
     private String usageQuantity;
     private String unit;
 
+    /**
+     * The usage type a rate line belongs to — "APS3-BoxUsage:m7i.xlarge" — on invoices
+     * built from the Cost and Usage Report, where {@code resourceName} carries the rate
+     * line's own description. It is the third level of the bill's breakdown (service,
+     * region, usage type, rate line), and without it the detail page could only list
+     * descriptions straight under a region.
+     *
+     * Null on invoices built from Cost Explorer and on everything generated before this
+     * existed; those keep rendering as service, region, line.
+     */
+    @Column(name = "usage_type")
+    private String usageType;
+
     @Column(precision = 19, scale = 4)
     private BigDecimal cost;
 
@@ -51,6 +64,8 @@ public class InvoiceLineItem {
     public void setUsageQuantity(String usageQuantity) { this.usageQuantity = usageQuantity; }
     public String getUnit() { return unit; }
     public void setUnit(String unit) { this.unit = unit; }
+    public String getUsageType() { return usageType; }
+    public void setUsageType(String usageType) { this.usageType = usageType; }
     public BigDecimal getCost() { return cost; }
     public void setCost(BigDecimal cost) { this.cost = cost; }
     public Invoice getInvoice() { return invoice; }
