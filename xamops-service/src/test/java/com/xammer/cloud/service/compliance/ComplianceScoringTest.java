@@ -1,136 +1,375 @@
 package com.xammer.cloud.service.compliance;
 
 import com.xammer.cloud.domain.compliance.ComplianceControlResult;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Guards the two scoring rules that the previous browser-side maths got wrong.
+ * The scoring contract.
  *
  * <p>
- * The old page scored a flat ratio of passing resource checks, which meant a hundred
- * untagged volumes outweighed a publicly readable bucket, and it had no concept of a
- * control nobody had evaluated. Both mistakes produce a number that looks precise and
- * points the wrong way, which is worse than no number at all.
+ * These tests exist because the headline number was previously severity-weighted, which made it
+ * answer a risk question while the page claimed it answered a compliance one. The properties
+ * asserted here are the ones that went wrong: the score must not depend on the severity mix, a
+ * waiver must not be able to raise it, and a scan that decided almost nothing must not be allowed
+ * to publish a confident percentage.
  */
 class ComplianceScoringTest {
 
-    private ComplianceControlResult result(String severity, String status) {
+    private static ComplianceControlResult control(String severity, String status) {
         ComplianceControlResult r = new ComplianceControlResult();
-        r.setCheckId("check_" + severity + "_" + status);
         r.setSeverity(severity);
         r.setStatus(status);
         return r;
     }
 
-    @Test
-    void weightsSeverityOrdinally() {
-        // The ratios are what matter: one critical must outrank several highs, and lows
-        // must be visible without being able to dominate.
-        assertThat(ComplianceScoring.weight("CRITICAL")).isGreaterThan(ComplianceScoring.weight("HIGH"));
-        assertThat(ComplianceScoring.weight("HIGH")).isGreaterThan(ComplianceScoring.weight("MEDIUM"));
-        assertThat(ComplianceScoring.weight("MEDIUM")).isGreaterThan(ComplianceScoring.weight("LOW"));
-        assertThat(ComplianceScoring.weight("CRITICAL"))
-                .isGreaterThan(ComplianceScoring.weight("HIGH"));
+    /** n controls of one severity and status, to keep the arithmetic in the test readable. */
+    private static List<ComplianceControlResult> many(int n, String severity, String status) {
+        List<ComplianceControlResult> out = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) out.add(control(severity, status));
+        return out;
     }
 
-    @Test
-    void treatsUnknownSeverityAsLowestRatherThanZero() {
-        // INFORMATIONAL findings still count for something; weighting them zero would let
-        // an account pass on checks it never satisfied.
-        assertThat(ComplianceScoring.weight("INFORMATIONAL")).isEqualTo(1);
-        assertThat(ComplianceScoring.weight(null)).isEqualTo(1);
-        assertThat(ComplianceScoring.weight("nonsense")).isEqualTo(1);
+    private static List<ComplianceControlResult> concat(
+            List<ComplianceControlResult>... parts) {
+        List<ComplianceControlResult> out = new ArrayList<>();
+        for (List<ComplianceControlResult> p : parts) out.addAll(p);
+        return out;
     }
 
-    @Test
-    void oneCriticalFailureCostsMoreThanSeveralLowFailures() {
-        ComplianceScoring.Accumulator criticalFail = ComplianceScoring.accumulate(List.of(
-                result("CRITICAL", ComplianceControlResult.FAIL),
-                result("LOW", ComplianceControlResult.PASS)));
+    // ── The headline is unweighted ────────────────────────────────────────────
 
-        ComplianceScoring.Accumulator lowFails = ComplianceScoring.accumulate(List.of(
-                result("LOW", ComplianceControlResult.FAIL),
-                result("MEDIUM", ComplianceControlResult.FAIL),
-                result("CRITICAL", ComplianceControlResult.PASS)));
+    @Nested
+    class HeadlineScore {
 
-        assertThat(criticalFail.score()).isLessThan(lowFails.score());
+        @Test
+        void countsControlsRatherThanSeverity() {
+            ComplianceScoring.Accumulator acc = ComplianceScoring.accumulate(
+                    concat(many(5, "CRITICAL", ComplianceControlResult.PASS),
+                            many(5, "LOW", ComplianceControlResult.FAIL)));
+
+            // Five of ten controls pass. Not 91%, which is what severity weighting produced.
+            assertThat(acc.score()).isEqualTo(50);
+        }
+
+        @Test
+        void isIdenticalWhenTheSeverityMixIsInverted() {
+            ComplianceScoring.Accumulator lowRisk = ComplianceScoring.accumulate(
+                    concat(many(5, "CRITICAL", ComplianceControlResult.PASS),
+                            many(5, "LOW", ComplianceControlResult.FAIL)));
+            ComplianceScoring.Accumulator highRisk = ComplianceScoring.accumulate(
+                    concat(many(5, "LOW", ComplianceControlResult.PASS),
+                            many(5, "CRITICAL", ComplianceControlResult.FAIL)));
+
+            // Both accounts have exactly five unmet controls, which is what an auditor counts.
+            // The old weighted score split these 91% / 9%.
+            assertThat(lowRisk.score()).isEqualTo(highRisk.score());
+        }
+
+        @Test
+        void separatesRiskFromCompliance() {
+            ComplianceScoring.Accumulator acc = ComplianceScoring.accumulate(
+                    concat(many(5, "LOW", ComplianceControlResult.PASS),
+                            many(5, "CRITICAL", ComplianceControlResult.FAIL)));
+
+            assertThat(acc.score()).isEqualTo(50);
+            // Severity still has somewhere to speak: 5 weight passing against 50 failing.
+            assertThat(acc.riskWeightedScore()).isEqualTo(9);
+        }
+
+        @Test
+        void reachesBothEndpoints() {
+            assertThat(ComplianceScoring.accumulate(
+                    concat(many(3, "CRITICAL", ComplianceControlResult.PASS),
+                            many(3, "LOW", ComplianceControlResult.PASS))).score())
+                    .isEqualTo(100);
+
+            assertThat(ComplianceScoring.accumulate(
+                    concat(many(3, "CRITICAL", ComplianceControlResult.FAIL),
+                            many(3, "LOW", ComplianceControlResult.FAIL))).score())
+                    .isZero();
+        }
     }
 
-    @Test
-    void excludesManualControlsFromTheDenominator() {
-        // Counting MANUAL as failure makes a shallow scan indistinguishable from an
-        // insecure account; counting it as a pass is worse.
-        ComplianceScoring.Accumulator withManual = ComplianceScoring.accumulate(List.of(
-                result("HIGH", ComplianceControlResult.PASS),
-                result("HIGH", ComplianceControlResult.MANUAL),
-                result("HIGH", ComplianceControlResult.MANUAL)));
+    // ── Risk weighting still ranks by danger ─────────────────────────────────
 
-        assertThat(withManual.score()).isEqualTo(100);
-        assertThat(withManual.scoreable()).isEqualTo(1);
+    @Nested
+    class RiskWeighting {
+
+        @Test
+        void ordersSeveritiesOrdinally() {
+            // The ratios are what matter: one critical must outrank several highs, and lows must
+            // stay visible without being able to dominate.
+            assertThat(ComplianceScoring.weight("CRITICAL"))
+                    .isGreaterThan(ComplianceScoring.weight("HIGH"));
+            assertThat(ComplianceScoring.weight("HIGH"))
+                    .isGreaterThan(ComplianceScoring.weight("MEDIUM"));
+            assertThat(ComplianceScoring.weight("MEDIUM"))
+                    .isGreaterThan(ComplianceScoring.weight("LOW"));
+        }
+
+        @Test
+        void makesOneCriticalFailureCostMoreThanSeveralLesserOnes() {
+            // This property used to be asserted against the headline score. It belongs to the risk
+            // score now — the compliance score deliberately treats every unmet control alike — but
+            // the property itself is still worth holding onto.
+            ComplianceScoring.Accumulator criticalFail = ComplianceScoring.accumulate(
+                    concat(many(1, "CRITICAL", ComplianceControlResult.FAIL),
+                            many(5, "LOW", ComplianceControlResult.PASS)));
+
+            ComplianceScoring.Accumulator lesserFails = ComplianceScoring.accumulate(
+                    concat(many(1, "LOW", ComplianceControlResult.FAIL),
+                            many(1, "MEDIUM", ComplianceControlResult.FAIL),
+                            many(4, "CRITICAL", ComplianceControlResult.PASS)));
+
+            assertThat(criticalFail.riskWeightedScore())
+                    .isLessThan(lesserFails.riskWeightedScore());
+        }
+
+        @Test
+        void isTheMetricSeverityMixMovesRatherThanTheComplianceScore() {
+            ComplianceScoring.Accumulator criticalFail = ComplianceScoring.accumulate(
+                    concat(many(1, "CRITICAL", ComplianceControlResult.FAIL),
+                            many(5, "LOW", ComplianceControlResult.PASS)));
+
+            ComplianceScoring.Accumulator lowFail = ComplianceScoring.accumulate(
+                    concat(many(1, "LOW", ComplianceControlResult.FAIL),
+                            many(5, "CRITICAL", ComplianceControlResult.PASS)));
+
+            // One unmet control out of six either way.
+            assertThat(criticalFail.score()).isEqualTo(lowFail.score()).isEqualTo(83);
+            // But they are not equally dangerous, and the risk score says so.
+            assertThat(criticalFail.riskWeightedScore())
+                    .isLessThan(lowFail.riskWeightedScore());
+        }
+
+        @Test
+        void roundsToAWholePercent() {
+            ComplianceScoring.Accumulator acc = ComplianceScoring.accumulate(
+                    concat(many(11, "HIGH", ComplianceControlResult.PASS),
+                            many(26, "HIGH", ComplianceControlResult.FAIL)));
+
+            // 11/37 = 29.7%.
+            assertThat(acc.score()).isEqualTo(30);
+            assertThat(acc.settled()).isEqualTo(37);
+        }
     }
 
-    @Test
-    void excludesWaivedControlsFromTheDenominator() {
-        ComplianceScoring.Accumulator withWaiver = ComplianceScoring.accumulate(List.of(
-                result("HIGH", ComplianceControlResult.PASS),
-                result("CRITICAL", ComplianceControlResult.WAIVED)));
+    // ── Waivers cannot buy a better number ───────────────────────────────────
 
-        assertThat(withWaiver.score()).isEqualTo(100);
-        assertThat(withWaiver.scoreable()).isEqualTo(1);
+    @Nested
+    class Waivers {
+
+        @Test
+        void areNeutralOnTheHeadlineScore() {
+            ComplianceScoring.Accumulator before = ComplianceScoring.accumulate(
+                    concat(many(5, "HIGH", ComplianceControlResult.PASS),
+                            many(5, "HIGH", ComplianceControlResult.FAIL)));
+
+            ComplianceScoring.Accumulator after = ComplianceScoring.accumulate(
+                    concat(many(5, "HIGH", ComplianceControlResult.PASS),
+                            many(4, "HIGH", ComplianceControlResult.FAIL),
+                            many(1, "HIGH", ComplianceControlResult.WAIVED)));
+
+            // Waiving one failing control moves it out of `fail` and into `waived`, and the
+            // denominator holds. Excluding waivers from the denominator used to lift this to 56%.
+            assertThat(after.score()).isEqualTo(before.score()).isEqualTo(50);
+        }
+
+        @Test
+        void areNeutralOnTheRiskScoreToo() {
+            ComplianceScoring.Accumulator before = ComplianceScoring.accumulate(
+                    concat(many(5, "HIGH", ComplianceControlResult.PASS),
+                            many(5, "CRITICAL", ComplianceControlResult.FAIL)));
+
+            ComplianceScoring.Accumulator after = ComplianceScoring.accumulate(
+                    concat(many(5, "HIGH", ComplianceControlResult.PASS),
+                            many(4, "CRITICAL", ComplianceControlResult.FAIL),
+                            many(1, "CRITICAL", ComplianceControlResult.WAIVED)));
+
+            assertThat(after.riskWeightedScore()).isEqualTo(before.riskWeightedScore());
+        }
+
+        @Test
+        void areCountedAsMetOnlyByTheExceptionsView() {
+            ComplianceScoring.Accumulator acc = ComplianceScoring.accumulate(
+                    concat(many(5, "HIGH", ComplianceControlResult.PASS),
+                            many(4, "HIGH", ComplianceControlResult.FAIL),
+                            many(1, "HIGH", ComplianceControlResult.WAIVED)));
+
+            assertThat(acc.score()).isEqualTo(50);
+            assertThat(acc.scoreWithExceptions()).isEqualTo(60);
+            assertThat(acc.waivedCount()).isEqualTo(1);
+        }
+
+        @Test
+        void countTowardCoverageBecauseSomebodyDecidedThem() {
+            ComplianceScoring.Accumulator acc = ComplianceScoring.accumulate(
+                    concat(many(5, "HIGH", ComplianceControlResult.PASS),
+                            many(5, "HIGH", ComplianceControlResult.WAIVED)));
+
+            assertThat(acc.coverage()).isEqualTo(100);
+        }
     }
 
-    @Test
-    void reportsNullRatherThanZeroWhenNothingWasEvaluated() {
-        ComplianceScoring.Accumulator nothing = ComplianceScoring.accumulate(List.of(
-                result("CRITICAL", ComplianceControlResult.MANUAL),
-                result("HIGH", ComplianceControlResult.MANUAL)));
+    // ── Coverage gates the score ─────────────────────────────────────────────
 
-        // A score of 0 reads as "you failed everything". Null reads as "we could not
-        // measure this", which is what actually happened.
-        assertThat(nothing.score()).isNull();
-        assertThat(nothing.assessable()).isFalse();
+    @Nested
+    class Coverage {
+
+        @Test
+        void refusesToRateAScanThatDecidedHalfOfNothing() {
+            // The exact failure the old `scoreable > 0` test allowed: 150 of 300 settled, all
+            // passing, published as 100% "Strong" with no warning anywhere.
+            ComplianceScoring.Accumulator acc = ComplianceScoring.accumulate(
+                    concat(many(3, "HIGH", ComplianceControlResult.PASS),
+                            many(297, "HIGH", ComplianceControlResult.MANUAL)));
+
+            assertThat(acc.assessable()).isFalse();
+            assertThat(acc.score()).isNull();
+            assertThat(ComplianceScoring.label(acc.score())).isEqualTo("Unable to assess");
+            // Coverage is still reported — it is the one honest number available.
+            assertThat(acc.coverage()).isEqualTo(1);
+        }
+
+        @Test
+        void refusesAHandfulOfControlsEvenAtFullCoverage() {
+            ComplianceScoring.Accumulator acc = ComplianceScoring.accumulate(
+                    many(4, "HIGH", ComplianceControlResult.PASS));
+
+            assertThat(acc.coverage()).isEqualTo(100);
+            assertThat(acc.assessable()).isFalse();
+            assertThat(acc.score()).isNull();
+        }
+
+        @Test
+        void ratesOnceBothFloorsAreCleared() {
+            ComplianceScoring.Accumulator acc = ComplianceScoring.accumulate(
+                    concat(many(5, "HIGH", ComplianceControlResult.PASS),
+                            many(5, "HIGH", ComplianceControlResult.MANUAL)));
+
+            assertThat(acc.coverage()).isEqualTo(50);
+            assertThat(acc.coverageAdequate()).isTrue();
+            assertThat(acc.assessable()).isTrue();
+            assertThat(acc.score()).isEqualTo(100);
+        }
+
+        @Test
+        void excludesUndecidedControlsFromTheScoreButNotFromTheDenominatorOfCoverage() {
+            ComplianceScoring.Accumulator acc = ComplianceScoring.accumulate(
+                    concat(many(6, "HIGH", ComplianceControlResult.PASS),
+                            many(2, "HIGH", ComplianceControlResult.FAIL),
+                            many(2, "HIGH", ComplianceControlResult.MANUAL)));
+
+            assertThat(acc.settled()).isEqualTo(8);
+            assertThat(acc.totalControls()).isEqualTo(10);
+            assertThat(acc.notEvaluatedCount()).isEqualTo(2);
+            assertThat(acc.score()).isEqualTo(75);
+            assertThat(acc.coverage()).isEqualTo(80);
+        }
+
+        @Test
+        void isNullRatherThanZeroForAnEmptyScan() {
+            ComplianceScoring.Accumulator acc = new ComplianceScoring.Accumulator();
+
+            assertThat(acc.coverage()).isNull();
+            assertThat(acc.score()).isNull();
+            assertThat(acc.riskWeightedScore()).isNull();
+            assertThat(acc.scoreWithExceptions()).isNull();
+            assertThat(acc.assessable()).isFalse();
+        }
     }
 
-    @Test
-    void reportsNullForAnEmptyScan() {
-        ComplianceScoring.Accumulator empty = ComplianceScoring.accumulate(List.of());
+    // ── Severity classification ──────────────────────────────────────────────
 
-        assertThat(empty.score()).isNull();
-        assertThat(empty.assessable()).isFalse();
-        assertThat(empty.scoreable()).isZero();
+    @Nested
+    class Severity {
+
+        @Test
+        void weighsUnknownAsMediumRatherThanAsTheFloor() {
+            assertThat(ComplianceScoring.weight("UNKNOWN")).isEqualTo(3);
+            assertThat(ComplianceScoring.weight(null)).isEqualTo(3);
+            assertThat(ComplianceScoring.weight("something-new")).isEqualTo(3);
+            // A genuinely classified trivial finding still weighs 1.
+            assertThat(ComplianceScoring.weight("INFORMATIONAL")).isEqualTo(1);
+            assertThat(ComplianceScoring.weight("LOW")).isEqualTo(1);
+        }
+
+        @Test
+        void isCaseInsensitive() {
+            assertThat(ComplianceScoring.weight("critical")).isEqualTo(10);
+            assertThat(ComplianceScoring.weight("High")).isEqualTo(6);
+        }
+
+        @Test
+        void reportsHowManyControlsItCouldNotClassify() {
+            ComplianceScoring.Accumulator acc = ComplianceScoring.accumulate(
+                    concat(many(5, "HIGH", ComplianceControlResult.PASS),
+                            many(3, "UNKNOWN", ComplianceControlResult.FAIL),
+                            many(2, null, ComplianceControlResult.FAIL)));
+
+            assertThat(acc.unclassifiedSeverity()).isEqualTo(5);
+        }
+
+        @Test
+        void neverAffectsTheComplianceScore() {
+            ComplianceScoring.Accumulator classified = ComplianceScoring.accumulate(
+                    concat(many(5, "CRITICAL", ComplianceControlResult.PASS),
+                            many(5, "CRITICAL", ComplianceControlResult.FAIL)));
+            ComplianceScoring.Accumulator unclassified = ComplianceScoring.accumulate(
+                    concat(many(5, null, ComplianceControlResult.PASS),
+                            many(5, null, ComplianceControlResult.FAIL)));
+
+            assertThat(unclassified.score()).isEqualTo(classified.score());
+        }
+
+        @Test
+        void flagsOnlyUnrecognisedValues() {
+            assertThat(ComplianceScoring.isUnclassified("CRITICAL")).isFalse();
+            assertThat(ComplianceScoring.isUnclassified("informational")).isFalse();
+            assertThat(ComplianceScoring.isUnclassified(null)).isTrue();
+            assertThat(ComplianceScoring.isUnclassified("UNKNOWN")).isTrue();
+        }
     }
 
-    @Test
-    void scoresAFullyPassingScanAt100AndAFullyFailingScanAt0() {
-        assertThat(ComplianceScoring.accumulate(List.of(
-                result("CRITICAL", ComplianceControlResult.PASS),
-                result("LOW", ComplianceControlResult.PASS))).score()).isEqualTo(100);
+    // ── Bands ────────────────────────────────────────────────────────────────
 
-        assertThat(ComplianceScoring.accumulate(List.of(
-                result("CRITICAL", ComplianceControlResult.FAIL),
-                result("LOW", ComplianceControlResult.FAIL))).score()).isZero();
+    @Nested
+    class Bands {
+
+        /**
+         * These strings are a contract with {@code SCORE_BANDS} in complianceTokens.ts. An
+         * unrecognised label falls back to neutral grey there, so a rename here drains the colour
+         * out of the page rather than failing loudly.
+         */
+        @Test
+        void mapScoresToTheLabelsTheFrontendKeysOff() {
+            assertThat(ComplianceScoring.label(100)).isEqualTo("Strong");
+            assertThat(ComplianceScoring.label(90)).isEqualTo("Strong");
+            assertThat(ComplianceScoring.label(89)).isEqualTo("Adequate");
+            assertThat(ComplianceScoring.label(75)).isEqualTo("Adequate");
+            assertThat(ComplianceScoring.label(74)).isEqualTo("Weak");
+            assertThat(ComplianceScoring.label(50)).isEqualTo("Weak");
+            assertThat(ComplianceScoring.label(49)).isEqualTo("Critical");
+            assertThat(ComplianceScoring.label(0)).isEqualTo("Critical");
+            assertThat(ComplianceScoring.label(null)).isEqualTo("Unable to assess");
+        }
     }
 
-    @Test
-    void labelsMatchTheBandsTheUiRenders() {
-        // These strings are looked up by key in complianceTokens.ts. If they drift, the
-        // score ring silently falls back to the grey "unable to assess" colour.
-        assertThat(ComplianceScoring.label(100)).isEqualTo("Strong");
-        assertThat(ComplianceScoring.label(90)).isEqualTo("Strong");
-        assertThat(ComplianceScoring.label(89)).isEqualTo("Adequate");
-        assertThat(ComplianceScoring.label(75)).isEqualTo("Adequate");
-        assertThat(ComplianceScoring.label(74)).isEqualTo("Weak");
-        assertThat(ComplianceScoring.label(50)).isEqualTo("Weak");
-        assertThat(ComplianceScoring.label(49)).isEqualTo("Critical");
-        assertThat(ComplianceScoring.label(0)).isEqualTo("Critical");
-    }
+    // ── Methodology text ─────────────────────────────────────────────────────
 
     @Test
-    void labelsAnUnscoredReportAsUnableToAssessRatherThanCritical() {
-        assertThat(ComplianceScoring.label(null)).isEqualTo("Unable to assess");
+    void publishesAMethodSentenceThatMatchesTheArithmetic() {
+        String method = ComplianceScoring.method();
+
+        assertThat(method).contains("Unweighted");
+        // The two claims a reader most needs, both of which the maths above enforces.
+        assertThat(method).contains("coverage");
+        assertThat(method).contains("never raise the score");
     }
 }
