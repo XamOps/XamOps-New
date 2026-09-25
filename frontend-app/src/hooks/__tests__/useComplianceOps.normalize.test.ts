@@ -46,6 +46,58 @@ describe('normalizeReport', () => {
     expect(report.counts.passedControls).toBe(0);
     expect(report.counts.waivedControls).toBe(0);
     expect(report.counts.newlyFailing).toBe(0);
+    expect(report.counts.unclassifiedSeverity).toBe(0);
+  });
+
+  it('defaults the secondary score measures to null rather than zero', () => {
+    const report = normalizeReport({ accountId: 'x' })!;
+
+    // Same reason as `score`: absent is not the same as measured-and-bad. A risk score of 0
+    // would read as "every severe control is failing".
+    expect(report.riskWeightedScore).toBeNull();
+    expect(report.scoreWithExceptions).toBeNull();
+    expect(report.coverage).toBeNull();
+    expect(report.coverageAdequate).toBe(false);
+  });
+
+  it('reconstructs the score denominator when a payload predates settledControls', () => {
+    // A report cached before the field existed would spread as 0, and the header divides by it.
+    // "11 of 0 settled controls" is worse than recomputing the sum the backend would have sent.
+    const report = normalizeReport({
+      accountId: 'x',
+      counts: { passedControls: 11, failedControls: 24, waivedControls: 2 } as never,
+    })!;
+
+    expect(report.counts.settledControls).toBe(37);
+  });
+
+  it('keeps a settledControls the server did send', () => {
+    const report = normalizeReport({
+      accountId: 'x',
+      counts: {
+        passedControls: 11, failedControls: 24, waivedControls: 2, settledControls: 37,
+      } as never,
+    })!;
+
+    expect(report.counts.settledControls).toBe(37);
+  });
+
+  it('repairs framework rows and never invents a clause baseline', () => {
+    const report = normalizeReport({
+      accountId: 'x',
+      frameworks: [{ framework: 'CIS-3.0', passedControls: 3, failedControls: 5 } as never],
+    })!;
+
+    const fw = report.frameworks[0];
+    expect(fw.settledControls).toBe(8);
+    expect(fw.score).toBeNull();
+    expect(fw.riskWeightedScore).toBeNull();
+    expect(fw.coverage).toBeNull();
+    // Null, not 0. A card that reads "3 of 0 clauses" is a worse lie than one that stays quiet
+    // about how much of the framework exists.
+    expect(fw.baselineControlCount).toBeNull();
+    expect(fw.clauseCoverage).toBeNull();
+    expect(fw.frameworkControlCount).toBe(0);
   });
 
   it('supplies a complete program object when the payload sends a partial one', () => {

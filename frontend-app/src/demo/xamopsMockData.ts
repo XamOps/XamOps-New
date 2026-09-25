@@ -2748,3 +2748,114 @@ export function buildDemoFlexComputeCapacityResponse(
   const data = items.slice(start, start + pageSize);
   return { data, totalElements, totalPageNumbers, total: totalElements };
 }
+
+// ─── CUR Insights — Cost page sections that read the Cost and Usage Report ────
+// These three sections (Charges by service, Top resources, Data transfer & network
+// costs) call /api/xamops/cur-insights/* and have no Cost Explorer fallback, so in a
+// real account without a CUR they hide themselves. The demo has no CUR either, so
+// these fixtures stand in for one.
+//
+// Reconciled to demoCostBreakdown (which sums to 18,420.75 = demoGranularKPI.mtdSpend):
+//   EC2 7,840 · RDS 3,680.50 · S3 1,920.25 · Lambda 1,240 · CloudFront 840 ·
+//   ElastiCache 620 · EKS 580 · CloudWatch 380 · Route 53 180 · Data Transfer 1,140.
+// "Charges by service" reproduces those service totals in AWS-invoice form, so its
+// grand total matches the Cost Breakdown widget directly beneath it on the page.
+
+// ─── /api/xamops/cur-insights/charges-by-service/{accountId} ──────────────────
+// ServiceCharge[]: { service, region, description, usageType, unit, quantity, cost }
+// Region codes are mapped to display names via AWS_REGIONS; "Global" for region-less
+// charges. Multiple usageType rows per service so the drill-down has something to open.
+export const demoChargesByService = [
+  // EC2 — 7,840.00
+  { service: 'Amazon Elastic Compute Cloud', region: 'ap-south-1', description: '$0.1152 per On Demand Linux m5.xlarge Instance Hour', usageType: 'APS3-BoxUsage:m5.xlarge', unit: 'Hrs', quantity: 42240, cost: 4866.05 },
+  { service: 'Amazon Elastic Compute Cloud', region: 'us-east-1', description: '$0.0928 per On Demand Linux t3.large Instance Hour', usageType: 'BoxUsage:t3.large', unit: 'Hrs', quantity: 21600, cost: 2004.48 },
+  { service: 'Amazon Elastic Compute Cloud', region: 'ap-south-1', description: '$0.10 per GB-month of provisioned gp3 storage', usageType: 'APS3-EBS:VolumeUsage.gp3', unit: 'GB-Mo', quantity: 9695, cost: 969.47 },
+  // RDS — 3,680.50
+  { service: 'Amazon Relational Database Service', region: 'ap-south-1', description: '$0.29 per RDS db.r5.large Multi-AZ instance hour', usageType: 'APS3-Multi-AZUsage:db.r5.large', unit: 'Hrs', quantity: 8760, cost: 2540.40 },
+  { service: 'Amazon Relational Database Service', region: 'ap-south-1', description: '$0.138 per GB-month of provisioned gp2 storage', usageType: 'APS3-RDS:GP2-Storage', unit: 'GB-Mo', quantity: 8261, cost: 1140.10 },
+  // S3 — 1,920.25
+  { service: 'Amazon Simple Storage Service', region: 'ap-south-1', description: '$0.025 per GB - first 50 TB / month of storage used', usageType: 'APS3-TimedStorage-ByteHrs', unit: 'GB-Mo', quantity: 47210, cost: 1180.25 },
+  { service: 'Amazon Simple Storage Service', region: 'ap-south-1', description: '$0.005 per 1,000 PUT, COPY, POST or LIST requests', usageType: 'APS3-Requests-Tier1', unit: 'Requests', quantity: 108000000, cost: 540.00 },
+  { service: 'Amazon Simple Storage Service', region: 'ap-south-1', description: '$0.0004 per 1,000 GET and all other requests', usageType: 'APS3-Requests-Tier2', unit: 'Requests', quantity: 500000000, cost: 200.00 },
+  // Lambda — 1,240.00
+  { service: 'AWS Lambda', region: 'ap-south-1', description: '$0.0000166667 per GB-second', usageType: 'APS3-Lambda-GB-Second', unit: 'seconds', quantity: 66000000, cost: 1100.00 },
+  { service: 'AWS Lambda', region: 'ap-south-1', description: '$0.20 per 1M requests', usageType: 'APS3-Lambda-Request', unit: 'Requests', quantity: 700000000, cost: 140.00 },
+  // CloudFront — 840.00
+  { service: 'Amazon CloudFront', region: 'Global', description: '$0.085 per GB - data transfer out to internet', usageType: 'DataTransfer-Out-Bytes', unit: 'GB', quantity: 8470.6, cost: 720.00 },
+  { service: 'Amazon CloudFront', region: 'Global', description: '$0.0075 per 10,000 HTTPS requests', usageType: 'Requests-Tier1-HTTPS', unit: 'Requests', quantity: 160000000, cost: 120.00 },
+  // ElastiCache — 620.00
+  { service: 'Amazon ElastiCache', region: 'ap-south-1', description: '$0.068 per cache.r6g.large node-hour', usageType: 'APS3-NodeUsage:cache.r6g.large', unit: 'Hrs', quantity: 8760, cost: 620.00 },
+  // EKS — 580.00
+  { service: 'Amazon Elastic Container Service for Kubernetes', region: 'ap-south-1', description: '$0.10 per EKS cluster hour', usageType: 'APS3-AmazonEKS-Hours:perCluster', unit: 'Hrs', quantity: 5800, cost: 580.00 },
+  // CloudWatch — 380.00
+  { service: 'AmazonCloudWatch', region: 'ap-south-1', description: '$0.30 per metric-month for the first 10,000 metrics', usageType: 'APS3-CW:MetricMonthUsage', unit: 'Metrics', quantity: 1000, cost: 300.00 },
+  { service: 'AmazonCloudWatch', region: 'ap-south-1', description: '$0.50 per GB ingested for logs', usageType: 'APS3-CW:DataProcessing-Bytes', unit: 'GB', quantity: 160, cost: 80.00 },
+  // Route 53 — 180.00
+  { service: 'Amazon Route 53', region: 'Global', description: '$0.50 per hosted zone / month for the first 25 hosted zones', usageType: 'DNS-HostedZone', unit: 'HostedZone', quantity: 40, cost: 20.00 },
+  { service: 'Amazon Route 53', region: 'Global', description: '$0.40 per million standard DNS queries', usageType: 'DNS-Queries', unit: 'Queries', quantity: 400000000, cost: 160.00 },
+  // Data transfer — 1,140.00 (matches demoDataTransferCosts total below)
+  { service: 'Amazon Virtual Private Cloud', region: 'ap-south-1', description: '$0.045 per NAT Gateway Hour', usageType: 'APS3-NatGateway-Hours', unit: 'Hrs', quantity: 6489, cost: 292.00 },
+  { service: 'Amazon Virtual Private Cloud', region: 'ap-south-1', description: '$0.045 per GB data processed by NAT Gateways', usageType: 'APS3-NatGateway-Bytes', unit: 'GB', quantity: 8400, cost: 378.00 },
+  { service: 'AWS Data Transfer', region: 'ap-south-1', description: '$0.01 per GB - regional data transfer between AZs', usageType: 'APS3-DataTransfer-Regional-Bytes', unit: 'GB', quantity: 24500, cost: 245.00 },
+  { service: 'AWS Data Transfer', region: 'ap-south-1', description: '$0.1093 per GB - data transfer out to internet', usageType: 'APS3-DataTransfer-Out-Bytes', unit: 'GB', quantity: 1875, cost: 205.00 },
+  { service: 'AWS Data Transfer', region: 'us-east-1', description: '$0.02 per GB - inter-region data transfer out', usageType: 'APS3-USE1-AWS-Out-Bytes', unit: 'GB', quantity: 1000, cost: 20.00 },
+  // Support & tax — account-level, region-less. Small negative credit included so the
+  // section demonstrates how credits render.
+  { service: 'AWS Support (Business)', region: 'Global', description: '3% of monthly AWS usage (Business support tier)', usageType: 'Dollar-AWSSupportBusiness', unit: '', quantity: 1, cost: 0 },
+  { service: 'Refund', region: 'Global', description: 'Service credit applied', usageType: 'Credit', unit: '', quantity: 1, cost: 0 },
+];
+
+// ─── /api/xamops/cur-insights/top-resources/{accountId} ───────────────────────
+// { resources: ResourceCost[], totalCost, groupCount }
+// ResourceCost: { resourceId, name, service, region, instanceType, cost }
+// resourceId "" = account-level charge (rendered in its own block). groupCount is set
+// above resources.length so the "showing the N costliest of M" footnote appears.
+export const demoTopResources = {
+  resources: [
+    // EC2 instances
+    { resourceId: 'i-0abc1001a2b3c4d5e', name: 'prod-web-01', service: 'Amazon Elastic Compute Cloud', region: 'ap-south-1', instanceType: 'm5.xlarge', cost: 1621.35 },
+    { resourceId: 'i-0abc1002a2b3c4d5e', name: 'prod-api-01', service: 'Amazon Elastic Compute Cloud', region: 'ap-south-1', instanceType: 'm5.xlarge', cost: 1621.35 },
+    { resourceId: 'i-0abc1003a2b3c4d5e', name: 'prod-worker-01', service: 'Amazon Elastic Compute Cloud', region: 'ap-south-1', instanceType: 'm5.xlarge', cost: 1623.35 },
+    { resourceId: 'i-0abc1004a2b3c4d5e', name: 'staging-web-01', service: 'Amazon Elastic Compute Cloud', region: 'us-east-1', instanceType: 't3.large', cost: 1002.24 },
+    { resourceId: 'i-0abc1005a2b3c4d5e', name: 'staging-api-01', service: 'Amazon Elastic Compute Cloud', region: 'us-east-1', instanceType: 't3.large', cost: 1002.24 },
+    { resourceId: 'vol-0aa1122334455667', name: 'prod-web-01-data', service: 'Amazon Elastic Compute Cloud', region: 'ap-south-1', instanceType: '', cost: 484.74 },
+    { resourceId: 'vol-0bb1122334455667', name: 'prod-api-01-data', service: 'Amazon Elastic Compute Cloud', region: 'ap-south-1', instanceType: '', cost: 484.73 },
+    // RDS
+    { resourceId: 'arn:aws:rds:ap-south-1:605134400000:db:xammer-prod', name: 'xammer-prod', service: 'Amazon Relational Database Service', region: 'ap-south-1', instanceType: 'db.r5.large', cost: 2540.40 },
+    { resourceId: 'arn:aws:rds:ap-south-1:605134400000:db:xammer-analytics', name: '', service: 'Amazon Relational Database Service', region: 'ap-south-1', instanceType: 'db.r5.large', cost: 1140.10 },
+    // S3
+    { resourceId: 'arn:aws:s3:::xammer-prod-assets', name: 'xammer-prod-assets', service: 'Amazon Simple Storage Service', region: 'ap-south-1', instanceType: '', cost: 1180.25 },
+    { resourceId: 'arn:aws:s3:::xammer-prod-logs', name: 'xammer-prod-logs', service: 'Amazon Simple Storage Service', region: 'ap-south-1', instanceType: '', cost: 540.00 },
+    { resourceId: 'arn:aws:s3:::xammer-backups', name: 'xammer-backups', service: 'Amazon Simple Storage Service', region: 'ap-south-1', instanceType: '', cost: 200.00 },
+    // Lambda
+    { resourceId: 'arn:aws:lambda:ap-south-1:605134400000:function:image-processor', name: 'image-processor', service: 'AWS Lambda', region: 'ap-south-1', instanceType: '', cost: 720.00 },
+    { resourceId: 'arn:aws:lambda:ap-south-1:605134400000:function:event-router', name: 'event-router', service: 'AWS Lambda', region: 'ap-south-1', instanceType: '', cost: 520.00 },
+    // CloudFront
+    { resourceId: 'arn:aws:cloudfront::605134400000:distribution/E1XAMMERPROD', name: 'cdn.xammer.in', service: 'Amazon CloudFront', region: 'Global', instanceType: '', cost: 840.00 },
+    // ElastiCache
+    { resourceId: 'arn:aws:elasticache:ap-south-1:605134400000:cluster:prod-redis', name: 'prod-redis', service: 'Amazon ElastiCache', region: 'ap-south-1', instanceType: 'cache.r6g.large', cost: 620.00 },
+    // EKS
+    { resourceId: 'arn:aws:eks:ap-south-1:605134400000:cluster/xammer-prod', name: 'xammer-prod', service: 'Amazon Elastic Container Service for Kubernetes', region: 'ap-south-1', instanceType: '', cost: 580.00 },
+    // Account-level charges (resourceId "") — tax, support
+    { resourceId: '', name: '', service: 'AmazonCloudWatch', region: 'ap-south-1', instanceType: '', cost: 380.00 },
+    { resourceId: '', name: '', service: 'Amazon Route 53', region: 'Global', instanceType: '', cost: 180.00 },
+    { resourceId: '', name: '', service: 'AWS Support (Business)', region: 'Global', instanceType: '', cost: 0 },
+  ],
+  totalCost: 18420.75,
+  groupCount: 214,
+};
+
+// ─── /api/xamops/cur-insights/data-transfer/{accountId} ───────────────────────
+// TransferCharge[]: { category, service, usageType, unit, quantity, cost }
+// category MUST be one of the known labels for the icon/blurb to render:
+//   'NAT Gateway' | 'Cross-AZ' | 'Inter-region' | 'Internet egress' |
+//   'Internet ingress' | 'Other network'. Only unit 'GB' rows are summed into the
+// displayed GB quantity, so NAT gateway hourly rows use 'Hrs'. Total = 1,140.00,
+// matching the "Data Transfer" line in demoCostBreakdown.
+export const demoDataTransferCosts = [
+  { category: 'NAT Gateway', service: 'Amazon Virtual Private Cloud', usageType: 'APS3-NatGateway-Hours', unit: 'Hrs', quantity: 6489, cost: 292.00 },
+  { category: 'NAT Gateway', service: 'Amazon Virtual Private Cloud', usageType: 'APS3-NatGateway-Bytes', unit: 'GB', quantity: 8400, cost: 378.00 },
+  { category: 'Cross-AZ', service: 'AWS Data Transfer', usageType: 'APS3-DataTransfer-Regional-Bytes', unit: 'GB', quantity: 24500, cost: 245.00 },
+  { category: 'Internet egress', service: 'AWS Data Transfer', usageType: 'APS3-DataTransfer-Out-Bytes', unit: 'GB', quantity: 1875, cost: 205.00 },
+  { category: 'Inter-region', service: 'AWS Data Transfer', usageType: 'APS3-USE1-AWS-Out-Bytes', unit: 'GB', quantity: 1000, cost: 20.00 },
+];

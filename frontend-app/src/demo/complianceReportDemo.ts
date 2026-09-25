@@ -6,10 +6,11 @@
  * `demo*ProwlerFindings` fixtures rather than introducing a second hand-authored dataset,
  * which would drift from the first the moment anyone edited either.
  *
- * It intentionally mirrors the aggregation in ComplianceScanRecorder and
- * ComplianceOpsService — group by check id, fail-if-any-resource-fails, severity-weighted
- * score with MANUAL and WAIVED excluded. If those rules change on the backend, change
- * them here too; demo mode is the only place the two are duplicated.
+ * It intentionally mirrors the aggregation in ComplianceScanRecorder, ComplianceOpsService and
+ * ComplianceScoring — group by check id, fail-if-any-resource-fails, then an unweighted pass rate
+ * over settled controls with MANUAL excluded from the score and reported as coverage, WAIVED held
+ * in the denominator, and severity weighting kept aside as a separate risk figure. If those rules
+ * change on the backend, change them here too; demo mode is the only place the two are duplicated.
  */
 
 import type {
@@ -33,11 +34,59 @@ interface RawFinding {
   unmapped?: { compliance?: Record<string, string[] | undefined> };
 }
 
+/** Mirrors ComplianceScoring.weight. Unrecognised weighs as medium, not as the floor. */
 const SEVERITY_WEIGHT: Record<string, number> = {
-  CRITICAL: 10, HIGH: 6, MEDIUM: 3, LOW: 1,
+  CRITICAL: 10, HIGH: 6, MEDIUM: 3, LOW: 1, INFORMATIONAL: 1,
 };
 
-const weight = (severity: string) => SEVERITY_WEIGHT[severity.toUpperCase()] ?? 1;
+const weight = (severity: string) => SEVERITY_WEIGHT[severity.toUpperCase()] ?? 3;
+
+/** Mirrors ComplianceScoring.isUnclassified. */
+const isUnclassified = (severity: string) =>
+  !Object.prototype.hasOwnProperty.call(SEVERITY_WEIGHT, (severity ?? '').toUpperCase());
+
+/** Mirrors ComplianceScoring.MIN_SCOREABLE_CONTROLS / MIN_COVERAGE_RATIO. */
+const MIN_SCOREABLE_CONTROLS = 5;
+const MIN_COVERAGE_RATIO = 0.5;
+
+/**
+ * Mirrors ComplianceFrameworkBaseline, restricted to the families the demo fixtures map to.
+ *
+ * Counts are the same Prowler requirement totals the backend table carries, resolved per provider
+ * because the pinned framework versions differ — AWS is on PCI 3.2.1 and ISO 27001:2013 while GCP
+ * and Azure are on PCI 4.0 and ISO 27001:2022.
+ */
+const BASELINE: Record<string, Record<string, number>> = {
+  AWS: { CIS: 62, SOC2: 27, PCI: 147, NIST_CSF: 56, FSBP: 286, ISO27001: 79 },
+  GCP: { CIS: 84, SOC2: 28, PCI: 1672, ISO27001: 92, MITRE: 46, HIPAA: 23 },
+  AZURE: { CIS: 159, SOC2: 26, PCI: 1669, ISO27001: 92, MITRE: 46, HIPAA: 34 },
+};
+
+/** Mirrors ComplianceFrameworkBaseline.family. Order matters, as it does on the backend. */
+const family = (raw: string): string | null => {
+  // Separators normalised to spaces, matching the backend: the same framework shows up both
+  // underscore- and hyphen-delimited depending on whether it came from the scan argument or a
+  // finding. Digits survive so NIST 800-53 and ISO 27001 stay distinguishable.
+  const u = (raw ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ');
+  if (!u.trim()) return null;
+  if (u.includes('FOUNDATIONAL SECURITY') || u.includes('FSBP')) return 'FSBP';
+  if (u.includes('CIS')) return 'CIS';
+  if (u.includes('SOC')) return 'SOC2';
+  if (u.includes('PCI')) return 'PCI';
+  if (u.includes('HIPAA')) return 'HIPAA';
+  if (u.includes('NIST') && u.includes('800')) return 'NIST800';
+  if (u.includes('NIST')) return 'NIST_CSF';
+  if (u.includes('ISO') && u.includes('27001')) return 'ISO27001';
+  if (u.includes('MITRE')) return 'MITRE';
+  return null;
+};
+
+const baselineFor = (provider: string, rawFramework: string): number | null => {
+  const byFamily = BASELINE[(provider ?? '').toUpperCase()];
+  if (!byFamily) return null;
+  const f = family(rawFramework);
+  return f ? byFamily[f] ?? null : null;
+};
 
 const scoreLabel = (score: number | null): string => {
   if (score == null) return 'Unable to assess';
@@ -80,16 +129,19 @@ export function buildDemoComplianceReport(
   });
 
   const controls: ComplianceControl[] = [];
+  let passCount = 0;
+  let failCount = 0;
   let passWeight = 0;
   let failWeight = 0;
-  let scoreable = 0;
 
   byCheck.forEach(({ checkId, items }) => {
     let passed = 0;
     let failed = 0;
     const frameworkMap = new Map<string, Set<string>>();
     const resources: ComplianceControl['resources'] = [];
-    let severity = 'LOW';
+    // 'UNKNOWN' rather than 'LOW', matching ComplianceScanRecorder: an absent severity is an
+    // unknown, and labelling it as the lowest band was a fabricated fact.
+    let severity = 'UNKNOWN';
     let title: string | null = null;
     let remediation: string | null = null;
     let refs: string[] = [];
@@ -99,7 +151,8 @@ export function buildDemoComplianceReport(
       if (status === 'PASS') passed += 1;
       else if (status === 'FAIL') failed += 1;
 
-      if (f.severity) severity = f.severity.toUpperCase();
+      // First non-null wins, matching the recorder's grouping.
+      if (severity === 'UNKNOWN' && f.severity) severity = f.severity.toUpperCase();
       if (!title) title = f.finding_info?.title ?? null;
       if (!remediation && f.remediation?.desc) {
         remediation = f.remediation.desc;
@@ -126,8 +179,8 @@ export function buildDemoComplianceReport(
     });
 
     const status: ComplianceStatus = failed > 0 ? 'FAIL' : passed > 0 ? 'PASS' : 'MANUAL';
-    if (status === 'PASS') { passWeight += weight(severity); scoreable += 1; }
-    if (status === 'FAIL') { failWeight += weight(severity); scoreable += 1; }
+    if (status === 'PASS') { passCount += 1; passWeight += weight(severity); }
+    if (status === 'FAIL') { failCount += 1; failWeight += weight(severity); }
 
     controls.push({
       checkId,
@@ -155,24 +208,49 @@ export function buildDemoComplianceReport(
     || weight(b.severity) - weight(a.severity)
     || b.failedResources - a.failedResources);
 
-  const assessable = scoreable > 0 && passWeight + failWeight > 0;
-  const score = assessable
+  // No waivers in the fixtures, so settled is pass + fail. Kept written out rather than
+  // simplified so the shape matches the backend if a waived fixture is ever added.
+  const waivedCount = 0;
+  const settled = passCount + failCount + waivedCount;
+  const coverage = controls.length > 0
+    ? Math.round((100 * settled) / controls.length)
+    : null;
+  const coverageAdequate = controls.length > 0
+    && settled >= Math.ceil(MIN_COVERAGE_RATIO * controls.length);
+  const assessable = settled >= MIN_SCOREABLE_CONTROLS && coverageAdequate;
+
+  // Unweighted, waived in the denominator only — identical to ComplianceScoring.
+  const score = assessable ? Math.round((100 * passCount) / settled) : null;
+  const scoreWithExceptions = assessable
+    ? Math.round((100 * (passCount + waivedCount)) / settled)
+    : null;
+  const riskWeightedScore = assessable && passWeight + failWeight > 0
     ? Math.round((100 * passWeight) / (passWeight + failWeight))
     : null;
 
+  /** Mirrors ComplianceOpsService.bumpSeverity: unclassified lands in medium, not low. */
+  const failingWith = (bucket: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW') => controls.filter((c) => {
+    if (c.status !== 'FAIL') return false;
+    const s = (c.severity ?? '').toUpperCase();
+    if (bucket === 'LOW') return s === 'LOW' || s === 'INFORMATIONAL';
+    if (bucket === 'MEDIUM') return s === 'MEDIUM' || isUnclassified(s);
+    return s === bucket;
+  }).length;
+
   const counts: ComplianceReport['counts'] = {
     totalControls: controls.length,
-    passedControls: controls.filter((c) => c.status === 'PASS').length,
-    failedControls: controls.filter((c) => c.status === 'FAIL').length,
+    passedControls: passCount,
+    failedControls: failCount,
     manualControls: controls.filter((c) => c.status === 'MANUAL').length,
-    waivedControls: 0,
+    waivedControls: waivedCount,
+    settledControls: settled,
+    unclassifiedSeverity: controls.filter((c) => isUnclassified(c.severity)).length,
     passedResources: controls.reduce((s, c) => s + c.passedResources, 0),
     failedResources: controls.reduce((s, c) => s + c.failedResources, 0),
-    critical: controls.filter((c) => c.status === 'FAIL' && c.severity === 'CRITICAL').length,
-    high: controls.filter((c) => c.status === 'FAIL' && c.severity === 'HIGH').length,
-    medium: controls.filter((c) => c.status === 'FAIL' && c.severity === 'MEDIUM').length,
-    low: controls.filter((c) => c.status === 'FAIL'
-      && !['CRITICAL', 'HIGH', 'MEDIUM'].includes(c.severity)).length,
+    critical: failingWith('CRITICAL'),
+    high: failingWith('HIGH'),
+    medium: failingWith('MEDIUM'),
+    low: failingWith('LOW'),
     newlyFailing: 0,
     newlyPassing: 0,
   };
@@ -185,31 +263,55 @@ export function buildDemoComplianceReport(
     byFramework.set(f.framework, list);
   }));
   byFramework.forEach((list, framework) => {
-    let fwPass = 0;
-    let fwFail = 0;
+    let fwPassWeight = 0;
+    let fwFailWeight = 0;
     list.forEach((c) => {
-      if (c.status === 'PASS') fwPass += weight(c.severity);
-      if (c.status === 'FAIL') fwFail += weight(c.severity);
+      if (c.status === 'PASS') fwPassWeight += weight(c.severity);
+      if (c.status === 'FAIL') fwFailWeight += weight(c.severity);
     });
     const clauses = new Set<string>();
     list.forEach((c) => c.frameworks
       .filter((f) => f.framework === framework)
       .forEach((f) => f.controls.forEach((x) => clauses.add(x))));
+
+    const fwPass = list.filter((c) => c.status === 'PASS').length;
+    const fwFail = list.filter((c) => c.status === 'FAIL').length;
+    const fwSettled = fwPass + fwFail;
+    const fwAssessable = fwSettled >= MIN_SCOREABLE_CONTROLS
+      && fwSettled >= Math.ceil(MIN_COVERAGE_RATIO * list.length);
+    const baseline = baselineFor(provider, framework);
+
+    const fwFailingWith = (bucket: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW') => list.filter((c) => {
+      if (c.status !== 'FAIL') return false;
+      const s = (c.severity ?? '').toUpperCase();
+      if (bucket === 'LOW') return s === 'LOW' || s === 'INFORMATIONAL';
+      if (bucket === 'MEDIUM') return s === 'MEDIUM' || isUnclassified(s);
+      return s === bucket;
+    }).length;
+
     frameworks.push({
       framework,
       totalControls: list.length,
-      passedControls: list.filter((c) => c.status === 'PASS').length,
-      failedControls: list.filter((c) => c.status === 'FAIL').length,
+      passedControls: fwPass,
+      failedControls: fwFail,
       manualControls: list.filter((c) => c.status === 'MANUAL').length,
       waivedControls: 0,
-      score: fwPass + fwFail > 0 ? Math.round((100 * fwPass) / (fwPass + fwFail)) : null,
-      assessable: fwPass + fwFail > 0,
-      critical: list.filter((c) => c.status === 'FAIL' && c.severity === 'CRITICAL').length,
-      high: list.filter((c) => c.status === 'FAIL' && c.severity === 'HIGH').length,
-      medium: list.filter((c) => c.status === 'FAIL' && c.severity === 'MEDIUM').length,
-      low: list.filter((c) => c.status === 'FAIL'
-        && !['CRITICAL', 'HIGH', 'MEDIUM'].includes(c.severity)).length,
+      settledControls: fwSettled,
+      score: fwAssessable ? Math.round((100 * fwPass) / fwSettled) : null,
+      riskWeightedScore: fwAssessable && fwPassWeight + fwFailWeight > 0
+        ? Math.round((100 * fwPassWeight) / (fwPassWeight + fwFailWeight))
+        : null,
+      coverage: list.length > 0 ? Math.round((100 * fwSettled) / list.length) : null,
+      assessable: fwAssessable,
+      critical: fwFailingWith('CRITICAL'),
+      high: fwFailingWith('HIGH'),
+      medium: fwFailingWith('MEDIUM'),
+      low: fwFailingWith('LOW'),
       frameworkControlCount: clauses.size,
+      baselineControlCount: baseline,
+      clauseCoverage: baseline != null && baseline > 0
+        ? Math.round((100 * Math.min(clauses.size, baseline)) / baseline)
+        : null,
     });
   });
   frameworks.sort((a, b) => b.failedControls - a.failedControls);
@@ -247,10 +349,18 @@ export function buildDemoComplianceReport(
     frameworksRequested: frameworks.map((f) => f.framework),
     scannerVersion: '5.5.0',
     score,
+    riskWeightedScore,
+    scoreWithExceptions,
+    coverage,
+    coverageAdequate,
     assessable,
     scoreLabel: scoreLabel(score),
-    scoreMethod: 'Severity-weighted across evaluated controls (critical 10, high 6, '
-      + 'medium 3, low 1). Manual and waived controls are excluded from the denominator.',
+    // Verbatim from ComplianceScoring.method(). If that changes, change this.
+    scoreMethod: 'Unweighted share of settled controls that pass, counted once per control. '
+      + 'Severity is not part of this figure — frameworks do not rank their own controls, so '
+      + 'the risk-weighted score is reported separately. Controls the scanner could not decide '
+      + 'are excluded and reported as coverage; waived controls sit in the denominator, so an '
+      + 'exception can never raise the score.',
     counts,
     frameworks,
     controls,

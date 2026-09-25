@@ -21,9 +21,12 @@ import java.util.List;
  *     produced nothing scoreable renders as "—", not as zero, because "we could not
  *     measure this" and "you failed everything" are different statements.
  *
- *  3. WAIVED is a first-class status, not a hidden FAIL. Waived controls are excluded
- *     from the score denominator and their count travels alongside the score so the
- *     number can never be quietly inflated by waiving things.
+ *  3. WAIVED is a first-class status, not a hidden FAIL, and it sits in the score's
+ *     denominator without counting toward the numerator. That makes waiving arithmetically
+ *     neutral: a control moving FAIL → WAIVED cannot move {@link #score}. Excluding waivers
+ *     from the denominator — the earlier behaviour — made filing exceptions the cheapest
+ *     route to a better number, which is the one incentive this page must not create.
+ *     {@link #scoreWithExceptions} offers the auditor's met-with-exception reading alongside.
  */
 @Data
 @NoArgsConstructor
@@ -43,8 +46,44 @@ public class ComplianceReport {
     private String scannerVersion;
 
     // ── Score ───────────────────────────────────────────────────────────────
-    /** Severity-weighted, 0–100. Null when {@link #assessable} is false. */
+    /**
+     * The headline figure: unweighted share of settled controls that pass, 0–100. Null when
+     * {@link #assessable} is false.
+     *
+     * <p>
+     * Unweighted on purpose. Frameworks do not rank their own controls, so severity — which
+     * describes a misconfiguration's danger, not a control's importance to a standard — is
+     * reported separately as {@link #riskWeightedScore} rather than folded in here.
+     */
     private Integer score;
+
+    /**
+     * Severity-weighted pass rate. A risk indicator, not a compliance figure, and labelled as
+     * such in the UI. Kept beside {@link #score} because "what should I fix first" and "how much
+     * of the framework do I meet" are different questions that deserve different numbers.
+     */
+    private Integer riskWeightedScore;
+
+    /**
+     * {@link #score} with waived controls counted as met — the auditor's met-with-exception view.
+     * Always greater than or equal to {@link #score}; the gap is the weight of the exception
+     * register. Only meaningful when {@link Counts#waivedControls} is above zero.
+     */
+    private Integer scoreWithExceptions;
+
+    /**
+     * Percentage of the scan's own control set that reached a settled outcome.
+     *
+     * <p>
+     * Travels with the score because a percentage over a handful of controls is not a
+     * measurement. Without this the page could render 100% "Strong" off 150 evaluated controls
+     * out of 300 and say nothing about the other half.
+     */
+    private Integer coverage;
+
+    /** Whether {@link #coverage} clears the floor required to publish a score at all. */
+    private boolean coverageAdequate;
+
     private boolean assessable;
     /** Human label for the score band: Strong / Adequate / Weak / Critical / Unknown. */
     private String scoreLabel;
@@ -88,6 +127,22 @@ public class ComplianceReport {
         private int manualControls;
         private int waivedControls;
 
+        /**
+         * Controls with an established outcome: passed + failed + waived. The score's denominator.
+         *
+         * <p>
+         * Sent explicitly rather than left for the client to add up. The header used to compute
+         * its own denominator and drifted from the one the score was actually calculated over,
+         * which is how the dial and the sentence beside it ended up disagreeing.
+         */
+        private int settledControls;
+
+        /**
+         * Controls whose severity the scanner did not classify. Surfaced rather than silently
+         * absorbed, because these are weighted as MEDIUM on an assumption.
+         */
+        private int unclassifiedSeverity;
+
         /** Resource-level tallies, summed across controls. */
         private int passedResources;
         private int failedResources;
@@ -114,7 +169,14 @@ public class ComplianceReport {
         private int failedControls;
         private int manualControls;
         private int waivedControls;
+        /** Passed + failed + waived: the denominator behind {@link #score}. */
+        private int settledControls;
+        /** Unweighted share of settled controls that pass. Same rules as the overall score. */
         private Integer score;
+        /** Severity-weighted pass rate for this framework. A risk view, not a compliance one. */
+        private Integer riskWeightedScore;
+        /** Share of this framework's mapped checks that reached a settled outcome. */
+        private Integer coverage;
         private boolean assessable;
         private int critical;
         private int high;
@@ -122,6 +184,22 @@ public class ComplianceReport {
         private int low;
         /** Distinct framework control references touched, e.g. 42 of CIS's clauses. */
         private int frameworkControlCount;
+
+        /**
+         * Total requirements the framework defines, from {@link
+         * com.xammer.cloud.service.compliance.ComplianceFrameworkBaseline}. Null when no baseline
+         * is on record for this provider and version, in which case the UI must not imply one —
+         * {@link #frameworkControlCount} alone says how many clauses were touched, not how many
+         * exist.
+         */
+        private Integer baselineControlCount;
+
+        /**
+         * {@link #frameworkControlCount} as a share of {@link #baselineControlCount}. Null
+         * whenever the baseline is null, so "we mapped 43 clauses" never silently becomes
+         * "we covered the framework".
+         */
+        private Integer clauseCoverage;
     }
 
     @Data

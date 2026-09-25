@@ -11,12 +11,21 @@ interface Props {
 /**
  * The lead panel: the score, what it is made of, and the provenance behind it.
  *
- * The provenance row is not decoration. A score is only meaningful alongside the regions
- * and framework versions the scan covered and when it ran, so those travel with the
- * number rather than living in a tooltip. When the scan could not produce a scoreable
- * result the score renders as "—" and the label says "Unable to assess" — the previous
- * page would have shown 0%, which reads as "you failed everything" rather than "we
- * could not measure this".
+ * Three things this panel is careful about, each of them a bug it used to have:
+ *
+ *  - **The dial and the sentence beside it agree.** Both now read the same unweighted
+ *    `passedControls / settledControls`, taken from the server's own denominator. The dial used
+ *    to be severity-weighted while the caption was a raw control count, so the two routinely
+ *    disagreed by a point or more and neither explained itself.
+ *  - **Coverage sits next to the score, not in a footnote.** A percentage over a fraction of the
+ *    control set is not a measurement, and the page has to say which one it is showing.
+ *  - **Severity weighting is a separate, labelled number.** It answers "what should I fix first",
+ *    which is a different question from "how much of the framework do I meet", and presenting it
+ *    as the compliance figure was the original mistake.
+ *
+ * When the scan could not produce a scoreable result the score renders as "—" and the label says
+ * "Unable to assess" — showing 0% would read as "you failed everything" rather than "we could not
+ * measure this".
  */
 const ComplianceScoreHeader: React.FC<Props> = ({ report, onSelectStatus }) => {
   const band = scoreBand(report.scoreLabel);
@@ -26,7 +35,8 @@ const ComplianceScoreHeader: React.FC<Props> = ({ report, onSelectStatus }) => {
   const stroke = 8;
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
-  const pct = report.assessable && report.score != null ? report.score : 0;
+  const rated = report.assessable && report.score != null;
+  const pct = rated ? report.score! : 0;
 
   const scanned = report.scannedAt ? new Date(report.scannedAt) : null;
 
@@ -36,6 +46,44 @@ const ComplianceScoreHeader: React.FC<Props> = ({ report, onSelectStatus }) => {
     { key: 'MANUAL' as const, label: 'Not evaluated', value: counts.manualControls },
     { key: 'WAIVED' as const, label: 'Waived', value: counts.waivedControls },
   ];
+
+  /**
+   * Secondary readouts. Coverage is always shown — it is the context that makes the score
+   * legible. The other two appear only when they carry information: a risk score identical in
+   * spirit to the compliance score on an account with uniform severities adds nothing, and an
+   * exceptions figure is meaningless with no exceptions on file.
+   */
+  const secondary: Array<{ label: string; value: string; hint: string }> = [];
+
+  if (report.coverage != null) {
+    secondary.push({
+      label: 'Coverage',
+      value: `${report.coverage}%`,
+      hint: `${counts.settledControls} of ${counts.totalControls} controls reached a pass, fail `
+        + 'or waiver. The rest could not be decided by the scanner and are excluded from the '
+        + 'score. Raising coverage moves the score independently of any remediation.',
+    });
+  }
+
+  if (rated && report.riskWeightedScore != null) {
+    secondary.push({
+      label: 'Risk-weighted',
+      value: `${report.riskWeightedScore}%`,
+      hint: 'The same controls weighted by severity (critical 10, high 6, medium 3, low 1). '
+        + 'A risk indicator for prioritising work — not a compliance figure, because no '
+        + 'framework ranks its own controls.',
+    });
+  }
+
+  if (rated && counts.waivedControls > 0 && report.scoreWithExceptions != null) {
+    secondary.push({
+      label: 'With exceptions',
+      value: `${report.scoreWithExceptions}%`,
+      hint: `Counting the ${counts.waivedControls} waived control(s) as met with a caveat, which `
+        + 'is how an auditor reads an approved exception. The headline score leaves them in the '
+        + 'denominator, so filing an exception can never raise it.',
+    });
+  }
 
   return (
     <section className={`${CARD_ANCHOR} p-5`}>
@@ -67,24 +115,35 @@ const ComplianceScoreHeader: React.FC<Props> = ({ report, onSelectStatus }) => {
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <span className={`text-[34px] font-semibold leading-none tabular-nums ${band.text}`}>
-                {report.assessable && report.score != null ? `${report.score}%` : '—'}
+                {rated ? `${report.score}%` : '—'}
               </span>
               <span className="text-[10px] font-semibold uppercase tracking-widest text-[rgba(0,0,0,0.35)] mt-1.5">
-                Score
+                Controls met
               </span>
             </div>
           </div>
 
           <div className="min-w-0">
-            <span className={EYEBROW}>Compliance posture</span>
+            {/*
+              Named for what it actually measures. This figure pools every control in the scan,
+              including ones mapped to no framework at all, so calling it "compliance posture"
+              implied a per-framework statement it cannot make. Framework-level answers are one
+              card down.
+            */}
+            <span className={EYEBROW}>Control posture</span>
             <p className={`text-[19px] font-semibold leading-tight mt-1 ${band.text}`}>
               {report.scoreLabel}
             </p>
-            <p className="text-[12px] text-[rgba(0,0,0,0.45)] leading-relaxed mt-1.5 max-w-[26ch]">
-              {report.assessable
-                ? `${counts.passedControls} of ${counts.passedControls + counts.failedControls} `
-                  + 'evaluated controls are passing.'
-                : 'The scan did not evaluate enough controls to rate this account.'}
+            <p className="text-[12px] text-[rgba(0,0,0,0.45)] leading-relaxed mt-1.5 max-w-[28ch]">
+              {rated
+                // Same numerator and denominator as the dial, so the two can never disagree.
+                ? `${counts.passedControls.toLocaleString()} of `
+                  + `${counts.settledControls.toLocaleString()} settled controls pass`
+                  + (report.frameworks.length > 0
+                    ? `, across ${report.frameworks.length} `
+                      + `framework${report.frameworks.length === 1 ? '' : 's'}.`
+                    : '.')
+                : 'The scan did not settle enough controls to rate this account.'}
             </p>
             {(counts.newlyFailing > 0 || counts.newlyPassing > 0) && (
               <div className="flex items-center gap-3 mt-2.5">
@@ -133,6 +192,33 @@ const ComplianceScoreHeader: React.FC<Props> = ({ report, onSelectStatus }) => {
             );
           })}
 
+          {/* Secondary measures, deliberately smaller than the headline they qualify */}
+          {secondary.length > 0 && (
+            <div className="col-span-2 sm:col-span-4 flex flex-wrap items-stretch gap-2">
+              {secondary.map(({ label, value, hint }) => (
+                <div
+                  key={label}
+                  title={hint}
+                  className="flex-1 min-w-[132px] px-3 py-2 rounded-lg border border-[#e5e7eb] bg-white"
+                >
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-widest text-[rgba(0,0,0,0.35)] truncate">
+                      {label}
+                    </span>
+                    <Icon
+                      icon="mdi:help-circle-outline"
+                      width={11}
+                      className="text-[rgba(0,0,0,0.25)] shrink-0"
+                    />
+                  </div>
+                  <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.7)] tabular-nums leading-none mt-1.5">
+                    {value}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Provenance */}
           <div className="col-span-2 sm:col-span-4 flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 rounded-lg bg-[#f9fafb] border border-[#e5e7eb]">
             <Provenance
@@ -149,6 +235,7 @@ const ComplianceScoreHeader: React.FC<Props> = ({ report, onSelectStatus }) => {
               icon="mdi:shield-check-outline"
               label={`${report.frameworks.length} framework${report.frameworks.length === 1 ? '' : 's'}`}
             />
+            {/* Resource counts, labelled as such — these are not controls */}
             <Provenance
               icon="mdi:counter"
               label={`${counts.failedResources.toLocaleString()} failing / ${

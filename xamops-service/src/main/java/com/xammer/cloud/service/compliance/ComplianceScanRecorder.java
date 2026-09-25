@@ -146,7 +146,10 @@ public class ComplianceScanRecorder {
             result.setCheckId(checkId);
             result.setCheckTitle(title);
             result.setService(service);
-            result.setSeverity(severity != null ? severity : "LOW");
+            // "UNKNOWN", not "LOW". Defaulting an absent severity to the lowest band was a
+            // fabricated fact that then propagated into the risk score and the severity
+            // breakdown; an explicit unknown is visible and can be reported as one.
+            result.setSeverity(severity != null ? severity : "UNKNOWN");
             result.setStatus(deriveControlStatus(passed, failed, manual));
             result.setPassedResources(passed);
             result.setFailedResources(failed);
@@ -168,6 +171,10 @@ public class ComplianceScanRecorder {
             }));
         }
 
+        // Stamps the same unweighted compliance score the page shows, so the trend line and the
+        // headline are the same measurement. WAIVED is never persisted, and waivers are
+        // score-neutral by construction, so the stored value stays correct as exceptions come and
+        // go rather than needing a rescan to catch up.
         ComplianceScoring.Accumulator acc = ComplianceScoring.accumulate(results);
         scan.setScore(acc.score());
         scan.setTotalFindings(totalFindings);

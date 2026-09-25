@@ -167,15 +167,37 @@ const FrameworkCard: React.FC<{
   onSelect: (key: string) => void;
 }> = ({ fw, selected, onSelect }) => {
   const key = frameworkKey(fw.framework);
-  const evaluated = fw.passedControls + fw.failedControls;
   const pct = fw.assessable && fw.score != null ? fw.score : 0;
+
+  /**
+   * What the sub-label says, in descending order of how much it can honestly claim.
+   *
+   * With a baseline on record the card can state scope — "43 of 62 clauses" — which is the
+   * number that was missing. Without one it falls back to the count of clauses touched, and
+   * deliberately does not imply a denominator it does not have.
+   */
+  const scope = fw.baselineControlCount != null && fw.baselineControlCount > 0
+    ? `${fw.frameworkControlCount} of ${fw.baselineControlCount} clauses`
+    : fw.frameworkControlCount > 0
+      ? `${fw.frameworkControlCount} clauses mapped`
+      : `${fw.totalControls} checks`;
+
+  const titleParts = [
+    frameworkName(fw.framework),
+    `${fw.failedControls} failing of ${fw.settledControls} settled`,
+    fw.coverage != null ? `${fw.coverage}% of mapped checks decided` : null,
+    fw.clauseCoverage != null
+      ? `${fw.clauseCoverage}% of the framework's clauses covered by this scan`
+      : 'no clause baseline on record for this framework version',
+    fw.riskWeightedScore != null ? `risk-weighted ${fw.riskWeightedScore}%` : null,
+  ].filter(Boolean);
 
   return (
     <button
       type="button"
       onClick={() => onSelect(selected ? 'All' : key)}
       aria-pressed={selected}
-      title={`${frameworkName(fw.framework)} — ${fw.failedControls} failing of ${evaluated} evaluated`}
+      title={titleParts.join(' — ')}
       className={`w-full text-left p-3 rounded-lg border transition-colors ${
         selected
           ? 'border-[rgba(0,0,0,0.88)] bg-[#fafafa]'
@@ -189,9 +211,7 @@ const FrameworkCard: React.FC<{
             {frameworkName(fw.framework)}
           </p>
           <p className="text-[10.5px] text-[rgba(0,0,0,0.4)] truncate mt-0.5">
-            {fw.frameworkControlCount > 0
-              ? `${fw.frameworkControlCount} clauses mapped`
-              : `${fw.totalControls} checks`}
+            {scope}
           </p>
         </div>
         <span
@@ -221,7 +241,7 @@ const FrameworkCard: React.FC<{
         />
       </div>
 
-      <div className="flex items-center gap-2.5 mt-2">
+      <div className="flex items-center gap-2.5 mt-2 flex-wrap">
         <span className={COL_HEADER}>
           {fw.failedControls} failing
         </span>
@@ -233,6 +253,16 @@ const FrameworkCard: React.FC<{
         {fw.waivedControls > 0 && (
           <span className="text-[10px] font-semibold uppercase tracking-widest text-sky-600">
             {fw.waivedControls} waived
+          </span>
+        )}
+        {/*
+          Shown only when the scan left part of this framework undecided. A silent card and a
+          fully-decided card used to look identical, which is how a 62% over a third of the
+          clauses read as confidently as one over all of them.
+        */}
+        {fw.coverage != null && fw.coverage < 100 && (
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-[rgba(0,0,0,0.4)]">
+            {fw.coverage}% decided
           </span>
         )}
       </div>

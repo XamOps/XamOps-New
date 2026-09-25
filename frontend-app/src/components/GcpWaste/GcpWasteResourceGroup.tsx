@@ -112,7 +112,11 @@ const GcpWasteResourceGroup: React.FC<GcpWasteResourceGroupProps> = ({ type, res
       </div>
 
       {/* Resource panel — always rendered, animated via JS */}
-      <div ref={panelRef} className="border-t border-[rgba(0,0,0,0.06)]">
+      <div
+        ref={panelRef}
+        className="border-t border-[rgba(0,0,0,0.06)]"
+        style={isOpen ? undefined : { maxHeight: 0, opacity: 0, overflow: 'hidden' }}
+      >
         <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)]">
           <div className="col-span-5">Resource Name</div>
           <div className="col-span-3">Location</div>

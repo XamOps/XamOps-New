@@ -26,12 +26,6 @@ const GcpWastePage: React.FC = () => {
     return Object.values(groups).sort((a, b) => b.totalSavings - a.totalSavings);
   }, [wasteItems]);
 
-  React.useEffect(() => {
-    if (groupedResources.length > 0 && expandedGroups.size === 0) {
-      setExpandedGroups(new Set(groupedResources.map(g => g.type)));
-    }
-  }, [groupedResources]);
-
   const toggleGroup = (type: string) => {
     setExpandedGroups(prev => {
       const next = new Set(prev);
