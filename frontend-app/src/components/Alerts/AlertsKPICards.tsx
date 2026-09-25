@@ -5,12 +5,13 @@
  */
 
 import React from 'react';
-import type { AlertCounts } from '../../types/alerts';
+import type { AlertCounts, AlertsMetadata } from '../../types/alerts';
+import { formatAbsoluteTime, formatRelativeTime } from '../GcpAlerts/resourceDisplay';
 
 interface AlertsKPICardsProps {
   alertCounts: AlertCounts;
   isLoading: boolean;
-  metadata?: any;
+  metadata?: AlertsMetadata | null;
 }
 
 const CloudSVG = () => (
@@ -30,7 +31,7 @@ const BEBAS = {
 const AlertsKPICards: React.FC<AlertsKPICardsProps> = ({
   alertCounts,
   isLoading,
-  metadata: _metadata,
+  metadata,
 }) => {
   if (isLoading) {
     return (
@@ -46,12 +47,18 @@ const AlertsKPICards: React.FC<AlertsKPICardsProps> = ({
     );
   }
 
+  // Counted by severity across quotas, cost spikes and security findings alike. The old cards
+  // counted quota utilisation only, and "Healthy" was always 0 because the backend sends only
+  // quotas that are already past 75%.
   const cards = [
-    { label: 'Total Alerts',   value: alertCounts.total,    sub: 'monitored services', valueColor: 'rgb(10,10,10)' },
-    { label: 'Critical Usage', value: alertCounts.critical, sub: 'above 90%',           valueColor: 'rgb(220,38,38)' },
-    { label: 'Warning',        value: alertCounts.warning,  sub: '75–90%',              valueColor: 'rgb(217,119,6)' },
-    { label: 'Healthy',        value: alertCounts.healthy,  sub: 'below 75%',           valueColor: 'rgb(5,150,105)' },
+    { label: 'Total Alerts', value: alertCounts.total,    sub: 'quotas, cost spikes, security', valueColor: 'rgb(10,10,10)' },
+    { label: 'Critical',     value: alertCounts.critical, sub: 'act now',                       valueColor: 'rgb(220,38,38)' },
+    { label: 'Warning',      value: alertCounts.warning,  sub: 'high or medium',                valueColor: 'rgb(217,119,6)' },
   ];
+
+  // When this list was built. A page load can serve a saved scan up to an hour old, so the age is
+  // stated rather than implied to be "now".
+  const generatedAt = metadata?.timestamp ?? null;
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -63,6 +70,19 @@ const AlertsKPICards: React.FC<AlertsKPICardsProps> = ({
           <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-2">{c.sub}</p>
         </div>
       ))}
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
+        <CloudSVG />
+        <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.5)] mb-2">Last Updated</p>
+        <p
+          className="text-[20px] font-semibold leading-[32px] text-[rgba(0,0,0,0.88)]"
+          title={formatAbsoluteTime(generatedAt)}
+        >
+          {formatRelativeTime(generatedAt)}
+        </p>
+        <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-2">
+          {generatedAt ? formatAbsoluteTime(generatedAt) : 'refresh to scan now'}
+        </p>
+      </div>
     </div>
   );
 };

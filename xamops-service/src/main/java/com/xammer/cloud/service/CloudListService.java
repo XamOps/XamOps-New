@@ -108,6 +108,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -637,6 +638,75 @@ public class CloudListService {
     @Async("awsTaskExecutor")
     public CompletableFuture<List<DashboardData.RegionStatus>> getRegionStatusForAccount(CloudAccount account,
             boolean forceRefresh) {
+        // Only the describe failure becomes an empty list, as it always did; anything else — the
+        // 120-second timeout — still fails the future, also as before.
+        return regionStatus(account, forceRefresh).exceptionally(ex -> {
+            Throwable cause = ex instanceof CompletionException && ex.getCause() != null ? ex.getCause() : ex;
+            if (cause instanceof RegionDiscoveryFailed) {
+                logger.error("Failed to describe regions for {}", account.getAwsAccountId(), cause);
+                return new ArrayList<>();
+            }
+            throw ex instanceof CompletionException ? (CompletionException) ex : new CompletionException(ex);
+        });
+    }
+
+    /** The account's region list could not be read — as opposed to reading as empty. */
+    static final class RegionDiscoveryFailed extends RuntimeException {
+        RegionDiscoveryFailed(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    /**
+     * As {@link #getRegionStatusForAccount}, for callers that must not mistake a failed discovery
+     * for an account with no active regions.
+     *
+     * <p>The lenient method answers a failure with an empty list, and to a per-region check an
+     * empty list means "nothing to check": with expired credentials the Alerts page scanned zero
+     * regions, found nothing, and reported every quota and Security Hub check as clean.
+     *
+     * <p>On failure this falls back to the last regions discovered, so the checks still run and
+     * surface the real error from each region; with no earlier discovery it completes
+     * exceptionally.
+     */
+    @Async("awsTaskExecutor")
+    public CompletableFuture<List<DashboardData.RegionStatus>> getRegionStatusForAccountOrFail(CloudAccount account,
+            boolean forceRefresh) {
+        String accountId = account.getAwsAccountId();
+        return regionStatus(account, forceRefresh).handle((regions, ex) -> {
+            if (ex == null) {
+                return regions;
+            }
+            List<DashboardData.RegionStatus> lastKnown = lastKnownRegions(accountId);
+            Throwable cause = ex instanceof CompletionException && ex.getCause() != null ? ex.getCause() : ex;
+            if (!lastKnown.isEmpty()) {
+                logger.warn("Region discovery failed for {} ({}) — using the {} regions found last time",
+                        accountId, cause.getMessage(), lastKnown.size());
+                return lastKnown;
+            }
+            throw new CompletionException(cause);
+        });
+    }
+
+    /** The last successful discovery's regions, from the database, or empty. */
+    private List<DashboardData.RegionStatus> lastKnownRegions(String accountId) {
+        try {
+            Optional<CachedData> saved = cachedDataRepository.findById("REGION_STATUS::" + accountId);
+            if (saved.isPresent() && saved.get().getJsonData() != null) {
+                List<DashboardData.RegionStatus> regions = objectMapper.readValue(saved.get().getJsonData(),
+                        new TypeReference<List<DashboardData.RegionStatus>>() {
+                        });
+                return regions != null ? regions : List.of();
+            }
+        } catch (Exception e) {
+            logger.warn("Could not read last known regions for {}: {}", accountId, e.getMessage());
+        }
+        return List.of();
+    }
+
+    /** Discovery proper. Completes exceptionally when the region list cannot be read. */
+    private CompletableFuture<List<DashboardData.RegionStatus>> regionStatus(CloudAccount account,
+            boolean forceRefresh) {
         String accountId = account.getAwsAccountId();
         String cacheKey = "regionStatus-" + accountId;
         String dbCacheKey = "REGION_STATUS::" + accountId;
@@ -763,10 +833,10 @@ public class CloudListService {
                                 return results;
                             });
                 } catch (Exception e) {
-                    logger.error("Failed to describe regions for {}", accountId, e);
-                    CompletableFuture<List<DashboardData.RegionStatus>> errorFuture = CompletableFuture
-                            .completedFuture(new ArrayList<>());
-                    return errorFuture;
+                    // A failure, not an empty result. getRegionStatusForAccount still turns it into
+                    // an empty list for its callers; getRegionStatusForAccountOrFail does not.
+                    return CompletableFuture.<List<DashboardData.RegionStatus>>failedFuture(
+                            new RegionDiscoveryFailed("Could not list the account's regions: " + e.getMessage(), e));
                 }
             }).orTimeout(120, TimeUnit.SECONDS)
           .whenComplete((res, ex) -> regionStatusRequests.remove(accountId));

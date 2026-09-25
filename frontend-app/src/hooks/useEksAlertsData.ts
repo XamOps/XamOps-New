@@ -14,7 +14,7 @@
  *  - Karpenter issues          → target: karpenter tab
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import apiClient from '../utils/apiClient';
 import type { TabType } from '../types/eksTypes';
 
@@ -53,7 +53,16 @@ interface UseEksAlertsDataReturn {
   error: string | null;
   counts: { critical: number; high: number; medium: number; total: number };
   refresh: () => void;
+  /** Every EKS cluster in the account, including any beyond the ones scanned. */
+  totalClusters: number;
+  /** How many clusters were scanned; at most MAX_CLUSTERS. */
+  scannedClusters: number;
+  /** Clusters whose dashboard could not be loaded, so their alerts are unknown. */
+  failedClusters: string[];
 }
+
+/** Dashboards are fetched from the browser, one request per cluster, so the fan-out is capped. */
+const MAX_CLUSTERS = 10;
 
 // ── severity normaliser ────────────────────────────────────────────────────
 function normaliseSeverity(raw: string | undefined): EksAlertSeverity {
@@ -275,13 +284,25 @@ export const useEksAlertsData = ({ accountId }: UseEksAlertsDataOptions): UseEks
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  const [totalClusters, setTotalClusters] = useState(0);
+  const [scannedClusters, setScannedClusters] = useState(0);
+  const [failedClusters, setFailedClusters] = useState<string[]>([]);
 
-  const refresh = useCallback(() => setTick(t => t + 1), []);
+  // Set by the Refresh button only, so opening the tab still reads the dashboards' caches. The
+  // button used to re-request with forceRefresh=false, which returned the same cached data.
+  const forceNextRef = useRef(false);
+  const refresh = useCallback(() => {
+    forceNextRef.current = true;
+    setTick(t => t + 1);
+  }, []);
 
   useEffect(() => {
     if (!accountId) return;
 
     let cancelled = false;
+    const forceRefresh = forceNextRef.current;
+    forceNextRef.current = false;
+
     const run = async () => {
       setLoading(true);
       setError(null);
@@ -299,11 +320,12 @@ export const useEksAlertsData = ({ accountId }: UseEksAlertsDataOptions): UseEks
           version: c.version || '1.33',
         })).filter((c: ClusterRef) => !!c.name);
 
-        // 2. Fetch dashboards in parallel (cap at 10)
+        // 2. Fetch dashboards in parallel (capped)
+        const scanned = clusterRefs.slice(0, MAX_CLUSTERS);
         const results = await Promise.allSettled(
-          clusterRefs.slice(0, 10).map(c =>
+          scanned.map(c =>
             apiClient.get<any>(
-              `/api/xamops/eks/${c.name}/dashboard?accountId=${accountId}&region=${c.region}&version=${c.version || '1.33'}&forceRefresh=false`
+              `/api/xamops/eks/${c.name}/dashboard?accountId=${accountId}&region=${c.region}&version=${c.version || '1.33'}&forceRefresh=${forceRefresh}`
             ).then(dashboard => ({ cluster: c, dashboard }))
           )
         );
@@ -311,13 +333,21 @@ export const useEksAlertsData = ({ accountId }: UseEksAlertsDataOptions): UseEks
         if (cancelled) return;
 
         const all: EksAlertItem[] = [];
-        results.forEach(result => {
+        // A cluster whose dashboard failed contributes no rows, which looked exactly like a
+        // healthy cluster. It is recorded so the tab can say its alerts are unknown.
+        const failed: string[] = [];
+        results.forEach((result, i) => {
           if (result.status === 'fulfilled') {
             const { cluster, dashboard } = result.value;
             const extracted = extractAlerts(cluster.name, cluster.region, accountId, dashboard);
             all.push(...extracted);
+          } else {
+            failed.push(scanned[i].name);
           }
         });
+        setTotalClusters(clusterRefs.length);
+        setScannedClusters(scanned.length);
+        setFailedClusters(failed);
 
         // Sort by severity then by cluster name
         all.sort((a, b) => {
@@ -345,5 +375,5 @@ export const useEksAlertsData = ({ accountId }: UseEksAlertsDataOptions): UseEks
     total: alerts.length,
   };
 
-  return { alerts, loading, error, counts, refresh };
+  return { alerts, loading, error, counts, refresh, totalClusters, scannedClusters, failedClusters };
 };

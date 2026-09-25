@@ -1,7 +1,7 @@
 /**
  * AlertsTabs Component
  *
- * Tab navigation for switching between CloudGuard, Grafana, and K8s alerts
+ * Tab navigation for switching between CloudGuard and K8s alerts
  */
 
 import React from 'react';
@@ -27,17 +27,6 @@ const AlertsTabs: React.FC<AlertsTabsProps> = ({ activeTab, onTabChange }) => (
         >
           <Icon icon="mdi:shield-check-outline" width={15} />
           CloudGuard Alerts
-        </button>
-        <button
-          onClick={() => onTabChange('grafana')}
-          className={`flex items-center gap-2 py-3.5 px-1 text-[13px] font-medium border-b-2 transition-colors ${
-            activeTab === 'grafana'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.7)]'
-          }`}
-        >
-          <Icon icon="mdi:chart-line" width={15} />
-          Grafana Alerts
         </button>
         <button
           onClick={() => onTabChange('k8s')}

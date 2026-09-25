@@ -7,47 +7,58 @@
 
 export type AlertType = 'QUOTA' | 'ANOMALY' | 'SECURITY';
 
-export interface QuotaAlert {
+/** The backend's normalised severity (AlertDto.getSeverity), the same scale on every alert type. */
+export type AlertSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFORMATIONAL';
+
+interface AlertBase {
   id: string;
   service: string;
-  type: 'QUOTA';
   name: string;
+  description: string;
+  region: string;
+  severity: AlertSeverity;
+}
+
+export interface QuotaAlert extends AlertBase {
+  type: 'QUOTA';
   limit: number;
   usage: number;
-  description: string;
-  region: string;
 }
 
-export interface AnomalyAlert {
-  id: string;
-  service: string;
+export interface AnomalyAlert extends AlertBase {
   type: 'ANOMALY';
-  name: string;
+  /** Spend above what Cost Explorer expected, in `currencySymbol`. */
   usage: number;
-  description: string;
-  region: string;
+  currencySymbol: string;
 }
 
-export type Alert = QuotaAlert | AnomalyAlert;
-
-export interface GrafanaAlert {
-  id: string;
-  name: string;
-  status: 'firing' | 'resolved';
-  description?: string;
-  region?: string;
+export interface SecurityAlert extends AlertBase {
+  type: 'SECURITY';
+  /**
+   * Where the finding came from. Security Hub findings open in the AWS console; live findings
+   * (GuardDuty, Config, CloudTrail-derived) exist only in XamOps, so they open the Security Center.
+   */
+  source: 'SECURITY_HUB' | 'LIVE';
 }
+
+export type Alert = QuotaAlert | AnomalyAlert | SecurityAlert;
 
 export interface AlertCounts {
   total: number;
   critical: number;
+  /** HIGH and MEDIUM together: worth a look, not an emergency. */
   warning: number;
-  healthy: number;
 }
 
-export type AlertTab = 'cloudguard' | 'grafana' | 'k8s';
+export type AlertTab = 'cloudguard' | 'k8s';
 
-export type AlertSeverityClass = 'critical' | 'warning' | 'normal';
+/** Where an alert's action button goes. Internal links stay in the app. */
+export interface AlertLink {
+  href: string;
+  label: string;
+  external: boolean;
+}
+
 
 /**
  * Enhanced Alert Response Types (for error handling)
@@ -57,6 +68,7 @@ export type AlertErrorType =
   | 'TIMEOUT'
   | 'API_ERROR'
   | 'PERMISSION_DENIED'
+  | 'CREDENTIALS_EXPIRED'
   | 'RATE_LIMIT'
   | 'SERVICE_NOT_ENABLED'
   | 'UNKNOWN';

@@ -43,7 +43,15 @@ export interface Blueprint {
   updatedAt?: string;
 }
 
-export type CloudMapMode = 'live' | 'design';
+/**
+ * Which view of the map is showing.
+ *
+ * <p>`connectivity` reads the same live topology as `live` — same request, same nodes and edges
+ * — and only presents it differently: a drill-down through account, VPC and subnet with one
+ * resource's connections in their own column, rather than the whole graph at once. So anything
+ * deciding *what data to load* should treat it as `live`; only rendering should distinguish it.
+ */
+export type CloudMapMode = 'live' | 'design' | 'connectivity';
 
 export interface NodeTypeInfo {
   icon: string;

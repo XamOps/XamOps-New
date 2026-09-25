@@ -1,66 +1,78 @@
 /**
  * AlertsPage Component
  *
- * Main Alerts page with CloudGuard and Grafana alerts
+ * Main AWS Alerts page
  * Converted from: alerts.html
  *
  * Features:
- * - CloudGuard Alerts tab with quota and anomaly alerts
- * - Grafana Alerts tab with external alert monitoring
- * - KPI cards showing alert severity counts
- * - Filter by service functionality
- * - Real-time data fetching with caching
+ * - CloudGuard Alerts tab, one section per kind of alert: service limits (one row per limit, a
+ *   chip per region), security findings, and cost spikes
+ * - K8s Alerts tab aggregating EKS cluster alerts
+ * - KPI cards showing alert severity counts and when the list was built
+ * - Severity filter
  *
  * API Endpoints:
  * - GET /api/xamops/cloudguard/alerts?accountId={accountId}&forceRefresh={boolean}
- * - GET /api/xamops/cloudguard/grafana-alerts
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useAlertsData } from '../hooks/useAlertsData';
 import { Icon } from '@iconify/react';
-import {
-  AlertsKPICards,
-  AlertsFilter,
-  AlertsCloudGuardTable,
-  AlertsGrafanaTable,
-  AlertsEmptyState,
-  AlertsTabs,
-} from '../components/Alerts';
+import { AlertsKPICards, AlertsTabs } from '../components/Alerts';
 import { AlertsErrorBanner } from '../components/Alerts/AlertsErrorBanner';
+import AlertsLimitsSection from '../components/Alerts/AlertsLimitsSection';
+import AlertsSecuritySection from '../components/Alerts/AlertsSecuritySection';
+import AlertsCostSection from '../components/Alerts/AlertsCostSection';
 import EksAlertsTab from '../components/Alerts/EksAlertsTab';
+import {
+  categorise,
+  groupQuotaAlerts,
+  incompleteCategories,
+  type SeverityFilter,
+} from '../components/Alerts/alertGroups';
+
+const SEVERITY_CHIPS: { value: SeverityFilter; label: string }[] = [
+  { value: 'ALL', label: 'All' },
+  { value: 'CRITICAL', label: 'Critical' },
+  { value: 'WARNING', label: 'Warning' },
+];
 
 const AlertsPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
   const {
+    alerts,
     filteredAlerts,
-    grafanaAlerts,
     isLoading,
     isRefreshing,
-    loadingGrafana,
-    selectedService,
+    severityFilter,
     activeTab,
-    services,
     alertCounts,
     errors,
+    metadata,
     hasErrors,
     isPartialSuccess,
     loadAlerts,
     retryFailedServices,
-    setSelectedService,
+    setSeverityFilter,
     setActiveTab,
-    getUsagePercentage,
-    getUsageColor,
-    getUsageBadgeClass,
-    getAlertClass,
-    getServiceIconClass,
-    getAwsConsoleLink,
+    getAlertLink,
+    quotaConsoleLink,
   } = useAlertsData({ selectedAccountId });
+
+  // Totals per section come from the unfiltered list, so a section hidden by the filter can say
+  // so instead of claiming the check found nothing.
+  const all = useMemo(() => categorise(alerts), [alerts]);
+  const shown = useMemo(() => categorise(filteredAlerts), [filteredAlerts]);
+  const quotaGroups = useMemo(() => groupQuotaAlerts(shown.limits), [shown.limits]);
+  const incomplete = useMemo(() => incompleteCategories(errors), [errors]);
+
+  const chipCount = (value: SeverityFilter) =>
+    value === 'ALL' ? alertCounts.total : value === 'CRITICAL' ? alertCounts.critical : alertCounts.warning;
 
   // Topbar Integration
   const { setActions, clearActions } = useTopbar();
@@ -104,7 +116,7 @@ const AlertsPage: React.FC = () => {
         {activeTab === 'cloudguard' && selectedAccountId && (
           <div className="space-y-5">
             {/* KPI Cards */}
-            <AlertsKPICards alertCounts={alertCounts} isLoading={isLoading} />
+            <AlertsKPICards alertCounts={alertCounts} isLoading={isLoading} metadata={metadata} />
 
             {/* Error Banner */}
             {hasErrors && (
@@ -115,51 +127,57 @@ const AlertsPage: React.FC = () => {
               />
             )}
 
-            {/* Main Content Card */}
-            <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center">
-                  <Icon icon="mdi:chart-bar" width={16} className="text-indigo-600" />
-                </div>
-                <div>
-                  <h2 className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Critical Alerts Overview</h2>
-                  <p className="text-[11px] text-[rgba(0,0,0,0.4)]">Monitor service limits and other critical alerts</p>
-                </div>
+            {/* Severity filter */}
+            {!isLoading && alertCounts.total > 0 && (
+              <div className="flex items-center gap-2" role="group" aria-label="Filter by severity">
+                <span className="text-[12px] text-[rgba(0,0,0,0.45)] mr-1">Show</span>
+                {SEVERITY_CHIPS.map((chip) => {
+                  const active = severityFilter === chip.value;
+                  return (
+                    <button
+                      key={chip.value}
+                      type="button"
+                      onClick={() => setSeverityFilter(chip.value)}
+                      aria-pressed={active}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[12px] font-medium transition-colors ${
+                        active
+                          ? 'bg-[rgba(0,0,0,0.88)] border-[rgba(0,0,0,0.88)] text-white'
+                          : 'bg-white border-[rgba(0,0,0,0.15)] text-[rgba(0,0,0,0.7)] hover:border-[rgba(0,0,0,0.35)]'
+                      }`}
+                    >
+                      {chip.label}
+                      <span className={`tabular-nums ${active ? 'text-white/70' : 'text-[rgba(0,0,0,0.4)]'}`}>
+                        {chipCount(chip.value)}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
+            )}
 
-              {/* Filter */}
-              {!isLoading && (
-                <AlertsFilter
-                  selectedService={selectedService}
-                  services={services}
-                  filteredCount={filteredAlerts.length}
-                  onServiceChange={setSelectedService}
-                />
-              )}
+            <AlertsLimitsSection
+              groups={quotaGroups}
+              total={all.limits.length}
+              isLoading={isLoading}
+              incomplete={incomplete.has('LIMITS')}
+              consoleLink={quotaConsoleLink}
+            />
 
-              {/* Alerts Table or Empty State */}
-              {!isLoading && filteredAlerts.length === 0 ? (
-                <AlertsEmptyState onRefresh={() => loadAlerts(true)} />
-              ) : (
-                <AlertsCloudGuardTable
-                  alerts={filteredAlerts}
-                  isLoading={isLoading}
-                  getUsagePercentage={getUsagePercentage}
-                  getUsageColor={getUsageColor}
-                  getUsageBadgeClass={getUsageBadgeClass}
-                  getAlertClass={getAlertClass}
-                  getServiceIconClass={getServiceIconClass}
-                  getAwsConsoleLink={getAwsConsoleLink}
-                />
-              )}
-            </div>
-          </div>
-        )}
+            <AlertsSecuritySection
+              alerts={shown.security}
+              total={all.security.length}
+              isLoading={isLoading}
+              incomplete={incomplete.has('SECURITY')}
+              getAlertLink={getAlertLink}
+            />
 
-        {/* Grafana Tab Content */}
-        {activeTab === 'grafana' && selectedAccountId && (
-          <div>
-            <AlertsGrafanaTable alerts={grafanaAlerts} isLoading={loadingGrafana} />
+            <AlertsCostSection
+              alerts={shown.cost}
+              total={all.cost.length}
+              isLoading={isLoading}
+              incomplete={incomplete.has('COST')}
+              getAlertLink={getAlertLink}
+            />
           </div>
         )}
 

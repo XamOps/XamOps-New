@@ -9,6 +9,28 @@ import React from 'react';
 import { Icon } from '@iconify/react';
 import type { AlertError } from '../../types/alerts';
 
+/**
+ * Errors with the same type and message, listed once with every service that hit them.
+ *
+ * AWS puts a fresh request id in every message, so ids are ignored when comparing; expired
+ * credentials are one problem whatever each call's message says, so they group on type alone.
+ */
+export const groupErrors = (errors: AlertError[]): { error: AlertError; services: string[] }[] => {
+  const groups = new Map<string, { error: AlertError; services: string[] }>();
+  for (const error of errors) {
+    const key = error.errorType === 'CREDENTIALS_EXPIRED'
+      ? error.errorType
+      : `${error.errorType}|${(error.message || '').replace(/Request ID: [^,)\s]+/g, '')}`;
+    const group = groups.get(key);
+    if (group) {
+      if (!group.services.includes(error.service)) group.services.push(error.service);
+    } else {
+      groups.set(key, { error, services: [error.service] });
+    }
+  }
+  return [...groups.values()];
+};
+
 interface AlertsErrorBannerProps {
   errors: AlertError[];
   onRetry: () => void;
@@ -22,10 +44,15 @@ export const AlertsErrorBanner: React.FC<AlertsErrorBannerProps> = ({
 }) => {
   if (errors.length === 0) return null;
 
+  // One entry per distinct problem. When credentials expire every check fails with the same
+  // message, and four copies of it read as four problems.
+  const groups = groupErrors(errors);
+
   const getErrorIcon = (errorType: string): string => {
     switch (errorType) {
       case 'TIMEOUT':           return 'mdi:clock-outline';
       case 'PERMISSION_DENIED': return 'mdi:lock-outline';
+      case 'CREDENTIALS_EXPIRED': return 'mdi:key-alert-outline';
       case 'RATE_LIMIT':        return 'mdi:speedometer';
       case 'SERVICE_NOT_ENABLED': return 'mdi:power';
       default:                  return 'mdi:alert-circle-outline';
@@ -36,6 +63,7 @@ export const AlertsErrorBanner: React.FC<AlertsErrorBannerProps> = ({
     switch (errorType) {
       case 'TIMEOUT':             return 'Timeout';
       case 'PERMISSION_DENIED':   return 'Permission Denied';
+      case 'CREDENTIALS_EXPIRED': return 'Credentials Expired';
       case 'RATE_LIMIT':          return 'Rate Limited';
       case 'SERVICE_NOT_ENABLED': return 'Service Not Enabled';
       case 'API_ERROR':           return 'API Error';
@@ -63,7 +91,7 @@ export const AlertsErrorBanner: React.FC<AlertsErrorBannerProps> = ({
       </div>
 
       <div className="mb-4 space-y-3">
-        {errors.map((error, index) => (
+        {groups.map(({ error, services }, index) => (
           <div
             key={index}
             className="flex items-start gap-3 rounded-lg border border-[rgba(0,0,0,0.08)] bg-white p-4"
@@ -74,8 +102,8 @@ export const AlertsErrorBanner: React.FC<AlertsErrorBannerProps> = ({
               className="mt-1 flex-shrink-0 text-[rgba(0,0,0,0.4)]"
             />
             <div className="flex-1">
-              <div className="mb-1 flex items-center gap-2">
-                <span className="font-semibold text-[rgba(0,0,0,0.88)] text-[13px]">{error.service}</span>
+              <div className="mb-1 flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-[rgba(0,0,0,0.88)] text-[13px]">{services.join(' · ')}</span>
                 <span className="rounded-full bg-[rgba(0,0,0,0.04)] px-2 py-0.5 text-xs font-medium text-[rgba(0,0,0,0.6)]">
                   {getErrorTypeLabel(error.errorType)}
                 </span>
