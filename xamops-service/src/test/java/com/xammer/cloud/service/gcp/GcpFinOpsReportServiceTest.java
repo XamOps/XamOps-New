@@ -89,6 +89,23 @@ class GcpFinOpsReportServiceTest {
         verify(cspBillingIngestionService, never()).ingestForAccountId(anyLong());
     }
 
+    /**
+     * The 500 regression: a project with no DB snapshot yet (e.g. a zero-cost report that
+     * was never persisted) must still refresh cleanly. The guarded delete skips the missing
+     * row instead of letting Spring Data's deleteById throw EmptyResultDataAccessException.
+     */
+    @Test
+    void refresh_missingSnapshot_doesNotDeleteOrThrow() {
+        stubAllSectionsEmpty();
+        when(cloudAccountRepository.findByGcpProjectId(PROJECT)).thenReturn(Optional.of(account(false)));
+        when(cachedDataRepository.existsById(REPORT_DB_KEY)).thenReturn(false);
+
+        service.refreshFinOpsReport(PROJECT).join();
+
+        verify(redisCacheService).evict(REPORT_CACHE_KEY);
+        verify(cachedDataRepository, never()).deleteById(REPORT_DB_KEY);
+    }
+
     @Test
     void refresh_unknownProject_treatedAsNormal() {
         stubAllSectionsEmpty();
@@ -131,6 +148,9 @@ class GcpFinOpsReportServiceTest {
     private void stubAllSectionsEmpty() {
         when(redisCacheService.get(eq(REPORT_CACHE_KEY), eq(GcpFinOpsReportDto.class))).thenReturn(Optional.empty());
         when(cachedDataRepository.findById(anyString())).thenReturn(Optional.empty());
+        // Invalidation now guards deleteById behind existsById (see deleteDbSnapshotIfPresent),
+        // so the snapshot must report as present for the delete to run.
+        when(cachedDataRepository.existsById(anyString())).thenReturn(true);
 
         when(gcpCostService.getBillingSummary(PROJECT))
                 .thenReturn(java.util.concurrent.CompletableFuture.completedFuture(java.util.List.of()));

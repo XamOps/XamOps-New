@@ -139,6 +139,28 @@ public class GcpFinOpsReportService {
     }
 
     /**
+     * Delete a DB snapshot row only when it exists.
+     * <p>
+     * Spring Data's {@code deleteById} runs a {@code findById} first and throws
+     * {@code EmptyResultDataAccessException} ("No class ... entity with id ... exists!")
+     * when the row is absent. A project whose report was never snapshotted (e.g. a
+     * zero-cost report that {@link #cacheReport} deliberately skips persisting) has no
+     * row, so an unguarded delete on the refresh/clear path surfaces as a 500. Guarding
+     * with {@code existsById} makes a missing row a harmless no-op — mirroring how the
+     * Redis {@code evict} tolerates a missing key — and the try/catch keeps any other
+     * failure from turning invalidation into an error, matching {@link #saveToDb}.
+     */
+    private void deleteDbSnapshotIfPresent(String dbKey) {
+        try {
+            if (cachedDataRepository.existsById(dbKey)) {
+                cachedDataRepository.deleteById(dbKey);
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to delete GCP FinOps DB snapshot for key {}: {}", dbKey, e.getMessage());
+        }
+    }
+
+    /**
      * ✅ Async wrapper for FinOps report generation
      */
     public CompletableFuture<GcpFinOpsReportDto> generateFinOpsReport(String gcpProjectId) {
@@ -506,7 +528,7 @@ public class GcpFinOpsReportService {
         String cacheKey = FINOPS_REPORT_CACHE_PREFIX + gcpProjectId;
         String dbKey    = DB_CACHE_KEY_PREFIX + gcpProjectId;
         redisCacheService.evict(cacheKey);
-        cachedDataRepository.deleteById(dbKey);
+        deleteDbSnapshotIfPresent(dbKey);
         logger.info("🗑️ Cleared FinOps report cache (Redis + DB) for project {}", gcpProjectId);
     }
 
