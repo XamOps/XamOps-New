@@ -210,6 +210,19 @@ public class SecurityFindingProjectionService {
      */
     @Transactional(readOnly = true)
     public List<AlertDto> asAlerts(Long cloudAccountId) {
+        return asAlerts(cloudAccountId, java.util.Set.of());
+    }
+
+    /**
+     * As {@link #asAlerts(Long)}, leaving out findings from the given sources.
+     *
+     * <p>For a caller that has just read one of those sources directly. The AWS Alerts page reads
+     * Security Hub itself; the same findings also arrive here through EventBridge, so without
+     * this each Security Hub finding was listed twice.
+     *
+     * @param excludedSources {@link CloudSecurityFinding} {@code SOURCE_*} values
+     */
+    public List<AlertDto> asAlerts(Long cloudAccountId, java.util.Set<String> excludedSources) {
         if (!canServe(cloudAccountId)) {
             return List.of();
         }
@@ -218,6 +231,9 @@ public class SecurityFindingProjectionService {
 
         List<AlertDto> alerts = new ArrayList<>(findings.size());
         for (CloudSecurityFinding f : findings) {
+            if (f.getSource() != null && excludedSources.contains(f.getSource())) {
+                continue;
+            }
             AlertDto alert = new AlertDto();
             alert.setId("finding-" + f.getId());
             alert.setService(sourceLabel(f));

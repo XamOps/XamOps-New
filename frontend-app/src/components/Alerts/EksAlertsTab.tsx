@@ -86,7 +86,8 @@ const EksAlertsTab: React.FC = () => {
   const accountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
   const navigate = useNavigate();
 
-  const { alerts, loading, error, counts, refresh } = useEksAlertsData({ accountId });
+  const { alerts, loading, error, counts, refresh, totalClusters, scannedClusters, failedClusters } =
+    useEksAlertsData({ accountId });
 
   const [severityFilter, setSeverityFilter] = useState<EksAlertSeverity | 'all'>('all');
   const [sourceFilter, setSourceFilter] = useState<EksAlertSource | 'all'>('all');
@@ -206,6 +207,27 @@ const EksAlertsTab: React.FC = () => {
         </div>
       )}
 
+      {/* Coverage: clusters whose alerts are unknown, stated rather than shown as healthy */}
+      {!loading && failedClusters.length > 0 && (
+        <div className="bg-amber-50 border border-amber-100 rounded-lg p-4 flex items-start gap-3">
+          <Icon icon="mdi:alert-outline" width={16} className="text-amber-600 shrink-0 mt-0.5" />
+          <p className="text-sm text-amber-800">
+            Could not load {failedClusters.length === 1 ? 'cluster' : 'clusters'}{' '}
+            <span className="font-semibold">{failedClusters.join(', ')}</span>, so {failedClusters.length === 1 ? 'its' : 'their'} alerts
+            are not shown. Use Refresh to try again.
+          </p>
+        </div>
+      )}
+      {!loading && totalClusters > scannedClusters && (
+        <div className="bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-lg p-4 flex items-start gap-3">
+          <Icon icon="mdi:information-outline" width={16} className="text-[rgba(0,0,0,0.5)] shrink-0 mt-0.5" />
+          <p className="text-sm text-[rgba(0,0,0,0.6)]">
+            Showing alerts from the first {scannedClusters} of {totalClusters} clusters. Open a cluster from
+            CloudK8s to see the rest.
+          </p>
+        </div>
+      )}
+
       {/* Table */}
       <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden">
 
@@ -226,7 +248,11 @@ const EksAlertsTab: React.FC = () => {
             </div>
             <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">No alerts found</p>
             <p className="text-[13px] text-[rgba(0,0,0,0.5)] mt-1">
-              {alerts.length > 0 ? 'Try clearing the filters.' : 'All EKS clusters look healthy, or no clusters have been synced yet.'}
+              {alerts.length > 0
+                ? 'Try clearing the filters.'
+                : failedClusters.length > 0
+                  ? 'No alerts from the clusters that loaded — see the note above about the ones that did not.'
+                  : 'All EKS clusters look healthy, or no clusters have been synced yet.'}
             </p>
           </div>
         )}

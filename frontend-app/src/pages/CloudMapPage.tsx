@@ -36,6 +36,7 @@ import Tooltip from '../components/CloudMap/Tooltip';
 import ResizeHandles from '../components/CloudMap/ResizeHandles';
 import ConnectionArrows from '../components/CloudMap/ConnectionArrows';
 import ResourceInspector from '../components/CloudMap/ResourceInspector';
+import ResourceConnectivityFlow from '../components/CloudMap/Connectivity/ResourceConnectivityFlow';
 import TerraformPanel from '../components/CloudMap/TerraformPanel';
 import { useTerraformPreview } from '../hooks/useTerraformPreview';
 import ResourcePropertiesForm from '../components/CloudMap/ResourcePropertiesForm';
@@ -326,7 +327,7 @@ const segmentIntersect = (
 // ─── Component ──────────────────────────────────────────────────────────────
 
 const CloudMapPage: React.FC = () => {
-  const { selectedAccountIds } = useAccounts();
+  const { selectedAccountIds, accounts } = useAccounts();
   const { awsVpcs, awsVpcsLoading, fetchAwsVpcs } = useVPC();
   const { setActions } = useTopbarActions();
   const { theme } = useTheme();
@@ -340,8 +341,26 @@ const CloudMapPage: React.FC = () => {
 
   const accountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
+  /** Display name for the account, for the connectivity view's root node. Falls back to the id. */
+  const selectedAccountName = useMemo(
+    () => accounts.find((a) => a.id === accountId)?.name ?? accountId ?? '',
+    [accounts, accountId],
+  );
+
   // Mode
   const [mode, setMode] = useState<CloudMapMode>('live');
+
+  /**
+   * Which of the two *data* modes the current view behaves as.
+   *
+   * <p>Resource connectivity reads the same live topology as live view — the same request, the
+   * same nodes and edges — and only draws it differently. So everything concerned with loading,
+   * styling or the design palette treats it as `live`; only the render branch distinguishes it.
+   * This also keeps the narrow `'live' | 'design'` signatures on buildCytoscapeStyle,
+   * useCloudMap and EnhancedDesignPalette honest instead of widening them to a third case they
+   * have no behaviour for.
+   */
+  const dataMode: 'live' | 'design' = mode === 'design' ? 'design' : 'live';
 
   // Cytoscape refs
   const cyRef = useRef<any>(null);
@@ -532,10 +551,11 @@ const CloudMapPage: React.FC = () => {
   const [showMinimap, setShowMinimap] = useState(false);
   const [minimapDataUrl, setMinimapDataUrl] = useState('');
   const showMinimapRef = useRef(false);
-  const modeRef = useRef(mode);
+  /** Holds the data mode, since its only consumer is the Cytoscape stylesheet. */
+  const modeRef = useRef(dataMode);
   const minimapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => { showMinimapRef.current = showMinimap; }, [showMinimap]);
-  useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => { modeRef.current = dataMode; }, [dataMode]);
   // Auto-show minimap in live mode, hide when switching to design
   useEffect(() => { setShowMinimap(mode === 'live'); }, [mode]);
   // Refresh minimap when toggled on
@@ -687,7 +707,7 @@ const CloudMapPage: React.FC = () => {
     loadBlueprint,
     clearBlueprint,
     exportToPng,
-  } = useCloudMap({ accountId, mode });
+  } = useCloudMap({ accountId, mode: dataMode });
 
   // ── Snapshot / Undo / Redo ────────────────────────────────────────────────
 
@@ -744,7 +764,8 @@ const CloudMapPage: React.FC = () => {
   // ── Load VPCs ─────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (mode === 'live' && accountId) {
+    // dataMode, not mode: resource connectivity needs the same topology loaded.
+    if (dataMode === 'live' && accountId) {
       fetchAwsVpcs(accountId).then(vpcsData => {
         if (vpcsData.length > 0) {
           setSelectedVpcValue(ALL_VPCS_VALUE);
@@ -753,7 +774,7 @@ const CloudMapPage: React.FC = () => {
         console.error('Error loading VPCs:', err);
       });
     }
-  }, [accountId, mode, fetchAwsVpcs]);
+  }, [accountId, dataMode, fetchAwsVpcs]);
 
   // ── Cytoscape style ───────────────────────────────────────────────────────
 
@@ -765,7 +786,7 @@ const CloudMapPage: React.FC = () => {
    * name, type caption, status dot); design mode keeps native Cytoscape labels
    * so inline editing still works. Both follow the app's ThemeContext.
    */
-  const getCytoscapeStyle = (): any[] => buildCytoscapeStyle(canvasThemeName, mode);
+  const getCytoscapeStyle = (): any[] => buildCytoscapeStyle(canvasThemeName, dataMode);
 
   /**
    * Follow the console theme unless the user picked a canvas colour themselves.
@@ -1341,6 +1362,11 @@ const CloudMapPage: React.FC = () => {
   // ── Graph effect ──────────────────────────────────────────────────────────
 
   useEffect(() => {
+    // Connectivity renders its own canvas and unmounts the Cytoscape container entirely, so
+    // there is nothing to draw into. Without this guard renderGraph still ran on every
+    // topology change while that view was open — laying out hundreds of nodes nobody sees.
+    if (mode === 'connectivity') return;
+
     if (graphElements.length > 0) {
       setShowEmptyState(false);
       renderGraph(graphElements, mode === 'design');
@@ -3353,11 +3379,27 @@ ${xmlEdges}
      * app ever adds the `dark` class to <html>, so those variants never match.
      */
     <div className={`cm-root cm-theme-${canvasThemeName} flex flex-col h-full max-h-full relative overflow-hidden`}>
+      {/* ── Resource connectivity ──
+          A separate branch rather than another set of `mode === ...` guards threaded through
+          the design toolbar, the overlays and the properties panels below. None of that
+          machinery applies to this view, and the Cytoscape container it would otherwise share
+          must not mount: two canvases competing for the same graph is how the live view's fit
+          and zoom get fought over. */}
+      {mode === 'connectivity' ? (
+        <ResourceConnectivityFlow
+          accountId={accountId}
+          accountName={selectedAccountName}
+          elements={graphElements}
+          loading={loadingGraph}
+          error={graphError}
+          onRefresh={() => { void loadAllGraphs(undefined, true); }}
+        />
+      ) : (
       <div className="flex flex-1 min-h-0 relative overflow-hidden">
 
         {/* ── Left Palette (design mode) ── */}
         <EnhancedDesignPalette
-          mode={mode}
+          mode={dataMode}
           onDragStart={handlePaletteDragStart}
           onShapeDragStart={handleShapeDragStart}
           onIconSelect={handleIconSelect}
@@ -4723,6 +4765,7 @@ ${xmlEdges}
           />
         )}
       </div>
+      )}
 
       {/* Context Menu */}
       {contextMenu && (

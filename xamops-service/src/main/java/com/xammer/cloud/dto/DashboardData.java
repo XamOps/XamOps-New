@@ -573,6 +573,10 @@ public class DashboardData {
      * judge it against. A reader cannot tell whether that is a catastrophe or a rounding error
      * without knowing the baseline it deviated from.
      *
+     * <p>Always measured over the same window as {@link #unexpectedSpend}, so the ratio compares
+     * like with like: one day for the daily detectors, the whole anomaly window for AWS Cost
+     * Explorer, which reports expected spend and impact as totals over the anomaly.
+     *
      * <p>Zero when the detector did not supply one, which reads as "unknown" — see
      * {@link #getChangeRatio()}.
      */

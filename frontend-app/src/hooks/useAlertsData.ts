@@ -6,11 +6,20 @@
  *
  * API Endpoints:
  * - GET /api/xamops/cloudguard/alerts?accountId={accountId}&forceRefresh={boolean}
- * - GET /api/xamops/cloudguard/grafana-alerts
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import type { Alert, GrafanaAlert, AlertCounts, AlertTab, AlertSeverityClass, AlertError, AlertsMetadata, AlertsResponse } from '../types/alerts';
+import type {
+  Alert,
+  AlertCounts,
+  AlertLink,
+  AlertSeverity,
+  AlertTab,
+  AlertError,
+  AlertsMetadata,
+  AlertsResponse,
+} from '../types/alerts';
+import { matchesSeverity, type SeverityFilter } from '../components/Alerts/alertGroups';
 
 interface UseAlertsDataOptions {
   selectedAccountId: string | null;
@@ -19,14 +28,12 @@ interface UseAlertsDataOptions {
 interface UseAlertsDataReturn {
   // State
   alerts: Alert[];
-  grafanaAlerts: GrafanaAlert[];
+  /** `alerts` narrowed to the severity filter. */
   filteredAlerts: Alert[];
   isLoading: boolean;
   isRefreshing: boolean;
-  loadingGrafana: boolean;
-  selectedService: string;
+  severityFilter: SeverityFilter;
   activeTab: AlertTab;
-  services: string[];
   alertCounts: AlertCounts;
 
   // Enhanced error handling
@@ -37,85 +44,96 @@ interface UseAlertsDataReturn {
 
   // Actions
   loadAlerts: (forceRefresh?: boolean) => Promise<void>;
-  fetchGrafanaAlerts: () => Promise<void>;
   retryFailedServices: () => Promise<void>;
-  setSelectedService: (service: string) => void;
+  setSeverityFilter: (filter: SeverityFilter) => void;
   setActiveTab: (tab: AlertTab) => void;
 
   // Utility functions
-  getUsagePercentage: (alert: Alert) => number;
-  getUsageColor: (alert: Alert) => string;
-  getUsageBadgeClass: (alert: Alert) => string;
-  getAlertClass: (alert: Alert) => AlertSeverityClass;
-  getServiceIconClass: (serviceName: string) => string;
-  getAwsConsoleLink: (alert: Alert) => string;
+  getAlertLink: (alert: Alert) => AlertLink;
+  quotaConsoleLink: (region: string) => string;
 }
+
+const SEVERITIES: AlertSeverity[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFORMATIONAL'];
+
+const SEVERITY_RANK: Record<AlertSeverity, number> = {
+  CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFORMATIONAL: 4,
+};
+
+/**
+ * The alert's severity, preferring the backend's normalised value.
+ *
+ * Responses cached before `severity` was serialised, and the demo data, do not carry it, so it is
+ * derived the way the backend derives it: quota by utilisation, anything else from `status`.
+ */
+const severityOf = (raw: any): AlertSeverity => {
+  const explicit = String(raw.severity || '').toUpperCase();
+  if ((SEVERITIES as string[]).includes(explicit)) return explicit as AlertSeverity;
+
+  if (raw.type === 'QUOTA') {
+    const pct = raw.limit > 0 ? (raw.usage / raw.limit) * 100 : 0;
+    if (pct >= 90) return 'CRITICAL';
+    if (pct >= 75) return 'MEDIUM';
+    return 'INFORMATIONAL';
+  }
+  const status = String(raw.status || '').toUpperCase();
+  if (status === 'CRITICAL') return 'CRITICAL';
+  if (status === 'HIGH') return 'HIGH';
+  if (status === 'LOW') return 'LOW';
+  return 'MEDIUM';
+};
+
+/**
+ * Normalise the backend's rows and sort them: most severe first, then fullest quota.
+ *
+ * Live security findings arrive typed SECURITY_FINDING. They used to be dropped here because
+ * only QUOTA, ANOMALY and SECURITY were recognised, so the backend counted and emailed findings
+ * the page never showed.
+ */
+export const normaliseAlerts = (data: any[]): Alert[] => {
+  const processed = data
+    .map((alert: any): Alert | null => {
+      const base = {
+        id: alert.id,
+        service: alert.service || 'Unknown',
+        name: alert.name,
+        description: alert.description || '',
+        region: alert.region || '',
+        severity: severityOf(alert),
+      };
+      if (alert.type === 'QUOTA') {
+        return { ...base, type: 'QUOTA', limit: alert.limit || 0, usage: alert.usage || 0 };
+      }
+      if (alert.type === 'ANOMALY') {
+        return { ...base, type: 'ANOMALY', usage: alert.usage || 0, currencySymbol: alert.currencySymbol || '$' };
+      }
+      if (alert.type === 'SECURITY' || alert.type === 'SECURITY_FINDING') {
+        return { ...base, type: 'SECURITY', source: alert.type === 'SECURITY_FINDING' ? 'LIVE' : 'SECURITY_HUB' };
+      }
+      return null;
+    })
+    .filter((a): a is Alert => a !== null);
+
+  const quotaFill = (a: Alert) => (a.type === 'QUOTA' && a.limit > 0 ? a.usage / a.limit : 0);
+  return processed.sort((a, b) => {
+    const bySeverity = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
+    if (bySeverity !== 0) return bySeverity;
+    return quotaFill(b) - quotaFill(a);
+  });
+};
 
 export const useAlertsData = ({
   selectedAccountId,
 }: UseAlertsDataOptions): UseAlertsDataReturn => {
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [grafanaAlerts, setGrafanaAlerts] = useState<GrafanaAlert[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
-  const [loadingGrafana, setLoadingGrafana] = useState<boolean>(false);
-  const [selectedService, setSelectedService] = useState<string>('All');
+  const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('ALL');
   const [activeTab, setActiveTab] = useState<AlertTab>('cloudguard');
 
   // Enhanced error handling state
   const [errors, setErrors] = useState<AlertError[]>([]);
   const [metadata, setMetadata] = useState<AlertsMetadata | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-
-  /**
-   * Process and sort alerts by usage percentage
-   */
-  const processAlerts = useCallback((data: any[]): Alert[] => {
-    const processed = data
-      .map((alert: any) => {
-        if (alert.type === 'QUOTA') {
-          return {
-            id: alert.id,
-            service: alert.service,
-            type: 'QUOTA' as const,
-            name: alert.name,
-            limit: alert.limit,
-            usage: alert.usage,
-            description: alert.description,
-            region: alert.region,
-          };
-        } else if (alert.type === 'ANOMALY') {
-          return {
-            id: alert.id,
-            service: alert.service,
-            type: 'ANOMALY' as const,
-            name: alert.name,
-            usage: alert.usage,
-            description: alert.description,
-            region: alert.region,
-          };
-        } else if (alert.type === 'SECURITY') {
-          return {
-            id: alert.id,
-            service: alert.service,
-            type: 'SECURITY' as const,
-            name: alert.name,
-            usage: alert.usage,
-            description: alert.description,
-            region: alert.region,
-          };
-        }
-        return null;
-      })
-      .filter(Boolean) as Alert[];
-
-    // Sort by usage percentage (highest first)
-    return processed.sort((a, b) => {
-      const percentageA = a.type === 'QUOTA' ? (a.usage / a.limit) || 0 : 1;
-      const percentageB = b.type === 'QUOTA' ? (b.usage / b.limit) || 0 : 1;
-      return percentageB - percentageA;
-    });
-  }, []);
 
   /**
    * Load CloudGuard alerts with enhanced error handling
@@ -161,10 +179,20 @@ export const useAlertsData = ({
           }
         );
 
-        // Handle service unavailable (all services failed)
+        // Service unavailable: the scan failed or timed out. The body names why.
         if (response.status === 503) {
           const data: AlertsResponse = await response.json();
-          setErrors(data.errors || []);
+          setErrors(
+            data.errors && data.errors.length > 0
+              ? data.errors
+              : [{
+                  service: 'Alerts scan',
+                  errorType: 'UNKNOWN',
+                  message: 'The alerts could not be loaded. Please retry in a few moments.',
+                  partial: false,
+                  timestamp: new Date().toISOString(),
+                }]
+          );
           setAlerts([]);
           setMetadata(data.metadata || null);
           console.error('[Alerts] All alert services are currently unavailable');
@@ -176,7 +204,7 @@ export const useAlertsData = ({
         }
 
         const data: AlertsResponse = await response.json();
-        const processedAlerts = processAlerts(data.alerts || []);
+        const processedAlerts = normaliseAlerts(data.alerts || []);
 
         setAlerts(processedAlerts);
         setErrors(data.errors || []);
@@ -205,150 +233,78 @@ export const useAlertsData = ({
         setAlerts([]);
         setMetadata(null);
       } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
+        if (!signal.aborted) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     },
-    [selectedAccountId, processAlerts]
+    [selectedAccountId]
   );
 
   /**
-   * Retry failed services by forcing a refresh
+   * Retry after a failure.
+   *
+   * After a timeout the scan is still running on the server and saves its result when it
+   * finishes, so the retry is a normal load: it picks up that result, or joins the scan if it is
+   * still going. A forced refresh would start the whole scan over and likely time out again.
+   * Any other failure forces a fresh scan.
    */
   const retryFailedServices = useCallback(async () => {
-    console.log('[Alerts] Retrying failed services...');
-    await loadAlerts(true);
-  }, [loadAlerts]);
+    const onlyTimedOut = errors.length > 0 && errors.every((e) => e.errorType === 'TIMEOUT');
+    console.log(`[Alerts] Retrying (${onlyTimedOut ? 'collecting the running scan' : 'fresh scan'})...`);
+    await loadAlerts(!onlyTimedOut);
+  }, [loadAlerts, errors]);
 
   /**
-   * Fetch Grafana alerts
+   * Filter alerts by severity
    */
-  const fetchGrafanaAlerts = useCallback(async () => {
-    setLoadingGrafana(true);
-    try {
-      const res = await fetch('/api/xamops/cloudguard/grafana-alerts', {
-        credentials: 'include',
-      });
-      if (!res.ok) throw new Error('Failed to fetch Grafana alerts');
-      const data = await res.json();
-      setGrafanaAlerts(data);
-      console.log(`[Alerts] Loaded ${data.length} Grafana alerts`);
-    } catch (e) {
-      console.error('[Alerts] Error fetching Grafana alerts:', e);
-      setGrafanaAlerts([]);
-    } finally {
-      setLoadingGrafana(false);
+  const filteredAlerts = useMemo(
+    () => alerts.filter((a) => matchesSeverity(a.severity, severityFilter)),
+    [alerts, severityFilter]
+  );
+
+  /** The Service Quotas console for a region, where a limit increase is requested. */
+  const quotaConsoleLink = useCallback(
+    (region: string): string =>
+      `https://console.aws.amazon.com/servicequotas/home?region=${region}#/service-quotas/dashboard`,
+    []
+  );
+
+  /**
+   * Where the alert's action button goes. Security alerts used to fall through to the Service
+   * Quotas console, which has nothing to do with them.
+   */
+  const getAlertLink = useCallback((alert: Alert): AlertLink => {
+    switch (alert.type) {
+      case 'QUOTA':
+        return { href: quotaConsoleLink(alert.region), label: 'Request increase', external: true };
+      case 'ANOMALY':
+        return {
+          href: 'https://console.aws.amazon.com/cost-management/home#/cost-anomalies',
+          label: 'View in Cost Explorer',
+          external: true,
+        };
+      case 'SECURITY':
+        return alert.source === 'LIVE'
+          ? { href: '/security', label: 'Open Security Center', external: false }
+          : {
+              href: `https://console.aws.amazon.com/securityhub/home?region=${alert.region}#/findings`,
+              label: 'View in Security Hub',
+              external: true,
+            };
     }
-  }, []);
+  }, [quotaConsoleLink]);
 
   /**
-   * Get unique services from alerts
+   * Calculate alert counts from severity, so security findings and cost spikes count too — they
+   * used to be left out of every card except the total.
    */
-  const services = useMemo(() => {
-    const serviceNames = alerts.map((q) => q.service);
-    return [...new Set(serviceNames)].sort();
-  }, [alerts]);
-
-  /**
-   * Filter alerts by selected service
-   */
-  const filteredAlerts = useMemo(() => {
-    if (selectedService === 'All') {
-      return alerts;
-    }
-    return alerts.filter((q) => q.service === selectedService);
-  }, [alerts, selectedService]);
-
-  /**
-   * Get usage percentage for an alert
-   */
-  const getUsagePercentage = useCallback((alert: Alert): number => {
-    if (alert.type !== 'QUOTA' || alert.limit === 0) return 0;
-    return (alert.usage / alert.limit) * 100;
-  }, []);
-
-  /**
-   * Get usage color class based on percentage
-   */
-  const getUsageColor = useCallback((alert: Alert): string => {
-    const percentage = getUsagePercentage(alert);
-    if (percentage > 90) return 'bg-gradient-to-r from-red-500 to-red-600';
-    if (percentage > 75) return 'bg-gradient-to-r from-yellow-500 to-yellow-600';
-    return 'bg-gradient-to-r from-green-500 to-green-600';
-  }, [getUsagePercentage]);
-
-  /**
-   * Get usage badge class based on percentage
-   */
-  const getUsageBadgeClass = useCallback((alert: Alert): string => {
-    const percentage = getUsagePercentage(alert);
-    if (percentage > 90) return 'alerts-badge-critical';
-    if (percentage > 75) return 'alerts-badge-warning';
-    return 'alerts-badge-healthy';
-  }, [getUsagePercentage]);
-
-  /**
-   * Get alert class based on type and percentage
-   */
-  const getAlertClass = useCallback((alert: Alert): AlertSeverityClass => {
-    if (alert.type === 'ANOMALY') return 'critical';
-    const percentage = getUsagePercentage(alert);
-    if (percentage > 90) return 'critical';
-    if (percentage > 75) return 'warning';
-    return 'normal';
-  }, [getUsagePercentage]);
-
-  /**
-   * Get service icon class
-   */
-  const getServiceIconClass = useCallback((serviceName: string): string => {
-    const serviceColors: Record<string, string> = {
-      EC2: 'alerts-service-ec2',
-      S3: 'alerts-service-s3',
-      RDS: 'alerts-service-rds',
-      Lambda: 'alerts-service-lambda',
-      VPC: 'alerts-service-vpc',
-      IAM: 'alerts-service-iam',
-      CloudFormation: 'alerts-service-cloudformation',
-      Route53: 'alerts-service-route53',
-    };
-    return serviceColors[serviceName] || 'alerts-service-default';
-  }, []);
-
-  /**
-   * Get AWS console link for an alert
-   */
-  const getAwsConsoleLink = useCallback((alert: Alert): string => {
-    if (alert.type === 'ANOMALY') {
-      return 'https://console.aws.amazon.com/cost-management/home#/cost-anomalies';
-    }
-    return `https://console.aws.amazon.com/servicequotas/home?region=${alert.region}#/service-quotas/dashboard`;
-  }, []);
-
-  /**
-   * Calculate alert counts
-   */
-  const alertCounts = useMemo((): AlertCounts => {
-    const critical = alerts.filter(
-      (q) => q.type === 'ANOMALY' || getUsagePercentage(q) > 90
-    ).length;
-
-    const warning = alerts.filter((q) => {
-      const p = getUsagePercentage(q);
-      return q.type === 'QUOTA' && p > 75 && p <= 90;
-    }).length;
-
-    const healthy = alerts.filter(
-      (q) => q.type === 'QUOTA' && getUsagePercentage(q) <= 75
-    ).length;
-
-    return {
-      total: alerts.length,
-      critical,
-      warning,
-      healthy,
-    };
-  }, [alerts, getUsagePercentage]);
+  const alertCounts = useMemo((): AlertCounts => ({
+    total: alerts.length,
+    critical: alerts.filter((a) => a.severity === 'CRITICAL').length,
+    warning: alerts.filter((a) => a.severity === 'HIGH' || a.severity === 'MEDIUM').length,
+  }), [alerts]);
 
   /**
    * Computed properties for error handling
@@ -356,59 +312,35 @@ export const useAlertsData = ({
   const hasErrors = useMemo(() => errors.length > 0, [errors]);
   const isPartialSuccess = useMemo(() => hasErrors && alerts.length > 0, [hasErrors, alerts.length]);
 
-  // Initialize data on mount and handle account changes
+  // Load on mount and whenever the selected account changes. Switching accounts used to force a
+  // full re-scan of every region through an 'account-changed' listener as well; the normal load
+  // is enough, and serves the server's cache when it is still fresh.
   useEffect(() => {
     if (selectedAccountId) {
+      setSeverityFilter('ALL');
       loadAlerts(false);
-      fetchGrafanaAlerts();
     }
-
-    // Listen for account-changed events
-    const handleAccountChanged = () => {
-      console.log('[Alerts] Account changed event detected');
-      loadAlerts(true);
-    };
-
-    const handleMultiAccountChanged = () => {
-      console.log('[Alerts] Multi-account selection changed');
-      loadAlerts(true);
-    };
-
-    window.addEventListener('account-changed', handleAccountChanged);
-    window.addEventListener('multi-account-selection-changed', handleMultiAccountChanged);
-
-    return () => {
-      window.removeEventListener('account-changed', handleAccountChanged);
-      window.removeEventListener('multi-account-selection-changed', handleMultiAccountChanged);
-    };
+    return () => abortControllerRef.current?.abort();
   }, [selectedAccountId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     alerts,
-    grafanaAlerts,
     filteredAlerts,
     isLoading,
     isRefreshing,
-    loadingGrafana,
-    selectedService,
+    severityFilter,
     activeTab,
-    services,
     alertCounts,
     errors,
     metadata,
     hasErrors,
     isPartialSuccess,
     loadAlerts,
-    fetchGrafanaAlerts,
     retryFailedServices,
-    setSelectedService,
+    setSeverityFilter,
     setActiveTab,
-    getUsagePercentage,
-    getUsageColor,
-    getUsageBadgeClass,
-    getAlertClass,
-    getServiceIconClass,
-    getAwsConsoleLink,
+    getAlertLink,
+    quotaConsoleLink,
   };
 };
 

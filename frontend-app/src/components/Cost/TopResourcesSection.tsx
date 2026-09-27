@@ -32,6 +32,15 @@ import Pagination from '../FinOps/Pagination';
 interface TopResourcesSectionProps {
   /** Single AWS account with a report, or null to render nothing. */
   accountId: string | null;
+  /**
+   * Replaces this section's own `h3`.
+   *
+   * <p>Used to hoist the sub-tab control into the card header, so switching between this and
+   * the invoice breakdown happens where the title is rather than in a strip above the card.
+   * The control's active label reads as the heading, which is why this substitutes for the
+   * title rather than sitting beside it.
+   */
+  heading?: React.ReactNode;
 }
 
 /** The last 12 months, newest first. Matches the other CUR sections. */
@@ -129,7 +138,7 @@ const arnTail = (id: string): string => {
 const labelFor = (r: ResourceCost): { text: string; isTag: boolean } =>
   r.name ? { text: r.name, isTag: true } : { text: arnTail(r.resourceId), isTag: false };
 
-const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) => {
+const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId, heading }) => {
   const months = useMemo(monthOptions, []);
   const [period, setPeriod] = useState(months[0].value);
   const [service, setService] = useState('all');
@@ -279,17 +288,68 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId }) 
   const isFiltered = service !== 'all' || region !== 'all' || search.trim() !== '';
   const filteredTotal = filtered.reduce((sum, r) => sum + r.cost, 0);
 
-  // No report for this account — the section does not belong on the page at all.
-  if (!accountId || (!loading && result === null)) return null;
+  // Nothing to scope a report to. Whether this account *has* a readable one is decided by
+  // CostDetailTabs, which hides the whole card — including the sub-tab control that lives in
+  // the heading below. This panel must not hide itself: doing so would delete that control and
+  // strand the reader on a blank card with no way back to the invoice breakdown.
+  if (!accountId) return null;
 
   const selectedLabel = months.find((m) => m.value === period)?.label ?? '';
+
+  /*
+   * The report did not answer for this month.
+   *
+   * Stated rather than hidden, for the reason above. It is a real case even on an account with
+   * a working report: a CUR only covers months from its creation onward, so picking an earlier
+   * one legitimately has nothing behind it.
+   */
+  if (!loading && result === null) {
+    return (
+      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+          {heading ?? <h3 className="text-[15px] font-bold text-black">Top resources</h3>}
+          <select
+            value={period}
+            onChange={(e) => {
+              setPeriod(e.target.value);
+              resetPaging();
+              setAccountPage(1);
+            }}
+            aria-label="Billing month"
+            className="text-[12px] border border-[rgba(0,0,0,0.15)] rounded-lg px-2.5 py-1.5 bg-white text-black focus:outline-none focus:ring-1 focus:ring-[#4285F4]"
+          >
+            {months.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="text-center py-10 rounded-xl border border-dashed border-[rgba(0,0,0,0.1)] bg-[rgba(0,0,0,0.015)]">
+          <Icon
+            icon="mdi:file-remove-outline"
+            width={26}
+            className="text-[rgba(0,0,0,0.2)] mx-auto mb-2"
+          />
+          <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.6)]">
+            No Cost and Usage Report to read for {selectedLabel}
+          </p>
+          <p className="text-[11.5px] text-[rgba(0,0,0,0.4)] mt-1 max-w-[460px] mx-auto leading-relaxed">
+            Per-resource cost comes from the report itself — Cost Explorer stops at the service.
+            Either no report covers this month, or the one connected has not been delivered
+            recently enough to trust.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
       <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
         <div>
-          <h3 className="text-[15px] font-bold text-black">Top resources</h3>
-          <p className="text-[12px] text-[rgba(0,0,0,0.45)] mt-0.5">
+          {heading ?? <h3 className="text-[15px] font-bold text-black">Top resources</h3>}
+          <p className="text-[12px] text-[rgba(0,0,0,0.45)] mt-1">
             What each individual resource cost — not just which service it belongs to.
             Click a service to see its resources.
           </p>

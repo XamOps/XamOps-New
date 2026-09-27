@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import { Cell, PieChart, Pie, ResponsiveContainer } from 'recharts';
 import { fmtMoneyShort } from '../../utils/currency';
+import { normaliseAlerts } from '../../hooks/useAlertsData';
 
 interface SummaryCardsSectionProps {
   accountId: string | null;
@@ -173,10 +174,12 @@ interface RawAlert { type: 'QUOTA' | 'ANOMALY' | string; service?: string; usage
 interface AlertSummary { total: number; critical: number; warning: number; healthy: number; anomalies: { label: string; v: number }[] }
 
 const computeAlertSummary = (raw: RawAlert[]): AlertSummary => {
-  const getPct = (a: RawAlert) => a.type === 'QUOTA' && a.limit ? ((a.usage || 0) / a.limit) * 100 : 100;
-  const critical  = raw.filter(a => a.type === 'ANOMALY' || getPct(a) > 90).length;
-  const warning   = raw.filter(a => a.type === 'QUOTA' && getPct(a) > 75 && getPct(a) <= 90).length;
-  const healthy   = raw.filter(a => a.type === 'QUOTA' && getPct(a) <= 75).length;
+  // Counted the way the Alerts page counts them, by severity, so the two never disagree. This
+  // used to call every cost spike and every security finding critical.
+  const rows = normaliseAlerts(raw);
+  const critical  = rows.filter(a => a.severity === 'CRITICAL').length;
+  const warning   = rows.filter(a => a.severity === 'HIGH' || a.severity === 'MEDIUM').length;
+  const healthy   = rows.filter(a => a.type === 'QUOTA' && a.limit > 0 && (a.usage / a.limit) * 100 <= 75).length;
   const anomalies = raw
     .filter(a => a.type === 'ANOMALY' && (a.usage || 0) > 0)
     .map(a => ({ label: a.service || 'Unknown', v: a.usage || 0 }))

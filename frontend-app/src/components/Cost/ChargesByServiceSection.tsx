@@ -27,6 +27,16 @@ import { awsRegionName } from '../../utils/awsRegionNames';
 interface ChargesByServiceSectionProps {
   /** Single AWS account with a report, or null to render nothing. */
   accountId: string | null;
+  /**
+   * Replaces this section's own `h3`.
+   *
+   * <p>Used to hoist the sub-tab control into the card header, so switching between this and
+   * the resource tree happens where the title is rather than in a strip above the card. The
+   * control's own active label reads as the heading, which is why this substitutes for the
+   * title rather than sitting beside it — two things both saying "Charges by service" is one
+   * too many.
+   */
+  heading?: React.ReactNode;
 }
 
 /** The last 12 months, newest first. */
@@ -109,7 +119,10 @@ interface ServiceNode {
   regions: RegionNode[];
 }
 
-const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({ accountId }) => {
+const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
+  accountId,
+  heading,
+}) => {
   const [open, setOpen] = useState<Set<string>>(new Set());
 
   const months = useMemo(monthOptions, []);
@@ -215,8 +228,8 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({ accou
     >
       <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
         <div>
-          <h3 className="text-[15px] font-bold text-black">Charges by service</h3>
-          <p className="text-[12px] text-[rgba(0,0,0,0.45)] mt-0.5">
+          {heading ?? <h3 className="text-[15px] font-bold text-black">Charges by service</h3>}
+          <p className="text-[12px] text-[rgba(0,0,0,0.45)] mt-1">
             {monthLabel}
             {isCurrentMonth ? ' so far' : ''}, in the same breakdown as your AWS bill.
             {!isEmpty && ' Click to expand.'}

@@ -2,12 +2,12 @@
  * useNotifications Hook
  *
  * Custom hook to fetch and manage notification data for the topbar bell icon
- * Aggregates CloudGuard alerts, Grafana alerts, and budget alerts from the last 7 days
+ * Aggregates CloudGuard alerts and budget alerts from the last 7 days
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { NotificationItem, NotificationCounts } from '../types/notifications';
-import type { Alert, GrafanaAlert } from '../types/alerts';
+import type { Alert } from '../types/alerts';
 import type { Budget } from '../types/finops';
 import apiClient from '../utils/apiClient';
 
@@ -61,21 +61,6 @@ export const useNotifications = ({
             title: `${alert.service}: ${alert.name}`,
             description: alert.description,
             timestamp: new Date(), // CloudGuard alerts don't have timestamp, use current time
-            link: '/alerts',
-        };
-    }, []);
-
-    /**
-     * Convert Grafana alert to NotificationItem
-     */
-    const convertGrafanaAlert = useCallback((alert: GrafanaAlert): NotificationItem => {
-        return {
-            id: `grafana-${alert.id}`,
-            type: 'grafana',
-            severity: alert.status === 'firing' ? 'critical' : 'info',
-            title: alert.name,
-            description: alert.description || 'Grafana alert triggered',
-            timestamp: new Date(), // Grafana alerts don't have timestamp in current schema
             link: '/alerts',
         };
     }, []);
@@ -149,7 +134,7 @@ export const useNotifications = ({
     }, [getLastChatOpenTime]);
 
     /**
-     * Fetch all notifications — cloudguard/alerts, grafana-alerts, budgets in parallel.
+     * Fetch all notifications — cloudguard/alerts and budgets in parallel.
      */
     const fetchNotifications = useCallback(async () => {
         if (!selectedAccountId) {
@@ -169,16 +154,15 @@ export const useNotifications = ({
         const isAwsAccount = !provider || provider === 'AWS';
 
         try {
-            // Fire all three network requests in parallel — previously sequential,
-            // which meant a slow cloudguard/alerts (55s timeout) blocked grafana + budgets.
-            const [cloudGuardResult, grafanaResult, budgetsResult] = await Promise.allSettled([
+            // Fire both network requests in parallel — previously sequential,
+            // which meant a slow cloudguard/alerts (55s timeout) blocked budgets.
+            const [cloudGuardResult, budgetsResult] = await Promise.allSettled([
                 isAwsAccount
                     ? fetch(
                         `/api/xamops/cloudguard/alerts?accountId=${selectedAccountId}&forceRefresh=false`,
                         { credentials: 'include', signal }
                     )
                     : Promise.resolve(new Response('[]', { status: 200 })),
-                fetch('/api/xamops/cloudguard/grafana-alerts', { credentials: 'include', signal }),
                 fetch(
                     `/api/xamops/finops/budgets?accountId=${selectedAccountId}`,
                     { credentials: 'include', signal }
@@ -190,15 +174,6 @@ export const useNotifications = ({
                 if (Array.isArray(cloudGuardData)) {
                     allNotifications.push(...cloudGuardData.map(convertCloudGuardAlert));
                 }
-            }
-
-            if (grafanaResult.status === 'fulfilled' && grafanaResult.value.ok) {
-                const grafanaData: GrafanaAlert[] = await grafanaResult.value.json();
-                allNotifications.push(
-                    ...grafanaData
-                        .filter(alert => alert.status === 'firing')
-                        .map(convertGrafanaAlert)
-                );
             }
 
             if (budgetsResult.status === 'fulfilled' && budgetsResult.value.ok) {
@@ -242,7 +217,7 @@ export const useNotifications = ({
         } finally {
             setIsLoading(false);
         }
-    }, [selectedAccountId, provider, convertCloudGuardAlert, convertGrafanaAlert, convertBudgetAlert, convertChatMessage]);
+    }, [selectedAccountId, provider, convertCloudGuardAlert, convertBudgetAlert, convertChatMessage]);
 
     /**
      * Calculate notification counts

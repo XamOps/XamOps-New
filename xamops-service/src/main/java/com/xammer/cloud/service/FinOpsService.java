@@ -33,6 +33,7 @@ import software.amazon.awssdk.services.costexplorer.model.Dimension;
 import software.amazon.awssdk.services.costexplorer.model.DimensionValues;
 import software.amazon.awssdk.services.costexplorer.model.Expression;
 import software.amazon.awssdk.services.costexplorer.model.GetAnomaliesRequest;
+import software.amazon.awssdk.services.costexplorer.model.GetAnomaliesResponse;
 import software.amazon.awssdk.services.costexplorer.model.GetCostAndUsageRequest;
 import software.amazon.awssdk.services.costexplorer.model.Granularity;
 import software.amazon.awssdk.services.costexplorer.model.GroupDefinition;
@@ -1393,25 +1394,73 @@ public class FinOpsService {
         return CompletableFuture.completedFuture(result);
     }
 
+    /**
+     * How old a saved anomaly list the Alerts page will accept. The FinOps page keeps accepting
+     * any age; an alert about spend has to be about recent spend.
+     */
+    private static final int ALERTS_ANOMALY_SNAPSHOT_MAX_AGE_HOURS = 24;
+
+    /** GetAnomalies pages at 100 by default; this bounds a pathological account. */
+    private static final int ANOMALY_MAX_PAGES = 10;
+
     @Async("awsTaskExecutor")
     public CompletableFuture<List<DashboardData.CostAnomaly>> getCostAnomalies(CloudAccount account,
             boolean forceRefresh) {
+        try {
+            return CompletableFuture.completedFuture(loadCostAnomalies(account, forceRefresh, 0));
+        } catch (Exception e) {
+            logger.error(
+                    "Could not fetch Cost Anomalies for account {}. This might be a permissions issue or the service is not enabled.",
+                    account.getAwsAccountId(), e);
+            return CompletableFuture.completedFuture(Collections.emptyList());
+        }
+    }
+
+    /**
+     * Cost anomalies for the Alerts page.
+     *
+     * <p>Differs from {@link #getCostAnomalies} in the two ways an alert needs. A failure completes
+     * the future exceptionally rather than as an empty list, because the Alerts page cannot tell
+     * an empty list from a failed fetch and rendered the latter as "All Clear!". And a saved copy
+     * is only reused while it is under a day old; the FinOps page accepts any age, which let a
+     * page load serve anomalies from whenever someone last force-refreshed FinOps.
+     */
+    @Async("awsTaskExecutor")
+    public CompletableFuture<List<DashboardData.CostAnomaly>> getCostAnomaliesForAlerts(CloudAccount account,
+            boolean forceRefresh) {
+        try {
+            return CompletableFuture.completedFuture(
+                    loadCostAnomalies(account, forceRefresh, ALERTS_ANOMALY_SNAPSHOT_MAX_AGE_HOURS));
+        } catch (Exception e) {
+            logger.warn("Could not fetch Cost Anomalies for account {}: {}", account.getAwsAccountId(),
+                    e.getMessage());
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+
+    /**
+     * Redis, then the DB snapshot, then Cost Explorer. Throws when Cost Explorer does.
+     *
+     * @param snapshotMaxAgeHours 0 to accept a DB snapshot of any age
+     */
+    private List<DashboardData.CostAnomaly> loadCostAnomalies(CloudAccount account, boolean forceRefresh,
+            int snapshotMaxAgeHours) {
         String cacheKey = "costAnomalies-" + account.getAwsAccountId();
         String dbKey = "FINOPS_ANOMALIES::" + account.getAwsAccountId();
         if (!forceRefresh) {
             Optional<List<DashboardData.CostAnomaly>> cachedData = redisCache.get(cacheKey, new TypeReference<>() {
             });
             if (cachedData.isPresent()) {
-                return CompletableFuture.completedFuture(cachedData.get());
+                return cachedData.get();
             }
             try {
                 Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
-                if (dbCached.isPresent()) {
+                if (dbCached.isPresent() && isYoungEnough(dbCached.get(), snapshotMaxAgeHours)) {
                     List<DashboardData.CostAnomaly> dbData = objectMapper.readValue(dbCached.get().getJsonData(), new TypeReference<>() {});
                     if (dbData != null) {
                         redisCache.put(cacheKey, dbData, 60 * 24);
                         logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
-                        return CompletableFuture.completedFuture(dbData);
+                        return dbData;
                     }
                 }
             } catch (Exception dbEx) {
@@ -1423,41 +1472,59 @@ public class FinOpsService {
         if (useMockData) {
             List<DashboardData.CostAnomaly> mockResult = costMockService.getMockCostAnomalies(account);
             redisCache.put(cacheKey, mockResult, 60 * 24);
-            return CompletableFuture.completedFuture(mockResult);
+            return mockResult;
         }
 
         CostExplorerClient ce = awsClientProvider.getCostExplorerClient(account);
         logger.info("Fetching cost anomalies for account {}...", account.getAwsAccountId());
+        AnomalyDateInterval dateInterval = AnomalyDateInterval.builder()
+                .startDate(LocalDate.now().minusDays(60).toString())
+                .endDate(LocalDate.now().minusDays(1).toString()).build();
+
+        // Followed to the end: a single call returned only the first page, so on an account with
+        // many anomalies the newest ones could be the ones left off.
+        List<Anomaly> anomalies = new ArrayList<>();
+        String pageToken = null;
+        int pages = 0;
+        do {
+            GetAnomaliesResponse page = ce.getAnomalies(GetAnomaliesRequest.builder()
+                    .dateInterval(dateInterval)
+                    .nextPageToken(pageToken)
+                    .build());
+            anomalies.addAll(page.anomalies());
+            pageToken = page.nextPageToken();
+            pages++;
+        } while (pageToken != null && !pageToken.isBlank() && pages < ANOMALY_MAX_PAGES);
+
+        List<DashboardData.CostAnomaly> result = anomalies.stream()
+                .map(a -> new DashboardData.CostAnomaly(
+                        a.anomalyId(), getServiceNameFromAnomaly(a), a.impact().totalImpact(),
+                        LocalDate.parse(a.anomalyStartDate().substring(0, 10)),
+                        a.anomalyEndDate() != null ? LocalDate.parse(a.anomalyEndDate().substring(0, 10))
+                                : LocalDate.now(),
+                        // Expected spend over the same window as totalImpact, so the change
+                        // ratio compares like with like. Null (not reported) reads as unknown.
+                        a.impact().totalExpectedSpend() != null ? a.impact().totalExpectedSpend() : 0.0))
+                .collect(Collectors.toList());
+        redisCache.put(cacheKey, result, 60 * 24);
         try {
-            AnomalyDateInterval dateInterval = AnomalyDateInterval.builder()
-                    .startDate(LocalDate.now().minusDays(60).toString())
-                    .endDate(LocalDate.now().minusDays(1).toString()).build();
-            GetAnomaliesRequest request = GetAnomaliesRequest.builder().dateInterval(dateInterval).build();
-            List<Anomaly> anomalies = ce.getAnomalies(request).anomalies();
-            List<DashboardData.CostAnomaly> result = anomalies.stream()
-                    .map(a -> new DashboardData.CostAnomaly(
-                            a.anomalyId(), getServiceNameFromAnomaly(a), a.impact().totalImpact(),
-                            LocalDate.parse(a.anomalyStartDate().substring(0, 10)),
-                            a.anomalyEndDate() != null ? LocalDate.parse(a.anomalyEndDate().substring(0, 10))
-                                    : LocalDate.now()))
-                    .collect(Collectors.toList());
-            redisCache.put(cacheKey, result, 60 * 24);
-            try {
-                CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
-                snapshot.setCacheKey(dbKey);
-                snapshot.setJsonData(objectMapper.writeValueAsString(result));
-                snapshot.setLastUpdated(java.time.LocalDateTime.now());
-                cachedDataRepository.save(snapshot);
-            } catch (Exception dbEx) {
-                logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
-            }
-            return CompletableFuture.completedFuture(result);
-        } catch (Exception e) {
-            logger.error(
-                    "Could not fetch Cost Anomalies for account {}. This might be a permissions issue or the service is not enabled.",
-                    account.getAwsAccountId(), e);
-            return CompletableFuture.completedFuture(Collections.emptyList());
+            CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
+            snapshot.setCacheKey(dbKey);
+            snapshot.setJsonData(objectMapper.writeValueAsString(result));
+            snapshot.setLastUpdated(java.time.LocalDateTime.now());
+            cachedDataRepository.save(snapshot);
+        } catch (Exception dbEx) {
+            logger.warn("Failed to save DB snapshot {}: {}", dbKey, dbEx.getMessage());
         }
+        return result;
+    }
+
+    private static boolean isYoungEnough(CachedData row, int maxAgeHours) {
+        if (maxAgeHours <= 0) {
+            return true;
+        }
+        java.time.LocalDateTime stamped = row.getLastUpdated();
+        return stamped != null && stamped.isAfter(java.time.LocalDateTime.now().minusHours(maxAgeHours));
     }
 
     private String getServiceNameFromAnomaly(Anomaly anomaly) {

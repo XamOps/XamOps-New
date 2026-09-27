@@ -459,8 +459,33 @@ public class DashboardDataService {
     }
 
     public Object getAlertsSnapshot(String key, TypeReference<?> typeRef) {
+        return getAlertsSnapshot(key, typeRef, 0);
+    }
+
+    /**
+     * An alerts snapshot, provided it is younger than {@code maxAgeMinutes}.
+     *
+     * <p>
+     * The AWS Alerts page read this row with no age check, and the job that rewrites it ran twice
+     * a week — so opening the page could show quota and cost alerts four days old, with nothing on
+     * screen to say so. Returning null past the cutoff lets the caller rebuild live instead, the
+     * same rule the GCP alerts snapshot already follows.
+     *
+     * @param maxAgeMinutes 0 or less to accept any age, for callers that want the snapshot of
+     *     record rather than a current one
+     */
+    public Object getAlertsSnapshot(String key, TypeReference<?> typeRef, int maxAgeMinutes) {
         Optional<CachedData> cached = cachedDataRepository.findById(key);
         if (cached.isPresent()) {
+            if (maxAgeMinutes > 0) {
+                LocalDateTime stamped = cached.get().getLastUpdated();
+                // Unstamped means unknown age, which on an alerts page has to count as too old.
+                if (stamped == null || stamped.isBefore(LocalDateTime.now().minusMinutes(maxAgeMinutes))) {
+                    logger.info("Alerts snapshot {} is older than {} min — ignoring it so the caller rebuilds live",
+                            key, maxAgeMinutes);
+                    return null;
+                }
+            }
             try {
                 return objectMapper.readValue(cached.get().getJsonData(), typeRef);
             } catch (JsonProcessingException e) {

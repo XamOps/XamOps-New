@@ -229,8 +229,11 @@ public class ProactiveCacheRefreshService {
                     try { reservationService.getReservationPageData(accountId, false).join(); }
                     catch (Exception e) { logger.debug("[Seed] Reservations skipped for {}: {}", accountId, e.getMessage()); }
 
-                    try { cloudGuardService.getAlerts(accountId, false).join(); }
-                    catch (Exception e) { logger.debug("[Seed] Alerts skipped for {}: {}", accountId, e.getMessage()); }
+                    // Alerts are deliberately not seeded. Their snapshot is only served while under
+                    // an hour old, so after a deploy nearly every one is past the limit and seeding
+                    // would mean a live multi-region scan per account at startup — the load this
+                    // method exists to avoid. The Alerts endpoint reads the snapshot itself when
+                    // it is fresh, so a seed has nothing to add.
 
                     try { optimizationService.getAllOptimizationRecommendations(accountId, false).join(); }
                     catch (Exception e) { logger.debug("[Seed] Optimization skipped for {}: {}", accountId, e.getMessage()); }
@@ -954,9 +957,13 @@ public class ProactiveCacheRefreshService {
     }
 
     // ===================================================================================
-    // 3:20 AM -> Alerts (Quota & Cost Anomalies)
+    // 3:20 AM -> AWS Alerts (Quota & Cost Anomalies) + Notification (Daily — every night)
+    //
+    // Ran Wednesday and Sunday only, while GCP and Azure ran nightly. Since this job is also the
+    // only thing that sends the AWS alert digest, a quota crossing its limit on a Monday was not
+    // emailed until Wednesday.
     // ===================================================================================
-    @Scheduled(cron = "0 20 3 * * WED,SUN")
+    @Scheduled(cron = "0 20 3 * * *")
     public void refreshAlerts() {
         logger.info("--- [3:20 AM] Starting Alerts Refresh ---");
         List<String> tenants = fetchActiveTenants();
@@ -970,8 +977,10 @@ public class ProactiveCacheRefreshService {
 
                 int count = 0;
                 for (CloudAccount account : getAllAccounts()) {
-                    String accountId = getAccountId(account);
-                    if (accountId == null)
+                    // AWS only. GCP and Azure have their own jobs below; passing a GCP project id
+                    // here only produced an empty "alerts-<projectId>" snapshot nobody reads.
+                    String accountId = account.getAwsAccountId();
+                    if (accountId == null || accountId.isBlank())
                         continue;
 
                     try {

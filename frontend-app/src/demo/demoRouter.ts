@@ -323,9 +323,7 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   if (url.includes('/api/xamops/performance'))
     return makeResponse(xamops.demoPerformanceInsights);
 
-  // Alerts / cloudguard — grafana-alerts before cloudguard/alerts (substring match order)
-  if (url.includes('/api/xamops/cloudguard/grafana-alerts'))
-    return makeResponse([]);
+  // Alerts / cloudguard
   if (url.includes('/api/xamops/cloudguard/alerts') || url.includes('/api/xamops/alerts'))
     return makeResponse(xamops.demoAlertsData);
 

@@ -42,8 +42,14 @@ interface AriaTabGroupProps {
    * `neutral` is the black/greyscale house style used by pages whose colour budget is
    * already committed to meaning (WAR spends red/amber/emerald on security status), so
    * an indigo accent there would read as a sixth status rather than as navigation.
+   *
+   * `segmented` is a compact greyscale switch sized to sit *in place of* a section
+   * heading rather than above it, for two views of the same data inside one card. Its
+   * labels carry title weight, because when it replaces the `h3` they are the title.
    */
-  variant?: 'underline' | 'pill' | 'neutral';
+  variant?: 'underline' | 'pill' | 'neutral' | 'segmented';
+  /** Labels the tablist for assistive tech. Defaults to "Page sections". */
+  label?: string;
 }
 
 export function AriaTabGroup({
@@ -52,6 +58,7 @@ export function AriaTabGroup({
   onSelectionChange,
   className = '',
   variant = 'underline',
+  label = 'Page sections',
 }: AriaTabGroupProps) {
   return (
     <Tabs
@@ -59,13 +66,16 @@ export function AriaTabGroup({
       onSelectionChange={(key) => onSelectionChange(String(key))}
     >
       <TabList
-        aria-label="Page sections"
+        aria-label={label}
         className={
           variant === 'pill'
             ? `flex gap-1 p-1 bg-slate-100 rounded-xl ${className}`
-            : variant === 'neutral'
-              ? `flex gap-1 border-b border-[#e5e7eb] overflow-x-auto ${className}`
-              : `flex gap-1 border-b border-gray-200 ${className}`
+            : variant === 'segmented'
+              ? `inline-flex items-center gap-0.5 p-[3px] bg-[rgba(0,0,0,0.045)]`
+                + ` border border-[rgba(0,0,0,0.07)] rounded-[10px] ${className}`
+              : variant === 'neutral'
+                ? `flex gap-1 border-b border-[#e5e7eb] overflow-x-auto ${className}`
+                : `flex gap-1 border-b border-gray-200 ${className}`
         }
       >
         {tabs.map((tab) => (
@@ -81,6 +91,16 @@ export function AriaTabGroup({
                       ? 'bg-white text-indigo-700 shadow-sm'
                       : 'text-slate-500 hover:text-slate-700',
                     isFocusVisible ? 'ring-2 ring-indigo-500 ring-offset-1' : '',
+                    tab.disabled ? 'opacity-40 cursor-not-allowed' : '',
+                  ].join(' ')
+              : variant === 'segmented'
+                ? [
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-[7px]',
+                    'text-[13px] font-bold whitespace-nowrap transition-all outline-none cursor-pointer',
+                    isSelected
+                      ? 'bg-white text-black shadow-[0_1px_2px_rgba(0,0,0,0.08)]'
+                      : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.8)]',
+                    isFocusVisible ? 'ring-2 ring-[#4285F4] ring-offset-1' : '',
                     tab.disabled ? 'opacity-40 cursor-not-allowed' : '',
                   ].join(' ')
               : variant === 'neutral'
