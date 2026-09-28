@@ -26,7 +26,9 @@ describe('XamSecure tab catalog', () => {
   it('keeps hidden routes valid, since they are still deep-link reachable', () => {
     const hidden = XAMSECURE_TABS.filter((t) => t.sidebar === false).map((t) => t.id);
     // Workflows and Onboarding map to Upwind's Settings area, not its security nav.
-    expect(hidden).toEqual(['workflows', 'onboarding']);
+    // dspm-status is the DSPM connection state: only interesting when something is wrong, and the
+    // Cloud Data tab links to it in that case, so it stays out of the nav in the healthy path.
+    expect(hidden).toEqual(['workflows', 'onboarding', 'dspm-status']);
     for (const id of hidden) {
       expect(VALID_XAMSECURE_TABS.has(id)).toBe(true);
       expect(XAMSECURE_SIDEBAR_TABS.some((t) => t.id === id)).toBe(false);
