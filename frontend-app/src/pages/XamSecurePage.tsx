@@ -6,12 +6,13 @@ import { useXamSecureData } from '../hooks/useXamSecureData';
 import StoryDrawer from '../components/XamSecure/StoryDrawer';
 import type { ThreatStoryDetail } from '../types/xamsecure';
 import {
-  XAMSECURE_TABS, VALID_XAMSECURE_TABS, firstTabForGroups, groupForTab,
+  XAMSECURE_TABS, VALID_XAMSECURE_TABS, firstTabForGroups, groupForTab, tabDef,
   type XamSecureGroup, type XamSecureTab,
 } from '../constants/xamsecureTabs';
 import { useDspmStatus } from '../hooks/useDspmData';
 import DspmCloudTab from '../components/Dspm/DspmCloudTab';
 import DspmStatusTab from '../components/Dspm/DspmStatusTab';
+import ComingSoonTab from '../components/XamSecure/ComingSoonTab';
 import {
   XamSecureHeader, IssuesTab, AttackSurfaceTab, OverviewTab, ThreatsSection, VulnerabilitiesTab,
   ConfigurationsTab, InventoryTab, ApiSecurityTab, ComponentsTab, CodeTab, WorkflowsTab, OnboardingTab,
@@ -64,6 +65,16 @@ const XamSecurePage: React.FC = () => {
   const activeGroup = groupForTab(activeTab) ?? 'CNAPP';
   const isDspmTab = activeGroup === 'DSPM';
 
+  /**
+   * Definition of the tab on screen, for the coming-soon placeholder.
+   *
+   * An unbuilt tab short-circuits every other state below — including the account-picker prompt and the
+   * DSPM connection states. Asking someone to select an account, or telling them their workspace is being
+   * provisioned, is misleading for a view that would show nothing either way.
+   */
+  const activeDef = tabDef(activeTab);
+  const isComingSoonTab = Boolean(activeDef?.comingSoon);
+
   // Held here so paging these server-filtered tables preserves the active severity filter.
   const [postureSeverity, setPostureSeverity] = useState('');
   const [cveSeverity, setCveSeverity] = useState('');
@@ -109,6 +120,19 @@ const XamSecurePage: React.FC = () => {
   // a dead end: AccountContext only auto-selects when at least one account exists
   // (`filtered.length > 0`), so a client with zero accounts would otherwise sit on a prompt
   // asking them to use an empty sidebar.
+  // Checked before every other state. A tab that is not built yet has nothing to say about accounts,
+  // entitlements or connections, so none of the prompts below apply to it.
+  if (isComingSoonTab && activeDef) {
+    return (
+      <main className="flex-1 flex flex-col min-h-screen bg-white">
+        <XamSecureHeader isLoading={false} onRefresh={refresh} />
+        <div className="p-6">
+          <ComingSoonTab title={activeDef.label} blurb={activeDef.comingSoonBlurb} />
+        </div>
+      </main>
+    );
+  }
+
   // Scoped to CNAPP. DSPM assets carry a Matters integration id rather than a cloud account number, so
   // there is nothing for the picker to filter on — and applying this guard to them would leave a
   // DSPM-only customer with no cloud accounts staring at "Add a cloud account" forever, for a product

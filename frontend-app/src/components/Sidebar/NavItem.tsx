@@ -13,6 +13,15 @@ interface NavItemProps {
   onClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void;
   /** Optional hover tooltip describing what the destination contains. */
   tooltip?: string;
+  /**
+   * Small pill after the label, e.g. "Soon" or "Beta".
+   *
+   * Mirrors the prop {@link NavSection} already accepts — the top-level Observability, SRE and MediaOps
+   * groups carry these, but until now a sub-item could not, so a half-built child had to be either
+   * hidden outright or shown as if it were finished. Styled identically so a badged section and a badged
+   * sub-item read as the same kind of statement.
+   */
+  badge?: string;
 }
 
 const NavItem: React.FC<NavItemProps> = ({
@@ -22,6 +31,7 @@ const NavItem: React.FC<NavItemProps> = ({
   isActive = false,
   onClick,
   tooltip,
+  badge,
 }) => {
   const { theme } = useTheme();
   const isReactRoute = !href.includes('.html');
@@ -50,6 +60,16 @@ const NavItem: React.FC<NavItemProps> = ({
       <span className="text-[13px] tracking-[-0.01em] truncate whitespace-nowrap overflow-hidden">
         {label}
       </span>
+      {badge && (
+        <span className={clsx(
+          'ml-auto flex-shrink-0 text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full',
+          theme === 'dark'
+            ? 'bg-[rgba(255,255,255,0.1)] text-[rgba(255,255,255,0.4)]'
+            : 'bg-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.35)]'
+        )}>
+          {badge}
+        </span>
+      )}
     </>
   );
 

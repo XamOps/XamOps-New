@@ -453,6 +453,10 @@ const Sidebar: React.FC = () => {
                               href={`/xamsecure/${s.id}`}
                               icon={s.icon}
                               label={s.label}
+                              // Announced but unbuilt tabs are listed with a pill rather than hidden, so
+                              // a customer can tell "on the way" from "not a feature".
+                              badge={s.comingSoon ? 'Soon' : undefined}
+                              tooltip={s.comingSoon ? `${s.label} — coming soon` : undefined}
                               isActive={location.pathname === `/xamsecure/${s.id}`}
                             />
                           ))}

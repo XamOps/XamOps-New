@@ -31,7 +31,7 @@ export type XamSecureTab =
   | 'issues' | 'overview' | 'attack-surface' | 'threats' | 'vulnerabilities' | 'posture'
   | 'inventory' | 'api-security' | 'identities' | 'components' | 'code' | 'threat-policies'
   | 'workflows' | 'compliance' | 'onboarding'
-  | 'dspm-cloud' | 'dspm-status';
+  | 'dspm-cloud' | 'dspm-saas' | 'dspm-endpoint' | 'dspm-status';
 
 export interface XamSecureTabDef {
   id: XamSecureTab;
@@ -42,6 +42,23 @@ export interface XamSecureTabDef {
   group: XamSecureGroup;
   /** Defaults to true. False keeps the route valid while hiding it from the nav. */
   sidebar?: boolean;
+  /**
+   * Marks a tab as announced but not yet built.
+   *
+   * The nav shows it with a "Soon" pill and the page renders a placeholder instead of the real content.
+   * Chosen over simply omitting the tab because a roadmapped capability and a capability that does not
+   * exist look identical when both are absent — a customer cannot tell that SaaS coverage is coming, and
+   * asks for it as if it were missing.
+   *
+   * The placeholder must never imply data. It says what the tab will do and that it is not live yet; it
+   * does not render empty tables or zeroed counters, which would read as "we looked and found nothing".
+   */
+  comingSoon?: boolean;
+  /**
+   * One sentence shown on the placeholder, describing what the tab will cover.
+   * Only meaningful alongside {@link comingSoon}.
+   */
+  comingSoonBlurb?: string;
 }
 
 export const XAMSECURE_TABS: XamSecureTabDef[] = [
@@ -68,17 +85,47 @@ export const XAMSECURE_TABS: XamSecureTabDef[] = [
   { id: 'onboarding', label: 'Onboarding', icon: 'fas fa-plug-circle-plus', group: 'CNAPP', sidebar: false },
 
   // ── DSPM (Matters.ai) ──
-  // One tab in phase 1, mirroring the vendor's own Cloud screen: cloud datastores plus self-hosted
-  // ones, which Matters lists together (its Cloud view totals 68 where the API's `cloud` category
-  // counts 67 — the extra row is a self-hosted Postgres).
-  //
-  // SaaS and Endpoint are deliberately absent. Those two categories belong with seat and device
-  // management, and are planned for Licenses & Tools rather than here.
+  // Cloud mirrors the vendor's own Cloud screen: cloud datastores plus self-hosted ones, which Matters
+  // lists together (its Cloud view totals 68 where the API's `cloud` category counts 67 — the extra row
+  // is a self-hosted Postgres).
   { id: 'dspm-cloud', label: 'Cloud Data', icon: 'fas fa-database', group: 'DSPM' },
+  // SaaS and Endpoint are real categories in the same API and are genuinely on the way, so they are
+  // announced rather than hidden. Both are marked coming-soon instead of being wired up now because
+  // their data belongs with seat and device management, and where they finally live is still open.
+  {
+    id: 'dspm-saas', label: 'SaaS Data', icon: 'fas fa-cloud', group: 'DSPM',
+    comingSoon: true,
+    comingSoonBlurb: 'Sensitive data discovered across SaaS accounts — Google Workspace, Microsoft 365, '
+      + 'GitLab, Jira and Confluence — with per-account record counts and risk.',
+  },
+  {
+    id: 'dspm-endpoint', label: 'Endpoint Data', icon: 'fas fa-laptop', group: 'DSPM',
+    comingSoon: true,
+    comingSoonBlurb: 'Sensitive data found on managed endpoints, with device inventory, agent health '
+      + 'and per-device findings.',
+  },
   // Connection state. Reachable but not in the nav: it is only interesting when something is wrong,
   // and the Cloud tab links to it in that case.
   { id: 'dspm-status', label: 'Connection', icon: 'fas fa-circle-nodes', group: 'DSPM', sidebar: false },
 ];
+
+/**
+ * Tab definition for an id, or undefined for an unknown one.
+ *
+ * Accepts null as well as undefined so it composes with {@link firstTabForGroups}, which returns null
+ * when a client has no groups — otherwise every call site would have to coalesce first.
+ */
+export const tabDef = (tab: string | null | undefined): XamSecureTabDef | undefined =>
+  XAMSECURE_TABS.find((t) => t.id === tab);
+
+/**
+ * Whether a tab is announced but not yet built.
+ *
+ * Read by the page to decide between real content and a placeholder, and by the landing-tab helper so a
+ * client is never dropped onto an unbuilt tab as their first impression.
+ */
+export const isComingSoon = (tab: string | null | undefined): boolean =>
+  Boolean(tabDef(tab)?.comingSoon);
 
 /** Nav entries, in declared order. */
 export const XAMSECURE_SIDEBAR_TABS = XAMSECURE_TABS.filter((t) => t.sidebar !== false);
@@ -99,7 +146,7 @@ export const sidebarTabsForGroup = (group: XamSecureGroup): XamSecureTabDef[] =>
   XAMSECURE_SIDEBAR_TABS.filter((t) => t.group === group);
 
 /** The group a tab id belongs to, or null for an unknown id. */
-export const groupForTab = (tab: string | undefined): XamSecureGroup | null =>
+export const groupForTab = (tab: string | null | undefined): XamSecureGroup | null =>
   XAMSECURE_TABS.find((t) => t.id === tab)?.group ?? null;
 
 /**
@@ -115,7 +162,9 @@ export const groupForTab = (tab: string | undefined): XamSecureGroup | null =>
 export const firstTabForGroups = (groups: XamSecureGroup[]): XamSecureTab | null => {
   for (const group of XAMSECURE_GROUP_ORDER) {
     if (!groups.includes(group)) continue;
-    const first = sidebarTabsForGroup(group)[0];
+    // Skips coming-soon tabs. Landing a customer on a placeholder as the first thing they see would be
+    // a poor introduction to a product they are paying for, even though the tab is legitimately listed.
+    const first = sidebarTabsForGroup(group).find((t) => !t.comingSoon);
     if (first) return first.id;
   }
   return null;
