@@ -490,7 +490,7 @@ public class GcpFinOpsReportService {
 
         // Always safe: drop the assembled report so it gets rebuilt from its sections.
         redisCacheService.evict(cacheKey);
-        cachedDataRepository.deleteById(dbKey);
+        deleteDbSnapshotIfPresent(dbKey);
 
         Optional<CloudAccount> cspAccount = findCspManagedAccount(gcpProjectId);
         if (cspAccount.isPresent()) {
