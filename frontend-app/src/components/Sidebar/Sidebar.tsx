@@ -131,9 +131,15 @@ const Sidebar: React.FC = () => {
   const xamSecureGroups = useMemo<XamSecureGroup[]>(() => {
     const groups: XamSecureGroup[] = [];
     if (isXamTabAllowed('secops-xamsecure')) groups.push('CNAPP');
-    if (dspmEnabled && isXamTabAllowed('secops-xamsecure-dspm')) groups.push('DSPM');
+    // Visible on the tab key alone, NOT on the entitlement.
+    //
+    // Gating the nav on the entitlement made the Request access screen unreachable: a customer who has
+    // not bought DSPM could never see a DSPM entry, so they could never ask for it — which defeats the
+    // point of building that screen. The group is shown with a "Locked" pill instead, and the tab lands
+    // on the upsell. Withholding it entirely is still one flag away via the per-user tab key.
+    if (isXamTabAllowed('secops-xamsecure-dspm')) groups.push('DSPM');
     return groups;
-  }, [isXamTabAllowed, dspmEnabled]);
+  }, [isXamTabAllowed]);
 
   /**
    * Where the parent XamSecure link points.
@@ -429,7 +435,7 @@ const Sidebar: React.FC = () => {
                     group is gated independently: CNAPP on the per-user tab key as before, DSPM on the
                     org's add-on entitlement. A client with only one sees only that one, and the parent
                     link lands on the first tab they actually have. */}
-                {(isXamTabAllowed('secops-xamsecure') || (dspmEnabled && isXamTabAllowed('secops-xamsecure-dspm'))) && (
+                {xamSecureGroups.length > 0 && (
                   <>
                     <NavItem
                       href={`/xamsecure/${xamSecureLandingTab}`}
@@ -440,13 +446,27 @@ const Sidebar: React.FC = () => {
                     <SubNav isOpen={location.pathname.startsWith('/xamsecure')} dark={theme === 'dark'}>
                       {xamSecureGroups.map((group) => (
                         <React.Fragment key={group}>
-                          {/* The heading only earns its space when both groups are present. A
-                              single-product customer gets a plain list rather than one lonely label. */}
-                          {xamSecureGroups.length > 1 && (
-                            <div className="px-3 pt-2 pb-1 text-[9px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.3)] dark:text-[rgba(255,255,255,0.3)]">
+                          {/* Headings are always rendered, even for a single group. They were previously
+                              suppressed below two groups on the grounds that one lonely label earns no
+                              space — but XamSecure now spans two products from two vendors, and a nav
+                              that hides that structure until someone happens to own both leaves everyone
+                              else unable to tell the two apart at all. */}
+                          <div className="flex items-center gap-1.5 px-3 pt-2 pb-1">
+                            <span className="text-[9px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.3)] dark:text-[rgba(255,255,255,0.3)]">
                               {XAMSECURE_GROUP_LABELS[group]}
-                            </div>
-                          )}
+                            </span>
+                            {group === 'DSPM' && !dspmEnabled && (
+                              // Marks the group as an upsell rather than a broken feature. Put on the
+                              // heading rather than on each tab so one pill covers the group instead of
+                              // repeating down the list.
+                              <span
+                                className="rounded-full bg-[rgba(0,0,0,0.06)] px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.35)] dark:bg-[rgba(255,255,255,0.1)] dark:text-[rgba(255,255,255,0.4)]"
+                                title="Not enabled for your organisation — open it to request access"
+                              >
+                                Locked
+                              </span>
+                            )}
+                          </div>
                           {sidebarTabsForGroup(group).map((s) => (
                             <NavItem
                               key={s.id}
