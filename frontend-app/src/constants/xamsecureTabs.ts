@@ -10,46 +10,113 @@
  *
  * `sidebar: false` marks routes that are deep-link reachable but deliberately absent from the
  * nav — Workflows and Onboarding map to Upwind's Settings area, not its security nav.
+ *
+ * ── Groups ──
+ * XamSecure now covers two separately sold products from two vendors, so every tab declares which
+ * one it belongs to:
+ *
+ *   CNAPP — Upwind. Cloud workload and posture security. Gated on the client having Upwind-connected
+ *           cloud accounts, and scoped by the sidebar account picker.
+ *   DSPM  — Matters.ai. Data security posture: where sensitive data lives. Gated on the
+ *           `matters_dspm_enabled` entitlement, and deliberately *not* scoped by the account picker
+ *           because its assets carry a Matters integration id rather than a cloud account number.
+ *
+ * The two gates are independent. A client may hold either, both, or neither, and the nav and the
+ * landing tab both have to cope with each combination — see `firstTabForGroups`.
  */
+
+export type XamSecureGroup = 'CNAPP' | 'DSPM';
 
 export type XamSecureTab =
   | 'issues' | 'overview' | 'attack-surface' | 'threats' | 'vulnerabilities' | 'posture'
   | 'inventory' | 'api-security' | 'identities' | 'components' | 'code' | 'threat-policies'
-  | 'workflows' | 'compliance' | 'onboarding';
+  | 'workflows' | 'compliance' | 'onboarding'
+  | 'dspm-cloud' | 'dspm-status';
 
 export interface XamSecureTabDef {
   id: XamSecureTab;
   label: string;
   /** Font Awesome class, matching the rest of the sidebar's icon vocabulary. */
   icon: string;
+  /** Which product this tab belongs to. Drives both nav grouping and entitlement gating. */
+  group: XamSecureGroup;
   /** Defaults to true. False keeps the route valid while hiding it from the nav. */
   sidebar?: boolean;
 }
 
 export const XAMSECURE_TABS: XamSecureTabDef[] = [
-  { id: 'overview', label: 'Home', icon: 'fas fa-house' },
-  { id: 'issues', label: 'Issues', icon: 'fas fa-triangle-exclamation' },
-  { id: 'inventory', label: 'Inventory', icon: 'fas fa-boxes-stacked' },
-  { id: 'attack-surface', label: 'Attack Surface', icon: 'fas fa-globe' },
-  { id: 'vulnerabilities', label: 'Vulnerabilities', icon: 'fas fa-bug' },
-  { id: 'posture', label: 'Configurations', icon: 'fas fa-clipboard-check' },
-  { id: 'api-security', label: 'APIs', icon: 'fas fa-plug' },
-  { id: 'identities', label: 'Identities', icon: 'fas fa-user-shield' },
-  { id: 'threats', label: 'Threats', icon: 'fas fa-bolt' },
+  // ── CNAPP (Upwind) ──
+  { id: 'overview', label: 'Home', icon: 'fas fa-house', group: 'CNAPP' },
+  { id: 'issues', label: 'Issues', icon: 'fas fa-triangle-exclamation', group: 'CNAPP' },
+  { id: 'inventory', label: 'Inventory', icon: 'fas fa-boxes-stacked', group: 'CNAPP' },
+  { id: 'attack-surface', label: 'Attack Surface', icon: 'fas fa-globe', group: 'CNAPP' },
+  { id: 'vulnerabilities', label: 'Vulnerabilities', icon: 'fas fa-bug', group: 'CNAPP' },
+  { id: 'posture', label: 'Configurations', icon: 'fas fa-clipboard-check', group: 'CNAPP' },
+  { id: 'api-security', label: 'APIs', icon: 'fas fa-plug', group: 'CNAPP' },
+  { id: 'identities', label: 'Identities', icon: 'fas fa-user-shield', group: 'CNAPP' },
+  { id: 'threats', label: 'Threats', icon: 'fas fa-bolt', group: 'CNAPP' },
   // "Packages", not "Components". Upwind's Components area is sensor and agent fleet
   // management (Sensors / Cloud Scanners / Integrations / Workflows, with health and coverage);
   // this tab is a software bill of materials. Sharing their label implied parity with a feature
   // we cannot build — nine candidate sensor endpoints all return 404, so there is no API behind
   // their version.
-  { id: 'components', label: 'Packages', icon: 'fas fa-cubes' },
+  { id: 'components', label: 'Packages', icon: 'fas fa-cubes', group: 'CNAPP' },
   // Upwind's Code area: CI scan history from the shift-left stream. Org-level data, so the tab
   // renders a withheld state for clients that do not own the whole Upwind organization.
-  { id: 'code', label: 'Code', icon: 'fas fa-code-branch' },
-  { id: 'workflows', label: 'Workflows', icon: 'fas fa-diagram-project', sidebar: false },
-  { id: 'onboarding', label: 'Onboarding', icon: 'fas fa-plug-circle-plus', sidebar: false },
+  { id: 'code', label: 'Code', icon: 'fas fa-code-branch', group: 'CNAPP' },
+  { id: 'workflows', label: 'Workflows', icon: 'fas fa-diagram-project', group: 'CNAPP', sidebar: false },
+  { id: 'onboarding', label: 'Onboarding', icon: 'fas fa-plug-circle-plus', group: 'CNAPP', sidebar: false },
+
+  // ── DSPM (Matters.ai) ──
+  // One tab in phase 1, mirroring the vendor's own Cloud screen: cloud datastores plus self-hosted
+  // ones, which Matters lists together (its Cloud view totals 68 where the API's `cloud` category
+  // counts 67 — the extra row is a self-hosted Postgres).
+  //
+  // SaaS and Endpoint are deliberately absent. Those two categories belong with seat and device
+  // management, and are planned for Licenses & Tools rather than here.
+  { id: 'dspm-cloud', label: 'Cloud Data', icon: 'fas fa-database', group: 'DSPM' },
+  // Connection state. Reachable but not in the nav: it is only interesting when something is wrong,
+  // and the Cloud tab links to it in that case.
+  { id: 'dspm-status', label: 'Connection', icon: 'fas fa-circle-nodes', group: 'DSPM', sidebar: false },
 ];
 
 /** Nav entries, in declared order. */
 export const XAMSECURE_SIDEBAR_TABS = XAMSECURE_TABS.filter((t) => t.sidebar !== false);
 
 export const VALID_XAMSECURE_TABS = new Set<string>(XAMSECURE_TABS.map((t) => t.id));
+
+/** Display names for the group headings in the nav. */
+export const XAMSECURE_GROUP_LABELS: Record<XamSecureGroup, string> = {
+  CNAPP: 'CNAPP',
+  DSPM: 'DSPM',
+};
+
+/** Nav order of the groups. */
+export const XAMSECURE_GROUP_ORDER: XamSecureGroup[] = ['CNAPP', 'DSPM'];
+
+/** Sidebar-visible tabs for one group. */
+export const sidebarTabsForGroup = (group: XamSecureGroup): XamSecureTabDef[] =>
+  XAMSECURE_SIDEBAR_TABS.filter((t) => t.group === group);
+
+/** The group a tab id belongs to, or null for an unknown id. */
+export const groupForTab = (tab: string | undefined): XamSecureGroup | null =>
+  XAMSECURE_TABS.find((t) => t.id === tab)?.group ?? null;
+
+/**
+ * Landing tab for a client, given the groups they are entitled to.
+ *
+ * Needed because `/xamsecure` used to redirect unconditionally to `/xamsecure/overview`, which is a
+ * CNAPP tab. A DSPM-only customer following that redirect would land on an Upwind page they have no
+ * data for and no way to leave except by guessing a URL.
+ *
+ * Returns null when no group is available, which the caller renders as "no security products
+ * enabled" rather than redirecting into an empty tab.
+ */
+export const firstTabForGroups = (groups: XamSecureGroup[]): XamSecureTab | null => {
+  for (const group of XAMSECURE_GROUP_ORDER) {
+    if (!groups.includes(group)) continue;
+    const first = sidebarTabsForGroup(group)[0];
+    if (first) return first.id;
+  }
+  return null;
+};

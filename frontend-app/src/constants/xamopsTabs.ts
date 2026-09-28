@@ -70,7 +70,11 @@ export const XAMOPS_MODULES: XamOpsModule[] = [
     tabs: [
       { key: 'secops-security-center', label: 'Security Center', icon: 'mdi:shield-check-outline' },
       { key: 'secops-war', label: 'WAR', icon: 'mdi:radar' },
-      { key: 'secops-xamsecure', label: 'XamSecure', icon: 'mdi:shield-account-outline' },
+      { key: 'secops-xamsecure', label: 'XamSecure (CNAPP)', icon: 'mdi:shield-account-outline' },
+      // The DSPM half of XamSecure. A separate key because the two are separately sold, so a customer
+      // with both may still want an individual user scoped to one. Granting this key alone does nothing
+      // unless the org also holds the matters_dspm_enabled add-on.
+      { key: 'secops-xamsecure-dspm', label: 'XamSecure (DSPM)', icon: 'mdi:database-lock-outline' },
       { key: 'secops-compliance', label: 'ComplianceOps', icon: 'mdi:file-certificate-outline' },
       { key: 'secops-performance', label: 'Performance Insights', icon: 'mdi:speedometer' },
       { key: 'secops-alerts', label: 'Alerts', icon: 'mdi:bell-outline' },
