@@ -26,7 +26,7 @@ const TYPE_ICONS: Record<string, { icon: string; color: string; bg: string }> = 
 };
 
 const AzureWasteResourceGroup: React.FC<AzureWasteResourceGroupProps> = ({ group }) => {
-  const [isOpen, setIsOpen] = useState(group.open ?? true);
+  const [isOpen, setIsOpen] = useState(group.open ?? false);
   const panelRef = useRef<HTMLDivElement>(null);
   const isFirstEffect = useRef(true);
   const [rowKey, setRowKey] = useState(0);
