@@ -5,8 +5,10 @@ import type { GraphElement, NodeData } from '../../../types/cloudmap';
 import {
   CCOLS,
   CFLOW,
-  GLOBAL_VPC,
+  GLOBAL_REGION,
+  WARNING_DETAILS,
   buildConnectivityFlow,
+  isGlobalBucket,
   buildConnectivityIndex,
   detailsOf,
   firstConnectivityBranch,
@@ -18,8 +20,8 @@ import {
 } from './connectivityFlowModel';
 
 /**
- * Resource connectivity, as a drill-down:
- * account → VPC → subnet → service → resource → what that resource is connected to.
+ * Resource connectivity, as a drill-down: account → region → VPC → subnet → service → resource
+ * → what that resource is connected to.
  *
  * <p>Live view draws the whole topology at once, which answers "what is in this account" well
  * and "what talks to this volume" badly — on a real estate that answer is three edges inside a
@@ -133,8 +135,23 @@ const shorten = (id: string, max = 34): string => {
   return `${id.slice(0, head)}…${id.slice(id.length - (max - head - 1))}`;
 };
 
+/**
+ * Hover text for a card, one line per line the card shows.
+ *
+ * <p>Every card in this view packs three lines into a fixed-width box and truncates all of
+ * them, so an id, a CIDR or a "type · location · connections" summary is routinely cut
+ * mid-word. The native tooltip is the only place that text can be recovered, which means it
+ * has to carry what the card actually displays rather than a shorter restatement of it: a
+ * title that stops before the line the reader is squinting at is no help.
+ *
+ * <p>Blank entries are dropped instead of leaving empty lines, so a card with no facts and no
+ * state does not open a tooltip padded with gaps.
+ */
+const hoverText = (...lines: (string | false | null | undefined)[]): string =>
+  lines.filter((line): line is string => Boolean(line && line.trim())).join('\n');
+
 /** Which column a click just opened, so the canvas can pan to it. */
-type Level = 'vpc' | 'subnet' | 'service' | 'resource';
+type Level = 'region' | 'vpc' | 'subnet' | 'service' | 'resource';
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -147,6 +164,8 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
   onRefresh,
 }) => {
   const [search, setSearch] = useState('');
+  const [selectedRegion, setSelectedRegion] = useState<string | null>(null);
+  const [showAllRegions, setShowAllRegions] = useState(false);
   const [selectedVpc, setSelectedVpc] = useState<string | null>(null);
   const [selectedSubnet, setSelectedSubnet] = useState<string | null>(null);
   const [selectedService, setSelectedService] = useState<string | null>(null);
@@ -183,13 +202,15 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
       accountId
         ? buildConnectivityFlow({
             index, accountId, accountName,
-            selectedVpc, selectedSubnet, selectedService, selectedResource,
-            search: term, showAllVpcs, showAllSubnets, showAllServices, showAllResources,
+            selectedRegion, selectedVpc, selectedSubnet, selectedService, selectedResource,
+            search: term,
+            showAllRegions, showAllVpcs, showAllSubnets, showAllServices, showAllResources,
           })
         : null,
     [
-      index, accountId, accountName, selectedVpc, selectedSubnet, selectedService,
-      selectedResource, term, showAllVpcs, showAllSubnets, showAllServices, showAllResources,
+      index, accountId, accountName, selectedRegion, selectedVpc, selectedSubnet,
+      selectedService, selectedResource, term,
+      showAllRegions, showAllVpcs, showAllSubnets, showAllServices, showAllResources,
     ],
   );
 
@@ -208,6 +229,7 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
   useEffect(() => {
     if (!term || !accountId) return;
     const branch = firstConnectivityBranch(index, accountId, term);
+    setSelectedRegion(branch.region);
     setSelectedVpc(branch.vpc);
     setSelectedSubnet(branch.subnet);
     setSelectedService(branch.service);
@@ -216,10 +238,12 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
 
   /** A different account is a different estate; a stale selection would point at nothing. */
   useEffect(() => {
+    setSelectedRegion(null);
     setSelectedVpc(null);
     setSelectedSubnet(null);
     setSelectedService(null);
     setSelectedResource(null);
+    setShowAllRegions(false);
     setShowAllVpcs(false);
     setShowAllSubnets(false);
     setShowAllServices(false);
@@ -474,10 +498,11 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
     if (!level || !flow) return;
     justOpenedRef.current = null;
     const target =
-      level === 'vpc' ? flow.subnets[0]
-        : level === 'subnet' ? flow.services[0]
-          : level === 'service' ? flow.resources[0]
-            : flow.peers[0];
+      level === 'region' ? flow.vpcs[0]
+        : level === 'vpc' ? flow.subnets[0]
+          : level === 'subnet' ? flow.services[0]
+            : level === 'service' ? flow.resources[0]
+              : flow.peers[0];
     if (target) ensureVisible(target.x, target.y, target.w, target.h);
   }, [flow, ensureVisible]);
 
@@ -490,6 +515,20 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
    * would drop it silently, leaving the reader with a VPC open and no explanation for why the
    * columns to the right went blank.
    */
+  const openRegion = (region: string) => {
+    const closing = selectedRegion === region;
+    setSelectedRegion(closing ? null : region);
+    setSelectedVpc(null);
+    setSelectedSubnet(null);
+    setSelectedService(null);
+    setSelectedResource(null);
+    setShowAllVpcs(false);
+    setShowAllSubnets(false);
+    setShowAllServices(false);
+    setShowAllResources(false);
+    if (!closing) justOpenedRef.current = 'region';
+  };
+
   const openVpc = (id: string) => {
     const closing = selectedVpc === id;
     setSelectedVpc(closing ? null : id);
@@ -539,10 +578,15 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
     const at = locate(index, peer.id);
     if (!at) return;
     setSearch('');
+    setSelectedRegion(at.region);
     setSelectedVpc(at.vpc);
     setSelectedSubnet(at.subnet);
     setSelectedService(at.service);
     setSelectedResource(at.resource);
+    // Caps lifted on the way in: the peer may sit past the fourteenth row of its column, and
+    // landing on a branch whose own node is folded away is worse than a longer column.
+    setShowAllRegions(true);
+    setShowAllVpcs(true);
     setShowAllSubnets(true);
     setShowAllServices(true);
     setShowAllResources(true);
@@ -600,7 +644,17 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
     );
   }
 
-  if (!flow || (flow.vpcs.length === 0 && !term)) {
+  /*
+   * Emptiness is decided on the region column, not the VPC column.
+   *
+   * The VPC column is built only for the open region — `buildConnectivityFlow` returns no VPCs
+   * at all while `selectedRegion` is null, which is the state this view loads in. Testing it
+   * here meant a fully populated account rendered "Nothing to draw yet" on arrival and only
+   * came right if the reader happened to type a search, since that auto-opens a branch. Regions
+   * are the first column that depends on the payload alone, so `matchedRegions` is the only
+   * count that distinguishes "no data" from "nothing expanded yet".
+   */
+  if (!flow || (flow.matchedRegions === 0 && !term)) {
     return (
       <Shell>
         <Centered
@@ -613,7 +667,7 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
     );
   }
 
-  const emptySearch = flow.vpcs.length === 0 && term !== '';
+  const emptySearch = flow.matchedRegions === 0 && term !== '';
   const pannable = canvasW > 0
     && (flow.width * view.zoom > canvasW + 1 || flow.height * view.zoom > (viewportRef.current?.clientHeight ?? 0) + 1);
 
@@ -621,12 +675,14 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
 
   const accountRight = flow.account.x + flow.account.w;
   const accountMid = flow.account.y + flow.account.h / 2;
-  const vpcTrunk = trunkFor(accountRight);
+  const regionTrunk = trunkFor(accountRight);
+  const vpcTrunk = trunkFor(CCOLS.region + CFLOW.REGION_W);
   const subnetTrunk = trunkFor(CCOLS.vpc + CFLOW.VPC_W);
   const serviceTrunk = trunkFor(CCOLS.subnet + CFLOW.SUBNET_W);
   const resourceTrunk = trunkFor(CCOLS.service + CFLOW.SERVICE_W);
   const peerTrunk = trunkFor(CCOLS.resource + CFLOW.RESOURCE_W);
 
+  const openRegionNode = flow.regions.find((r) => r.selected) ?? null;
   const openVpcNode = flow.vpcs.find((v) => v.selected) ?? null;
   const openSubnetNode = flow.subnets.find((s) => s.selected) ?? null;
   const openServiceNode = flow.services.find((s) => s.selected) ?? null;
@@ -639,33 +695,44 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
         <nav aria-label="Selected path" className="flex items-center gap-1.5 text-[11.5px] min-w-0">
           <Crumb icon="mdi:account-circle-outline" label={flow.account.name} />
           <Sep />
-          {flow.selectedVpc ? (
+          {flow.selectedRegion ? (
             <>
               <Crumb
-                icon={flow.selectedVpc === GLOBAL_VPC ? 'mdi:earth' : 'mdi:cloud-outline'}
-                label={openVpcNode?.label ?? flow.selectedVpc}
+                icon={flow.selectedRegion === GLOBAL_REGION
+                  ? 'mdi:earth'
+                  : 'mdi:map-marker-radius-outline'}
+                label={openRegionNode?.label ?? flow.selectedRegion}
               />
               <Sep />
-              {flow.selectedSubnet ? (
+              {flow.selectedVpc ? (
                 <>
-                  <Crumb icon="mdi:lan" label={openSubnetNode?.label ?? flow.selectedSubnet} />
+                  <Crumb
+                    icon={isGlobalBucket(flow.selectedVpc) ? 'mdi:earth' : 'mdi:cloud-outline'}
+                    label={openVpcNode?.label ?? flow.selectedVpc}
+                  />
                   <Sep />
-                  {flow.selectedService ? (
+                  {flow.selectedSubnet ? (
                     <>
-                      <Crumb icon="mdi:shape-outline" label={flow.selectedService} />
+                      <Crumb icon="mdi:lan" label={openSubnetNode?.label ?? flow.selectedSubnet} />
                       <Sep />
-                      {flow.selectedResource ? (
-                        <Crumb
-                          icon="mdi:cube-outline"
-                          label={openResourceNode?.label ?? flow.selectedResource}
-                        />
-                      ) : <Hint>pick a resource</Hint>}
+                      {flow.selectedService ? (
+                        <>
+                          <Crumb icon="mdi:shape-outline" label={flow.selectedService} />
+                          <Sep />
+                          {flow.selectedResource ? (
+                            <Crumb
+                              icon="mdi:cube-outline"
+                              label={openResourceNode?.label ?? flow.selectedResource}
+                            />
+                          ) : <Hint>pick a resource</Hint>}
+                        </>
+                      ) : <Hint>pick a service</Hint>}
                     </>
-                  ) : <Hint>pick a service</Hint>}
+                  ) : <Hint>pick a subnet</Hint>}
                 </>
-              ) : <Hint>pick a subnet</Hint>}
+              ) : <Hint>pick a VPC</Hint>}
             </>
-          ) : <Hint>pick a VPC</Hint>}
+          ) : <Hint>pick a region</Hint>}
         </nav>
 
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -754,17 +821,35 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
               className="absolute inset-0 pointer-events-none"
               aria-hidden="true"
             >
-              {flow.vpcs.map((v) => (
+              {flow.regions.map((r) => (
                 <path
-                  key={`e-acc-${v.id}`}
-                  d={flowEdge(accountRight, accountMid, v.x, v.y + v.h / 2, vpcTrunk)}
+                  key={`e-acc-${r.region}`}
+                  d={flowEdge(accountRight, accountMid, r.x, r.y + r.h / 2, regionTrunk)}
+                  fill="none" stroke={r.selected ? ACCENT : EDGE_IDLE}
+                  strokeWidth={r.selected ? 1.8 : 1.2}
+                />
+              ))}
+              {flow.regionMore && (
+                <path
+                  d={flowEdge(accountRight, accountMid, flow.regionMore.x,
+                    flow.regionMore.y + flow.regionMore.h / 2, regionTrunk)}
+                  fill="none" stroke={EDGE_IDLE} strokeWidth={1.2} strokeDasharray="3 3"
+                />
+              )}
+
+              {openRegionNode && flow.vpcs.map((v) => (
+                <path
+                  key={`e-reg-${v.id}`}
+                  d={flowEdge(openRegionNode.x + openRegionNode.w,
+                    openRegionNode.y + openRegionNode.h / 2, v.x, v.y + v.h / 2, vpcTrunk)}
                   fill="none" stroke={v.selected ? ACCENT : EDGE_IDLE}
                   strokeWidth={v.selected ? 1.8 : 1.2}
                 />
               ))}
-              {flow.vpcMore && (
+              {openRegionNode && flow.vpcMore && (
                 <path
-                  d={flowEdge(accountRight, accountMid, flow.vpcMore.x,
+                  d={flowEdge(openRegionNode.x + openRegionNode.w,
+                    openRegionNode.y + openRegionNode.h / 2, flow.vpcMore.x,
                     flow.vpcMore.y + flow.vpcMore.h / 2, vpcTrunk)}
                   fill="none" stroke={EDGE_IDLE} strokeWidth={1.2} strokeDasharray="3 3"
                 />
@@ -834,11 +919,43 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
                   {flow.account.accountId}
                 </p>
                 <p className="text-[10.5px] text-[rgba(0,0,0,0.4)] mt-0.5">
+                  {flow.account.regionCount}{' '}
+                  {flow.account.regionCount === 1 ? 'region' : 'regions'} ·{' '}
                   {flow.account.vpcCount} {flow.account.vpcCount === 1 ? 'VPC' : 'VPCs'} ·{' '}
                   {flow.account.resourceCount.toLocaleString('en-US')} resources
                 </p>
               </div>
             </div>
+
+            {/* Regions */}
+            {flow.regions.map((r) => (
+              <TreeNode
+                key={r.region}
+                node={r}
+                selected={r.selected}
+                icon={r.region === GLOBAL_REGION ? 'mdi:earth' : 'mdi:map-marker-radius-outline'}
+                title={r.label}
+                subtitle={r.region === GLOBAL_REGION
+                  ? 'Not tied to a region'
+                  : r.region}
+                meta={[
+                  r.vpcCount > 0
+                    ? `${r.vpcCount} ${r.vpcCount === 1 ? 'VPC' : 'VPCs'}`
+                    : '',
+                  `${r.serviceCount} ${r.serviceCount === 1 ? 'service' : 'services'}`,
+                  `${r.resourceCount} ${r.resourceCount === 1 ? 'resource' : 'resources'}`,
+                ].filter(Boolean).join(' · ')}
+                onClick={() => openRegion(r.region)}
+                onFocus={() => ensureVisible(r.x, r.y, r.w, r.h)}
+              />
+            ))}
+            {flow.regionMore && (
+              <MoreButton
+                row={flow.regionMore}
+                onClick={() => setShowAllRegions(true)}
+                noun="region"
+              />
+            )}
 
             {/* VPCs */}
             {flow.vpcs.map((v) => (
@@ -890,7 +1007,12 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
                 onClick={() => openService(s.type)}
                 onFocus={() => ensureVisible(s.x, s.y, s.w, s.h)}
                 aria-expanded={s.selected}
-                title={`${s.type} — ${s.resourceCount} resources, ${s.connectedCount} connected`}
+                title={hoverText(
+                  s.type,
+                  `${s.resourceCount} ${s.resourceCount === 1 ? 'resource' : 'resources'}`,
+                  s.connectedCount > 0 && `${s.connectedCount} connected`,
+                  s.warningCount > 0 && `${s.warningCount} exposed to the internet`,
+                )}
                 className={nodeClass(s.selected)}
                 style={{ left: s.x, top: s.y, width: s.w, height: s.h }}
               >
@@ -904,6 +1026,11 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
                     {s.connectedCount > 0 && (
                       <span className="text-[#7c3aed] font-semibold">
                         {' '}· {s.connectedCount} connected
+                      </span>
+                    )}
+                    {s.warningCount > 0 && (
+                      <span className="text-amber-700 font-semibold">
+                        {' '}· {s.warningCount} exposed
                       </span>
                     )}
                   </p>
@@ -920,14 +1047,30 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
             )}
 
             {/* Resources */}
-            {flow.resources.map((r) => (
+            {flow.resources.map((r) => {
+              // The facts line is the one that gets cut — a private IP plus an instance type
+              // rarely fits — so the tooltip has to carry it verbatim, not the shortened id
+              // the card falls back to.
+              const factsLine = r.facts.length > 0 ? r.facts.join(' · ') : '';
+              const countLine = r.peerCount > 0
+                ? `${r.peerCount} ${r.peerCount === 1 ? 'connection' : 'connections'}`
+                : 'no connections';
+              return (
               <button
                 key={r.id}
                 type="button"
                 onClick={() => openResource(r.id)}
                 onFocus={() => ensureVisible(r.x, r.y, r.w, r.h)}
                 aria-expanded={r.selected}
-                title={`${r.label}\n${r.id}`}
+                title={hoverText(
+                  r.label === r.id ? '' : r.label,
+                  r.id,
+                  r.type,
+                  factsLine,
+                  r.state && `State: ${r.state}`,
+                  r.warnings.join(' · '),
+                  countLine,
+                )}
                 className={nodeClass(r.selected)}
                 style={{ left: r.x, top: r.y, width: r.w, height: r.h }}
               >
@@ -937,18 +1080,26 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
                     {r.label}
                   </p>
                   <p className="text-[9.5px] text-[rgba(0,0,0,0.45)] truncate">
-                    {r.facts.length > 0 ? r.facts.join(' · ') : shorten(r.id, 30)}
+                    {factsLine || shorten(r.id, 30)}
                   </p>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     {r.state && <StateChip state={r.state} />}
+                    {r.warnings.map((w) => (
+                      <span
+                        key={w}
+                        title={w}
+                        className="text-[9px] px-1 py-[1px] rounded font-semibold bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-0.5"
+                      >
+                        <Icon icon="mdi:earth" width={9} />
+                        exposed
+                      </span>
+                    ))}
                     <span
                       className={r.peerCount > 0
                         ? 'text-[9.5px] font-semibold text-[#7c3aed]'
                         : 'text-[9.5px] text-[rgba(0,0,0,0.3)]'}
                     >
-                      {r.peerCount > 0
-                        ? `${r.peerCount} ${r.peerCount === 1 ? 'connection' : 'connections'}`
-                        : 'no connections'}
+                      {countLine}
                     </span>
                   </div>
                 </div>
@@ -958,13 +1109,22 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
                   className="text-[rgba(0,0,0,0.3)] flex-shrink-0"
                 />
               </button>
-            ))}
+              );
+            })}
             {flow.resourceMore && (
               <MoreButton row={flow.resourceMore} onClick={() => setShowAllResources(true)} noun="resource" />
             )}
 
             {/* Peers — what the open resource is connected to */}
-            {flow.peers.map((p) => (
+            {flow.peers.map((p) => {
+              // Built once and used for both the visible line and the tooltip, so the hover
+              // text cannot describe something other than what the card shows.
+              const relationLine = p.outbound ? p.relation : `← ${p.relation}`;
+              const metaLine = p.external
+                ? 'Not drawn on the map'
+                : [p.type, p.location, p.peerCount > 1 ? `${p.peerCount} connections` : '']
+                  .filter(Boolean).join(' · ');
+              return (
               <div
                 key={`${p.id}-${p.relation}`}
                 className={[
@@ -983,9 +1143,13 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
                   onClick={() => followPeer(p)}
                   onFocus={() => ensureVisible(p.x, p.y, p.w, p.h)}
                   disabled={p.external}
-                  title={p.external
-                    ? `${p.relation} ${p.id} — not drawn on the map`
-                    : `${p.relation} ${p.id}\nClick to follow`}
+                  title={hoverText(
+                    relationLine + (p.derived ? ' (inferred)' : ''),
+                    p.label === p.id ? '' : p.label,
+                    p.id,
+                    metaLine,
+                    p.external ? 'Not drawn on the map — nothing to open' : 'Click to follow',
+                  )}
                   className={[
                     'flex items-center gap-2.5 flex-1 min-w-0 h-full px-3 py-2 text-left rounded-l-lg',
                     'outline-none focus-visible:ring-2 focus-visible:ring-[#8b5cf6] focus-visible:ring-inset',
@@ -996,7 +1160,7 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1">
                       <span className="text-[9px] font-bold uppercase tracking-wide text-[#7c3aed] truncate">
-                        {p.outbound ? p.relation : `← ${p.relation}`}
+                        {relationLine}
                       </span>
                       {p.derived && (
                         <span
@@ -1011,10 +1175,7 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
                       {p.label === p.id ? shorten(p.label) : p.label}
                     </p>
                     <p className="text-[9.5px] text-[rgba(0,0,0,0.4)] truncate">
-                      {p.external
-                        ? 'Not drawn on the map'
-                        : [p.type, p.location, p.peerCount > 1 ? `${p.peerCount} connections` : '']
-                          .filter(Boolean).join(' · ')}
+                      {metaLine}
                     </p>
                   </div>
                   {!p.external && (
@@ -1036,7 +1197,8 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
                     className={copied === p.id ? 'text-emerald-600' : undefined} />
                 </button>
               </div>
-            ))}
+              );
+            })}
 
             {/* Nothing connected — said explicitly, because an empty column next to an open
                 resource otherwise reads as a view that failed to load. */}
@@ -1213,7 +1375,9 @@ const TreeNode: React.FC<{
     onClick={onClick}
     onFocus={onFocus}
     aria-expanded={selected}
-    title={`${title}\n${subtitle}`}
+    // `meta` included: it is the counts line, it truncates as readily as the others, and it was
+    // the one thing hovering could never reveal.
+    title={hoverText(title, subtitle, meta)}
     className={nodeClass(selected)}
     style={{ left: node.x, top: node.y, width: node.w, height: node.h }}
   >
@@ -1264,6 +1428,10 @@ const DetailPanel: React.FC<{
   const details = detailsOf(node);
   const declared = peers.filter((p) => !p.derived);
   const inferred = peers.filter((p) => p.derived);
+  const warnings = Object.entries(WARNING_DETAILS).filter(([key]) => {
+    const hit = details.find((d) => d.key.toLowerCase() === key.toLowerCase());
+    return hit && ['yes', 'true'].includes(hit.value.toLowerCase());
+  });
 
   return (
     <aside
@@ -1289,6 +1457,17 @@ const DetailPanel: React.FC<{
       </header>
 
       <div className="flex-1 overflow-y-auto px-3 py-2.5 space-y-3">
+        {warnings.length > 0 && (
+          <div className="rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-2">
+            {warnings.map(([, label]) => (
+              <p key={label} className="flex items-start gap-1.5 text-[10.5px] font-semibold text-amber-900">
+                <Icon icon="mdi:alert-outline" width={13} className="flex-shrink-0 mt-[1px]" />
+                {label}
+              </p>
+            ))}
+          </div>
+        )}
+
         <div>
           <Label>Identifier</Label>
           <button

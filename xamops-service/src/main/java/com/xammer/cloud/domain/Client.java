@@ -66,6 +66,27 @@ public class Client {
             columnDefinition = "boolean default false")
     private boolean whatsappNotificationsEnabled = false;
 
+    /**
+     * Whether this client has the Matters.ai DSPM add-on (XamData).
+     *
+     * Defaults FALSE, following {@link #smsNotificationsEnabled} rather than
+     * {@link #xamSecureOnboardingEnabled}. The reasoning is the same as for the chargeable
+     * notification channels: this is a separately sold add-on that consumes a Matters project and
+     * API key per customer, so the safe state for every existing and future client is off until
+     * someone deliberately grants it. Defaulting TRUE would advertise a module to the entire estate
+     * that almost none of them have bought and that would render empty for all of them.
+     *
+     * Two switches govern the add-on and they are not the same thing: this is the commercial grant,
+     * while {@code MattersProjectMapping.enabled} is whether the connection itself works. A client
+     * can be entitled with no mapping yet — that is the normal state between signing and
+     * provisioning, and the UI reports it as "being set up" rather than as an error.
+     *
+     * Granted per contract from BillOps admin → Accounts.
+     */
+    @Column(name = "matters_dspm_enabled", nullable = false,
+            columnDefinition = "boolean default false")
+    private boolean mattersDspmEnabled = false;
+
     // --- Trial lifecycle (self-signup customers) ---
     // Nullable at DB level so `ddl-auto=update` can add it to an existing populated
     // table. New rows default to PAID via the field initializer; existing rows (null)

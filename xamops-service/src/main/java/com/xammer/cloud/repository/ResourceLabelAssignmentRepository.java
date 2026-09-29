@@ -27,6 +27,28 @@ public interface ResourceLabelAssignmentRepository extends JpaRepository<Resourc
     @Query("SELECT a FROM ResourceLabelAssignment a JOIN FETCH a.label WHERE a.cloudAccount.id = :accountId AND a.resourceId IN :resourceIds")
     List<ResourceLabelAssignment> findByCloudAccountIdAndResourceIdIn(@Param("accountId") Long accountId, @Param("resourceIds") List<String> resourceIds);
 
+    /**
+     * As above, but only labels belonging to the given client.
+     *
+     * <p>
+     * The tenant filter is the point. A cloud_account row is reachable by its provider
+     * account id, which is not a secret, so scoping this read by account alone lets any
+     * signed-in user read another tenant's labels for an account id they can name. Every
+     * other label route scopes through {@code findByIdAndClientId}; this one is the bulk
+     * path and has to do the same.
+     *
+     * <p>
+     * {@code l.client.id} compares the foreign key on resource_labels and adds no join, so
+     * this costs the same as the unscoped variant.
+     */
+    @Query("SELECT a FROM ResourceLabelAssignment a JOIN FETCH a.label l "
+            + "WHERE a.cloudAccount.id = :accountId AND a.resourceId IN :resourceIds "
+            + "AND l.client.id = :clientId")
+    List<ResourceLabelAssignment> findByCloudAccountIdAndResourceIdInForClient(
+            @Param("accountId") Long accountId,
+            @Param("resourceIds") List<String> resourceIds,
+            @Param("clientId") Long clientId);
+
     // Delete a specific resource → label mapping
     void deleteByCloudAccountIdAndResourceIdAndLabelId(Long accountId, String resourceId, Long labelId);
 

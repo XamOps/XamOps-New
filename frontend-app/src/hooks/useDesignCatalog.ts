@@ -11,7 +11,7 @@
  * and every design, so remounting a panel should not refetch it.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetchJson } from '../utils/apiClient';
 
 export type AttributeKind =
@@ -106,11 +106,29 @@ export function useDesignCatalog(enabled = true): DesignCatalog {
     return () => { alive = false; };
   }, [enabled]);
 
-  return {
-    specs,
-    byCanvasType: (canvasType) =>
-      canvasType ? specs.find((s) => s.canvasType === canvasType || s.tfType === canvasType) : undefined,
-    loading,
-    error,
-  };
+  const byCanvasType = useCallback(
+    (canvasType: string | undefined | null) =>
+      canvasType
+        ? specs.find((s) => s.canvasType === canvasType || s.tfType === canvasType)
+        : undefined,
+    [specs],
+  );
+
+  /*
+   * Memoised deliberately.
+   *
+   * This used to return a fresh object literal on every render, which is invisible here and
+   * expensive at the call site: CloudMapPage keys a `useCallback` on the catalog, and an effect
+   * on that callback, so an unstable identity made the effect run on every render. The effect
+   * writes `setSelectedAttrs({})` when nothing is selected — a new object each time, so React
+   * saw a state change, re-rendered, and produced a new catalog again. That is an infinite loop,
+   * and it ran until React gave up with "Maximum update depth exceeded".
+   *
+   * A hook that hands back a new object every render cannot be consumed safely by anything that
+   * depends on it, so the stability belongs here rather than in a defensive memo at each caller.
+   */
+  return useMemo(
+    () => ({ specs, byCanvasType, loading, error }),
+    [specs, byCanvasType, loading, error],
+  );
 }

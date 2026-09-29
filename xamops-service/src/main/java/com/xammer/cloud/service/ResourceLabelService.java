@@ -19,6 +19,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -33,15 +35,18 @@ public class ResourceLabelService {
     private final ResourceLabelAssignmentRepository assignmentRepo;
     private final CloudAccountRepository accountRepo;
     private final CostService costService;
+    private final ResourceIdResolver idResolver;
 
     public ResourceLabelService(ResourceLabelRepository labelRepo,
                                 ResourceLabelAssignmentRepository assignmentRepo,
                                 CloudAccountRepository accountRepo,
-                                CostService costService) {
+                                CostService costService,
+                                ResourceIdResolver idResolver) {
         this.labelRepo = labelRepo;
         this.assignmentRepo = assignmentRepo;
         this.accountRepo = accountRepo;
         this.costService = costService;
+        this.idResolver = idResolver;
     }
 
     // -----------------------------------------------------------------------
@@ -121,6 +126,21 @@ public class ResourceLabelService {
     /**
      * Assign a label to one or many resources (idempotent — safe to call twice).
      * accountId is the provider account ID string (AWS account ID, GCP project ID, etc.)
+     *
+     * <p>
+     * Ids are normalised through {@link ResourceIdResolver} before they are stored, so a
+     * caller may pass whichever form of a resource's id it happens to hold. This is what
+     * lets the Cloud List and the Cost page's per-resource view share one set of labels:
+     * the first arrives with the inventory's short id, the second with the Cost and Usage
+     * Report's {@code line_item_resource_id}, which is a full ARN for several services. Both
+     * land on the same row.
+     *
+     * <p>
+     * Where the inventory knows the resource, its type and region win over the caller's.
+     * The CUR's idea of a type is a billing product name ("Amazon Elastic Compute Cloud -
+     * Compute"); the inventory's is the type vocabulary the rest of the product filters on
+     * ("EC2 Instance"). Storing whichever the caller sent would leave the view-by-label page
+     * and the per-label cost fallback reading two vocabularies for one resource.
      */
     @Transactional
     public int assignLabel(Long clientId, LabelAssignRequest req, String assignedBy) {
@@ -128,18 +148,33 @@ public class ResourceLabelService {
                 .orElseThrow(() -> new IllegalArgumentException("Label not found: " + req.getLabelId()));
 
         CloudAccount account = resolveAccount(req.getAccountId());
+        Map<String, ResourceIdResolver.CanonicalResource> canonical = canonicalise(account, req);
 
         int created = 0;
         for (LabelAssignRequest.ResourceRef ref : req.getResources()) {
+            if (ref.getResourceId() == null || ref.getResourceId().isBlank()) {
+                // Resource-less charges — tax, support, subscriptions — reach the cost view as
+                // rows with an empty id. They are not resources and cannot be labelled: every
+                // one of them would collide on the same key.
+                continue;
+            }
+
+            ResourceIdResolver.CanonicalResource known = canonical.get(ref.getResourceId());
+            String resourceId = known != null ? known.resourceId() : ref.getResourceId();
+            String resourceType = known != null && known.resourceType() != null
+                    ? known.resourceType() : ref.getResourceType();
+            if (resourceType == null || resourceType.isBlank()) resourceType = "Unknown";
+
             if (!assignmentRepo.existsByCloudAccountIdAndResourceIdAndLabelId(
-                    account.getId(), ref.getResourceId(), label.getId())) {
+                    account.getId(), resourceId, label.getId())) {
 
                 ResourceLabelAssignment a = new ResourceLabelAssignment();
                 a.setCloudAccount(account);
-                a.setResourceId(ref.getResourceId());
-                a.setResourceType(ref.getResourceType());
-                a.setResourceName(ref.getResourceName());
-                a.setRegion(ref.getRegion());
+                a.setResourceId(resourceId);
+                a.setResourceType(resourceType);
+                a.setResourceName(known != null && known.resourceName() != null
+                        ? known.resourceName() : ref.getResourceName());
+                a.setRegion(known != null && known.region() != null ? known.region() : ref.getRegion());
                 a.setLabel(label);
                 a.setTaggedBy(assignedBy);
                 assignmentRepo.save(a);
@@ -150,16 +185,46 @@ public class ResourceLabelService {
         return created;
     }
 
+    /**
+     * Take a label off one or many resources.
+     *
+     * <p>
+     * Deletes under both the id as given and its canonical form. The two are usually the
+     * same, but not for rows written before ids were normalised — an ARN-keyed assignment
+     * from the cost view, say. Removing only the canonical key would leave those behind and
+     * make the × on a badge look broken, since the next read still finds them.
+     */
     @Transactional
     public void removeLabel(Long clientId, LabelAssignRequest req) {
         labelRepo.findByIdAndClientId(req.getLabelId(), clientId)
                 .orElseThrow(() -> new IllegalArgumentException("Label not found: " + req.getLabelId()));
 
         CloudAccount account = resolveAccount(req.getAccountId());
+        Map<String, ResourceIdResolver.CanonicalResource> canonical = canonicalise(account, req);
+
         for (LabelAssignRequest.ResourceRef ref : req.getResources()) {
+            String raw = ref.getResourceId();
+            if (raw == null || raw.isBlank()) continue;
+
             assignmentRepo.deleteByCloudAccountIdAndResourceIdAndLabelId(
-                    account.getId(), ref.getResourceId(), req.getLabelId());
+                    account.getId(), raw, req.getLabelId());
+
+            ResourceIdResolver.CanonicalResource known = canonical.get(raw);
+            if (known != null && !known.resourceId().equals(raw)) {
+                assignmentRepo.deleteByCloudAccountIdAndResourceIdAndLabelId(
+                        account.getId(), known.resourceId(), req.getLabelId());
+            }
         }
+    }
+
+    /** Resolves every id in a request in one query rather than one per resource. */
+    private Map<String, ResourceIdResolver.CanonicalResource> canonicalise(
+            CloudAccount account, LabelAssignRequest req) {
+        if (req.getResources() == null || req.getResources().isEmpty()) return Map.of();
+        return idResolver.resolve(account.getId(), req.getResources().stream()
+                .map(LabelAssignRequest.ResourceRef::getResourceId)
+                .filter(id -> id != null && !id.isBlank())
+                .toList());
     }
 
     @Transactional
@@ -174,18 +239,61 @@ public class ResourceLabelService {
 
     /**
      * Returns resourceId → [labels] for all given resource IDs in one query (no N+1).
+     *
+     * <p>
+     * Keyed by the ids the caller asked about, not by the ids the rows are stored under. A
+     * page holding CUR ids can therefore look up its own rows directly, while the storage
+     * key stays the canonical one the Cloud List uses — the indirection is the whole reason
+     * both pages see one set of labels.
+     *
+     * <p>
+     * Both keys are read and merged, so an assignment written under an ARN before ids were
+     * normalised still shows up next to one written under the short id, and a resource never
+     * appears untagged on one page and tagged on the other.
      */
-    public Map<String, List<ResourceLabelDto>> getLabelsForResources(String accountId, List<String> resourceIds) {
+    public Map<String, List<ResourceLabelDto>> getLabelsForResources(
+            Long clientId, String accountId, List<String> resourceIds) {
         if (resourceIds == null || resourceIds.isEmpty()) return Map.of();
 
         CloudAccount account = resolveAccount(accountId);
-        List<ResourceLabelAssignment> assignments =
-                assignmentRepo.findByCloudAccountIdAndResourceIdIn(account.getId(), resourceIds);
+        Map<String, ResourceIdResolver.CanonicalResource> canonical =
+                idResolver.resolve(account.getId(), resourceIds);
+
+        // One query covering both forms of every id.
+        LinkedHashSet<String> lookupKeys = new LinkedHashSet<>();
+        for (String id : resourceIds) {
+            if (id != null && !id.isBlank()) lookupKeys.add(id);
+        }
+        canonical.values().forEach(c -> lookupKeys.add(c.resourceId()));
+        if (lookupKeys.isEmpty()) return Map.of();
+
+        List<ResourceLabelAssignment> assignments = assignmentRepo
+                .findByCloudAccountIdAndResourceIdInForClient(
+                        account.getId(), List.copyOf(lookupKeys), clientId);
+
+        Map<String, List<ResourceLabelDto>> byStorageKey = new HashMap<>();
+        for (ResourceLabelAssignment a : assignments) {
+            byStorageKey.computeIfAbsent(a.getResourceId(), k -> new ArrayList<>())
+                  .add(ResourceLabelDto.from(a.getLabel()));
+        }
 
         Map<String, List<ResourceLabelDto>> result = new HashMap<>();
-        for (ResourceLabelAssignment a : assignments) {
-            result.computeIfAbsent(a.getResourceId(), k -> new ArrayList<>())
-                  .add(ResourceLabelDto.from(a.getLabel()));
+        for (String requested : resourceIds) {
+            if (requested == null || requested.isBlank()) continue;
+
+            // Deduplicated by label id: a resource with rows under both its ARN and its short
+            // id would otherwise render the same chip twice.
+            Map<Long, ResourceLabelDto> merged = new LinkedHashMap<>();
+            for (ResourceLabelDto dto : byStorageKey.getOrDefault(requested, List.of())) {
+                merged.putIfAbsent(dto.getId(), dto);
+            }
+            ResourceIdResolver.CanonicalResource known = canonical.get(requested);
+            if (known != null) {
+                for (ResourceLabelDto dto : byStorageKey.getOrDefault(known.resourceId(), List.of())) {
+                    merged.putIfAbsent(dto.getId(), dto);
+                }
+            }
+            if (!merged.isEmpty()) result.put(requested, new ArrayList<>(merged.values()));
         }
         return result;
     }

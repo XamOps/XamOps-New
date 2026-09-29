@@ -160,6 +160,37 @@ public class RestTemplateConfig {
     }
 
     /**
+     * RestTemplate for Matters.ai DSPM calls.
+     *
+     * Its own bean rather than the primary one for two reasons. The primary template carries a
+     * 300 s read timeout, sized for an endpoint that provisions real AWS capacity — every DSPM call
+     * happens inline in a page load, so a stalled vendor would pin a Tomcat thread for five minutes
+     * and the browser would give up long before (apiClient aborts at 45 s). And the primary template
+     * shares a {@link BasicCookieStore} across all its callers, which an API-key-authenticated
+     * client has no use for and should not be writing into.
+     *
+     * Measured latency against the live tenant is ~150 ms, so 20 s read is already generous and
+     * leaves room for a large {@code page_size=100} page. Full TLS verification, unlike the
+     * trust-all managers above: this is a public endpoint with a valid certificate and there is no
+     * legacy behaviour to preserve.
+     *
+     * Pool sized for the filter rail, which issues the list and the faceted filter call together,
+     * plus a little headroom for concurrent users on the same host.
+     */
+    @Bean
+    @Qualifier("mattersRestTemplate")
+    public RestTemplate mattersRestTemplate() {
+        CloseableHttpClient httpClient = HttpClients.custom()
+                .setConnectionManager(HttpClient5Support.connectionManager(20, 10, 5000)) // 5 s connect
+                .build();
+        HttpComponentsClientHttpRequestFactory factory =
+                new HttpComponentsClientHttpRequestFactory(httpClient);
+        factory.setReadTimeout(20000);             // 20 s — ~150 ms observed, generous for a 100-row page
+        factory.setConnectionRequestTimeout(5000); // don't queue forever on a saturated pool
+        return new RestTemplate(factory);
+    }
+
+    /**
      * Short-timeout RestTemplate for LiteLLM sidecar calls.
      * LiteLLM is optional — if it's not running we must fail fast so the
      * calling thread (even async) doesn't block for 15+ seconds.

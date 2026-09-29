@@ -63,15 +63,59 @@ public class CurAdvancedMetricsService {
     /** Ceiling on distinct tag values. A free-text tag can have thousands. */
     private static final int MAX_TAG_VALUES = 50;
 
+    /**
+     * How many resource-and-route flows are listed inside one network category.
+     *
+     * <p>"Which resource is sending what, where" is the whole point of the drill-down, and
+     * on a real account the answer is a handful of NAT gateways, one chatty database and a
+     * long tail of nothing. Higher than the per-service caps elsewhere because the grain is
+     * finer — one resource talking to three regions is three rows — and because the views
+     * above it are rolled up from these rows client-side, so a cap that is too tight would
+     * make the rolled-up totals wrong rather than merely short.
+     */
+    private static final int TRANSFER_FLOWS_PER_CATEGORY = 40;
+
+    /**
+     * Below this a flow is not worth a row: it rounds to $0.00 on screen.
+     *
+     * <p>Named rather than inlined because it has to be applied in two places that must
+     * agree — the rows returned and the count of how many exist. When they disagreed, the
+     * footer said "top 9 of 10 — 100% of this category", which reads as arithmetic that does
+     * not add up rather than as a sub-cent row being hidden.
+     */
+    private static final String TRANSFER_MIN_COST = "0.001";
+
+    /**
+     * Which usage types count as network charges.
+     *
+     * <p>Shared by the summary and the flow drill-down on purpose: a resource list that
+     * filtered differently from the total above it would not add up to it, and the
+     * discrepancy would be read as a bug in the numbers rather than in the predicate.
+     *
+     * <p>{@code %Bytes%} catches most of it, including Transit Gateway and VPC endpoint
+     * processing. The named patterns are for the hourly components, which carry no "Bytes"
+     * and are a real part of what those things cost.
+     */
+    private static final String NETWORK_USAGE_PREDICATE =
+            "(line_item_usage_type LIKE '%DataTransfer%'"
+            + " OR line_item_usage_type LIKE '%NatGateway%'"
+            + " OR line_item_usage_type LIKE '%VpcEndpoint%'"
+            + " OR line_item_usage_type LIKE '%PrivateLink%'"
+            + " OR line_item_usage_type LIKE '%TransitGateway%'"
+            + " OR line_item_usage_type LIKE '%Bytes%')";
+
     /** What spend with no value for the tag is filed under. */
     private static final String UNASSIGNED = "(unassigned)";
 
     private final CurAthenaQueryService athena;
     private final CurTagColumns tagColumns;
+    private final CurColumnCatalog columnCatalog;
 
-    public CurAdvancedMetricsService(CurAthenaQueryService athena, CurTagColumns tagColumns) {
+    public CurAdvancedMetricsService(CurAthenaQueryService athena, CurTagColumns tagColumns,
+                                    CurColumnCatalog columnCatalog) {
         this.athena = athena;
         this.tagColumns = tagColumns;
+        this.columnCatalog = columnCatalog;
     }
 
     // ── Effective savings rate ──────────────────────────────────────────────────
@@ -681,17 +725,299 @@ public class CurAdvancedMetricsService {
      * $40.32 in hours against $172.16 processed — so reporting only the hours (as a
      * service breakdown does) understates a NAT gateway roughly five-fold. The category is
      * "what this gateway costs", not "bytes moved".
+     *
+     * <h2>Why a category total on its own is not enough</h2>
+     * "Inter-region: $2.44" is a fact nobody can act on. Acting on it needs two more
+     * things, and the report is the only place either exists:
+     *
+     * <ul>
+     *   <li><b>Where the traffic went.</b> {@code product_from_location} and
+     *       {@code product_to_location} name the endpoints of every charged transfer, so
+     *       $2.44 becomes "Mumbai → N. Virginia, 29 GB" — a route someone can move,
+     *       cache or stop.</li>
+     *   <li><b>Which resource moved it.</b> {@code line_item_resource_id} attributes the
+     *       charge to a specific gateway, bucket or instance. A category total says the
+     *       account has a cross-AZ problem; the resource says which database to move.</li>
+     * </ul>
+     *
+     * <p>Neither is useful on its own, which is why {@link TransferFlow} carries both on one
+     * row: "Mumbai → N. Virginia, $2.44" does not say what to change, and "nat-0a1b, $344"
+     * does not say where its traffic is going. A flow is the smallest thing the report can
+     * describe that names a resource, a route and a price together, so it is the grain the
+     * drill-down is built on and the coarser views are rolled up from it.
+     *
+     * <h2>What the report cannot say</h2>
+     * A line item names <em>one</em> resource — the one being charged — so a flow is
+     * "this resource, to that region", never "this resource to that resource". The peer at
+     * the far end is not in a CUR at any grain; identifying it needs VPC Flow Logs, which
+     * are a different data source with a different price. The UI says so rather than
+     * implying the missing half is a loading state.
+     *
+     * <p>Both columns are optional in practice — Data Exports is created with a column
+     * selection, and an existing table XamOps did not provision may have neither — so each
+     * is probed for and the corresponding depth is reported as unavailable rather than
+     * faked. See {@link CurColumnCatalog} for why a missing column cannot simply be
+     * selected and ignored. Where the location columns are missing the route is recovered
+     * from the usage type instead ({@link CurNetworkUsageType}), which keeps inter-region
+     * and egress routes working on a report that does not carry them.
+     *
+     * <p>Two scans, not one. Flow grain cannot also serve the invoice-level summary: a
+     * report with resource ids off collapses every flow into one row per category, and the
+     * summary has to stay correct in that case. Both are held for six hours by
+     * {@code CurInsightCache}, so the second scan is paid once per account per period
+     * rather than once per page view.
      */
-    public List<TransferCharge> getDataTransferCosts(CurSource source, CloudAccount account,
-                                                     LocalDate start, LocalDate end) {
+    public DataTransferBreakdown getDataTransferCosts(CurSource source, CloudAccount account,
+                                                      LocalDate start, LocalDate end) {
+        String fromExpr = locationExpr(source, account, "from");
+        String toExpr = locationExpr(source, account, "to");
+        boolean routeData = fromExpr != null && toExpr != null;
+
+        List<TransferCharge> charges =
+                transferCharges(source, account, start, end, fromExpr, toExpr);
+
+        // Gated on the column existing at all, not on resourceIdsEnabled: a report whose
+        // ids are blank yields one "(no resource id)" row per category, which is a true
+        // statement about the report, whereas selecting an absent column fails the query.
+        boolean resourceData = columnCatalog.has(source, account, "line_item_resource_id");
+        List<TransferFlow> flows = resourceData
+                ? transferFlows(source, account, start, end, fromExpr, toExpr)
+                : List.of();
+
+        logger.info("✅ [CUR] Data transfer — {} charge rows, {} flows for account {}"
+                        + " ({} to {}), routeColumns={}, resourceIds={}",
+                charges.size(), flows.size(), account.getAwsAccountId(), start, end,
+                routeData, resourceData);
+        return new DataTransferBreakdown(charges, flows, routeData, resourceData);
+    }
+
+    /**
+     * Network charges at billing grain, with the route attached when the report knows it.
+     *
+     * <p>Region and route join the grouping rather than arriving as a second query: they
+     * are low-cardinality — a location is a region or an edge, not a resource — so the row
+     * count grows by a small factor and the section still renders from one payload.
+     */
+    private List<TransferCharge> transferCharges(CurSource source, CloudAccount account,
+                                                 LocalDate start, LocalDate end,
+                                                 String fromExpr, String toExpr) {
         String cost = CurSql.numericExpr(source, "line_item_unblended_cost");
         String qty = CurSql.numericExpr(source, "line_item_usage_amount");
+        String category = networkCategoryExpr();
 
-        // Ordered: the first match wins, so the more specific patterns come first. A NAT
-        // gateway's bytes also match the generic transfer patterns below it.
-        String category =
-                "CASE"
+        String routeSelect = (fromExpr == null ? "" : " " + fromExpr + " AS from_location,")
+                + (toExpr == null ? "" : " " + toExpr + " AS to_location,");
+        String routeGroup = (fromExpr == null ? "" : ", " + fromExpr)
+                + (toExpr == null ? "" : ", " + toExpr);
+
+        String sql = "SELECT " + category + " AS category,"
+                + " product_product_name AS service,"
+                + " line_item_usage_type AS usage_type,"
+                + " pricing_unit AS unit,"
+                + " product_region AS region,"
+                + routeSelect
+                + " SUM(" + qty + ") AS quantity,"
+                + " SUM(" + cost + ") AS cost"
+                + " FROM " + source.qualifiedTable()
+                + " WHERE " + accountPredicate(account)
+                + " AND " + CurSql.partitionPredicate(source, start, end)
+                + " AND " + CurSql.usageDatePredicate(source, start, end)
+                + " AND " + NETWORK_USAGE_PREDICATE
+                + " GROUP BY " + category + ", product_product_name,"
+                + " line_item_usage_type, pricing_unit, product_region" + routeGroup
+                // Ingress is almost always free; a long tail of $0.00 rows would bury the
+                // handful that cost real money.
+                + " HAVING SUM(" + cost + ") > 0.001"
+                + " ORDER BY cost DESC";
+
+        List<TransferCharge> charges = new ArrayList<>();
+        for (Map<String, String> row : athena.query(source, account, sql)) {
+            String usageType = blankTo(row.get("usage_type"), "");
+            Route route = resolveRoute(usageType,
+                    blankTo(row.get("from_location"), ""), blankTo(row.get("to_location"), ""));
+            charges.add(new TransferCharge(
+                    blankTo(row.get("category"), "Other network"),
+                    blankTo(row.get("service"), "Other"),
+                    usageType,
+                    blankTo(row.get("unit"), ""),
+                    parse(row.get("quantity")),
+                    parse(row.get("cost")),
+                    // Region-less network charges exist — an edge location is not a region —
+                    // and "Global" is the label the AWS invoice itself uses for them.
+                    blankTo(row.get("region"), "Global"),
+                    route.from(), route.to(), route.derived()));
+        }
+        return charges;
+    }
+
+    /**
+     * The costliest flows inside each network category — one resource, one route, one price.
+     *
+     * <p>Grain is resource × service × region × usage type × route, which is the finest
+     * thing a CUR can describe about a transfer. Usage type is in the grain rather than
+     * folded away because it is what distinguishes a gateway's hourly fee from its
+     * processing, and because it is what the route falls back to when the report has no
+     * location columns.
+     *
+     * <p>Quantities are split into gigabytes and hours rather than summed into one number.
+     * A NAT gateway bills both, and "4,645" as a total of 3,925 GB and 720 hours is a
+     * quantity of nothing.
+     *
+     * <p>The windows run after grouping and before the rank filter, so the category totals
+     * describe every flow in the month rather than the forty returned. That is what lets the
+     * caller say "top 40 of 512, covering 94% of this category" honestly — summing the
+     * returned rows instead would understate the category by its whole tail.
+     */
+    private List<TransferFlow> transferFlows(CurSource source, CloudAccount account,
+                                             LocalDate start, LocalDate end,
+                                             String fromExpr, String toExpr) {
+        String cost = CurSql.numericExpr(source, "line_item_unblended_cost");
+        String qty = CurSql.numericExpr(source, "line_item_usage_amount");
+        String category = networkCategoryExpr();
+        String resourceId = "COALESCE(NULLIF(line_item_resource_id, ''), '')";
+
+        // Absent unless the Name tag reaches this report — see CurTagColumns. MAX because
+        // the name has to survive the grouping; a resource renamed mid-month has two, and
+        // either is a better label than its id.
+        String nameExpr = tagColumns.resourceNameExpr(source, account).orElse(null);
+        String nameInner = nameExpr == null ? "" : " MAX(" + nameExpr + ") AS resource_name,";
+        String nameOuter = nameExpr == null ? "" : " resource_name,";
+
+        // The AZ is what makes a cross-AZ flow actionable: it names the zone the resource is
+        // talking out of. MAX rather than grouped, so a resource billed in two zones under
+        // the same usage type stays one row instead of splitting into two half-rows.
+        boolean hasAz = columnCatalog.has(source, account, "line_item_availability_zone");
+        String azInner = hasAz
+                ? " MAX(NULLIF(line_item_availability_zone, '')) AS availability_zone," : "";
+        String azOuter = hasAz ? " availability_zone," : "";
+
+        String routeSelect = (fromExpr == null ? "" : " " + fromExpr + " AS from_location,")
+                + (toExpr == null ? "" : " " + toExpr + " AS to_location,");
+        String routeOuter = (fromExpr == null ? "" : " from_location,")
+                + (toExpr == null ? "" : " to_location,");
+        String routeGroup = (fromExpr == null ? "" : ", " + fromExpr)
+                + (toExpr == null ? "" : ", " + toExpr);
+
+        String sql = "SELECT category, resource_id," + nameOuter + " service, region," + azOuter
+                + routeOuter + " usage_type, gigabytes, hours, cost,"
+                + " category_cost, category_flows"
+                + " FROM ("
+                + "SELECT " + category + " AS category,"
+                + " " + resourceId + " AS resource_id,"
+                + nameInner
+                + " product_product_name AS service,"
+                + " product_region AS region,"
+                + azInner
+                + routeSelect
+                + " line_item_usage_type AS usage_type,"
+                + " SUM(CASE WHEN upper(pricing_unit) = 'GB' THEN " + qty + " ELSE 0 END) AS gigabytes,"
+                + " SUM(CASE WHEN upper(pricing_unit) IN ('HRS', 'HOURS', 'HOUR')"
+                + "   THEN " + qty + " ELSE 0 END) AS hours,"
+                + " SUM(" + cost + ") AS cost,"
+                + " SUM(SUM(" + cost + ")) OVER (PARTITION BY " + category + ") AS category_cost,"
+                // Counted against the same threshold the outer WHERE applies, not COUNT(*).
+                // Counting every group made the footer contradict itself: a category with one
+                // sub-cent flow reported "top 9 of 10 — 100% of this category", because the
+                // tenth was excluded from the rows and from the money but still counted.
+                + " SUM(CASE WHEN SUM(" + cost + ") > " + TRANSFER_MIN_COST + " THEN 1 ELSE 0 END)"
+                + "   OVER (PARTITION BY " + category + ") AS category_flows,"
+                + " ROW_NUMBER() OVER (PARTITION BY " + category
+                + "   ORDER BY SUM(" + cost + ") DESC) AS rank_in_category"
+                + " FROM " + source.qualifiedTable()
+                + " WHERE " + accountPredicate(account)
+                + " AND " + CurSql.partitionPredicate(source, start, end)
+                + " AND " + CurSql.usageDatePredicate(source, start, end)
+                + " AND " + NETWORK_USAGE_PREDICATE
+                + " GROUP BY " + category + ", " + resourceId
+                + ", product_product_name, product_region, line_item_usage_type" + routeGroup
+                + ")"
+                + " WHERE rank_in_category <= " + TRANSFER_FLOWS_PER_CATEGORY
+                + " AND cost > " + TRANSFER_MIN_COST
+                + " ORDER BY category_cost DESC, cost DESC";
+
+        List<TransferFlow> flows = new ArrayList<>();
+        for (Map<String, String> row : athena.query(source, account, sql)) {
+            String usageType = blankTo(row.get("usage_type"), "");
+            Route route = resolveRoute(usageType,
+                    blankTo(row.get("from_location"), ""), blankTo(row.get("to_location"), ""));
+            flows.add(new TransferFlow(
+                    blankTo(row.get("category"), "Other network"),
+                    blankTo(row.get("resource_id"), ""),
+                    blankTo(row.get("resource_name"), ""),
+                    blankTo(row.get("service"), "Other"),
+                    blankTo(row.get("region"), "Global"),
+                    blankTo(row.get("availability_zone"), ""),
+                    route.from(), route.to(), route.derived(),
+                    usageType,
+                    parse(row.get("gigabytes")),
+                    parse(row.get("hours")),
+                    parse(row.get("cost")),
+                    parse(row.get("category_cost")),
+                    (long) parse(row.get("category_flows"))));
+        }
+        return flows;
+    }
+
+    /**
+     * The route for one row: what the report said, or what the usage type implies.
+     *
+     * <p>The report's own columns always win. They are only overridden when blank, and only
+     * then is the result marked derived — a reader deciding whether to act on "Mumbai →
+     * N. Virginia" is entitled to know whether AWS said it or XamOps worked it out from a
+     * usage type, and marking everything derived would devalue the rows that are not.
+     */
+    private Route resolveRoute(String usageType, String reportedFrom, String reportedTo) {
+        if (!reportedFrom.isBlank() && !reportedTo.isBlank()) {
+            return new Route(location(reportedFrom), location(reportedTo), false);
+        }
+        CurNetworkUsageType.Route derived = CurNetworkUsageType.parse(usageType);
+        if (!derived.isKnown()) {
+            // Nothing better to offer, so whatever the report gave stands, blank or not.
+            return new Route(location(reportedFrom), location(reportedTo), false);
+        }
+        String from = reportedFrom.isBlank() ? derived.from() : location(reportedFrom);
+        String to = reportedTo.isBlank() ? derived.to() : location(reportedTo);
+        return new Route(from, to, true);
+    }
+
+    /**
+     * One spelling per place, whoever named it.
+     *
+     * <p>AWS writes {@code "External"} in {@code product_to_location} for traffic leaving for
+     * the internet, where {@link CurNetworkUsageType} calls the same thing "Internet". Left
+     * alone, the identical route arrives under two labels depending on whether the report
+     * happened to fill the column in — so a category carrying both would split one route
+     * across two rows and halve each, which reads as two smaller problems instead of one real
+     * one. "Internet" wins because it is the one a reader does not have to translate.
+     */
+    private String location(String reported) {
+        return "External".equalsIgnoreCase(reported) ? CurNetworkUsageType.INTERNET : reported;
+    }
+
+    /** One end-to-end route, and whether it was inferred rather than reported. */
+    private record Route(String from, String to, boolean derived) {
+    }
+
+    /**
+     * Buckets a usage type into the category that explains the charge.
+     *
+     * <p>Ordered: the first match wins, so the more specific patterns come first. A NAT
+     * gateway's bytes also match the generic transfer patterns below it, and moving that
+     * arm down would file the largest network cost on most accounts under "egress".
+     *
+     * <p>The strings are a contract with the UI, which keys its icons and its explanation
+     * of each category off them.
+     */
+    private String networkCategoryExpr() {
+        return "CASE"
                 + " WHEN line_item_usage_type LIKE '%NatGateway%' THEN 'NAT Gateway'"
+                // Before the generic arms, and worth its own category rather than being
+                // buried in "Other network": a VPC endpoint is the fix for NAT gateway
+                // processing charges, so its cost is the number the NAT row is compared
+                // against. Interface endpoints are billed as PrivateLink on some services.
+                + " WHEN line_item_usage_type LIKE '%VpcEndpoint%'"
+                + "   OR line_item_usage_type LIKE '%PrivateLink%' THEN 'VPC endpoint'"
+                + " WHEN line_item_usage_type LIKE '%TransitGateway%' THEN 'Transit Gateway'"
                 + " WHEN line_item_usage_type LIKE '%Regional-Bytes%'"
                 + "   OR line_item_usage_type LIKE '%-AZ-%' THEN 'Cross-AZ'"
                 + " WHEN line_item_usage_type LIKE '%AWS-Out%'"
@@ -701,41 +1027,30 @@ public class CurAdvancedMetricsService {
                 + " WHEN line_item_usage_type LIKE '%DataTransfer-In%'"
                 + "   OR line_item_usage_type LIKE '%-In-Bytes%' THEN 'Internet ingress'"
                 + " ELSE 'Other network' END";
+    }
 
-        String sql = "SELECT " + category + " AS category,"
-                + " product_product_name AS service,"
-                + " line_item_usage_type AS usage_type,"
-                + " pricing_unit AS unit,"
-                + " SUM(" + qty + ") AS quantity,"
-                + " SUM(" + cost + ") AS cost"
-                + " FROM " + source.qualifiedTable()
-                + " WHERE " + accountPredicate(account)
-                + " AND " + CurSql.partitionPredicate(source, start, end)
-                + " AND " + CurSql.usageDatePredicate(source, start, end)
-                + " AND (line_item_usage_type LIKE '%DataTransfer%'"
-                + "   OR line_item_usage_type LIKE '%NatGateway%'"
-                + "   OR line_item_usage_type LIKE '%Bytes%')"
-                + " GROUP BY " + category + ", product_product_name,"
-                + " line_item_usage_type, pricing_unit"
-                // Ingress is almost always free; a long tail of $0.00 rows would bury the
-                // handful that cost real money.
-                + " HAVING SUM(" + cost + ") > 0.001"
-                + " ORDER BY cost DESC";
-
-        List<TransferCharge> charges = new ArrayList<>();
-        for (Map<String, String> row : athena.query(source, account, sql)) {
-            charges.add(new TransferCharge(
-                    blankTo(row.get("category"), "Other network"),
-                    blankTo(row.get("service"), "Other"),
-                    blankTo(row.get("usage_type"), ""),
-                    blankTo(row.get("unit"), ""),
-                    parse(row.get("quantity")),
-                    parse(row.get("cost"))));
+    /**
+     * Where traffic came from or went to, or null when this report cannot say.
+     *
+     * <p>Two columns can answer it and they differ in readability, not in meaning:
+     * {@code product_from_location} holds "Asia Pacific (Mumbai)", while
+     * {@code product_from_region_code} holds "ap-south-1". The readable one is preferred and
+     * the code is the fallback, because a route is read as a sentence.
+     *
+     * @param direction {@code from} or {@code to}
+     */
+    private String locationExpr(CurSource source, CloudAccount account, String direction) {
+        List<String> present = columnCatalog.present(source, account,
+                "product_" + direction + "_location",
+                "product_" + direction + "_region_code");
+        if (present.isEmpty()) {
+            return null;
         }
-
-        logger.info("✅ [CUR] Data transfer — {} rows for account {} ({} to {})",
-                charges.size(), account.getAwsAccountId(), start, end);
-        return charges;
+        StringBuilder coalesce = new StringBuilder("COALESCE(");
+        for (String column : present) {
+            coalesce.append("NULLIF(").append(column).append(", ''), ");
+        }
+        return coalesce.append("'')").toString();
     }
 
     // ── Charge type breakdown ───────────────────────────────────────────────────
@@ -990,9 +1305,75 @@ public class CurAdvancedMetricsService {
     public record TagValueCost(String value, double cost, long resourceCount) {
     }
 
-    /** One network charge, categorised by what drives it. */
+    /**
+     * Network spend for a period, at the two grains that make it actionable.
+     *
+     * @param charges           every network charge at billing grain, with its route. Correct
+     *                          even on a report with no resource ids, which is why it is not
+     *                          derived from {@code flows}.
+     * @param flows             the costliest resource-and-route combinations inside each
+     *                          category. Empty when the report has no resource ids.
+     * @param routeDataAvailable whether the report carries {@code product_from_location} and
+     *                          {@code product_to_location}. False does not mean the routes are
+     *                          missing — they are recovered from the usage type — it means
+     *                          every route shown is derived rather than reported.
+     * @param resourceDataAvailable whether the report carries {@code line_item_resource_id}.
+     *                          False means the route fields are blank because the report
+     *                          cannot say, not because the traffic had no route — a
+     *                          distinction the UI has to draw, since the two are
+     *                          indistinguishable from empty strings.
+     */
+    public record DataTransferBreakdown(List<TransferCharge> charges,
+                                        List<TransferFlow> flows,
+                                        boolean routeDataAvailable,
+                                        boolean resourceDataAvailable) {
+    }
+
+    /**
+     * One network charge, categorised by what drives it and routed where it went.
+     *
+     * @param region        the region billed for the charge, or "Global" when it has none
+     * @param fromLocation  where the traffic originated — "Asia Pacific (Mumbai)",
+     *                      "Internet", "CloudFront edge". Empty when neither the report nor
+     *                      the usage type says.
+     * @param toLocation    where it went, on the same terms
+     * @param routeDerived  true when the route was read out of the usage type because the
+     *                      report's own location columns were blank
+     */
     public record TransferCharge(String category, String service, String usageType,
-                                 String unit, double quantity, double cost) {
+                                 String unit, double quantity, double cost,
+                                 String region, String fromLocation, String toLocation,
+                                 boolean routeDerived) {
+    }
+
+    /**
+     * One resource's traffic on one route — the finest thing a CUR can describe.
+     *
+     * <p>Deliberately not "resource to resource". A line item names only the resource being
+     * charged, so the far end of a flow is a location and never a peer id; that answer is in
+     * VPC Flow Logs, not in any billing report.
+     *
+     * @param resourceId       the gateway, bucket, instance or load balancer being charged.
+     *                         Empty for network spend the report attributes to no resource.
+     * @param name             the resource's {@code Name} tag, or empty when the report does
+     *                         not carry it — normal, not missing data, so the caller falls
+     *                         back to the id
+     * @param availabilityZone the zone the charge is billed in, which is what makes a
+     *                         cross-AZ row actionable. Empty when the report has no AZ.
+     * @param gigabytes        GB-denominated usage only
+     * @param hours            hour-denominated usage only. Kept apart from {@code gigabytes}
+     *                         because a gateway bills both and their sum is a quantity of
+     *                         nothing.
+     * @param categoryCost     every flow in this category, not only the listed ones, so the
+     *                         caller can say what share the list covers
+     * @param categoryFlows    how many there were in total, on the same terms
+     */
+    public record TransferFlow(String category, String resourceId, String name,
+                               String service, String region, String availabilityZone,
+                               String fromLocation, String toLocation, boolean routeDerived,
+                               String usageType,
+                               double gigabytes, double hours, double cost,
+                               double categoryCost, long categoryFlows) {
     }
 
     /** Spend attributable to one line item type. */

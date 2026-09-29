@@ -1,0 +1,1076 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  XamOps Read-Only Access Stack (UAT, no inventory events): Creates a secure, read-only IAM
+  Role for the XamOps platform to monitor this AWS account and notifies XamOps when setup is
+  complete. Creates NO EventBridge bus, no per-region rules and no inventory forwarder Lambda
+  — resource discovery falls back to 60s polling.
+
+# =====================================================================================
+# RELATIONSHIP TO xamops-readonly-role-uat.yml
+#
+# This is that file with one thing removed: the XamOpsInventoryEvents nested stack. Kept
+# as a separate template rather than as EnableInventoryEvents=false on the main one so the
+# no-inventory behaviour is a property of the file handed out, not of a parameter that has
+# to be set correctly on every launch. UAT's onboarding link is built by AwsAccountService
+# and does not pass EnableInventoryEvents, so on the main template the parameter default
+# ('true') wins and inventory is created.
+#
+# Everything else is identical and intentionally so: the same read-only permission set,
+# the same EKS aws-auth automation, the same auto-connect callback, the same CUR stacks,
+# the same console-update role. Diff the two files before editing either.
+#
+# UAT-specific values that must not drift:
+#   RoleName                 XamOpsReadOnlyRole-uat   -> xamops.role.readonly.name
+#   XamOpsPrincipalRoleName  XamOps-App-EC2-Role-new  -> the UAT app server's instance role
+#   XamOpsCallbackUrl        https://uat.xamops.com/... -> UAT backend
+# =====================================================================================
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "XamOps Platform Configuration"
+        Parameters:
+          - XamOpsAccountId
+          - ExternalId
+          - XamOpsEventBusArn
+      - Label:
+          default: "Amazon EKS Configuration"
+        Parameters:
+          - EKSClusterNames
+      - Label:
+          default: "Cost and Usage Report (Optional)"
+        Parameters:
+          - CurS3Bucket
+    ParameterLabels:
+      XamOpsAccountId:
+        default: "XamOps AWS Account ID"
+      ExternalId:
+        default: "Unique External ID"
+      XamOpsEventBusArn:
+        default: "XamOps EventBridge Bus ARN"
+      EKSClusterNames:
+        default: "EKS Cluster Names (Optional)"
+      CurS3Bucket:
+        default: "CUR S3 Bucket Name (leave blank if under a XamOps payer account)"
+
+Parameters:
+  XamOpsAccountId:
+    Type: String
+    Description: The 12-digit AWS Account ID for the XamOps platform. Provided by XamOps.
+    AllowedPattern: '^\d{12}$'
+    ConstraintDescription: Must be a 12-digit AWS Account ID.
+
+  ExternalId:
+    Type: String
+    Description: A unique secret value provided by XamOps to secure the connection.
+    MinLength: 10
+
+  XamOpsEventBusArn:
+    Type: String
+    Description: ARN of the XamOps EventBridge custom bus that receives the connection confirmation.
+    Default: 'arn:aws:events:ap-south-1:605134457560:event-bus/xamops-onboarding-events'
+
+  EKSClusterNames:
+    Type: CommaDelimitedList
+    Description: (Optional) Comma-separated list of EKS cluster names.
+    Default: ""
+
+  XamOpsCallbackUrl:
+    Type: String
+    Description: XamOps backend endpoint that receives the direct auto-connect callback.
+    Default: 'https://uat.xamops.com/api/xamops/account-manager/eventbridge-callback'
+
+  # -------------------------------------------------------------------
+  # Inventory events — DELIBERATELY ABSENT FROM THIS TEMPLATE
+  #
+  # This is the no-inventory UAT variant of xamops-readonly-role-uat.yml. It
+  # creates the read-only role, the EKS aws-auth automation, the auto-connect
+  # callback and the CUR stacks, and nothing else. There is no EventBridge bus,
+  # no per-region rule, no forwarder Lambda and no nested inventory stack.
+  #
+  # Consequence, so it is not a surprise later: XamOps still discovers this
+  # account's resources, but by polling Resource Explorer roughly every 60s
+  # rather than being told within seconds of a change. The UAT inventory queue
+  # (xamops.inventory.events.queue-url) receives nothing from accounts
+  # onboarded with this template.
+  #
+  # The two parameters below are accepted and ignored on purpose. AwsAccountService
+  # appends param_XamOpsInventoryQueueUrl and param_XamOpsInventoryRegion to every
+  # UAT onboarding link, so declaring them keeps this file a drop-in replacement
+  # at the same S3 key with no backend change. Removing them would leave the link
+  # carrying parameters the template does not define.
+  # -------------------------------------------------------------------
+  XamOpsInventoryQueueUrl:
+    Type: String
+    Description: >
+      (Unused in this template) URL of the XamOps inventory event queue. Accepted
+      so the onboarding link's parameters still bind; nothing forwards to it here.
+    Default: 'https://sqs.ap-south-1.amazonaws.com/605134457560/xamops-inventory-events-uat.fifo'
+
+  XamOpsInventoryRegion:
+    Type: String
+    Description: (Unused in this template) Region hosting the XamOps inventory event queue.
+    Default: 'ap-south-1'
+
+  XamOpsPrincipalRoleName:
+    Type: String
+    Default: 'XamOps-App-EC2-Role-new'
+    Description: >
+      Name of the IAM role the XamOps backend runs as. This is the ONLY principal
+      allowed to assume the role created here.
+
+      It must name the instance profile of the environment doing the connecting, and
+      UAT differs from production: the UAT app server runs as
+      XamOps-App-EC2-Role-new, production as XamOps-App-EC2-Role.
+
+      This was hardcoded to XamOps-App-EC2-Role in every template, so a UAT
+      connection produced a role whose trust policy excluded the very server trying
+      to use it. The stack reached CREATE_COMPLETE and verification then failed with
+      "Role assumption failed", which reads like a customer misconfiguration rather
+      than ours.
+    AllowedPattern: '^[A-Za-z0-9+=,.@_-]{1,64}$'
+
+  # -------------------------------------------------------------------
+  # Cost and Usage Report (CUR)
+  #
+  # Only needed when this account keeps its OWN CUR — a standalone account, or
+  # a member account whose payer XamOps does not manage. Accounts that sit under
+  # a XamOps management/payer account are covered by that MPA's own CUR, which
+  # XamOps reads from its own bucket with its own credentials, so they leave
+  # this blank and no CUR permission is added to this role at all.
+  #
+  # Blank also covers the case where no CUR is obtainable: a member account whose
+  # payer never enabled linked-account access to billing data cannot create one,
+  # and XamOps serves that account from the Cost Explorer API instead.
+  # -------------------------------------------------------------------
+  CurS3Bucket:
+    Type: String
+    Default: ''
+    Description: >
+      (Optional) Name of the S3 bucket holding this account's Cost and Usage Report.
+      Leave blank if this account is under a XamOps payer account, or if you have no CUR.
+      Use AUTO if you are also deploying the XamOps cost reporting stack, which creates
+      xamops-cur-<this account id>.
+  # CUR 2.0 Data Export (billing reconciliation for BillOps invoicing)
+  #
+  # Cost to this account is a few cents a month (S3 storage + requests only — Data
+  # Exports itself has no AWS charge) and is purged automatically after
+  # 90 days.
+  # -------------------------------------------------------------------
+  EnableCurExport:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Set up an AWS Cost and Usage Report (CUR 2.0) export to a dedicated S3
+      bucket in this account, so BillOps can reconcile invoices from AWS's
+      billing source of truth instead of Cost Explorer's aggregated totals.
+      Creates one S3 bucket and one Data Export. Cost is typically a few
+      cents a month.
+
+  XamOpsCurExportTemplateUrl:
+    Type: String
+    Description: S3 URL of the nested CUR export template.
+    Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-cur-export-nested.yaml'
+
+  # ---------------------------------------------------------------------------------
+  # CUR 1.0 — the report XamOps itself reads.
+  #
+  # On by default, and nested here rather than left to a second launch link, because an
+  # optional step is one most accounts never take: XamOps then shows Cost Explorer
+  # figures everywhere and nobody can say why the per-resource and invoice views are
+  # empty. CUR 2.0 above stays available but is off by default; the two write the same
+  # bucket name and only one can own it.
+  # ---------------------------------------------------------------------------------
+  EnableCurReport:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: >
+      Create an AWS Cost and Usage Report (CUR 1.0) in this account, so XamOps can show
+      per-resource cost, invoice-level charges and data transfer breakdowns that the Cost
+      Explorer API cannot express. Set to false for an account under a XamOps payer
+      account, which is already covered by that payer's report.
+
+  XamOpsCurReportTemplateUrl:
+    Type: String
+    Description: S3 URL of the nested CUR 1.0 report template.
+    Default: 'https://xamopscftemplate.s3.ap-south-1.amazonaws.com/xamops-cur-report.yml'
+
+Conditions:
+  # Guards the CUR export nested stack. With this off, BillOps simply keeps
+  # reconciling this account's invoices from Cost Explorer.
+  DeployCurExport: !Equals [!Ref EnableCurExport, 'true']
+
+  # AWS::CUR::ReportDefinition exists only in us-east-1, and a nested stack is created in
+  # its parent's region. The onboarding link pins us-east-1, but a customer who changes it
+  # in the console would otherwise fail the whole connection on a report they can live
+  # without — so the report is skipped instead, and the platform reports it as missing.
+  IsCurReportRegion: !Equals [!Ref 'AWS::Region', 'us-east-1']
+
+  DeployCurReport: !And
+    - !Equals [!Ref EnableCurReport, 'true']
+    - !Condition IsCurReportRegion
+
+  # Whether the role is granted CUR read permissions at all.
+  #
+  # Deploying the export is itself a bucket: the nested stack creates
+  # xamops-cur-<this account id> whether or not anyone named it here. Testing only
+  # CurS3Bucket left the two defaults contradicting each other — EnableCurExport
+  # defaults to 'true' and CurS3Bucket to '' — so a stack launched with defaults
+  # created a CUR bucket and then withheld permission to read it. The data arrived
+  # and every query against it failed with AccessDenied.
+  #
+  # Keeping the grant off entirely — rather than scoped to a wildcard — is what lets an
+  # account under a XamOps MPA deploy this stack with the same permission surface it had
+  # before CUR support existed. That account sets EnableCurExport to 'false'.
+  # Either report writes the same bucket, xamops-cur-<this account id>, so the read
+  # grant follows whichever one is on rather than being tied to the CUR 2.0 export.
+  CreatesOwnCurBucket: !Or
+    - !Condition DeployCurExport
+    - !Condition DeployCurReport
+
+  HasCurBucket: !Or
+    - !Not [!Equals [!Ref CurS3Bucket, '']]
+    - !Condition CreatesOwnCurBucket
+
+  # Whether the bucket is the one the export nested stack creates, rather than one the
+  # customer named. 'AUTO' says so explicitly; an empty value alongside the export says
+  # so implicitly, and both have to resolve to the same ARN or the policy names a bucket
+  # that does not exist.
+  #
+  # Derived here rather than passed in, because the onboarding UI does not know the account
+  # id when it builds this launch URL. An IAM policy may name a bucket that does not exist
+  # yet — it grants nothing until it does — so the two stacks can be launched in any order.
+  AutoCurBucket: !Or
+    - !Equals [!Ref CurS3Bucket, 'AUTO']
+    - !And
+      - !Equals [!Ref CurS3Bucket, '']
+      - !Condition CreatesOwnCurBucket
+
+Resources:
+  # =================================================================
+  # 1. IAM Role for XamOps Platform to Assume
+  # =================================================================
+  XamOpsReadOnlyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'XamOpsReadOnlyRole-uat'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${XamOpsAccountId}:role/${XamOpsPrincipalRoleName}'
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+      Policies:
+        - PolicyName: XamOpsComprehensiveReadOnlyPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: 'XamOpsApplicationPermissions'
+                Effect: Allow
+                Action:
+                  - 'acm:ListCertificates'
+                  - 'access-analyzer:ListAnalyzers'
+                  - 'access-analyzer:ListFindings'
+                  - 'autoscaling:DescribeAutoScalingGroups'
+                  - 'budgets:ViewBudget'
+                  - 'budgets:ModifyBudget'
+                  - 'ce:GetAnomalies'
+                  - 'ce:GetCostAndUsage'
+                  - 'ce:GetDimensionValues'
+                  - 'ce:GetReservationCoverage'
+                  - 'ce:GetReservationPurchaseRecommendation'
+                  - 'ce:GetReservationUtilization'
+                  - 'cloudtrail:DescribeTrails'
+                  - 'cloudtrail:GetTrailStatus'
+                  - 'cloudtrail:LookupEvents'
+                  - 'cloudwatch:DescribeAlarms'
+                  - 'cloudwatch:GetMetricData'
+                  - 'cloudwatch:GetMetricStatistics'
+                  - 'compute-optimizer:GetEBSVolumeRecommendations'
+                  - 'compute-optimizer:GetEc2InstanceRecommendations'
+                  - 'compute-optimizer:GetLambdaFunctionRecommendations'
+                  - 'dynamodb:DescribeTable'
+                  - 'dynamodb:ListTables'
+                  - 'ec2:Describe*'
+                  - 'ecr:DescribeRepositories'
+                  - 'ecs:DescribeClusters'
+                  - 'ecs:ListClusters'
+                  - 'eks:DescribeCluster'
+                  - 'eks:ListClusters'
+                  - 'elasticache:DescribeCacheClusters'
+                  - 'elasticloadbalancing:DescribeLoadBalancers'
+                  - 'elasticloadbalancing:DescribeTargetGroups'
+                  - 'elasticloadbalancing:DescribeTargetHealth'
+                  - 'iam:GetAccountPasswordPolicy'
+                  - 'iam:GetGroupPolicy'
+                  - 'iam:GetLoginProfile'
+                  - 'iam:GetPolicy'
+                  - 'iam:GetPolicyVersion'
+                  - 'iam:GetRole'
+                  - 'iam:GetRolePolicy'
+                  - 'iam:GetUserPolicy'
+                  - 'iam:ListAccessKeys'
+                  - 'iam:ListAccountAliases'
+                  - 'iam:ListAttachedGroupPolicies'
+                  - 'iam:ListAttachedRolePolicies'
+                  - 'iam:ListAttachedUserPolicies'
+                  - 'iam:ListGroupPolicies'
+                  - 'iam:ListGroups'
+                  - 'iam:ListGroupsForUser'
+                  - 'iam:ListMFADevices'
+                  - 'iam:ListPolicies'
+                  - 'iam:ListRolePolicies'
+                  - 'iam:ListRoles'
+                  - 'iam:ListUserPolicies'
+                  - 'iam:ListUsers'
+                  - 'kms:DescribeKey'
+                  - 'kms:GetKeyRotationStatus'
+                  - 'kms:ListKeys'
+                  - 'lambda:ListFunctions'
+                  - 'lambda:ListProvisionedConcurrencyConfigs'
+                  - 'lambda:ListVersionsByFunction'
+                  - 'logs:DescribeLogGroups'
+                  - 'logs:DescribeLogStreams'
+                  - 'logs:GetQueryResults'
+                  - 'logs:StartQuery'
+                  - 'organizations:DescribeAccount'
+                  - 'organizations:ListAccounts'
+                  - 'pricing:DescribeServices'
+                  - 'pricing:GetProducts'
+                  - 'pricing:ListPriceLists'
+                  - 'rds:DescribeDBInstances'
+                  - 'rds:DescribeDBSnapshots'
+                  - 'rds:ListTagsForResource'
+                  # Resource Explorer — inventory source. One cross-region Search
+                  # replaces ~1000 per-service describes, at no charge. Read-only:
+                  # these actions never create an index.
+                  - 'resource-explorer-2:Search'
+                  - 'resource-explorer-2:ListResources'
+                  - 'resource-explorer-2:ListIndexes'
+                  - 'resource-explorer-2:ListViews'
+                  - 'resource-explorer-2:GetIndex'
+                  - 'resource-explorer-2:GetView'
+                  - 'resource-explorer-2:GetDefaultView'
+                  # ------------------------------------------------------------------
+                  # Index creation - the only non-read Resource Explorer action here.
+                  #
+                  # AWS does not auto-index opt-in regions (Hyderabad, Jakarta, Melbourne,
+                  # UAE, Zurich, Spain, Milan, Cape Town, Bahrain, Osaka). Measured on a
+                  # live account: 18 enabled regions, 17 indexed, and the 7 EC2 instances
+                  # in the unindexed region were invisible to XamOps. Without this
+                  # permission every customer using an opt-in region needs a manual fix
+                  # before their inventory is complete, so the gap persists silently.
+                  #
+                  # A Resource Explorer index holds no customer data of its own and is free
+                  # of charge - it only lets AWS answer "what exists in this region".
+                  # Creation is one-time per region and idempotent.
+                  # ------------------------------------------------------------------
+                  - 'resource-explorer-2:CreateIndex'
+                  # Promote the first index to AGGREGATOR when the account has none.
+                  #
+                  # CreateIndex alone is not enough. An account with a LOCAL index in every
+                  # region and no aggregator is still enumerated one region at a time, so a
+                  # resource created anywhere else is not slow to appear - it is invisible.
+                  # That is the state every newly onboarded account starts in, and nothing
+                  # else creates the first aggregator, so without this the fix stays a manual
+                  # per-account chore.
+                  #
+                  # Only ever used when no aggregator exists; AWS allows one per account and
+                  # a customer's own choice is never overridden.
+                  - 'resource-explorer-2:UpdateIndexType'
+                  # Fallback when Resource Explorer is blocked: one call per region.
+                  - 'tag:GetResources'
+                  - 'tag:GetTagKeys'
+                  - 'route53:ListHostedZones'
+                  - 's3:GetBucketAcl'
+                  - 's3:GetBucketLocation'
+                  - 's3:GetBucketPublicAccessBlock'
+                  - 's3:GetLifecycleConfiguration'
+                  - 's3:ListAccessGrantsInstances'
+                  - 's3:ListAccessGrantsLocations'
+                  - 's3:ListAllMyBuckets'
+                  - 's3:ListBucket'
+                  - 's3:ListBucketVersions'
+                  - 's3:ListMultiRegionAccessPoints'
+                  - 'servicequotas:ListServiceQuotas'
+                  - 'sns:ListTopics'
+                  - 'sqs:GetQueueAttributes'
+                  - 'sqs:ListQueues'
+                  - 'sts:GetCallerIdentity'
+                  - 'aws-marketplace:SearchAgreements'
+                  - 'aws-marketplace:DescribeAgreement'
+                  - 'aws-marketplace:GetAgreementTerms'
+                  - 'aws-marketplace:DescribeEntity'
+                  - 'aws-marketplace:SendAgreementPaymentRequest'
+                  - 'aws-marketplace:CancelAgreementPaymentRequest'
+                  - 'aws-marketplace:GetAgreementPaymentRequest'
+                  - 'aws-marketplace:ListEntities'
+                  - 'aws-marketplace:SearchListings'
+                  - 'aws-marketplace:GetListing'
+                  - 'aws-marketplace:GetProduct'
+                  - 'aws-marketplace:GetOffer'
+                  - 'aws-marketplace:GetOfferTerms'
+                  - 'aws-marketplace:ListPurchaseOptions'
+                  - 'aws-marketplace:ListFulfillmentOptions'
+                  - 'aws-marketplace:ListAgreementInvoiceLineItems'
+                  - 'aws-marketplace:ListAgreementPaymentRequests'
+                  - 'aws-marketplace:GetBillingAdjustmentRequest'
+                  - 'aws-marketplace:BatchCreateBillingAdjustmentRequest'
+                  - 'aws-marketplace:ListAgreementCancellationRequests'
+                  - 'aws-marketplace:SendAgreementCancellationRequest'
+                  - 'aws-marketplace:GetAgreementCancellationRequest'
+                  - 'aws-marketplace:CancelAgreementCancellationRequest'
+                Resource: '*'
+
+              # ------------------------------------------------------------------
+              # MediaOps output storage
+              #
+              # MediaOps transcodes media and writes the output into a bucket of this
+              # account by assuming this role, so it needs object writes even on the
+              # read-only stack — without them every job fails at submission with
+              # "not authorized to perform: s3:PutObject".
+              #
+              # Deliberately scoped to the xamops-mediaops/ key prefix (OUTPUT_ROOT in
+              # AccountS3Service) rather than the whole bucket: the role can create and
+              # remove only the objects XamOps itself wrote, and stays read-only for
+              # every other object in every bucket. Keep this prefix in sync with
+              # AccountS3Service.OUTPUT_ROOT.
+              # ------------------------------------------------------------------
+              # The single write action on this read-only role, isolated and
+              # condition-scoped to one AWS service. Grants Resource Explorer a
+              # complete, self-updating index; without it Search returns only
+              # partial results. IAM evaluates iam:AWSServiceName, so no other
+              # service-linked role can be created with this.
+              - Sid: 'XamOpsResourceExplorerServiceLinkedRole'
+                Effect: Allow
+                Action: 'iam:CreateServiceLinkedRole'
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    'iam:AWSServiceName': 'resource-explorer-2.amazonaws.com'
+
+              - Sid: 'XamOpsMediaOpsOutputWrite'
+                Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                  - 's3:DeleteObject'
+                Resource: 'arn:aws:s3:::*/xamops-mediaops/*'
+
+              # ------------------------------------------------------------------
+              # Cost and Usage Report access
+              #
+              # Attached only when CurS3Bucket is set, i.e. when the CUR lives in
+              # THIS account. Accounts under a XamOps payer account get nothing here.
+              #
+              # Most of what a CUR read needs is already granted by the
+              # ReadOnlyAccess managed policy above (s3:GetObject, glue:Get*,
+              # athena:GetQueryExecution/GetQueryResults). The two grants that are
+              # genuinely new are athena:StartQueryExecution — a write action, so
+              # absent from ReadOnlyAccess — and the s3:PutObject below.
+              #
+              # Athena has no mode that avoids writing query results, so reading a
+              # CUR requires one object write. It is scoped to a dedicated prefix
+              # rather than the bucket, following the same pattern as the MediaOps
+              # carve-out above: the role can create only the objects XamOps itself
+              # wrote, and stays read-only for every other object in the bucket.
+              # Keep this prefix in sync with CurSource.athenaResultsLocation.
+              # ------------------------------------------------------------------
+              - !If
+                - HasCurBucket
+                - Sid: 'XamOpsCurBucketRead'
+                  Effect: Allow
+                  Action:
+                    - 's3:GetObject'
+                    - 's3:ListBucket'
+                    - 's3:GetBucketLocation'
+                  Resource:
+                    - !If [AutoCurBucket, !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}', !Sub 'arn:aws:s3:::${CurS3Bucket}']
+                    - !If [AutoCurBucket, !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/*', !Sub 'arn:aws:s3:::${CurS3Bucket}/*']
+                - !Ref 'AWS::NoValue'
+
+              - !If
+                - HasCurBucket
+                - Sid: 'XamOpsCurAthenaQuery'
+                  Effect: Allow
+                  Action:
+                    - 'athena:StartQueryExecution'
+                    - 'athena:StopQueryExecution'
+                    - 'athena:GetQueryExecution'
+                    - 'athena:GetQueryResults'
+                    - 'athena:GetWorkGroup'
+                  Resource: '*'
+                - !Ref 'AWS::NoValue'
+
+              - !If
+                - HasCurBucket
+                - Sid: 'XamOpsCurGlueCatalog'
+                  Effect: Allow
+                  Action:
+                    - 'glue:GetDatabase'
+                    - 'glue:GetDatabases'
+                    - 'glue:GetTable'
+                    - 'glue:GetTables'
+                    - 'glue:GetPartition'
+                    - 'glue:GetPartitions'
+                    # Athena describes a CUR through a Glue table, and XamOps builds that
+                    # table from the report's own manifest rather than running a crawler.
+                    # The table is pure metadata over objects already in this account —
+                    # dropping an EXTERNAL table deletes no data — but creating it needs
+                    # these writes. It is recreated on each validation because a CUR gains
+                    # columns over time as AWS adds product attributes and cost allocation
+                    # tags are activated.
+                    - 'glue:CreateDatabase'
+                    - 'glue:CreateTable'
+                    - 'glue:DeleteTable'
+                    - 'glue:BatchCreatePartition'
+                  Resource: '*'
+                - !Ref 'AWS::NoValue'
+
+              - !If
+                - HasCurBucket
+                - Sid: 'XamOpsCurAthenaResultsWrite'
+                  Effect: Allow
+                  Action:
+                    - 's3:PutObject'
+                    - 's3:AbortMultipartUpload'
+                  Resource: !If
+                    - AutoCurBucket
+                    - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/xamops-athena-results/*'
+                    - !Sub 'arn:aws:s3:::${CurS3Bucket}/xamops-athena-results/*'
+                - !Ref 'AWS::NoValue'
+
+              # BillOps CUR read access — scoped to the dedicated
+              # xamops-cur-{accountId} bucket created by the nested
+              # XamOpsCurExport stack, not a wildcard.
+              - Sid: 'XamOpsCurReadAccess'
+                Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:ListBucket'
+                Resource:
+                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}'
+                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/*'
+
+  # =================================================================
+  # 2. IAM Role for the EKS Automation Lambda
+  # =================================================================
+  ConfigMapLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: EKSDescribeAndModifyAuthConfigMapPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'eks:DescribeCluster'
+                Resource: !Sub 'arn:aws:eks:${AWS::Region}:${AWS::AccountId}:cluster/*'
+              - Effect: Allow
+                Action: 'sts:GetCallerIdentity'
+                Resource: '*'
+
+  # =================================================================
+  # 3. Lambda to Update EKS aws-auth ConfigMap
+  # =================================================================
+  EKSAuthMapUpdaterFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt ConfigMapLambdaExecutionRole.Arn
+      Runtime: python3.12
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import cfnresponse
+          import boto3
+          import base64
+          import urllib3
+          import os
+          import time
+          from botocore.signers import RequestSigner
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def get_bearer_token(cluster_name, region):
+              sts_client = boto3.client('sts', region_name=region)
+              service_id = sts_client.meta.service_model.service_id
+              signer = RequestSigner(
+                  service_id, region, 'sts', 'v4',
+                  boto3.Session().get_credentials(),
+                  boto3.Session().events
+              )
+              params = {
+                  'method': 'GET',
+                  'url': f'https://sts.{region}.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15',
+                  'body': {},
+                  'headers': { 'x-k8s-aws-id': cluster_name },
+                  'context': {}
+              }
+              signed_url = signer.generate_presigned_url(
+                  params, region_name=region, expires_in=60, operation_name=''
+              )
+              base64_url = base64.urlsafe_b64encode(signed_url.encode('utf-8')).rstrip(b'=').decode('utf-8')
+              return 'k8s-aws-v1.' + base64_url
+
+          def handler(event, context):
+              request_type = event['RequestType']
+              props = event['ResourceProperties']
+              role_arn = props['RoleArn']
+              cluster_names = props['ClusterNames']
+              physical_resource_id = f"eks-auth-updater-{props.get('StackId', 'default')}"
+
+              try:
+                  if request_type == 'Delete':
+                      logger.info("Stack deletion triggered. No action taken on aws-auth ConfigMap.")
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_resource_id)
+                      return
+
+                  if not cluster_names or not cluster_names[0]:
+                      logger.info("No EKS cluster names provided. Skipping ConfigMap update.")
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_resource_id)
+                      return
+
+                  eks_client = boto3.client('eks')
+                  for cluster_name in cluster_names:
+                      cluster_name = cluster_name.strip()
+                      if not cluster_name: continue
+
+                      logger.info(f"Processing cluster: {cluster_name}")
+                      cluster_info = eks_client.describe_cluster(name=cluster_name)['cluster']
+                      endpoint = cluster_info['endpoint']
+                      ca_data_b64 = cluster_info['certificateAuthority']['data']
+                      region = cluster_info['arn'].split(':')[3]
+
+                      ca_cert_file = '/tmp/ca.crt'
+                      with open(ca_cert_file, 'wb') as f:
+                          f.write(base64.b64decode(ca_data_b64))
+
+                      token = get_bearer_token(cluster_name, region)
+                      http = urllib3.PoolManager(ca_certs=ca_cert_file)
+
+                      headers = {'Authorization': f'Bearer {token}'}
+                      get_url = f"{endpoint}/api/v1/namespaces/kube-system/configmaps/aws-auth"
+
+                      resp = http.request('GET', get_url, headers=headers)
+                      if resp.status != 200:
+                          raise Exception(f"Failed to get aws-auth ConfigMap for {cluster_name}: Status {resp.status} - {resp.data.decode('utf-8')}")
+
+                      cm = json.loads(resp.data.decode('utf-8'))
+                      map_roles_str = cm['data'].get('mapRoles', '[]')
+                      map_roles = json.loads(map_roles_str) if map_roles_str else []
+
+                      role_exists = any(entry.get('rolearn') == role_arn for entry in map_roles)
+
+                      if not role_exists:
+                          logger.info(f"Role ARN not found. Adding '{role_arn}' to ConfigMap for cluster '{cluster_name}'.")
+                          map_roles.append({
+                              'rolearn': role_arn,
+                              'username': 'xamops-monitoring-role:{{SessionName}}',
+                              'groups': ['system:viewers']
+                          })
+                          cm['data']['mapRoles'] = json.dumps(map_roles, indent=2)
+
+                          patch_headers = headers.copy()
+                          patch_headers['Content-Type'] = 'application/strategic-merge-patch+json'
+
+                          patch_payload = json.dumps({'data': cm['data']})
+                          patch_resp = http.request('PATCH', get_url, headers=patch_headers, body=patch_payload.encode('utf-8'))
+
+                          if patch_resp.status != 200:
+                              raise Exception(f"Failed to update aws-auth ConfigMap for {cluster_name}: Status {patch_resp.status} - {patch_resp.data.decode('utf-8')}")
+
+                          logger.info(f"Successfully added role to aws-auth ConfigMap for cluster {cluster_name}")
+                      else:
+                          logger.info(f"Role {role_arn} already exists in aws-auth ConfigMap for cluster {cluster_name}. No changes made.")
+
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_resource_id)
+
+              except Exception as e:
+                  logger.error(f"Error processing EKS auth config: {e}", exc_info=True)
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Error": str(e)}, physical_resource_id)
+
+  # =================================================================
+  # 4. Custom Resource to Trigger EKS Lambda
+  # =================================================================
+  EKSAuthConfig:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt EKSAuthMapUpdaterFunction.Arn
+      RoleArn: !GetAtt XamOpsReadOnlyRole.Arn
+      ClusterNames: !Ref EKSClusterNames
+      StackId: !Ref AWS::StackId
+
+  # =================================================================
+  # 5. IAM Role for Auto-Callback Lambda (EventBridge PutEvents)
+  # =================================================================
+  AutoCallbackLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: XamOpsEventBridgePutEventsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 'events:PutEvents'
+                Resource: !Ref XamOpsEventBusArn
+
+  # =================================================================
+  # 6. Auto-Callback Lambda — sends EventBridge event when stack is ready
+  # =================================================================
+  AutoCallbackFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt AutoCallbackLambdaRole.Arn
+      Runtime: python3.12
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          import cfnresponse
+          import boto3
+          import urllib3
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def handler(event, context):
+              request_type = event['RequestType']
+              props = event['ResourceProperties']
+              physical_resource_id = 'xamops-auto-callback'
+
+              if request_type == 'Delete':
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_resource_id)
+                  return
+
+              event_bus_arn = props['EventBusArn']
+              external_id = props['ExternalId']
+              aws_account_id = props['AwsAccountId']
+              role_arn = props['RoleArn']
+              callback_url = props.get('CallbackUrl', '')
+
+              # StackId lets XamOps record which stack owns this connection. Without it the
+              # platform has to ask CloudFormation which stack created the role — which works,
+              # but cannot tell a stack that was deleted and recreated from the original.
+              stack_id = props.get('StackId', '')
+
+              detail = json.dumps({
+                  'externalId': external_id,
+                  'awsAccountId': aws_account_id,
+                  'roleArn': role_arn,
+                  'stackId': stack_id
+              })
+
+              # 1. Send EventBridge event (for audit/logging)
+              try:
+                  bus_region = event_bus_arn.split(':')[3]
+                  eb = boto3.client('events', region_name=bus_region)
+                  response = eb.put_events(Entries=[{
+                      'Source': 'com.xamops.onboarding',
+                      'DetailType': 'AccountOnboardingComplete',
+                      'Detail': detail,
+                      'EventBusName': event_bus_arn
+                  }])
+                  failed = response.get('FailedEntryCount', 0)
+                  if failed > 0:
+                      logger.error(f"EventBridge PutEvents had {failed} failed entries: {response['Entries']}")
+                  else:
+                      logger.info(f"EventBridge event sent for externalId={external_id}")
+              except Exception as e:
+                  logger.warning(f"EventBridge PutEvents failed (non-fatal): {str(e)}")
+
+              # 2. Call XamOps backend directly so account status updates immediately
+              if callback_url:
+                  try:
+                      http = urllib3.PoolManager()
+                      payload_bytes = detail.encode('utf-8')
+                      cb_resp = http.request(
+                          'POST', callback_url,
+                          body=payload_bytes,
+                          headers={'Content-Type': 'application/json'},
+                          timeout=urllib3.Timeout(connect=5.0, read=15.0)
+                      )
+                      logger.info(f"Direct callback to {callback_url} returned HTTP {cb_resp.status}")
+                  except Exception as cb_err:
+                      logger.warning(f"Direct callback failed (non-fatal): {str(cb_err)}")
+
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, physical_resource_id)
+
+  # =================================================================
+  # 7. Custom Resource to Trigger Auto-Callback
+  #    Runs AFTER EKSAuthConfig so role is fully ready
+  # =================================================================
+  XamOpsAutoCallback:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn: EKSAuthConfig
+    Properties:
+      ServiceToken: !GetAtt AutoCallbackFunction.Arn
+      EventBusArn: !Ref XamOpsEventBusArn
+      CallbackUrl: !Ref XamOpsCallbackUrl
+      ExternalId: !Ref ExternalId
+      AwsAccountId: !Ref AWS::AccountId
+      RoleArn: !GetAtt XamOpsReadOnlyRole.Arn
+      StackId: !Ref AWS::StackId
+
+  # =================================================================
+  # 8. Inventory Events (nested) — NOT CREATED BY THIS TEMPLATE
+  #
+  # xamops-readonly-role-uat.yml nests xamops-inventory-events-nested.yaml here.
+  # This variant omits it, which is the only difference in behaviour between the
+  # two files. If you later want event-driven inventory on an account connected
+  # with this template, update its stack onto xamops-readonly-role-uat.yml rather
+  # than adding resources here — XamOpsConnectionUpdaterRole below already carries
+  # the permissions that update needs.
+  # =================================================================
+
+  # =================================================================
+  # CUR 2.0 Data Export (nested)
+  #
+  # Nested for the same reason as inventory events: keeps the S3 bucket,
+  # bucket policy, and BCMDataExports::Export resources out of the base
+  # read-only role definition so they can be reused/updated independently
+  # and skipped entirely when disabled.
+  #
+  # Without this resource the EnableCurExport parameter and DeployCurExport
+  # condition above are inert — the switch exists but nothing acts on it, so
+  # the stack reports success having created no report at all.
+  # =================================================================
+  XamOpsCurExport:
+    Type: AWS::CloudFormation::Stack
+    Condition: DeployCurExport
+    Properties:
+      TemplateURL: !Ref XamOpsCurExportTemplateUrl
+      TimeoutInMinutes: 15
+      Parameters:
+        XamOpsAccountId: !Ref XamOpsAccountId
+
+  # =================================================================
+  # CUR 1.0 REPORT (nested)
+  #
+  # Defaults in that template — report name xamops-cur, prefix cur, HOURLY, resource ids
+  # on — are what CurAutoRegistrationService looks for when it registers the source
+  # automatically. Changing them here without changing that service leaves the report
+  # created and unregistered.
+  # =================================================================
+  XamOpsCurReport:
+    Type: AWS::CloudFormation::Stack
+    Condition: DeployCurReport
+    Properties:
+      TemplateURL: !Ref XamOpsCurReportTemplateUrl
+      TimeoutInMinutes: 15
+
+  # ===================================================================================
+  # Stack updates from the XamOps console
+  #
+  # Lets XamOps bring this stack onto the current template through its Update Stack button,
+  # so new permissions reach a connected account without anyone opening the AWS console.
+  # Granted here at creation because this is the only moment it can be granted without a
+  # manual step: the permission to update a stack lives in the role that stack defines, so
+  # for an account connected before this existed the first grant has to be deployed
+  # separately (xamops-stack-updater.yml).
+  #
+  # Built as a service role rather than granted to XamOps directly. CloudFormation assumes
+  # this role to do the work, so XamOps itself holds only change-set actions and iam:PassRole
+  # on this one role, never iam:CreateRole. iam:PassRole to a privileged role is still a real
+  # escalation path; scoped to one role and one service principal it is the standard AWS
+  # pattern, and every change lands in this account's own stack event history.
+  # ===================================================================================
+  XamOpsConnectionUpdaterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      # No RoleName, on purpose. An account connected before this existed gets its first
+      # grant from xamops-stack-updater.yml, which creates a role literally named
+      # XamOpsStackUpdaterRole. A fixed name here would collide with it the first time that
+      # account's stack is upgraded onto this template, failing the very update the grant
+      # exists to enable. XamOps reads the generated name from the XamOpsStackUpdaterRoleArn
+      # output instead.
+      Description: Assumed by CloudFormation to apply XamOps connection stack updates.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'aws:SourceAccount': !Ref 'AWS::AccountId'
+      Policies:
+        - PolicyName: XamOpsConnectionStackResources
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Same scope as xamops-stack-updater.yml, which enumerates every resource type
+              # this stack and its nested stacks create. Reads are included deliberately:
+              # CloudFormation calls them during rollback, and a missing read breaks it.
+              - Sid: NestedStacks
+                Effect: Allow
+                Action: 'cloudformation:*'
+                Resource:
+                  - !Sub 'arn:aws:cloudformation:*:${AWS::AccountId}:stack/${AWS::StackName}*/*'
+                  - !Sub 'arn:aws:cloudformation:*:${AWS::AccountId}:changeSet/*/*'
+              - Sid: ReadXamOpsTemplates
+                Effect: Allow
+                Action: 's3:GetObject'
+                Resource: 'arn:aws:s3:::xamopscftemplate/*'
+              - Sid: ConnectionRolesAndPolicies
+                Effect: Allow
+                Action: 'iam:*'
+                Resource:
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/XamOps*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:policy/XamOps*'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/xamops*'
+                  # This role's own generated name starts with the stack name, which is not
+                  # guaranteed to begin with XamOps for a stack someone renamed.
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/${AWS::StackName}*'
+              - Sid: ServiceLinkedRoles
+                Effect: Allow
+                Action: 'iam:CreateServiceLinkedRole'
+                Resource: '*'
+              - Sid: CostAndUsageReport
+                Effect: Allow
+                Action: 'cur:*'
+                Resource: '*'
+              - Sid: ReportBucket
+                Effect: Allow
+                Action: 's3:*'
+                Resource:
+                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}'
+                  - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/*'
+              - Sid: DataExports
+                Effect: Allow
+                Action: 'bcm-data-exports:*'
+                Resource: '*'
+              # lambda and logs cover the two Lambdas this stack does create (EKS
+              # aws-auth updater, auto-callback). events is retained even though this
+              # template creates no bus, so a stack connected with this file can still
+              # be updated onto xamops-readonly-role-uat.yml — which does — without
+              # first needing a wider grant it cannot give itself.
+              - Sid: LambdasLogsAndEvents
+                Effect: Allow
+                Action:
+                  - 'events:*'
+                  - 'lambda:*'
+                  - 'logs:*'
+                Resource: '*'
+
+  # What XamOps itself gains: proposing and applying a change set on this stack, and nothing
+  # else. A separate policy rather than an edit to the connection role's own, and named
+  # differently from xamops-stack-updater.yml's, so the two can coexist on an account that
+  # has both without either stack deleting the other's grant.
+  XamOpsConnectionUpdatePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: XamOpsConnectionUpdate
+      Roles:
+        - !Ref XamOpsReadOnlyRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ChangeSetsOnThisStackOnly
+            Effect: Allow
+            Action:
+              - 'cloudformation:CreateChangeSet'
+              - 'cloudformation:DescribeChangeSet'
+              - 'cloudformation:ExecuteChangeSet'
+              - 'cloudformation:DeleteChangeSet'
+              - 'cloudformation:DescribeStacks'
+              - 'cloudformation:DescribeStackEvents'
+              - 'cloudformation:DescribeStackResource'
+              - 'cloudformation:DescribeStackResources'
+              - 'cloudformation:GetTemplate'
+              - 'cloudformation:GetTemplateSummary'
+            Resource:
+              - !Sub 'arn:aws:cloudformation:*:${AWS::AccountId}:stack/${AWS::StackName}*/*'
+              - !Sub 'arn:aws:cloudformation:*:${AWS::AccountId}:changeSet/*/*'
+          # Deliberately absent: UpdateStack, CreateStack, DeleteStack. Every change goes
+          # through a change set, so none can skip being written down before it runs.
+          - Sid: HandTheWorkToCloudFormation
+            Effect: Allow
+            Action: 'iam:PassRole'
+            Resource: !GetAtt XamOpsConnectionUpdaterRole.Arn
+            Condition:
+              StringEquals:
+                'iam:PassedToService': 'cloudformation.amazonaws.com'
+
+Outputs:
+  XamOpsStackUpdaterRoleArn:
+    Description: >
+      Role XamOps passes to CloudFormation when updating this stack. Read by XamOps in place of
+      a fixed role name, because this role's name is generated.
+    Value: !GetAtt XamOpsConnectionUpdaterRole.Arn
+
+  XamOpsRoleArn:
+    Description: The ARN of the IAM role created for the XamOps platform.
+    Value: !GetAtt XamOpsReadOnlyRole.Arn
+
+  # Kept, with a fixed value, rather than dropped. The onboarding UI and the stack
+  # diagnosis both read this output; an absent output reads as "unknown", whereas
+  # 'false' says plainly that this account relies on polling.
+  InventoryEventsEnabled:
+    Description: Whether near-real-time inventory events were configured.
+    Value: 'false'
+
+  InventoryEventRegions:
+    Description: Regions where inventory event rules were created.
+    Value: 'none — this template creates no inventory event stack; XamOps polls every 60s'
+
+  InventoryEventRegionCount:
+    Description: Number of regions forwarding inventory events.
+    Value: '0'
+
+  CurBucketName:
+    Description: >
+      S3 bucket receiving CUR 2.0 exports. Feed this into CloudAccount.curS3Bucket
+      during account verification so BillOps can locate the export.
+    Value: !If
+      - DeployCurExport
+      - !GetAtt XamOpsCurExport.Outputs.CurBucketName
+      - 'disabled — BillOps will use Cost Explorer instead'
+
+  CurExportEnabled:
+    Description: Whether a CUR 2.0 Data Export was configured for BillOps.
+    Value: !Ref EnableCurExport
+
+  CurReportPrefix:
+    Description: >
+      S3 key prefix under which CUR 2.0 files are delivered. Feed this into
+      CloudAccount.curReportPath during account verification.
+    Value: !If
+      - DeployCurExport
+      - !GetAtt XamOpsCurExport.Outputs.CurReportPrefix
+      - 'disabled'
+
+  XamOpsRoleName:
+    Description: Name of the IAM role created for the XamOps platform.
+    Value: !Ref XamOpsReadOnlyRole

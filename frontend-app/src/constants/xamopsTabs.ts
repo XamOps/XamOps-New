@@ -70,6 +70,15 @@ export const XAMOPS_MODULES: XamOpsModule[] = [
     tabs: [
       { key: 'secops-security-center', label: 'Security Center', icon: 'mdi:shield-check-outline' },
       { key: 'secops-war', label: 'WAR', icon: 'mdi:radar' },
+      // Covers both halves of XamSecure: the CNAPP tabs and the DSPM tabs.
+      //
+      // There was briefly a second key, secops-xamsecure-dspm, so a customer owning both products could
+      // scope a user to one of them. It had to go: this allow-list is fail-OPEN for a user with no rows
+      // ("no restriction") but fail-CLOSED for a user who has any, and a key added to this catalog today
+      // cannot appear in a list that was saved before it existed. Every already-restricted user therefore
+      // lost DSPM silently and permanently, with no way back except editing each user by hand.
+      //
+      // The same trap applies to any new key added here, which is worth remembering before adding one.
       { key: 'secops-xamsecure', label: 'XamSecure', icon: 'mdi:shield-account-outline' },
       { key: 'secops-compliance', label: 'ComplianceOps', icon: 'mdi:file-certificate-outline' },
       { key: 'secops-performance', label: 'Performance Insights', icon: 'mdi:speedometer' },

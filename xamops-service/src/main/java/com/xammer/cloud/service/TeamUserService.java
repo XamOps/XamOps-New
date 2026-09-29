@@ -104,6 +104,11 @@ public class TeamUserService {
         // Empty list means "no restriction" (full sidebar); the frontend treats it that way.
         profile.setAllowedTabs(userTabAccessRepository.findTabNamesByUserId(currentUserId));
 
+        // Add-on entitlement, so the sidebar can decide whether to show the DSPM group without a second
+        // request. Nav visibility only — the read path enforces the same flag independently.
+        profile.setMattersDspmEnabled(
+                currentUser.getClient() != null && currentUser.getClient().isMattersDspmEnabled());
+
         return profile;
     }
 

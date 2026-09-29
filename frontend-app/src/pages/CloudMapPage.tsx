@@ -2712,6 +2712,29 @@ ${xmlEdges}
     setTimeout(done, 1500);
   }, [selectedVpcValue, loadGraph, loadAllGraphs, awsVpcs]);
 
+  /**
+   * Load the topology for the connectivity view when nothing has loaded it yet.
+   *
+   * <p>Live view populates the graph from its VPC dropdown's {@code onChange} and from the
+   * refresh button — there is no effect that fetches it on arrival. That is invisible in live
+   * view, whose dropdown the reader touches anyway, but it meant switching straight to
+   * connectivity showed an empty canvas until they went back, opened live view and picked a VPC.
+   * This asks for exactly what the dropdown would.
+   *
+   * <p>The ref guard is what keeps a genuinely empty result from becoming a request storm: an
+   * account with no resources, or an unreachable service, both come back as zero elements, and
+   * without this the effect would immediately ask again on every render.
+   */
+  const topologyRequestedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (mode !== 'connectivity' || !accountId) return;
+    if (awsVpcs.length === 0 || loadingGraph || graphElements.length > 0) return;
+    const key = `${accountId}|${awsVpcs.length}`;
+    if (topologyRequestedRef.current === key) return;
+    topologyRequestedRef.current = key;
+    void loadAllGraphs(awsVpcs);
+  }, [mode, accountId, awsVpcs, loadingGraph, graphElements.length, loadAllGraphs]);
+
   const handleRelayoutLive = useCallback(() => {
     const cy = cyRef.current;
     if (!cy) return;
@@ -3284,19 +3307,31 @@ ${xmlEdges}
    * form explain "place this inside a VPC" instead of just marking a field
    * missing.
    */
+  /**
+   * Clears the selection mirror without writing a new object when it is already empty.
+   *
+   * <p>Returning the previous value makes React bail out of the update. Writing `{}` instead
+   * looks equivalent and is not: a fresh object is a new identity, so it re-renders, and any
+   * effect that reaches here on every render then loops until React aborts with "Maximum update
+   * depth exceeded". That is exactly what happened once the catalog's identity went unstable,
+   * and it is worth being robust to rather than relying on every upstream dependency staying
+   * memoised forever.
+   */
+  const clearSelectedNode = useCallback(() => {
+    setSelectedAttrs((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+    setSelectedCanvasType(null);
+    setSelectedRefCounts((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+  }, []);
+
   const syncSelectedNode = useCallback((nodeId: string | null) => {
     const cy = cyRef.current;
     if (!cy || !nodeId) {
-      setSelectedAttrs({});
-      setSelectedCanvasType(null);
-      setSelectedRefCounts({});
+      clearSelectedNode();
       return;
     }
     const node = cy.getElementById(nodeId);
     if (!node || node.length === 0 || !node.isNode?.()) {
-      setSelectedAttrs({});
-      setSelectedCanvasType(null);
-      setSelectedRefCounts({});
+      clearSelectedNode();
       return;
     }
 
@@ -3326,7 +3361,7 @@ ${xmlEdges}
       }
     }
     setSelectedRefCounts(counts);
-  }, [designCatalog]);
+  }, [designCatalog, clearSelectedNode]);
 
   useEffect(() => {
     syncSelectedNode(selectedElement?.elementType === 'node' ? selectedElement.id : null);
@@ -3392,7 +3427,14 @@ ${xmlEdges}
           elements={graphElements}
           loading={loadingGraph}
           error={graphError}
-          onRefresh={() => { void loadAllGraphs(undefined, true); }}
+          // awsVpcs explicitly, not the hook's own list: passing undefined falls back to state
+          // the hook only fills in its live-mode effect, and when that is empty loadAllGraphs
+          // returns early without a request and without an error — which renders as "nothing to
+          // draw" and makes the button look broken.
+          onRefresh={() => {
+            topologyRequestedRef.current = null;
+            void loadAllGraphs(awsVpcs, true);
+          }}
         />
       ) : (
       <div className="flex flex-1 min-h-0 relative overflow-hidden">

@@ -16,7 +16,15 @@ public class ResourceLabelAssignment {
     @JoinColumn(name = "cloud_account_id", nullable = false)
     private CloudAccount cloudAccount;
 
-    @Column(name = "resource_id", nullable = false, length = 255)
+    /**
+     * The resource this label is on, normalised by {@code ResourceIdResolver} to the
+     * inventory's short id wherever the inventory knows the resource.
+     *
+     * <p>512 to match {@code aws_cloud_resource.resource_id}, because an unresolvable id is
+     * stored as received and the Cost and Usage Report supplies full ARNs for several
+     * services.
+     */
+    @Column(name = "resource_id", nullable = false, length = 512)
     private String resourceId;
 
     @Column(name = "resource_type", nullable = false, length = 100)

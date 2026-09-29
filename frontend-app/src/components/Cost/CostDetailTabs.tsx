@@ -8,8 +8,8 @@ import TopResourcesSection from './TopResourcesSection';
 /**
  * Two views of the same bill, switched from the card's own heading.
  *
- * <p>"Charges by service" answers what was billed, in the invoice's own breakdown. "Top
- * resources" answers which individual bucket, volume or instance that was. They read the same
+ * <p>"Charges by service" answers what was billed, in the invoice's own breakdown. "Charges by
+ * resource" answers which individual bucket, volume or instance that was. They read the same
  * Cost and Usage Report at the same grain and only differ in how they cut it, which is why they
  * belong behind one switch rather than stacked as two sections the reader scrolls between.
  *
@@ -37,7 +37,7 @@ import TopResourcesSection from './TopResourcesSection';
  * Every CUR section hides itself when the account has no usable report. That is right for a
  * section that owns its own space, and wrong the moment two of them share a card: the first
  * build let the active panel hide, which deleted the sub-tab control along with it — clicking
- * "Top resources" made the entire card vanish with no way back to the invoice. So the group
+ * "Charges by resource" made the entire card vanish with no way back to the invoice. So the group
  * decides whether the card exists, and each panel only decides what fills it.
  */
 
@@ -102,7 +102,7 @@ const CostDetailTabs: React.FC<CostDetailTabsProps> = ({ accountId }) => {
         onSelectionChange={select}
         tabs={[
           { id: 'charges', label: 'Charges by service', icon: 'mdi:receipt-text-outline' },
-          { id: 'resources', label: 'Top resources', icon: 'mdi:sitemap-outline' },
+          { id: 'resources', label: 'Charges by resource', icon: 'mdi:sitemap-outline' },
         ]}
       />
     ),

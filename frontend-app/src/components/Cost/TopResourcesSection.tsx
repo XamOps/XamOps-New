@@ -1,8 +1,18 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { fetchTopResources, type ResourceCost } from '../../api/curInsightsApi';
 import { useCurInsight } from '../../hooks/useCurInsight';
+import {
+  invalidateResourceLabels,
+  publishResourceLabels,
+  setResourceLabels,
+  useLabels,
+  useResourceLabelMap,
+} from '../../hooks/useResourceLabels';
+import { removeLabel } from '../../services/resourceLabelsApi';
+import type { ResourceLabel, ResourceLabelMap, ResourceRef } from '../../types/resourceLabels';
 import Pagination from '../FinOps/Pagination';
+import ResourceLabelCell from './ResourceLabelCell';
 
 /**
  * What each individual resource cost — this bucket, this instance, this volume.
@@ -26,7 +36,20 @@ import Pagination from '../FinOps/Pagination';
  *
  * <p>Charges belonging to no resource — tax, support, subscriptions — are shown in their
  * own group rather than dropped. Hiding them would make this section's total disagree with
- * the invoice, and a total that does not reconcile is worse than no total.
+ * the invoice, and a total that does not reconcile is worse than no total. They are the one
+ * thing here that cannot be labelled: with no resource id there is nothing to label.
+ *
+ * <h2>Labels</h2>
+ * Each resource row carries the same XamOps labels the Cloud List assigns, through the same
+ * endpoints and into the same table — so a label put on a bucket here is on that bucket
+ * everywhere, and the reverse. This is the view where that matters most: the Cloud List can
+ * say which resources belong to a team, and only this one can say what they cost.
+ *
+ * <p>The two pages do not agree by accident. A resource's id in this report is a bare id for
+ * some services and a full ARN for others, while the Cloud List knows it by its short id
+ * alone, so the server reconciles the two before storing anything — see
+ * {@code ResourceIdResolver}. Labelling an RDS instance from here without that would write a
+ * row under its ARN that the Cloud List, looking under its name, could never find.
  */
 
 interface TopResourcesSectionProps {
@@ -138,6 +161,43 @@ const arnTail = (id: string): string => {
 const labelFor = (r: ResourceCost): { text: string; isTag: boolean } =>
   r.name ? { text: r.name, isTag: true } : { text: arnTail(r.resourceId), isTag: false };
 
+/**
+ * A CUR row as the label API takes it.
+ *
+ * <p>The type is sent as the CUR's service name, which is a billing product rather than a
+ * resource type, and the server replaces it with the inventory's own type for every resource
+ * the inventory knows — so the two pages never store two vocabularies for one resource. It is
+ * sent at all because the column is not nullable and a resource billed but not indexed has
+ * nothing better.
+ *
+ * <p>{@code "Global"} is this section's stand-in for a row the report gave no region, not a
+ * region code, so it is dropped rather than stored as one.
+ */
+const refFor = (r: ResourceCost): ResourceRef => ({
+  resourceId: r.resourceId,
+  resourceType: r.service,
+  resourceName: r.name || undefined,
+  region: r.region === 'Global' ? undefined : r.region,
+});
+
+/**
+ * Everything a resource row needs to show and change its labels.
+ *
+ * <p>Bundled rather than passed as seven props, because they travel through the service group
+ * unchanged — the group has no interest in labels beyond handing them down.
+ */
+interface Labelling {
+  accountId: string;
+  allLabels: ResourceLabel[];
+  labelMap: ResourceLabelMap;
+  onChanged: (resourceId: string, updated: ResourceLabel[]) => void;
+  onLabelCreated: (label: ResourceLabel) => void;
+  onRemove: (resource: ResourceCost, label: ResourceLabel) => void;
+}
+
+const NO_LABELS: ResourceLabel[] = [];
+const NO_LABEL_MAP: ResourceLabelMap = {};
+
 const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId, heading }) => {
   const months = useMemo(monthOptions, []);
   const [period, setPeriod] = useState(months[0].value);
@@ -175,6 +235,88 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId, he
   // displayed separately; only the former is rankable.
   const resources = useMemo(() => all.filter((r) => r.resourceId !== ''), [all]);
   const accountLevel = useMemo(() => all.filter((r) => r.resourceId === ''), [all]);
+
+  /*
+   * ── Labels ────────────────────────────────────────────────────────────────────────────
+   *
+   * The same labels the Cloud List assigns, read and written through the same endpoints.
+   * Only `resources` are offered the control: an account-level charge has no resource id,
+   * so every one of them would collide on the same empty key.
+   *
+   * Requested for the whole month rather than the visible page, because the list is filtered
+   * and paged client-side — fetching per page would refetch on every expand, sort and keystroke
+   * and still show nothing until it landed. One request of at most a few hundred ids covers
+   * every view of the month.
+   */
+  const resourceIds = useMemo(() => resources.map((r) => r.resourceId), [resources]);
+  const { data: allLabelsData } = useLabels();
+  const { data: labelMapData } = useResourceLabelMap(accountId, resourceIds);
+  // Shared empties rather than fresh literals, so a pending query does not hand the rows a new
+  // object on every render and invalidate every memo below it.
+  const allLabels = allLabelsData ?? NO_LABELS;
+  const labelMap = labelMapData ?? NO_LABEL_MAP;
+
+  // The popover awaits its own assign or remove before reporting, so this is a completed
+  // write and safe to confirm against the database straight away.
+  const handleLabelChanged = useCallback(
+    (resourceId: string, updated: ResourceLabel[]) =>
+      publishResourceLabels(accountId, resourceId, updated),
+    [accountId],
+  );
+
+  // A new label has to reach the picker's list, which is the labels query rather than this
+  // component's state — so the create is published the same way an assignment is.
+  const handleLabelCreated = useCallback(() => invalidateResourceLabels(), []);
+
+  /**
+   * Take a label off via the × on its chip.
+   *
+   * <p>The chip goes before the request, and comes back if the request fails — otherwise a
+   * failed remove leaves the row looking changed while the database disagrees, and the next
+   * refetch silently restores the chip with no explanation.
+   *
+   * <p>Confirmation waits for the call to return. Invalidating alongside the optimistic write
+   * would race it: the refetch would read the row the delete had not yet removed and overwrite
+   * the optimistic value with it.
+   */
+  const handleLabelRemoved = useCallback(
+    async (resource: ResourceCost, label: ResourceLabel) => {
+      if (!accountId) return;
+      const before = labelMap[resource.resourceId] ?? [];
+      setResourceLabels(
+        accountId,
+        resource.resourceId,
+        before.filter((l) => l.id !== label.id),
+      );
+      try {
+        await removeLabel({
+          accountId,
+          labelId: label.id,
+          resources: [refFor(resource)],
+        });
+        invalidateResourceLabels();
+      } catch (err) {
+        console.error('[Labels] Remove failed, rolling back:', err);
+        setResourceLabels(accountId, resource.resourceId, before);
+      }
+    },
+    [accountId, labelMap],
+  );
+
+  const labelling: Labelling | null = useMemo(
+    () =>
+      accountId
+        ? {
+            accountId,
+            allLabels,
+            labelMap,
+            onChanged: handleLabelChanged,
+            onLabelCreated: handleLabelCreated,
+            onRemove: handleLabelRemoved,
+          }
+        : null,
+    [accountId, allLabels, labelMap, handleLabelChanged, handleLabelCreated, handleLabelRemoved],
+  );
 
   const services = useMemo(
     () => Array.from(new Set(resources.map((r) => r.service))).sort(),
@@ -307,7 +449,7 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId, he
     return (
       <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
         <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
-          {heading ?? <h3 className="text-[15px] font-bold text-black">Top resources</h3>}
+          {heading ?? <h3 className="text-[15px] font-bold text-black">Charges by resource</h3>}
           <select
             value={period}
             onChange={(e) => {
@@ -348,7 +490,7 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId, he
     <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
       <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
         <div>
-          {heading ?? <h3 className="text-[15px] font-bold text-black">Top resources</h3>}
+          {heading ?? <h3 className="text-[15px] font-bold text-black">Charges by resource</h3>}
           <p className="text-[12px] text-[rgba(0,0,0,0.45)] mt-1">
             What each individual resource cost — not just which service it belongs to.
             Click a service to see its resources.
@@ -475,6 +617,7 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId, he
                     page={resourcePages.get(g.service) ?? 1}
                     onToggle={() => toggle(g.service)}
                     onPageChange={(p) => setResourcePage(g.service, p)}
+                    labelling={labelling}
                   />
                 ))}
               </div>
@@ -566,7 +709,9 @@ const ServiceGroupRow: React.FC<{
   page: number;
   onToggle: () => void;
   onPageChange: (page: number) => void;
-}> = ({ group, max, open, page, onToggle, onPageChange }) => {
+  /** Null until an account is selected, which is also when nothing is labellable. */
+  labelling: Labelling | null;
+}> = ({ group, max, open, page, onToggle, onPageChange, labelling }) => {
   const share = max > 0 ? (Math.abs(group.cost) / max) * 100 : 0;
   const totalPages = Math.max(1, Math.ceil(group.resources.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -617,7 +762,12 @@ const ServiceGroupRow: React.FC<{
       {open && (
         <div className="ml-[15px] pl-3 border-l border-[rgba(0,0,0,0.07)] pb-1.5">
           {rows.map((r) => (
-            <ResourceRow key={`${r.resourceId}-${r.region}`} r={r} max={maxInGroup} />
+            <ResourceRow
+              key={`${r.resourceId}-${r.region}`}
+              r={r}
+              max={maxInGroup}
+              labelling={labelling}
+            />
           ))}
 
           <Pagination
@@ -634,7 +784,11 @@ const ServiceGroupRow: React.FC<{
 };
 
 /** One resource, with a bar sized against the largest in its service. */
-const ResourceRow: React.FC<{ r: ResourceCost; max: number }> = ({ r, max }) => {
+const ResourceRow: React.FC<{
+  r: ResourceCost;
+  max: number;
+  labelling: Labelling | null;
+}> = ({ r, max, labelling }) => {
   const share = max > 0 ? (Math.abs(r.cost) / max) * 100 : 0;
   const label = labelFor(r);
 
@@ -678,6 +832,22 @@ const ResourceRow: React.FC<{ r: ResourceCost; max: number }> = ({ r, max }) => 
           )}
         </div>
       </div>
+
+      {/* Before the bar rather than after the amount: a label is something about the
+          resource, and the bar and figure are one unit that reads as the row's answer. */}
+      {labelling && (
+        <div className="max-w-[45%] min-w-0">
+          <ResourceLabelCell
+            accountId={labelling.accountId}
+            resource={refFor(r)}
+            labels={labelling.labelMap[r.resourceId] ?? []}
+            allLabels={labelling.allLabels}
+            onChanged={labelling.onChanged}
+            onLabelCreated={labelling.onLabelCreated}
+            onRemove={(label) => labelling.onRemove(r, label)}
+          />
+        </div>
+      )}
 
       <div className="w-[70px] flex-shrink-0 hidden sm:block">
         <div className="h-1 bg-[rgba(0,0,0,0.05)] rounded-full overflow-hidden">

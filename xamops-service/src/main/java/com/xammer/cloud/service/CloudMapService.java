@@ -302,6 +302,11 @@ public class CloudMapService {
         // public is a property of the route table attached to it, not of the subnet.
         VpcRouting routing = describeRouting(ec2Client, vid);
 
+        // The main table governs every subnet that named no table of its own, so the full
+        // subnet list has to be known before any routing relationship can be drawn.
+        routing.resolveImplicitAssociations(
+                subnets.stream().map(Subnet::subnetId).collect(Collectors.toList()));
+
         for (Subnet subnet : subnets) {
             String subnetName = subnet.tags().stream().filter(t -> "Name".equalsIgnoreCase(t.key())).findFirst()
                     .map(t -> t.value()).orElse(subnet.subnetId());
@@ -333,11 +338,54 @@ public class CloudMapService {
      * that fact lives only in the route tables, and it is usually the first thing anyone
      * looks for on a network diagram.
      */
-    private static final class VpcRouting {
+    // Package-private rather than private so the association logic can be pinned by a test.
+    // Which subnets a table governs decides which servers are shown behind a gateway, and the
+    // implicit main-table case is invisible in the AWS response — exactly the kind of rule that
+    // is cheap to get wrong and expensive to notice.
+    static final class VpcRouting {
         final List<RouteTable> tables = new ArrayList<>();
         /** Subnet id to the route table governing it, including via the main table. */
         final Map<String, RouteTable> bySubnet = new HashMap<>();
         RouteTable mainTable;
+
+        /**
+         * Records the associations AWS leaves implicit.
+         *
+         * <p>
+         * {@code describeRouteTables} only reports an association where one was explicitly
+         * made. Every other subnet in the VPC is governed by the main table, silently — and
+         * that silence is not an edge case: leaving the association alone is the default, so
+         * on plenty of VPCs it is how most subnets route.
+         *
+         * <p>
+         * Until this ran, {@link #bySubnet} contradicted its own comment and
+         * {@link #subnetsGovernedBy} would report the main table as governing nothing, which
+         * is exactly the case where "which subnets sit behind this gateway" matters most.
+         *
+         * @param subnetIds every subnet in the VPC, explicitly associated or not
+         */
+        void resolveImplicitAssociations(List<String> subnetIds) {
+            if (mainTable == null) {
+                return;
+            }
+            for (String subnetId : subnetIds) {
+                bySubnet.putIfAbsent(subnetId, mainTable);
+            }
+        }
+
+        /** The subnets one table governs, whether by explicit association or as the main table. */
+        List<String> subnetsGovernedBy(RouteTable table) {
+            List<String> subnets = new ArrayList<>();
+            for (Map.Entry<String, RouteTable> entry : bySubnet.entrySet()) {
+                if (table.routeTableId().equals(entry.getValue().routeTableId())) {
+                    subnets.add(entry.getKey());
+                }
+            }
+            // Stable ordering, so the same VPC does not redraw its edges in a different order
+            // on every request.
+            subnets.sort(String::compareTo);
+            return subnets;
+        }
 
         /**
          * "Public", "Private" or "Isolated" for a subnet, or null when routing is unknown.
@@ -411,36 +459,52 @@ public class CloudMapService {
     }
 
     /**
-     * Emit each route table and the two relationships that carry the routing story: what
-     * it governs, and where it sends default traffic.
+     * Emit each route table and the three relationships that carry the routing story: what
+     * it governs, where it sends default traffic, and — reading those two together — which
+     * subnets each gateway is the exit for.
      *
      * <p>
      * The default-route edge points at an internet gateway, NAT gateway, transit gateway
      * or peering connection by its real id. Those ids are the node ids used elsewhere in
      * the graph, so the edge joins up when the target is on the canvas and is dropped by
      * the renderer when it is not — which is why no existence check is needed here.
+     *
+     * <h2>Why the gateway gets its own edge</h2>
+     * "Which servers use this NAT gateway" was two hops away and therefore invisible: the
+     * reader had to notice the route table, follow it, and read off its subnets. The fact is
+     * fully determined by data already in hand — a subnet's table, and that table's
+     * {@code 0.0.0.0/0} target — so the {@code egress for} edge states it directly, from the
+     * gateway's side, which is the side someone looking at a $344 charge is standing on.
+     *
+     * <p>
+     * It is a genuine relationship rather than a convenience: routing a subnet's default
+     * traffic is the entire reason the gateway is billed, and no containment edge implies it.
      */
-    private void addRouteTableNodes(List<Map<String, Object>> elements, String vpcId, VpcRouting routing) {
+    void addRouteTableNodes(List<Map<String, Object>> elements, String vpcId, VpcRouting routing) {
         for (RouteTable table : routing.tables) {
             String id = table.routeTableId();
             String name = table.tags().stream().filter(t -> "Name".equalsIgnoreCase(t.key())).findFirst()
                     .map(Tag::value).orElse(id);
             boolean isMain = table.associations().stream().anyMatch(a -> Boolean.TRUE.equals(a.main()));
             String target = VpcRouting.defaultRouteTarget(table);
+            // Explicit associations plus the ones the main table picks up by default.
+            List<String> governed = routing.subnetsGovernedBy(table);
 
             Map<String, String> details = new HashMap<>();
             details.put("VPC ID", vpcId);
             details.put("Routes", String.valueOf(table.routes().size()));
             details.put("Main", isMain ? "Yes" : "No");
             details.put("Default Route", target == null ? "None" : target);
+            details.put("Governs Subnets", governed.isEmpty() ? "None" : String.valueOf(governed.size()));
 
             // Parented to the VPC rather than to a subnet: one table commonly governs
             // several subnets, so it belongs to neither of them exclusively.
             elements.add(createNode(id, isMain ? name + " (main)" : name, "Route Table", vpcId, details));
 
-            for (RouteTableAssociation association : table.associations()) {
-                if (association.subnetId() != null) {
-                    elements.add(createEdge(id, association.subnetId(), "routes"));
+            for (String subnetId : governed) {
+                elements.add(createEdge(id, subnetId, "routes"));
+                if (target != null) {
+                    elements.add(createEdge(target, subnetId, "egress for"));
                 }
             }
             if (target != null) {
@@ -544,38 +608,48 @@ public class CloudMapService {
                 }
             }
 
-            // EC2 Instance -> Security Groups, IAM Role, ENI
+            // EC2 Instance -> Security Groups, IAM Role, volumes
             if ("EC2 Instance".equals(type)) {
                 addSecurityGroupEdges(elements, resource, "uses SG");
                 String iamRole = getDetail(resource, "IAM Role");
                 if (iamRole != null && !iamRole.isBlank() && !iamRole.equals("N/A")) {
                     elements.add(createEdge(resource.getId(), iamRole, "assumes"));
                 }
+                // The instance's own view of its storage. A volume already names the instance it
+                // is attached to, but only for volumes the scan returned — this side is present
+                // whenever the instance is, so the pair survives a partial scan.
+                addIdListEdges(elements, resource, "Volumes", "mounts");
             }
 
-            // Load Balancer -> Security Groups, Target Groups
+            /*
+             * Security Group -> the groups it admits.
+             *
+             * The one relationship on this map that describes reachability rather than ownership.
+             * "sg-db admits sg-app" answers whether the application can reach the database, and
+             * no containment edge implies it. It only became drawable once the rules survived
+             * collection as ids instead of as a count.
+             */
+            if ("Security Group".equals(type)) {
+                addIdListEdges(elements, resource, "Admits Groups", "admits");
+                addIdListEdges(elements, resource, "Egress To Groups", "allowed out to");
+            }
+
+            // Load Balancer -> Security Groups, Target Groups, Subnets. "Subnets" is where the
+            // load balancer itself lives; "Target Groups" is where traffic goes.
             if ("Load Balancer".equals(type)) {
                 addSecurityGroupEdges(elements, resource, "uses SG");
-                String targetGroups = getDetail(resource, "Target Groups");
-                if (targetGroups != null && !targetGroups.isBlank()) {
-                    for (String tgArn : targetGroups.split("\\s*,\\s*")) {
-                        if (!tgArn.trim().isEmpty()) {
-                            elements.add(createEdge(resource.getId(), tgArn.trim(), "routes to"));
-                        }
-                    }
-                }
+                addIdListEdges(elements, resource, "Target Groups", "routes to");
+                addIdListEdges(elements, resource, "Subnets", "attached to");
+            }
+
+            // Auto Scaling Group -> the subnets it launches into.
+            if ("Auto Scaling Group".equals(type)) {
+                addIdListEdges(elements, resource, "Subnets", "launches into");
             }
 
             // Target Group -> EC2 Instances
             if ("Target Group".equals(type)) {
-                String targets = getDetail(resource, "Targets");
-                if (targets != null && !targets.isBlank()) {
-                    for (String targetId : targets.split("\\s*,\\s*")) {
-                        if (!targetId.trim().isEmpty()) {
-                            elements.add(createEdge(resource.getId(), targetId.trim(), "targets"));
-                        }
-                    }
-                }
+                addIdListEdges(elements, resource, "Targets", "targets");
             }
 
             // RDS Instance -> Security Groups
@@ -630,42 +704,62 @@ public class CloudMapService {
                 }
             }
 
-            // Auto Scaling Group -> EC2 Instances, Load Balancer
+            // Auto Scaling Group -> EC2 Instances, Target Groups, Load Balancers
             if ("Auto Scaling Group".equals(type)) {
-                String instances = getDetail(resource, "Instances");
-                if (instances != null && !instances.isBlank()) {
-                    for (String instanceId : instances.split("\\s*,\\s*")) {
-                        if (!instanceId.trim().isEmpty()) {
-                            elements.add(createEdge(resource.getId(), instanceId.trim(), "manages"));
-                        }
-                    }
-                }
-                String targetGroups = getDetail(resource, "Target Groups");
-                if (targetGroups != null && !targetGroups.isBlank()) {
-                    for (String tgArn : targetGroups.split("\\s*,\\s*")) {
-                        if (!tgArn.trim().isEmpty()) {
-                            elements.add(createEdge(resource.getId(), tgArn.trim(), "registers to"));
-                        }
-                    }
-                }
+                addIdListEdges(elements, resource, "Instances", "manages");
+                addIdListEdges(elements, resource, "Target Groups", "registers to");
+                addIdListEdges(elements, resource, "Load Balancers", "registers to");
             }
         }
     }
 
     private void addSecurityGroupEdges(List<Map<String, Object>> elements, ResourceDto resource, String label) {
-        String securityGroups = getDetail(resource, "Security Groups");
-        if (securityGroups != null && !securityGroups.isBlank()) {
-            for (String sgId : securityGroups.split("\\s*,\\s*")) {
-                if (!sgId.trim().isEmpty()) {
-                    elements.add(createEdge(resource.getId(), sgId.trim(), label));
-                }
+        addIdListEdges(elements, resource, "Security Groups", label);
+    }
+
+    /**
+     * One edge per id in a comma-separated detail.
+     *
+     * <p>Every relationship here that points at more than one thing — security groups, target
+     * groups, an auto scaling group's instances, a security group's admitted groups — arrives as
+     * a comma-separated list, and each was split by its own near-identical loop. Those loops
+     * differed mainly in which placeholder they forgot to filter, which is how a literal
+     * {@code "N/A"} could reach the canvas as a node id.
+     */
+    private void addIdListEdges(List<Map<String, Object>> elements, ResourceDto resource,
+            String detailKey, String label) {
+        String raw = getDetail(resource, detailKey);
+        if (raw == null || raw.isBlank()) {
+            return;
+        }
+        for (String id : raw.split("\\s*,\\s*")) {
+            String target = id.trim();
+            // A self-edge is what a security group's own self-referencing rule produces — legal
+            // in AWS, and a self-loop the canvas cannot usefully draw.
+            if (target.isEmpty() || "N/A".equalsIgnoreCase(target)
+                    || target.equals(resource.getId())) {
+                continue;
             }
+            elements.add(createEdge(resource.getId(), target, label));
         }
     }
 
+    /**
+     * Where a resource sits in the tree: its subnet when it has one, else its VPC.
+     *
+     * <p>A subnet belongs to its VPC by definition, and an internet gateway attaches to the
+     * VPC rather than to any subnet, so both are pinned to the VPC.
+     *
+     * <p>A NAT gateway used to be pinned here too, and that was wrong. It lives in exactly one
+     * subnet — a public one, which is the whole reason it can reach the internet — and
+     * {@code CloudListService.fetchNatGatewaysForCloudlist} has always collected that
+     * {@code "Subnet ID"}. Discarding it filed every NAT gateway under the synthetic
+     * "Not in a subnet" bucket, which hid the one fact that explains how egress works in
+     * that VPC. The fall-through below still covers a gateway whose subnet is absent.
+     */
     private String getParent(ResourceDto resource) {
         String type = resource.getType();
-        if ("Subnet".equals(type) || "Internet Gateway".equals(type) || "NAT Gateway".equals(type)) {
+        if ("Subnet".equals(type) || "Internet Gateway".equals(type)) {
             return getDetail(resource, "VPC ID");
         }
         String subnetId = getDetail(resource, "Subnet ID");

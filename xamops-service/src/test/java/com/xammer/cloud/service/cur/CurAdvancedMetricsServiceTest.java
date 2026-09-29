@@ -30,6 +30,9 @@ class CurAdvancedMetricsServiceTest {
     @Mock
     private CurTagColumns tagColumns;
 
+    @Mock
+    private CurColumnCatalog columnCatalog;
+
     private CurAdvancedMetricsService service;
     private CurSource source;
     private CloudAccount account;
@@ -39,7 +42,7 @@ class CurAdvancedMetricsServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new CurAdvancedMetricsService(athena, tagColumns);
+        service = new CurAdvancedMetricsService(athena, tagColumns, columnCatalog);
 
         source = new CurSource();
         source.setId(1L);
@@ -205,6 +208,182 @@ class CurAdvancedMetricsServiceTest {
 
         assertEquals("", top.resources().get(0).name());
         assertEquals("i-089ccf1b5a839880a", top.resources().get(0).resourceId());
+    }
+
+    // ── Data transfer ───────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("Data transfer names both ends of the route when the report carries them")
+    void dataTransferReadsTheRouteColumns() {
+        when(columnCatalog.present(any(), any(), contains("from_location"),
+                contains("from_region_code"))).thenReturn(List.of("product_from_location"));
+        when(columnCatalog.present(any(), any(), contains("to_location"),
+                contains("to_region_code"))).thenReturn(List.of("product_to_location"));
+        when(columnCatalog.has(any(), any(), anyString())).thenReturn(true);
+        when(tagColumns.resourceNameExpr(any(), any())).thenReturn(Optional.empty());
+
+        when(athena.query(any(), any(), contains("AS usage_type")))
+                .thenReturn(List.of(Map.of(
+                        "category", "Inter-region",
+                        "service", "AWS Data Transfer",
+                        "usage_type", "APS3-USE1-AWS-Out-Bytes",
+                        "unit", "GB",
+                        "region", "ap-south-1",
+                        "from_location", "Asia Pacific (Mumbai)",
+                        "to_location", "US East (N. Virginia)",
+                        "quantity", "29.0",
+                        "cost", "2.44")));
+        when(athena.query(any(), any(), contains("rank_in_category")))
+                .thenReturn(List.of(Map.ofEntries(
+                        Map.entry("category", "Inter-region"),
+                        Map.entry("resource_id", "arn:aws:s3:::prod-replica"),
+                        Map.entry("service", "Amazon Simple Storage Service"),
+                        Map.entry("region", "ap-south-1"),
+                        Map.entry("availability_zone", ""),
+                        Map.entry("from_location", "Asia Pacific (Mumbai)"),
+                        Map.entry("to_location", "US East (N. Virginia)"),
+                        Map.entry("usage_type", "APS3-USE1-AWS-Out-Bytes"),
+                        Map.entry("gigabytes", "29.0"),
+                        Map.entry("hours", "0.0"),
+                        Map.entry("cost", "2.44"),
+                        Map.entry("category_cost", "2.60"),
+                        Map.entry("category_flows", "3"))));
+
+        CurAdvancedMetricsService.DataTransferBreakdown breakdown =
+                service.getDataTransferCosts(source, account, start, end);
+
+        assertTrue(breakdown.routeDataAvailable());
+        assertTrue(breakdown.resourceDataAvailable());
+        assertEquals("Asia Pacific (Mumbai)", breakdown.charges().get(0).fromLocation());
+        assertEquals("US East (N. Virginia)", breakdown.charges().get(0).toLocation());
+        // Reported by AWS, not worked out from the usage type — the flag is what lets the UI
+        // avoid marking a first-hand answer as an inference.
+        assertTrue(!breakdown.charges().get(0).routeDerived());
+
+        // One row carrying resource, route and cost together is the point of the grain.
+        CurAdvancedMetricsService.TransferFlow flow = breakdown.flows().get(0);
+        assertEquals("arn:aws:s3:::prod-replica", flow.resourceId());
+        assertEquals("Asia Pacific (Mumbai)", flow.fromLocation());
+        assertEquals("US East (N. Virginia)", flow.toLocation());
+        assertEquals(2.44, flow.cost(), 0.0001);
+        // The category total travels with the row, so the caller can say what the list of
+        // three flows leaves out rather than summing the page and understating it.
+        assertEquals(3L, flow.categoryFlows());
+        assertEquals(2.60, flow.categoryCost(), 0.0001);
+    }
+
+    @Test
+    @DisplayName("Without the location columns the route is recovered from the usage type")
+    void dataTransferDerivesTheRouteFromTheUsageType() {
+        // Athena rejects the whole query during analysis when a selected column does not
+        // exist, so an absent location has to be left out of the SQL, not selected as null.
+        when(columnCatalog.present(any(), any(), anyString(), anyString())).thenReturn(List.of());
+        when(columnCatalog.has(any(), any(), anyString())).thenReturn(false);
+
+        when(athena.query(any(), any(), anyString())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(2, String.class);
+            assertTrue(!sql.contains("product_from_location") && !sql.contains("product_to_location"),
+                    "no location column should be referenced when the report has none");
+            return List.of(Map.of(
+                    "category", "Inter-region",
+                    "service", "AWS Data Transfer",
+                    "usage_type", "APS3-USE1-AWS-Out-Bytes",
+                    "unit", "GB",
+                    "region", "ap-south-1",
+                    "quantity", "29.0",
+                    "cost", "2.44"));
+        });
+
+        CurAdvancedMetricsService.DataTransferBreakdown breakdown =
+                service.getDataTransferCosts(source, account, start, end);
+
+        // The column is missing, so the flag is false — but the route is not, because the
+        // usage type encodes both ends and saying nothing would be a worse answer.
+        assertTrue(!breakdown.routeDataAvailable());
+        assertTrue(!breakdown.resourceDataAvailable());
+        CurAdvancedMetricsService.TransferCharge charge = breakdown.charges().get(0);
+        assertEquals("Asia Pacific (Mumbai)", charge.fromLocation());
+        assertEquals("US East (N. Virginia)", charge.toLocation());
+        assertTrue(charge.routeDerived(), "an inferred route must be marked as inferred");
+        assertEquals(2.44, charge.cost(), 0.0001);
+        assertTrue(breakdown.flows().isEmpty());
+    }
+
+    @Test
+    @DisplayName("AWS's 'External' and our 'Internet' are one place, so a route is not split in two")
+    void internetEndpointHasOneSpelling() {
+        when(columnCatalog.present(any(), any(), contains("from_location"),
+                contains("from_region_code"))).thenReturn(List.of("product_from_location"));
+        when(columnCatalog.present(any(), any(), contains("to_location"),
+                contains("to_region_code"))).thenReturn(List.of("product_to_location"));
+        when(columnCatalog.has(any(), any(), anyString())).thenReturn(false);
+
+        when(athena.query(any(), any(), anyString())).thenReturn(List.of(
+                // What AWS writes when it fills the column in...
+                Map.of("category", "Internet egress", "service", "AWS Data Transfer",
+                        "usage_type", "APS3-DataTransfer-Out-Bytes", "unit", "GB",
+                        "region", "ap-south-1",
+                        "from_location", "Asia Pacific (Mumbai)", "to_location", "External",
+                        "quantity", "40.0", "cost", "4.00"),
+                // ...and a row where it did not, so the destination is inferred instead.
+                Map.of("category", "Internet egress", "service", "Amazon Simple Storage Service",
+                        "usage_type", "APS3-DataTransfer-Out-Bytes", "unit", "GB",
+                        "region", "ap-south-1",
+                        "from_location", "Asia Pacific (Mumbai)", "to_location", "",
+                        "quantity", "20.0", "cost", "2.00")));
+
+        List<CurAdvancedMetricsService.TransferCharge> charges =
+                service.getDataTransferCosts(source, account, start, end).charges();
+
+        // Both name the same destination, so the UI rolls them into one route worth $6.00
+        // rather than two worth $4.00 and $2.00 — which would read as two smaller problems.
+        assertEquals("Internet", charges.get(0).toLocation());
+        assertEquals("Internet", charges.get(1).toLocation());
+        // Provenance still differs, and still shows.
+        assertTrue(!charges.get(0).routeDerived());
+        assertTrue(charges.get(1).routeDerived());
+    }
+
+    @Test
+    @DisplayName("Flow quantities keep gigabytes and hours apart, so NAT bytes are not added to hours")
+    void dataTransferFlowQuantitiesAreSplitByUnit() {
+        when(columnCatalog.present(any(), any(), anyString(), anyString())).thenReturn(List.of());
+        when(columnCatalog.has(any(), any(), anyString())).thenReturn(true);
+        when(tagColumns.resourceNameExpr(any(), any())).thenReturn(Optional.empty());
+        when(athena.query(any(), any(), anyString())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(2, String.class);
+            if (sql.contains("rank_in_category")) {
+                assertTrue(sql.contains("upper(pricing_unit) = 'GB'"),
+                        "gigabytes must be restricted to GB-denominated rows");
+                assertTrue(sql.contains("upper(pricing_unit) IN ('HRS', 'HOURS', 'HOUR')"),
+                        "hours must be restricted to hour-denominated rows");
+                assertTrue(sql.contains("line_item_usage_type AS usage_type"),
+                        "usage type belongs in the flow grain — it is what the route falls back to");
+            }
+            return List.of();
+        });
+
+        service.getDataTransferCosts(source, account, start, end);
+    }
+
+    @Test
+    @DisplayName("VPC endpoint and Transit Gateway are their own categories, not Other network")
+    void networkCategoriesCoverGatewaysAndEndpoints() {
+        when(columnCatalog.present(any(), any(), anyString(), anyString())).thenReturn(List.of());
+        when(columnCatalog.has(any(), any(), anyString())).thenReturn(false);
+        when(athena.query(any(), any(), anyString())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(2, String.class);
+            // A VPC endpoint is the fix for NAT gateway processing charges, so it has to be
+            // visible as its own number rather than folded into a catch-all.
+            assertTrue(sql.contains("'VPC endpoint'") && sql.contains("'Transit Gateway'"),
+                    "both categories must be in the CASE");
+            // Their hourly components carry no "Bytes", so the filter has to name them.
+            assertTrue(sql.contains("LIKE '%VpcEndpoint%'") && sql.contains("LIKE '%TransitGateway%'"),
+                    "both must be in the usage type filter");
+            return List.of();
+        });
+
+        service.getDataTransferCosts(source, account, start, end);
     }
 
     @Test

@@ -2750,7 +2750,7 @@ export function buildDemoFlexComputeCapacityResponse(
 }
 
 // ─── CUR Insights — Cost page sections that read the Cost and Usage Report ────
-// These three sections (Charges by service, Top resources, Data transfer & network
+// These three sections (Charges by service, Charges by resource, Data transfer & network
 // costs) call /api/xamops/cur-insights/* and have no Cost Explorer fallback, so in a
 // real account without a CUR they hide themselves. The demo has no CUR either, so
 // these fixtures stand in for one.
@@ -2846,16 +2846,48 @@ export const demoTopResources = {
 };
 
 // ─── /api/xamops/cur-insights/data-transfer/{accountId} ───────────────────────
-// TransferCharge[]: { category, service, usageType, unit, quantity, cost }
+// DataTransferBreakdown: { charges, flows, routeDataAvailable, resourceDataAvailable }
+//
+// charges[]: { category, service, usageType, unit, quantity, cost, region,
+//              fromLocation, toLocation, routeDerived }
+// flows[]:   { category, resourceId, name, service, region, availabilityZone,
+//              fromLocation, toLocation, routeDerived, usageType,
+//              gigabytes, hours, cost, categoryCost, categoryFlows }
+//
 // category MUST be one of the known labels for the icon/blurb to render:
-//   'NAT Gateway' | 'Cross-AZ' | 'Inter-region' | 'Internet egress' |
-//   'Internet ingress' | 'Other network'. Only unit 'GB' rows are summed into the
-// displayed GB quantity, so NAT gateway hourly rows use 'Hrs'. Total = 1,140.00,
+//   'NAT Gateway' | 'VPC endpoint' | 'Transit Gateway' | 'Cross-AZ' | 'Inter-region' |
+//   'Internet egress' | 'Internet ingress' | 'Other network'. Only unit 'GB' rows are
+// summed into the displayed GB quantity, so hourly rows use 'Hrs'. Total = 1,140.00,
 // matching the "Data Transfer" line in demoCostBreakdown.
-export const demoDataTransferCosts = [
-  { category: 'NAT Gateway', service: 'Amazon Virtual Private Cloud', usageType: 'APS3-NatGateway-Hours', unit: 'Hrs', quantity: 6489, cost: 292.00 },
-  { category: 'NAT Gateway', service: 'Amazon Virtual Private Cloud', usageType: 'APS3-NatGateway-Bytes', unit: 'GB', quantity: 8400, cost: 378.00 },
-  { category: 'Cross-AZ', service: 'AWS Data Transfer', usageType: 'APS3-DataTransfer-Regional-Bytes', unit: 'GB', quantity: 24500, cost: 245.00 },
-  { category: 'Internet egress', service: 'AWS Data Transfer', usageType: 'APS3-DataTransfer-Out-Bytes', unit: 'GB', quantity: 1875, cost: 205.00 },
-  { category: 'Inter-region', service: 'AWS Data Transfer', usageType: 'APS3-USE1-AWS-Out-Bytes', unit: 'GB', quantity: 1000, cost: 20.00 },
-];
+//
+// Shapes worth keeping as they are, because each one exercises a different branch:
+//   - the NAT hourly charge has no route, so it lands in "No route recorded"
+//   - the NAT and cross-AZ routes are same-to-same, which renders as "within Mumbai"
+//   - one inter-region row is routeDerived, so the "inferred" badge renders
+//   - flows carry both gigabytes and hours for the gateways, proving the two stay apart
+//   - categoryFlows exceeds the listed rows so the "top N of M" footer renders
+export const demoDataTransferCosts = {
+  routeDataAvailable: true,
+  resourceDataAvailable: true,
+  charges: [
+    { category: 'NAT Gateway', service: 'Amazon Virtual Private Cloud', usageType: 'APS3-NatGateway-Hours', unit: 'Hrs', quantity: 6489, cost: 292.00, region: 'ap-south-1', fromLocation: '', toLocation: '', routeDerived: false },
+    { category: 'NAT Gateway', service: 'Amazon Virtual Private Cloud', usageType: 'APS3-NatGateway-Bytes', unit: 'GB', quantity: 8400, cost: 378.00, region: 'ap-south-1', fromLocation: 'Asia Pacific (Mumbai)', toLocation: 'Asia Pacific (Mumbai)', routeDerived: false },
+    { category: 'Cross-AZ', service: 'AWS Data Transfer', usageType: 'APS3-DataTransfer-Regional-Bytes', unit: 'GB', quantity: 24500, cost: 245.00, region: 'ap-south-1', fromLocation: 'Asia Pacific (Mumbai)', toLocation: 'Asia Pacific (Mumbai)', routeDerived: false },
+    // toLocation is 'Internet', not AWS's raw 'External': the backend normalises the two to one
+    // spelling so a route does not split across both. Demo data has to match what ships.
+    { category: 'Internet egress', service: 'AWS Data Transfer', usageType: 'APS3-DataTransfer-Out-Bytes', unit: 'GB', quantity: 1875, cost: 205.00, region: 'ap-south-1', fromLocation: 'Asia Pacific (Mumbai)', toLocation: 'Internet', routeDerived: false },
+    { category: 'Inter-region', service: 'AWS Data Transfer', usageType: 'APS3-USE1-AWS-Out-Bytes', unit: 'GB', quantity: 800, cost: 16.00, region: 'ap-south-1', fromLocation: 'Asia Pacific (Mumbai)', toLocation: 'US East (N. Virginia)', routeDerived: false },
+    { category: 'Inter-region', service: 'AWS Data Transfer', usageType: 'APS3-EUW1-AWS-Out-Bytes', unit: 'GB', quantity: 200, cost: 4.00, region: 'ap-south-1', fromLocation: 'Asia Pacific (Mumbai)', toLocation: 'Europe (Ireland)', routeDerived: true },
+  ],
+  flows: [
+    { category: 'NAT Gateway', resourceId: 'arn:aws:ec2:ap-south-1:123456789012:natgateway/nat-0a1b2c3d4e5f60718', name: 'prod-nat-1a', service: 'Amazon Virtual Private Cloud', region: 'ap-south-1', availabilityZone: 'ap-south-1a', fromLocation: 'Asia Pacific (Mumbai)', toLocation: 'Asia Pacific (Mumbai)', routeDerived: false, usageType: 'APS3-NatGateway-Bytes', gigabytes: 5100, hours: 0, cost: 229.50, categoryCost: 670.00, categoryFlows: 6 },
+    { category: 'NAT Gateway', resourceId: 'arn:aws:ec2:ap-south-1:123456789012:natgateway/nat-0a1b2c3d4e5f60718', name: 'prod-nat-1a', service: 'Amazon Virtual Private Cloud', region: 'ap-south-1', availabilityZone: 'ap-south-1a', fromLocation: '', toLocation: '', routeDerived: false, usageType: 'APS3-NatGateway-Hours', gigabytes: 0, hours: 3245, cost: 146.00, categoryCost: 670.00, categoryFlows: 6 },
+    { category: 'NAT Gateway', resourceId: 'arn:aws:ec2:ap-south-1:123456789012:natgateway/nat-07f6e5d4c3b2a1908', name: 'prod-nat-1b', service: 'Amazon Virtual Private Cloud', region: 'ap-south-1', availabilityZone: 'ap-south-1b', fromLocation: 'Asia Pacific (Mumbai)', toLocation: 'Asia Pacific (Mumbai)', routeDerived: false, usageType: 'APS3-NatGateway-Bytes', gigabytes: 3300, hours: 0, cost: 148.50, categoryCost: 670.00, categoryFlows: 6 },
+    { category: 'NAT Gateway', resourceId: 'arn:aws:ec2:ap-south-1:123456789012:natgateway/nat-07f6e5d4c3b2a1908', name: 'prod-nat-1b', service: 'Amazon Virtual Private Cloud', region: 'ap-south-1', availabilityZone: 'ap-south-1b', fromLocation: '', toLocation: '', routeDerived: false, usageType: 'APS3-NatGateway-Hours', gigabytes: 0, hours: 3244, cost: 146.00, categoryCost: 670.00, categoryFlows: 6 },
+    { category: 'Cross-AZ', resourceId: 'i-089ccf1b5a839880a', name: 'prod-api-01', service: 'Amazon Elastic Compute Cloud', region: 'ap-south-1', availabilityZone: 'ap-south-1a', fromLocation: 'Asia Pacific (Mumbai)', toLocation: 'Asia Pacific (Mumbai)', routeDerived: false, usageType: 'APS3-DataTransfer-Regional-Bytes', gigabytes: 14200, hours: 0, cost: 142.00, categoryCost: 245.00, categoryFlows: 18 },
+    { category: 'Cross-AZ', resourceId: 'arn:aws:rds:ap-south-1:123456789012:db:prod-postgres', name: 'prod-postgres', service: 'Amazon Relational Database Service', region: 'ap-south-1', availabilityZone: 'ap-south-1b', fromLocation: 'Asia Pacific (Mumbai)', toLocation: 'Asia Pacific (Mumbai)', routeDerived: false, usageType: 'APS3-DataTransfer-Regional-Bytes', gigabytes: 7400, hours: 0, cost: 74.00, categoryCost: 245.00, categoryFlows: 18 },
+    { category: 'Internet egress', resourceId: 'arn:aws:elasticloadbalancing:ap-south-1:123456789012:loadbalancer/app/prod-alb/9f2c', name: 'prod-alb', service: 'AWS Data Transfer', region: 'ap-south-1', availabilityZone: '', fromLocation: 'Asia Pacific (Mumbai)', toLocation: 'Internet', routeDerived: false, usageType: 'APS3-DataTransfer-Out-Bytes', gigabytes: 1520, hours: 0, cost: 166.00, categoryCost: 205.00, categoryFlows: 6 },
+    { category: 'Inter-region', resourceId: 'arn:aws:s3:::xammer-prod-assets', name: '', service: 'Amazon Simple Storage Service', region: 'ap-south-1', availabilityZone: '', fromLocation: 'Asia Pacific (Mumbai)', toLocation: 'US East (N. Virginia)', routeDerived: false, usageType: 'APS3-USE1-AWS-Out-Bytes', gigabytes: 800, hours: 0, cost: 16.00, categoryCost: 20.00, categoryFlows: 2 },
+    { category: 'Inter-region', resourceId: 'arn:aws:rds:ap-south-1:123456789012:db:prod-postgres', name: 'prod-postgres', service: 'Amazon Relational Database Service', region: 'ap-south-1', availabilityZone: 'ap-south-1b', fromLocation: 'Asia Pacific (Mumbai)', toLocation: 'Europe (Ireland)', routeDerived: true, usageType: 'APS3-EUW1-AWS-Out-Bytes', gigabytes: 200, hours: 0, cost: 4.00, categoryCost: 20.00, categoryFlows: 2 },
+  ],
+};
