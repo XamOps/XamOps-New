@@ -1034,10 +1034,24 @@ public class CloudListService {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
             return ec2.describeVolumes().volumes().stream()
-                    .map(v -> new ResourceDto(v.volumeId(), getTagName(v.tags(), "N/A"), "EBS Volume",
+                    // Falls back to the volume id, not to "N/A": most volumes carry no Name tag,
+                    // and a card labelled "N/A" identifies nothing — the id at least says which
+                    // volume it is.
+                    .map(v -> new ResourceDto(v.volumeId(), getTagName(v.tags(), v.volumeId()), "EBS Volume",
                             v.availabilityZone().replaceAll(".$", ""), v.stateAsString(), v.createTime(),
-                            Map.of("Size", v.size() + " GiB", "Type", v.volumeTypeAsString(), "Attached to",
-                                    v.attachments().isEmpty() ? "N/A" : v.attachments().get(0).instanceId())))
+                            details(
+                                    "Size", v.size() + " GiB",
+                                    "Type", v.volumeTypeAsString(),
+                                    "IOPS", v.iops() == null ? null : String.valueOf(v.iops()),
+                                    "Encrypted",
+                                    v.encrypted() == null ? null : String.valueOf(v.encrypted()),
+                                    "Availability Zone", v.availabilityZone(),
+                                    "Attached to", v.attachments().isEmpty()
+                                            ? null
+                                            : v.attachments().get(0).instanceId(),
+                                    "Device", v.attachments().isEmpty()
+                                            ? null
+                                            : v.attachments().get(0).device())))
                     .collect(Collectors.toList());
         }, "EBS Volumes");
     }
@@ -1105,10 +1119,61 @@ public class CloudListService {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
             return ec2.describeSecurityGroups().securityGroups().stream()
-                    .map(sg -> new ResourceDto(sg.groupId(), sg.groupName(), "Security Group", regionId, "Available",
-                            null,
-                            Map.of("VPC ID", sg.vpcId(), "Inbound Rules", String.valueOf(sg.ipPermissions().size()),
-                                    "Outbound Rules", String.valueOf(sg.ipPermissionsEgress().size()))))
+                    .map(sg -> {
+                        /*
+                         * The rules themselves, not only how many there are.
+                         *
+                         * This call already returned every permission and the code kept nothing
+                         * but `.size()`, which is the one thing about a firewall rule nobody
+                         * needs: "5 inbound rules" cannot answer whether anything can reach the
+                         * database, where "admits sg-app on tcp/5432" can.
+                         *
+                         * Referenced groups are split from CIDR ranges because only the first is
+                         * a relationship between two resources the map can draw. A CIDR is a fact
+                         * about the rule, so it belongs in the detail list rather than as an edge
+                         * to a node that does not exist.
+                         */
+                        String admitsGroups = joinIds(sg.ipPermissions().stream()
+                                .flatMap(p -> p.userIdGroupPairs().stream())
+                                .map(pair -> pair.groupId()));
+                        String admitsCidrs = joinIds(sg.ipPermissions().stream()
+                                .flatMap(p -> p.ipRanges().stream())
+                                .map(range -> range.cidrIp()));
+                        String egressGroups = joinIds(sg.ipPermissionsEgress().stream()
+                                .flatMap(p -> p.userIdGroupPairs().stream())
+                                .map(pair -> pair.groupId()));
+
+                        // "tcp/443", "tcp/8000-8100", "all". Deduplicated, since rules commonly
+                        // differ only by source and would otherwise repeat the same port.
+                        String openPorts = joinIds(sg.ipPermissions().stream().map(p -> {
+                            String proto = "-1".equals(p.ipProtocol()) ? "all" : p.ipProtocol();
+                            if (p.fromPort() == null) {
+                                return proto;
+                            }
+                            return p.fromPort().equals(p.toPort())
+                                    ? proto + "/" + p.fromPort()
+                                    : proto + "/" + p.fromPort() + "-" + p.toPort();
+                        }));
+
+                        // Stated plainly because it is the finding a reader scans for, and
+                        // rebuilding it from a CIDR list is work they should not repeat per group.
+                        boolean openToWorld = sg.ipPermissions().stream()
+                                .flatMap(p -> p.ipRanges().stream())
+                                .anyMatch(range -> "0.0.0.0/0".equals(range.cidrIp()));
+
+                        return new ResourceDto(sg.groupId(), sg.groupName(), "Security Group",
+                                regionId, "Available", null,
+                                details(
+                                        "VPC ID", sg.vpcId(),
+                                        "Description", sg.description(),
+                                        "Inbound Rules", String.valueOf(sg.ipPermissions().size()),
+                                        "Outbound Rules", String.valueOf(sg.ipPermissionsEgress().size()),
+                                        "Open Ports", openPorts,
+                                        "Open To Internet", openToWorld ? "yes" : null,
+                                        "Admits Groups", admitsGroups,
+                                        "Admits CIDRs", admitsCidrs,
+                                        "Egress To Groups", egressGroups));
+                    })
                     .collect(Collectors.toList());
         }, "Security Groups");
     }
@@ -1122,7 +1187,21 @@ public class CloudListService {
                             lb.availabilityZones().isEmpty() ? regionId
                                     : lb.availabilityZones().get(0).zoneName().replaceAll(".$", ""),
                             lb.state().codeAsString(), lb.createdTime(),
-                            Map.of("Type", lb.typeAsString(), "Scheme", lb.schemeAsString(), "VPC ID", lb.vpcId())))
+                            details(
+                                    "Type", lb.typeAsString(),
+                                    "Scheme", lb.schemeAsString(),
+                                    "VPC ID", lb.vpcId(),
+                                    "DNS Name", lb.dnsName(),
+                                    // CloudMapService draws "uses SG" for a load balancer off
+                                    // this key, and nothing ever wrote it — so a public ALB has
+                                    // always looked as though it had no firewall at all. A
+                                    // network load balancer genuinely has none, which is why the
+                                    // helper drops the key rather than writing "N/A".
+                                    "Security Groups", joinIds(lb.securityGroups().stream()),
+                                    "Subnets", joinIds(lb.availabilityZones().stream()
+                                            .map(az -> az.subnetId())),
+                                    "Availability Zones", joinIds(lb.availabilityZones().stream()
+                                            .map(az -> az.zoneName())))))
                     .collect(Collectors.toList());
         }, "Load Balancers");
     }
@@ -1137,8 +1216,27 @@ public class CloudListService {
                             asg.availabilityZones().isEmpty() ? regionId
                                     : asg.availabilityZones().get(0).replaceAll(".$", ""),
                             "Active", asg.createdTime(),
-                            Map.of("Desired", asg.desiredCapacity().toString(), "Min", asg.minSize().toString(), "Max",
-                                    asg.maxSize().toString())))
+                            details(
+                                    "Desired", asg.desiredCapacity().toString(),
+                                    "Min", asg.minSize().toString(),
+                                    "Max", asg.maxSize().toString(),
+                                    // The keys CloudMapService reads for the "manages" and
+                                    // "registers to" edges, neither of which was ever written —
+                                    // so a group's own instances were invisible on the map even
+                                    // though this response has carried them all along.
+                                    "Instances", joinIds(asg.instances().stream()
+                                            .map(inst -> inst.instanceId())),
+                                    "Target Groups", joinIds(asg.targetGroupARNs().stream()),
+                                    "Load Balancers", joinIds(asg.loadBalancerNames().stream()),
+                                    // Already a comma-separated subnet list, which is the shape
+                                    // every id detail here uses.
+                                    "Subnets", asg.vpcZoneIdentifier(),
+                                    "Availability Zones", joinIds(asg.availabilityZones().stream()),
+                                    "Health Check", asg.healthCheckType(),
+                                    "Launch Template",
+                                    asg.launchTemplate() == null
+                                            ? null
+                                            : asg.launchTemplate().launchTemplateName())))
                     .collect(Collectors.toList());
         }, "Auto Scaling Groups");
     }
@@ -1598,6 +1696,37 @@ public class CloudListService {
         }, "Pinpoint Applications");
     }
 
+    /**
+     * A detail map that tolerates absent values.
+     *
+     * <p>{@code Map.of} throws on a null and most of these fields are legitimately absent — an
+     * instance with no public IP, a security group in EC2-Classic with no VPC, an unattached
+     * volume. Several detail maps here were one null away from failing a whole regional fetch,
+     * which surfaces as an empty region rather than as an error.
+     *
+     * <p>Insertion-ordered, because the Cloud Map's detail panel lists these in the order they
+     * were written and a hashed order reads as a scramble.
+     */
+    private static Map<String, String> details(String... keyValues) {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (int i = 0; i + 1 < keyValues.length; i += 2) {
+            String value = keyValues[i + 1];
+            if (value != null && !value.isBlank()) {
+                out.put(keyValues[i], value);
+            }
+        }
+        return out;
+    }
+
+    /** Comma-joined, deduplicated, with blanks dropped — the shape every id list detail uses. */
+    private static String joinIds(java.util.stream.Stream<String> ids) {
+        return ids.filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .collect(Collectors.joining(", "));
+    }
+
     private CompletableFuture<List<ResourceDto>> fetchEc2InstancesForCloudlist(CloudAccount account,
             List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
@@ -1609,13 +1738,45 @@ public class CloudListService {
                                 .map(GroupIdentifier::groupId)
                                 .collect(Collectors.joining(", "));
 
-                        Map<String, String> details = new HashMap<>();
-                        details.put("Type", i.instanceTypeAsString());
-                        details.put("Image ID", i.imageId());
-                        details.put("VPC ID", i.vpcId());
-                        details.put("Subnet ID", i.subnetId());
-                        details.put("Private IP", i.privateIpAddress());
-                        details.put("Security Groups", securityGroups);
+                        // The volumes this instance is built on. The reverse direction already
+                        // existed — a volume names the instance it is "Attached to" — but only
+                        // for volumes the scan happened to return, so an instance whose volumes
+                        // were in a region the volume fetch skipped showed no storage at all.
+                        String volumes = joinIds(i.blockDeviceMappings().stream()
+                                .map(m -> m.ebs() == null ? null : m.ebs().volumeId()));
+
+                        // CloudMapService has always looked for this key to draw the "assumes"
+                        // edge to a role, and nothing ever wrote it — so that edge has never
+                        // appeared on the map. The profile ARN's tail is the role name, which is
+                        // what the console and every policy document call it.
+                        String iamRole = null;
+                        if (i.iamInstanceProfile() != null && i.iamInstanceProfile().arn() != null) {
+                            String arn = i.iamInstanceProfile().arn();
+                            int slash = arn.lastIndexOf('/');
+                            iamRole = slash >= 0 && slash < arn.length() - 1
+                                    ? arn.substring(slash + 1)
+                                    : arn;
+                        }
+
+                        Map<String, String> details = details(
+                                "Type", i.instanceTypeAsString(),
+                                "Image ID", i.imageId(),
+                                "VPC ID", i.vpcId(),
+                                "Subnet ID", i.subnetId(),
+                                "Availability Zone",
+                                i.placement() == null ? null : i.placement().availabilityZone(),
+                                "Private IP", i.privateIpAddress(),
+                                "Public IP", i.publicIpAddress(),
+                                "Security Groups", securityGroups,
+                                "IAM Role", iamRole,
+                                "Volumes", volumes,
+                                "Key Name", i.keyName(),
+                                "Architecture", i.architectureAsString(),
+                                "Platform", i.platformDetails(),
+                                "EBS Optimized",
+                                i.ebsOptimized() == null ? null : String.valueOf(i.ebsOptimized()),
+                                "Detailed Monitoring",
+                                i.monitoring() == null ? null : i.monitoring().stateAsString());
 
                         return new ResourceDto(
                                 i.instanceId(),
@@ -1649,10 +1810,28 @@ public class CloudListService {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             Ec2Client ec2 = awsClientProvider.getEc2Client(account, regionId);
             return ec2.describeNatGateways().natGateways().stream()
-                    .map(nat -> new ResourceDto(nat.natGatewayId(), getTagName(nat.tags(), nat.natGatewayId()),
-                            "NAT Gateway", regionId, nat.stateAsString(), nat.createTime(),
-                            Map.of("VPC ID", nat.vpcId(), "Subnet ID", nat.subnetId(), "Private IP",
-                                    nat.natGatewayAddresses().get(0).privateIp())))
+                    .map(nat -> {
+                        var address = nat.natGatewayAddresses().isEmpty()
+                                ? null
+                                : nat.natGatewayAddresses().get(0);
+                        return new ResourceDto(nat.natGatewayId(),
+                                getTagName(nat.tags(), nat.natGatewayId()),
+                                "NAT Gateway", regionId, nat.stateAsString(), nat.createTime(),
+                                details(
+                                        "VPC ID", nat.vpcId(),
+                                        "Subnet ID", nat.subnetId(),
+                                        // Indexed straight into [0] before, which throws on a
+                                        // gateway still provisioning — and one exception here
+                                        // loses the whole region's NAT gateways.
+                                        "Private IP", address == null ? null : address.privateIp(),
+                                        "Public IP", address == null ? null : address.publicIp(),
+                                        // The key CloudMapService reads for the "uses EIP" edge.
+                                        "Elastic IP",
+                                        address == null ? null : address.allocationId(),
+                                        "Network Interface (ENI)",
+                                        address == null ? null : address.networkInterfaceId(),
+                                        "Connectivity", nat.connectivityTypeAsString()));
+                    })
                     .collect(Collectors.toList());
         }, "NAT Gateways");
     }
@@ -1717,10 +1896,17 @@ public class CloudListService {
                             regionId,
                             eip.associationId() != null ? "Associated" : "Unassociated",
                             null,
-                            Map.of(
+                            details(
                                     "Public IP", eip.publicIp(),
-                                    "Private IP", eip.privateIpAddress() != null ? eip.privateIpAddress() : "N/A",
-                                    "Associated Instance", eip.instanceId() != null ? eip.instanceId() : "N/A")))
+                                    "Private IP", eip.privateIpAddress(),
+                                    "Associated Instance", eip.instanceId(),
+                                    // The same value under the key CloudMapService actually reads
+                                    // for the "assigned to" edge. The two names never matched, so
+                                    // that edge has never been drawn. Both are kept so the cloud
+                                    // list keeps the label it already shows.
+                                    "Instance ID", eip.instanceId(),
+                                    "Network Interface (ENI)", eip.networkInterfaceId(),
+                                    "Scope", eip.domainAsString())))
                     .collect(Collectors.toList());
         }, "Elastic IPs");
     }

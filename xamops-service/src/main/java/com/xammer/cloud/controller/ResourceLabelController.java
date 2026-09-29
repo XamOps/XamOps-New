@@ -111,16 +111,25 @@ public class ResourceLabelController {
 
     /**
      * Returns a map of { resourceId → [label, label, ...] } for the given resource IDs.
-     * The Cloud List page calls this after fetching resources so it can show label chips
-     * on each row without an N+1 pattern.
+     * The Cloud List page and the Cost page's per-resource view both call this after
+     * fetching resources so they can show label chips on each row without an N+1 pattern.
      *
-     * POST body: { "cloudAccountId": 42, "resourceIds": ["i-abc", "vol-xyz", ...] }
+     * <p>Resource ids may be in whichever form the caller holds — the inventory's short id
+     * or a full ARN from the Cost and Usage Report. The response is keyed by the ids as
+     * asked for, so a caller can look up its own rows directly.
+     *
+     * <p>Scoped to the caller's client. It was not: the account is reachable by its provider
+     * account id, which is not a secret, so the unscoped version let any signed-in user read
+     * another tenant's labels for an account id they could name.
+     *
+     * POST body: { "accountId": "123456789012", "resourceIds": ["i-abc", "vol-xyz", ...] }
      */
     @PostMapping("/resource-map")
     public ResponseEntity<Map<String, List<ResourceLabelDto>>> getLabelsForResources(
+            @AuthenticationPrincipal ClientUserDetails user,
             @RequestBody ResourceMapRequest req) {
-        Map<String, List<ResourceLabelDto>> map =
-                labelService.getLabelsForResources(req.getAccountId(), req.getResourceIds());
+        Map<String, List<ResourceLabelDto>> map = labelService.getLabelsForResources(
+                user.getClientId(), req.getAccountId(), req.getResourceIds());
         return ResponseEntity.ok(map);
     }
 

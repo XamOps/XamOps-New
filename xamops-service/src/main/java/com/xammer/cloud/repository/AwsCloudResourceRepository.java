@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -26,6 +27,29 @@ import java.util.Optional;
 public interface AwsCloudResourceRepository extends JpaRepository<AwsCloudResource, Long> {
 
     Optional<AwsCloudResource> findByCloudAccountIdAndArn(Long cloudAccountId, String arn);
+
+    /**
+     * Rows matching any of {@code ids} under either of the two identifiers they are known by.
+     *
+     * <p>
+     * This table is the only place the short id and the ARN of a resource sit on the same
+     * row, which makes it the only thing that can reconcile the two vocabularies the product
+     * receives. The Cost and Usage Report's {@code line_item_resource_id} is a bare id for
+     * some services ({@code i-…}, a bucket name) and a full ARN for others (RDS, Lambda,
+     * DynamoDB, OpenSearch, ELB), with no column saying which — so a caller holding a CUR id
+     * cannot know which form it has, and matching on one alone silently misses half the
+     * estate. Both are tried in one query.
+     *
+     * <p>
+     * Not scoped to ACTIVE: a resource that appeared in last month's report and has since
+     * been deleted still needs its identity resolved, and the tombstone row is where that
+     * mapping lives. Callers that care about liveness check {@code status} themselves.
+     */
+    @Query("SELECT r FROM AwsCloudResource r WHERE r.cloudAccountId = :cloudAccountId "
+            + "AND (r.arn IN :ids OR r.resourceId IN :ids)")
+    List<AwsCloudResource> findByCloudAccountIdAndAnyIdentifier(
+            @Param("cloudAccountId") Long cloudAccountId,
+            @Param("ids") Collection<String> ids);
 
     // ── Reads for page consumers ────────────────────────────────────────────
     //
