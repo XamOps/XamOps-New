@@ -9,7 +9,13 @@ const BASE = '/api/dspm';
 /** Server default is 25; the table asks for 25 and lets the user widen it. */
 export const DSPM_PAGE_SIZES = [25, 50, 100] as const;
 
-/** The filter dimensions the rail renders, in the order they appear. */
+/**
+ * The filter dimensions the rail renders, in the order they appear.
+ *
+ * `resource_type` is deliberately excluded. It is how the Cloud surface scopes itself server-side
+ * (`resource_type=DATASTORE`, which is what covers both cloud and self-hosted datastores), so offering
+ * it as a filter would either be redundant or let someone select `SAAS_PRINCIPAL` and empty the table.
+ */
 export const DSPM_FILTER_DIMENSIONS = [
   'severity',
   'scan_status',
@@ -17,7 +23,6 @@ export const DSPM_FILTER_DIMENSIONS = [
   'sensitive_type',
   'data_element',
   'integration_id',
-  'resource_type',
   'lifecycle',
 ] as const;
 

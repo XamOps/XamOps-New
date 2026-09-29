@@ -74,7 +74,7 @@ public class MattersDspmService {
 
     /**
      * The Cloud datastore list — cloud and on-prem together, matching the vendor console's own Cloud
-     * screen. See {@link DspmAssetQuery#CATEGORY_CLOUD}.
+     * screen. See {@link DspmAssetQuery#CLOUD_RESOURCE_TYPE}.
      */
     public DspmPage<DspmAssetRow> getCloudAssets(Long clientId, DspmAssetQuery query) {
         MattersCredential credential = credentialResolver.resolve(clientId);
@@ -141,9 +141,10 @@ public class MattersDspmService {
      * Headline counts and trends.
      *
      * @param category null or blank for the whole project; otherwise a single tab. Not
-     *                 {@link DspmAssetQuery#CATEGORY_CLOUD} by default, because the summary endpoint
-     *                 takes one tab rather than a list and {@code all} is the useful default for the
-     *                 scan-coverage figures.
+     *                 datastore-scoped by default, because the summary endpoint takes a single tab
+     *                 rather than a list and {@code all} is the useful default for the scan-coverage
+     *                 figures. Note this is the one place a category value is legitimate: it is
+     *                 single-valued here.
      */
     public DspmSummary getSummary(Long clientId, String category) {
         MattersCredential credential = credentialResolver.resolve(clientId);

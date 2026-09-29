@@ -101,13 +101,54 @@ class MattersApiKeyTest {
     // ── query normalisation ──────────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("the Cloud surface queries cloud and on_prem together")
-    void cloudCategoryIncludesOnPrem() {
-        DspmAssetQuery query = DspmAssetQuery.cloud(null, null, null, null, null);
+    @DisplayName("the Cloud surface scopes by resource_type, never by a comma-joined category")
+    void cloudScopesByResourceType() {
+        Map<String, List<String>> params = DspmAssetQuery.cloud(null, null, null, null, null)
+                .toFilterParams();
 
-        // The vendor's own Cloud screen shows 68 against an API cloud count of 67; the extra row is the
-        // self-hosted datastore. Sending only "cloud" would drop it.
-        assertThat(query.toFilterParams().get("category")).containsExactly("cloud,on_prem");
+        // The regression this pins: `category` is a tab selector, not one of the six multi-value filters,
+        // so `category=cloud,on_prem` is unrecognised -- and the API answers an unrecognised filter with
+        // an EMPTY RESULT SET on a 200 rather than an error. It shipped and read as "this customer has no
+        // datastores".
+        //
+        // resource_type=DATASTORE expresses the same intent correctly: cloud and on-prem datastores are
+        // both DATASTORE, SaaS is SAAS_PRINCIPAL, endpoints are ENDPOINT_HOST. Measured live it returns
+        // 68 -- exactly the vendor Cloud screen's count.
+        assertThat(params.get("resource_type")).containsExactly("DATASTORE");
+        assertThat(params).doesNotContainKey("category");
+    }
+
+    @Test
+    @DisplayName("a blank scope is never sent, because it would silently return nothing")
+    void blankScopeIsOmitted() {
+        Map<String, List<String>> params =
+                DspmAssetQuery.of(null, null, null, null, null, null, null).toFilterParams();
+
+        // Sending category="" would be an unrecognised value, which means an empty result set rather than
+        // an error. Omitting it lets the API apply its own default instead.
+        assertThat(params).doesNotContainKey("category");
+        assertThat(params).doesNotContainKey("resource_type");
+    }
+
+    @Test
+    @DisplayName("a caller cannot override the resource_type scope with a filter")
+    void resourceTypeIsNotAUserFilter() {
+        Map<String, List<String>> params = DspmAssetQuery.cloud(null, null, null, null,
+                Map.of("resource_type", List.of("SAAS_PRINCIPAL"))).toFilterParams();
+
+        // Otherwise selecting SAAS_PRINCIPAL on the Cloud tab would empty the table, and the user would
+        // have no way to tell that from "no data".
+        assertThat(params.get("resource_type")).containsExactly("DATASTORE");
+    }
+
+    @Test
+    @DisplayName("a single category is still valid, for the summary endpoint's tab argument")
+    void singleCategoryPassesThrough() {
+        Map<String, List<String>> params =
+                DspmAssetQuery.of("saas", null, null, null, null, null, null).toFilterParams();
+
+        assertThat(params.get("category")).containsExactly("saas");
+        assertThat(params).doesNotContainKey("resource_type");
     }
 
     @Test

@@ -29,22 +29,42 @@ import java.util.TreeMap;
 public final class DspmAssetQuery {
 
     /**
-     * Categories that make up the Cloud surface.
+     * How the Cloud surface is scoped: by resource type, not by category.
      *
-     * Both, not just {@code cloud}. Matters' own Cloud screen shows 68 rows against an API
-     * {@code cloud} count of 67 — the difference is the single self-hosted Postgres datastore, which the
-     * vendor lists under Cloud with "self-hosted" in the account column. Sending only {@code cloud}
-     * would quietly drop on-prem datastores that a customer can see in the vendor console.
+     * <p>The Cloud screen must cover cloud <em>and</em> on-prem datastores — Matters' own Cloud view
+     * shows 68 rows where the API's {@code cloud} category alone counts 67, the extra row being a
+     * self-hosted Postgres it lists with "self-hosted" in the account column.
+     *
+     * <p>This was originally expressed as {@code category=cloud,on_prem}, which silently returned
+     * nothing. {@code category} is a <b>tab selector</b>, not one of the six multi-value filters
+     * ({@code resource_type}, {@code provider}, {@code severity}, {@code scan_status},
+     * {@code sensitive_type}, {@code integration_id}) — it accepts only {@code all}, {@code cloud},
+     * {@code saas}, {@code endpoint} or {@code on_prem}. A comma-joined value is simply unrecognised,
+     * and the API answers an unrecognised filter with an empty result set rather than a 4xx, so the
+     * mistake surfaced as "this customer has no datastores" on a 200.
+     *
+     * <p>{@code resource_type=DATASTORE} is the correct expression of the same intent: both cloud and
+     * on-prem datastores are {@code DATASTORE}, while SaaS is {@code SAAS_PRINCIPAL} and endpoints are
+     * {@code ENDPOINT_HOST}. Measured against the live tenant it returns exactly 68 — one request, with
+     * server-side paging, sorting and faceting intact.
      */
-    public static final String CATEGORY_CLOUD = "cloud,on_prem";
+    public static final String CLOUD_RESOURCE_TYPE = "DATASTORE";
 
     /** Sort fields the API honours. Anything else is ignored upstream, so it is rejected here. */
     private static final Set<String> SORTABLE = Set.of(
             "name", "risk_score", "sensitive_record_count", "last_modified_at", "severity");
 
-    /** Filter dimensions accepted from callers. Includes the three the docs omit. */
+    /**
+     * Filter dimensions accepted from callers. Includes two the docs omit
+     * ({@code data_element}, {@code lifecycle}).
+     *
+     * {@code resource_type} is deliberately absent: it is how the Cloud surface scopes itself
+     * ({@link #CLOUD_RESOURCE_TYPE}), so letting a caller set it too would either be redundant
+     * (selecting DATASTORE) or produce an empty table (selecting SAAS_PRINCIPAL on the Cloud tab). The
+     * scope wins, and it is not offered as a filter.
+     */
     private static final Set<String> FILTER_DIMENSIONS = Set.of(
-            "provider", "resource_type", "severity", "scan_status", "sensitive_type",
+            "provider", "severity", "scan_status", "sensitive_type",
             "integration_id", "data_element", "lifecycle");
 
     /** The vendor's ceiling. Larger values are clamped upstream; clamped here too so paging maths agree. */
@@ -52,16 +72,28 @@ public final class DspmAssetQuery {
     public static final int DEFAULT_PAGE_SIZE = 25;
     public static final String DEFAULT_SORT = "-risk_score";
 
+    /**
+     * Tab selector, or null. Single-valued only — see {@link #CLOUD_RESOURCE_TYPE} for why a
+     * comma-joined value cannot be used here.
+     */
     private final String category;
+
+    /**
+     * Fixed {@code resource_type} scope, or null. Set instead of {@link #category} for the Cloud
+     * surface, and not overridable by a caller's filters.
+     */
+    private final String resourceTypeScope;
+
     private final String search;
     private final String sort;
     private final int page;
     private final int pageSize;
     private final Map<String, List<String>> filters;
 
-    private DspmAssetQuery(String category, String search, String sort, int page, int pageSize,
-                           Map<String, List<String>> filters) {
+    private DspmAssetQuery(String category, String resourceTypeScope, String search, String sort,
+                           int page, int pageSize, Map<String, List<String>> filters) {
         this.category = category;
+        this.resourceTypeScope = resourceTypeScope;
         this.search = search;
         this.sort = sort;
         this.page = page;
@@ -76,7 +108,7 @@ public final class DspmAssetQuery {
      *                   rather than rejected, so a stale bookmark carrying a removed filter still
      *                   returns results instead of a 400.
      */
-    public static DspmAssetQuery of(String category, String search, String sort,
+    public static DspmAssetQuery of(String category, String resourceTypeScope, String search, String sort,
                                     Integer page, Integer pageSize,
                                     Map<String, List<String>> rawFilters) {
 
@@ -119,16 +151,20 @@ public final class DspmAssetQuery {
         }
 
         String resolvedSearch = (search == null || search.isBlank()) ? null : search.trim();
-        String resolvedCategory = (category == null || category.isBlank()) ? CATEGORY_CLOUD : category;
+        String resolvedCategory = (category == null || category.isBlank()) ? null : category.trim();
 
-        return new DspmAssetQuery(resolvedCategory, resolvedSearch, resolvedSort,
+        return new DspmAssetQuery(resolvedCategory, resourceTypeScope, resolvedSearch, resolvedSort,
                 resolvedPage, resolvedPageSize, resolvedFilters);
     }
 
-    /** Convenience for the Cloud surface. */
+    /**
+     * The Cloud surface: every datastore, cloud-hosted and self-hosted alike.
+     *
+     * Scoped by {@code resource_type} rather than {@code category} — see {@link #CLOUD_RESOURCE_TYPE}.
+     */
     public static DspmAssetQuery cloud(String search, String sort, Integer page, Integer pageSize,
                                        Map<String, List<String>> rawFilters) {
-        return of(CATEGORY_CLOUD, search, sort, page, pageSize, rawFilters);
+        return of(null, CLOUD_RESOURCE_TYPE, search, sort, page, pageSize, rawFilters);
     }
 
     /**
@@ -168,12 +204,19 @@ public final class DspmAssetQuery {
      */
     public Map<String, List<String>> toFilterParams() {
         Map<String, List<String>> params = new LinkedHashMap<>();
-        params.put("category", List.of(category));
+        // Both omitted when null. Sending category="" or an unrecognised value returns an empty result
+        // set rather than an error, so an accidentally-blank scope would read as "no assets".
+        if (category != null) {
+            params.put("category", List.of(category));
+        }
+        if (resourceTypeScope != null) {
+            params.put("resource_type", List.of(resourceTypeScope));
+        }
         if (search != null) {
             params.put("q", List.of(search));
         }
-        // Joined with commas rather than repeated: both forms are accepted, and one value per dimension
-        // keeps the URL shorter and the logs readable.
+        // Joined with commas rather than repeated: both forms are accepted for the six multi-value
+        // dimensions, and one value per dimension keeps the URL shorter and the logs readable.
         filters.forEach((dimension, values) -> params.put(dimension, List.of(String.join(",", values))));
         return params;
     }
@@ -187,7 +230,7 @@ public final class DspmAssetQuery {
      */
     public String cacheFragment() {
         StringBuilder key = new StringBuilder();
-        key.append(category).append('|')
+        key.append(scopeKey()).append('|')
            .append(search == null ? "" : search).append('|')
            .append(sort).append('|')
            .append(page).append('|')
@@ -200,10 +243,20 @@ public final class DspmAssetQuery {
     /** Cache-key fragment for the filter call, which ignores paging and sort. */
     public String filterCacheFragment() {
         StringBuilder key = new StringBuilder();
-        key.append(category).append('|').append(search == null ? "" : search);
+        key.append(scopeKey()).append('|').append(search == null ? "" : search);
         filters.forEach((dimension, values) ->
                 key.append('|').append(dimension).append('=').append(String.join(",", values)));
         return key.toString();
+    }
+
+    /**
+     * The scope, as a cache-key fragment.
+     *
+     * Both parts are included so a category-scoped query and a resource-type-scoped one can never
+     * collide on the same key — which would let the Cloud tab serve a SaaS tab's cached page.
+     */
+    private String scopeKey() {
+        return (category == null ? "" : category) + ":" + (resourceTypeScope == null ? "" : resourceTypeScope);
     }
 
     public int page() {
