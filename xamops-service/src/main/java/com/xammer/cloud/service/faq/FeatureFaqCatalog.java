@@ -151,6 +151,25 @@ public final class FeatureFaqCatalog {
                     "SecOps Alerts combines CloudGuard alerts (quota and anomaly alerts filterable by " +
                     "service) with a Grafana Alerts tab for external alert monitoring."),
 
+            new FeatureFaqEntry("xamlens-cloud", "XamLens", "Cloud Data",
+                    List.of("sensitive data", "pii in buckets", "datastore scan", "sensitive records",
+                            "data discovery"),
+                    "XamLens Cloud Data lists your cloud and self-hosted datastores (S3, EBS, DynamoDB, " +
+                    "BigQuery, GCS, Azure Blob, Postgres) with the sensitive data found in each: record " +
+                    "counts, the kinds of data (personal, secrets, financial), scan status, and the files " +
+                    "that contain it."),
+
+            new FeatureFaqEntry("xamlens-saas", "XamLens", "SaaS Data",
+                    List.of("google workspace", "gmail", "google drive", "saas sensitive data", "saas accounts"),
+                    "XamLens SaaS Data shows sensitive data found in SaaS accounts such as Google " +
+                    "Workspace mail and Drive, per account, with record counts, severity and the files " +
+                    "involved."),
+
+            new FeatureFaqEntry("xamlens-endpoint", "XamLens", "Endpoint Data",
+                    List.of("endpoint agent", "laptop scan", "device scan", "endpoint sensitive data"),
+                    "XamLens Endpoint Data shows sensitive data found on managed laptops and desktops, " +
+                    "with device details such as OS, serial number and agent status."),
+
             new FeatureFaqEntry("obs-overview", "Observability", "Overview",
                     List.of("observability overview", "openobserve", "data streams", "retention", "org id"),
                     "The Observability Overview shows stat cards for your total log, metric, and trace " +
@@ -289,6 +308,12 @@ public final class FeatureFaqCatalog {
                     List.of("secops module", "security operations", "cloud security suite"),
                     "SecOps covers your security tooling — Security Center findings, XamSecure (CNAPP), " +
                     "ComplianceOps framework scoring, Performance Insights, and Alerts."),
+
+            new FeatureFaqEntry("xamlens", "XamLens", "XamLens",
+                    List.of("data security posture management", "dspm", "where is my sensitive data"),
+                    "XamLens is XamOps's data security posture management (DSPM) module — it finds where " +
+                    "sensitive data lives across Cloud datastores, SaaS accounts and Endpoints, and shows " +
+                    "what kind it is and which files hold it."),
 
             new FeatureFaqEntry("observability", "Observability", "Observability",
                     List.of("observability module", "logs metrics traces", "monitoring suite"),

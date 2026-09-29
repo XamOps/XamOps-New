@@ -32,7 +32,7 @@ interface StateCopy {
 const COPY: Record<string, StateCopy> = {
   NOT_ENTITLED: {
     icon: 'mdi:database-lock-outline',
-    title: 'Data Security is not enabled',
+    title: 'XamLens is not enabled',
     body: 'Discover where sensitive data lives across your cloud datastores — which buckets, databases '
       + 'and volumes hold personal, financial or secret material, and which of them are exposed. '
       + 'Request access and our team will get in touch.',
@@ -48,7 +48,7 @@ const COPY: Record<string, StateCopy> = {
   },
   DISABLED: {
     icon: 'mdi:pause-circle-outline',
-    title: 'Data Security is paused',
+    title: 'XamLens is paused',
     body: 'Your data security connection has been paused. Contact support if this was not expected.',
     tone: 'neutral',
   },
@@ -89,7 +89,7 @@ function copyFor(reason: DspmReason | null): StateCopy {
   if (CREDENTIAL_REASONS.includes(reason)) return CREDENTIAL_COPY;
   return COPY[reason] ?? {
     ...CREDENTIAL_COPY,
-    title: 'Data Security is unavailable',
+    title: 'XamLens is unavailable',
   };
 }
 
