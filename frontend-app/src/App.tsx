@@ -175,6 +175,10 @@ const BillOpsAdminTicketsPage = lazy(() => import('./pages/BillOpsAdminTicketsPa
 const BillOpsAdminAgreementsPage = lazy(() => import('./pages/BillOpsAdminAgreementsPage'));
 const BillOpsAdminMarketplaceBillingPage = lazy(() => import('./pages/BillOpsAdminMarketplaceBillingPage'));
 const BillOpsAdminUserManagerPage = lazy(() => import('./pages/BillOpsAdminUserManagerPage'));
+// Internal operator console for the Matters.ai DSPM add-on: org -> project mappings, per-customer
+// credentials and the access audit trail. Its own page rather than a section of Accounts, because a
+// credential per customer on a 180-day expiry needs a table that can be sorted by expiry.
+const DspmAdminPage = lazy(() => import('./pages/DspmAdminPage'));
 const ClientDetailsPage = lazy(() => import('./pages/ClientDetailsPage'));
 const BillOpsClientIntakePage = lazy(() => import('./pages/BillOpsClientIntakePage'));
 
@@ -551,7 +555,11 @@ const AppContent: React.FC = () => {
                             <Route path="/gke-details" element={<GkeDetailsPage />} />
                             <Route path="/aks-details" element={<AksDetailsPage />} />
                             <Route path="/security" element={<SecurityPage />} />
-                            <Route path="/xamsecure" element={<Navigate to="/xamsecure/overview" replace />} />
+                            {/* No redirect here any more. It used to send /xamsecure to
+                                /xamsecure/overview, which is a CNAPP tab — a DSPM-only customer landed
+                                on an Upwind page with no data and no way out but guessing a URL. The
+                                page resolves the landing tab from what the client is entitled to. */}
+                            <Route path="/xamsecure" element={<XamSecurePage />} />
                             <Route path="/xamsecure/:tab" element={<XamSecurePage />} />
                             <Route path="/gcp-security" element={<GcpSecurityPage />} />
                             <Route path="/azure-security" element={<AzureSecurityPage />} />
@@ -628,6 +636,7 @@ const AppContent: React.FC = () => {
                             <Route path="/soc2-program/risks/:riskId" element={<Soc2RiskDetailPage />} />
                             <Route path="/soc2-program/:tab" element={<Soc2ProgramPage />} />
                             <Route path="/billops-admin-user-manager" element={<BillOpsAdminUserManagerPage />} />
+                            <Route path="/dspm-admin" element={<DspmAdminPage />} />
                             <Route path="/gcp-autospotting" element={<GcpSpotAutomationPage />} />
                             <Route path="/azure-autospotting" element={<AzureSpotAutomationPage />} />
                             <Route path="/gcp-cloudsitter" element={<GcpCloudSitterPage />} />
