@@ -6,6 +6,15 @@ import {
   categoryAccent, compactCount, formatBytes, formatEpochSeconds,
   sensitivityClasses, sensitivityLabel,
 } from './dspmFormat';
+import { DspmObjectIcon, DspmProviderIcon, DspmScanStatus } from './DspmIcons';
+
+/** Severity glyphs, mirroring DspmIcons' badge so the drawer header matches the table. */
+const SEVERITY_GLYPH: Record<string, string> = {
+  Critical: 'mdi:alert-octagon',
+  High: 'mdi:alert',
+  Medium: 'mdi:alert-outline',
+  Low: 'mdi:information-outline',
+};
 
 /**
  * Asset detail, as a panel filling the content area.
@@ -241,9 +250,11 @@ const DspmAssetDrawer: React.FC<Props> = ({ detail, loading, error, onClose }) =
 
         {/* ── Asset header ── */}
         <div className="flex items-start gap-3 px-5 py-3">
-          <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[rgba(0,0,0,0.88)]">
-            <Icon icon="mdi:database-outline" width={16} color="white" />
-          </div>
+          {/* The service's own mark, not a generic database tile — same icon this asset shows in the
+              list and anywhere else in the product. */}
+          <span className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.02)]">
+            <DspmProviderIcon provider={detail?.source.provider ?? detail?.subtype ?? null} size={18} />
+          </span>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-sm font-bold text-[rgba(0,0,0,0.88)]" title={detail?.name}>
               {detail?.name ?? (loading ? 'Loading…' : '—')}
@@ -254,13 +265,14 @@ const DspmAssetDrawer: React.FC<Props> = ({ detail, loading, error, onClose }) =
           </div>
           <div className="flex flex-shrink-0 items-center gap-2">
             {severity && (
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${sensitivityClasses(severity)}`}>
+              <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${sensitivityClasses(severity)}`}>
+                <Icon icon={SEVERITY_GLYPH[severity] ?? 'mdi:information-outline'} width={11} />
                 {severity}
               </span>
             )}
             {detail && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-[rgba(0,0,0,0.1)] px-2.5 py-0.5 text-[11px] font-semibold text-[rgba(0,0,0,0.6)]">
-                {detail.scan.statusLabel}
+              <span className="inline-flex items-center rounded-full border border-[rgba(0,0,0,0.1)] px-2.5 py-0.5">
+                <DspmScanStatus status={detail.scan.status} label={detail.scan.statusLabel} />
               </span>
             )}
           </div>
@@ -369,11 +381,14 @@ const DspmAssetDrawer: React.FC<Props> = ({ detail, loading, error, onClose }) =
                         className="border-b border-[rgba(0,0,0,0.04)] px-4 py-3 last:border-b-0"
                       >
                         <div className="flex items-start gap-2">
-                          <Icon
-                            icon={object.objectType === 'COLUMN' ? 'mdi:table-column' : 'mdi:file-outline'}
-                            width={13}
-                            className="mt-0.5 flex-shrink-0 text-[rgba(0,0,0,0.3)]"
-                          />
+                          <span className="mt-0.5">
+                            {/* Extension-aware, so a spreadsheet and a PDF are distinguishable at a
+                                glance the way they are in the console's file lists. */}
+                            <DspmObjectIcon
+                              objectType={object.objectType}
+                              extension={object.extension}
+                            />
+                          </span>
                           <div className="min-w-0 flex-1">
                             <div className="truncate text-xs font-semibold text-[rgba(0,0,0,0.85)]" title={object.name ?? ''}>
                               {object.name ?? '(unnamed)'}

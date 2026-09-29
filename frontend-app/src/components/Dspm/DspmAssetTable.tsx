@@ -1,7 +1,10 @@
 import React from 'react';
 import { Icon } from '@iconify/react';
 import type { DspmAssetRow, DspmPage } from '../../types/dspm';
-import { compactCount, sensitivityClasses, sensitivityLabel } from './dspmFormat';
+import { compactCount } from './dspmFormat';
+import {
+  DspmCloudMark, DspmProviderIcon, DspmScanStatus, DspmSeverityBadge,
+} from './DspmIcons';
 
 /**
  * The Cloud datastore table.
@@ -12,43 +15,8 @@ import { compactCount, sensitivityClasses, sensitivityLabel } from './dspmFormat
  * (the API returns only an integration id, so the region is shown instead).
  */
 
-/**
- * Severity, from the asset's **sensitivity classification**.
- *
- * `sensitives.level`, not `risk.level` — this was wrong at first and is worth stating plainly, because
- * both fields exist and both look plausible in this column. Checked row by row against the live
- * project: `xamops-document-bucket` carries `risk.level: CRITICAL` but `sensitives.level:
- * MEDIUM_SENSITIVITY`, and the vendor console shows "Medium". Using `risk.level` made our table
- * disagree with theirs on the same asset.
- *
- * `NOT_SENSITIVE` and null both render as a dash, as they do there. A grey "None" badge would read as
- * "evaluated and found clean", which for an unscanned asset is a claim nobody has earned.
- */
-const SeverityCell: React.FC<{ row: DspmAssetRow }> = ({ row }) => {
-  const label = sensitivityLabel(row.sensitives.level);
-  if (!label) return <span className="text-xs text-[rgba(0,0,0,0.3)]">—</span>;
-  return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${sensitivityClasses(label)}`}>
-      {label}
-    </span>
-  );
-};
-
-/** Dot colours matching the vendor console's scan-status indicator. */
-const SCAN_DOT: Record<string, string> = {
-  CLASSIFIED: 'bg-emerald-500',
-  SCANNING: 'bg-sky-500',
-  STOPPED: 'bg-slate-400',
-  FAILED: 'bg-rose-500',
-  NOT_SCANNED: 'bg-[rgba(0,0,0,0.2)]',
-};
-
-const ScanCell: React.FC<{ status: string; label: string }> = ({ status, label }) => (
-  <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-[rgba(0,0,0,0.65)]">
-    <span className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${SCAN_DOT[status] ?? 'bg-[rgba(0,0,0,0.2)]'}`} />
-    {label}
-  </span>
-);
+// Severity and scan-status rendering, with their icons, live in DspmIcons so the tables and the detail
+// panel cannot drift on what an asset's own state looks like.
 
 /**
  * Sensitive record count — or an explanation of why there isn't one.
@@ -210,24 +178,36 @@ const DspmAssetTable: React.FC<Props> = ({ page, loading, sort, onSort, onSelect
             onClick={() => onSelect(row)}
             className="cursor-pointer border-b border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.015)]"
           >
+            {/* Service icon beside the name, as the console has it — the official AWS/GCP/Azure mark
+                where one exists, a neutral glyph for self-hosted and SaaS. */}
             <td className="px-4 py-3">
-              <div className="max-w-[18rem] truncate text-xs font-semibold text-[rgba(0,0,0,0.88)]" title={row.name}>
-                {row.name}
-              </div>
-              <div className="mt-0.5 flex items-center gap-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)]">
-                  {row.subtypeLabel ?? row.subtype ?? '—'}
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5">
+                  <DspmProviderIcon provider={row.source.provider ?? row.subtype} />
                 </span>
-                {row.category === 'on_prem' && (
-                  <span className="rounded bg-[rgba(0,0,0,0.05)] px-1 text-[9px] font-semibold text-[rgba(0,0,0,0.45)]">
-                    self-hosted
-                  </span>
-                )}
+                <div className="min-w-0">
+                  <div
+                    className="max-w-[18rem] truncate text-xs font-semibold text-[rgba(0,0,0,0.88)]"
+                    title={row.name}
+                  >
+                    {row.name}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1.5">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)]">
+                      {row.subtype ?? '—'}
+                    </span>
+                    {row.category === 'on_prem' && (
+                      <span className="rounded bg-[rgba(0,0,0,0.05)] px-1 text-[9px] font-semibold text-[rgba(0,0,0,0.45)]">
+                        self-hosted
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
             </td>
 
             <td className="px-4 py-3">
-              <SeverityCell row={row} />
+              <DspmSeverityBadge row={row} />
             </td>
 
             <td className="px-4 py-3 text-right">
@@ -254,20 +234,21 @@ const DspmAssetTable: React.FC<Props> = ({ page, loading, sort, onSort, onSelect
                 rather than filling the cell with hex. */}
             <td className="px-4 py-3">
               <div
-                className="whitespace-nowrap text-xs text-[rgba(0,0,0,0.7)]"
+                className="flex items-center gap-1.5 whitespace-nowrap text-xs text-[rgba(0,0,0,0.7)]"
                 title={row.source.account ? `Integration ${row.source.account}` : undefined}
               >
+                <DspmCloudMark provider={row.source.provider} />
                 {row.source.region ?? '—'}
               </div>
               {row.source.providerLabel && (
-                <div className="mt-0.5 text-[10px] text-[rgba(0,0,0,0.4)]">
+                <div className="mt-0.5 pl-[18px] text-[10px] text-[rgba(0,0,0,0.4)]">
                   {row.source.providerLabel}
                 </div>
               )}
             </td>
 
             <td className="px-4 py-3">
-              <ScanCell status={row.scan.status} label={row.scan.statusLabel} />
+              <DspmScanStatus status={row.scan.status} label={row.scan.statusLabel} />
             </td>
 
             <td className="px-4 py-3"><SensitivesCell row={row} /></td>
