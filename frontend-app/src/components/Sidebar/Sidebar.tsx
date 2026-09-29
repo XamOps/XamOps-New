@@ -128,17 +128,22 @@ const Sidebar: React.FC = () => {
    * CNAPP keeps its existing per-user tab key. DSPM needs both the org entitlement and its own tab key,
    * so a customer who buys both can still scope an individual user to one of them.
    */
+  /**
+   * Which XamSecure product groups to show.
+   *
+   * Both halves ride the single {@code secops-xamsecure} key. A second key for DSPM was tried and
+   * removed: this allow-list is fail-open for a user with no rows but fail-closed for a user who has
+   * any, so a key introduced today can never appear in a list saved before it existed — every
+   * already-restricted user lost DSPM silently, which is exactly what happened on UAT.
+   *
+   * Neither group is gated on the add-on entitlement either. Hiding DSPM until it was bought made the
+   * Request access screen unreachable, so a customer could never ask for the thing that screen exists to
+   * sell. Instead the heading carries a "Locked" pill when the org is not entitled, and the tab lands on
+   * the upsell rather than on an empty table.
+   */
   const xamSecureGroups = useMemo<XamSecureGroup[]>(() => {
-    const groups: XamSecureGroup[] = [];
-    if (isXamTabAllowed('secops-xamsecure')) groups.push('CNAPP');
-    // Visible on the tab key alone, NOT on the entitlement.
-    //
-    // Gating the nav on the entitlement made the Request access screen unreachable: a customer who has
-    // not bought DSPM could never see a DSPM entry, so they could never ask for it — which defeats the
-    // point of building that screen. The group is shown with a "Locked" pill instead, and the tab lands
-    // on the upsell. Withholding it entirely is still one flag away via the per-user tab key.
-    if (isXamTabAllowed('secops-xamsecure-dspm')) groups.push('DSPM');
-    return groups;
+    if (!isXamTabAllowed('secops-xamsecure')) return [];
+    return ['CNAPP', 'DSPM'];
   }, [isXamTabAllowed]);
 
   /**
