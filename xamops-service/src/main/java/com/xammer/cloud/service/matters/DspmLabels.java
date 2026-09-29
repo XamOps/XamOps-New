@@ -55,6 +55,29 @@ public final class DspmLabels {
             "PHI", "Health");
 
     /**
+     * Category per detector, for entities known only from an asset's facet.
+     *
+     * <p>Needed because the facet names a detector without its category, and the category decides which
+     * band the entity sits in (Personal against IT &amp; Security). Every entry was observed live: across
+     * 1,227 findings in the test project, each of these detectors reported exactly one category, every
+     * time. So a detector's category is a fixed property of the detector, and one seen on another asset
+     * can be applied here.
+     *
+     * <p>Deliberately limited to what has been observed. A detector absent from this map gets no category
+     * and renders under "Other" — obvious guesses like JWT TOKEN being a secret are left out, because a
+     * mis-banded entity is a wrong claim about the data while an unbanded one is only less tidy.
+     */
+    private static final Map<String, String> ENTITY_CATEGORIES = Map.of(
+            "PERSON NAME", "PII",
+            "ADDRESS", "PII",
+            "EMAIL ADDRESS", "PII",
+            "IP ADDRESS", "PII",
+            "DATE OF BIRTH", "PII",
+            "ACCESS KEY AWS", "SECRETS",
+            "HASHED SECRET KEY", "SECRETS",
+            "SHA KEY", "SECRETS");
+
+    /**
      * Scan statuses under which a sensitive-record count of zero means "nobody has looked", not
      * "nothing is there".
      *
@@ -111,6 +134,18 @@ public final class DspmLabels {
     public static boolean isUnscanned(String scanStatus) {
         return scanStatus == null
                 || UNSCANNED_STATUSES.contains(scanStatus.trim().toUpperCase(Locale.ROOT));
+    }
+
+    /**
+     * The category code for a detector, or null if it has not been observed.
+     *
+     * @see #ENTITY_CATEGORIES
+     */
+    public static String entityCategory(String entityType) {
+        if (entityType == null || entityType.isBlank()) {
+            return null;
+        }
+        return ENTITY_CATEGORIES.get(entityType.trim().toUpperCase(Locale.ROOT));
     }
 
     /** Console display name for a sensitive-data category code. */

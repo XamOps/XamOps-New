@@ -9,8 +9,8 @@ import {
   XAMSECURE_TABS, VALID_XAMSECURE_TABS, firstTabForGroups, groupForTab, tabDef,
   type XamSecureGroup, type XamSecureTab,
 } from '../constants/xamsecureTabs';
-import { useDspmStatus } from '../hooks/useDspmData';
-import DspmCloudTab from '../components/Dspm/DspmCloudTab';
+import { useDspmStatus, type DspmSurface } from '../hooks/useDspmData';
+import DspmAssetsTab from '../components/Dspm/DspmAssetsTab';
 import DspmStatusTab from '../components/Dspm/DspmStatusTab';
 import ComingSoonTab from '../components/XamSecure/ComingSoonTab';
 import {
@@ -24,6 +24,13 @@ import {
 // no nav entry and Packages kept showing as Components.
 export type { XamSecureTab };
 export { XAMSECURE_TABS };
+
+/** DSPM asset tabs and the backend surface each one reads (`/api/dspm/{surface}/…`). */
+const DSPM_SURFACES: Partial<Record<XamSecureTab, DspmSurface>> = {
+  'dspm-cloud': 'cloud',
+  'dspm-saas': 'saas',
+  'dspm-endpoint': 'endpoint',
+};
 
 const XamSecurePage: React.FC = () => {
   const { selectedAccountIds, accounts, isLoading: accountsLoading } = useAccounts();
@@ -64,6 +71,7 @@ const XamSecurePage: React.FC = () => {
   /** Which product owns the current tab. Decides whether the account-picker guard applies. */
   const activeGroup = groupForTab(activeTab) ?? 'CNAPP';
   const isDspmTab = activeGroup === 'DSPM';
+  const dspmSurface = DSPM_SURFACES[activeTab];
 
   /**
    * Definition of the tab on screen, for the coming-soon placeholder.
@@ -125,7 +133,7 @@ const XamSecurePage: React.FC = () => {
   if (isComingSoonTab && activeDef) {
     return (
       <main className="flex-1 flex flex-col min-h-screen bg-white">
-        <XamSecureHeader isLoading={false} onRefresh={refresh} />
+        <XamSecureHeader isLoading={false} onRefresh={refresh} group={activeGroup} />
         <div className="p-6">
           <ComingSoonTab title={activeDef.label} blurb={activeDef.comingSoonBlurb} />
         </div>
@@ -141,7 +149,7 @@ const XamSecurePage: React.FC = () => {
     const stillLoadingAccounts = accountsLoading && accounts.length === 0;
     return (
       <main className="flex-1 flex flex-col min-h-screen bg-white">
-        <XamSecureHeader isLoading={stillLoadingAccounts} onRefresh={refresh} />
+        <XamSecureHeader isLoading={stillLoadingAccounts} onRefresh={refresh} group={activeGroup} />
         <div className="flex-1 flex items-center justify-center p-6">
           {stillLoadingAccounts ? (
             <p className="text-sm text-gray-400">Loading accounts...</p>
@@ -176,7 +184,7 @@ const XamSecurePage: React.FC = () => {
 
   return (
     <main className="flex-1 flex flex-col min-h-screen bg-white">
-      <XamSecureHeader isLoading={isLoading} onRefresh={refresh} />
+      <XamSecureHeader isLoading={isLoading} onRefresh={refresh} group={activeGroup} />
       {/* pb-24 keeps the bottom pager clear of the floating chat-support widget (bottom-right). */}
       <div className="p-6 pb-24 space-y-6">
         {activeTab === 'issues' && (
@@ -245,8 +253,11 @@ const XamSecurePage: React.FC = () => {
         {isDspmTab && dspmLoading && (
           <p className="py-16 text-center text-sm text-gray-400">Loading data security…</p>
         )}
-        {activeTab === 'dspm-cloud' && !dspmLoading && dspmStatus && (
-          <DspmCloudTab status={dspmStatus} onRetry={reloadStatus} />
+        {/* Keyed by surface so filters, paging and search reset when switching tabs: a provider=S3
+            filter means nothing on Endpoint. */}
+        {dspmSurface && !dspmLoading && dspmStatus && (
+          <DspmAssetsTab key={dspmSurface} surface={dspmSurface} status={dspmStatus}
+                         onRetry={reloadStatus} />
         )}
         {activeTab === 'dspm-status' && !dspmLoading && dspmStatus && (
           <DspmStatusTab status={dspmStatus} onRetry={reloadStatus} />

@@ -15,6 +15,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -68,15 +71,18 @@ public class MattersDspmService {
     private final MattersApiClient apiClient;
     private final MattersAssetMapper mapper;
     private final MattersProjectMappingRepository mappingRepository;
+    private final MattersIntegrationLabeler integrationLabeler;
     private final RedisCacheService cache;
 
     // ── Cloud surface ────────────────────────────────────────────────────────────────────────────
 
     /**
-     * The Cloud datastore list — cloud and on-prem together, matching the vendor console's own Cloud
-     * screen. See {@link DspmAssetQuery#CLOUD_RESOURCE_TYPE}.
+     * An asset list for one surface — datastores, SaaS accounts or managed endpoints.
+     *
+     * The surface is carried by the query's {@code resource_type} scope, so this method is the same for
+     * all three. The cache key derives from that scope, so one surface can never serve another's page.
      */
-    public DspmPage<DspmAssetRow> getCloudAssets(Long clientId, DspmAssetQuery query) {
+    public DspmPage<DspmAssetRow> getAssets(Long clientId, DspmAssetQuery query) {
         MattersCredential credential = credentialResolver.resolve(clientId);
         String key = KEY_PREFIX + "assets:" + clientId + ":" + query.cacheFragment();
 
@@ -95,11 +101,16 @@ public class MattersDspmService {
     /**
      * Filter options with faceted counts.
      *
-     * Called with the same filters as {@link #getCloudAssets}, which is what preserves the upstream's
+     * Called with the same filters as {@link #getAssets}, which is what preserves the upstream's
      * disjunctive counting — a dimension the user has already filtered on keeps showing all of its
      * options rather than collapsing to the selected one.
+     *
+     * <p>The {@code integration_id} options are relabelled on the way out. The vendor returns its own
+     * ObjectIds there while its console shows {@code 605134457560 (Xammer-prod)}; see
+     * {@link MattersIntegrationLabeler} for where each half of that comes from. Done before caching so
+     * the extra lookups are paid once per five-minute window rather than per request.
      */
-    public DspmFilters getCloudFilters(Long clientId, DspmAssetQuery query) {
+    public DspmFilters getFilters(Long clientId, DspmAssetQuery query) {
         MattersCredential credential = credentialResolver.resolve(clientId);
         String key = KEY_PREFIX + "filters:" + clientId + ":" + query.filterCacheFragment();
 
@@ -109,7 +120,7 @@ public class MattersDspmService {
         }
 
         JsonNode body = apiClient.listFilters(credential, query.toFilterParams());
-        DspmFilters filters = mapper.toFilters(body);
+        DspmFilters filters = integrationLabeler.withAccountLabels(credential, mapper.toFilters(body));
         cache.put(key, filters, FILTERS_CACHE_MINUTES);
         return filters;
     }
@@ -133,8 +144,64 @@ public class MattersDspmService {
 
         JsonNode body = apiClient.getAsset(credential, assetId);
         DspmAssetDetail detail = mapper.toDetail(body);
+        // An untruncated sample already contains every entity, so the extra call is only paid when the
+        // 50-object cap may have hidden some.
+        if (detail.objectsTruncated()) {
+            detail = mapper.withDetectedEntities(detail, detectedElements(credential, detail));
+        }
         cache.put(key, detail, DETAIL_CACHE_MINUTES);
         return detail;
+    }
+
+    /**
+     * Every detector that fired anywhere in one asset, from a filter call scoped to just that asset.
+     *
+     * <p>There is no asset-id filter, so the scope is the asset's own attributes: name, resource type,
+     * integration, provider, scan status and severity. That isolated the asset in all 17 truncated assets
+     * in the test project, but it is checked on every call rather than assumed: the {@code resource_type}
+     * facet counts the matching assets, and anything other than exactly one means the facet would mix in
+     * another asset's detectors, so nothing is returned.
+     *
+     * <p>Best-effort. A failure returns an empty list, which leaves the sampled entities as they were.
+     */
+    private List<String> detectedElements(MattersCredential credential, DspmAssetDetail detail) {
+        if (detail.resourceType() == null || detail.name() == null) {
+            return List.of();
+        }
+        Map<String, List<String>> scope = new LinkedHashMap<>();
+        scope.put("resource_type", List.of(detail.resourceType()));
+        scope.put("q", List.of(detail.name()));
+        if (detail.source().account() != null) {
+            scope.put("integration_id", List.of(detail.source().account()));
+        }
+        if (detail.source().provider() != null) {
+            scope.put("provider", List.of(detail.source().provider()));
+        }
+        if (detail.scan().status() != null) {
+            scope.put("scan_status", List.of(detail.scan().status()));
+        }
+        // Already folded to NONE when the vendor sent null, which is the value this filter accepts.
+        scope.put("severity", List.of(detail.risk().level()));
+
+        try {
+            DspmFilters facets = mapper.toFilters(apiClient.listFilters(credential, scope));
+            long matching = facets.dimensions().getOrDefault("resource_type", List.of()).stream()
+                    .filter(option -> detail.resourceType().equals(option.value()))
+                    .mapToLong(DspmFilters.Option::count)
+                    .sum();
+            if (matching != 1) {
+                log.debug("[DSPM] entity scope for asset {} matched {} assets; using the sample only",
+                        detail.id(), matching);
+                return List.of();
+            }
+            return facets.dimensions().getOrDefault("data_element", List.of()).stream()
+                    .map(DspmFilters.Option::value)
+                    .toList();
+        } catch (RuntimeException e) {
+            // Includes MattersApiException. The detail is still correct without the extra entities.
+            log.debug("[DSPM] could not read detected entities for asset {}: {}", detail.id(), e.getMessage());
+            return List.of();
+        }
     }
 
     /**
@@ -246,6 +313,9 @@ public class MattersDspmService {
      */
     public void evictClient(Long clientId) {
         long removed = cache.evictByPattern(KEY_PREFIX + "*:" + clientId + ":*");
+        // Held under a different key shape (one entry per client, not per query) and with a twelve-hour
+        // TTL, so the pattern sweep above does not reach it and it would outlive a repoint by half a day.
+        integrationLabeler.evictClient(clientId);
         log.info("[DSPM] evicted {} cached entries for client {}", removed, clientId);
     }
 }

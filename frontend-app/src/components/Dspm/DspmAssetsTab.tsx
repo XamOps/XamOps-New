@@ -1,7 +1,8 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
-import { useDspmCloud, DSPM_PAGE_SIZES } from '../../hooks/useDspmData';
-import type { DspmAssetDetail, DspmAssetRow, DspmStatus } from '../../types/dspm';
+import { useDspmAssets, DSPM_PAGE_SIZES, type DspmSurface } from '../../hooks/useDspmData';
+import type { DspmAssetDetail, DspmAssetRow, DspmFilters, DspmStatus } from '../../types/dspm';
+import { severityFor } from './dspmFormat';
 import DspmFilterBar from './DspmFilterBar';
 import DspmAssetTable from './DspmAssetTable';
 import DspmAssetDrawer from './DspmAssetDrawer';
@@ -9,23 +10,44 @@ import DspmNotReady from './DspmNotReady';
 import Pager from './DspmPager';
 
 /**
- * The DSPM Cloud tab: cloud and self-hosted datastores, with the sensitive data found in them.
+ * One DSPM asset tab: Cloud datastores, SaaS accounts or Endpoint devices.
  *
- * Covers both `cloud` and `on_prem` categories, matching the vendor console's own Cloud screen — it lists
- * self-hosted datastores there too, which is why its count is 68 where the API's `cloud` category alone
- * returns 67.
+ * The three share everything except their columns and wording. Cloud covers self-hosted datastores too,
+ * matching the vendor console's Cloud screen.
  *
- * Not scoped by the sidebar account picker, unlike every CNAPP tab. Matters asset rows carry a Matters
- * integration id rather than a cloud account number, so there is nothing to match the picker against; the
- * `Source` filter in the rail is the equivalent control and the customer applies it themselves.
+ * Not scoped by the sidebar account picker, unlike every CNAPP tab: Matters rows carry a Matters
+ * integration id rather than a cloud account number, so the Account filter is the equivalent control.
  */
 
+const SURFACE_META: Record<DspmSurface, { title: string; icon: string }> = {
+  cloud: { title: 'Cloud data stores', icon: 'mdi:database-outline' },
+  saas: { title: 'SaaS accounts', icon: 'mdi:account-multiple-outline' },
+  endpoint: { title: 'Endpoints', icon: 'mdi:laptop' },
+};
+
+/**
+ * Integration id to readable account label, taken from the Account filter's options.
+ *
+ * Free: the filter response is already fetched with every list page, and any row on screen matches every
+ * active filter, so its integration is always among the options. Ids the backend could not resolve come
+ * back labelled as themselves and are skipped, so the column falls back to region instead of hex.
+ */
+function accountLabelsFrom(filters: DspmFilters | null): Record<string, string> {
+  const labels: Record<string, string> = {};
+  for (const option of filters?.dimensions.integration_id ?? []) {
+    if (option.label && option.label.toLowerCase() !== option.value.toLowerCase()) {
+      labels[option.value] = option.label;
+    }
+  }
+  return labels;
+}
+
 /** Builds a CSV of the current page. */
-function toCsv(rows: DspmAssetRow[]): string {
+function toCsv(rows: DspmAssetRow[], accountLabels: Record<string, string>): string {
   const header = [
     'Name', 'Type', 'Category', 'Identifier', 'Severity', 'Risk score',
     'Sensitive records', 'Records available', 'Objects', 'Sensitive types',
-    'Provider', 'Region', 'Scan status', 'Last scanned',
+    'Provider', 'Account', 'Region', 'Scan status', 'Last scanned',
   ];
 
   const escape = (value: string | number | null | undefined) => {
@@ -38,15 +60,16 @@ function toCsv(rows: DspmAssetRow[]): string {
     row.subtypeLabel ?? row.subtype ?? '',
     row.category,
     row.sourceId ?? '',
-    row.risk.hasFinding ? row.risk.level : '',
+    severityFor(row) ?? '',
     row.risk.score ?? '',
-    // Exported as blank rather than 0 when the scan has not produced a result, for the same reason the
-    // table shows "Not available": a zero in a spreadsheet becomes a claim that the asset is clean.
-    row.sensitives.known ? row.sensitives.recordCount : '',
+    // Blank rather than 0 when an unfinished scan reports zero: a zero in a spreadsheet becomes a claim
+    // that the asset is clean. A non-zero count is exported, matching the table.
+    row.sensitives.known || row.sensitives.recordCount > 0 ? row.sensitives.recordCount : '',
     row.sensitives.known ? 'yes' : 'no',
     row.sensitives.objectCount,
     row.sensitives.typeLabels.join(' / '),
     row.source.providerLabel ?? row.source.provider ?? '',
+    row.source.account ? (accountLabels[row.source.account] ?? row.source.account) : '',
     row.source.region ?? '',
     row.scan.statusLabel,
     row.scan.lastScannedAt ? new Date(row.scan.lastScannedAt * 1000).toISOString() : '',
@@ -56,18 +79,21 @@ function toCsv(rows: DspmAssetRow[]): string {
 }
 
 interface Props {
+  surface: DspmSurface;
   status: DspmStatus;
   onRetry: () => void;
 }
 
-const DspmCloudTab: React.FC<Props> = ({ status, onRetry }) => {
+const DspmAssetsTab: React.FC<Props> = ({ surface, status, onRetry }) => {
   const ready = status.ready;
   const {
     assets, filters, loading, error,
     search, sort, page, pageSize, selected, activeFilterCount,
     setPage, setPageSize, updateSearch, toggleFilter, clearFilters, clearDimension, toggleSort,
     refresh, loadAsset,
-  } = useDspmCloud(ready);
+  } = useDspmAssets(surface, ready);
+
+  const accountLabels = useMemo(() => accountLabelsFrom(filters), [filters]);
 
   const [openAssetId, setOpenAssetId] = useState<string | null>(null);
   const [detail, setDetail] = useState<DspmAssetDetail | null>(null);
@@ -90,11 +116,11 @@ const DspmCloudTab: React.FC<Props> = ({ status, onRetry }) => {
 
   const exportCsv = () => {
     if (!assets?.data.length) return;
-    const blob = new Blob([toCsv(assets.data)], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob([toCsv(assets.data, accountLabels)], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `dspm-cloud-page${page}-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `dspm-${surface}-page${page}-${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -105,11 +131,12 @@ const DspmCloudTab: React.FC<Props> = ({ status, onRetry }) => {
   // an unprovisioned workspace mean opposite things on a data-security page.
   if (!ready) return <DspmNotReady status={status} onRetry={onRetry} />;
 
+  const meta = SURFACE_META[surface];
+
   return (
     <div className="space-y-4">
-      {/* Filters live in a horizontal bar above the table, as the vendor console has them, rather than
-          in a left rail. The chips hold the dimensions; the table gets the full width. */}
       <DspmFilterBar
+        surface={surface}
         filters={filters}
         selected={selected}
         activeCount={activeFilterCount}
@@ -123,12 +150,10 @@ const DspmCloudTab: React.FC<Props> = ({ status, onRetry }) => {
       <section className="min-w-0 overflow-hidden rounded-2xl border border-[rgba(0,0,0,0.08)] bg-white">
         <header className="flex flex-wrap items-center gap-3 border-b border-[rgba(0,0,0,0.06)] px-5 py-3">
           <div className="flex items-center gap-2">
-            <Icon icon="mdi:database-outline" width={16} className="text-[rgba(0,0,0,0.5)]" />
-            <h2 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Cloud data stores</h2>
+            <Icon icon={meta.icon} width={16} className="text-[rgba(0,0,0,0.5)]" />
+            <h2 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">{meta.title}</h2>
             {assets && (
-              <span className="text-xs text-[rgba(0,0,0,0.4)]">
-                {assets.total.toLocaleString()}
-              </span>
+              <span className="text-xs text-[rgba(0,0,0,0.4)]">{assets.total.toLocaleString()}</span>
             )}
           </div>
 
@@ -161,8 +186,13 @@ const DspmCloudTab: React.FC<Props> = ({ status, onRetry }) => {
         )}
 
         <DspmAssetTable
-          page={assets} loading={loading} sort={sort}
-          onSort={toggleSort} onSelect={row => { void openAsset(row); }}
+          surface={surface}
+          page={assets}
+          loading={loading}
+          sort={sort}
+          accountLabels={accountLabels}
+          onSort={toggleSort}
+          onSelect={row => { void openAsset(row); }}
         />
 
         {assets && assets.total > 0 && (
@@ -204,4 +234,4 @@ const DspmCloudTab: React.FC<Props> = ({ status, onRetry }) => {
   );
 };
 
-export default DspmCloudTab;
+export default DspmAssetsTab;

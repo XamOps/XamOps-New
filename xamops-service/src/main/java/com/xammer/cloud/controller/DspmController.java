@@ -10,6 +10,7 @@ import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.matters.DspmAssetQuery;
 import com.xammer.cloud.service.matters.MattersDspmService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -82,38 +84,55 @@ public class DspmController {
     }
 
     /**
-     * The Cloud datastore list — cloud and on-prem together, matching the vendor console's Cloud screen.
+     * The asset list for one surface.
      *
-     * @param page 1-based, as the upstream numbers it.
+     * @param surface {@code cloud}, {@code saas} or {@code endpoint}. Cloud deliberately covers
+     *                self-hosted datastores too, matching the vendor console's Cloud screen. An unknown
+     *                value is a 400 rather than an empty table — the upstream answers an unrecognised
+     *                scope with zero rows, which is indistinguishable from a customer who has none.
+     * @param page    1-based, as the upstream numbers it.
      */
-    @GetMapping("/cloud/assets")
-    public ResponseEntity<DspmPage<DspmAssetRow>> cloudAssets(
+    @GetMapping("/{surface}/assets")
+    public ResponseEntity<DspmPage<DspmAssetRow>> assets(
             @AuthenticationPrincipal ClientUserDetails user,
+            @PathVariable String surface,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String sort,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer pageSize,
             @RequestParam Map<String, String> allParams) {
 
-        DspmAssetQuery query = DspmAssetQuery.cloud(q, sort, page, pageSize, extractFilters(allParams));
-        return ResponseEntity.ok(dspmService.getCloudAssets(user.getClientId(), query));
+        DspmAssetQuery query = DspmAssetQuery.forSurface(
+                resolveSurface(surface), q, sort, page, pageSize, extractFilters(allParams));
+        return ResponseEntity.ok(dspmService.getAssets(user.getClientId(), query));
     }
 
     /**
-     * Filter options with faceted counts.
+     * Filter options with faceted counts, for one surface.
      *
      * Call this with the same filter parameters as the list. The upstream counts are disjunctive, so a
      * dimension the user has already selected from keeps showing all of its options rather than
      * collapsing to the selection.
      */
-    @GetMapping("/cloud/filters")
-    public ResponseEntity<DspmFilters> cloudFilters(
+    @GetMapping("/{surface}/filters")
+    public ResponseEntity<DspmFilters> filters(
             @AuthenticationPrincipal ClientUserDetails user,
+            @PathVariable String surface,
             @RequestParam(required = false) String q,
             @RequestParam Map<String, String> allParams) {
 
-        DspmAssetQuery query = DspmAssetQuery.cloud(q, null, null, null, extractFilters(allParams));
-        return ResponseEntity.ok(dspmService.getCloudFilters(user.getClientId(), query));
+        DspmAssetQuery query = DspmAssetQuery.forSurface(
+                resolveSurface(surface), q, null, null, null, extractFilters(allParams));
+        return ResponseEntity.ok(dspmService.getFilters(user.getClientId(), query));
+    }
+
+    /** Turns an unknown surface into a 400 rather than letting it reach the vendor as a bad scope. */
+    private DspmAssetQuery.Surface resolveSurface(String surface) {
+        try {
+            return DspmAssetQuery.Surface.fromSlug(surface);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
     }
 
     /**

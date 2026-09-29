@@ -89,21 +89,9 @@ export const XAMSECURE_TABS: XamSecureTabDef[] = [
   // lists together (its Cloud view totals 68 where the API's `cloud` category counts 67 — the extra row
   // is a self-hosted Postgres).
   { id: 'dspm-cloud', label: 'Cloud Data', icon: 'fas fa-database', group: 'DSPM' },
-  // SaaS and Endpoint are real categories in the same API and are genuinely on the way, so they are
-  // announced rather than hidden. Both are marked coming-soon instead of being wired up now because
-  // their data belongs with seat and device management, and where they finally live is still open.
-  {
-    id: 'dspm-saas', label: 'SaaS Data', icon: 'fas fa-cloud', group: 'DSPM',
-    comingSoon: true,
-    comingSoonBlurb: 'Sensitive data discovered across SaaS accounts — Google Workspace, Microsoft 365, '
-      + 'GitLab, Jira and Confluence — with per-account record counts and risk.',
-  },
-  {
-    id: 'dspm-endpoint', label: 'Endpoint Data', icon: 'fas fa-laptop', group: 'DSPM',
-    comingSoon: true,
-    comingSoonBlurb: 'Sensitive data found on managed endpoints, with device inventory, agent health '
-      + 'and per-device findings.',
-  },
+  // Scoped server-side by resource_type: SAAS_PRINCIPAL (SaaS accounts) and ENDPOINT_HOST (devices).
+  { id: 'dspm-saas', label: 'SaaS Data', icon: 'fas fa-cloud', group: 'DSPM' },
+  { id: 'dspm-endpoint', label: 'Endpoint Data', icon: 'fas fa-laptop', group: 'DSPM' },
   // Connection state. Reachable but not in the nav: it is only interesting when something is wrong,
   // and the Cloud tab links to it in that case.
   { id: 'dspm-status', label: 'Connection', icon: 'fas fa-circle-nodes', group: 'DSPM', sidebar: false },
