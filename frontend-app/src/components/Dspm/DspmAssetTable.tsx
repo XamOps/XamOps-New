@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from '@iconify/react';
-import type { DspmAssetRow, DspmPage, DspmSeverity } from '../../types/dspm';
+import type { DspmAssetRow, DspmPage } from '../../types/dspm';
+import { compactCount, sensitivityClasses, sensitivityLabel } from './dspmFormat';
 
 /**
  * The Cloud datastore table.
@@ -11,21 +12,24 @@ import type { DspmAssetRow, DspmPage, DspmSeverity } from '../../types/dspm';
  * (the API returns only an integration id, so the region is shown instead).
  */
 
-const SEVERITY_STYLES: Record<DspmSeverity, string> = {
-  CRITICAL: 'bg-rose-50 border-rose-200 text-rose-700',
-  HIGH: 'bg-orange-50 border-orange-200 text-orange-700',
-  MEDIUM: 'bg-amber-50 border-amber-200 text-amber-700',
-  LOW: 'bg-[rgba(0,0,0,0.04)] border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.55)]',
-  NONE: '',
-};
-
-const SeverityCell: React.FC<{ level: DspmSeverity; hasFinding: boolean }> = ({ level, hasFinding }) => {
-  // `NONE` means no policy has been evaluated, which is most assets. A dash reads as "nothing to say"
-  // where a grey "None" badge would read as "evaluated and clean".
-  if (!hasFinding) return <span className="text-xs text-[rgba(0,0,0,0.3)]">—</span>;
+/**
+ * Severity, from the asset's **sensitivity classification**.
+ *
+ * `sensitives.level`, not `risk.level` — this was wrong at first and is worth stating plainly, because
+ * both fields exist and both look plausible in this column. Checked row by row against the live
+ * project: `xamops-document-bucket` carries `risk.level: CRITICAL` but `sensitives.level:
+ * MEDIUM_SENSITIVITY`, and the vendor console shows "Medium". Using `risk.level` made our table
+ * disagree with theirs on the same asset.
+ *
+ * `NOT_SENSITIVE` and null both render as a dash, as they do there. A grey "None" badge would read as
+ * "evaluated and found clean", which for an unscanned asset is a claim nobody has earned.
+ */
+const SeverityCell: React.FC<{ row: DspmAssetRow }> = ({ row }) => {
+  const label = sensitivityLabel(row.sensitives.level);
+  if (!label) return <span className="text-xs text-[rgba(0,0,0,0.3)]">—</span>;
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${SEVERITY_STYLES[level]}`}>
-      {level.charAt(0) + level.slice(1).toLowerCase()}
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${sensitivityClasses(label)}`}>
+      {label}
     </span>
   );
 };
@@ -72,13 +76,16 @@ const RecordsCell: React.FC<{ row: DspmAssetRow }> = ({ row }) => {
   if (recordCount === 0) {
     return (
       <span className="text-xs text-[rgba(0,0,0,0.45)]" title="Scanned; no sensitive records found">
-        None found
+        0
       </span>
     );
   }
   return (
-    <span className="text-xs font-semibold tabular-nums text-[rgba(0,0,0,0.88)]">
-      {recordCount.toLocaleString()}
+    <span
+      className="text-xs font-semibold tabular-nums text-[rgba(0,0,0,0.88)]"
+      title={recordCount.toLocaleString()}
+    >
+      {compactCount(recordCount)}
     </span>
   );
 };
@@ -175,7 +182,7 @@ const DspmAssetTable: React.FC<Props> = ({ page, loading, sort, onSort, onSelect
               counts everything discovered. Mislabelling it "sensitive objects" would inflate the figure
               by orders of magnitude. */}
           <HeaderCell label="Objects" sort={sort} align="right" onSort={onSort} />
-          <HeaderCell label="Location" sort={sort} onSort={onSort} />
+          <HeaderCell label="Cloud account" sort={sort} onSort={onSort} />
           <HeaderCell label="Scan status" field="last_modified_at" sort={sort} onSort={onSort} />
           <HeaderCell label="Sensitives" sort={sort} onSort={onSort} />
         </tr>
@@ -220,7 +227,7 @@ const DspmAssetTable: React.FC<Props> = ({ page, loading, sort, onSort, onSelect
             </td>
 
             <td className="px-4 py-3">
-              <SeverityCell level={row.risk.level} hasFinding={row.risk.hasFinding} />
+              <SeverityCell row={row} />
             </td>
 
             <td className="px-4 py-3 text-right">
@@ -234,15 +241,29 @@ const DspmAssetTable: React.FC<Props> = ({ page, loading, sort, onSort, onSelect
             <td className="px-4 py-3 text-right"><RecordsCell row={row} /></td>
 
             <td className="px-4 py-3 text-right">
-              <span className="text-xs tabular-nums text-[rgba(0,0,0,0.55)]">
-                {row.sensitives.objectCount.toLocaleString()}
+              <span
+                className="text-xs tabular-nums text-[rgba(0,0,0,0.55)]"
+                title={row.sensitives.objectCount.toLocaleString()}
+              >
+                {compactCount(row.sensitives.objectCount)}
               </span>
             </td>
 
+            {/* Their "Cloud Account" column shows a friendly integration name above the region. The API
+                exposes only the integration id, so the region leads and the id is available on hover
+                rather than filling the cell with hex. */}
             <td className="px-4 py-3">
-              <span className="whitespace-nowrap text-xs text-[rgba(0,0,0,0.6)]">
+              <div
+                className="whitespace-nowrap text-xs text-[rgba(0,0,0,0.7)]"
+                title={row.source.account ? `Integration ${row.source.account}` : undefined}
+              >
                 {row.source.region ?? '—'}
-              </span>
+              </div>
+              {row.source.providerLabel && (
+                <div className="mt-0.5 text-[10px] text-[rgba(0,0,0,0.4)]">
+                  {row.source.providerLabel}
+                </div>
+              )}
             </td>
 
             <td className="px-4 py-3">

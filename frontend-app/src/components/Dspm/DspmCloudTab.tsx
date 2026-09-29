@@ -6,6 +6,7 @@ import DspmFilterRail from './DspmFilterRail';
 import DspmAssetTable from './DspmAssetTable';
 import DspmAssetDrawer from './DspmAssetDrawer';
 import DspmNotReady from './DspmNotReady';
+import Pager from './DspmPager';
 
 /**
  * The DSPM Cloud tab: cloud and self-hosted datastores, with the sensitive data found in them.
@@ -174,35 +175,25 @@ const DspmCloudTab: React.FC<Props> = ({ status, onRetry }) => {
 
         {assets && assets.total > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[rgba(0,0,0,0.06)] px-5 py-3 text-xs text-[rgba(0,0,0,0.5)]">
-            <span>
-              {/* Page is 1-based here, matching the vendor's own numbering. */}
-              Page {assets.page} of {Math.max(assets.totalPages, 1)} · {assets.total.toLocaleString()} data stores
-            </span>
+            <label className="flex items-center gap-1.5">
+              <span className="text-[rgba(0,0,0,0.4)]">Rows Per Page</span>
+              <select
+                value={pageSize}
+                onChange={e => { setPage(1); setPageSize(Number(e.target.value)); }}
+                className="rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.03)] px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)]"
+              >
+                {DSPM_PAGE_SIZES.map(size => <option key={size} value={size}>{size}</option>)}
+              </select>
+            </label>
+
             <div className="flex items-center gap-3">
-              <label className="flex items-center gap-1.5">
-                <span className="text-[rgba(0,0,0,0.4)]">Rows</span>
-                <select
-                  value={pageSize}
-                  onChange={e => { setPage(1); setPageSize(Number(e.target.value)); }}
-                  className="rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.03)] px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)]"
-                >
-                  {DSPM_PAGE_SIZES.map(size => <option key={size} value={size}>{size}</option>)}
-                </select>
-              </label>
-              <div className="flex gap-2">
-                <button
-                  disabled={assets.page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}
-                  className="rounded-lg border border-[rgba(0,0,0,0.12)] px-3 py-1 disabled:opacity-40 hover:bg-[rgba(0,0,0,0.03)]"
-                >
-                  Prev
-                </button>
-                <button
-                  disabled={assets.page >= assets.totalPages} onClick={() => setPage(p => p + 1)}
-                  className="rounded-lg border border-[rgba(0,0,0,0.12)] px-3 py-1 disabled:opacity-40 hover:bg-[rgba(0,0,0,0.03)]"
-                >
-                  Next
-                </button>
-              </div>
+              {/* "Showing 1 - 10 of 68", as the console phrases it. Page is 1-based, matching the API. */}
+              <span>
+                Showing {((assets.page - 1) * assets.pageSize) + 1} -{' '}
+                {Math.min(assets.page * assets.pageSize, assets.total)} of{' '}
+                {assets.total.toLocaleString()}
+              </span>
+              <Pager page={assets.page} totalPages={assets.totalPages} onPage={setPage} />
             </div>
           </div>
         )}
