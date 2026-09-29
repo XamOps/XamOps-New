@@ -119,7 +119,15 @@ export interface DspmEntityCount {
   entityType: string;
   category: string | null;
   categoryLabel: string | null;
+  /** Instances across the returned objects. A lower bound when the detail's `breakdownPartial` is set. */
   count: number;
+  /** Returned objects containing the entity. Same lower-bound caveat as `count`. */
+  fileCount: number;
+  /**
+   * False for an entity the asset's facet names but none of the (capped) returned objects contain:
+   * detected, but not counted. Render its count as unavailable, never as zero.
+   */
+  sampled: boolean;
 }
 
 export interface DspmAssetDetail {

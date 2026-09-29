@@ -71,11 +71,22 @@ const Dash: React.FC = () => <span className="text-xs text-[rgba(0,0,0,0.3)]">�
 /**
  * Sensitive record count, or why there isn't one.
  *
- * Unscanned, failed and stopped assets all report zero. Printing that zero would tell a customer the
- * asset is clean when nobody has looked. `known` is computed server-side from the scan status.
+ * Unscanned, failed and stopped assets all report zero, and that zero is withheld: it would tell a
+ * customer the asset is clean when nobody has looked. A non-zero count from an unfinished scan is shown,
+ * as the console shows it — records found before a scan stopped are a real minimum.
  */
 const RecordsCell: React.FC<{ row: DspmAssetRow }> = ({ row }) => {
   const { recordCount, known } = row.sensitives;
+  if (!known && recordCount > 0) {
+    return (
+      <span
+        className="text-xs font-semibold tabular-nums text-[rgba(0,0,0,0.88)]"
+        title={`${recordCount.toLocaleString()} found — ${row.scan.statusLabel.toLowerCase()}, so this may be incomplete`}
+      >
+        {compactCount(recordCount)}
+      </span>
+    );
+  }
   if (!known) {
     return (
       <span

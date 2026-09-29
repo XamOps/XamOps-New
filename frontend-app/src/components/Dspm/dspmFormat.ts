@@ -140,21 +140,34 @@ export function sensitivityClasses(label: string | null): string {
   }
 }
 
-/** Category accent colours for the grouped sensitive-records panel. */
-export function categoryAccent(categoryLabel: string | null): { bar: string; chip: string } {
+/** Category accent colours for the grouped sensitive-records panel, matching the console's banding. */
+export function categoryAccent(categoryLabel: string | null): { bar: string; chip: string; panel: string } {
   switch (categoryLabel) {
     case 'Personal':
-      return { bar: 'bg-sky-400', chip: 'bg-sky-50 text-sky-700 border-sky-200' };
+      return {
+        bar: 'bg-sky-400', chip: 'bg-sky-50 text-sky-700 border-sky-200',
+        panel: 'bg-sky-50/60 border-sky-100',
+      };
     case 'IT & Security':
-      return { bar: 'bg-orange-400', chip: 'bg-orange-50 text-orange-700 border-orange-200' };
+      return {
+        bar: 'bg-orange-400', chip: 'bg-orange-50 text-orange-700 border-orange-200',
+        panel: 'bg-orange-50/60 border-orange-100',
+      };
     case 'Financial':
-      return { bar: 'bg-violet-400', chip: 'bg-violet-50 text-violet-700 border-violet-200' };
+      return {
+        bar: 'bg-violet-400', chip: 'bg-violet-50 text-violet-700 border-violet-200',
+        panel: 'bg-violet-50/60 border-violet-100',
+      };
     case 'Health':
-      return { bar: 'bg-emerald-400', chip: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+      return {
+        bar: 'bg-emerald-400', chip: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        panel: 'bg-emerald-50/60 border-emerald-100',
+      };
     default:
       return {
         bar: 'bg-[rgba(0,0,0,0.2)]',
         chip: 'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)] border-[rgba(0,0,0,0.1)]',
+        panel: 'bg-[rgba(0,0,0,0.02)] border-[rgba(0,0,0,0.06)]',
       };
   }
 }
