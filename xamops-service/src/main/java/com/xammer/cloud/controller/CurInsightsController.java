@@ -167,10 +167,16 @@ public class CurInsightsController {
     }
 
     /**
-     * Data transfer and network costs, grouped by what drives them.
+     * Data transfer and network costs, grouped by what drives them, with the route each
+     * charge took and the resources responsible for it.
      *
      * <p>Defaults to the current month — a breakdown of what has been billed, so it is
      * meaningful mid-month.
+     *
+     * <p>Returns an object rather than the bare list it used to, because the payload now
+     * has to say whether the route and resource columns were in the report at all. An empty
+     * route on a report that carries the column means "no route"; on one that does not it
+     * means "unknown", and the two cannot be told apart from the rows alone.
      */
     @GetMapping("/data-transfer/{accountId}")
     public ResponseEntity<?> dataTransfer(@PathVariable String accountId,

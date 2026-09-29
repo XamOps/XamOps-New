@@ -163,10 +163,20 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
 
       let failures = 0;
 
-      const fetchOne = async (vpc: VPC, timeoutMs: number): Promise<GraphElement[]> => {
+      /**
+       * @param rescan asks the service to bypass its own cache. Set on the first request only —
+       *               see the call site.
+       */
+      const fetchOne = async (
+        vpc: VPC, timeoutMs: number, rescan = false,
+      ): Promise<GraphElement[]> => {
         try {
+          const params = new URLSearchParams({
+            accountId: accountId!, vpcId: vpc.id, region: vpc.region,
+          });
+          if (rescan) params.set('forceRefresh', 'true');
           const response = await apiFetch(
-            `/api/xamops/cloudmap/graph?${new URLSearchParams({ accountId: accountId!, vpcId: vpc.id, region: vpc.region }).toString()}`,
+            `/api/xamops/cloudmap/graph?${params.toString()}`,
             { timeoutMs }
           );
           if (!response.ok) {
@@ -182,7 +192,16 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
       };
 
       const results: GraphElement[][] = [];
-      results.push(await fetchOne(list[0], COLD_TIMEOUT_MS));
+      /*
+       * Only the first request asks the service to rescan, and only when the caller forced it.
+       *
+       * `force` previously bypassed this hook's own cache and nothing else, so "Refresh" redrew
+       * the same figures the service still had cached — which makes a refresh button that
+       * cannot refresh anything. Setting the flag on every batched request instead would run
+       * the ~1000-call account scan once per VPC, which is the stampede the fan-out above
+       * exists to prevent. One rescan repopulates the cache the rest then read.
+       */
+      results.push(await fetchOne(list[0], COLD_TIMEOUT_MS, force));
 
       for (let i = 1; i < list.length; i += BATCH_SIZE) {
         const batch = list.slice(i, i + BATCH_SIZE);
@@ -228,10 +247,13 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
          * root is still emitted when the backend sends no VPC node, so a VPC whose
          * describe failed keeps a labelled box rather than scattering its resources.
          */
+        // Matched on the requested id, not merely "a parentless VPC": the response can now
+        // contain a neighbouring VPC's node too, and taking that one as the container would
+        // file this whole response under the wrong box.
         const realVpcNode = elements.find((el) => {
           const d = el.data as any;
           const isEdge = el.group === 'edges' || (!!d.source && !!d.target);
-          return !isEdge && d.type === 'VPC' && !d.parent;
+          return !isEdge && d.type === 'VPC' && !d.parent && d.id === vpc.id;
         });
         const rootId = realVpcNode
           ? `${prefix}${(realVpcNode.data as any).id}`
@@ -248,22 +270,77 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
           });
         }
 
+        /*
+         * A node is scoped by the VPC it belongs to, not by the VPC this response asked for.
+         *
+         * `withConnectedNeighbours` deliberately widens each response by one hop, so vpc-A's
+         * payload legitimately contains a security group living in vpc-B. Stamping the
+         * requesting prefix on it made that group a second, private copy called
+         * `vpc-A::sg-b`, whose `parent` named `vpc-A::vpc-B` — a node no response ever emits.
+         * The containment walk then found no VPC above it and filed it under "outside any
+         * VPC", so a genuine cross-VPC connection was drawn but described as a global one,
+         * and following it landed on the local copy rather than in vpc-B's branch.
+         *
+         * Keying on the node's own `VPC ID` instead means both responses name it
+         * `vpc-B::sg-b`, the duplicate collapses in the existing dedupe, and the edge from
+         * vpc-A genuinely crosses into vpc-B. The per-VPC prefix is still what keeps two
+         * VPCs' resources apart, which is why it stays for everything that has no VPC of its
+         * own to claim.
+         */
+        const ownerOf = (nd: any): string => {
+          if (nd.type === 'VPC') return nd.id;
+          const owner = nd['VPC ID'];
+          return typeof owner === 'string' && owner && owner !== 'N/A' ? owner : vpc.id;
+        };
+
+        const scopedById = new Map<string, string>();
+        elements.forEach((el) => {
+          const d = el.data as any;
+          const isEdge = el.group === 'edges' || (!!d.source && !!d.target);
+          if (isEdge || !d.id) return;
+          scopedById.set(d.id, `${ownerOf(d)}::${d.id}`);
+        });
+
+        /*
+         * An endpoint with no node in this response keeps the requesting scope.
+         *
+         * These are the ids the map does not draw — an IAM role, a target group the scan
+         * missed, the `pcx-`/`tgw-` target of a default route. Scoping them locally leaves
+         * today's behaviour intact: the live canvas drops them as dangling, and the
+         * connectivity view still lists them as off-map peers.
+         */
+        const scopeId = (raw: string): string => scopedById.get(raw) ?? `${prefix}${raw}`;
+
         elements.forEach((el) => {
           const isEdge = el.group === 'edges' || (!!(el.data as any).source && !!(el.data as any).target);
           if (isEdge) {
+            const d = el.data as any;
+            const source = scopeId(d.source);
+            const target = scopeId(d.target);
+            const label: string = typeof d.label === 'string' ? d.label : '';
             merged.push({
               ...el,
               data: {
                 ...el.data,
-                id: `${prefix}${el.data.id}`,
-                source: `${prefix}${(el.data as any).source}`,
-                target: `${prefix}${(el.data as any).target}`,
+                /*
+                 * Rebuilt from the scoped endpoints, mirroring the backend's own
+                 * `source_to_target_label` id. A cross-VPC relationship is reported by both
+                 * VPCs' responses, so an id carrying the requesting prefix gave the same
+                 * connection two ids and drew it twice.
+                 */
+                id: `${source}_to_${target}_${label.replace(/\s/g, '')}`,
+                source,
+                target,
               },
             });
           } else {
             const nd = el.data as any;
-            const scopedId = `${prefix}${nd.id}`;
+            const owner = ownerOf(nd);
+            const scopedId = `${owner}::${nd.id}`;
             const isRealVpcRoot = scopedId === rootId;
+            // A VPC is always a container, including a neighbour's VPC arriving here as a
+            // bare node — giving it a parent would parent it to itself.
+            const isVpc = nd.type === 'VPC';
             merged.push({
               ...el,
               data: {
@@ -272,8 +349,21 @@ export const useCloudMap = ({ accountId, mode }: UseCloudMapOptions): UseCloudMa
                 // The VPC node is the container, so it must stay parentless —
                 // parenting it to itself is what produced the nested box.
                 ...(isRealVpcRoot
-                  ? { label: `${vpc.name} (${vpc.region})`, parent: undefined }
-                  : { parent: nd.parent ? `${prefix}${nd.parent}` : rootId }),
+                  // The region is stamped on as data, not only folded into the label. The
+                  // connectivity view groups VPCs by region and cannot parse it back out of
+                  // "name (region)" reliably — a VPC whose Name tag contains brackets would
+                  // defeat that, and CloudMapService does not set region on a VPC node.
+                  ? { label: `${vpc.name} (${vpc.region})`, region: vpc.region, parent: undefined }
+                  : isVpc
+                    ? { parent: undefined }
+                    // A foreign-scoped node hangs off its own VPC's tree, so its parent must
+                    // be read in that scope too — otherwise it names a subnet that only
+                    // exists under the requesting prefix. Locally scoped nodes keep falling
+                    // back to `rootId`, which is the synthetic root when this VPC's describe
+                    // failed and there is no real VPC node to hang them on.
+                    : owner === vpc.id
+                      ? { parent: nd.parent ? `${prefix}${nd.parent}` : rootId }
+                      : { parent: nd.parent ? `${owner}::${nd.parent}` : `${owner}::${owner}` }),
               },
             });
           }

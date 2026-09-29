@@ -175,7 +175,7 @@ export const fetchUnusedCommitment = async (
   return readShape<UnusedCommitment>(res, isRecordWith([], ['total']));
 };
 
-/** One network charge, already categorised by what drives it. */
+/** One network charge, already categorised by what drives it, and routed where it went. */
 export interface TransferCharge {
   /** NAT Gateway, Cross-AZ, Inter-region, Internet egress, Internet ingress, Other network. */
   category: string;
@@ -186,27 +186,100 @@ export interface TransferCharge {
   unit: string;
   quantity: number;
   cost: number;
+  /** The billed region, or "Global" for charges that have none. */
+  region: string;
+  /**
+   * Where the traffic came from, as the report names it: "Asia Pacific (Mumbai)",
+   * "ap-south-1", or an edge location. Empty when unknown — check
+   * `routeDataAvailable` before reading an empty value as "no route".
+   */
+  fromLocation: string;
+  /** Where it went, on the same terms. */
+  toLocation: string;
+  /**
+   * True when the route was read out of the usage type because the report's own location
+   * columns were blank. Worth surfacing: a reader deciding whether to act on
+   * "Mumbai → N. Virginia" is entitled to know whether AWS said it or we inferred it.
+   */
+  routeDerived: boolean;
 }
 
 /**
- * Network spend for a month, split into the categories that drive it.
+ * One resource's traffic on one route — the finest thing a CUR can describe.
+ *
+ * Deliberately not "resource to resource". A line item names only the resource being
+ * charged, so the far end is a location and never a peer id. That answer is in VPC Flow
+ * Logs, not in any billing report.
+ */
+export interface TransferFlow {
+  category: string;
+  /** The gateway, bucket, instance or load balancer. Empty for charges with no resource. */
+  resourceId: string;
+  /** The resource's `Name` tag, or "" when the report does not carry it. */
+  name: string;
+  service: string;
+  region: string;
+  /** The zone billed, which is what makes a cross-AZ row actionable. Often empty. */
+  availabilityZone: string;
+  fromLocation: string;
+  toLocation: string;
+  /** True when the route came from the usage type rather than the report's own columns. */
+  routeDerived: boolean;
+  usageType: string;
+  /** GB-denominated usage only, so a gateway's hours are not added to its bytes. */
+  gigabytes: number;
+  /** Hour-denominated usage only. */
+  hours: number;
+  cost: number;
+  /** Every flow in this category, not only the listed ones. */
+  categoryCost: number;
+  /** How many there were in total, so the caller can say what it is not showing. */
+  categoryFlows: number;
+}
+
+export interface DataTransferBreakdown {
+  /** Billing grain. Correct even on a report with no resource ids. */
+  charges: TransferCharge[];
+  /** Costliest resource-and-route pairs per category. Empty without resource ids. */
+  flows: TransferFlow[];
+  /**
+   * Whether the report carries the from/to location columns at all.
+   *
+   * False does not mean the routes are missing — they are recovered from the usage type —
+   * it means every route shown was inferred rather than reported.
+   */
+  routeDataAvailable: boolean;
+  /**
+   * Whether the report carries `line_item_resource_id`.
+   *
+   * False means `flows` is empty because the report cannot attribute charges to resources,
+   * not because no resource moved any bytes. The two are indistinguishable from an empty
+   * list, and "no resources" would be a claim about the infrastructure when the truth is a
+   * setting on the export.
+   */
+  resourceDataAvailable: boolean;
+}
+
+/**
+ * Network spend for a month, split into the categories that drive it, the routes the
+ * traffic took, and the resources that moved it.
  *
  * Invisible in every other view: a service breakdown files NAT gateway charges under EC2
  * and cross-AZ traffic under whichever service moved the bytes, so the network total never
- * appears anywhere as a single number.
+ * appears anywhere as a single number — let alone attributed to a region pair or a resource.
  *
  * Null means "no report for this account" — the caller should omit the section.
  */
 export const fetchDataTransferCosts = async (
   accountId: string,
   period?: string,
-): Promise<TransferCharge[] | null> => {
+): Promise<DataTransferBreakdown | null> => {
   const query = period ? `?period=${encodeURIComponent(period)}` : '';
   const res = await apiFetch(
     `/api/xamops/cur-insights/data-transfer/${encodeURIComponent(accountId)}${query}`,
   );
   if (!res.ok) return null;
-  return readShape<TransferCharge[]>(res, isList);
+  return readShape<DataTransferBreakdown>(res, isRecordWith(['charges', 'flows']));
 };
 
 /** One resource's cost for a month. An empty `resourceId` is an account-level charge. */

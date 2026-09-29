@@ -20,12 +20,15 @@
  */
 
 import type { EdgeData, GraphElement, NodeData } from '../../../types/cloudmap';
+import { awsRegionName } from '../../../utils/awsRegionNames';
 
 // ─── Geometry ────────────────────────────────────────────────────────────────
 
 export const CFLOW = {
   ACCOUNT_W: 232,
   ACCOUNT_H: 68,
+  REGION_W: 208,
+  REGION_H: 50,
   VPC_W: 224,
   VPC_H: 52,
   SUBNET_W: 220,
@@ -50,8 +53,11 @@ export const CFLOW = {
 /** Column origins, derived so a width change cannot leave a column behind. */
 export const CCOLS = {
   account: 0,
-  get vpc() {
+  get region() {
     return CFLOW.ACCOUNT_W + CFLOW.COL_GAP;
+  },
+  get vpc() {
+    return this.region + CFLOW.REGION_W + CFLOW.COL_GAP;
   },
   get subnet() {
     return this.vpc + CFLOW.VPC_W + CFLOW.COL_GAP;
@@ -70,11 +76,43 @@ export const CCOLS = {
 /** How many rows a column shows before it offers "Show all". */
 export const COLUMN_CAP = 14;
 
-/** Bucket id for resources that belong to no VPC — S3, IAM, CloudFront and the rest. */
+/** Prefix for the synthetic "outside any VPC" bucket, which is created per region. */
 export const GLOBAL_VPC = '__global__';
+
+/** The bucket holding one region's resources that sit in no VPC — S3, CloudFront, IAM. */
+export const globalBucket = (region: string): string => `${GLOBAL_VPC}\u0000${region}`;
+
+export const isGlobalBucket = (id: string): boolean => id.startsWith(GLOBAL_VPC);
 
 /** Bucket id for resources attached to a VPC but not to any subnet inside it. */
 export const VPC_LEVEL_SUBNET = '__vpc_level__';
+
+/** What a region with no name is called — IAM, Route 53 and the other global services. */
+export const GLOBAL_REGION = 'Global';
+
+/**
+ * Separator `useCloudMap` puts between the VPC it fetched and the node's own id.
+ *
+ * <p>The All-VPCs view issues one request per VPC and merges the responses, prefixing every id
+ * with `<vpcId>::` so two VPCs that both reference a shared security group do not collapse into
+ * one node. Details, however, are written by the backend before any of that and carry raw ids —
+ * so a detail saying `vol-123` has to be matched against a node called `vpc-abc::vol-123`.
+ * Comparing them directly found nothing, which is why inferred links were almost entirely
+ * absent on the All-VPCs view while working on a single VPC.
+ */
+const SCOPE_SEP = '::';
+
+/** A node id without its VPC scope. */
+const bareId = (id: string): string => {
+  const at = id.lastIndexOf(SCOPE_SEP);
+  return at >= 0 ? id.slice(at + SCOPE_SEP.length) : id;
+};
+
+/** The VPC scope a node id was merged under, or "" when the payload is unscoped. */
+const scopeOf = (id: string): string => {
+  const at = id.lastIndexOf(SCOPE_SEP);
+  return at >= 0 ? id.slice(0, at) : '';
+};
 
 // ─── Nodes ───────────────────────────────────────────────────────────────────
 
@@ -89,10 +127,24 @@ export interface AccountFlowNode extends Placed {
   accountId: string;
   name: string;
   vpcCount: number;
+  /** Real regions, excluding the pseudo-region holding global services. */
+  regionCount: number;
   resourceCount: number;
   serviceCount: number;
   /** How many connections exist across the whole account, after the search. */
   linkCount: number;
+}
+
+/** One AWS region the account has resources in, plus the pseudo-region for global services. */
+export interface RegionFlowNode extends Placed {
+  /** The region code, or {@link GLOBAL_REGION}. Also the id at this level. */
+  region: string;
+  /** "Asia Pacific (Mumbai)" — the same wording the invoice uses. */
+  label: string;
+  vpcCount: number;
+  serviceCount: number;
+  resourceCount: number;
+  selected: boolean;
 }
 
 export interface VpcFlowNode extends Placed {
@@ -127,6 +179,8 @@ export interface ServiceFlowNode extends Placed {
   resourceCount: number;
   /** How many of those resources have at least one connection. */
   connectedCount: number;
+  /** How many carry a warning, so exposure is visible before drilling in. */
+  warningCount: number;
   selected: boolean;
 }
 
@@ -137,6 +191,8 @@ export interface ResourceFlowNode extends Placed {
   state: string;
   /** Up to two short facts worth showing on the card — private IP, size, engine, and so on. */
   facts: string[];
+  /** Warning badges, e.g. a security group open to the whole internet. */
+  warnings: string[];
   peerCount: number;
   selected: boolean;
 }
@@ -174,21 +230,24 @@ export interface MoreRow extends Placed {
 
 export interface ConnectivityFlow {
   account: AccountFlowNode;
+  regions: RegionFlowNode[];
   vpcs: VpcFlowNode[];
   subnets: SubnetFlowNode[];
   services: ServiceFlowNode[];
   resources: ResourceFlowNode[];
   peers: PeerFlowNode[];
+  regionMore: MoreRow | null;
   vpcMore: MoreRow | null;
   subnetMore: MoreRow | null;
   serviceMore: MoreRow | null;
   resourceMore: MoreRow | null;
+  selectedRegion: string | null;
   selectedVpc: string | null;
   selectedSubnet: string | null;
   selectedService: string | null;
   selectedResource: string | null;
-  /** VPCs matching the search, before the cap. Drives the empty state. */
-  matchedVpcs: number;
+  /** Regions matching the search, before the cap. Drives the empty state. */
+  matchedRegions: number;
   matchedResources: number;
   width: number;
   height: number;
@@ -291,12 +350,25 @@ const labelOf = (node: NodeData): string =>
  * private IP, not with its platform. Anything not listed still appears in the detail panel.
  */
 const FACT_KEYS = [
+  // Reachability first. On a security group the ports and whether it is open to the internet
+  // are the only facts anyone opens it for, and they outrank a rule count or a description.
+  'Open Ports', 'Scheme', 'DNS Name',
   'Private IP', 'Public IP', 'Instance Type', 'Class', 'Node Type', 'NodeType',
   'Engine', 'Engine Type', 'Runtime', 'Version', 'Platform',
   'Size', 'Volume Size', 'Size (Bytes)', 'Stored Bytes', 'Record Count', 'Items',
-  'CIDR Block', 'Scheme', 'Type', 'Multi-AZ', 'Desired', 'Running Tasks', 'Nodes', 'Shards',
-  'Retention (Days)', 'Timeout', 'Memory', 'Public',
+  'CIDR Block', 'Availability Zone', 'Type', 'Multi-AZ', 'Desired', 'Running Tasks',
+  'Nodes', 'Shards', 'Retention (Days)', 'Timeout', 'Memory', 'Public', 'Health Check',
 ];
+
+/**
+ * Details that are a warning rather than a measurement.
+ *
+ * <p>"Open To Internet: yes" is the one attribute on this map that a reader should not have to
+ * find by scanning, so it is pulled out of the list and rendered as a badge.
+ */
+export const WARNING_DETAILS: Record<string, string> = {
+  'Open To Internet': 'Open to 0.0.0.0/0',
+};
 
 function factsOf(node: NodeData, max = 2): string[] {
   const facts: string[] = [];
@@ -306,6 +378,16 @@ function factsOf(node: NodeData, max = 2): string[] {
     if (value) facts.push(`${key}: ${value}`);
   }
   return facts;
+}
+
+/** Warning badges this node has earned, e.g. a security group open to the whole internet. */
+function warningsOf(node: NodeData): string[] {
+  return Object.entries(WARNING_DETAILS)
+    .filter(([key]) => {
+      const value = detailOf(node, key).toLowerCase();
+      return value === 'yes' || value === 'true';
+    })
+    .map(([, label]) => label);
 }
 
 // ─── Index ───────────────────────────────────────────────────────────────────
@@ -327,7 +409,7 @@ export interface Link {
  */
 export interface ConnectivityIndex {
   byId: Map<string, NodeData>;
-  /** Containment: which VPC a node ultimately sits in, or GLOBAL_VPC. */
+  /** Containment: which VPC a node ultimately sits in, or a per-region global bucket. */
   vpcOf: Map<string, string>;
   /** Containment: which subnet a node sits in, or VPC_LEVEL_SUBNET. */
   subnetOf: Map<string, string>;
@@ -336,6 +418,10 @@ export interface ConnectivityIndex {
   /** Resources — everything that is not a VPC or a subnet — keyed "vpc|subnet". */
   resourcesByCell: Map<string, NodeData[]>;
   adjacency: Map<string, Link[]>;
+  /** Which region a VPC or global bucket belongs to. */
+  regionOfVpc: Map<string, string>;
+  /** VPC and bucket ids per region. */
+  vpcsByRegion: Map<string, string[]>;
   resourceCount: number;
   /** Distinct resource types present, for the account summary. */
   serviceCount: number;
@@ -346,13 +432,57 @@ export interface ConnectivityIndex {
 const CONTAINER_TYPES = new Set(['VPC', 'Subnet', 'Availability Zone']);
 
 /**
+ * Label the backend puts on "this gateway is the default exit for that subnet".
+ *
+ * <p>Handled specially rather than drawn as-is: it points at a subnet, and this view does not
+ * put containers in the connections column. It is expanded into the subnet's resources, which
+ * is what turns "egress for subnet-abc" into "egress for prod-api-01".
+ */
+const EGRESS_RELATION = 'egress for';
+
+/**
+ * What "behind this gateway" is worth listing.
+ *
+ * <p>A routed subnet holds plenty that never opens an outbound connection — volumes, endpoints,
+ * the instance ENIs that would restate their own instances — so expanding everything in it
+ * would bury the answer in its own supporting cast. These are the things that originate traffic
+ * and therefore the things that can be running up the bill.
+ *
+ * <p>Known gap: a Fargate task exists on this map only as a network interface, so it is not
+ * reached here. Listing every ENI to catch it costs more clarity than it buys.
+ */
+const EGRESS_SOURCE_TYPES = new Set([
+  'EC2 Instance',
+  'RDS Instance',
+  'Lambda Function',
+  'ECS Service',
+  'EKS Cluster',
+  'ElastiCache Cluster',
+]);
+
+/**
+ * Ceiling on resources listed behind one gateway.
+ *
+ * <p>The peer column has no paging, and one NAT gateway routinely fronts every private subnet
+ * in a VPC — a few hundred instances on a large account. Past a couple of dozen the column stops
+ * being a list of suspects and becomes a wall.
+ */
+const MAX_EGRESS_PEERS = 25;
+
+/**
  * Detail keys that restate containment rather than a connection.
  *
  * <p>The tree already draws these, and inferring an edge from them would put every resource's
  * own VPC and subnet in its connections column — burying the real links under structure the
  * reader is already looking at.
  */
-const CONTAINMENT_KEYS = new Set(['vpc id', 'vpc', 'subnet id', 'subnet', 'availability zone']);
+const CONTAINMENT_KEYS = new Set([
+  'vpc id', 'vpc', 'subnet id', 'subnet', 'availability zone', 'availability zones',
+  // A load balancer or auto scaling group lists every subnet it spans. Those are the shape of
+  // the resource, not things it talks to — drawing them as connections would put three subnet
+  // nodes in the column ahead of the target group that actually matters.
+  'subnets',
+]);
 
 /**
  * Combines two copies of the same node into one.
@@ -434,6 +564,7 @@ export function buildConnectivityIndex(elements: GraphElement[]): ConnectivityIn
   const vpcs: NodeData[] = [];
   const subnetsByVpc = new Map<string, NodeData[]>();
   const resourcesByCell = new Map<string, NodeData[]>();
+  const regionOfVpc = new Map<string, string>();
   const types = new Set<string>();
   let resourceCount = 0;
 
@@ -441,14 +572,32 @@ export function buildConnectivityIndex(elements: GraphElement[]): ConnectivityIn
     if (node.type === 'VPC') {
       vpcs.push(node);
       vpcOf.set(node.id, node.id);
+      // Stamped by useCloudMap from the VPC list, which is the authoritative answer —
+      // CloudMapService builds a VPC node without one. Falls back below to the region of
+      // whatever is inside it.
+      const region = fieldOf(node, 'region');
+      if (region) regionOfVpc.set(node.id, region);
     }
   }
 
   for (const node of nodes) {
     if (node.type === 'VPC') continue;
 
-    const vpcId = ancestorOfType(node, 'VPC') ?? GLOBAL_VPC;
+    const containingVpc = ancestorOfType(node, 'VPC');
+    // A resource outside every VPC is filed under its own region rather than one global heap:
+    // an S3 bucket in Mumbai and one in Ohio are not the same locality, and lumping them
+    // together is the thing the region level exists to undo.
+    const vpcId = containingVpc
+      ?? globalBucket(fieldOf(node, 'region') || GLOBAL_REGION);
     vpcOf.set(node.id, vpcId);
+
+    if (!containingVpc) {
+      regionOfVpc.set(vpcId, fieldOf(node, 'region') || GLOBAL_REGION);
+    } else if (!regionOfVpc.has(containingVpc)) {
+      // The VPC node carried no region, so borrow one from a resource inside it.
+      const region = fieldOf(node, 'region');
+      if (region) regionOfVpc.set(containingVpc, region);
+    }
 
     if (node.type === 'Subnet') {
       const list = subnetsByVpc.get(vpcId);
@@ -484,6 +633,14 @@ export function buildConnectivityIndex(elements: GraphElement[]): ConnectivityIn
   const adjacency = new Map<string, Link[]>();
   /** Pairs already linked, in either direction, so a derived edge never restates a stated one. */
   const linkedPairs = new Set<string>();
+  /**
+   * Distinct pair-and-relation combinations, which is what the account summary counts.
+   *
+   * <p>Not pairs alone: two security groups joined by both an ingress and an egress rule are two
+   * connections, and the peer column shows them as two rows — so counting pairs made the
+   * headline number smaller than what the reader could see in front of them.
+   */
+  const linkedRelations = new Set<string>();
   const pairKey = (a: string, b: string) => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
 
   const push = (from: string, peerId: string, relation: string, outbound: boolean,
@@ -497,17 +654,66 @@ export function buildConnectivityIndex(elements: GraphElement[]): ConnectivityIn
     }
   };
 
+  /**
+   * Whether two nodes are already joined by the tree.
+   *
+   * <p>Applied to declared edges as well as inferred ones. A load balancer names every subnet it
+   * spans and an auto scaling group every subnet it launches into, so the one that happens to be
+   * its own parent would otherwise sit in its connections column restating the branch the reader
+   * is already looking at. The other subnets are genuinely interesting and still show.
+   */
+  const isContainment = (a: string, b: string) =>
+    vpcOf.get(a) === b || subnetOf.get(a) === b
+    || vpcOf.get(b) === a || subnetOf.get(b) === a;
+
   const link = (source: string, target: string, relation: string, derived: boolean) => {
     if (source === target) return;
+    if (isContainment(source, target)) return;
     push(source, target, relation, true, derived);
     push(target, source, relation, false, derived);
     linkedPairs.add(pairKey(source, target));
+    linkedRelations.add(`${pairKey(source, target)}\u0000${relation}`);
   };
 
   // Declared edges first, so they own the relationship wording.
   for (const edge of edges) {
+    // `egress for` points at a subnet, and a subnet is scaffolding: not followable, and its
+    // containment is already drawn by the tree. It is expanded into the resources below
+    // instead, which is the answer the reader actually wanted.
+    if (edge.label === EGRESS_RELATION) continue;
     const relation = edge.label && edge.label.trim() ? edge.label : 'connects to';
     link(edge.source, edge.target, relation, false);
+  }
+
+  /*
+   * Which resources actually sit behind a gateway.
+   *
+   * The backend states "this NAT gateway is the default exit for that subnet". The question
+   * people arrive with is one hop further on — "which of my servers is running up a $344 NAT
+   * bill" — and answering it needed the reader to notice the subnet, remember it, and go
+   * looking. Both halves are already here: the edge names the subnet, and the tree already
+   * knows what the subnet contains, so the join is arithmetic rather than new data.
+   *
+   * Marked derived, because it is: AWS states the routing, not the consequence. A resource in
+   * a routed subnet is *eligible* to egress through the gateway, which is not the same as
+   * having done so — an instance that never opens an outbound connection appears here and
+   * costs nothing. It narrows the suspects; it does not convict one.
+   */
+  const egressPeerCount = new Map<string, number>();
+  for (const edge of edges) {
+    if (edge.label !== EGRESS_RELATION) continue;
+    const gatewayId = edge.source;
+    const subnetId = edge.target;
+    const vpcId = vpcOf.get(subnetId) ?? vpcOf.get(gatewayId);
+    if (!vpcId) continue;
+    for (const resource of resourcesByCell.get(`${vpcId}|${subnetId}`) ?? []) {
+      if (!EGRESS_SOURCE_TYPES.has(resource.type)) continue;
+      if (linkedPairs.has(pairKey(gatewayId, resource.id))) continue;
+      const drawn = egressPeerCount.get(gatewayId) ?? 0;
+      if (drawn >= MAX_EGRESS_PEERS) break;
+      egressPeerCount.set(gatewayId, drawn + 1);
+      link(gatewayId, resource.id, EGRESS_RELATION, true);
+    }
   }
 
   /*
@@ -528,19 +734,73 @@ export function buildConnectivityIndex(elements: GraphElement[]): ConnectivityIn
    * Inferred links are flagged, so the UI can say which is which rather than presenting a
    * guess as a statement.
    */
+  /*
+   * Details carry raw ids; the All-VPCs merge scopes node ids by the VPC they were fetched
+   * under. So a token is resolved by exact id first and then by its bare form, preferring a
+   * candidate merged under the same VPC as the node referring to it — a shared security group
+   * legitimately exists once per VPC response, and linking to the wrong copy would draw a
+   * connection reaching into another VPC's branch.
+   *
+   * Without this, inferred links worked when a single VPC was selected and silently found
+   * nothing at all on the All-VPCs view, which is the view the page opens on.
+   */
+  const byBareId = new Map<string, string[]>();
+  for (const id of byId.keys()) {
+    const bare = bareId(id);
+    const list = byBareId.get(bare);
+    if (list) list.push(id);
+    else byBareId.set(bare, [id]);
+  }
+
+  const resolve = (token: string, fromId: string): string | null => {
+    if (byId.has(token)) return token;
+    const candidates = byBareId.get(bareId(token));
+    if (!candidates || candidates.length === 0) return null;
+    const scope = scopeOf(fromId);
+    const sameScope = candidates.find((c) => scopeOf(c) === scope);
+    if (sameScope) return sameScope;
+    // Ambiguous across scopes with no local copy: declining beats guessing, because a wrong
+    // edge is indistinguishable from a real one once drawn.
+    return candidates.length === 1 ? candidates[0] : null;
+  };
+
   for (const node of nodes) {
     for (const { key, value } of detailsOf(node)) {
       if (CONTAINMENT_KEYS.has(key.toLowerCase())) continue;
       for (const token of value.split(',')) {
-        const targetId = token.trim();
+        const trimmed = token.trim();
+        if (!trimmed) continue;
+        const targetId = resolve(trimmed, node.id);
         if (!targetId || targetId === node.id) continue;
-        if (!byId.has(targetId)) continue;
-        // Containment, arriving under some other key name.
-        if (vpcOf.get(node.id) === targetId || subnetOf.get(node.id) === targetId) continue;
+        const target = byId.get(targetId);
+        if (!target) continue;
+        /*
+         * Never a container.
+         *
+         * A load balancer lists the subnets it spans and an auto scaling group lists the ones it
+         * launches into, under keys that are not named "Subnet ID" — so the key denylist above
+         * does not catch them. Those are real facts, but they are structure, and putting a
+         * subnet in the connections column is wrong twice: the tree already shows containment,
+         * and a container is not a drill-down target, so the node would not even be followable.
+         * The value stays visible as an attribute in the detail panel.
+         */
+        if (CONTAINER_TYPES.has(target.type)) continue;
         if (linkedPairs.has(pairKey(node.id, targetId))) continue;
         link(node.id, targetId, key, true);
       }
     }
+  }
+
+  // Regions, with their VPCs and buckets. A VPC still without a region — its node carried none
+  // and it holds nothing to borrow from — is filed under Global rather than dropped.
+  const vpcsByRegion = new Map<string, string[]>();
+  for (const vpc of vpcs) {
+    if (!regionOfVpc.has(vpc.id)) regionOfVpc.set(vpc.id, GLOBAL_REGION);
+  }
+  for (const [vpcId, region] of regionOfVpc) {
+    const list = vpcsByRegion.get(region);
+    if (list) list.push(vpcId);
+    else vpcsByRegion.set(region, [vpcId]);
   }
 
   return {
@@ -551,9 +811,11 @@ export function buildConnectivityIndex(elements: GraphElement[]): ConnectivityIn
     subnetsByVpc,
     resourcesByCell,
     adjacency,
+    regionOfVpc,
+    vpcsByRegion,
     resourceCount,
     serviceCount: types.size,
-    linkCount: linkedPairs.size,
+    linkCount: linkedRelations.size,
   };
 }
 
@@ -566,11 +828,13 @@ export function buildConnectivityIndex(elements: GraphElement[]): ConnectivityIn
 export function locate(
   index: ConnectivityIndex,
   nodeId: string,
-): { vpc: string; subnet: string; service: string; resource: string } | null {
+): { region: string; vpc: string; subnet: string; service: string; resource: string } | null {
   const node = index.byId.get(nodeId);
   if (!node || CONTAINER_TYPES.has(node.type)) return null;
+  const vpc = index.vpcOf.get(nodeId) ?? globalBucket(GLOBAL_REGION);
   return {
-    vpc: index.vpcOf.get(nodeId) ?? GLOBAL_VPC,
+    region: index.regionOfVpc.get(vpc) ?? GLOBAL_REGION,
+    vpc,
     subnet: index.subnetOf.get(nodeId) ?? VPC_LEVEL_SUBNET,
     service: node.type ?? 'Resource',
     resource: nodeId,
@@ -594,12 +858,14 @@ export interface BuildConnectivityArgs {
   index: ConnectivityIndex;
   accountId: string;
   accountName: string;
+  selectedRegion: string | null;
   selectedVpc: string | null;
   selectedSubnet: string | null;
   selectedService: string | null;
   selectedResource: string | null;
   /** Lower-cased, trimmed. Empty for no filter. */
   search: string;
+  showAllRegions: boolean;
   showAllVpcs: boolean;
   showAllSubnets: boolean;
   showAllServices: boolean;
@@ -655,7 +921,7 @@ export function buildConnectivityFlow(args: BuildConnectivityArgs): Connectivity
     return { resources, services: types.size };
   };
 
-  // ── VPC column ────────────────────────────────────────────────────────────
+  // ── VPC entries, per region ───────────────────────────────────────────────
   interface VpcEntry {
     id: string;
     label: string;
@@ -667,37 +933,122 @@ export function buildConnectivityFlow(args: BuildConnectivityArgs): Connectivity
     resourceCount: number;
   }
 
-  const entries: VpcEntry[] = [];
-  for (const vpc of index.vpcs) {
-    const stats = statsFor(vpc.id);
-    // A VPC whose own name matches is kept even when nothing inside it does, so searching a
-    // VPC name shows the VPC rather than nothing.
-    if (search && stats.resources === 0 && !nodeMatches(vpc, search)) continue;
-    entries.push({
-      id: vpc.id,
-      label: labelOf(vpc),
-      region: fieldOf(vpc, 'region') || detailOf(vpc, 'Region'),
-      cidr: detailOf(vpc, 'CIDR Block'),
-      isBucket: false,
-      subnetCount: subnetKeysFor(vpc.id).filter((k) => k !== VPC_LEVEL_SUBNET).length,
-      serviceCount: stats.services,
-      resourceCount: stats.resources,
+  /** Every VPC and bucket in one region that survives the search. */
+  const entriesForRegion = (region: string): VpcEntry[] => {
+    const out: VpcEntry[] = [];
+    for (const vpcId of index.vpcsByRegion.get(region) ?? []) {
+      const stats = statsFor(vpcId);
+      if (isGlobalBucket(vpcId)) {
+        if (stats.resources === 0) continue;
+        out.push({
+          id: vpcId,
+          label: 'Outside any VPC',
+          region,
+          cidr: '',
+          isBucket: true,
+          subnetCount: 0,
+          serviceCount: stats.services,
+          resourceCount: stats.resources,
+        });
+        continue;
+      }
+      const vpc = index.byId.get(vpcId);
+      if (!vpc) continue;
+      // A VPC whose own name matches is kept even when nothing inside it does, so searching a
+      // VPC name shows the VPC rather than nothing.
+      if (search && stats.resources === 0 && !nodeMatches(vpc, search)) continue;
+      out.push({
+        id: vpcId,
+        label: labelOf(vpc),
+        region,
+        cidr: detailOf(vpc, 'CIDR Block'),
+        isBucket: false,
+        subnetCount: subnetKeysFor(vpcId).filter((k) => k !== VPC_LEVEL_SUBNET).length,
+        serviceCount: stats.services,
+        resourceCount: stats.resources,
+      });
+    }
+    return out.sort((a, b) =>
+      b.resourceCount - a.resourceCount || a.label.localeCompare(b.label));
+  };
+
+  // ── Region column ─────────────────────────────────────────────────────────
+  interface RegionEntry {
+    region: string;
+    vpcCount: number;
+    serviceCount: number;
+    resourceCount: number;
+  }
+
+  const regionEntries: RegionEntry[] = [];
+  for (const region of index.vpcsByRegion.keys()) {
+    const forRegion = entriesForRegion(region);
+    if (forRegion.length === 0) continue;
+    const types = new Set<string>();
+    let resources = 0;
+    for (const entry of forRegion) {
+      resources += entry.resourceCount;
+      for (const key of subnetKeysFor(entry.id)) {
+        for (const node of resourceIn(entry.id, key)) types.add(node.type ?? 'Resource');
+      }
+    }
+    regionEntries.push({
+      region,
+      vpcCount: forRegion.filter((e) => !e.isBucket).length,
+      serviceCount: types.size,
+      resourceCount: resources,
     });
   }
-  const globalStats = statsFor(GLOBAL_VPC);
-  if (globalStats.resources > 0) {
-    entries.push({
-      id: GLOBAL_VPC,
-      label: 'Outside any VPC',
-      region: '',
-      cidr: '',
-      isBucket: true,
-      subnetCount: 0,
-      serviceCount: globalStats.services,
-      resourceCount: globalStats.resources,
-    });
+  // Busiest region first, with the pseudo-region for global services last however big it is —
+  // it is not a place, and sorting it among real regions invites reading it as one.
+  regionEntries.sort((a, b) => {
+    if ((a.region === GLOBAL_REGION) !== (b.region === GLOBAL_REGION)) {
+      return a.region === GLOBAL_REGION ? 1 : -1;
+    }
+    return b.resourceCount - a.resourceCount || a.region.localeCompare(b.region);
+  });
+
+  const activeRegion = regionEntries.some((r) => r.region === args.selectedRegion)
+    ? args.selectedRegion
+    : null;
+
+  const drawnRegions = args.showAllRegions
+    ? regionEntries
+    : regionEntries.slice(0, COLUMN_CAP);
+  const regionList = activeRegion && !drawnRegions.some((r) => r.region === activeRegion)
+    ? [...drawnRegions, regionEntries.find((r) => r.region === activeRegion)!]
+    : drawnRegions;
+
+  let regionCursor = 0;
+  const regions: RegionFlowNode[] = regionList.map((r) => {
+    const node: RegionFlowNode = {
+      region: r.region,
+      label: r.region === GLOBAL_REGION ? 'Global services' : awsRegionName(r.region),
+      vpcCount: r.vpcCount,
+      serviceCount: r.serviceCount,
+      resourceCount: r.resourceCount,
+      selected: r.region === activeRegion,
+      x: CCOLS.region,
+      y: regionCursor,
+      w: CFLOW.REGION_W,
+      h: CFLOW.REGION_H,
+    };
+    regionCursor += CFLOW.REGION_H + CFLOW.ROW_GAP;
+    return node;
+  });
+
+  let regionMore: MoreRow | null = null;
+  if (regionEntries.length > regionList.length) {
+    regionMore = {
+      hidden: regionEntries.length - regionList.length,
+      x: CCOLS.region, y: regionCursor, w: CFLOW.REGION_W, h: CFLOW.MORE_H,
+    };
+    regionCursor += CFLOW.MORE_H + CFLOW.ROW_GAP;
   }
-  entries.sort((a, b) => b.resourceCount - a.resourceCount || a.label.localeCompare(b.label));
+  const regionBottom = Math.max(0, regionCursor - CFLOW.ROW_GAP);
+
+  // ── VPC column, scoped to the open region ─────────────────────────────────
+  const entries: VpcEntry[] = activeRegion ? entriesForRegion(activeRegion) : [];
 
   const activeVpcId = entries.some((e) => e.id === args.selectedVpc) ? args.selectedVpc : null;
 
@@ -706,37 +1057,7 @@ export function buildConnectivityFlow(args: BuildConnectivityArgs): Connectivity
     ? [...drawnVpcs, entries.find((e) => e.id === activeVpcId)!]
     : drawnVpcs;
 
-  let cursor = 0;
-  const vpcs: VpcFlowNode[] = vpcList.map((e) => {
-    const node: VpcFlowNode = {
-      id: e.id,
-      label: e.label,
-      region: e.region,
-      cidr: e.cidr,
-      subnetCount: e.subnetCount,
-      serviceCount: e.serviceCount,
-      resourceCount: e.resourceCount,
-      selected: e.id === activeVpcId,
-      isBucket: e.isBucket,
-      x: CCOLS.vpc,
-      y: cursor,
-      w: CFLOW.VPC_W,
-      h: CFLOW.VPC_H,
-    };
-    cursor += CFLOW.VPC_H + CFLOW.ROW_GAP;
-    return node;
-  });
-
-  let vpcMore: MoreRow | null = null;
-  if (entries.length > vpcList.length) {
-    vpcMore = {
-      hidden: entries.length - vpcList.length,
-      x: CCOLS.vpc, y: cursor, w: CFLOW.VPC_W, h: CFLOW.MORE_H,
-    };
-    cursor += CFLOW.MORE_H + CFLOW.ROW_GAP;
-  }
-  const vpcBottom = Math.max(0, cursor - CFLOW.ROW_GAP);
-  const fallbackMid = vpcBottom / 2;
+  const fallbackMid = regionBottom / 2;
 
   /** Stacks a column centred on its parent's middle. */
   const stack = <T,>(
@@ -754,6 +1075,35 @@ export function buildConnectivityFlow(args: BuildConnectivityArgs): Connectivity
     }
     return y;
   };
+
+  // ── VPC column, centred on the open region ───────────────────────────────
+  const vpcs: VpcFlowNode[] = [];
+  let vpcMore: MoreRow | null = null;
+  {
+    const anchor = regions.find((r) => r.selected);
+    const hidden = entries.length - vpcList.length;
+    const endY = stack(
+      vpcList,
+      anchor ? anchor.y + anchor.h / 2 : fallbackMid,
+      CFLOW.VPC_H,
+      hidden > 0 ? CFLOW.MORE_H + CFLOW.ROW_GAP : 0,
+      (e, y) => vpcs.push({
+        id: e.id,
+        label: e.label,
+        region: e.region,
+        cidr: e.cidr,
+        subnetCount: e.subnetCount,
+        serviceCount: e.serviceCount,
+        resourceCount: e.resourceCount,
+        selected: e.id === activeVpcId,
+        isBucket: e.isBucket,
+        x: CCOLS.vpc, y, w: CFLOW.VPC_W, h: CFLOW.VPC_H,
+      }),
+    );
+    if (hidden > 0) {
+      vpcMore = { hidden, x: CCOLS.vpc, y: endY, w: CFLOW.VPC_W, h: CFLOW.MORE_H };
+    }
+  }
 
   // ── Subnet column ────────────────────────────────────────────────────────
   const subnets: SubnetFlowNode[] = [];
@@ -817,6 +1167,7 @@ export function buildConnectivityFlow(args: BuildConnectivityArgs): Connectivity
         type,
         resourceCount: list.length,
         connectedCount: list.filter((n) => (index.adjacency.get(n.id) ?? []).length > 0).length,
+        warningCount: list.filter((n) => warningsOf(n).length > 0).length,
       }))
       .sort((a, b) => b.resourceCount - a.resourceCount || a.type.localeCompare(b.type));
 
@@ -879,6 +1230,7 @@ export function buildConnectivityFlow(args: BuildConnectivityArgs): Connectivity
         type: r.type ?? 'Resource',
         state: fieldOf(r, 'state') || detailOf(r, 'State', 'Status'),
         facts: factsOf(r),
+        warnings: warningsOf(r),
         peerCount: (index.adjacency.get(r.id) ?? []).length,
         selected: r.id === activeResourceId,
         x: CCOLS.resource, y, w: CFLOW.RESOURCE_W, h: CFLOW.RESOURCE_H,
@@ -911,7 +1263,14 @@ export function buildConnectivityFlow(args: BuildConnectivityArgs): Connectivity
         // that is the case this view exists to make visible.
         let location = '';
         if (node) {
-          if (peerVpc === GLOBAL_VPC) location = 'Outside any VPC';
+          const peerRegion = peerVpc ? index.regionOfVpc.get(peerVpc) : undefined;
+          // Region first: a connection crossing regions is the most surprising thing this view
+          // can show, and calling it merely "another VPC" would bury that.
+          if (peerRegion && activeRegion && peerRegion !== activeRegion) {
+            location = peerRegion === GLOBAL_REGION
+              ? 'Global service'
+              : `Another region · ${peerRegion}`;
+          } else if (peerVpc && isGlobalBucket(peerVpc)) location = 'Outside any VPC';
           else if (peerVpc !== activeVpcId) location = 'Another VPC';
           else if (peerSubnet === VPC_LEVEL_SUBNET) location = 'Not in a subnet';
           else if (peerSubnet !== activeSubnetId) location = 'Another subnet';
@@ -933,12 +1292,16 @@ export function buildConnectivityFlow(args: BuildConnectivityArgs): Connectivity
     );
   }
 
-  // ── Account node ─────────────────────────────────────────────────────────
-  const matchedResources = entries.reduce((sum, e) => sum + e.resourceCount, 0);
+  // ── Account node, centred on the region column ───────────────────────────
+  // Summed across regions, not across the open region's VPCs — the account node describes the
+  // account, and reading its totals off whichever branch happens to be open made the same
+  // account claim a different size depending on where the reader had clicked.
+  const matchedResources = regionEntries.reduce((sum, r) => sum + r.resourceCount, 0);
   const account: AccountFlowNode = {
     accountId,
     name: accountName || accountId,
-    vpcCount: entries.filter((e) => !e.isBucket).length,
+    vpcCount: regionEntries.reduce((sum, r) => sum + r.vpcCount, 0),
+    regionCount: regionEntries.filter((r) => r.region !== GLOBAL_REGION).length,
     resourceCount: search ? matchedResources : index.resourceCount,
     serviceCount: index.serviceCount,
     linkCount: index.linkCount,
@@ -950,7 +1313,8 @@ export function buildConnectivityFlow(args: BuildConnectivityArgs): Connectivity
 
   // ── Normalise into the canvas ────────────────────────────────────────────
   const all: Placed[] = [
-    account, ...vpcs, ...subnets, ...services, ...resources, ...peers,
+    account, ...regions, ...vpcs, ...subnets, ...services, ...resources, ...peers,
+    ...(regionMore ? [regionMore] : []),
     ...(vpcMore ? [vpcMore] : []),
     ...(subnetMore ? [subnetMore] : []),
     ...(serviceMore ? [serviceMore] : []),
@@ -962,7 +1326,7 @@ export function buildConnectivityFlow(args: BuildConnectivityArgs): Connectivity
 
   const bottom = all.reduce((max, n) => Math.max(max, n.y + n.h), 0);
   // Width follows what is drawn. Reserving every column unconditionally left a collapsed flow
-  // declaring itself ~1900px wide with most of it empty, so fit-to-width scaled the tree down
+  // declaring itself ~2100px wide with most of it empty, so fit-to-width scaled the tree down
   // to make room for nothing.
   const right = peers.length > 0
     ? CCOLS.peer + CFLOW.PEER_W
@@ -972,16 +1336,19 @@ export function buildConnectivityFlow(args: BuildConnectivityArgs): Connectivity
         ? CCOLS.service + CFLOW.SERVICE_W
         : subnets.length > 0 || subnetMore
           ? CCOLS.subnet + CFLOW.SUBNET_W
-          : CCOLS.vpc + CFLOW.VPC_W;
+          : vpcs.length > 0 || vpcMore
+            ? CCOLS.vpc + CFLOW.VPC_W
+            : CCOLS.region + CFLOW.REGION_W;
 
   return {
-    account, vpcs, subnets, services, resources, peers,
-    vpcMore, subnetMore, serviceMore, resourceMore,
+    account, regions, vpcs, subnets, services, resources, peers,
+    regionMore, vpcMore, subnetMore, serviceMore, resourceMore,
+    selectedRegion: activeRegion,
     selectedVpc: activeVpcId,
     selectedSubnet: activeSubnetId,
     selectedService: activeService,
     selectedResource: activeResourceId,
-    matchedVpcs: entries.length,
+    matchedRegions: regionEntries.length,
     matchedResources,
     width: right + CFLOW.PAD,
     height: bottom + CFLOW.PAD,
@@ -1017,45 +1384,61 @@ export function flowEdge(
 /** The trunk x for edges leaving a column that ends at `parentRight`. */
 export const trunkFor = (parentRight: number): number => parentRight + CFLOW.TRUNK_OFFSET;
 
-/** The first branch a search matched, so a filtered tree opens on a result. */
+/** The branch a selection sits on, all five levels. */
+export interface Branch {
+  region: string | null;
+  vpc: string | null;
+  subnet: string | null;
+  service: string | null;
+  resource: string | null;
+}
+
+/**
+ * The first branch a search matched, so a filtered tree opens on a result.
+ *
+ * <p>Walks the levels in order, re-deriving each from a layout that has the ones above it open.
+ * Guessing instead — taking the first VPC and then its first subnet from the unfiltered data —
+ * lands on a branch the filter excluded, which reads as a search that found the wrong thing.
+ */
 export function firstConnectivityBranch(
   index: ConnectivityIndex,
   accountId: string,
   term: string,
-): { vpc: string | null; subnet: string | null; service: string | null; resource: string | null } {
+): Branch {
   const base = {
     index,
     accountId,
     accountName: '',
     search: term,
+    showAllRegions: true,
     showAllVpcs: true,
     showAllSubnets: true,
     showAllServices: true,
     showAllResources: true,
   };
-  const atVpc = buildConnectivityFlow({
-    ...base, selectedVpc: null, selectedSubnet: null, selectedService: null,
+  const at = (b: Partial<Branch>) => buildConnectivityFlow({
+    ...base,
+    selectedRegion: b.region ?? null,
+    selectedVpc: b.vpc ?? null,
+    selectedSubnet: b.subnet ?? null,
+    selectedService: b.service ?? null,
     selectedResource: null,
   });
-  const vpc = atVpc.vpcs[0]?.id ?? null;
-  if (!vpc) return { vpc: null, subnet: null, service: null, resource: null };
 
-  const atSubnet = buildConnectivityFlow({
-    ...base, selectedVpc: vpc, selectedSubnet: null, selectedService: null, selectedResource: null,
-  });
-  const subnet = atSubnet.subnets[0]?.id ?? null;
-  if (!subnet) return { vpc, subnet: null, service: null, resource: null };
+  const empty: Branch = { region: null, vpc: null, subnet: null, service: null, resource: null };
 
-  const atService = buildConnectivityFlow({
-    ...base, selectedVpc: vpc, selectedSubnet: subnet, selectedService: null,
-    selectedResource: null,
-  });
-  const service = atService.services[0]?.type ?? null;
-  if (!service) return { vpc, subnet, service: null, resource: null };
+  const region = at({}).regions[0]?.region ?? null;
+  if (!region) return empty;
 
-  const atResource = buildConnectivityFlow({
-    ...base, selectedVpc: vpc, selectedSubnet: subnet, selectedService: service,
-    selectedResource: null,
-  });
-  return { vpc, subnet, service, resource: atResource.resources[0]?.id ?? null };
+  const vpc = at({ region }).vpcs[0]?.id ?? null;
+  if (!vpc) return { ...empty, region };
+
+  const subnet = at({ region, vpc }).subnets[0]?.id ?? null;
+  if (!subnet) return { ...empty, region, vpc };
+
+  const service = at({ region, vpc, subnet }).services[0]?.type ?? null;
+  if (!service) return { ...empty, region, vpc, subnet };
+
+  const resource = at({ region, vpc, subnet, service }).resources[0]?.id ?? null;
+  return { region, vpc, subnet, service, resource };
 }
