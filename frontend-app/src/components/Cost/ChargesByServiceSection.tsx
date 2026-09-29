@@ -61,15 +61,53 @@ const monthOptions = (): { value: string; label: string }[] => {
  * levels: page breaks, repeated headers and long-table pagination all come free from the
  * print engine, where a generated PDF would need each hand-built. It also keeps the
  * on-screen styling rather than reimplementing it.
+ *
+ * <p>The card is marked with `data-printing` and everything else is hidden with
+ * `display: none` — not `visibility: hidden`. Visibility toggling keeps the hidden nodes
+ * in the layout, so the printed card still had to share the page with a full-height,
+ * invisible app; combined with the reveal animation's `transform` on an ancestor (which
+ * re-roots `position: absolute` and clips overflow), only the on-screen viewport made it
+ * onto paper. Removing the other nodes from layout and neutralising every ancestor's
+ * transform, overflow and height lets the full, expanded card flow across as many pages
+ * as it needs.
  */
 const PRINT_STYLE_ID = 'charges-print-style';
 const PRINT_CSS = `
 @media print {
-  body * { visibility: hidden !important; }
-  #charges-by-service, #charges-by-service * { visibility: visible !important; }
+  /* Hide everything, then reveal only the card and its ancestors. Ancestors must stay
+     rendered so the card is not inside a display:none subtree. */
+  body * { display: none !important; }
+  html, body { background: #fff !important; }
+  [data-charges-print-ancestor],
+  [data-charges-print-ancestor] > #charges-by-service {
+    display: block !important;
+  }
+  #charges-by-service, #charges-by-service * { display: revert !important; }
+  #charges-by-service table { display: table !important; width: 100% !important; }
+  #charges-by-service thead { display: table-header-group !important; }
+  #charges-by-service tbody { display: table-row-group !important; }
+  #charges-by-service tr { display: table-row !important; }
+  #charges-by-service td, #charges-by-service th { display: table-cell !important; }
+
+  /* Neutralise anything on an ancestor that would clip or re-root the card:
+     the reveal animation's transform/opacity, scroll containers, fixed heights. */
+  [data-charges-print-ancestor] {
+    position: static !important;
+    transform: none !important;
+    opacity: 1 !important;
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+    filter: none !important;
+    clip-path: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: auto !important;
+  }
+
   #charges-by-service {
-    position: absolute; left: 0; top: 0; width: 100%;
     border: none !important; box-shadow: none !important; padding: 0 !important;
+    width: 100% !important;
   }
   /* Controls are meaningless on paper. */
   #charges-by-service .no-print { display: none !important; }
@@ -124,6 +162,12 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
   heading,
 }) => {
   const [open, setOpen] = useState<Set<string>>(new Set());
+  /**
+   * True only for the instant the print dialog is capturing the card. It forces every row
+   * to render expanded on paper without touching `open`, so the on-screen tree keeps
+   * whatever the reader had opened — the PDF is fully expanded, the UI is not.
+   */
+  const [printing, setPrinting] = useState(false);
 
   const months = useMemo(monthOptions, []);
   const [period, setPeriod] = useState<string>(months[0].value);
@@ -131,28 +175,51 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
   const isCurrentMonth = period === months[0].value;
 
   /**
-   * Expands every row before printing.
+   * Prints the whole bill, fully expanded, without changing what is on screen.
    *
-   * A collapsed section prints as a list of service totals, which is not what anyone
-   * asks a bill for. State is left expanded afterwards rather than restored — silently
-   * re-collapsing after the dialog closes reads as the page resetting itself.
+   * A collapsed section prints as a list of service totals, which is not what anyone asks
+   * a bill for — so `printing` forces every row open for the capture. The reader's own
+   * expand/collapse state (`open`) is never touched: the PDF is fully expanded, the page
+   * they return to looks exactly as they left it.
+   *
+   * The card's ancestors are tagged with `data-charges-print-ancestor` so the print CSS
+   * can un-clip them (the reveal animation puts a `transform` on one of them, which would
+   * otherwise crop the output to a single screen). The tag and the flag are both cleared
+   * once the dialog closes, whether the reader saved or cancelled.
    */
   const handleDownload = () => {
-    const all = new Set<string>();
-    for (const svc of tree) {
-      all.add(svc.service);
-      for (const rgn of svc.regions) all.add(`${svc.service}|${rgn.region}`);
-    }
-    setOpen(all);
-
     if (!document.getElementById(PRINT_STYLE_ID)) {
       const style = document.createElement('style');
       style.id = PRINT_STYLE_ID;
       style.textContent = PRINT_CSS;
       document.head.appendChild(style);
     }
-    // One frame so React has painted the expanded rows before the dialog captures them.
-    requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
+
+    const card = document.getElementById('charges-by-service');
+    const tagged: HTMLElement[] = [];
+    for (let el = card?.parentElement ?? null; el; el = el.parentElement) {
+      el.setAttribute('data-charges-print-ancestor', '');
+      tagged.push(el);
+    }
+    if (card) card.setAttribute('data-charges-print-ancestor', '');
+
+    const cleanup = () => {
+      setPrinting(false);
+      for (const el of tagged) el.removeAttribute('data-charges-print-ancestor');
+      card?.removeAttribute('data-charges-print-ancestor');
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+
+    setPrinting(true);
+    // Two frames so React has painted the fully expanded tree before the dialog captures it.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        window.print();
+        // Fallback for browsers that do not fire `afterprint` reliably.
+        setTimeout(cleanup, 0);
+      }),
+    );
   };
 
   // Cached across mounts, so returning to this page does not re-scan the report. A
@@ -298,7 +365,8 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
         <table className="w-full min-w-[640px] text-[12.5px]">
           <tbody>
             {tree.map((svc) => {
-              const svcOpen = open.has(svc.service);
+              // `printing` forces every node open for the PDF; the live `open` set is untouched.
+              const svcOpen = printing || open.has(svc.service);
               return (
                 <React.Fragment key={svc.service}>
                   {/* Level 1 — service */}
@@ -325,7 +393,7 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
                   {svcOpen &&
                     svc.regions.map((rgn) => {
                       const rgnKey = `${svc.service}|${rgn.region}`;
-                      const rgnOpen = open.has(rgnKey);
+                      const rgnOpen = printing || open.has(rgnKey);
                       return (
                         <React.Fragment key={rgnKey}>
                           {/* Level 2 — region */}
