@@ -11,9 +11,11 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Translates Matters' JSON into the DSPM DTOs.
@@ -226,18 +228,27 @@ public class MattersAssetMapper {
      * The All-Assets API exposes no per-asset entity rollup, so this is the only way to produce the
      * breakdown the vendor console shows — and it inherits the 50-object cap, which is why
      * {@link DspmAssetDetail#breakdownPartial()} exists to say so.
+     *
+     * Each entity also carries how many of the returned objects contain it, which is the "Total Files"
+     * figure the console's entity view leads with. Counted per object rather than per finding, because
+     * one file can report the same detector more than once.
      */
     private List<DspmAssetDetail.EntityCount> aggregateEntities(List<DspmObject> objects) {
         Map<String, long[]> totals = new LinkedHashMap<>();
+        Map<String, int[]> files = new LinkedHashMap<>();
         Map<String, String> categories = new LinkedHashMap<>();
 
         for (DspmObject object : objects) {
+            Set<String> seenInObject = new HashSet<>();
             for (DspmObject.Finding finding : object.findings()) {
                 String entity = finding.entityType();
                 if (entity == null || entity.isBlank()) {
                     continue;
                 }
                 totals.computeIfAbsent(entity, k -> new long[1])[0] += finding.count();
+                if (seenInObject.add(entity)) {
+                    files.computeIfAbsent(entity, k -> new int[1])[0]++;
+                }
                 categories.putIfAbsent(entity, finding.category());
             }
         }
@@ -246,10 +257,64 @@ public class MattersAssetMapper {
         totals.forEach((entity, sum) -> {
             String category = categories.get(entity);
             out.add(new DspmAssetDetail.EntityCount(
-                    entity, category, DspmLabels.sensitiveCategoryLabel(category), sum[0]));
+                    entity, category, DspmLabels.sensitiveCategoryLabel(category), sum[0],
+                    files.get(entity)[0], true));
         });
         out.sort(Comparator.comparingLong(DspmAssetDetail.EntityCount::count).reversed());
         return out;
+    }
+
+    /**
+     * Adds the entities the asset's facet names but its 50 sampled objects never mention.
+     *
+     * <p>The sample is the 50 <em>most sensitive</em> objects, which on a large asset is dominated by
+     * whichever detector fires most often. On the live {@code xamops-document-bucket} all 50 are CSVs
+     * full of person names: the sample yields PERSON NAME and ADDRESS, while the console lists five
+     * entities including a single ACCESS KEY AWS. Dropping that one would hide the only credential in the
+     * bucket, which is the finding a DSPM customer most needs to see.
+     *
+     * <p>{@code elements} comes from {@code /assets/filters} scoped to this one asset, so its
+     * {@code data_element} dimension is exactly the set of detectors that fired anywhere in it —
+     * verified against every truncated asset in the test project: the sampled set was a subset of the
+     * facet set in all 17, never the other way round.
+     *
+     * <p>Additions are appended after the counted entities with {@code sampled=false} and a zero count,
+     * which the UI renders as "detected, not counted" rather than as zero. The detail is returned
+     * unchanged when nothing is missing, or when the facet could not be read.
+     *
+     * @param elements facet values for the asset; blank values (the vendor emits one with a non-zero
+     *                 count) are ignored, since there is no entity to name.
+     */
+    public DspmAssetDetail withDetectedEntities(DspmAssetDetail detail, List<String> elements) {
+        if (elements == null || elements.isEmpty()) {
+            return detail;
+        }
+
+        Set<String> present = new HashSet<>();
+        for (DspmAssetDetail.EntityCount entity : detail.entityBreakdown()) {
+            present.add(entity.entityType());
+        }
+
+        List<DspmAssetDetail.EntityCount> merged = new ArrayList<>(detail.entityBreakdown());
+        boolean added = false;
+        for (String element : elements) {
+            if (element == null || element.isBlank() || !present.add(element)) {
+                continue;
+            }
+            String category = DspmLabels.entityCategory(element);
+            merged.add(new DspmAssetDetail.EntityCount(
+                    element, category, DspmLabels.sensitiveCategoryLabel(category), 0L, 0, false));
+            added = true;
+        }
+        if (!added) {
+            return detail;
+        }
+
+        return new DspmAssetDetail(
+                detail.id(), detail.name(), detail.subtype(), detail.subtypeLabel(), detail.category(),
+                detail.resourceType(), detail.externalId(), detail.lifecycle(), detail.risk(),
+                detail.sensitives(), detail.source(), detail.scan(), detail.facet(), detail.objects(),
+                detail.objectTotal(), detail.objectsTruncated(), merged, detail.breakdownPartial());
     }
 
     // ── filters ──────────────────────────────────────────────────────────────────────────────────

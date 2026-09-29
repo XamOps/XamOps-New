@@ -10,11 +10,21 @@ const BASE = '/api/dspm';
 export const DSPM_PAGE_SIZES = [25, 50, 100] as const;
 
 /**
- * The filter dimensions the rail renders, in the order they appear.
+ * The three asset surfaces, matching the backend's `DspmAssetQuery.Surface` slugs.
  *
- * `resource_type` is deliberately excluded. It is how the Cloud surface scopes itself server-side
- * (`resource_type=DATASTORE`, which is what covers both cloud and self-hosted datastores), so offering
- * it as a filter would either be redundant or let someone select `SAAS_PRINCIPAL` and empty the table.
+ * Each maps server-side to a `resource_type` scope — cloud to `DATASTORE` (which covers self-hosted
+ * datastores too, as the vendor console's Cloud screen does), saas to `SAAS_PRINCIPAL`, endpoint to
+ * `ENDPOINT_HOST`. Scoping by `resource_type` rather than `category` is load-bearing: `category` is a
+ * single-valued tab selector, and an unrecognised value there returns an empty result set on a 200.
+ */
+export type DspmSurface = 'cloud' | 'saas' | 'endpoint';
+
+/**
+ * The filter dimensions the bar renders, in the order they appear.
+ *
+ * `resource_type` is deliberately excluded. It is how each surface scopes itself server-side, so
+ * offering it as a filter would either be redundant or let someone select `SAAS_PRINCIPAL` on the Cloud
+ * tab and empty the table.
  */
 export const DSPM_FILTER_DIMENSIONS = [
   'severity',
@@ -82,7 +92,7 @@ export function useDspmStatus() {
   return { status, statusLoading: loading, reloadStatus: loadStatus };
 }
 
-interface CloudQuery {
+interface AssetQuery {
   search: string;
   sort: string;
   page: number;
@@ -90,7 +100,7 @@ interface CloudQuery {
   filters: DspmFilterState;
 }
 
-function buildQuery({ search, sort, page, pageSize, filters }: CloudQuery): string {
+function buildQuery({ search, sort, page, pageSize, filters }: AssetQuery): string {
   const params = new URLSearchParams();
   if (search.trim()) params.set('q', search.trim());
   params.set('sort', sort);
@@ -104,11 +114,15 @@ function buildQuery({ search, sort, page, pageSize, filters }: CloudQuery): stri
 }
 
 /**
- * The Cloud datastore list, its filter facets, and asset detail.
+ * One surface's asset list, its filter facets, and asset detail.
+ *
+ * Takes the surface rather than hardcoding `cloud`, so the three tabs share one implementation. The
+ * surface only appears in the request path; everything below it — paging, sorting, faceting, detail — is
+ * identical, because the backend scopes all three the same way.
  *
  * <h3>Why the list and the filters are fetched together</h3>
  * The upstream computes facet counts disjunctively — each dimension's counts ignore its own selection —
- * which is what keeps the rail usable after a user filters on it. That only holds if both calls carry the
+ * which is what keeps the bar usable after a user filters on it. That only holds if both calls carry the
  * same filter parameters, so they are issued as a pair from one effect rather than independently.
  *
  * <h3>No caching</h3>
@@ -116,7 +130,7 @@ function buildQuery({ search, sort, page, pageSize, filters }: CloudQuery): stri
  * behind a short server-side Redis cache. A second client-side cache would add a second staleness window
  * over data that is already only two minutes old, for a page nobody keeps open for hours.
  */
-export function useDspmCloud(enabled: boolean) {
+export function useDspmAssets(surface: DspmSurface, enabled: boolean) {
   const [assets, setAssets] = useState<DspmPage<DspmAssetRow> | null>(null);
   const [filters, setFilters] = useState<DspmFilters | null>(null);
   const [loading, setLoading] = useState(false);
@@ -131,6 +145,9 @@ export function useDspmCloud(enabled: boolean) {
   /** Guards against an earlier in-flight response overwriting a later one. */
   const requestSeq = useRef(0);
 
+  // No reset-on-surface-change effect: the caller keys the component by surface, so switching tabs
+  // remounts with fresh state. An effect here would also double-fetch on every mount.
+
   const load = useCallback(async () => {
     if (!enabled) return;
     const seq = ++requestSeq.current;
@@ -142,8 +159,8 @@ export function useDspmCloud(enabled: boolean) {
     // provably identical in their filter terms, which is what the disjunctive counting depends on.
     try {
       const [assetPage, facets] = await Promise.all([
-        apiClient.get<DspmPage<DspmAssetRow>>(`${BASE}/cloud/assets?${query}`),
-        apiClient.get<DspmFilters>(`${BASE}/cloud/filters?${query}`),
+        apiClient.get<DspmPage<DspmAssetRow>>(`${BASE}/${surface}/assets?${query}`),
+        apiClient.get<DspmFilters>(`${BASE}/${surface}/filters?${query}`),
       ]);
       if (seq !== requestSeq.current) return;
       setAssets(assetPage);
@@ -157,7 +174,7 @@ export function useDspmCloud(enabled: boolean) {
     } finally {
       if (seq === requestSeq.current) setLoading(false);
     }
-  }, [enabled, search, sort, page, pageSize, selected]);
+  }, [surface, enabled, search, sort, page, pageSize, selected]);
 
   useEffect(() => { void load(); }, [load]);
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
 import type { DspmFilters } from '../../types/dspm';
-import type { DspmFilterState } from '../../hooks/useDspmData';
+import type { DspmFilterState, DspmSurface } from '../../hooks/useDspmData';
 
 /**
  * Horizontal filter bar with dropdown chips, replacing the earlier left rail.
@@ -24,8 +24,8 @@ import type { DspmFilterState } from '../../hooks/useDspmData';
 
 /** Dimension → chip label, using the console's wording where it differs from the API's. */
 const DIMENSION_LABELS: Record<string, string> = {
-  // "Account" in their bar. Ours are Matters integration ids; theirs additionally resolve to a friendly
-  // name, which the API does not expose.
+  // "Account" in their bar. The backend resolves the Matters integration ids to the console's
+  // `605134457560 (Xammer-prod)` form.
   integration_id: 'Account',
   // "Infrastructure" in their bar — S3, RDS, MSK, MongoDB Atlas, Databricks, DynamoDB.
   provider: 'Infrastructure',
@@ -37,6 +37,16 @@ const DIMENSION_LABELS: Record<string, string> = {
   data_element: 'Data element',
   lifecycle: 'Lifecycle',
 };
+
+/** "Infrastructure" only fits datastores; SaaS apps and endpoint agents are not infrastructure. */
+const PROVIDER_LABEL: Record<DspmSurface, string> = {
+  cloud: 'Infrastructure',
+  saas: 'Application',
+  endpoint: 'Source',
+};
+
+const dimensionLabel = (dimension: string, surface: DspmSurface) =>
+  dimension === 'provider' ? PROVIDER_LABEL[surface] : (DIMENSION_LABELS[dimension] ?? dimension);
 
 /** Chips shown without being added, mirroring the console's default bar. */
 const DEFAULT_CHIPS = ['integration_id', 'provider'];
@@ -200,8 +210,9 @@ const FilterChip: React.FC<DropdownProps> = ({
 /** The `+ Add filters` menu. */
 const AddFilters: React.FC<{
   available: string[];
+  surface: DspmSurface;
   onAdd: (dimension: string) => void;
-}> = ({ available, onAdd }) => {
+}> = ({ available, surface, onAdd }) => {
   const [open, setOpen] = useState(false);
   const wrapper = useRef<HTMLDivElement>(null);
 
@@ -234,7 +245,7 @@ const AddFilters: React.FC<{
               onClick={() => { onAdd(dimension); setOpen(false); }}
               className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-[rgba(0,0,0,0.7)] hover:bg-[rgba(0,0,0,0.04)]"
             >
-              {DIMENSION_LABELS[dimension] ?? dimension}
+              {dimensionLabel(dimension, surface)}
             </button>
           ))}
         </div>
@@ -244,6 +255,7 @@ const AddFilters: React.FC<{
 };
 
 interface Props {
+  surface: DspmSurface;
   filters: DspmFilters | null;
   selected: DspmFilterState;
   activeCount: number;
@@ -255,7 +267,7 @@ interface Props {
 }
 
 const DspmFilterBar: React.FC<Props> = ({
-  filters, selected, activeCount, search, onSearch, onToggle, onClearDimension, onClearAll,
+  surface, filters, selected, activeCount, search, onSearch, onToggle, onClearDimension, onClearAll,
 }) => {
   const [pinned, setPinned] = useState<string[]>(DEFAULT_CHIPS);
 
@@ -264,9 +276,15 @@ const DspmFilterBar: React.FC<Props> = ({
    *
    * A dimension with an active selection is always shown, even if it was never pinned — otherwise a
    * filter restored from a shared URL would narrow the table with no visible control to undo it.
+   *
+   * A pinned chip whose dimension came back empty is hidden: endpoints have no Account values, and a
+   * dropdown with nothing in it reads as broken. Only once filters have loaded, so chips do not flicker.
    */
-  const shown = useMemo(() => CHIP_ORDER.filter(d =>
-    pinned.includes(d) || (selected[d]?.length ?? 0) > 0), [pinned, selected]);
+  const shown = useMemo(() => CHIP_ORDER.filter(d => {
+    if ((selected[d]?.length ?? 0) > 0) return true;
+    if (!pinned.includes(d)) return false;
+    return filters === null || (filters.dimensions[d]?.length ?? 0) > 0;
+  }), [pinned, selected, filters]);
 
   // Only offer dimensions the vendor actually returned for this project. A customer with no on-prem
   // datastores should not be offered a Lifecycle filter with nothing in it.
@@ -293,7 +311,7 @@ const DspmFilterBar: React.FC<Props> = ({
         <FilterChip
           key={dimension}
           dimension={dimension}
-          label={DIMENSION_LABELS[dimension] ?? dimension}
+          label={dimensionLabel(dimension, surface)}
           options={filters?.dimensions[dimension] ?? []}
           selected={selected[dimension] ?? []}
           truncated={Boolean(filters?.hasMore[dimension])}
@@ -304,6 +322,7 @@ const DspmFilterBar: React.FC<Props> = ({
 
       <AddFilters
         available={available}
+        surface={surface}
         onAdd={d => setPinned(p => (p.includes(d) ? p : [...p, d]))}
       />
 

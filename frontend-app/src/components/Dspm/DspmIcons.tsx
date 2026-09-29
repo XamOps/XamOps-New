@@ -1,7 +1,7 @@
 import React from 'react';
 import { Icon } from '@iconify/react';
 import type { DspmAssetRow } from '../../types/dspm';
-import { sensitivityClasses, sensitivityLabel } from './dspmFormat';
+import { sensitivityClasses, severityFor } from './dspmFormat';
 
 /**
  * Icons for the DSPM tables.
@@ -82,6 +82,12 @@ const PROVIDER_GLYPH: Record<string, string> = {
   CONFLUENCE: 'mdi:confluence',
 
   ENDPOINT_AGENT: 'mdi:laptop',
+  // Endpoint rows report the OS as their `subtype` while every one of them shares the provider
+  // `ENDPOINT_AGENT`, so the Endpoint table passes the subtype first — a fleet of identical laptop
+  // glyphs says nothing, and Mac against Windows is the one thing that column can usefully show.
+  MAC: 'mdi:apple',
+  WINDOWS: 'mdi:microsoft-windows',
+  LINUX: 'mdi:linux',
 };
 
 /** Which cloud a provider belongs to, for the account column's mark. */
@@ -166,11 +172,12 @@ const SEVERITY_GLYPH: Record<string, string> = {
 /**
  * Severity badge with its icon.
  *
- * Reads {@code sensitives.level}, not {@code risk.level} — that is the field the vendor's Severity
- * column shows, verified row by row. A dash for {@code NOT_SENSITIVE} or null, as there.
+ * The band comes from {@link severityFor}, which reads a different vendor field per asset type —
+ * {@code sensitives.level} for datastores, {@code risk.level} for SaaS and endpoints, because the vendor
+ * populates only one of the two on each. A dash when neither is set, as their console has it.
  */
 export const DspmSeverityBadge: React.FC<{ row: DspmAssetRow }> = ({ row }) => {
-  const label = sensitivityLabel(row.sensitives.level);
+  const label = severityFor(row);
   if (!label) return <span className="text-xs text-[rgba(0,0,0,0.3)]">—</span>;
 
   return (

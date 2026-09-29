@@ -61,10 +61,12 @@ export function formatEpochSeconds(seconds: number): string {
 /**
  * Sensitivity classification as the console labels it.
  *
- * This is what the vendor's **Severity** column actually shows — `sensitives.level`, not `risk.level`.
- * Confirmed row by row against the live project: `xamops-document-bucket` carries
+ * This is what the vendor's **Severity** column shows on the Cloud screen — `sensitives.level`, not
+ * `risk.level`. Confirmed row by row against the live project: `xamops-document-bucket` carries
  * `risk.level: CRITICAL` but `sensitives.level: MEDIUM_SENSITIVITY`, and their UI says "Medium".
  * `NOT_SENSITIVE` and null both render as a dash there, not as a band.
+ *
+ * Only meaningful for datastores — see {@link severityFor}.
  */
 export function sensitivityLabel(level: string | null | undefined): string | null {
   if (!level) return null;
@@ -76,6 +78,55 @@ export function sensitivityLabel(level: string | null | undefined): string | nul
     case 'NOT_SENSITIVE': return null;
     default: return null;
   }
+}
+
+/** `risk.level` band to its display label. `NONE` is the backend's sentinel for "not evaluated". */
+function riskLevelLabel(level: string | null | undefined): string | null {
+  switch ((level ?? '').toUpperCase()) {
+    case 'CRITICAL': return 'Critical';
+    case 'HIGH': return 'High';
+    case 'MEDIUM': return 'Medium';
+    case 'LOW': return 'Low';
+    default: return null;
+  }
+}
+
+/**
+ * The Severity band for a row, or null for a dash.
+ *
+ * <h3>Why this is per-surface and not one field</h3>
+ * The vendor populates two different fields depending on the asset type, and picking either one alone
+ * blanks a whole tab:
+ *
+ * - **Datastores** carry `sensitives.level` (23 of 68 live rows) and that is what the console's Cloud
+ *   screen displays, verified against it row by row.
+ * - **SaaS principals and endpoint hosts** have `sensitives.level: null` on **every** row — 62 of 62 and
+ *   2 of 2 live — while `sensitives.types` is populated, so this is not a scanning gap. Only `risk.level`
+ *   is set there, and its live distribution is exactly what the `severity` filter facet reports for
+ *   those surfaces.
+ *
+ * So reusing the Cloud rule on SaaS would have shown a dash in every Severity cell on a tab where the
+ * vendor shows Medium, High and Critical.
+ *
+ * <h3>A known disagreement we are not papering over</h3>
+ * The `severity` **filter** facet counts `risk.level` on all three surfaces — the datastore facet reads
+ * `NONE 58, CRITICAL 4, LOW 3, MEDIUM 2, HIGH 1`, matching `risk.level` and not `sensitives.level`. So on
+ * the Cloud tab, filtering Severity=Critical selects rows whose Severity cell may read Medium. That
+ * inconsistency is the vendor's, reproduced rather than invented: matching the filter to the column would
+ * mean showing a different severity than their console shows for the same asset, which is the worse of
+ * the two confusions when a customer has both products open.
+ */
+export function severityFor(
+  row: { resourceType: string | null; sensitives: { level: string | null }; risk: { level: string } },
+): string | null {
+  // Keyed on resource_type rather than category so self-hosted datastores (category `on_prem`) follow
+  // the datastore rule, which is what the vendor's Cloud screen does with them.
+  if (row.resourceType === 'DATASTORE') {
+    return sensitivityLabel(row.sensitives.level);
+  }
+  // Fall back to sensitives for an unrecognised resource type: if the vendor adds one that does populate
+  // the field, preferring it matches the datastore precedent.
+  return sensitivityLabel(row.sensitives.level) ?? riskLevelLabel(row.risk.level);
 }
 
 /** Badge classes per sensitivity band, following the console's colour weighting. */

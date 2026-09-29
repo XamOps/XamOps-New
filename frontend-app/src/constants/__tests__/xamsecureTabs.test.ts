@@ -51,9 +51,7 @@ describe('XamSecure tab catalog', () => {
 
   it('never lands a client on a coming-soon tab', () => {
     // A placeholder is a poor first impression of a product someone is paying for, so the landing
-    // helper skips them. dspm-saas is declared before... no: dspm-cloud is first in DSPM order, but
-    // this must hold even if the declaration order changes, which is why it is asserted rather than
-    // left to the array.
+    // helper skips them. Asserted rather than left to declaration order.
     expect(firstTabForGroups(['DSPM'])).toBe('dspm-cloud');
     expect(isComingSoon(firstTabForGroups(['DSPM']))).toBe(false);
     expect(isComingSoon(firstTabForGroups(['CNAPP']))).toBe(false);
@@ -70,10 +68,17 @@ describe('XamSecure tab catalog', () => {
     expect(firstTabForGroups([])).toBeNull();
   });
 
+  it('serves SaaS and Endpoint as live tabs, not placeholders', () => {
+    expect(isComingSoon('dspm-saas')).toBe(false);
+    expect(isComingSoon('dspm-endpoint')).toBe(false);
+    expect(XAMSECURE_SIDEBAR_TABS.map((t) => t.id)).toEqual(
+      expect.arrayContaining(['dspm-cloud', 'dspm-saas', 'dspm-endpoint']),
+    );
+  });
+
   it('describes every coming-soon tab, so the placeholder is never blank', () => {
+    // None today; the mechanism stays for the next announced tab.
     const soon = XAMSECURE_TABS.filter((t) => t.comingSoon);
-    // Announced-but-unbuilt tabs exist to set expectations; one with no blurb sets none.
-    expect(soon.length).toBeGreaterThan(0);
     for (const t of soon) {
       expect(t.comingSoonBlurb, `${t.id} has no blurb`).toBeTruthy();
       // They are listed on purpose — hiding them is what made "coming" indistinguishable from

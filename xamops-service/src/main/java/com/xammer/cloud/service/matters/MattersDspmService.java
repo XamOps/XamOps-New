@@ -68,15 +68,18 @@ public class MattersDspmService {
     private final MattersApiClient apiClient;
     private final MattersAssetMapper mapper;
     private final MattersProjectMappingRepository mappingRepository;
+    private final MattersIntegrationLabeler integrationLabeler;
     private final RedisCacheService cache;
 
     // ── Cloud surface ────────────────────────────────────────────────────────────────────────────
 
     /**
-     * The Cloud datastore list — cloud and on-prem together, matching the vendor console's own Cloud
-     * screen. See {@link DspmAssetQuery#CLOUD_RESOURCE_TYPE}.
+     * An asset list for one surface — datastores, SaaS accounts or managed endpoints.
+     *
+     * The surface is carried by the query's {@code resource_type} scope, so this method is the same for
+     * all three. The cache key derives from that scope, so one surface can never serve another's page.
      */
-    public DspmPage<DspmAssetRow> getCloudAssets(Long clientId, DspmAssetQuery query) {
+    public DspmPage<DspmAssetRow> getAssets(Long clientId, DspmAssetQuery query) {
         MattersCredential credential = credentialResolver.resolve(clientId);
         String key = KEY_PREFIX + "assets:" + clientId + ":" + query.cacheFragment();
 
@@ -95,11 +98,16 @@ public class MattersDspmService {
     /**
      * Filter options with faceted counts.
      *
-     * Called with the same filters as {@link #getCloudAssets}, which is what preserves the upstream's
+     * Called with the same filters as {@link #getAssets}, which is what preserves the upstream's
      * disjunctive counting — a dimension the user has already filtered on keeps showing all of its
      * options rather than collapsing to the selected one.
+     *
+     * <p>The {@code integration_id} options are relabelled on the way out. The vendor returns its own
+     * ObjectIds there while its console shows {@code 605134457560 (Xammer-prod)}; see
+     * {@link MattersIntegrationLabeler} for where each half of that comes from. Done before caching so
+     * the extra lookups are paid once per five-minute window rather than per request.
      */
-    public DspmFilters getCloudFilters(Long clientId, DspmAssetQuery query) {
+    public DspmFilters getFilters(Long clientId, DspmAssetQuery query) {
         MattersCredential credential = credentialResolver.resolve(clientId);
         String key = KEY_PREFIX + "filters:" + clientId + ":" + query.filterCacheFragment();
 
@@ -109,7 +117,7 @@ public class MattersDspmService {
         }
 
         JsonNode body = apiClient.listFilters(credential, query.toFilterParams());
-        DspmFilters filters = mapper.toFilters(body);
+        DspmFilters filters = integrationLabeler.withAccountLabels(credential, mapper.toFilters(body));
         cache.put(key, filters, FILTERS_CACHE_MINUTES);
         return filters;
     }
@@ -246,6 +254,9 @@ public class MattersDspmService {
      */
     public void evictClient(Long clientId) {
         long removed = cache.evictByPattern(KEY_PREFIX + "*:" + clientId + ":*");
+        // Held under a different key shape (one entry per client, not per query) and with a twelve-hour
+        // TTL, so the pattern sweep above does not reach it and it would outlive a repoint by half a day.
+        integrationLabeler.evictClient(clientId);
         log.info("[DSPM] evicted {} cached entries for client {}", removed, clientId);
     }
 }

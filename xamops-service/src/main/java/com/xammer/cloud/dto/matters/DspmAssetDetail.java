@@ -22,8 +22,9 @@ import java.util.Map;
  *                           5,211-object bucket returns 50 rows. Presenting those 50 as the whole
  *                           contents would materially misrepresent the asset, and the cap is not
  *                           visible from the array alone.
- * @param entityBreakdown    sensitive findings aggregated by detected entity type across the returned
- *                           objects. See {@link EntityCount} for why this can undercount.
+ * @param entityBreakdown    every entity type detected in the asset, with counts aggregated across the
+ *                           returned objects. See {@link EntityCount} for why the counts can undercount
+ *                           while the list itself does not.
  * @param breakdownPartial   true when {@link #objectsTruncated} is true, meaning
  *                           {@link #entityBreakdown} was computed from a subset and its counts are
  *                           lower bounds rather than totals.
@@ -52,21 +53,31 @@ public record DspmAssetDetail(
     /**
      * A detected entity type and how many instances were found.
      *
-     * <p>Aggregated from {@code objects[].findings[]}, which means it is bounded by the same 50-object
-     * cap as {@link DspmAssetDetail#objects}. The vendor console shows true per-asset totals (738
-     * PERSON NAME across 4,272 objects on one live bucket) because it is not reading this API; the
-     * All-Assets API exposes no per-asset entity rollup, so anything computed here from a capped array
-     * is a lower bound whenever {@link DspmAssetDetail#breakdownPartial} is set.
+     * <p>Counts are aggregated from {@code objects[].findings[]}, which means they are bounded by the
+     * same 50-object cap as {@link DspmAssetDetail#objects}. The vendor console shows true per-asset
+     * totals (738 PERSON NAME across 4,272 objects on one live bucket) because it is not reading this
+     * API; the All-Assets API exposes no per-asset entity rollup, so a count computed here from a capped
+     * array is a lower bound whenever {@link DspmAssetDetail#breakdownPartial} is set.
      *
-     * <p>Surfaced rather than suppressed because the ranking is still useful — which detectors fired,
-     * and roughly in what proportion — but the UI has to state that it is partial. The alternative,
-     * printing a confident 40 where the console says 738, is worse than printing nothing.
+     * <p><b>The list of entities, by contrast, is complete</b> even when the counts are not. The 50
+     * returned objects are the most sensitive ones, and on a truncated asset they routinely miss whole
+     * detectors — the same bucket's sample holds only PERSON NAME and ADDRESS while the console lists
+     * five. The missing ones are recovered from a filter call scoped to the single asset, whose
+     * {@code data_element} facet names every detector that fired anywhere in it. Those arrive with
+     * {@link #sampled} false: detected, but with no count available.
      *
      * @param entityType    e.g. {@code PERSON NAME}, {@code ACCESS KEY AWS}.
-     * @param category      raw category code, e.g. {@code PII}.
+     * @param category      raw category code, e.g. {@code PII}. Null when the entity was only seen in
+     *                      the facet and its detector is not one whose category has been observed.
      * @param categoryLabel console wording, e.g. {@code Personal}.
-     * @param count         instances found across the returned objects.
+     * @param count         instances found across the returned objects. Zero when {@link #sampled} is
+     *                      false — which means "not counted", never "none found".
+     * @param fileCount     returned objects containing at least one instance. A lower bound on the
+     *                      asset's true figure under the same conditions as {@link #count}.
+     * @param sampled       whether the entity appears in the returned objects at all. False for an
+     *                      entity known only from the asset's facet.
      */
-    public record EntityCount(String entityType, String category, String categoryLabel, long count) {
+    public record EntityCount(String entityType, String category, String categoryLabel,
+                              long count, int fileCount, boolean sampled) {
     }
 }

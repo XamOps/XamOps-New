@@ -4,7 +4,7 @@ import { Icon } from '@iconify/react';
 import type { DspmAssetDetail, DspmEntityCount } from '../../types/dspm';
 import {
   categoryAccent, compactCount, formatBytes, formatEpochSeconds,
-  sensitivityClasses, sensitivityLabel,
+  sensitivityClasses, severityFor,
 } from './dspmFormat';
 import { DspmObjectIcon, DspmProviderIcon, DspmScanStatus } from './DspmIcons';
 
@@ -52,25 +52,74 @@ const FACET_LABELS: Record<string, string> = {
   rds_type: 'RDS type',
   host: 'Host',
   port: 'Port',
+  // SaaS principals
+  drive_type: 'Drive type',
+  entity_type: 'Principal type',
+  total_inventories: 'Items',
+  total_size_bytes: 'Total size',
+  supported_files_count: 'Supported files',
+  supported_files_size: 'Supported size',
+  unsupported_files_count: 'Unsupported files',
+  unsupported_files_size: 'Unsupported size',
+  is_completed: 'Scan complete',
+  is_selected: 'Selected for scan',
+  is_unassigned: 'Unassigned',
+  // Endpoint hosts
+  hostname: 'Hostname',
+  serial_number: 'Serial number',
+  os: 'OS',
+  os_version: 'OS version',
+  device_type: 'Device type',
+  enrolled_user: 'Enrolled user',
+  device_users: 'Device users',
+  user: 'User',
+  agent_status: 'Agent status',
+  agent_version: 'Agent version',
+  last_ping_time: 'Last seen',
+  public_ip: 'Public IP',
+  mac_address: 'MAC address',
+  architecture: 'Architecture',
+  memory: 'Memory',
+  cpu_usage: 'CPU usage',
+  memory_usage: 'Memory usage',
+  used_disk_space_bytes: 'Disk used',
 };
 
 /**
- * Facet keys shown in the Properties card, in the console's order.
+ * Facet keys shown first in the Properties card, per asset type, in the console's order.
  *
- * Ordered rather than rendered as-received so the card reads the same way theirs does — Cloud Account,
- * Region, Datastore Size, ARN. Anything not listed still renders, after these.
+ * Anything not listed still renders, after these — the vendor adds facet keys over time.
  */
-const FACET_ORDER = ['cloud_account_id', 'region', 'storage_size_bytes', 'arn'];
+const FACET_ORDER: Record<string, string[]> = {
+  DATASTORE: ['cloud_account_id', 'region', 'storage_size_bytes', 'arn'],
+  SAAS_PRINCIPAL: [
+    'drive_type', 'entity_type', 'total_inventories', 'total_size_bytes',
+    'supported_files_count', 'supported_files_size', 'unsupported_files_count', 'unsupported_files_size',
+  ],
+  ENDPOINT_HOST: [
+    'hostname', 'serial_number', 'os', 'os_version', 'device_type', 'enrolled_user', 'device_users',
+    'agent_status', 'agent_version', 'last_ping_time', 'public_ip', 'mac_address',
+  ],
+};
+
+/** Identifiers rendered in a monospace face so they can be read and compared character by character. */
+const MONO_KEYS = new Set(['arn', 'cloud_account_id', 'serial_number', 'mac_address', 'public_ip']);
 
 const prettifyKey = (key: string) =>
   key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
 function formatFacetValue(key: string, value: unknown): string {
   if (value === null || value === undefined) return '—';
-  if (typeof value === 'boolean') return value ? 'Enabled' : 'Disabled';
+  // `is_*` flags are yes/no facts; the rest (encryption, versioning) are settings.
+  if (typeof value === 'boolean') {
+    if (key.startsWith('is_')) return value ? 'Yes' : 'No';
+    return value ? 'Enabled' : 'Disabled';
+  }
   if (Array.isArray(value)) return value.length ? value.join(', ') : '—';
   if (typeof value === 'number') {
-    if (key.endsWith('_bytes')) return formatBytes(value);
+    if (key.endsWith('_bytes') || key.endsWith('_size')) return formatBytes(value);
+    // Endpoint usage figures arrive as fractions (0.25 = 25%).
+    if (key.endsWith('_usage') && value >= 0 && value <= 1) return `${(value * 100).toFixed(1)}%`;
     // Anything named like a timestamp is epoch seconds. Guarded by magnitude so a genuine count in the
     // same range is not mangled into a date.
     if ((key.endsWith('_time') || key.endsWith('_at')) && value > 1_000_000_000) {
@@ -78,7 +127,9 @@ function formatFacetValue(key: string, value: unknown): string {
     }
     return value.toLocaleString();
   }
-  return String(value);
+  const text = String(value);
+  // Enum values (GOOGLE_WORKSPACE, OFFLINE) read as words; identifiers and regions are left alone.
+  return /^[A-Z][A-Z0-9_]*$/.test(text) ? prettifyKey(text.toLowerCase()) : text;
 }
 
 /** A boxed read-only value, matching the console's Properties fields. */
@@ -221,13 +272,15 @@ const DspmAssetDrawer: React.FC<Props> = ({ detail, loading, error, onClose }) =
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const severity = sensitivityLabel(detail?.sensitives.level);
+  // Same rule as the table's Severity column, which reads a different vendor field per asset type.
+  const severity = detail ? severityFor(detail) : null;
 
-  // Facet keys in the console's order, with anything unlisted appended.
+  // Facet keys in the console's order for this asset type, with anything unlisted appended.
+  const order = FACET_ORDER[detail?.resourceType ?? ''] ?? [];
   const facetKeys = detail
     ? [
-        ...FACET_ORDER.filter(k => k in detail.facet),
-        ...Object.keys(detail.facet).filter(k => !FACET_ORDER.includes(k)),
+        ...order.filter(k => k in detail.facet),
+        ...Object.keys(detail.facet).filter(k => !order.includes(k)),
       ]
     : [];
 
@@ -321,7 +374,7 @@ const DspmAssetDrawer: React.FC<Props> = ({ detail, loading, error, onClose }) =
                     key={key}
                     label={FACET_LABELS[key] ?? prettifyKey(key)}
                     value={formatFacetValue(key, detail.facet[key])}
-                    mono={key === 'arn' || key === 'cloud_account_id'}
+                    mono={MONO_KEYS.has(key)}
                   />
                 ))}
                 {detail.externalId && !('arn' in detail.facet) && (
