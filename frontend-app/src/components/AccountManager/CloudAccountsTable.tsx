@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import { gooeyToast } from 'goey-toast';
@@ -444,13 +445,19 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
           One panel per verdict rather than a generic "not found": a deleted stack, a stack
           mid-operation and a role that was never stack-managed each need a different next
           step, and naming the wrong one wastes the reader's afternoon. */}
-      {diagnosis && (
+      {diagnosis && createPortal(
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 flex items-center justify-center z-50 p-4"
           onClick={() => setDiagnosis(null)}
         >
+          {/* Scrim kept off the sidebar (fixed 220px, lg+) so the nav stays sharp.
+              Below lg the sidebar is off-canvas, so it covers the whole viewport. */}
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
+            aria-hidden="true"
+            className="fixed inset-0 lg:left-[220px] bg-black/40 backdrop-blur-sm pointer-events-none"
+          />
+          <div
+            className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start gap-3 px-6 pt-6 pb-4">
@@ -540,7 +547,8 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
                 )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* Stack update guide.
@@ -548,13 +556,19 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
           an existing stack. Updating the real connection stack is what brings the whole
           role onto the current template — a second stack beside it can only patch what it
           was told to patch, and then the two definitions drift. */}
-      {updateGuide && (
+      {updateGuide && createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
           onClick={() => setUpdateGuide(null)}
         >
+          {/* Scrim kept off the sidebar (fixed 220px, lg+) so the nav stays sharp.
+              Below lg the sidebar is off-canvas, so it covers the whole viewport. */}
           <div
-            className="bg-white rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[88vh] overflow-y-auto"
+            aria-hidden="true"
+            className="fixed inset-0 lg:left-[220px] bg-black/40 backdrop-blur-sm pointer-events-none"
+          />
+          <div
+            className="relative bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[88vh] overflow-y-auto"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-[rgba(0,0,0,0.06)]">
@@ -707,17 +721,24 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* Billing Modal */}
-      {billingModalAccount && (
+      {billingModalAccount && createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
           onClick={closeBillingModal}
         >
+          {/* Scrim kept off the sidebar (fixed 220px, lg+) so the nav stays sharp.
+              Below lg the sidebar is off-canvas, so it covers the whole viewport. */}
           <div
-            className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden"
+            aria-hidden="true"
+            className="fixed inset-0 lg:left-[220px] bg-black/40 backdrop-blur-sm pointer-events-none"
+          />
+          <div
+            className="relative bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-6 py-4 border-b border-[rgba(0,0,0,0.06)]">
@@ -781,7 +802,8 @@ const CloudAccountsTable: React.FC<CloudAccountsTableProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

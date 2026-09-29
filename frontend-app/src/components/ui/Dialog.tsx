@@ -46,10 +46,17 @@ export function DialogRoot({ isOpen, onClose, children, maxWidth = 'max-w-lg' }:
     <ModalOverlay
       isOpen={isOpen}
       onOpenChange={(open) => { if (!open) onClose(); }}
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-4 bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-4"
     >
+      {/* Scrim only — kept off the sidebar (fixed 220px, lg+) so the nav stays
+          sharp while the content area behind the dialog dims and blurs. Below lg
+          the sidebar is off-canvas, so the scrim covers the whole viewport. */}
+      <div
+        aria-hidden="true"
+        className="fixed inset-0 lg:left-[220px] bg-black/40 backdrop-blur-sm pointer-events-none"
+      />
       <Modal
-        className={`w-full ${maxWidth} mx-4 outline-none`}
+        className={`relative w-full ${maxWidth} mx-4 outline-none`}
         onOpenChange={(open) => { if (!open) onClose(); }}
       >
         {children}

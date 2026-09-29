@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from '@iconify/react';
 import {
   executeStackUpdate,
@@ -98,6 +99,26 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
     [],
   );
 
+  // Lock the page behind the modal. The overlay is portalled to <body>, so the
+  // scroll container it used to live in (#main-content) would otherwise keep
+  // scrolling behind it. Restore whatever overflow the document had on close.
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, []);
+
+  // Close on Escape, matching the click-outside affordance (but never mid-run).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && phase !== 'running') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [phase, onClose]);
+
   const run = async () => {
     if (!preview?.changeSetId) return;
     setPhase('running');
@@ -115,13 +136,25 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
     (c) => c.replacement === 'True' && c.resourceType === 'AWS::IAM::Role',
   );
 
-  return (
+  // Portalled to <body> so the overlay anchors to the viewport, not to the
+  // transformed Framer Motion page wrapper / scrollable #main-content it renders
+  // inside. A `position: fixed` element is contained by any ancestor with a
+  // transform, so without this the overlay left a gap under the topbar and let
+  // the page scroll behind it.
+  return createPortal(
     <div
-      className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 flex items-center justify-center z-50 p-4"
       onClick={phase === 'running' ? undefined : onClose}
     >
+      {/* Scrim only — kept off the sidebar (fixed 220px, lg+) so the nav stays
+          sharp while the content area behind the dialog dims and blurs. Below lg
+          the sidebar is off-canvas, so the scrim covers the whole viewport. */}
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col"
+        aria-hidden="true"
+        className="fixed inset-0 lg:left-[220px] bg-black/40 backdrop-blur-sm pointer-events-none"
+      />
+      <div
+        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-3 px-6 pt-6 pb-4 border-b border-[rgba(0,0,0,0.07)]">
@@ -359,7 +392,8 @@ const StackUpdateModal: React.FC<StackUpdateModalProps> = ({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 
