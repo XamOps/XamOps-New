@@ -2,7 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { useDspmCloud, DSPM_PAGE_SIZES } from '../../hooks/useDspmData';
 import type { DspmAssetDetail, DspmAssetRow, DspmStatus } from '../../types/dspm';
-import DspmFilterRail from './DspmFilterRail';
+import DspmFilterBar from './DspmFilterBar';
 import DspmAssetTable from './DspmAssetTable';
 import DspmAssetDrawer from './DspmAssetDrawer';
 import DspmNotReady from './DspmNotReady';
@@ -65,7 +65,7 @@ const DspmCloudTab: React.FC<Props> = ({ status, onRetry }) => {
   const {
     assets, filters, loading, error,
     search, sort, page, pageSize, selected, activeFilterCount,
-    setPage, setPageSize, updateSearch, toggleFilter, clearFilters, toggleSort,
+    setPage, setPageSize, updateSearch, toggleFilter, clearFilters, clearDimension, toggleSort,
     refresh, loadAsset,
   } = useDspmCloud(ready);
 
@@ -106,18 +106,22 @@ const DspmCloudTab: React.FC<Props> = ({ status, onRetry }) => {
   if (!ready) return <DspmNotReady status={status} onRetry={onRetry} />;
 
   return (
-    <div className="flex gap-5">
-      <DspmFilterRail
+    <div className="space-y-4">
+      {/* Filters live in a horizontal bar above the table, as the vendor console has them, rather than
+          in a left rail. The chips hold the dimensions; the table gets the full width. */}
+      <DspmFilterBar
         filters={filters}
         selected={selected}
         activeCount={activeFilterCount}
-        loading={loading}
+        search={search}
+        onSearch={updateSearch}
         onToggle={toggleFilter}
-        onClear={clearFilters}
+        onClearDimension={clearDimension}
+        onClearAll={clearFilters}
       />
 
-      <section className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-[rgba(0,0,0,0.08)] bg-white">
-        <header className="flex flex-wrap items-center gap-3 border-b border-[rgba(0,0,0,0.06)] px-5 py-4">
+      <section className="min-w-0 overflow-hidden rounded-2xl border border-[rgba(0,0,0,0.08)] bg-white">
+        <header className="flex flex-wrap items-center gap-3 border-b border-[rgba(0,0,0,0.06)] px-5 py-3">
           <div className="flex items-center gap-2">
             <Icon icon="mdi:database-outline" width={16} className="text-[rgba(0,0,0,0.5)]" />
             <h2 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Cloud data stores</h2>
@@ -129,18 +133,6 @@ const DspmCloudTab: React.FC<Props> = ({ status, onRetry }) => {
           </div>
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <Icon
-                icon="mdi:magnify" width={13}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.3)]"
-              />
-              <input
-                type="search" value={search}
-                onChange={e => updateSearch(e.target.value)}
-                placeholder="Search name or identifier"
-                className="w-56 rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.03)] py-1.5 pl-8 pr-3 text-xs text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)]"
-              />
-            </div>
             <button
               onClick={exportCsv}
               disabled={!assets?.data.length}

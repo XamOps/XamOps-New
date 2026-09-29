@@ -183,6 +183,17 @@ export function useDspmCloud(enabled: boolean) {
 
   const clearFilters = useCallback(() => { setPage(1); setSelected({}); }, []);
 
+  /** Clears one dimension, for the Clear action inside a filter dropdown. */
+  const clearDimension = useCallback((dimension: string) => {
+    setPage(1);
+    setSelected(prev => {
+      if (!(dimension in prev)) return prev;
+      const next = { ...prev };
+      delete next[dimension];
+      return next;
+    });
+  }, []);
+
   /**
    * Sets the sort field, flipping direction when the same column is chosen again.
    *
@@ -207,7 +218,7 @@ export function useDspmCloud(enabled: boolean) {
   return {
     assets, filters, loading, error,
     search, sort, page, pageSize, selected,
-    setPage, setPageSize, updateSearch, toggleFilter, clearFilters, toggleSort,
+    setPage, setPageSize, updateSearch, toggleFilter, clearFilters, clearDimension, toggleSort,
     refresh: load, loadAsset,
     activeFilterCount: Object.values(selected).reduce((n, v) => n + v.length, 0),
   };
