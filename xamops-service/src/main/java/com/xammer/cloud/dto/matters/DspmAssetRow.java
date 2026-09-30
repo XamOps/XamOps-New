@@ -62,8 +62,10 @@ public record DspmAssetRow(
      * @param externalId the asset's external identifier; the account email for SaaS.
      * @param facet      the detail's type-specific attributes, untyped for the same reason as
      *                   {@link DspmAssetDetail#facet()}.
+     * @param recordCount the record count after removing duplicate object listings, when the vendor's
+     *                    list figure is known to include them (endpoints); null otherwise.
      */
-    public record Profile(String externalId, java.util.Map<String, Object> facet) {
+    public record Profile(String externalId, java.util.Map<String, Object> facet, Long recordCount) {
     }
 
     /**

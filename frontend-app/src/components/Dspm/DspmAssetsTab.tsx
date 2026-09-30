@@ -126,7 +126,10 @@ function toCsv(rows: DspmAssetRow[], accountLabels: Record<string, string>): str
     row.risk.score ?? '',
     // Blank rather than 0 when an unfinished scan reports zero: a zero in a spreadsheet becomes a claim
     // that the asset is clean. A non-zero count is exported, matching the table.
-    row.sensitives.known || row.sensitives.recordCount > 0 ? row.sensitives.recordCount : '',
+    (() => {
+      const records = row.profile?.recordCount ?? row.sensitives.recordCount;
+      return row.sensitives.known || records > 0 ? records : '';
+    })(),
     row.sensitives.known ? 'yes' : 'no',
     row.sensitives.objectCount,
     row.sensitives.typeLabels.join(' / '),

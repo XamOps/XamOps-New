@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { Icon } from '@iconify/react';
 import type { DspmAssetDetail, DspmObject } from '../../types/dspm';
-import { categoryAccent, compactCount, formatBytes, formatEpochSeconds } from './dspmFormat';
+import {
+  categoryAccent, compactCount, facetNumber, formatBytes, formatConsoleDate,
+} from './dspmFormat';
 import { DspmCloudMark, DspmObjectIcon, DspmProviderIcon, DspmScanStatus } from './DspmIcons';
 import {
   CategoryChip, PagedFooter, countIn, entityCountText, entityCountTitle, groupEntities, usePaged,
@@ -105,14 +107,18 @@ function formatFacetValue(key: string, value: unknown): string {
     if (key.endsWith('_usage') && value >= 0 && value <= 1) return `${(value * 100).toFixed(1)}%`;
     // Epoch seconds. Guarded by magnitude so a genuine count is not mangled into a date.
     if ((key.endsWith('_time') || key.endsWith('_at')) && value > 1_000_000_000) {
-      return formatEpochSeconds(value);
+      return formatConsoleDate(value);
     }
     return value.toLocaleString();
   }
   const text = String(value);
-  // Enum values (GOOGLE_WORKSPACE, OFFLINE) read as words; identifiers and regions are left alone.
-  return /^[A-Z][A-Z0-9_]*$/.test(text) ? prettifyKey(text.toLowerCase()) : text;
+  // Only known enum fields read as words (OFFLINE → Offline). Anything else is shown verbatim: a
+  // pattern test also matched serial numbers, and lowercased C02YQEA4LVCF.
+  return ENUM_KEYS.has(key) ? prettifyKey(text.toLowerCase()) : text;
 }
+
+/** Facet keys whose values are vendor enums rather than identifiers. */
+const ENUM_KEYS = new Set(['os', 'agent_status', 'drive_type', 'entity_type', 'rds_type']);
 
 /**
  * The asset in its own cloud console, derived from its name and region. The customer signs in with
@@ -268,16 +274,75 @@ const PropertiesCard: React.FC<{ detail: DspmAssetDetail }> = ({ detail }) => {
   );
 };
 
+/** Endpoint facet keys shown under Device, after the console's Properties and Activity sections. */
+const ENDPOINT_SHOWN_ABOVE = new Set(['serial_number', 'last_ping_time']);
+
+/**
+ * An endpoint's left column, laid out like the console's: Properties (Device Number), then Activity (Last
+ * Access), then the rest of the device facts the API returns.
+ *
+ * The console's Last Scan is not in the API — `last_scanned_at` is null for endpoints — so it only
+ * appears if the vendor starts sending it.
+ */
+const EndpointPropertiesCard: React.FC<{ detail: DspmAssetDetail }> = ({ detail }) => {
+  const f = detail.facet;
+  const serial = typeof f.serial_number === 'string' ? f.serial_number : detail.externalId;
+  const lastAccess = facetNumber(f, 'last_ping_time');
+  const order = FACET_ORDER.ENDPOINT_HOST.filter(k => !ENDPOINT_SHOWN_ABOVE.has(k));
+  const deviceKeys = [
+    ...order.filter(k => k in f),
+    ...Object.keys(f).filter(k => !order.includes(k) && !ENDPOINT_SHOWN_ABOVE.has(k) && !HIDDEN_FACET_KEYS.has(k)),
+  ];
+  const section = 'mb-2 mt-4 border-b border-[rgba(0,0,0,0.06)] pb-2 text-[11px] font-bold text-[rgba(0,0,0,0.75)] first:mt-0';
+
+  return (
+    <Card>
+      <h3 className={section}>Properties</h3>
+      <PropertyField label="Device Number" value={serial ?? '—'} mono />
+
+      <h3 className={section}>Activity</h3>
+      <div className="space-y-3">
+        <PropertyField label="Last Access" value={lastAccess !== null ? formatConsoleDate(lastAccess) : '—'} />
+        {detail.scan.lastScannedAt && (
+          <PropertyField label="Last Scan" value={formatConsoleDate(detail.scan.lastScannedAt)} />
+        )}
+      </div>
+
+      {deviceKeys.length > 0 && (
+        <>
+          <h3 className={section}>Device</h3>
+          <div className="space-y-3">
+            {deviceKeys.map(key => (
+              <PropertyField
+                key={key}
+                label={FACET_LABELS[key] ?? prettifyKey(key)}
+                value={formatFacetValue(key, f[key])}
+                mono={MONO_KEYS.has(key)}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </Card>
+  );
+};
+
 /**
  * Total files. The console's figure is the datastore's `number_of_records` (4.36K on the bucket it was
  * checked against), which is not the same as the scanned object total (4,272). Assets without it fall
  * back to the object total.
+ *
+ * When the vendor listed files more than once (the endpoint agent does), the object total counts every
+ * listing and overstates the distinct files, which is the number the console shows. The distinct total
+ * is not in the API, so the listed figure is shown and labelled as such rather than passed off as files.
  */
 const FilesSummaryCard: React.FC<{ detail: DspmAssetDetail }> = ({ detail }) => {
   const raw = detail.facet['number_of_records'];
   const reported = typeof raw === 'number' ? raw : null;
   const total = reported ?? detail.objectTotal;
-  const label = reported !== null || detail.resourceType !== 'DATASTORE' ? 'Total Files' : 'Total Objects';
+  const repeats = reported === null && detail.duplicateObjects > 0;
+  const label = repeats ? 'Files Listed'
+    : reported !== null || detail.resourceType !== 'DATASTORE' ? 'Total Files' : 'Total Objects';
 
   return (
     <Card title="Files Summary">
@@ -288,6 +353,12 @@ const FilesSummaryCard: React.FC<{ detail: DspmAssetDetail }> = ({ detail }) => 
         <div className="mt-0.5 text-xl font-bold tabular-nums text-[rgba(0,0,0,0.88)]" title={total.toLocaleString()}>
           {compactCount(total)}
         </div>
+      )}
+      {repeats && (
+        <p className="mt-2 text-[10px] text-[rgba(0,0,0,0.45)]">
+          The endpoint agent reports some files more than once, and this counts every report, so fewer
+          files are distinct. The API does not return the distinct total.
+        </p>
       )}
     </Card>
   );
@@ -702,6 +773,7 @@ const DspmAssetDrawer: React.FC<Props> = ({ detail, loading, error, onClose }) =
   }, [onClose]);
 
   const link = detail ? consoleLink(detail) : null;
+  const isEndpoint = detail?.resourceType === 'ENDPOINT_HOST';
   // Every endpoint shares the ENDPOINT_AGENT provider, so its OS subtype picks the icon.
   const iconKey = detail?.resourceType === 'ENDPOINT_HOST'
     ? (detail.subtype ?? detail.source.provider)
@@ -722,16 +794,27 @@ const DspmAssetDrawer: React.FC<Props> = ({ detail, loading, error, onClose }) =
         </div>
 
         <div className="flex items-start gap-3 px-5 pb-2 pt-3">
-          <span className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.02)]">
-            <DspmProviderIcon provider={iconKey} size={18} />
-          </span>
+          {isEndpoint ? (
+            // The console marks a device with its name's initial rather than a service icon.
+            <span className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[rgba(0,0,0,0.85)] text-xs font-bold text-white">
+              {(detail?.name || '?').charAt(0).toUpperCase()}
+            </span>
+          ) : (
+            <span className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.02)]">
+              <DspmProviderIcon provider={iconKey} size={18} />
+            </span>
+          )}
           <div className="min-w-0">
             <h2 className="truncate text-sm font-bold text-[rgba(0,0,0,0.88)]" title={detail?.name}>
               {detail?.name ?? (loading ? 'Loading…' : '—')}
             </h2>
-            <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)]">
-              {detail?.subtype ?? ''}
-            </p>
+            {isEndpoint ? (
+              <p className="mt-0.5 text-[11px] text-[rgba(0,0,0,0.45)]">{detail?.subtypeLabel ?? ''}</p>
+            ) : (
+              <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)]">
+                {detail?.subtype ?? ''}
+              </p>
+            )}
           </div>
           {link && (
             <a
@@ -782,7 +865,9 @@ const DspmAssetDrawer: React.FC<Props> = ({ detail, loading, error, onClose }) =
 
           {detail && !loading && tab === 'overview' && (
             <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(260px,340px)_1fr]">
-              <PropertiesCard detail={detail} />
+              {detail.resourceType === 'ENDPOINT_HOST'
+                ? <EndpointPropertiesCard detail={detail} />
+                : <PropertiesCard detail={detail} />}
               <div className="space-y-4">
                 <FilesSummaryCard detail={detail} />
                 <SensitiveRecordsCard detail={detail} onOpenEntity={openEntity} />

@@ -87,6 +87,8 @@ export interface DspmScan {
 export interface DspmRowProfile {
   externalId: string | null;
   facet: Record<string, unknown>;
+  /** Record count after removing duplicate object listings (endpoints); null when the list figure stands. */
+  recordCount?: number | null;
 }
 
 export interface DspmAssetRow {
@@ -167,8 +169,16 @@ export interface DspmAssetDetail {
   /** True when `objects.length < objectTotal`. Say so in the UI — 50 of 5,211 is not "the contents". */
   objectsTruncated: boolean;
   entityBreakdown: DspmEntityCount[];
-  /** True when the breakdown was computed from a capped object list, so counts are lower bounds. */
+  /**
+   * True when some sensitive objects fell outside the returned list, so counts are lower bounds. False
+   * when the list was cut only after its last sensitive object (it is ordered most sensitive first).
+   */
   breakdownPartial: boolean;
+  /**
+   * Repeat listings removed from `objects`. The endpoint agent reports some files more than once and
+   * `objectTotal` still counts every listing, so when this is non-zero the total overstates distinct files.
+   */
+  duplicateObjects: number;
 }
 
 // ─── Paging, filters, summary ────────────────────────────────────────────────

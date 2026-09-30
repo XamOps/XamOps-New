@@ -94,7 +94,10 @@ const Dash: React.FC = () => <span className="text-xs text-[rgba(0,0,0,0.3)]">â€
  * as the console shows it â€” records found before a scan stopped are a real minimum.
  */
 const RecordsCell: React.FC<{ row: DspmAssetRow }> = ({ row }) => {
-  const { recordCount, known } = row.sensitives;
+  const known = row.sensitives.known;
+  // The deduplicated figure where the backend found repeat listings (endpoints), so the list and the
+  // asset page agree.
+  const recordCount = row.profile?.recordCount ?? row.sensitives.recordCount;
   if (!known && recordCount > 0) {
     return (
       <span

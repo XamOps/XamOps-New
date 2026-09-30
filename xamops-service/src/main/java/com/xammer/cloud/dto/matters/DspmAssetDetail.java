@@ -25,9 +25,14 @@ import java.util.Map;
  * @param entityBreakdown    every entity type detected in the asset, with counts aggregated across the
  *                           returned objects. See {@link EntityCount} for why the counts can undercount
  *                           while the list itself does not.
- * @param breakdownPartial   true when {@link #objectsTruncated} is true, meaning
- *                           {@link #entityBreakdown} was computed from a subset and its counts are
- *                           lower bounds rather than totals.
+ * @param breakdownPartial   true when some sensitive objects fell outside the returned list, meaning
+ *                           {@link #entityBreakdown} counts are lower bounds rather than totals. False
+ *                           when the list was cut only after the last sensitive object (it is ordered
+ *                           most sensitive first), even though {@link #objectsTruncated} is true.
+ * @param duplicateObjects   listings removed from {@link #objects} because they repeat an earlier object
+ *                           (same type, path and name). The endpoint agent reports some files more than
+ *                           once, and {@link #objectTotal} still counts every listing, so when this is
+ *                           non-zero the total overstates the distinct files.
  */
 public record DspmAssetDetail(
         String id,
@@ -47,7 +52,8 @@ public record DspmAssetDetail(
         long objectTotal,
         boolean objectsTruncated,
         List<EntityCount> entityBreakdown,
-        boolean breakdownPartial
+        boolean breakdownPartial,
+        int duplicateObjects
 ) {
 
     /**

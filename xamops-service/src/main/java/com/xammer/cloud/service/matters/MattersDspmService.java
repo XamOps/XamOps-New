@@ -94,7 +94,10 @@ public class MattersDspmService {
 
         JsonNode body = apiClient.listAssets(credential, query.toListParams());
         DspmPage<DspmAssetRow> page = mapper.toPage(body);
-        if (DspmAssetQuery.Surface.SAAS.resourceType().equals(query.resourceTypeScope())) {
+        // SaaS for its email, drive type, file count and size; Endpoint for its deduplicated record count
+        // (the agent lists some files twice, and the list's figure counts both).
+        if (DspmAssetQuery.Surface.SAAS.resourceType().equals(query.resourceTypeScope())
+                || DspmAssetQuery.Surface.ENDPOINT.resourceType().equals(query.resourceTypeScope())) {
             page = withProfiles(credential, clientId, page);
         }
         cache.put(key, page, LIST_CACHE_MINUTES);
@@ -237,9 +240,9 @@ public class MattersDspmService {
 
         JsonNode body = apiClient.getAsset(credential, assetId);
         DspmAssetDetail detail = mapper.toDetail(body);
-        // An untruncated sample already contains every entity, so the extra call is only paid when the
-        // 50-object cap may have hidden some.
-        if (detail.objectsTruncated()) {
+        // Only paid when the 50-object cap may have hidden sensitive objects. Once the returned list
+        // reaches clean objects, every entity is already in hand.
+        if (detail.breakdownPartial()) {
             detail = mapper.withDetectedEntities(detail, detectedElements(credential, detail));
         }
         cache.put(key, detail, DETAIL_CACHE_MINUTES);
