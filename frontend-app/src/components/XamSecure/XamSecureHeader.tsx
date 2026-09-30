@@ -3,22 +3,20 @@ import { Icon } from '@iconify/react';
 import { useTopbar } from '../../contexts/TopbarContext';
 import PoweredByProvider from './PoweredByProvider';
 import AddIntegrationMenu from './AddIntegrationMenu';
-import type { XamSecureGroup } from '../../constants/xamsecureTabs';
 
 interface Props {
   isLoading: boolean;
   onRefresh: () => void;
-  /** Product group of the active tab. Picks the attribution: Upwind for CNAPP, Matters.ai for DSPM. */
-  group: XamSecureGroup | null;
 }
 
-const XamSecureHeader: React.FC<Props> = ({ isLoading, onRefresh, group }) => {
+const XamSecureHeader: React.FC<Props> = ({ isLoading, onRefresh }) => {
   const { setTitle, setTitleAdornment, setActions, clearActions } = useTopbar();
 
   useEffect(() => {
     setTitle('XamSecure');
-    // Beside the title, so the attribution covers the whole product group rather than one tab.
-    setTitleAdornment(<PoweredByProvider group={group} />);
+    // Beside the title, so the attribution covers the whole section rather than appearing to
+    // belong to whichever tab happens to be open.
+    setTitleAdornment(<PoweredByProvider />);
     setActions(
       <div className="flex items-center gap-2">
         {/* Add before Refresh: onboarding is a deliberate action, refresh is incidental. */}
@@ -36,7 +34,7 @@ const XamSecureHeader: React.FC<Props> = ({ isLoading, onRefresh, group }) => {
     // Adornment must be cleared with the title, or it persists into the next page's topbar and
     // credits the provider for something it has nothing to do with.
     return () => { clearActions(); setTitle(null); setTitleAdornment(null); };
-  }, [isLoading, onRefresh, group, setTitle, setTitleAdornment, setActions, clearActions]);
+  }, [isLoading, onRefresh, setTitle, setTitleAdornment, setActions, clearActions]);
 
   return null;
 };

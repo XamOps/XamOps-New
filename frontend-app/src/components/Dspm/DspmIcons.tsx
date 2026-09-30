@@ -79,7 +79,8 @@ const PROVIDER_GLYPH: Record<string, string> = {
   OFFICE_365: 'mdi:microsoft-office',
   GITLAB: 'mdi:gitlab',
   JIRA: 'mdi:jira',
-  CONFLUENCE: 'mdi:confluence',
+  // mdi has no Confluence glyph; Atlassian is its maker's mark.
+  CONFLUENCE: 'mdi:atlassian',
 
   ENDPOINT_AGENT: 'mdi:laptop',
   // Endpoint rows report the OS as their `subtype` while every one of them shares the provider

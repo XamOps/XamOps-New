@@ -1,20 +1,19 @@
 /**
- * "powered by <vendor>" beside the XamSecure title in the topbar.
+ * "powered by <vendor>" beside a module title in the topbar.
  *
- * Follows the active tab's product group: CNAPP is Upwind, DSPM is Matters.ai. A fixed Upwind mark
- * credited Upwind for Matters' findings on every DSPM tab.
- *
- * Set VITE_XAMSECURE_SHOW_PROVIDER=false to white-label XamSecure again. No link, deliberately:
- * linking out of a white-labelled product invites the customer to buy direct.
+ * XamSecure is backed by Upwind and XamLens by Matters.ai, so each module passes its own provider.
+ * Kept to this one opt-in place: set VITE_XAMSECURE_SHOW_PROVIDER=false to white-label both again.
+ * No link, deliberately: linking out of a white-labelled product invites the customer to buy direct.
  */
 
 import React, { useState } from 'react';
 import { useTheme } from '../../contexts/ThemeContext';
-import type { XamSecureGroup } from '../../constants/xamsecureTabs';
 
 // Guarded: this tsconfig does not include vite/client, so import.meta.env is untyped.
 const SHOW_PROVIDER = (typeof import.meta !== 'undefined'
   && (import.meta as any).env?.VITE_XAMSECURE_SHOW_PROVIDER) !== 'false';
+
+export type DataProvider = 'upwind' | 'matters';
 
 interface Provider {
   name: string;
@@ -25,26 +24,24 @@ interface Provider {
   wordmark: string | null;
 }
 
-const PROVIDERS: Record<XamSecureGroup, Provider> = {
-  CNAPP: { name: 'Upwind', wordmark: '/icons/upwind-logo.svg' },
+const PROVIDERS: Record<DataProvider, Provider> = {
+  upwind: { name: 'Upwind', wordmark: '/icons/upwind-logo.svg' },
   // No Matters wordmark is vendored. Drop the official SVG into /icons and set the path here.
-  DSPM: { name: 'Matters.ai', wordmark: null },
+  matters: { name: 'Matters.ai', wordmark: null },
 };
 
 interface Props {
-  /** Null while the active tab is unresolved: an attribution is a claim, so none is guessed. */
-  group: XamSecureGroup | null;
+  /** Defaults to Upwind, which is what XamSecure has always shown. */
+  provider?: DataProvider;
   className?: string;
 }
 
-const PoweredByProvider: React.FC<Props> = ({ group, className }) => {
-  // The failed source rather than a boolean, so a broken asset for one vendor does not latch the
-  // other vendor into text mode when the user switches groups.
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+const PoweredByProvider: React.FC<Props> = ({ provider = 'upwind', className }) => {
+  const [wordmarkFailed, setWordmarkFailed] = useState(false);
   const { theme } = useTheme();
-  if (!SHOW_PROVIDER || !group) return null;
+  if (!SHOW_PROVIDER) return null;
 
-  const { name, wordmark } = PROVIDERS[group];
+  const { name, wordmark } = PROVIDERS[provider];
   const dark = theme === 'dark';
 
   return (
@@ -53,9 +50,8 @@ const PoweredByProvider: React.FC<Props> = ({ group, className }) => {
         dark ? 'text-[rgba(255,255,255,0.4)]' : 'text-[rgba(0,0,0,0.35)]'}`}>
         powered by
       </span>
-      {wordmark && failedSrc !== wordmark ? (
+      {wordmark && !wordmarkFailed ? (
         <img
-          key={wordmark}
           src={wordmark}
           alt={name}
           // Upwind's letterforms are near-black, so they are inverted on the dark topbar.
@@ -64,9 +60,11 @@ const PoweredByProvider: React.FC<Props> = ({ group, className }) => {
             : 'h-3 w-auto object-contain opacity-60'}
           loading="lazy"
           decoding="async"
-          onError={() => setFailedSrc(wordmark)}
+          onError={() => setWordmarkFailed(true)}
         />
       ) : (
+        // Also the fallback when an asset fails to load: the name still has to appear, or the phrase
+        // dangles.
         <span className={`text-[10px] font-semibold leading-none ${
           dark ? 'text-[rgba(255,255,255,0.6)]' : 'text-[rgba(0,0,0,0.5)]'}`}>
           {name}

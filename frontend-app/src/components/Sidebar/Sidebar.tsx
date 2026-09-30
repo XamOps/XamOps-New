@@ -6,7 +6,7 @@
  * Converted from: _sidebar.html
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAccounts } from '../../contexts/AccountContext';
@@ -16,10 +16,8 @@ import NavSection from './NavSection';
 import SubNav from './SubNav';
 import { useTheme } from '../../contexts/ThemeContext';
 import { makeXamTabGate } from '../../constants/xamopsTabs';
-import {
-  XAMSECURE_GROUP_LABELS, firstTabForGroups, sidebarTabsForGroup,
-  type XamSecureGroup,
-} from '../../constants/xamsecureTabs';
+import { XAMSECURE_SIDEBAR_TABS } from '../../constants/xamsecureTabs';
+import { XAMLENS_SIDEBAR_TABS } from '../../constants/xamlensTabs';
 import clsx from 'clsx';
 
 // XamSecure nested entries come from the tab catalog rather than a copy kept in step by hand.
@@ -98,12 +96,9 @@ const Sidebar: React.FC = () => {
   const isXamops = hasAnyRole('ROLE_XAMOPS');
   const [xamAllowedTabs, setXamAllowedTabs] = useState<string[] | undefined>(undefined);
   /**
-   * Whether this org holds the Matters.ai DSPM add-on, from the same profile request.
-   *
-   * Defaults false rather than optimistic-true, unlike `xamAllowedTabs` above. The two defaults differ
-   * on purpose: an unknown tab list means "no restriction recorded", so showing everything is correct,
-   * whereas an unknown entitlement means "not sold", and flashing a DSPM group at every customer while
-   * the profile loads would advertise a product almost none of them have.
+   * Whether this org holds XamLens (the Matters.ai DSPM add-on), from the same profile request.
+   * Only decides the "Locked" pill: the module is listed either way so its Request access screen stays
+   * reachable.
    */
   const [dspmEnabled, setDspmEnabled] = useState(false);
   useEffect(() => {
@@ -122,37 +117,8 @@ const Sidebar: React.FC = () => {
   const isXamTabAllowed = xamGate.isTabAllowed;
   const isXamModuleAllowed = xamGate.isModuleAllowed;
 
-  /**
-   * Which XamSecure product groups this user can see.
-   *
-   * CNAPP keeps its existing per-user tab key. DSPM needs both the org entitlement and its own tab key,
-   * so a customer who buys both can still scope an individual user to one of them.
-   */
-  /**
-   * Which XamSecure product groups to show.
-   *
-   * Both halves ride the single {@code secops-xamsecure} key. A second key for DSPM was tried and
-   * removed: this allow-list is fail-open for a user with no rows but fail-closed for a user who has
-   * any, so a key introduced today can never appear in a list saved before it existed — every
-   * already-restricted user lost DSPM silently, which is exactly what happened on UAT.
-   *
-   * Neither group is gated on the add-on entitlement either. Hiding DSPM until it was bought made the
-   * Request access screen unreachable, so a customer could never ask for the thing that screen exists to
-   * sell. Instead the heading carries a "Locked" pill when the org is not entitled, and the tab lands on
-   * the upsell rather than on an empty table.
-   */
-  const xamSecureGroups = useMemo<XamSecureGroup[]>(() => {
-    if (!isXamTabAllowed('secops-xamsecure')) return [];
-    return ['CNAPP', 'DSPM'];
-  }, [isXamTabAllowed]);
-
-  /**
-   * Where the parent XamSecure link points.
-   *
-   * Not a constant `overview`: that is a CNAPP tab, so a DSPM-only customer clicking the parent would
-   * land on an Upwind page they have no data for.
-   */
-  const xamSecureLandingTab = firstTabForGroups(xamSecureGroups) ?? 'overview';
+  // Not before the profile has loaded, or every entitled org would see the pill flash on each page load.
+  const xamLensLocked = isXamops && xamAllowedTabs !== undefined && !dspmEnabled;
 
   // Dropdown state - only one can be open at a time
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
@@ -176,7 +142,7 @@ const Sidebar: React.FC = () => {
     const cloudopsRoutes = ['/cloudk8s', '/gcp-cloudk8s', '/azure-cloudk8s',
       '/sonarqube', '/cicd-pipelines', '/devops-in-the-box', '/aiops', '/dataops', '/gcp-dataops', '/azure-dataops', '/ebs-rightsizing'];
     const ticketsRoutes = ['/tickets', '/billops-tickets'];
-    const secopsRoutes = ['/xamsecure', '/security', '/gcp-security', '/azure-security', '/war', '/gcp-war', '/azure-war', '/complianceops', '/soc2-program',
+    const secopsRoutes = ['/xamsecure', '/xamlens', '/security', '/gcp-security', '/azure-security', '/war', '/gcp-war', '/azure-war', '/complianceops', '/soc2-program',
       '/performance', '/gcp-performance', '/azure-performance', '/alerts', '/gcp-alerts', '/azure-alerts'];
     const licensesRoutes = ['/marketplace-purchases', '/workspace-licenses', '/isv-metering'];
     const observabilityRoutes = ['/observability', '/grafana-dashboard'];
@@ -343,7 +309,7 @@ const Sidebar: React.FC = () => {
                   {/* DSPM add-on administration: org -> Matters project mappings, the per-customer API
                       keys and the access audit trail. Sits next to Accounts because it is the other
                       place a customer's entitlements are granted. */}
-                  {isTabAllowed('dspm-admin') && <NavItem href="/dspm-admin" icon="fas fa-database" label="Data Security" isActive={isActive('/dspm-admin')} />}
+                  {isTabAllowed('dspm-admin') && <NavItem href="/dspm-admin" icon="fas fa-database" label="XamLens" isActive={isActive('/dspm-admin')} />}
                 </>
               )}
             </>
@@ -436,56 +402,43 @@ const Sidebar: React.FC = () => {
               >
                 {isXamTabAllowed('secops-security-center') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-security' : selectedAccountDisplay.provider === 'Azure' ? '/azure-security' : '/security'} icon="fas fa-shield-alt" label="Security Center" isActive={isActive('/security') || isActive('/gcp-security') || isActive('/azure-security')} />}
                 {isXamTabAllowed('secops-war') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-war' : selectedAccountDisplay.provider === 'Azure' ? '/azure-war' : '/war'} icon="fas fa-crosshairs" label="WAR" isActive={isActive('/war') || isActive('/gcp-war') || isActive('/azure-war')} tooltip="Workload Attack-surface Review — infrastructure exposure to attackers and crypto-miners" />}
-                {/* XamSecure covers two separately sold products, so the sub-nav is grouped and each
-                    group is gated independently: CNAPP on the per-user tab key as before, DSPM on the
-                    org's add-on entitlement. A client with only one sees only that one, and the parent
-                    link lands on the first tab they actually have. */}
-                {xamSecureGroups.length > 0 && (
+                {isXamTabAllowed('secops-xamsecure') && (
+                  <>
+                    <NavItem href="/xamsecure/overview" icon="fas fa-user-shield" label="XamSecure" isActive={isActive('/xamsecure')} />
+                    <SubNav isOpen={location.pathname.startsWith('/xamsecure')} dark={theme === 'dark'}>
+                      {XAMSECURE_SIDEBAR_TABS.map((s) => (
+                        <NavItem
+                          key={s.id}
+                          href={`/xamsecure/${s.id}`}
+                          icon={s.icon}
+                          label={s.label}
+                          isActive={location.pathname === `/xamsecure/${s.id}`}
+                        />
+                      ))}
+                    </SubNav>
+                  </>
+                )}
+                {/* XamLens (DSPM, Matters.ai), laid out like XamSecure above. Listed even when the org has
+                    not bought it, with a Locked pill, so the Request access screen stays reachable. */}
+                {isXamTabAllowed('secops-xamlens') && (
                   <>
                     <NavItem
-                      href={`/xamsecure/${xamSecureLandingTab}`}
-                      icon="fas fa-user-shield"
-                      label="XamSecure"
-                      isActive={isActive('/xamsecure')}
+                      href="/xamlens/cloud"
+                      icon="fas fa-eye"
+                      label="XamLens"
+                      badge={xamLensLocked ? 'Locked' : undefined}
+                      tooltip={xamLensLocked ? 'Not enabled for your organisation — open it to request access' : undefined}
+                      isActive={isActive('/xamlens')}
                     />
-                    <SubNav isOpen={location.pathname.startsWith('/xamsecure')} dark={theme === 'dark'}>
-                      {xamSecureGroups.map((group) => (
-                        <React.Fragment key={group}>
-                          {/* Headings are always rendered, even for a single group. They were previously
-                              suppressed below two groups on the grounds that one lonely label earns no
-                              space — but XamSecure now spans two products from two vendors, and a nav
-                              that hides that structure until someone happens to own both leaves everyone
-                              else unable to tell the two apart at all. */}
-                          <div className="flex items-center gap-1.5 px-3 pt-2 pb-1">
-                            <span className="text-[9px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.3)] dark:text-[rgba(255,255,255,0.3)]">
-                              {XAMSECURE_GROUP_LABELS[group]}
-                            </span>
-                            {group === 'DSPM' && !dspmEnabled && (
-                              // Marks the group as an upsell rather than a broken feature. Put on the
-                              // heading rather than on each tab so one pill covers the group instead of
-                              // repeating down the list.
-                              <span
-                                className="rounded-full bg-[rgba(0,0,0,0.06)] px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.35)] dark:bg-[rgba(255,255,255,0.1)] dark:text-[rgba(255,255,255,0.4)]"
-                                title="Not enabled for your organisation — open it to request access"
-                              >
-                                Locked
-                              </span>
-                            )}
-                          </div>
-                          {sidebarTabsForGroup(group).map((s) => (
-                            <NavItem
-                              key={s.id}
-                              href={`/xamsecure/${s.id}`}
-                              icon={s.icon}
-                              label={s.label}
-                              // Announced but unbuilt tabs are listed with a pill rather than hidden, so
-                              // a customer can tell "on the way" from "not a feature".
-                              badge={s.comingSoon ? 'Soon' : undefined}
-                              tooltip={s.comingSoon ? `${s.label} — coming soon` : undefined}
-                              isActive={location.pathname === `/xamsecure/${s.id}`}
-                            />
-                          ))}
-                        </React.Fragment>
+                    <SubNav isOpen={location.pathname.startsWith('/xamlens')} dark={theme === 'dark'}>
+                      {XAMLENS_SIDEBAR_TABS.map((t) => (
+                        <NavItem
+                          key={t.id}
+                          href={`/xamlens/${t.id}`}
+                          icon={t.icon}
+                          label={t.label}
+                          isActive={location.pathname === `/xamlens/${t.id}`}
+                        />
                       ))}
                     </SubNav>
                   </>
@@ -512,6 +465,8 @@ const Sidebar: React.FC = () => {
                 {isXamTabAllowed('secops-alerts') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-alerts' : selectedAccountDisplay.provider === 'Azure' ? '/azure-alerts' : '/alerts'} icon="fas fa-bell" label="Alerts" isActive={isActive('/alerts') || isActive('/gcp-alerts') || isActive('/azure-alerts')} />}
               </NavSection>
               )}
+
+
 
               {isXamModuleAllowed('observability') && (
               <NavSection

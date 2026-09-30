@@ -134,7 +134,7 @@ const DspmAdminPage: React.FC = () => {
             <Icon icon="mdi:database-lock-outline" width={20} color="white" />
           </div>
           <div>
-            <h1 className="text-base font-bold text-[rgba(0,0,0,0.88)]">Data Security (DSPM)</h1>
+            <h1 className="text-base font-bold text-[rgba(0,0,0,0.88)]">XamLens (DSPM)</h1>
             <p className="text-xs text-[rgba(0,0,0,0.45)]">
               Customer organisation to Matters project mappings
             </p>
