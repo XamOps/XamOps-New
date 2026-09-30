@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { Icon } from '@iconify/react';
 import type { DspmAssetDetail, DspmEntityCount, DspmObject } from '../../types/dspm';
 import { categoryAccent, compactCount, formatBytes, formatEpochSeconds } from './dspmFormat';
 import { DspmCloudMark, DspmObjectIcon, DspmProviderIcon, DspmScanStatus } from './DspmIcons';
+import Pager from './DspmPager';
 
 /**
  * Asset detail, laid out like the vendor console's datastore page: Overview and Sensitive tabs.
@@ -177,6 +178,54 @@ function entityCountTitle(entity: DspmEntityCount, detail: DspmAssetDetail): str
 const countIn = (object: DspmObject, entityType: string) =>
   object.findings.filter(f => f.entityType === entityType).reduce((sum, f) => sum + f.count, 0);
 
+// ── paging ────────────────────────────────────────────────────────────────────────────────────
+
+/** 10 first, as the console's Sensitive tab has it. */
+const FILE_PAGE_SIZES = [10, 25, 50] as const;
+
+/**
+ * Client-side paging over the files already in the detail response. The API returns at most 50 objects
+ * per asset with no object-level paging, so there is nothing further to fetch; this only splits them up.
+ *
+ * `resetKey` returns to page 1 when the list changes underneath (another entity, a new search), since
+ * staying on page 4 of a shorter list would show nothing.
+ */
+function usePaged<T>(items: T[], resetKey: string) {
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState<number>(FILE_PAGE_SIZES[0]);
+  useEffect(() => { setPage(1); }, [resetKey, size]);
+
+  const totalPages = Math.max(1, Math.ceil(items.length / size));
+  const current = Math.min(page, totalPages);
+  return {
+    items: items.slice((current - 1) * size, current * size),
+    page: current, totalPages, size, total: items.length, setPage, setSize,
+  };
+}
+
+const PagedFooter: React.FC<{
+  page: number; totalPages: number; size: number; total: number;
+  onPage: (page: number) => void; onSize: (size: number) => void;
+}> = ({ page, totalPages, size, total, onPage, onSize }) => {
+  // Nothing to page through at the smallest size.
+  if (total <= FILE_PAGE_SIZES[0]) return null;
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[rgba(0,0,0,0.08)] bg-white px-3 py-2 text-[11px] text-[rgba(0,0,0,0.5)]">
+      <label className="flex items-center gap-1.5">
+        <span className="text-[rgba(0,0,0,0.4)]">Rows Per Page</span>
+        <select
+          value={size}
+          onChange={e => onSize(Number(e.target.value))}
+          className="rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.03)] px-1.5 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)]"
+        >
+          {FILE_PAGE_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </label>
+      <Pager page={page} totalPages={totalPages} onPage={onPage} />
+    </div>
+  );
+};
+
 // ── small pieces ──────────────────────────────────────────────────────────────────────────────
 
 const Card: React.FC<{ title?: string; children: React.ReactNode; className?: string }> =
@@ -329,7 +378,11 @@ const FilesSummaryCard: React.FC<{ detail: DspmAssetDetail }> = ({ detail }) => 
   );
 };
 
-const SensitiveRecordsCard: React.FC<{ detail: DspmAssetDetail }> = ({ detail }) => {
+/** Entity chips open the Sensitive tab on that entity, as the console's do. */
+const SensitiveRecordsCard: React.FC<{
+  detail: DspmAssetDetail;
+  onOpenEntity: (entityType: string) => void;
+}> = ({ detail, onOpenEntity }) => {
   const groups = useMemo(() => groupEntities(detail.entityBreakdown), [detail.entityBreakdown]);
   const partial = detail.breakdownPartial;
 
@@ -352,9 +405,17 @@ const SensitiveRecordsCard: React.FC<{ detail: DspmAssetDetail }> = ({ detail })
             return (
               <div key={category} className={`rounded-lg border p-3 ${accent.panel}`}>
                 <CategoryChip label={category} />
-                <div className="mt-2.5 flex flex-wrap gap-x-5 gap-y-2">
+                {/* -mx offsets the padding so the text stays aligned; the padding is only there to give
+                    the hover and focus outline room. */}
+                <div className="-mx-1.5 mt-2 flex flex-wrap gap-x-2 gap-y-1">
                   {entities.map(entity => (
-                    <span key={entity.entityType} className="inline-flex items-center gap-1.5">
+                    <button
+                      key={entity.entityType}
+                      type="button"
+                      onClick={() => onOpenEntity(entity.entityType)}
+                      aria-label={`${entity.entityType}, ${entityCountText(entity, partial)} — view records`}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-transparent px-1.5 py-1 transition-colors hover:border-[rgba(0,0,0,0.3)] hover:bg-white focus:outline-none focus-visible:border-[rgba(0,0,0,0.5)] focus-visible:bg-white"
+                    >
                       <span className={`h-3.5 w-0.5 flex-shrink-0 rounded ${accent.bar}`} />
                       <span className="text-[10px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.75)]">
                         {entity.entityType}
@@ -366,7 +427,7 @@ const SensitiveRecordsCard: React.FC<{ detail: DspmAssetDetail }> = ({ detail })
                       >
                         {entityCountText(entity, partial)}
                       </span>
-                    </span>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -458,17 +519,26 @@ const EmptySensitive: React.FC<{ detail: DspmAssetDetail }> = ({ detail }) => (
 
 const TH = 'px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.45)]';
 
-/** Entities on the left; the selected entity's files on the right. */
-const EntityView: React.FC<{ detail: DspmAssetDetail; query: string }> = ({ detail, query }) => {
+/**
+ * Entities on the left; the selected entity's files on the right.
+ *
+ * The selection is owned by the drawer, so an entity chip clicked on the Overview tab opens here already
+ * selected.
+ */
+const EntityView: React.FC<{
+  detail: DspmAssetDetail;
+  query: string;
+  selected: string | null;
+  onSelect: (entityType: string) => void;
+}> = ({ detail, query, selected, onSelect }) => {
   const ordered = useMemo(
     () => groupEntities(detail.entityBreakdown).flatMap(([, list]) => list),
     [detail.entityBreakdown],
   );
-  const [picked, setPicked] = useState<string | null>(null);
 
   const needle = query.trim().toLowerCase();
   const visible = needle ? ordered.filter(e => e.entityType.toLowerCase().includes(needle)) : ordered;
-  const active = visible.find(e => e.entityType === picked) ?? visible[0] ?? null;
+  const active = visible.find(e => e.entityType === selected) ?? visible[0] ?? null;
 
   const files = useMemo(() => {
     if (!active) return [];
@@ -477,6 +547,9 @@ const EntityView: React.FC<{ detail: DspmAssetDetail; query: string }> = ({ deta
       .map(object => ({ object, count: countIn(object, active.entityType) }))
       .sort((a, b) => b.count - a.count);
   }, [active, detail.objects]);
+
+  const paged = usePaged(files, active?.entityType ?? '');
+  const listTop = useRef<HTMLHeadingElement>(null);
 
   if (ordered.length === 0) return <EmptySensitive detail={detail} />;
 
@@ -500,7 +573,7 @@ const EntityView: React.FC<{ detail: DspmAssetDetail; query: string }> = ({ deta
               return (
                 <tr
                   key={entity.entityType}
-                  onClick={() => setPicked(entity.entityType)}
+                  onClick={() => onSelect(entity.entityType)}
                   className={`cursor-pointer border-b border-[rgba(0,0,0,0.04)] ${isActive ? 'bg-[rgba(0,0,0,0.04)]' : 'hover:bg-[rgba(0,0,0,0.02)]'}`}
                 >
                   <td className="px-3 py-2.5">
@@ -546,7 +619,9 @@ const EntityView: React.FC<{ detail: DspmAssetDetail; query: string }> = ({ deta
               </span>
             </div>
 
-            <h4 className="mt-4 text-[11px] font-bold text-[rgba(0,0,0,0.75)]">File Records</h4>
+            <h4 ref={listTop} className="mt-4 scroll-mt-4 text-[11px] font-bold text-[rgba(0,0,0,0.75)]">
+              File Records
+            </h4>
             {files.some(f => f.object.path) && (
               <p className="mt-0.5 text-[10px] text-[rgba(0,0,0,0.45)]">
                 To access the file, copy the path and run in cloud console
@@ -554,10 +629,20 @@ const EntityView: React.FC<{ detail: DspmAssetDetail; query: string }> = ({ deta
             )}
 
             <div className="mt-3 space-y-2.5">
-              {files.map(({ object, count }) => (
+              {paged.items.map(({ object, count }) => (
                 <FileRecordCard key={object.id} object={object} count={count} />
               ))}
             </div>
+
+            <PagedFooter
+              page={paged.page}
+              totalPages={paged.totalPages}
+              size={paged.size}
+              total={paged.total}
+              // Back to the top of the list, or the new page opens scrolled to its last card.
+              onPage={p => { paged.setPage(p); listTop.current?.scrollIntoView?.({ block: 'start' }); }}
+              onSize={paged.setSize}
+            />
 
             {files.length === 0 && (
               <p className="mt-3 rounded-lg border border-dashed border-[rgba(0,0,0,0.12)] bg-white p-4 text-center text-xs text-[rgba(0,0,0,0.45)]">
@@ -580,22 +665,33 @@ const EntityView: React.FC<{ detail: DspmAssetDetail; query: string }> = ({ deta
 
 /** Every returned object with its findings. */
 const FileView: React.FC<{ detail: DspmAssetDetail; query: string }> = ({ detail, query }) => {
-  if (detail.objects.length === 0) return <EmptySensitive detail={detail} />;
-
   const needle = query.trim().toLowerCase();
-  const visible = needle
+  const visible = useMemo(() => (needle
     ? detail.objects.filter(o => (o.name ?? '').toLowerCase().includes(needle)
       || (o.path ?? '').toLowerCase().includes(needle))
-    : detail.objects;
+    : detail.objects), [detail.objects, needle]);
+
+  const paged = usePaged(visible, needle);
+  const listTop = useRef<HTMLDivElement>(null);
+
+  if (detail.objects.length === 0) return <EmptySensitive detail={detail} />;
 
   return (
-    <div className="space-y-2.5">
-      {visible.map(object => (
+    <div ref={listTop} className="scroll-mt-4 space-y-2.5">
+      {paged.items.map(object => (
         <FileRecordCard key={object.id} object={object} count={object.sensitiveCount} showFindings />
       ))}
       {visible.length === 0 && (
         <p className="py-8 text-center text-xs text-[rgba(0,0,0,0.4)]">No files match</p>
       )}
+      <PagedFooter
+        page={paged.page}
+        totalPages={paged.totalPages}
+        size={paged.size}
+        total={paged.total}
+        onPage={p => { paged.setPage(p); listTop.current?.scrollIntoView?.({ block: 'start' }); }}
+        onSize={paged.setSize}
+      />
       {detail.objectsTruncated && (
         <p className="flex items-center gap-1.5 pt-1 text-[11px] text-[rgba(0,0,0,0.45)]">
           <Icon icon="mdi:information-outline" width={12} />
@@ -606,7 +702,12 @@ const FileView: React.FC<{ detail: DspmAssetDetail; query: string }> = ({ detail
   );
 };
 
-const SensitiveTab: React.FC<{ detail: DspmAssetDetail }> = ({ detail }) => {
+const SensitiveTab: React.FC<{
+  detail: DspmAssetDetail;
+  entity: string | null;
+  onEntity: (entityType: string) => void;
+}> = ({ detail, entity, onEntity }) => {
+  // Entity View first on every visit, which is also where an Overview chip should land.
   const [view, setView] = useState<'entity' | 'file'>('entity');
   const [query, setQuery] = useState('');
 
@@ -648,7 +749,7 @@ const SensitiveTab: React.FC<{ detail: DspmAssetDetail }> = ({ detail }) => {
       </div>
 
       {view === 'entity'
-        ? <EntityView detail={detail} query={query} />
+        ? <EntityView detail={detail} query={query} selected={entity} onSelect={onEntity} />
         : <FileView detail={detail} query={query} />}
     </div>
   );
@@ -668,6 +769,16 @@ interface Props {
 
 const DspmAssetDrawer: React.FC<Props> = ({ detail, loading, error, onClose }) => {
   const [tab, setTab] = useState<DrawerTab>('overview');
+  // Selected entity on the Sensitive tab. Held here so an Overview chip can open it pre-selected; null
+  // falls back to the first entity.
+  const [entity, setEntity] = useState<string | null>(null);
+  const body = useRef<HTMLDivElement>(null);
+
+  const openEntity = (entityType: string) => {
+    setEntity(entityType);
+    setTab('sensitive');
+    body.current?.scrollTo?.({ top: 0 });
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -742,7 +853,7 @@ const DspmAssetDrawer: React.FC<Props> = ({ detail, loading, error, onClose }) =
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto bg-[rgba(0,0,0,0.015)] p-5">
+        <div ref={body} className="flex-1 overflow-y-auto bg-[rgba(0,0,0,0.015)] p-5">
           {loading && (
             <p className="py-10 text-center text-xs text-[rgba(0,0,0,0.4)]">Loading asset…</p>
           )}
@@ -759,12 +870,14 @@ const DspmAssetDrawer: React.FC<Props> = ({ detail, loading, error, onClose }) =
               <PropertiesCard detail={detail} />
               <div className="space-y-4">
                 <FilesSummaryCard detail={detail} />
-                <SensitiveRecordsCard detail={detail} />
+                <SensitiveRecordsCard detail={detail} onOpenEntity={openEntity} />
               </div>
             </div>
           )}
 
-          {detail && !loading && tab === 'sensitive' && <SensitiveTab detail={detail} />}
+          {detail && !loading && tab === 'sensitive' && (
+            <SensitiveTab detail={detail} entity={entity} onEntity={setEntity} />
+          )}
         </div>
       </div>
     </div>,
