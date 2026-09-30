@@ -312,6 +312,11 @@ public final class DspmAssetQuery {
         return (category == null ? "" : category) + ":" + (resourceTypeScope == null ? "" : resourceTypeScope);
     }
 
+    /** The fixed {@code resource_type} scope, or null for a category-scoped query. */
+    public String resourceTypeScope() {
+        return resourceTypeScope;
+    }
+
     public int page() {
         return page;
     }

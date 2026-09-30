@@ -94,8 +94,101 @@ public class MattersDspmService {
 
         JsonNode body = apiClient.listAssets(credential, query.toListParams());
         DspmPage<DspmAssetRow> page = mapper.toPage(body);
+        if (DspmAssetQuery.Surface.SAAS.resourceType().equals(query.resourceTypeScope())) {
+            page = withProfiles(credential, clientId, page);
+        }
         cache.put(key, page, LIST_CACHE_MINUTES);
         return page;
+    }
+
+    // ── row profiles ─────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Longer than the page cache: an account's email and drive type never change, and its file count
+     * and size move only as scans progress. This is what keeps the per-row detail calls rare.
+     */
+    private static final int PROFILE_CACHE_MINUTES = 30;
+
+    /** Detail calls in flight at once for one page. Bounds the burst against the 600/min per-key limit. */
+    private static final int PROFILE_CONCURRENCY = 6;
+
+    private static final long PROFILE_TIMEOUT_SECONDS = 20;
+
+    private final java.util.concurrent.ExecutorService profilePool =
+            java.util.concurrent.Executors.newFixedThreadPool(PROFILE_CONCURRENCY, runnable -> {
+                Thread thread = new Thread(runnable, "dspm-profile");
+                thread.setDaemon(true);
+                return thread;
+            });
+
+    @jakarta.annotation.PreDestroy
+    void shutdownProfilePool() {
+        profilePool.shutdownNow();
+    }
+
+    /**
+     * Attaches detail-only fields to each row on the page.
+     *
+     * The SaaS table's Assets, Total Files and Total Size columns come from asset detail, not the list
+     * (see {@link DspmAssetRow.Profile}), so each row costs one detail call when its profile is not
+     * cached. Calls run in parallel on a small pool, carrying the caller's security and request context
+     * so the audit trail still records who read the data and from where.
+     *
+     * Best-effort per row: a failed or slow lookup leaves that row without a profile, and its cells
+     * render as a dash. A table missing two sizes is better than a table that fails to load.
+     */
+    private DspmPage<DspmAssetRow> withProfiles(MattersCredential credential, Long clientId,
+                                                DspmPage<DspmAssetRow> page) {
+        org.springframework.security.core.context.SecurityContext security =
+                org.springframework.security.core.context.SecurityContextHolder.getContext();
+        org.springframework.web.context.request.RequestAttributes request =
+                org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+
+        List<java.util.concurrent.CompletableFuture<DspmAssetRow.Profile>> lookups = page.data().stream()
+                .map(row -> java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                    org.springframework.security.core.context.SecurityContextHolder.setContext(security);
+                    org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(request);
+                    try {
+                        return profileOf(credential, clientId, row.id());
+                    } finally {
+                        // Pool threads are reused: clear both so no later task inherits this caller.
+                        org.springframework.security.core.context.SecurityContextHolder.clearContext();
+                        org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+                    }
+                }, profilePool))
+                .toList();
+
+        List<DspmAssetRow> rows = new java.util.ArrayList<>(page.data().size());
+        for (int i = 0; i < page.data().size(); i++) {
+            DspmAssetRow row = page.data().get(i);
+            DspmAssetRow.Profile profile = null;
+            try {
+                profile = lookups.get(i).get(PROFILE_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+                log.debug("[DSPM] no profile for asset {}: {}", row.id(), e.getMessage());
+            }
+            rows.add(profile == null ? row : row.withProfile(profile));
+        }
+        return new DspmPage<>(rows, page.page(), page.pageSize(), page.total(), page.totalPages());
+    }
+
+    /** One asset's profile, from cache or from its detail. Null when the lookup fails. */
+    private DspmAssetRow.Profile profileOf(MattersCredential credential, Long clientId, String assetId) {
+        String key = KEY_PREFIX + "profile:" + clientId + ":" + assetId;
+        Optional<DspmAssetRow.Profile> cached = cache.get(key, new TypeReference<DspmAssetRow.Profile>() {});
+        if (cached.isPresent()) {
+            return cached.get();
+        }
+        try {
+            DspmAssetRow.Profile profile = mapper.toProfile(apiClient.getAsset(credential, assetId));
+            cache.put(key, profile, PROFILE_CACHE_MINUTES);
+            return profile;
+        } catch (RuntimeException e) {
+            log.debug("[DSPM] could not load profile for asset {}: {}", assetId, e.getMessage());
+            return null;
+        }
     }
 
     /**

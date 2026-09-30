@@ -6,8 +6,18 @@ import type {
 
 const BASE = '/api/dspm';
 
-/** Server default is 25; the table asks for 25 and lets the user widen it. */
-export const DSPM_PAGE_SIZES = [25, 50, 100] as const;
+/** 10 first, as the console's tables have it. */
+export const DSPM_PAGE_SIZES = [10, 25, 50, 100] as const;
+
+/**
+ * Opening sort per surface. SaaS and Endpoint have no risk score on any row, so risk order would be
+ * arbitrary there; the console opens them on most sensitive records first.
+ */
+const DEFAULT_SORT: Record<DspmSurface, string> = {
+  cloud: '-risk_score',
+  saas: '-sensitive_record_count',
+  endpoint: '-sensitive_record_count',
+};
 
 /**
  * The three asset surfaces, matching the backend's `DspmAssetQuery.Surface` slugs.
@@ -137,7 +147,7 @@ export function useDspmAssets(surface: DspmSurface, enabled: boolean) {
   const [error, setError] = useState<DspmError | null>(null);
 
   const [search, setSearch] = useState('');
-  const [sort, setSort] = useState('-risk_score');
+  const [sort, setSort] = useState(DEFAULT_SORT[surface]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DSPM_PAGE_SIZES[0]);
   const [selected, setSelected] = useState<DspmFilterState>({});

@@ -2,7 +2,9 @@ import React from 'react';
 import { Icon } from '@iconify/react';
 import type { DspmAssetRow, DspmPage } from '../../types/dspm';
 import type { DspmSurface } from '../../hooks/useDspmData';
-import { compactCount, formatEpochSeconds } from './dspmFormat';
+import {
+  categoryAccent, compactCount, facetNumber, formatBytes, formatConsoleDate, saasDriveLabel,
+} from './dspmFormat';
 import {
   DspmCloudMark, DspmProviderIcon, DspmScanStatus, DspmSeverityBadge,
 } from './DspmIcons';
@@ -13,13 +15,18 @@ import {
  * Columns differ per surface because the vendor fills different fields per asset type. Measured on the
  * live project: risk score, region and cloud account exist only on datastores; SaaS rows carry
  * last-scanned times; endpoint rows carry neither. A column that would be blank on every row is left out.
+ *
+ * The SaaS set follows the console's SaaS Data Stores table. Its Assets, Total Files and Total Size
+ * columns come from asset detail, which the backend attaches to each row as `profile`. Its Last Modified
+ * column is `scan_status.last_scanned_at` — checked against all ten rows on the console's first page,
+ * every one identical to the minute.
  */
 
-type ColumnId =
+export type ColumnId =
   | 'asset' | 'severity' | 'riskScore' | 'records' | 'objects' | 'account' | 'scan'
-  | 'sensitives' | 'lastScanned';
+  | 'sensitives' | 'lastScanned' | 'totalFiles' | 'totalSize';
 
-interface Column {
+export interface Column {
   id: ColumnId;
   label: string;
   /** Sort field sent to the API. Omitted where the API cannot order by the column. */
@@ -27,7 +34,7 @@ interface Column {
   align?: 'left' | 'right';
 }
 
-const COLUMNS: Record<DspmSurface, Column[]> = {
+export const COLUMNS: Record<DspmSurface, Column[]> = {
   cloud: [
     { id: 'asset', label: 'Data store', field: 'name' },
     // Not sortable on Cloud: the API's severity sort orders by risk.level, but this column shows
@@ -42,13 +49,13 @@ const COLUMNS: Record<DspmSurface, Column[]> = {
     { id: 'sensitives', label: 'Sensitives' },
   ],
   saas: [
-    { id: 'asset', label: 'Account', field: 'name' },
-    { id: 'severity', label: 'Severity', field: 'severity' },
-    { id: 'records', label: 'Sensitive records', field: 'sensitive_record_count', align: 'right' },
-    { id: 'objects', label: 'Files', align: 'right' },
+    { id: 'asset', label: 'Assets', field: 'name' },
+    { id: 'totalFiles', label: 'Total Files' },
+    { id: 'totalSize', label: 'Total Size' },
+    { id: 'records', label: 'Sensitive Records', field: 'sensitive_record_count' },
+    { id: 'scan', label: 'Scan Status' },
     { id: 'sensitives', label: 'Sensitives' },
-    { id: 'scan', label: 'Scan status' },
-    { id: 'lastScanned', label: 'Last scanned' },
+    { id: 'lastScanned', label: 'Last Modified' },
   ],
   endpoint: [
     { id: 'asset', label: 'Device', field: 'name' },
@@ -65,6 +72,17 @@ const NOUN: Record<DspmSurface, string> = {
   saas: 'accounts',
   endpoint: 'devices',
 };
+
+/**
+ * Icon key for a SaaS row: its drive type rather than the shared GOOGLE_WORKSPACE provider, so a Gmail
+ * mailbox and a Drive are told apart as they are in the console.
+ */
+export function saasIconKey(driveType: unknown, fallback: string | null): string | null {
+  const label = saasDriveLabel(driveType);
+  if (label === 'Gmail') return 'GMAIL';
+  if (label === 'Google Drive') return 'GOOGLE_DRIVE';
+  return fallback;
+}
 
 const Dash: React.FC = () => <span className="text-xs text-[rgba(0,0,0,0.3)]">—</span>;
 
@@ -112,7 +130,7 @@ const RecordsCell: React.FC<{ row: DspmAssetRow }> = ({ row }) => {
   );
 };
 
-/** Sensitive-data category tags, in the vendor's display wording. */
+/** Every sensitive-data category as a coloured chip, in the vendor's wording (Personal, IT & Security). */
 const SensitivesCell: React.FC<{ row: DspmAssetRow }> = ({ row }) => {
   const labels = row.sensitives.typeLabels;
   if (!labels.length) {
@@ -122,27 +140,43 @@ const SensitivesCell: React.FC<{ row: DspmAssetRow }> = ({ row }) => {
       </span>
     );
   }
-  const [first, ...rest] = labels;
   return (
-    <span className="inline-flex items-center gap-1 whitespace-nowrap">
-      <span className="rounded border border-[rgba(0,0,0,0.1)] bg-[rgba(0,0,0,0.03)] px-1.5 py-0.5 text-[11px] font-semibold text-[rgba(0,0,0,0.65)]">
-        {first}
-      </span>
-      {rest.length > 0 && (
-        <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.4)]" title={rest.join(', ')}>
-          +{rest.length}
-        </span>
-      )}
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {labels.map(label => {
+        const accent = categoryAccent(label);
+        return (
+          <span
+            key={label}
+            className={`inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px] font-semibold ${accent.chip}`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-sm ${accent.bar}`} />
+            {label}
+          </span>
+        );
+      })}
     </span>
   );
 };
 
 const AssetCell: React.FC<{ row: DspmAssetRow; surface: DspmSurface }> = ({ row, surface }) => {
-  // Every endpoint shares the ENDPOINT_AGENT provider, so its OS subtype picks the icon instead.
-  const iconKey = surface === 'endpoint'
-    ? (row.subtype ?? row.source.provider)
-    : (row.source.provider ?? row.subtype);
-  const subline = surface === 'cloud' ? row.subtype : (row.subtypeLabel ?? row.subtype);
+  let iconKey: string | null;
+  let primary = row.name;
+  let subline: string | null;
+
+  if (surface === 'saas') {
+    // The console leads with the account's email, and names the drive type beneath it.
+    const driveType = row.profile?.facet?.drive_type;
+    iconKey = saasIconKey(driveType, row.source.provider ?? row.subtype);
+    primary = row.profile?.externalId ?? row.name;
+    subline = saasDriveLabel(driveType) ?? row.subtypeLabel ?? row.subtype;
+  } else if (surface === 'endpoint') {
+    // Every endpoint shares the ENDPOINT_AGENT provider, so its OS subtype picks the icon instead.
+    iconKey = row.subtype ?? row.source.provider;
+    subline = row.subtypeLabel ?? row.subtype;
+  } else {
+    iconKey = row.source.provider ?? row.subtype;
+    subline = row.subtype;
+  }
 
   return (
     <div className="flex items-start gap-2">
@@ -150,12 +184,12 @@ const AssetCell: React.FC<{ row: DspmAssetRow; surface: DspmSurface }> = ({ row,
       <div className="min-w-0">
         <div
           className="max-w-[18rem] truncate text-xs font-semibold text-[rgba(0,0,0,0.88)]"
-          title={row.name}
+          title={primary === row.name ? row.name : `${primary} (${row.name})`}
         >
-          {row.name}
+          {primary}
         </div>
         <div className="mt-0.5 flex items-center gap-1.5">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)]">
+          <span className={`text-[10px] text-[rgba(0,0,0,0.45)] ${surface === 'saas' ? '' : 'font-semibold uppercase tracking-wide'}`}>
             {subline ?? '—'}
           </span>
           {row.category === 'on_prem' && (
@@ -193,6 +227,11 @@ const AccountCell: React.FC<{ row: DspmAssetRow; label?: string }> = ({ row, lab
   </div>
 );
 
+/** Plain value cell, in the table's body text style. */
+const Value: React.FC<{ text: string; title?: string }> = ({ text, title }) => (
+  <span className="whitespace-nowrap text-xs tabular-nums text-[rgba(0,0,0,0.7)]" title={title}>{text}</span>
+);
+
 function renderCell(id: ColumnId, row: DspmAssetRow, surface: DspmSurface,
                     accountLabels: Record<string, string>): React.ReactNode {
   switch (id) {
@@ -218,6 +257,16 @@ function renderCell(id: ColumnId, row: DspmAssetRow, surface: DspmSurface,
           >
             {compactCount(row.sensitives.objectCount)}
           </span>;
+    case 'totalFiles': {
+      // Every file discovered in the account, scanned or not: facet.total_inventories. One decimal, as
+      // the console prints this column (18.4K, 2.7K).
+      const files = facetNumber(row.profile?.facet, 'total_inventories');
+      return files === null ? <Dash /> : <Value text={compactCount(files, 1)} title={files.toLocaleString()} />;
+    }
+    case 'totalSize': {
+      const bytes = facetNumber(row.profile?.facet, 'total_size_bytes');
+      return bytes === null ? <Dash /> : <Value text={formatBytes(bytes)} />;
+    }
     case 'account':
       return (
         <AccountCell
@@ -226,15 +275,17 @@ function renderCell(id: ColumnId, row: DspmAssetRow, surface: DspmSurface,
         />
       );
     case 'scan':
-      return <DspmScanStatus status={row.scan.status} label={row.scan.statusLabel} />;
+      // A finished SaaS scan reads "Scanning Complete" in the console (stage SCANNING_COMPLETED).
+      return (
+        <DspmScanStatus
+          status={row.scan.status}
+          label={surface === 'saas' && row.scan.status === 'CLASSIFIED' ? 'Scanning Complete' : row.scan.statusLabel}
+        />
+      );
     case 'sensitives':
       return <SensitivesCell row={row} />;
     case 'lastScanned':
-      return row.scan.lastScannedAt
-        ? <span className="whitespace-nowrap text-xs text-[rgba(0,0,0,0.6)]">
-            {formatEpochSeconds(row.scan.lastScannedAt)}
-          </span>
-        : <Dash />;
+      return row.scan.lastScannedAt ? <Value text={formatConsoleDate(row.scan.lastScannedAt)} /> : <Dash />;
     default:
       return null;
   }
@@ -261,10 +312,10 @@ const HeaderCell: React.FC<{ column: Column; sort: string; onSort: (field: strin
 
     return (
       <th
-        className={`whitespace-nowrap px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-[rgba(0,0,0,0.45)] ${align === 'right' ? 'text-right' : 'text-left'}`}
+        className={`whitespace-nowrap px-4 py-2.5 text-[11px] font-semibold text-[rgba(0,0,0,0.5)] ${align === 'right' ? 'text-right' : 'text-left'}`}
       >
         {field ? (
-          <button type="button" onClick={() => onSort(field)} className="hover:text-[rgba(0,0,0,0.7)]">
+          <button type="button" onClick={() => onSort(field)} className="hover:text-[rgba(0,0,0,0.75)]">
             {content}
           </button>
         ) : content}
@@ -279,14 +330,16 @@ interface Props {
   sort: string;
   /** Integration id to resolved account label. Only used by the Cloud account column. */
   accountLabels: Record<string, string>;
+  /** Columns switched off in the Columns menu. The asset column cannot be. */
+  hidden?: ReadonlySet<ColumnId>;
   onSort: (field: string) => void;
   onSelect: (row: DspmAssetRow) => void;
 }
 
 const DspmAssetTable: React.FC<Props> = ({
-  surface, page, loading, sort, accountLabels, onSort, onSelect,
+  surface, page, loading, sort, accountLabels, hidden, onSort, onSelect,
 }) => {
-  const columns = COLUMNS[surface];
+  const columns = COLUMNS[surface].filter(c => c.id === 'asset' || !hidden?.has(c.id));
 
   return (
     <div className="overflow-x-auto">

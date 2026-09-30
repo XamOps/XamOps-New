@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { Icon } from '@iconify/react';
-import type { DspmAssetDetail, DspmEntityCount, DspmObject } from '../../types/dspm';
+import type { DspmAssetDetail, DspmObject } from '../../types/dspm';
 import { categoryAccent, compactCount, formatBytes, formatEpochSeconds } from './dspmFormat';
 import { DspmCloudMark, DspmObjectIcon, DspmProviderIcon, DspmScanStatus } from './DspmIcons';
-import Pager from './DspmPager';
+import {
+  CategoryChip, PagedFooter, countIn, entityCountText, entityCountTitle, groupEntities, usePaged,
+} from './dspmShared';
 
 /**
  * Asset detail, laid out like the vendor console's datastore page: Overview and Sensitive tabs.
@@ -150,82 +152,6 @@ function consoleLink(detail: DspmAssetDetail): { label: string; href: string } |
   }
 }
 
-/** Entities grouped by category, in first-seen order. Flattened, this is also the table order. */
-function groupEntities(entities: DspmEntityCount[]): Array<[string, DspmEntityCount[]]> {
-  const groups = new Map<string, DspmEntityCount[]>();
-  for (const entity of entities) {
-    const key = entity.categoryLabel ?? 'Other';
-    groups.set(key, [...(groups.get(key) ?? []), entity]);
-  }
-  return [...groups.entries()];
-}
-
-function entityCountText(entity: DspmEntityCount, partial: boolean): string {
-  if (!entity.sampled) return '—';
-  return `${compactCount(entity.count)}${partial ? '+' : ''}`;
-}
-
-function entityCountTitle(entity: DspmEntityCount, detail: DspmAssetDetail): string {
-  if (!entity.sampled) {
-    return `Detected in this asset, but not in the ${detail.objects.length} files the API returns, so it cannot be counted`;
-  }
-  return detail.breakdownPartial
-    ? `At least ${entity.count.toLocaleString()} — counted across ${detail.objects.length} of ${detail.objectTotal.toLocaleString()} files`
-    : entity.count.toLocaleString();
-}
-
-/** Every entity finding in one object, summed — an object can report the same detector twice. */
-const countIn = (object: DspmObject, entityType: string) =>
-  object.findings.filter(f => f.entityType === entityType).reduce((sum, f) => sum + f.count, 0);
-
-// ── paging ────────────────────────────────────────────────────────────────────────────────────
-
-/** 10 first, as the console's Sensitive tab has it. */
-const FILE_PAGE_SIZES = [10, 25, 50] as const;
-
-/**
- * Client-side paging over the files already in the detail response. The API returns at most 50 objects
- * per asset with no object-level paging, so there is nothing further to fetch; this only splits them up.
- *
- * `resetKey` returns to page 1 when the list changes underneath (another entity, a new search), since
- * staying on page 4 of a shorter list would show nothing.
- */
-function usePaged<T>(items: T[], resetKey: string) {
-  const [page, setPage] = useState(1);
-  const [size, setSize] = useState<number>(FILE_PAGE_SIZES[0]);
-  useEffect(() => { setPage(1); }, [resetKey, size]);
-
-  const totalPages = Math.max(1, Math.ceil(items.length / size));
-  const current = Math.min(page, totalPages);
-  return {
-    items: items.slice((current - 1) * size, current * size),
-    page: current, totalPages, size, total: items.length, setPage, setSize,
-  };
-}
-
-const PagedFooter: React.FC<{
-  page: number; totalPages: number; size: number; total: number;
-  onPage: (page: number) => void; onSize: (size: number) => void;
-}> = ({ page, totalPages, size, total, onPage, onSize }) => {
-  // Nothing to page through at the smallest size.
-  if (total <= FILE_PAGE_SIZES[0]) return null;
-  return (
-    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[rgba(0,0,0,0.08)] bg-white px-3 py-2 text-[11px] text-[rgba(0,0,0,0.5)]">
-      <label className="flex items-center gap-1.5">
-        <span className="text-[rgba(0,0,0,0.4)]">Rows Per Page</span>
-        <select
-          value={size}
-          onChange={e => onSize(Number(e.target.value))}
-          className="rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.03)] px-1.5 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)]"
-        >
-          {FILE_PAGE_SIZES.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-      </label>
-      <Pager page={page} totalPages={totalPages} onPage={onPage} />
-    </div>
-  );
-};
-
 // ── small pieces ──────────────────────────────────────────────────────────────────────────────
 
 const Card: React.FC<{ title?: string; children: React.ReactNode; className?: string }> =
@@ -251,17 +177,6 @@ const PropertyField: React.FC<{ label: string; value: React.ReactNode; mono?: bo
       </div>
     </div>
   );
-
-const CategoryChip: React.FC<{ label: string | null }> = ({ label }) => {
-  if (!label) return null;
-  const accent = categoryAccent(label);
-  return (
-    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px] font-semibold ${accent.chip}`}>
-      <span className={`h-1.5 w-1.5 rounded-sm ${accent.bar}`} />
-      {label}
-    </span>
-  );
-};
 
 const CopyButton: React.FC<{ text: string }> = ({ text }) => {
   const [copied, setCopied] = useState(false);

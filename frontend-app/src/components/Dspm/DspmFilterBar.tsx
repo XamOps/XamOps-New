@@ -48,8 +48,18 @@ const PROVIDER_LABEL: Record<DspmSurface, string> = {
 const dimensionLabel = (dimension: string, surface: DspmSurface) =>
   dimension === 'provider' ? PROVIDER_LABEL[surface] : (DIMENSION_LABELS[dimension] ?? dimension);
 
-/** Chips shown without being added, mirroring the console's default bar. */
-const DEFAULT_CHIPS = ['integration_id', 'provider'];
+/** Chips shown without being added, mirroring each console screen's default bar. */
+const DEFAULT_CHIPS: Record<DspmSurface, string[]> = {
+  cloud: ['integration_id', 'provider'],
+  saas: ['integration_id', 'sensitive_type'],
+  endpoint: ['integration_id', 'provider'],
+};
+
+const SEARCH_PLACEHOLDER: Record<DspmSurface, string> = {
+  cloud: 'Search',
+  saas: 'Search Inventory',
+  endpoint: 'Search',
+};
 
 /** Order chips and the add-menu follow. */
 const CHIP_ORDER = [
@@ -269,7 +279,7 @@ interface Props {
 const DspmFilterBar: React.FC<Props> = ({
   surface, filters, selected, activeCount, search, onSearch, onToggle, onClearDimension, onClearAll,
 }) => {
-  const [pinned, setPinned] = useState<string[]>(DEFAULT_CHIPS);
+  const [pinned, setPinned] = useState<string[]>(DEFAULT_CHIPS[surface]);
 
   /**
    * Dimensions rendered as chips.
@@ -302,7 +312,8 @@ const DspmFilterBar: React.FC<Props> = ({
           type="search"
           value={search}
           onChange={e => onSearch(e.target.value)}
-          placeholder="Search"
+          placeholder={SEARCH_PLACEHOLDER[surface]}
+          aria-label={SEARCH_PLACEHOLDER[surface]}
           className="w-56 rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.03)] py-1.5 pl-8 pr-3 text-xs text-[rgba(0,0,0,0.88)] placeholder-[rgba(0,0,0,0.3)] focus:outline-none focus:ring-1 focus:ring-[rgba(0,0,0,0.2)]"
         />
       </div>
