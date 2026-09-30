@@ -1,10 +1,11 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { useDspmAssets, DSPM_PAGE_SIZES, type DspmSurface } from '../../hooks/useDspmData';
 import type { DspmAssetDetail, DspmAssetRow, DspmFilters, DspmStatus } from '../../types/dspm';
 import { severityFor } from './dspmFormat';
 import DspmFilterBar from './DspmFilterBar';
-import DspmAssetTable from './DspmAssetTable';
+import DspmAssetTable, { COLUMNS, type ColumnId } from './DspmAssetTable';
+import DspmSaasDrawer from './DspmSaasDrawer';
 import DspmAssetDrawer from './DspmAssetDrawer';
 import DspmNotReady from './DspmNotReady';
 import Pager from './DspmPager';
@@ -19,10 +20,70 @@ import Pager from './DspmPager';
  * integration id rather than a cloud account number, so the Account filter is the equivalent control.
  */
 
-const SURFACE_META: Record<DspmSurface, { title: string; icon: string }> = {
-  cloud: { title: 'Cloud data stores', icon: 'mdi:database-outline' },
-  saas: { title: 'SaaS accounts', icon: 'mdi:account-multiple-outline' },
-  endpoint: { title: 'Endpoints', icon: 'mdi:laptop' },
+const SURFACE_TITLE: Record<DspmSurface, string> = {
+  cloud: 'Cloud',
+  saas: 'SaaS',
+  endpoint: 'Endpoint',
+};
+
+/** The console's Columns control: which of this surface's columns are shown. */
+const ColumnsMenu: React.FC<{
+  surface: DspmSurface;
+  hidden: ReadonlySet<ColumnId>;
+  onToggle: (id: ColumnId) => void;
+}> = ({ surface, hidden, onToggle }) => {
+  const [open, setOpen] = useState(false);
+  const wrapper = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (wrapper.current && !wrapper.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  const columns = COLUMNS[surface];
+  const shown = columns.filter(c => c.id === 'asset' || !hidden.has(c.id)).length;
+
+  return (
+    <div className="relative" ref={wrapper}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        className="inline-flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-xs font-semibold text-[rgba(0,0,0,0.6)] transition-colors hover:bg-[rgba(0,0,0,0.04)]"
+      >
+        <Icon icon="mdi:view-column-outline" width={14} />
+        Columns
+        <span className="rounded bg-[rgba(0,0,0,0.06)] px-1.5 py-0.5 text-[10px] tabular-nums text-[rgba(0,0,0,0.55)]">{shown}</span>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1 w-52 rounded-xl border border-[rgba(0,0,0,0.1)] bg-white p-1 shadow-lg">
+          {columns.map(column => {
+            const locked = column.id === 'asset';
+            return (
+              <label
+                key={column.id}
+                className={`flex items-center gap-2 rounded px-2 py-1.5 text-xs text-[rgba(0,0,0,0.7)] ${locked ? 'opacity-50' : 'cursor-pointer hover:bg-[rgba(0,0,0,0.03)]'}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={locked || !hidden.has(column.id)}
+                  disabled={locked}
+                  onChange={() => onToggle(column.id)}
+                  className="accent-[rgba(0,0,0,0.88)]"
+                />
+                {column.label}
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 };
 
 /**
@@ -59,7 +120,8 @@ function toCsv(rows: DspmAssetRow[], accountLabels: Record<string, string>): str
     row.name,
     row.subtypeLabel ?? row.subtype ?? '',
     row.category,
-    row.sourceId ?? '',
+    // The account email for SaaS, where source_id is an internal vendor id.
+    row.profile?.externalId ?? row.sourceId ?? '',
     severityFor(row) ?? '',
     row.risk.score ?? '',
     // Blank rather than 0 when an unfinished scan reports zero: a zero in a spreadsheet becomes a claim
@@ -96,12 +158,22 @@ const DspmAssetsTab: React.FC<Props> = ({ surface, status, onRetry }) => {
   const accountLabels = useMemo(() => accountLabelsFrom(filters), [filters]);
 
   const [openAssetId, setOpenAssetId] = useState<string | null>(null);
+  const [openRow, setOpenRow] = useState<DspmAssetRow | null>(null);
+  const [hidden, setHidden] = useState<ReadonlySet<ColumnId>>(new Set());
+  const toggleColumn = useCallback((id: ColumnId) => {
+    setHidden(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
   const [detail, setDetail] = useState<DspmAssetDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
   const openAsset = useCallback(async (row: DspmAssetRow) => {
     setOpenAssetId(row.id);
+    setOpenRow(row);
     setDetail(null);
     setDetailError(null);
     setDetailLoading(true);
@@ -113,6 +185,14 @@ const DspmAssetsTab: React.FC<Props> = ({ surface, status, onRetry }) => {
       setDetailLoading(false);
     }
   }, [loadAsset]);
+
+  // Stable, because the drawers put it in a keydown effect's dependencies.
+  const closeAsset = useCallback(() => {
+    setOpenAssetId(null);
+    setOpenRow(null);
+    setDetail(null);
+    setDetailError(null);
+  }, []);
 
   const exportCsv = () => {
     if (!assets?.data.length) return;
@@ -131,10 +211,32 @@ const DspmAssetsTab: React.FC<Props> = ({ surface, status, onRetry }) => {
   // an unprovisioned workspace mean opposite things on a data-security page.
   if (!ready) return <DspmNotReady status={status} onRetry={onRetry} />;
 
-  const meta = SURFACE_META[surface];
-
   return (
     <div className="space-y-4">
+      <div>
+        <h1 className="text-lg font-bold text-[rgba(0,0,0,0.88)]">{SURFACE_TITLE[surface]}</h1>
+        {surface === 'saas' && (
+          // The console's SaaS page has a second tab, Data Explorer: a file-level list across every
+          // account with category, document class and sharing. The API has no such listing, so the
+          // tab is announced rather than built.
+          <div className="mt-2 flex gap-1 border-b border-[rgba(0,0,0,0.08)]" role="tablist">
+            <span role="tab" aria-selected="true" className="-mb-px border-b-2 border-[rgba(0,0,0,0.88)] px-3 py-2 text-xs font-semibold text-[rgba(0,0,0,0.88)]">
+              Data Stores
+            </span>
+            <span
+              role="tab"
+              aria-selected="false"
+              aria-disabled="true"
+              title="Data Explorer — coming soon"
+              className="-mb-px inline-flex cursor-default items-center gap-1.5 border-b-2 border-transparent px-3 py-2 text-xs font-semibold text-[rgba(0,0,0,0.35)]"
+            >
+              Data Explorer
+              <span className="rounded-full bg-[rgba(0,0,0,0.06)] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.35)]">Soon</span>
+            </span>
+          </div>
+        )}
+      </div>
+
       <DspmFilterBar
         surface={surface}
         filters={filters}
@@ -148,14 +250,8 @@ const DspmAssetsTab: React.FC<Props> = ({ surface, status, onRetry }) => {
       />
 
       <section className="min-w-0 overflow-hidden rounded-2xl border border-[rgba(0,0,0,0.08)] bg-white">
-        <header className="flex flex-wrap items-center gap-3 border-b border-[rgba(0,0,0,0.06)] px-5 py-3">
-          <div className="flex items-center gap-2">
-            <Icon icon={meta.icon} width={16} className="text-[rgba(0,0,0,0.5)]" />
-            <h2 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">{meta.title}</h2>
-            {assets && (
-              <span className="text-xs text-[rgba(0,0,0,0.4)]">{assets.total.toLocaleString()}</span>
-            )}
-          </div>
+        <header className="flex flex-wrap items-center gap-3 border-b border-[rgba(0,0,0,0.06)] px-4 py-2.5">
+          <ColumnsMenu surface={surface} hidden={hidden} onToggle={toggleColumn} />
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <button
@@ -169,10 +265,11 @@ const DspmAssetsTab: React.FC<Props> = ({ surface, status, onRetry }) => {
             </button>
             <button
               onClick={refresh}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[rgba(0,0,0,0.12)] px-2.5 py-1.5 text-xs font-semibold text-[rgba(0,0,0,0.6)] transition-colors hover:bg-[rgba(0,0,0,0.03)]"
+              title="Refresh"
+              aria-label="Refresh"
+              className="inline-flex items-center rounded-lg border border-[rgba(0,0,0,0.12)] p-1.5 text-[rgba(0,0,0,0.6)] transition-colors hover:bg-[rgba(0,0,0,0.03)]"
             >
               <Icon icon="mdi:refresh" width={13} className={loading ? 'animate-spin' : ''} />
-              Refresh
             </button>
           </div>
         </header>
@@ -191,6 +288,7 @@ const DspmAssetsTab: React.FC<Props> = ({ surface, status, onRetry }) => {
           loading={loading}
           sort={sort}
           accountLabels={accountLabels}
+          hidden={hidden}
           onSort={toggleSort}
           onSelect={row => { void openAsset(row); }}
         />
@@ -221,13 +319,25 @@ const DspmAssetsTab: React.FC<Props> = ({ surface, status, onRetry }) => {
         )}
       </section>
 
-      {openAssetId && (
+      {/* SaaS opens as a side drawer over the list, as the console's does; Cloud and Endpoint as the
+          full-width asset page. */}
+      {openAssetId && surface === 'saas' && (
+        <DspmSaasDrawer
+          detail={detail}
+          loading={detailLoading}
+          error={detailError}
+          row={openRow}
+          accountLabel={openRow?.source.account ? accountLabels[openRow.source.account] : undefined}
+          onClose={closeAsset}
+        />
+      )}
+      {openAssetId && surface !== 'saas' && (
         <DspmAssetDrawer
           assetId={openAssetId}
           detail={detail}
           loading={detailLoading}
           error={detailError}
-          onClose={() => { setOpenAssetId(null); setDetail(null); setDetailError(null); }}
+          onClose={closeAsset}
         />
       )}
     </div>

@@ -79,7 +79,19 @@ export interface DspmScan {
   lastScannedAt: number | null;
 }
 
+/**
+ * Detail-only fields attached to list rows where the table needs them (SaaS today). The SaaS Assets,
+ * Total Files and Total Size columns are the account email and `facet.drive_type`,
+ * `facet.total_inventories` and `facet.total_size_bytes`, none of which the list returns.
+ */
+export interface DspmRowProfile {
+  externalId: string | null;
+  facet: Record<string, unknown>;
+}
+
 export interface DspmAssetRow {
+  /** Null for surfaces that do not need it, and for a row whose lookup failed. */
+  profile?: DspmRowProfile | null;
   id: string;
   name: string;
   subtype: string | null;

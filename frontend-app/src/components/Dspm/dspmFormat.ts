@@ -15,7 +15,7 @@
  * Why match them at all: customers read the two products side by side, and `236,100` next to `236.1K`
  * invites a reconciliation question about a number that is identical.
  */
-export function compactCount(value: number): string {
+export function compactCount(value: number, maxDecimals = 2): string {
   if (!Number.isFinite(value)) return '—';
   const abs = Math.abs(value);
   if (abs < 1000) return String(value);
@@ -29,22 +29,57 @@ export function compactCount(value: number): string {
   for (const [divisor, suffix] of units) {
     if (abs >= divisor) {
       const scaled = value / divisor;
-      // toFixed(2) then strip a trailing '.00' or a single trailing '0', which is what produces
-      // 236.1K rather than 236.10K.
-      const text = scaled.toFixed(2).replace(/\.0+$/, '').replace(/(\.\d)0$/, '$1');
+      // Fixed decimals, then trailing zeros stripped: 236.1K rather than 236.10K, 61K rather than 61.00K.
+      // One decimal is what the console uses for SaaS Total Files (18.4K, 2.7K).
+      const text = scaled.toFixed(maxDecimals).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
       return `${text}${suffix}`;
     }
   }
   return String(value);
 }
 
-/** Byte size, e.g. `14.38 GB`. Matches the console's Datastore Size. */
+/**
+ * Byte size as the console writes it: binary units, up to two decimals with trailing zeros stripped,
+ * and "Bytes" spelled out — `14.38 GB`, `14 MB`, `844.69 MB`, `0 Bytes`.
+ */
 export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 Bytes';
+  const units = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB'];
   const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / 1024 ** i).toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
+  const text = (bytes / 1024 ** i).toFixed(i === 0 ? 0 : 2).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  return `${text} ${units[i]}`;
 }
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * Epoch seconds as the console's tables print them: `15 Jul 2026, 05:26 PM`, in the viewer's time zone.
+ * Built by hand because no locale produces exactly this (en-GB lowercases "pm").
+ */
+export function formatConsoleDate(seconds: number): string {
+  const d = new Date(seconds * 1000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const hours = d.getHours();
+  return `${pad(d.getDate())} ${MONTHS[d.getMonth()]} ${d.getFullYear()}, `
+    + `${pad(hours % 12 || 12)}:${pad(d.getMinutes())} ${hours < 12 ? 'AM' : 'PM'}`;
+}
+
+/** SaaS drive type to the console's wording: a Gmail mailbox, or Google Drive. */
+export function saasDriveLabel(driveType: unknown): string | null {
+  switch (typeof driveType === 'string' ? driveType.toUpperCase() : '') {
+    case 'GMAIL': return 'Gmail';
+    case 'GOOGLE_WORKSPACE':
+    case 'GOOGLE_DRIVE': return 'Google Drive';
+    case '': return null;
+    default: return String(driveType).replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+  }
+}
+
+/** A number from an untyped facet, or null. */
+export const facetNumber = (facet: Record<string, unknown> | null | undefined, key: string): number | null => {
+  const value = facet?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+};
 
 /**
  * Unix epoch **seconds** to a readable timestamp.

@@ -83,6 +83,10 @@ const PROVIDER_GLYPH: Record<string, string> = {
   CONFLUENCE: 'mdi:atlassian',
 
   ENDPOINT_AGENT: 'mdi:laptop',
+  // SaaS drive types, which the SaaS surfaces pass instead of the shared GOOGLE_WORKSPACE provider so a
+  // mailbox and a Drive are told apart. Official full-colour marks, as the console shows them.
+  GMAIL: 'logos:google-gmail',
+  GOOGLE_DRIVE: 'logos:google-drive',
   // Endpoint rows report the OS as their `subtype` while every one of them shares the provider
   // `ENDPOINT_AGENT`, so the Endpoint table passes the subtype first — a fleet of identical laptop
   // glyphs says nothing, and Mac against Windows is the one thing that column can usefully show.

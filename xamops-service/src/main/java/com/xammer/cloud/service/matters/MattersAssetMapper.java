@@ -68,7 +68,14 @@ public class MattersAssetMapper {
                 toRisk(node.path("risk")),
                 toSensitives(node.path("sensitives"), scanStatus),
                 toSource(node.path("source")),
-                toScan(node.path("scan_status")));
+                toScan(node.path("scan_status")),
+                // Detail-only; attached afterwards for the surfaces that show it.
+                null);
+    }
+
+    /** The detail-only fields a list row can carry, from an asset detail response. */
+    public DspmAssetRow.Profile toProfile(JsonNode detail) {
+        return new DspmAssetRow.Profile(text(detail, "external_id"), toFacet(detail.path("facet")));
     }
 
     private DspmAssetRow.Risk toRisk(JsonNode risk) {
