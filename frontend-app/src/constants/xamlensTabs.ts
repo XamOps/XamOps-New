@@ -25,9 +25,9 @@ export interface XamLensTabDef {
 
 export const XAMLENS_TABS: XamLensTabDef[] = [
   // Cloud covers self-hosted datastores too, matching the vendor console's Cloud screen.
-  { id: 'cloud', label: 'Cloud Data', icon: 'fas fa-database', surface: 'cloud' },
-  { id: 'saas', label: 'SaaS Data', icon: 'fas fa-cloud', surface: 'saas' },
-  { id: 'endpoint', label: 'Endpoint Data', icon: 'fas fa-laptop', surface: 'endpoint' },
+  { id: 'cloud', label: 'Cloud', icon: 'fas fa-database', surface: 'cloud' },
+  { id: 'saas', label: 'SaaS', icon: 'fas fa-cloud', surface: 'saas' },
+  { id: 'endpoint', label: 'Endpoint', icon: 'fas fa-laptop', surface: 'endpoint' },
   // Connection state. Deep-link only: it matters when something is wrong, not in the healthy path.
   { id: 'connection', label: 'Connection', icon: 'fas fa-circle-nodes', sidebar: false },
 ];
