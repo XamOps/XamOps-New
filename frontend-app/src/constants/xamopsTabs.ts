@@ -70,27 +70,19 @@ export const XAMOPS_MODULES: XamOpsModule[] = [
     tabs: [
       { key: 'secops-security-center', label: 'Security Center', icon: 'mdi:shield-check-outline' },
       { key: 'secops-war', label: 'WAR', icon: 'mdi:radar' },
-      // Upwind CNAPP. DSPM used to ride this key too; it is now the XamLens module below.
+      // Upwind CNAPP.
       { key: 'secops-xamsecure', label: 'XamSecure', icon: 'mdi:shield-account-outline' },
+      // DSPM (Matters.ai). One key for all its sub-tabs, like XamSecure; the sub-tabs come from
+      // constants/xamlensTabs.ts.
+      //
+      // New keys are a trap in this allow-list: fail-OPEN for a user with no rows, fail-CLOSED for a
+      // user with any, so a key added today is missing from every list saved before it. Migration
+      // V20260929_2 grants this one to every user who held secops-xamsecure (where the DSPM tabs used
+      // to live), so nobody loses access in the move. Any future key here needs the same treatment.
+      { key: 'secops-xamlens', label: 'XamLens', icon: 'mdi:database-eye-outline' },
       { key: 'secops-compliance', label: 'ComplianceOps', icon: 'mdi:file-certificate-outline' },
       { key: 'secops-performance', label: 'Performance Insights', icon: 'mdi:speedometer' },
       { key: 'secops-alerts', label: 'Alerts', icon: 'mdi:bell-outline' },
-    ],
-  },
-  {
-    // DSPM, backed by Matters.ai. Sidebar entries come from constants/xamlensTabs.ts.
-    //
-    // New keys are a trap in this allow-list: fail-OPEN for a user with no rows, fail-CLOSED for a user
-    // with any, so a key added today is missing from every list saved before it. Migration
-    // V20260929_1 grants these three to every user who held secops-xamsecure (which is where the DSPM
-    // tabs lived), so nobody loses access in the move. Any future key here needs the same treatment.
-    key: 'xamlens',
-    label: 'XamLens',
-    icon: 'mdi:database-eye-outline',
-    tabs: [
-      { key: 'xamlens-cloud', label: 'Cloud Data', icon: 'mdi:database-outline' },
-      { key: 'xamlens-saas', label: 'SaaS Data', icon: 'mdi:cloud-outline' },
-      { key: 'xamlens-endpoint', label: 'Endpoint Data', icon: 'mdi:laptop' },
     ],
   },
   {

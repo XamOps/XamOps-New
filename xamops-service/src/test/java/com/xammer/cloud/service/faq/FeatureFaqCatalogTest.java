@@ -20,9 +20,8 @@ class FeatureFaqCatalogTest {
             "finops-flex-compute", "finops-autospotting",
             "cloudops-cloudk8s", "cloudops-code-quality", "cloudops-cicd",
             "cloudops-devops-box", "cloudops-aiops", "cloudops-dbops",
-            "secops-security-center", "secops-war", "secops-xamsecure", "secops-compliance",
-            "secops-performance", "secops-alerts",
-            "xamlens-cloud", "xamlens-saas", "xamlens-endpoint",
+            "secops-security-center", "secops-war", "secops-xamsecure", "secops-xamlens",
+            "secops-compliance", "secops-performance", "secops-alerts",
             "obs-overview", "obs-logs", "obs-metrics", "obs-traces", "obs-alerts",
             "obs-setup", "obs-grafana",
             "sre-dashboard", "sre-investigations", "sre-setup",
@@ -37,8 +36,7 @@ class FeatureFaqCatalogTest {
     // with EXPECTED_TAB_KEYS above). No entry for "dashboard": it's a
     // single-tab module already covered by account-dashboard.
     private static final List<String> EXPECTED_MODULE_KEYS = List.of(
-            "finops", "cloudops", "secops", "xamlens", "observability", "sre", "mediaops", "licenses",
-            "tickets"
+            "finops", "cloudops", "secops", "observability", "sre", "mediaops", "licenses", "tickets"
     );
 
     @Test

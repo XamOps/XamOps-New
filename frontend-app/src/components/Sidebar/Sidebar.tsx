@@ -142,9 +142,8 @@ const Sidebar: React.FC = () => {
     const cloudopsRoutes = ['/cloudk8s', '/gcp-cloudk8s', '/azure-cloudk8s',
       '/sonarqube', '/cicd-pipelines', '/devops-in-the-box', '/aiops', '/dataops', '/gcp-dataops', '/azure-dataops', '/ebs-rightsizing'];
     const ticketsRoutes = ['/tickets', '/billops-tickets'];
-    const secopsRoutes = ['/xamsecure', '/security', '/gcp-security', '/azure-security', '/war', '/gcp-war', '/azure-war', '/complianceops', '/soc2-program',
+    const secopsRoutes = ['/xamsecure', '/xamlens', '/security', '/gcp-security', '/azure-security', '/war', '/gcp-war', '/azure-war', '/complianceops', '/soc2-program',
       '/performance', '/gcp-performance', '/azure-performance', '/alerts', '/gcp-alerts', '/azure-alerts'];
-    const xamlensRoutes = ['/xamlens'];
     const licensesRoutes = ['/marketplace-purchases', '/workspace-licenses', '/isv-metering'];
     const observabilityRoutes = ['/observability', '/grafana-dashboard'];
     const sreRoutes = ['/sre'];
@@ -155,7 +154,6 @@ const Sidebar: React.FC = () => {
     else if (cloudopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('cloudops');
     else if (ticketsRoutes.some(r => path.startsWith(r))) setOpenDropdown('tickets');
     else if (secopsRoutes.some(r => path.startsWith(r))) setOpenDropdown('security');
-    else if (xamlensRoutes.some(r => path.startsWith(r))) setOpenDropdown('xamlens');
     else if (licensesRoutes.some(r => path.startsWith(r))) setOpenDropdown('licenses');
     else if (observabilityRoutes.some(r => path.startsWith(r))) setOpenDropdown('observability');
     else if (sreRoutes.some(r => path.startsWith(r))) setOpenDropdown('sre');
@@ -420,6 +418,31 @@ const Sidebar: React.FC = () => {
                     </SubNav>
                   </>
                 )}
+                {/* XamLens (DSPM, Matters.ai), laid out like XamSecure above. Listed even when the org has
+                    not bought it, with a Locked pill, so the Request access screen stays reachable. */}
+                {isXamTabAllowed('secops-xamlens') && (
+                  <>
+                    <NavItem
+                      href="/xamlens/cloud"
+                      icon="fas fa-eye"
+                      label="XamLens"
+                      badge={xamLensLocked ? 'Locked' : undefined}
+                      tooltip={xamLensLocked ? 'Not enabled for your organisation — open it to request access' : undefined}
+                      isActive={isActive('/xamlens')}
+                    />
+                    <SubNav isOpen={location.pathname.startsWith('/xamlens')} dark={theme === 'dark'}>
+                      {XAMLENS_SIDEBAR_TABS.map((t) => (
+                        <NavItem
+                          key={t.id}
+                          href={`/xamlens/${t.id}`}
+                          icon={t.icon}
+                          label={t.label}
+                          isActive={location.pathname === `/xamlens/${t.id}`}
+                        />
+                      ))}
+                    </SubNav>
+                  </>
+                )}
                 {isXamTabAllowed('secops-compliance') && <NavItem href="/complianceops" icon="fas fa-file-contract" label="ComplianceOps" isActive={isActive('/complianceops')} />}
                 {isXamTabAllowed('secops-compliance') && (
                   <>
@@ -443,27 +466,7 @@ const Sidebar: React.FC = () => {
               </NavSection>
               )}
 
-              {/* XamLens (DSPM, Matters.ai). Listed even when the org has not bought it, with a Locked
-                  pill, so the Request access screen stays reachable. */}
-              {isXamModuleAllowed('xamlens') && (
-              <NavSection
-                icon="fas fa-eye"
-                label="XamLens"
-                badge={xamLensLocked ? 'Locked' : undefined}
-                isOpen={openDropdown === 'xamlens'}
-                onToggle={() => toggleDropdown('xamlens')}
-              >
-                {XAMLENS_SIDEBAR_TABS.filter((t) => !t.accessKey || isXamTabAllowed(t.accessKey)).map((t) => (
-                  <NavItem
-                    key={t.id}
-                    href={`/xamlens/${t.id}`}
-                    icon={t.icon}
-                    label={t.label}
-                    isActive={location.pathname === `/xamlens/${t.id}`}
-                  />
-                ))}
-              </NavSection>
-              )}
+
 
               {isXamModuleAllowed('observability') && (
               <NavSection

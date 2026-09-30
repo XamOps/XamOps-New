@@ -151,24 +151,15 @@ public final class FeatureFaqCatalog {
                     "SecOps Alerts combines CloudGuard alerts (quota and anomaly alerts filterable by " +
                     "service) with a Grafana Alerts tab for external alert monitoring."),
 
-            new FeatureFaqEntry("xamlens-cloud", "XamLens", "Cloud Data",
-                    List.of("sensitive data", "pii in buckets", "datastore scan", "sensitive records",
-                            "data discovery"),
-                    "XamLens Cloud Data lists your cloud and self-hosted datastores (S3, EBS, DynamoDB, " +
-                    "BigQuery, GCS, Azure Blob, Postgres) with the sensitive data found in each: record " +
-                    "counts, the kinds of data (personal, secrets, financial), scan status, and the files " +
-                    "that contain it."),
-
-            new FeatureFaqEntry("xamlens-saas", "XamLens", "SaaS Data",
-                    List.of("google workspace", "gmail", "google drive", "saas sensitive data", "saas accounts"),
-                    "XamLens SaaS Data shows sensitive data found in SaaS accounts such as Google " +
-                    "Workspace mail and Drive, per account, with record counts, severity and the files " +
-                    "involved."),
-
-            new FeatureFaqEntry("xamlens-endpoint", "XamLens", "Endpoint Data",
-                    List.of("endpoint agent", "laptop scan", "device scan", "endpoint sensitive data"),
-                    "XamLens Endpoint Data shows sensitive data found on managed laptops and desktops, " +
-                    "with device details such as OS, serial number and agent status."),
+            new FeatureFaqEntry("secops-xamlens", "SecOps", "XamLens",
+                    List.of("dspm", "data security posture management", "sensitive data", "pii",
+                            "google workspace", "endpoint data"),
+                    "XamLens is data security posture management (DSPM): it finds where sensitive data " +
+                    "lives and what kind it is (personal, secrets, financial). Cloud Data covers cloud " +
+                    "and self-hosted datastores such as S3, EBS, BigQuery and Postgres; SaaS Data covers " +
+                    "accounts such as Google Workspace mail and Drive; Endpoint Data covers managed " +
+                    "laptops and desktops. Each shows record counts, severity, scan status and the files " +
+                    "that hold the data."),
 
             new FeatureFaqEntry("obs-overview", "Observability", "Overview",
                     List.of("observability overview", "openobserve", "data streams", "retention", "org id"),
@@ -307,13 +298,8 @@ public final class FeatureFaqCatalog {
             new FeatureFaqEntry("secops", "SecOps", "SecOps",
                     List.of("secops module", "security operations", "cloud security suite"),
                     "SecOps covers your security tooling — Security Center findings, XamSecure (CNAPP), " +
-                    "ComplianceOps framework scoring, Performance Insights, and Alerts."),
-
-            new FeatureFaqEntry("xamlens", "XamLens", "XamLens",
-                    List.of("data security posture management", "dspm", "where is my sensitive data"),
-                    "XamLens is XamOps's data security posture management (DSPM) module — it finds where " +
-                    "sensitive data lives across Cloud datastores, SaaS accounts and Endpoints, and shows " +
-                    "what kind it is and which files hold it."),
+                    "XamLens (data security posture), ComplianceOps framework scoring, Performance " +
+                    "Insights, and Alerts."),
 
             new FeatureFaqEntry("observability", "Observability", "Observability",
                     List.of("observability module", "logs metrics traces", "monitoring suite"),

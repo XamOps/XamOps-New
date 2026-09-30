@@ -1,11 +1,11 @@
 /**
  * XamLens tab catalog, read by both the page router and the sidebar.
  *
- * XamLens is the data security posture management (DSPM) module, backed by Matters.ai. It used to live
- * inside XamSecure as a second product group; XamSecure is Upwind CNAPP only again.
+ * XamLens is the data security posture management (DSPM) sub-tab of SecOps, backed by Matters.ai, and
+ * sits beside XamSecure (Upwind CNAPP). Like XamSecure, one per-user tab key (`secops-xamlens`) covers
+ * all of its tabs.
  *
- * Each asset tab reads one backend surface (`/api/dspm/{surface}/…`). `accessKey` is the per-user tab
- * key from the `xamlens` module in xamopsTabs.ts, which is what scopes a restricted user's sidebar.
+ * Each asset tab reads one backend surface (`/api/dspm/{surface}/…`).
  */
 
 import type { DspmSurface } from '../hooks/useDspmData';
@@ -19,19 +19,17 @@ export interface XamLensTabDef {
   icon: string;
   /** Backend surface for the asset tabs. Absent for the connection page. */
   surface?: DspmSurface;
-  /** Per-user tab key. Null for a route that is not in the nav. */
-  accessKey: string | null;
   /** Defaults to true. False keeps the route valid while hiding it from the nav. */
   sidebar?: boolean;
 }
 
 export const XAMLENS_TABS: XamLensTabDef[] = [
   // Cloud covers self-hosted datastores too, matching the vendor console's Cloud screen.
-  { id: 'cloud', label: 'Cloud Data', icon: 'fas fa-database', surface: 'cloud', accessKey: 'xamlens-cloud' },
-  { id: 'saas', label: 'SaaS Data', icon: 'fas fa-cloud', surface: 'saas', accessKey: 'xamlens-saas' },
-  { id: 'endpoint', label: 'Endpoint Data', icon: 'fas fa-laptop', surface: 'endpoint', accessKey: 'xamlens-endpoint' },
+  { id: 'cloud', label: 'Cloud Data', icon: 'fas fa-database', surface: 'cloud' },
+  { id: 'saas', label: 'SaaS Data', icon: 'fas fa-cloud', surface: 'saas' },
+  { id: 'endpoint', label: 'Endpoint Data', icon: 'fas fa-laptop', surface: 'endpoint' },
   // Connection state. Deep-link only: it matters when something is wrong, not in the healthy path.
-  { id: 'connection', label: 'Connection', icon: 'fas fa-circle-nodes', accessKey: null, sidebar: false },
+  { id: 'connection', label: 'Connection', icon: 'fas fa-circle-nodes', sidebar: false },
 ];
 
 /** Nav entries, in declared order. */
