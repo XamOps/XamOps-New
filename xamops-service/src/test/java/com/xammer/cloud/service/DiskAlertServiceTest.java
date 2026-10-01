@@ -293,6 +293,10 @@ class DiskAlertServiceTest {
         when(alertEmailBuilder.buildAlertDigestEmail(anyList(), any(), any())).thenReturn("<html>alert</html>");
 
         when(mobileNotificationDispatcher.isActive()).thenReturn(true);
+        // Entitled, so the mobile path actually reaches the failing query. Without this the
+        // entitlement check returns early and the test passes without exercising the failure.
+        when(scheduleRepository.findClientByAccountId(1L))
+                .thenReturn(Optional.of(entitledClient(false, true)));
         when(scheduleRepository.findActiveContactsByAccountId(1L))
                 .thenThrow(new RuntimeException("contact query exploded"));
 
@@ -300,6 +304,75 @@ class DiskAlertServiceTest {
 
         // Email is the channel of record — a mobile failure must not take it down with it.
         verify(emailService).sendHtmlEmail(eq("ops@example.com"), contains("Disk Alert"), anyString());
+        verify(scheduleRepository).findActiveContactsByAccountId(1L);
+    }
+
+    // ── critical-only mobile delivery ────────────────────────────────────────
+
+    @Test
+    void scanAccount_sendsNoMobileAlertForAWarningOnlyScan() {
+        // An over-provisioned disk is a cost tip, not an emergency: email only.
+        CloudAccount account = awsAccount(1L, "123456789012");
+        Map<String, Object> vol = volume("vol-002", "ap-south-1", 50, 10.0); // underutilized → WARNING
+
+        when(ebsDiskRightsizingService.getVolumes("123456789012", false)).thenReturn(List.of(vol));
+        when(diskAlertStateRepository.findByAccount_IdAndResolvedAtIsNull(1L)).thenReturn(List.of());
+        when(diskAlertStateRepository.findByAccount_IdAndVolumeIdAndAlertType(1L, "vol-002", "UNDERUTILIZED"))
+                .thenReturn(Optional.empty());
+        when(scheduleRepository.findActiveEmailsByAccountId(1L)).thenReturn(List.of("ops@example.com"));
+        when(alertEmailBuilder.buildAlertDigestEmail(anyList(), any(), any())).thenReturn("<html>alert</html>");
+
+        when(mobileNotificationDispatcher.isActive()).thenReturn(true);
+        when(scheduleRepository.findClientByAccountId(1L))
+                .thenReturn(Optional.of(entitledClient(true, true)));
+
+        service.scanAccount(account);
+
+        verify(emailService).sendHtmlEmail(eq("ops@example.com"), contains("Disk Alert"), anyString());
+        // Never reaches the dispatcher — so it cannot use up the 24h cooldown and silence a real
+        // critical alert later that day. Not even the client lookup runs.
+        verify(mobileNotificationDispatcher, never())
+                .dispatchAll(any(), anyList(), any(), anyString(), any());
+        verify(scheduleRepository, never()).findClientByAccountId(any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void scanAccount_mobileAlertCarriesOnlyTheCriticalSubsetOfAMixedScan() {
+        // One disk near full, one over-provisioned, both new in the same scan. Email gets both;
+        // the phone message must count only the critical one.
+        CloudAccount account = awsAccount(1L, "123456789012");
+        Map<String, Object> full = volume("vol-001", "ap-south-1", 30, 90.0);
+        Map<String, Object> idle = volume("vol-002", "ap-south-1", 50, 10.0);
+
+        when(ebsDiskRightsizingService.getVolumes("123456789012", false)).thenReturn(List.of(full, idle));
+        when(diskAlertStateRepository.findByAccount_IdAndResolvedAtIsNull(1L)).thenReturn(List.of());
+        when(diskAlertStateRepository.findByAccount_IdAndVolumeIdAndAlertType(eq(1L), anyString(), anyString()))
+                .thenReturn(Optional.empty());
+        when(scheduleRepository.findActiveEmailsByAccountId(1L)).thenReturn(List.of("ops@example.com"));
+        when(alertEmailBuilder.buildAlertDigestEmail(anyList(), any(), any())).thenReturn("<html>alert</html>");
+
+        when(mobileNotificationDispatcher.isActive()).thenReturn(true);
+        when(scheduleRepository.findClientByAccountId(1L))
+                .thenReturn(Optional.of(entitledClient(false, true)));
+        when(scheduleRepository.findActiveContactsByAccountId(1L)).thenReturn(List.of("9876543210"));
+        when(alertTextBuilder.buildAlertVariables(anyList(), any())).thenReturn(List.of("Test Account", "1", "1"));
+
+        service.scanAccount(account);
+
+        ArgumentCaptor<List<AlertDto>> emailed = ArgumentCaptor.forClass(List.class);
+        verify(alertEmailBuilder).buildAlertDigestEmail(emailed.capture(), any(), any());
+        assertThat(emailed.getValue()).hasSize(2);
+
+        ArgumentCaptor<List<AlertDto>> mobile = ArgumentCaptor.forClass(List.class);
+        verify(alertTextBuilder).buildAlertVariables(mobile.capture(), any());
+        assertThat(mobile.getValue())
+                .extracting(AlertDto::getId, AlertDto::getStatus)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("vol-001", "CRITICAL"));
+
+        verify(mobileNotificationDispatcher).dispatchAll(
+                anyList(), anyList(), eq(MessageKind.ALERT), anyString(),
+                eq(EnumSet.of(NotificationChannel.WHATSAPP)));
     }
 
     @Test
