@@ -1,7 +1,9 @@
 import React from 'react';
 import { useTopbar } from '../../contexts/TopbarContext';
 import { useTheme } from '../../contexts/ThemeContext';
-import RefreshFromCurButton from '../Shared/RefreshFromCurButton';
+// Hidden from the topbar: it sat beside the ordinary Refresh and read as a second,
+// near-identical refresh control. Restore this import with the render below.
+// import RefreshFromCurButton from '../Shared/RefreshFromCurButton';
 import { setCostSourceMode } from '../../utils/apiClient';
 
 interface CostHeaderProps {
@@ -39,8 +41,12 @@ const CostHeader: React.FC<CostHeaderProps> = ({ isLoading, onRefresh, curAccoun
 
         {/* Same reload as the button above, but from the Cost and Usage Report with no
             Cost Explorer fallback — so it also answers whether this account is really
-            reading the report, which the ordinary Refresh cannot. */}
+            reading the report, which the ordinary Refresh cannot.
+
+            Hidden: two adjacent refresh controls in the topbar. Re-enable together with
+            the import at the top of this file.
         <RefreshFromCurButton accountId={curAccountId} onRefreshed={onRefresh} dark={dark} />
+        */}
       </div>
     );
     return () => clearActions();
