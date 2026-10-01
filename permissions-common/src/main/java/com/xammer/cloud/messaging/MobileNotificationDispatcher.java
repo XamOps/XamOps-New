@@ -37,10 +37,14 @@ public class MobileNotificationDispatcher {
 
     private final SmsWhatsAppClient client;
     private final MessagingProperties properties;
+    private final MessageThrottle throttle;
 
-    public MobileNotificationDispatcher(SmsWhatsAppClient client, MessagingProperties properties) {
+    public MobileNotificationDispatcher(SmsWhatsAppClient client,
+                                        MessagingProperties properties,
+                                        MessageThrottle throttle) {
         this.client = client;
         this.properties = properties;
+        this.throttle = throttle;
     }
 
     /**
@@ -101,7 +105,27 @@ public class MobileNotificationDispatcher {
                 .distinct()
                 .toList();
 
-        for (String contact : distinct) {
+        // Throttle per (kind, context, recipient). The alert scan runs every 4 hours and a resource
+        // sitting on its threshold re-breaches on most scans, so without this one stubborn disk
+        // bills six WhatsApp messages a day to every recipient. Email is unaffected and still
+        // carries the full detail each scan, so nothing is hidden by a suppressed message.
+        //
+        // `context` participates in the key, so it must be stable per account and kind — callers
+        // pass a deterministic label like "account 123456789012", not anything timestamped.
+        List<String> due = distinct.stream()
+                .filter(c -> throttle.tryAcquire(kind + ":" + context + ":" + c, properties.getCooldown()))
+                .toList();
+
+        int suppressed = distinct.size() - due.size();
+        if (suppressed > 0) {
+            log.info("{} mobile dispatch for {}: {} of {} recipient(s) suppressed by the {} cooldown",
+                    kind, context, suppressed, distinct.size(), properties.getCooldown());
+        }
+        if (due.isEmpty()) {
+            return results;
+        }
+
+        for (String contact : due) {
             results.addAll(dispatch(contact, variables, kind, allowed));
         }
 
@@ -111,7 +135,7 @@ public class MobileNotificationDispatcher {
                 .count();
         if (sent > 0 || failed > 0) {
             log.info("{} mobile dispatch for {}: {} sent, {} failed across {} recipient(s)",
-                    kind, context, sent, failed, distinct.size());
+                    kind, context, sent, failed, due.size());
         }
         return results;
     }
@@ -145,10 +169,15 @@ public class MobileNotificationDispatcher {
         MessagingProperties.WhatsApp whatsappCfg = properties.getWhatsapp();
         MessagingProperties.Sms smsCfg = properties.getSms();
 
+        // Three conditions per channel: the channel is on, the caller allowed it for this customer,
+        // and this kind of notification is permitted on it. The last one is how a kind is withheld
+        // without un-configuring its template — REPORT is currently off for WhatsApp.
         boolean whatsAppEnabled = whatsappCfg.isEnabled()
-                && permitted.contains(NotificationChannel.WHATSAPP);
+                && permitted.contains(NotificationChannel.WHATSAPP)
+                && whatsappCfg.getEnabledKinds().contains(kind);
         boolean smsEnabled = smsCfg.isEnabled()
-                && permitted.contains(NotificationChannel.SMS);
+                && permitted.contains(NotificationChannel.SMS)
+                && smsCfg.getEnabledKinds().contains(kind);
 
         boolean whatsAppDelivered = false;
 

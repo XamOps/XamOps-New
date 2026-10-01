@@ -35,8 +35,16 @@ class MessagingConfigurationBindingTest {
         }
 
         @Bean
-        MobileNotificationDispatcher dispatcher(SmsWhatsAppClient client, MessagingProperties props) {
-            return new MobileNotificationDispatcher(client, props);
+        MessageThrottle messageThrottle(
+                org.springframework.beans.factory.ObjectProvider<
+                        org.springframework.data.redis.core.StringRedisTemplate> redisProvider) {
+            return new MessageThrottle(redisProvider);
+        }
+
+        @Bean
+        MobileNotificationDispatcher dispatcher(SmsWhatsAppClient client, MessagingProperties props,
+                                               MessageThrottle throttle) {
+            return new MobileNotificationDispatcher(client, props, throttle);
         }
     }
 
@@ -77,7 +85,9 @@ class MessagingConfigurationBindingTest {
                 "xamops.messaging.whatsapp.alert-template-id=WA_ALERT",
                 "xamops.messaging.whatsapp.report-template-id=WA_REPORT",
                 "xamops.messaging.whatsapp.support-template-id=WA_SUPPORT",
-                "xamops.messaging.whatsapp.sms-fallback=true"
+                "xamops.messaging.whatsapp.sms-fallback=true",
+                "xamops.messaging.cooldown=24h",
+                "xamops.messaging.whatsapp.enabled-kinds=ALERT,SUPPORT"
         ).run(context -> {
             assertThat(context).hasNotFailed();
             MessagingProperties props = context.getBean(MessagingProperties.class);
@@ -108,6 +118,17 @@ class MessagingConfigurationBindingTest {
             assertThat(props.getWhatsapp().getReportTemplateId()).isEqualTo("WA_REPORT");
             assertThat(props.getWhatsapp().getSupportTemplateId()).isEqualTo("WA_SUPPORT");
             assertThat(props.getWhatsapp().isSmsFallback()).isTrue();
+
+            assertThat(props.getCooldown()).isEqualTo(Duration.ofHours(24));
+
+            // The comma-separated allow-list must bind to an enum set. If this silently bound to
+            // nothing, or to everything, the FinOps report would start going out on WhatsApp.
+            assertThat(props.getWhatsapp().getEnabledKinds())
+                    .containsExactlyInAnyOrder(MessageKind.ALERT, MessageKind.SUPPORT)
+                    .doesNotContain(MessageKind.REPORT);
+            // SMS was not given an allow-list, so it keeps the permissive default.
+            assertThat(props.getSms().getEnabledKinds())
+                    .containsExactlyInAnyOrder(MessageKind.ALERT, MessageKind.REPORT, MessageKind.SUPPORT);
 
             assertThat(props.isUsable()).isTrue();
             assertThat(context.getBean(MobileNotificationDispatcher.class).isActive()).isTrue();

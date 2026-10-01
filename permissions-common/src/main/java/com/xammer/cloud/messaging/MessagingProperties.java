@@ -57,6 +57,19 @@ public class MessagingProperties {
      */
     private Duration readTimeout = Duration.ofSeconds(10);
 
+    /**
+     * Minimum gap between two mobile notifications of the same kind, about the same account, to the
+     * same number. Zero disables throttling.
+     *
+     * <p>Defaults to 24h because the disk alert scan runs every 4 hours and a volume sitting near its
+     * threshold re-breaches on most scans — without this, one stubborn disk produces six billed
+     * WhatsApp messages a day per recipient, which trains people to mute the channel.
+     *
+     * <p>This caps the <em>mobile</em> channel only. Email still goes out on every scan with the full
+     * per-resource detail, so a suppressed message never hides a problem.
+     */
+    private Duration cooldown = Duration.ofHours(24);
+
     private final Sms sms = new Sms();
     private final WhatsApp whatsapp = new WhatsApp();
 
@@ -136,6 +149,14 @@ public class MessagingProperties {
         this.readTimeout = readTimeout;
     }
 
+    public Duration getCooldown() {
+        return cooldown;
+    }
+
+    public void setCooldown(Duration cooldown) {
+        this.cooldown = cooldown;
+    }
+
     public Sms getSms() {
         return sms;
     }
@@ -152,12 +173,26 @@ public class MessagingProperties {
         /** Host serving the SMS endpoints, e.g. {@code https://sms.xammer.in}. */
         private String baseUrl = "";
 
+        /** Which notification kinds may go out on this channel. See the WhatsApp equivalent. */
+        private java.util.Set<MessageKind> enabledKinds =
+                java.util.EnumSet.allOf(MessageKind.class);
+
         public String getBaseUrl() {
             return baseUrl;
         }
 
         public void setBaseUrl(String baseUrl) {
             this.baseUrl = normaliseBaseUrl(baseUrl);
+        }
+
+        public java.util.Set<MessageKind> getEnabledKinds() {
+            return enabledKinds;
+        }
+
+        public void setEnabledKinds(java.util.Set<MessageKind> enabledKinds) {
+            this.enabledKinds = (enabledKinds == null || enabledKinds.isEmpty())
+                    ? java.util.EnumSet.noneOf(MessageKind.class)
+                    : java.util.EnumSet.copyOf(enabledKinds);
         }
 
         /** DLT-approved header, e.g. {@code XAMMER}. Sent as {@code sender_id}. */
@@ -291,12 +326,33 @@ public class MessagingProperties {
         /** Host serving the WhatsApp endpoints, e.g. {@code https://whatsapp.xammer.in}. */
         private String baseUrl = "";
 
+        /**
+         * Which notification kinds may go out on this channel. Defaults to all three.
+         *
+         * <p>An allow-list rather than a set of disable flags so the live configuration states
+         * plainly what a customer can receive. Narrowing it is how a kind is held back without
+         * un-configuring its template — e.g. REPORT is currently withheld on WhatsApp because the
+         * emailed cost table is the real deliverable and the one-line summary needs more thought.
+         */
+        private java.util.Set<MessageKind> enabledKinds =
+                java.util.EnumSet.allOf(MessageKind.class);
+
         public String getBaseUrl() {
             return baseUrl;
         }
 
         public void setBaseUrl(String baseUrl) {
             this.baseUrl = normaliseBaseUrl(baseUrl);
+        }
+
+        public java.util.Set<MessageKind> getEnabledKinds() {
+            return enabledKinds;
+        }
+
+        public void setEnabledKinds(java.util.Set<MessageKind> enabledKinds) {
+            this.enabledKinds = (enabledKinds == null || enabledKinds.isEmpty())
+                    ? java.util.EnumSet.noneOf(MessageKind.class)
+                    : java.util.EnumSet.copyOf(enabledKinds);
         }
 
         /** Registered WhatsApp Business number in E.164, sent as {@code sender}. */

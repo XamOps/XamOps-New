@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
+import java.time.Duration;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +32,7 @@ class MobileNotificationDispatcherTest {
     @Mock private SmsWhatsAppClient client;
 
     private MessagingProperties properties;
+    private MessageThrottle throttle;
     private MobileNotificationDispatcher dispatcher;
 
     private static final String CONTACT = "9876543210";
@@ -43,7 +45,11 @@ class MobileNotificationDispatcherTest {
         properties.setEnabled(true);
         properties.setBaseUrl("https://provider.example.com");
         properties.setApiKey("test-key");
-        dispatcher = new MobileNotificationDispatcher(client, properties);
+        // No Redis in a unit test, so the throttle uses its in-process fallback — which is the
+        // behaviour worth asserting anyway.
+        throttle = new MessageThrottle(new org.springframework.beans.factory.support.StaticListableBeanFactory()
+                .getBeanProvider(org.springframework.data.redis.core.StringRedisTemplate.class));
+        dispatcher = new MobileNotificationDispatcher(client, properties, throttle);
 
         // SmsWhatsAppClient never returns null by contract, so the mock must not either —
         // otherwise these tests would fail on a nullness the production client cannot produce.
@@ -207,6 +213,87 @@ class MobileNotificationDispatcherTest {
 
         assertThat(results).isEmpty();
         verify(client, never()).sendWhatsApp(anyString(), anyString(), anyList());
+        verify(client, never()).sendSms(anyString(), anyString(), anyString());
+    }
+
+    // ── repeat suppression ───────────────────────────────────────────────────
+
+    @Test
+    void doesNotSendTheSameAlertToTheSameNumberTwiceWithinTheCooldown() {
+        // The disk scan runs every 4 hours and a volume on its threshold re-breaches most scans.
+        // Without this, one stubborn disk bills six messages a day to every recipient.
+        enableWhatsApp();
+        properties.setCooldown(Duration.ofHours(24));
+
+        dispatcher.dispatchAll(List.of(CONTACT), VARS, MessageKind.ALERT, "account 123456789012");
+        dispatcher.dispatchAll(List.of(CONTACT), VARS, MessageKind.ALERT, "account 123456789012");
+        dispatcher.dispatchAll(List.of(CONTACT), VARS, MessageKind.ALERT, "account 123456789012");
+
+        verify(client, times(1)).sendWhatsApp(anyString(), anyString(), anyList());
+    }
+
+    @Test
+    void cooldownIsScopedPerAccountSoOneNoisyAccountDoesNotMuteAnother() {
+        // A recipient covering several accounts must still hear about the second one.
+        enableWhatsApp();
+        properties.setCooldown(Duration.ofHours(24));
+
+        dispatcher.dispatchAll(List.of(CONTACT), VARS, MessageKind.ALERT, "account AAA");
+        dispatcher.dispatchAll(List.of(CONTACT), VARS, MessageKind.ALERT, "account BBB");
+
+        verify(client, times(2)).sendWhatsApp(anyString(), anyString(), anyList());
+    }
+
+    @Test
+    void cooldownIsScopedPerKindSoAnAlertDoesNotMuteASupportPing() {
+        enableWhatsApp();
+        properties.setCooldown(Duration.ofHours(24));
+
+        dispatcher.dispatchAll(List.of(CONTACT), VARS, MessageKind.ALERT, "account AAA");
+        dispatcher.dispatchAll(List.of(CONTACT), VARS, MessageKind.SUPPORT, "account AAA");
+
+        verify(client, times(2)).sendWhatsApp(anyString(), anyString(), anyList());
+    }
+
+    @Test
+    void zeroCooldownDisablesThrottlingEntirely() {
+        enableWhatsApp();
+        properties.setCooldown(Duration.ZERO);
+
+        dispatcher.dispatchAll(List.of(CONTACT), VARS, MessageKind.ALERT, "account AAA");
+        dispatcher.dispatchAll(List.of(CONTACT), VARS, MessageKind.ALERT, "account AAA");
+
+        verify(client, times(2)).sendWhatsApp(anyString(), anyString(), anyList());
+    }
+
+    // ── per-kind channel allow-list ──────────────────────────────────────────
+
+    @Test
+    void withholdsAKindThatIsNotOnTheChannelAllowList() {
+        // Current production setting: WhatsApp carries ALERT and SUPPORT but not REPORT, even though
+        // the report template is approved and configured.
+        enableWhatsApp();
+        properties.getWhatsapp().setEnabledKinds(
+                EnumSet.of(MessageKind.ALERT, MessageKind.SUPPORT));
+
+        dispatcher.dispatchAll(List.of(CONTACT), VARS, MessageKind.REPORT, "acct-1");
+        verify(client, never()).sendWhatsApp(anyString(), anyString(), anyList());
+
+        dispatcher.dispatchAll(List.of(CONTACT), VARS, MessageKind.ALERT, "acct-1");
+        verify(client, times(1)).sendWhatsApp(anyString(), anyString(), anyList());
+    }
+
+    @Test
+    void anAllowListPerChannelCanDifferBetweenSmsAndWhatsApp() {
+        enableWhatsApp();
+        enableSms();
+        properties.getWhatsapp().setSmsFallback(false);
+        properties.getWhatsapp().setEnabledKinds(EnumSet.of(MessageKind.ALERT));
+        properties.getSms().setEnabledKinds(EnumSet.of(MessageKind.REPORT));
+
+        dispatcher.dispatchAll(List.of(CONTACT), VARS, MessageKind.ALERT, "acct-1");
+
+        verify(client).sendWhatsApp(anyString(), anyString(), anyList());
         verify(client, never()).sendSms(anyString(), anyString(), anyString());
     }
 
