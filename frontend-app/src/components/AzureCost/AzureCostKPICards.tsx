@@ -1,13 +1,20 @@
 import React, { useRef, useEffect, useState } from 'react';
 import type { AzureCostKPIs } from '../../hooks/useAzureCostData';
+import { useMoneyIn } from '../Cost/costCurrency';
 
 interface AzureCostKPICardsProps {
   kpis: AzureCostKPIs;
   isLoading: boolean;
+  /**
+   * ISO code the subscription is billed in.
+   *
+   * <p>This component hardcoded `'₹'` with `en-IN` grouping. That is right for an INR-billed
+   * subscription and wrong for every other one, and the error is not cosmetic: a dollar figure shown
+   * with a rupee symbol reads as roughly ninety times smaller than it is, which on a spend card is
+   * the entire purpose of the number.
+   */
+  currency: string;
 }
-
-const formatCurrency = (value: number): string =>
-  '₹' + (value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const formatSplit = (str: string) => {
   const dot = str.lastIndexOf('.');
@@ -27,9 +34,10 @@ interface CurrencyCardProps {
   rawValue: number;
   subtitle: string;
   index: number;
+  format: (value: number) => string;
 }
 
-const CurrencyCard: React.FC<CurrencyCardProps> = ({ title, rawValue, subtitle, index }) => {
+const CurrencyCard: React.FC<CurrencyCardProps> = ({ title, rawValue, subtitle, index, format }) => {
   const animRef = useRef<number | undefined>(undefined);
   const prevRawValue = useRef(rawValue);
   const [animCount, setAnimCount] = useState(rawValue);
@@ -53,7 +61,7 @@ const CurrencyCard: React.FC<CurrencyCardProps> = ({ title, rawValue, subtitle, 
     return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
   }, [rawValue]);
 
-  const split = formatSplit(formatCurrency(animCount));
+  const split = formatSplit(format(animCount));
 
   return (
     <div
@@ -79,7 +87,9 @@ const CurrencyCard: React.FC<CurrencyCardProps> = ({ title, rawValue, subtitle, 
   );
 };
 
-const AzureCostKPICards: React.FC<AzureCostKPICardsProps> = ({ kpis, isLoading }) => {
+const AzureCostKPICards: React.FC<AzureCostKPICardsProps> = ({ kpis, isLoading, currency }) => {
+  const money = useMoneyIn(currency);
+
   if (isLoading) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -96,9 +106,9 @@ const AzureCostKPICards: React.FC<AzureCostKPICardsProps> = ({ kpis, isLoading }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-      <CurrencyCard index={0} title="Month-to-Date" rawValue={kpis.mtdSpend} subtitle="Current month actual spend" />
-      <CurrencyCard index={1} title="Forecasted" rawValue={kpis.forecastedSpend} subtitle="Projected end-of-month" />
-      <CurrencyCard index={2} title="Last Month" rawValue={kpis.lastMonthSpend} subtitle="Previous month actual spend" />
+      <CurrencyCard index={0} title="Month-to-Date" rawValue={kpis.mtdSpend} subtitle="Current month actual spend" format={money} />
+      <CurrencyCard index={1} title="Forecasted" rawValue={kpis.forecastedSpend} subtitle="Projected end-of-month" format={money} />
+      <CurrencyCard index={2} title="Last Month" rawValue={kpis.lastMonthSpend} subtitle="Previous month actual spend" format={money} />
     </div>
   );
 };

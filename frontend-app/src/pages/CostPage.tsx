@@ -29,7 +29,6 @@ import type { LabelCostResponse } from '../services/resourceLabelsApi';
 import CostHeader from '../components/Cost/CostHeader';
 import CostKPICards from '../components/Cost/CostKPICards';
 import CostBreakdownSection from '../components/Cost/CostBreakdownSection';
-import PriceVsVolumeSection from '../components/Cost/PriceVsVolumeSection';
 import CostDetailTabs from '../components/Cost/CostDetailTabs';
 import DataTransferSection from '../components/Cost/DataTransferSection';
 import HistoricalTrendChart from '../components/Cost/HistoricalTrendChart';
@@ -366,6 +365,10 @@ const CostPage: React.FC = () => {
                 it change" because the first question is what was billed; the comparison
                 explains it afterwards. */}
             <RevealSection>
+              {/* "Why spend changed" is now the card's third tab rather than a section of its own
+                  further down the page, and each resource row opens a panel with its detail. Both
+                  changes trade page height for layering: the depth is reachable in one click instead of
+                  a scroll, and the reader keeps their place in the table. */}
               <CostDetailTabs accountId={curAccountId} />
             </RevealSection>
 
@@ -374,13 +377,6 @@ const CostPage: React.FC = () => {
                 moved the bytes — so this is the only place the total is visible. */}
             <RevealSection>
               <DataTransferSection accountId={curAccountId} />
-            </RevealSection>
-
-            {/* Why spend changed — sits directly above the breakdown, because that is where
-                someone lands after noticing a number moved. Renders nothing when the
-                account has no Cost and Usage Report. */}
-            <RevealSection>
-              <PriceVsVolumeSection accountId={curAccountId} />
             </RevealSection>
 
             {/* Cost Breakdown Section */}

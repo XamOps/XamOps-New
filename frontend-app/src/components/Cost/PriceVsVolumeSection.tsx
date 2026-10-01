@@ -1,6 +1,7 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
-import { fetchPriceVsVolume } from '../../api/curInsightsApi';
+import { fetchPriceVsVolume, type PriceVolumeChange } from '../../api/curInsightsApi';
+import { useMoneyIn } from './costCurrency';
 import { useCurInsight } from '../../hooks/useCurInsight';
 
 /**
@@ -18,44 +19,152 @@ import { useCurInsight } from '../../hooks/useCurInsight';
  */
 
 interface PriceVsVolumeSectionProps {
-  /** Single AWS account with a report, or null to render nothing. */
+  /** Single account, project or subscription with a usable billing source, or null to render nothing. */
   accountId: string | null;
+  /**
+   * Where the comparison comes from. Defaults to the AWS Cost and Usage Report; GCP and Azure pass
+   * their own fetchers, which return the identical payload shape.
+   */
+  fetcher?: (accountId: string, period?: string) => Promise<PriceVolumeChange[] | null>;
+  /** Cache-key discriminator, so two providers never share an entry for the same id. */
+  insightName?: string;
+  /**
+   * ISO currency code the billing source reports in. Defaults to USD, which every AWS report uses; a
+   * GCP billing account or an Azure subscription can be set to anything.
+   */
+  currency?: string;
+  /**
+   * Replaces this section's own `h3`.
+   *
+   * <p>Used to hoist the sub-tab control into the card header when this renders as a tab of
+   * {@code CostDetailTabs}, so the active tab label reads as the title. Its presence also tells this
+   * component it is inside that card, which changes how it handles having nothing to show — see below.
+   */
+  heading?: React.ReactNode;
 }
-
-const money = (v: number): string =>
-  (v < 0 ? '-$' : '$') +
-  Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /**
  * Below this a change is noise — rounding on a service costing a few cents, not something
  * worth a row. Without it the table fills with $0.00 movements and the real ones are lost.
+ *
+ * <p>Deliberately one unit of whatever the account is billed in rather than one dollar converted.
+ * The point is "too small to bother with", and on an INR-billed subscription ₹1 is exactly as
+ * ignorable as $1 is on a dollar one — a converted threshold would hide eighty rupees of real
+ * movement or show a cent of noise, depending which way it was applied.
  */
 const MIN_CHANGE = 1;
 
 /** How many rows before it stops being a summary. */
 const MAX_ROWS = 8;
 
-const PriceVsVolumeSection: React.FC<PriceVsVolumeSectionProps> = ({ accountId }) => {
-  // The last two complete months. See the note above on why not "this month".
-  const period = useMemo(() => {
-    const d = new Date();
-    d.setDate(1);
-    d.setMonth(d.getMonth() - 1);
-    const prior = new Date(d);
-    prior.setMonth(prior.getMonth() - 1);
-    return {
-      value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-      current: d.toLocaleDateString('en-US', { month: 'long' }),
-      prior: prior.toLocaleDateString('en-US', { month: 'long' }),
-    };
-  }, []);
+/** How many comparisons the selector offers. Matches the other sections' 12-month window. */
+const MONTHS_OFFERED = 12;
 
-  // Cached across mounts, so returning to this page does not re-scan the report.
+/**
+ * A usage quantity, at a readable precision.
+ *
+ * <p>Quantities span a huge range here — 2,075 hours, 0.96 GB-months, 147 million requests — so a
+ * fixed number of decimals is unreadable at one end and rounds to zero at the other.
+ */
+const quantity = (v: number): string => {
+  if (v === 0) return '0';
+  const abs = Math.abs(v);
+  if (abs >= 1000) return v.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  if (abs >= 1) return v.toLocaleString('en-US', { maximumFractionDigits: 3 });
+  return v.toLocaleString('en-US', { maximumFractionDigits: 6 });
+};
+
+/** One selectable comparison: a month and the one before it. */
+interface Comparison {
+  /** `YYYY-MM` of the later month, which is what the endpoint takes. */
+  value: string;
+  /** "August 2026 vs July 2026" — both named, so the pair is never ambiguous. */
+  label: string;
+  /** Month names for the subheading. */
+  current: string;
+  prior: string;
+}
+
+/**
+ * The last twelve complete months, each paired with its predecessor, newest first.
+ *
+ * <p>Complete months only. The current month is deliberately absent: comparing a part-finished month
+ * against a finished one makes every service look like it collapsed, which is not a smaller bill but
+ * fewer days, and no amount of labelling stops people reading it as a real drop. Offering it in a
+ * dropdown would be offering a reading that is wrong by construction.
+ */
+const comparisonOptions = (): Comparison[] => {
+  const out: Comparison[] = [];
+  const later = new Date();
+  later.setDate(1);
+  // Start at last month, not this one.
+  later.setMonth(later.getMonth() - 1);
+
+  for (let i = 0; i < MONTHS_OFFERED; i++) {
+    const earlier = new Date(later);
+    earlier.setMonth(earlier.getMonth() - 1);
+    const monthYear = (d: Date) =>
+      d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    out.push({
+      value: `${later.getFullYear()}-${String(later.getMonth() + 1).padStart(2, '0')}`,
+      label: `${monthYear(later)} vs ${monthYear(earlier)}`,
+      current: later.toLocaleDateString('en-US', { month: 'long' }),
+      prior: earlier.toLocaleDateString('en-US', { month: 'long' }),
+    });
+    later.setMonth(later.getMonth() - 1);
+  }
+  return out;
+};
+
+const PriceVsVolumeSection: React.FC<PriceVsVolumeSectionProps> = ({
+  accountId,
+  fetcher = fetchPriceVsVolume,
+  insightName = 'price-vs-volume',
+  currency = 'USD',
+  heading,
+}) => {
+  const format = useMoneyIn(currency);
+  // Signed, with the sign outside the amount: a change reads as "+₹1,240" / "-₹1,240", and the
+  // Intl-placed minus inside the symbol ("₹-1,240") is harder to scan in a column.
+  const money = (v: number): string => (v < 0 ? '-' : '') + format(Math.abs(v));
+
+  /*
+   * Which two months to compare.
+   *
+   * The pair used to be fixed at the last two complete months, computed once and unchangeable — the
+   * only section on the page without a period control, while its endpoint has always taken one. So
+   * "did that rate rise happen in August or has it been running since June" was unanswerable here,
+   * which is the obvious next question after reading a single month's split.
+   */
+  const comparisons = useMemo(comparisonOptions, []);
+  const [period, setPeriod] = useState(comparisons[0].value);
+  const selected = comparisons.find((c) => c.value === period) ?? comparisons[0];
+
+  /**
+   * Services whose working is open.
+   *
+   * <p>The two effect columns are derived figures, and until now the table showed only the results —
+   * so a reader had no way to see where "+₹530 rate change" came from, or to check it. The four raw
+   * numbers behind every row (both months' cost and both months' quantity) are already in the payload
+   * and were being discarded. Expanding a row shows them and the arithmetic, so the split is
+   * verifiable rather than something the page asserts.
+   */
+  const [openRows, setOpenRows] = useState<Set<string>>(new Set());
+  const toggleRow = (service: string) =>
+    setOpenRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(service)) next.delete(service);
+      else next.add(service);
+      return next;
+    });
+
+  // Cached across mounts and per period, so switching back to a month already viewed does not
+  // re-scan the billing source.
   const { data, isPending, isError } = useCurInsight(
-    'price-vs-volume',
+    insightName,
     accountId,
-    period.value,
-    fetchPriceVsVolume,
+    period,
+    fetcher,
   );
   const loading = Boolean(accountId) && isPending;
   // Movements under a dollar are rounding on a service costing pennies, not a story.
@@ -68,40 +177,103 @@ const PriceVsVolumeSection: React.FC<PriceVsVolumeSectionProps> = ({ accountId }
   );
 
   if (!accountId || loading) return null;
-  // Nothing moved by more than a dollar. A table of zeroes says less than no table.
-  if (!rows || rows.length === 0) return null;
+  /*
+   * Null means the billing source cannot answer this at all — no report, no readable export, a scope
+   * that will not aggregate usage quantity. No month will ever work, so as a standalone section this
+   * hides entirely.
+   *
+   * As a *tab*, it must not: the tab control lives in this panel's heading, so returning null would
+   * delete the control that got the reader here and strand them on a blank card. Exactly the mistake
+   * CostDetailTabs documents having made once already. When a heading is supplied it stays and explains
+   * itself instead.
+   *
+   * An empty list is a third case — the source answered and nothing moved by more than a unit — and is
+   * always kept on screen, because the month selector is the thing the reader needs next.
+   */
+  if (!rows && !heading) return null;
 
-  const totalChange = rows.reduce((sum, r) => sum + r.costChange, 0);
+  const totalChange = (rows ?? []).reduce((sum, r) => sum + r.costChange, 0);
 
   return (
     <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
-      <div className="flex items-start justify-between gap-4 mb-1">
+      <div className="flex items-start justify-between gap-4 mb-1 flex-wrap">
         <div>
-          <h3 className="text-[15px] font-bold text-black">Why did spend change?</h3>
+          {heading ?? <h3 className="text-[15px] font-bold text-black">Why did spend change?</h3>}
           <p className="text-[12px] text-[rgba(0,0,0,0.45)] mt-0.5">
-            {period.current} vs {period.prior} — whether each service cost more because it
+            {selected.current} vs {selected.prior} — whether each service cost more because it
             was <span className="font-medium">used more</span>, or because the{' '}
             <span className="font-medium">rate changed</span>.
           </p>
         </div>
-        <div className="text-right flex-shrink-0">
-          <p className="text-[11px] text-[rgba(0,0,0,0.4)] uppercase tracking-wide">Net change</p>
-          <p
-            className={`text-[18px] font-bold ${
-              totalChange >= 0 ? 'text-[#DC2626]' : 'text-[#158045]'
-            }`}
+        <div className="flex items-center gap-4 flex-shrink-0">
+          <select
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
+            aria-label="Months to compare"
+            className="px-3 py-1.5 text-[12.5px] border border-[rgba(0,0,0,0.15)] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-black/5"
           >
-            {totalChange >= 0 ? '+' : ''}
-            {money(totalChange)}
-          </p>
+            {comparisons.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+
+          <div className="text-right">
+            <p className="text-[11px] text-[rgba(0,0,0,0.4)] uppercase tracking-wide">Net change</p>
+            <p
+              className={`text-[18px] font-bold ${
+                totalChange >= 0 ? 'text-[#DC2626]' : 'text-[#158045]'
+              }`}
+            >
+              {totalChange >= 0 ? '+' : ''}
+              {money(totalChange)}
+            </p>
+          </div>
         </div>
       </div>
 
+      {/* The billing source cannot answer this at all. Only reachable as a tab — see above. */}
+      {!rows && (
+        <div className="mt-4 flex items-start gap-2.5 px-3.5 py-3 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.07)] rounded-lg">
+          <Icon
+            icon="mdi:information-outline"
+            width={15}
+            className="text-[rgba(0,0,0,0.35)] flex-shrink-0 mt-0.5"
+          />
+          <div className="text-[11.5px] text-[rgba(0,0,0,0.55)] leading-relaxed">
+            This comparison is not available for this account. It needs usage quantity alongside cost on
+            every billed line, which not every billing source reports — without it the split would
+            attribute every movement to the rate, which would describe the query rather than the bill.
+          </div>
+        </div>
+      )}
+
+      {/* The source answered and nothing moved. Said rather than hidden, so the selector above stays
+          reachable — this is the one case where a reader wants to try a different month. */}
+      {rows && rows.length === 0 && (
+        <div className="mt-4 flex items-start gap-2.5 px-3.5 py-3 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.07)] rounded-lg">
+          <Icon
+            icon="mdi:information-outline"
+            width={15}
+            className="text-[rgba(0,0,0,0.35)] flex-shrink-0 mt-0.5"
+          />
+          <div className="text-[11.5px] text-[rgba(0,0,0,0.55)] leading-relaxed">
+            No service moved by more than {format(MIN_CHANGE)} between {selected.prior} and{' '}
+            {selected.current}. Either spend was flat, or this billing source does not reach back to
+            both months — a report or export only covers months from when it was created onward.
+          </div>
+        </div>
+      )}
+
+      {rows && rows.length > 0 && (
       <div className="overflow-x-auto -mx-2 mt-4">
         <table className="w-full min-w-[560px] text-[12.5px]">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-[rgba(0,0,0,0.4)]">
               <th className="font-medium px-2 pb-2">Service</th>
+              {/* Says the rows are expandable. The chevron alone is easy to miss on a table that
+                  did not used to have one. */}
               <th className="font-medium px-2 pb-2 text-right">Change</th>
               <th className="font-medium px-2 pb-2 text-right">Used more / less</th>
               <th className="font-medium px-2 pb-2 text-right">Rate change</th>
@@ -122,9 +294,31 @@ const PriceVsVolumeSection: React.FC<PriceVsVolumeSectionProps> = ({ accountId }
                   ? 'Higher rate'
                   : 'Lower rate';
 
+              const open = openRows.has(r.service);
+              // A service with no usage in the earlier month is priced off its own rate, so the
+              // whole change is usage. Worth naming in the working, because "used more" on a service
+              // that did not exist is otherwise a confusing way to say "this is new".
+              const isNew = r.priorQuantity === 0 && r.priorCost === 0;
+              const priorRate = r.priorQuantity > 0 ? r.priorCost / r.priorQuantity : 0;
+              const currentRate = r.currentQuantity > 0 ? r.currentCost / r.currentQuantity : 0;
+
               return (
-                <tr key={r.service} className="border-t border-[rgba(0,0,0,0.06)]">
-                  <td className="px-2 py-2.5 font-medium text-black">{r.service}</td>
+                <React.Fragment key={r.service}>
+                <tr
+                  className="border-t border-[rgba(0,0,0,0.06)] cursor-pointer hover:bg-[rgba(0,0,0,0.015)] transition-colors"
+                  onClick={() => toggleRow(r.service)}
+                  title="Show how this was calculated"
+                >
+                  <td className="px-2 py-2.5 font-medium text-black">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Icon
+                        icon={open ? 'mdi:chevron-down' : 'mdi:chevron-right'}
+                        width={14}
+                        className="text-[rgba(0,0,0,0.35)] flex-shrink-0"
+                      />
+                      {r.service}
+                    </span>
+                  </td>
                   <td
                     className={`px-2 py-2.5 text-right font-semibold ${
                       r.costChange >= 0 ? 'text-[#DC2626]' : 'text-[#158045]'
@@ -154,16 +348,110 @@ const PriceVsVolumeSection: React.FC<PriceVsVolumeSectionProps> = ({ accountId }
                     </span>
                   </td>
                 </tr>
+
+                {open && (
+                  <tr className="bg-[rgba(0,0,0,0.015)]">
+                    <td colSpan={5} className="px-2 pb-4 pt-1">
+                      <div className="ml-5 grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-3">
+
+                        {/* What was billed, both months — the numbers everything below comes from. */}
+                        <div>
+                          <p className="text-[10.5px] uppercase tracking-wide text-[rgba(0,0,0,0.4)] font-medium mb-1.5">
+                            What was billed
+                          </p>
+                          <table className="text-[11.5px] w-full">
+                            <tbody>
+                              <tr className="text-[rgba(0,0,0,0.4)]">
+                                <td className="pr-3"></td>
+                                <td className="pr-3 text-right font-medium">Cost</td>
+                                <td className="pr-3 text-right font-medium">Usage</td>
+                                <td className="text-right font-medium">Per unit</td>
+                              </tr>
+                              <tr>
+                                <td className="pr-3 py-0.5 text-[rgba(0,0,0,0.6)]">{selected.prior}</td>
+                                <td className="pr-3 py-0.5 text-right tabular-nums">{format(r.priorCost)}</td>
+                                <td className="pr-3 py-0.5 text-right tabular-nums">{quantity(r.priorQuantity)}</td>
+                                <td className="py-0.5 text-right tabular-nums">
+                                  {r.priorQuantity > 0 ? format(priorRate) : '—'}
+                                </td>
+                              </tr>
+                              <tr>
+                                <td className="pr-3 py-0.5 text-[rgba(0,0,0,0.6)]">{selected.current}</td>
+                                <td className="pr-3 py-0.5 text-right tabular-nums">{format(r.currentCost)}</td>
+                                <td className="pr-3 py-0.5 text-right tabular-nums">{quantity(r.currentQuantity)}</td>
+                                <td className="py-0.5 text-right tabular-nums">
+                                  {r.currentQuantity > 0 ? format(currentRate) : '—'}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* The arithmetic, written out with this row's own numbers. */}
+                        <div>
+                          <p className="text-[10.5px] uppercase tracking-wide text-[rgba(0,0,0,0.4)] font-medium mb-1.5">
+                            How the split is worked out
+                          </p>
+                          {isNew ? (
+                            <p className="text-[11.5px] text-[rgba(0,0,0,0.6)] leading-relaxed">
+                              Nothing was billed for this service in {selected.prior}, so there is no
+                              earlier rate to compare against and the whole{' '}
+                              <span className="font-medium">{money(r.costChange)}</span> counts as
+                              usage.
+                            </p>
+                          ) : (
+                            <div className="text-[11.5px] text-[rgba(0,0,0,0.6)] space-y-1 leading-relaxed">
+                              <p>
+                                <span className="font-medium text-black">Used more / less</span> ={' '}
+                                usage change × {selected.prior}&apos;s rate
+                                <br />
+                                <span className="tabular-nums">
+                                  ({quantity(r.currentQuantity)} − {quantity(r.priorQuantity)}) ×{' '}
+                                  {format(priorRate)} = {money(r.volumeEffect)}
+                                </span>
+                              </p>
+                              <p>
+                                <span className="font-medium text-black">Rate change</span> = whatever
+                                the total change leaves after that
+                                <br />
+                                <span className="tabular-nums">
+                                  {money(r.costChange)} − ({money(r.volumeEffect)}) ={' '}
+                                  {money(r.priceEffect)}
+                                </span>
+                              </p>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Stated on the row it affects, not only in the footnote. A service billed in
+                            one unit has a real per-unit price; a broad one does not. */}
+                        <p className="lg:col-span-2 text-[10.5px] text-[rgba(0,0,0,0.38)] leading-relaxed">
+                          &quot;Per unit&quot; is this service&apos;s cost divided by its total usage,
+                          not a price from a rate card. Where a service bills in several units at once
+                          — gigabytes, hours and operations together — that average is a blended figure,
+                          so read the split as a direction rather than an exact amount.
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               );
             })}
           </tbody>
         </table>
       </div>
+      )}
 
-      <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-3 leading-relaxed">
-        The two middle columns add up to the change. A service that only appeared this
-        month counts entirely as usage, since it had no earlier rate to compare against.
-      </p>
+      {rows && rows.length > 0 && (
+        <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-3 leading-relaxed">
+          The two middle columns add up to the change. <span className="font-medium">Click a row</span>{' '}
+          to see both months&apos; cost and usage and the arithmetic behind its split. A service that
+          only appeared in {selected.current} counts entirely as usage, since it had no earlier rate to
+          compare against. Only complete months are offered — comparing a part-finished month against a
+          finished one makes every service look like it collapsed.
+        </p>
+      )}
     </div>
   );
 };

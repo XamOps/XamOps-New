@@ -219,6 +219,87 @@ public class CurInsightsController {
     }
 
     /**
+     * One resource in depth: its month-over-month movement, which usage types moved, and its daily spend.
+     *
+     * <p>Serves the resource drill-down panel. Scoped to a single resource id, so unlike the sections
+     * around it the cost of this query barely grows with the size of the account — which is what makes
+     * it safe to run on a click rather than precomputing it for every resource in the table.
+     *
+     * <p>Both months must be inside the report's coverage, so the resolver is asked about the earlier
+     * one. A report that does not reach back far enough cannot produce a comparison, and a silently
+     * one-sided one would read as the resource having appeared from nothing.
+     */
+    @GetMapping("/resource-change/{accountId}")
+    public ResponseEntity<?> resourceChange(@PathVariable String accountId,
+                                            @RequestParam String resourceId,
+                                            @RequestParam(required = false) String service,
+                                            @RequestParam(required = false) String region,
+                                            @RequestParam(required = false) String period) {
+        if (resourceId.isBlank()) {
+            // The resource table groups charges that belong to no resource — tax, support — under one
+            // heading. There is no per-resource story to tell about them, so the panel is not offered.
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "A resource id is required",
+                    "detail", "Charges that belong to no resource have no per-resource breakdown."));
+        }
+        return insightCache.getOrCompute(accountId,
+                () -> computeResourceChange(accountId, resourceId, service, region, period));
+    }
+
+    private ResponseEntity<?> computeResourceChange(String accountId, String resourceId,
+                                                    String service, String region, String period) {
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        CloudAccount account = accounts.get(0);
+
+        YearMonth current;
+        try {
+            current = period != null && !period.isBlank() ? YearMonth.parse(period) : YearMonth.now();
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Invalid period",
+                    "detail", "Expected YYYY-MM, got '" + period + "'"));
+        }
+        YearMonth prior = current.minusMonths(1);
+
+        /*
+         * Only the selected month is required.
+         *
+         * This used to resolve across both months, which meant a report younger than two months could not
+         * answer at all and the panel opened onto "no detail available" — for a resource whose current
+         * month was sitting in the report, queryable, alongside the daily series. A CUR begins at the
+         * month it was created and never backfills, so that is the normal state for a newly connected
+         * report rather than an edge case.
+         *
+         * The comparison degrades instead: the prior month is probed separately and, when it is outside
+         * coverage, the payload says so rather than reporting zeros as a real earlier month.
+         */
+        Optional<CurSource> source = curSourceResolver.resolve(
+                account, current.atDay(1), current.atEndOfMonth());
+        if (source.isEmpty()) {
+            CurSourceResolver.Coverage coverage = curSourceResolver.describeCoverage(
+                    account, current.atDay(1), current.atEndOfMonth(), false);
+            return noCurSource(accountId, coverage.message());
+        }
+
+        boolean comparePrior = curSourceResolver
+                .resolve(account, prior.atDay(1), prior.atEndOfMonth())
+                .isPresent();
+
+        try {
+            return ResponseEntity.ok(metricsService.getResourceChange(source.get(), account, resourceId,
+                    service, region,
+                    current.atDay(1), endOf(current),
+                    prior.atDay(1), prior.atEndOfMonth(),
+                    comparePrior));
+        } catch (Exception e) {
+            return queryFailed(accountId, e);
+        }
+    }
+
+    /**
      * Price vs volume decomposition against the preceding month.
      *
      * <p>Both periods must be inside the report's coverage, so the resolver is asked
@@ -244,7 +325,13 @@ public class CurInsightsController {
         Optional<CurSource> source = curSourceResolver.resolve(
                 account, prior.atDay(1), current.atEndOfMonth());
         if (source.isEmpty()) {
-            return noCurSource(accountId);
+            // Unlike the other sections this genuinely needs both months — a one-sided comparison would
+            // read as every service having appeared from nothing. But the reason is worth stating: on a
+            // report younger than two months this is the expected answer for every month it offers, and
+            // the generic "connect a CUR" text sends someone to reconnect one that is already working.
+            CurSourceResolver.Coverage coverage = curSourceResolver.describeCoverage(
+                    account, prior.atDay(1), current.atEndOfMonth(), false);
+            return noCurSource(accountId, coverage.message());
         }
 
         try {
@@ -311,9 +398,20 @@ public class CurInsightsController {
     }
 
     private ResponseEntity<Map<String, String>> noCurSource(String accountId) {
+        return noCurSource(accountId, null);
+    }
+
+    /**
+     * @param reason the resolver's own sentence, which names the actual limit — "this report starts at
+     *               2026-09" is the difference between a reader understanding why a month is empty and
+     *               concluding the product is broken. Falls back to the generic explanation when the
+     *               caller has no coverage detail to hand.
+     */
+    private ResponseEntity<Map<String, String>> noCurSource(String accountId, String reason) {
         return ResponseEntity.status(409).body(Map.of(
                 "error", "No Cost and Usage Report is available for account " + accountId,
-                "detail", "These insights are derived from CUR columns that the Cost Explorer API"
+                "detail", reason != null && !reason.isBlank() ? reason
+                        : "These insights are derived from CUR columns that the Cost Explorer API"
                         + " does not expose, so there is no fallback. Connect a CUR for this account."));
     }
 

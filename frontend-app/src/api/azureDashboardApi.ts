@@ -92,6 +92,24 @@ export const fetchAzureDashboardData = async (
       // Defaults to complete so an older cached payload without the fields is not flagged.
       dataComplete: rawData.dataComplete !== false,
       dataWarnings: rawData.dataWarnings || [],
+
+      /*
+       * The billing currency, which the backend has recorded since ingestion started reading the
+       * Cost Management `Currency` column and which this transform dropped along with everything
+       * else it did not name. Its absence is why every Azure cost component hardcoded a rupee
+       * symbol and one of them hardcoded a dollar — both right for an INR-billed subscription and
+       * both wrong for any other, with a roughly ninety-fold error in the reader's head.
+       *
+       * Left undefined rather than defaulted to USD when the backend does not send it, so a caller
+       * can tell "billed in dollars" from "not ingested yet" and fall back on its own terms.
+       */
+      currency: rawData.currency || undefined,
+      monthToDateSpendUsd: rawData.monthToDateSpendUsd,
+
+      // How old the figures are. Set by the backend on every snapshot read and never mapped, so
+      // the page had no way to say whether it was showing this morning's numbers or last week's.
+      snapshotAgeMinutes: rawData.snapshotAgeMinutes,
+      stale: rawData.stale === true,
     };
 
     console.log('🔷 Transformed Azure dashboard data:', transformedData);

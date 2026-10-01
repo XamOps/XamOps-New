@@ -14,11 +14,28 @@ export interface GcpForecastDataPoint {
   yhat_upper: number;
 }
 
-export type GcpGroupByType = 'SERVICE' | 'PROJECT' | 'TAG';
+/**
+ * How the breakdown is grouped.
+ *
+ * <p>`REGION` was missing here while the backend supported it all along — `GcpCostService`
+ * handles it and `/costs/summary` already asks for it. The dropdown offered Service, Project and
+ * Tag, so a reader could not ask the one question the AWS and Azure pages both answer by default.
+ */
+export type GcpGroupByType = 'SERVICE' | 'REGION' | 'PROJECT' | 'TAG';
 
 export interface GcpCostFilters {
   groupBy: GcpGroupByType;
   tagKey: string;
+  /**
+   * Inclusive range, `YYYY-MM-DD`.
+   *
+   * <p>`/costs/breakdown` has accepted `startDate` and `endDate` since it was written and the page
+   * never sent them, so every GCP breakdown was whatever default range the service picked. "Last
+   * month" and "the first twelve days" were unaskable questions on a page whose AWS and Azure
+   * equivalents both answer them.
+   */
+  startDate: string;
+  endDate: string;
 }
 
 export interface GcpForecastState {

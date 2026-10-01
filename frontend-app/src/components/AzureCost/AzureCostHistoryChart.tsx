@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import type { AzureCostHistory } from '../../types/azureDashboard';
+import { useMoneyIn } from '../Cost/costCurrency';
 
 declare global {
   interface Window { Chart: any; }
@@ -8,12 +9,16 @@ declare global {
 interface AzureCostHistoryChartProps {
   costHistory: AzureCostHistory;
   isLoading: boolean;
+  /** ISO code the subscription is billed in. See AzureCostKPICards on why this is not hardcoded. */
+  currency: string;
 }
 
-const formatCurrency = (value: number): string =>
-  '₹' + (value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-const AzureCostHistoryChart: React.FC<AzureCostHistoryChartProps> = ({ costHistory, isLoading }) => {
+const AzureCostHistoryChart: React.FC<AzureCostHistoryChartProps> = ({
+  costHistory,
+  isLoading,
+  currency,
+}) => {
+  const money = useMoneyIn(currency);
   const chartRef = useRef<any>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -61,7 +66,7 @@ const AzureCostHistoryChart: React.FC<AzureCostHistoryChartProps> = ({ costHisto
             cornerRadius: 8,
             padding: 10,
             callbacks: {
-              label: (c: any) => `Cost: ${formatCurrency(c.parsed.y)}`,
+              label: (c: any) => `Cost: ${money(c.parsed.y)}`,
               afterLabel: (c: any) => forecastFlags[c.dataIndex] ? 'Projected — not yet billed' : '',
             },
           },
@@ -70,7 +75,7 @@ const AzureCostHistoryChart: React.FC<AzureCostHistoryChartProps> = ({ costHisto
           y: {
             beginAtZero: true,
             grid: { color: 'rgba(226,232,240,0.5)' },
-            ticks: { callback: (v: any) => '₹' + Number(v).toLocaleString('en-IN'), color: '#6b7280', font: { size: 10 } },
+            ticks: { callback: (v: any) => money(Number(v)), color: '#6b7280', font: { size: 10 } },
           },
           x: {
             grid: { display: false },
@@ -81,7 +86,7 @@ const AzureCostHistoryChart: React.FC<AzureCostHistoryChartProps> = ({ costHisto
     });
 
     return () => { chartRef.current?.destroy(); };
-  }, [costHistory]);
+  }, [costHistory, money]);
 
   return (
     <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 mb-6">

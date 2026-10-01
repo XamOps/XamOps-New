@@ -1,13 +1,20 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import type { GcpCostDataItem } from '../../types/gcpCost';
+import { useMoneyIn } from '../Cost/costCurrency';
 
 interface GcpCostKPICardsProps {
   costData: GcpCostDataItem[];
   isLoading: boolean;
+  /**
+   * ISO code the billing account is denominated in.
+   *
+   * <p>This hardcoded `'₹'` with `en-IN` grouping. A GCP billing account is set to whatever currency
+   * the customer signed up in, so that is right for one set of customers and wrong for the rest —
+   * and a dollar figure shown with a rupee sign reads as roughly ninety times smaller than it is,
+   * which on a spend card is the entire purpose of the number.
+   */
+  currency: string;
 }
-
-const formatCurrency = (value: number): string =>
-  '₹' + (value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const formatSplit = (str: string) => {
   const dot = str.lastIndexOf('.');
@@ -27,9 +34,10 @@ interface CurrencyCardProps {
   rawValue: number;
   subtitle: string;
   index: number;
+  format: (value: number) => string;
 }
 
-const CurrencyCard: React.FC<CurrencyCardProps> = ({ title, rawValue, subtitle, index }) => {
+const CurrencyCard: React.FC<CurrencyCardProps> = ({ title, rawValue, subtitle, index, format }) => {
   const animRef = useRef<number | undefined>(undefined);
   const prevRawValue = useRef(rawValue);
   const [animCount, setAnimCount] = useState(rawValue);
@@ -53,7 +61,7 @@ const CurrencyCard: React.FC<CurrencyCardProps> = ({ title, rawValue, subtitle, 
     return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
   }, [rawValue]);
 
-  const split = formatSplit(formatCurrency(animCount));
+  const split = formatSplit(format(animCount));
 
   return (
     <div
@@ -79,7 +87,8 @@ const CurrencyCard: React.FC<CurrencyCardProps> = ({ title, rawValue, subtitle, 
   );
 };
 
-const GcpCostKPICards: React.FC<GcpCostKPICardsProps> = ({ costData, isLoading }) => {
+const GcpCostKPICards: React.FC<GcpCostKPICardsProps> = ({ costData, isLoading, currency }) => {
+  const money = useMoneyIn(currency);
   const metrics = useMemo(() => {
     const totalCost = costData.reduce((sum, item) => sum + item.amount, 0);
     const sortedData = [...costData].sort((a, b) => b.amount - a.amount);
@@ -103,7 +112,10 @@ const GcpCostKPICards: React.FC<GcpCostKPICardsProps> = ({ costData, isLoading }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-      <CurrencyCard index={0} title="Total Cost" rawValue={metrics.totalCost} subtitle="Last 90 days" />
+      {/* Month to date, not 90 days: the breakdown endpoint is called with no date range, and its
+          default is the first of the month to today (GcpCostService.getCostBreakdownSync). The old
+          label overstated the window by two months, which makes the figure look far too low. */}
+      <CurrencyCard index={0} title="Total Cost" rawValue={metrics.totalCost} subtitle="Month to date" format={money} />
 
       {/* Categories — integer count */}
       <div
@@ -122,7 +134,7 @@ const GcpCostKPICards: React.FC<GcpCostKPICardsProps> = ({ costData, isLoading }
         </div>
       </div>
 
-      <CurrencyCard index={2} title="Top Spender" rawValue={metrics.topSpender.amount} subtitle={metrics.topSpender.name} />
+      <CurrencyCard index={2} title="Top Spender" rawValue={metrics.topSpender.amount} subtitle={metrics.topSpender.name} format={money} />
     </div>
   );
 };

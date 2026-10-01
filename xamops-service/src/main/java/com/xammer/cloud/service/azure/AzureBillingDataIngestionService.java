@@ -343,6 +343,34 @@ public class AzureBillingDataIngestionService {
         return fromDb;
     }
 
+    /**
+     * Daily cost per service — {@code service -> ISO date -> cost}: Redis, then the database mirror.
+     *
+     * <p>
+     * Added because two callers now need this series and both were reading it by hand. Anomaly
+     * detection reassembled the Redis-then-DB fallback inside
+     * {@code AzureCostAnomalyService.loadDailySeries}, and forecast accuracy evaluation gave up on
+     * Azure entirely — {@code ForecastAccuracyService.fetchActuals} carried a comment saying Azure had
+     * "no reliable daily actuals source", which stopped being true the moment this series started
+     * being cached. Without it every Azure prediction aged out as SKIPPED and the accuracy badge could
+     * only ever report insufficient data.
+     *
+     * <p>
+     * A hit from the database re-warms Redis, on the same terms as every other reader here.
+     */
+    public Optional<Map<String, Map<String, Double>>> readDailyServiceCosts(String subscriptionId) {
+        String redisKey = AZURE_DAILY_SERVICE_COST_CACHE_PREFIX + subscriptionId;
+        TypeReference<Map<String, Map<String, Double>>> type = new TypeReference<>() {};
+        Optional<Map<String, Map<String, Double>>> fromRedis = redisCache.get(redisKey, type);
+        if (fromRedis.isPresent()) {
+            return fromRedis;
+        }
+        Optional<Map<String, Map<String, Double>>> fromDb = readFromDb(
+                AZURE_DAILY_SERVICE_COST_DB_PREFIX + subscriptionId, type);
+        fromDb.ifPresent(value -> redisCache.put(redisKey, value, 60 * 24));
+        return fromDb;
+    }
+
     /** Month label to USD total, from Azure's own conversion: Redis, then the database mirror. */
     public Optional<Map<String, Double>> readCostUsdByMonth(String subscriptionId) {
         String redisKey = AZURE_COST_USD_CACHE_PREFIX + subscriptionId;

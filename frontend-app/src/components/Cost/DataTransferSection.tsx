@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
-import { fetchDataTransferCosts } from '../../api/curInsightsApi';
+import { fetchDataTransferCosts, type DataTransferBreakdown } from '../../api/curInsightsApi';
+import { CostCurrencyContext, useMoney, useMoneyIn } from './costCurrency';
 import { useCurInsight } from '../../hooks/useCurInsight';
 import { buildGroups, type Group, type Resource, type Route } from './dataTransferModel';
 
@@ -25,9 +26,43 @@ import { buildGroups, type Group, type Resource, type Route } from './dataTransf
  * Logs. The section says so rather than leaving a blank that reads as a bug.
  */
 
+/**
+ * The wording that differs between providers.
+ *
+ * <p>One object rather than six props, and overridable rather than branched on a provider enum:
+ * the arithmetic and the layout are identical for AWS and GCP — a GCP zone *is* an availability
+ * zone and Cloud NAT *is* a NAT gateway — so only the sentences change. Branching inside the
+ * component would invite the two providers' behaviour to drift apart, which is the thing sharing
+ * it is meant to prevent.
+ */
+export interface DataTransferCopy {
+  heading?: string;
+  subheading?: string;
+  footnote?: string;
+  /** What an empty month might mean, which differs by billing source. */
+  emptyHint?: string;
+  /** Replaces the explanation under a category, where the fix differs by provider. */
+  categoryBlurbs?: Record<string, string>;
+  /** Why per-resource attribution is unavailable, which is a different setting on each provider. */
+  noResourceDetail?: React.ReactNode;
+}
+
 interface DataTransferSectionProps {
-  /** Single AWS account with a report, or null to render nothing. */
+  /** Single account or project with a usable billing source, or null to render nothing. */
   accountId: string | null;
+  /**
+   * Where the breakdown comes from. Defaults to the AWS Cost and Usage Report; GCP passes its
+   * BigQuery billing-export fetcher, which returns the identical payload shape.
+   */
+  fetcher?: (accountId: string, period?: string) => Promise<DataTransferBreakdown | null>;
+  /** Cache-key discriminator, so two providers never share an entry for the same id. */
+  insightName?: string;
+  copy?: DataTransferCopy;
+  /**
+   * ISO currency code the billing source reports in. Defaults to USD, which every AWS report
+   * uses; a GCP billing account can be set to anything.
+   */
+  currency?: string;
 }
 
 /** The last 12 months, newest first. Matches the Charges by service selector. */
@@ -45,8 +80,7 @@ const monthOptions = (): { value: string; label: string }[] => {
   return out;
 };
 
-const money = (v: number): string =>
-  '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 
 const amount = (v: number): string =>
   v.toLocaleString('en-US', {
@@ -146,6 +180,35 @@ const CATEGORIES: Record<string, { icon: string; color: string; blurb: string }>
     color: '#158045',
     blurb: 'Data entering AWS. Normally free, so anything charged here is worth a look.',
   },
+  // ── Categories only GCP produces ──────────────────────────────────────────
+  // Harmless on AWS, which never emits them. Kept in the shared map rather than injected per
+  // provider because an icon and a colour are presentation, not provider behaviour.
+  'Load balancing': {
+    icon: 'mdi:scale-balance',
+    color: '#0891B2',
+    blurb:
+      'Forwarding rules and the data they process. On GCP this is where the cost of inbound ' +
+      'traffic lands, because ingress itself is free and the charge sits on whatever handles it.',
+  },
+  'Cloud VPN': {
+    icon: 'mdi:shield-lock-outline',
+    color: '#B45309',
+    blurb:
+      'Tunnel uptime plus the traffic crossing it. A tunnel is billed per hour whether anything ' +
+      'flows through it, so an abandoned one costs the same as a busy one.',
+  },
+  Interconnect: {
+    icon: 'mdi:transit-connection-horizontal',
+    color: '#4338CA',
+    blurb:
+      'Dedicated or partner links to your own network. Egress over these is cheaper per GB than ' +
+      'the internet, so traffic still going the public route is worth moving here.',
+  },
+  'Within zone': {
+    icon: 'mdi:arrow-collapse-all',
+    color: '#15803D',
+    blurb: 'Traffic that never left its zone. Normally free, so anything charged here is worth a look.',
+  },
   'Other network': {
     icon: 'mdi:transit-connection-variant',
     color: '#6B7280',
@@ -158,7 +221,26 @@ const fallbackMeta = { icon: 'mdi:transit-connection-variant', color: '#6B7280',
 /** Which drill-down a category is showing. */
 type ViewKey = 'flows' | 'routes' | 'resources' | 'usage';
 
-const DataTransferSection: React.FC<DataTransferSectionProps> = ({ accountId }) => {
+const DataTransferSection: React.FC<DataTransferSectionProps> = ({
+  accountId,
+  fetcher = fetchDataTransferCosts,
+  insightName = 'data-transfer',
+  copy = {},
+  currency = 'USD',
+}) => {
+  /*
+   * `useMoneyIn(currency)`, not `useMoney()`.
+   *
+   * This component provides CostCurrencyContext further down its own return value, and a component
+   * cannot consume a context it provides there — the hook reads whatever was above it, which is the
+   * 'USD' default. So the category totals and the header total this component renders itself were
+   * formatted in dollars while the drill-down rows beneath them, which are separate components inside
+   * the provider, were formatted correctly. Invisible on AWS, where the default happens to be right;
+   * on a rupee-billed GCP project it put "$0.00" beside "₹2,397.87" on the same screen.
+   *
+   * The provider stays for the child components, which do legitimately read it.
+   */
+  const money = useMoneyIn(currency);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [views, setViews] = useState<Record<string, ViewKey>>({});
 
@@ -167,13 +249,8 @@ const DataTransferSection: React.FC<DataTransferSectionProps> = ({ accountId }) 
   const monthLabel = months.find((m) => m.value === period)?.label ?? 'this period';
   const isCurrentMonth = period === months[0].value;
 
-  // Cached across mounts, so returning to this page does not re-scan the report.
-  const { data, isPending, isError } = useCurInsight(
-    'data-transfer',
-    accountId,
-    period,
-    fetchDataTransferCosts,
-  );
+  // Cached across mounts, so returning to this page does not re-scan the billing source.
+  const { data, isPending, isError } = useCurInsight(insightName, accountId, period, fetcher);
   const breakdown = isError ? null : (data ?? null);
   // Only the first load blocks; a background revalidation keeps the rows on screen.
   const loading = Boolean(accountId) && isPending;
@@ -218,13 +295,16 @@ const DataTransferSection: React.FC<DataTransferSectionProps> = ({ accountId }) 
   if (!accountId || (isEmpty && isCurrentMonth)) return null;
 
   return (
+    <CostCurrencyContext.Provider value={currency}>
     <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
       <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
         <div>
-          <h3 className="text-[15px] font-bold text-black">Data transfer &amp; network costs</h3>
+          <h3 className="text-[15px] font-bold text-black">
+            {copy.heading ?? 'Data transfer & network costs'}
+          </h3>
           <p className="text-[12px] text-[rgba(0,0,0,0.45)] mt-0.5">
-            Network charges pulled out of every service they are billed under. Expand a row for
-            the resource, the route and the cost on one line.
+            {copy.subheading ??
+              'Network charges pulled out of every service they are billed under. Expand a row for the resource, the route and the cost on one line.'}
           </p>
         </div>
 
@@ -261,10 +341,14 @@ const DataTransferSection: React.FC<DataTransferSectionProps> = ({ accountId }) 
             width={15}
             className="text-[rgba(0,0,0,0.35)] flex-shrink-0 mt-0.5"
           />
+          {/* Their wording kept as the AWS default, but behind `copy.emptyHint` — Azure has no Cost
+              and Usage Report and GCP has no backfill rule, so stating one as fact would send those
+              customers looking for something their cloud does not have. */}
           <div className="text-[11.5px] text-[rgba(0,0,0,0.55)] leading-relaxed">
-            No network charges found for {monthLabel}. A Cost and Usage Report only covers
-            months from when it was created onward — it does not backfill, so earlier months
-            are not in it.
+            No network charges found for {monthLabel}.{' '}
+            {copy.emptyHint ??
+              'A Cost and Usage Report only covers months from when it was created onward — it'
+                + ' does not backfill, so earlier months are not in it.'}
           </div>
         </div>
       ) : (
@@ -338,9 +422,9 @@ const DataTransferSection: React.FC<DataTransferSectionProps> = ({ accountId }) 
 
                 {isOpen && (
                   <div className="border-t border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.015)]">
-                    {meta.blurb && (
+                    {(copy.categoryBlurbs?.[g.category] ?? meta.blurb) && (
                       <p className="text-[11.5px] text-[rgba(0,0,0,0.5)] leading-relaxed px-4 pt-2.5">
-                        {meta.blurb}
+                        {copy.categoryBlurbs?.[g.category] ?? meta.blurb}
                       </p>
                     )}
 
@@ -380,6 +464,7 @@ const DataTransferSection: React.FC<DataTransferSectionProps> = ({ accountId }) 
                         group={g}
                         resourceIds={breakdown?.resourceDataAvailable ?? false}
                         color={meta.color}
+                        noResourceDetail={copy.noResourceDetail}
                       />
                     )}
                     {view === 'routes' && (
@@ -393,6 +478,7 @@ const DataTransferSection: React.FC<DataTransferSectionProps> = ({ accountId }) 
                       <ResourceTable
                         group={g}
                         resourceIds={breakdown?.resourceDataAvailable ?? false}
+                        noResourceDetail={copy.noResourceDetail}
                       />
                     )}
                     {view === 'usage' && <UsageTable group={g} />}
@@ -406,12 +492,12 @@ const DataTransferSection: React.FC<DataTransferSectionProps> = ({ accountId }) 
 
       {groups.length > 0 && (
         <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-3 leading-relaxed">
-          NAT Gateway, VPC endpoint and Transit Gateway include their hourly fees as well as
-          per-GB processing — the two are billed separately, and the hourly one is usually the
-          smaller of the pair.
+          {copy.footnote ??
+            'NAT Gateway, VPC endpoint and Transit Gateway include their hourly fees as well as per-GB processing — the two are billed separately, and the hourly one is usually the smaller of the pair.'}
         </p>
       )}
     </div>
+    </CostCurrencyContext.Provider>
   );
 };
 
@@ -472,12 +558,16 @@ const Unavailable: React.FC<{ icon: string; children: React.ReactNode }> = ({ ic
   </div>
 );
 
-/** Why `flows` is empty: the report cannot attribute a charge to a resource. */
-const NoResourceIds: React.FC = () => (
+/** Why `flows` is empty: the billing source cannot attribute a charge to a named resource. */
+const NoResourceIds: React.FC<{ detail?: React.ReactNode }> = ({ detail }) => (
   <Unavailable icon="mdi:tag-off-outline">
-    This report was created without resource ids, so network charges cannot be attributed to a
-    gateway, bucket or instance. Enabling resource ids on the export adds them from the next
-    billing period — the route and usage views work either way.
+    {detail ?? (
+      <>
+        This report was created without resource ids, so network charges cannot be attributed to a
+        gateway, bucket or instance. Enabling resource ids on the export adds them from the next
+        billing period — the route and usage views work either way.
+      </>
+    )}
   </Unavailable>
 );
 
@@ -515,6 +605,7 @@ const Coverage: React.FC<{
   /** Null for the flow view, where the rows *are* the flows. */
   rolledUpInto: string | null;
 }> = ({ listed, flows, totalFlows, total, rolledUpInto }) => {
+  const money = useMoney();
   if (totalFlows <= flows) return null;
   const share = total > 0 ? ((listed / total) * 100).toFixed(0) : '0';
   return (
@@ -532,12 +623,14 @@ const Coverage: React.FC<{
  * <p>Ends with the note about the far end, because "which resource is on the other side" is
  * the very next question and the answer is that no billing report contains it.
  */
-const FlowTable: React.FC<{ group: Group; resourceIds: boolean; color: string }> = ({
-  group,
-  resourceIds,
-  color,
-}) => {
-  if (!resourceIds) return <NoResourceIds />;
+const FlowTable: React.FC<{
+  group: Group;
+  resourceIds: boolean;
+  color: string;
+  noResourceDetail?: React.ReactNode;
+}> = ({ group, resourceIds, color, noResourceDetail }) => {
+  const money = useMoney();
+  if (!resourceIds) return <NoResourceIds detail={noResourceDetail} />;
   if (group.flows.length === 0) {
     return (
       <Unavailable icon="mdi:tag-off-outline">
@@ -639,6 +732,7 @@ const RouteTable: React.FC<{ group: Group; color: string; routeColumns: boolean 
   color,
   routeColumns,
 }) => {
+  const money = useMoney();
   if (group.routes.length === 0) {
     return (
       <Unavailable icon="mdi:map-marker-off-outline">
@@ -711,11 +805,13 @@ const RouteTable: React.FC<{ group: Group; color: string; routeColumns: boolean 
 };
 
 /** Which resource moved the bytes, summed over every route it used. */
-const ResourceTable: React.FC<{ group: Group; resourceIds: boolean }> = ({
-  group,
-  resourceIds,
-}) => {
-  if (!resourceIds) return <NoResourceIds />;
+const ResourceTable: React.FC<{
+  group: Group;
+  resourceIds: boolean;
+  noResourceDetail?: React.ReactNode;
+}> = ({ group, resourceIds, noResourceDetail }) => {
+  const money = useMoney();
+  if (!resourceIds) return <NoResourceIds detail={noResourceDetail} />;
   if (group.resources.length === 0) {
     return (
       <Unavailable icon="mdi:tag-off-outline">
@@ -794,7 +890,9 @@ const ResourceTable: React.FC<{ group: Group; resourceIds: boolean }> = ({
 };
 
 /** The billing rows themselves — the usage types the charges were raised under. */
-const UsageTable: React.FC<{ group: Group }> = ({ group }) => (
+const UsageTable: React.FC<{ group: Group }> = ({ group }) => {
+  const money = useMoney();
+  return (
   <table className="w-full text-[12px]">
     <caption className="sr-only">Billed usage types in {group.category}</caption>
     <tbody>
@@ -827,6 +925,7 @@ const UsageTable: React.FC<{ group: Group }> = ({ group }) => (
       ))}
     </tbody>
   </table>
-);
+  );
+};
 
 export default DataTransferSection;

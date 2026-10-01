@@ -6,6 +6,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Chart, ChartConfiguration, LineElement, PointElement, LineController, CategoryScale, LinearScale, Tooltip, Filler } from 'chart.js';
 import type { HistoricalData } from '../../types/cost';
+import { useMoneyIn } from './costCurrency';
 
 // Register Chart.js components
 Chart.register(LineElement, PointElement, LineController, CategoryScale, LinearScale, Tooltip, Filler);
@@ -15,6 +16,15 @@ interface HistoricalTrendChartProps {
   data: HistoricalData | null;
   isLoading: boolean;
   onClose: () => void;
+  /**
+   * ISO currency code the billing source reports in.
+   *
+   * <p>The y-axis hardcoded `'$'`, which was correct while only the AWS Cost page rendered this. The
+   * GCP page now opens the same drawer from its breakdown rows, and a GCP billing account is set to
+   * whatever currency the customer signed up in — so on a rupee-billed project the trend was labelled
+   * in dollars while the table that opened it was labelled in rupees.
+   */
+  currency?: string;
 }
 
 const HistoricalTrendChart: React.FC<HistoricalTrendChartProps> = ({
@@ -22,7 +32,9 @@ const HistoricalTrendChart: React.FC<HistoricalTrendChartProps> = ({
   data,
   isLoading,
   onClose,
+  currency = 'USD',
 }) => {
+  const money = useMoneyIn(currency);
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstanceRef = useRef<Chart<'line'> | null>(null);
 
@@ -73,7 +85,7 @@ const HistoricalTrendChart: React.FC<HistoricalTrendChartProps> = ({
           y: {
             beginAtZero: true,
             ticks: {
-              callback: (value) => '$' + Number(value).toFixed(0),
+              callback: (value) => money(Number(value)),
             },
           },
         },
@@ -87,7 +99,7 @@ const HistoricalTrendChart: React.FC<HistoricalTrendChartProps> = ({
         chartInstanceRef.current.destroy();
       }
     };
-  }, [data, isLoading]);
+  }, [data, isLoading, money]);
 
   if (!dimension) return null;
 

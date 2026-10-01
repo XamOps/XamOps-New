@@ -2,9 +2,11 @@ package com.xammer.cloud.controller.azure;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.ForecastAccuracyRecord;
 import com.xammer.cloud.dto.ForecastDto;
 import com.xammer.cloud.dto.azure.AzureDashboardData;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.ForecastAccuracyService;
 import com.xammer.cloud.service.RedisCacheService;
 import com.xammer.cloud.service.azure.AzureBillingDataIngestionService;
 import com.xammer.cloud.service.azure.AzureDashboardService;
@@ -38,6 +40,9 @@ public class AzureDashboardController {
 
     @Autowired
     private CloudAccountRepository cloudAccountRepository;
+
+    @Autowired
+    private ForecastAccuracyService forecastAccuracyService;
 
     /**
      * Get Azure dashboard data from the database snapshot.
@@ -121,18 +126,43 @@ public class AzureDashboardController {
     @GetMapping("/forecast/cost")
     public ResponseEntity<Map<String, Object>> getForecastCost(
             @RequestParam String accountId,
-            @RequestParam(defaultValue = "30") int periods) {
-        log.info("🔮 Azure forecast request for subscription: {} periods={}", accountId, periods);
+            @RequestParam(defaultValue = "30") int periods,
+            @RequestParam(required = false) String serviceName) {
+        log.info("🔮 Azure forecast request for subscription: {} periods={} service={}", accountId,
+                periods, serviceName);
         try {
             CloudAccount account = cloudAccountRepository.findByAzureSubscriptionId(accountId)
                     .orElseThrow(() -> new IllegalArgumentException("Account not found: " + accountId));
 
-            List<ForecastDto> forecastList = azureForecastingService
-                    .getAzureCostForecast(account.getAzureSubscriptionId(), periods)
+            AzureForecastingService.Forecast result = azureForecastingService
+                    .getAzureCostForecast(account.getAzureSubscriptionId(), periods, serviceName)
                     .get(30_000L, TimeUnit.MILLISECONDS);
 
+            List<ForecastDto> forecastList = result == null ? null : result.points();
             if (forecastList == null || forecastList.isEmpty()) {
                 return ResponseEntity.ok(Map.of("status", "no_data", "forecast", Collections.emptyMap()));
+            }
+
+            // Recorded for accuracy tracking, fire-and-forget, as the AWS and GCP forecast endpoints
+            // do. Without it the Azure cost page could show a forecast but never say how good the
+            // previous ones turned out to be, and a forecast with no track record is a number the
+            // reader has no basis to trust or to discount.
+            //
+            // Only the daily fit is recorded. Accuracy scores a prediction against the actual cost for
+            // its target date, so recording a monthly point — which the fallback path produces — would
+            // compare a month's spend against one day's and report an error of several thousand
+            // percent. A missing badge is honest; a confidently wrong one is not.
+            if (result.daily()) {
+                try {
+                    forecastAccuracyService.recordPredictions(
+                            ForecastAccuracyRecord.PROVIDER_AZURE,
+                            account.getAzureSubscriptionId(),
+                            serviceName,
+                            forecastList);
+                } catch (Exception trackEx) {
+                    log.warn("Accuracy tracking skipped for Azure subscription {}: {}", accountId,
+                            trackEx.getMessage());
+                }
             }
 
             Map<String, Object> forecast = new HashMap<>();
@@ -141,10 +171,40 @@ public class AzureDashboardController {
             forecast.put("upperBounds", forecastList.stream().mapToDouble(ForecastDto::getYhatUpper).boxed().collect(Collectors.toList()));
             forecast.put("lowerBounds", forecastList.stream().mapToDouble(ForecastDto::getYhatLower).boxed().collect(Collectors.toList()));
 
-            return ResponseEntity.ok(Map.of("status", "success", "forecast", forecast));
+            Map<String, Object> body = new HashMap<>();
+            body.put("status", "success");
+            body.put("forecast", forecast);
+            // So the chart can label its own x-axis honestly. The monthly fallback returns months, not
+            // days, and captioning those "next 30 days" is what the previous version did.
+            body.put("granularity", result.daily() ? "DAILY" : "MONTHLY");
+            body.put("service", serviceName == null || serviceName.isBlank()
+                    ? AzureForecastingService.ALL_SERVICES : serviceName);
+            return ResponseEntity.ok(body);
         } catch (Exception e) {
             log.error("❌ Azure forecast error for {}: {}", accountId, e.getMessage());
             return ResponseEntity.ok(Map.of("status", "error", "forecast", Collections.emptyMap()));
+        }
+    }
+
+    /**
+     * Meter categories with enough daily history to be forecast individually.
+     *
+     * <p>Populates the forecast's service selector, which the AWS cost page has always had and the
+     * Azure one could not: its forecast read a subscription-wide monthly total, so there was nothing
+     * to select between.
+     */
+    @GetMapping("/forecast/services")
+    public ResponseEntity<List<String>> getForecastableServices(@RequestParam String accountId) {
+        try {
+            CloudAccount account = cloudAccountRepository.findByAzureSubscriptionId(accountId)
+                    .orElseThrow(() -> new IllegalArgumentException("Account not found: " + accountId));
+            return ResponseEntity.ok(
+                    azureForecastingService.forecastableServices(account.getAzureSubscriptionId()));
+        } catch (Exception e) {
+            log.debug("Azure forecastable services unavailable for {}: {}", accountId, e.getMessage());
+            // An empty selector is a smaller loss than a failed request the chart would report as an
+            // error; the subscription-wide forecast still renders.
+            return ResponseEntity.ok(Collections.emptyList());
         }
     }
 

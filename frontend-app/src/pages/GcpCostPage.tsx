@@ -19,6 +19,7 @@ import { useGcpCostData } from '../hooks/useGcpCostData';
 import { useGcpBillingStatus } from '../hooks/useGcpBillingStatus';
 import { useGcpBudgetData } from '../hooks/useGcpBudgetData';
 import type { GcpCostFilters, GcpForecastDataPoint } from '../types/gcpCost';
+import type { HistoricalData } from '../types/cost';
 import type { NewBudget } from '../types/finops';
 
 // Component imports
@@ -31,6 +32,21 @@ import {
 import CostBudgetDashboard from '../components/Cost/CostBudgetDashboard';
 import BudgetModal from '../components/FinOps/BudgetModal';
 import Toast from '../components/FinOps/Toast';
+// Shared with the AWS Cost page, not copied: the GhCP endpoint returns the identical payload, so
+// one component serves both providers and cannot drift out of step with itself.
+import DataTransferSection from '../components/Cost/DataTransferSection';
+import CostDetailTabs from '../components/Cost/CostDetailTabs';
+import HistoricalTrendChart from '../components/Cost/HistoricalTrendChart';
+import {
+  fetchGcpChargesByService,
+  fetchGcpNetworkCosts,
+  fetchGcpPriceVsVolume,
+  fetchGcpResourceChange,
+  fetchGcpTopResources,
+} from '../api/gcpCostInsightsApi';
+import { GCP_NETWORK_COPY } from '../components/GcpCost/gcpNetworkCopy';
+import { GCP_CHARGES_COPY, GCP_RESOURCES_COPY } from '../components/GcpCost/gcpChargesCopy';
+import { invalidateCurInsights } from '../hooks/useCurInsight';
 
 
 const RevealSection: React.FC<{ children: React.ReactNode; delay?: number }> = ({ children, delay = 0 }) => {
@@ -54,11 +70,29 @@ const GcpCostPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
   const selectedAccountId = selectedAccountIds.length > 0 ? selectedAccountIds[0] : null;
 
-  // Cost filters state
-  const [filters, setFilters] = useState<GcpCostFilters>({
-    groupBy: 'SERVICE',
-    tagKey: 'owner',
+  // Cost filters state. Start of the current month to today, matching the AWS and Azure defaults —
+  // and matching what GcpCostService already defaulted to when the page sent no dates at all.
+  const [filters, setFilters] = useState<GcpCostFilters>(() => {
+    const today = new Date();
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const format = (date: Date) =>
+      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+        date.getDate(),
+      ).padStart(2, '0')}`;
+    return {
+      groupBy: 'SERVICE',
+      tagKey: 'owner',
+      startDate: format(startOfMonth),
+      endDate: format(today),
+    };
   });
+
+  // Historical trend drawer, opened by clicking a service row in the breakdown.
+  const [historicalState, setHistoricalState] = useState<{
+    isLoading: boolean;
+    dimension: string | null;
+    data: HistoricalData | null;
+  }>({ isLoading: false, dimension: null, data: null });
 
   // Forecast state
   const [forecastState, setForecastState] = useState<{
@@ -83,6 +117,9 @@ const GcpCostPage: React.FC = () => {
     loadForecastServices,
     loadForecast,
     refreshAll,
+    currency,
+    forecastAccuracy,
+    loadHistoricalTrend,
   } = useGcpCostData({
     selectedAccountId,
     filters,
@@ -142,6 +179,21 @@ const GcpCostPage: React.FC = () => {
   // Update filters
   const handleFiltersChange = useCallback((updates: Partial<GcpCostFilters>) => {
     setFilters(prev => ({ ...prev, ...updates }));
+  }, []);
+
+  // Open the daily trend for one service. Matches the AWS page's behaviour, using an endpoint that
+  // has always existed on the GCP side and that nothing called.
+  const handleHistoricalClick = useCallback(async (dimension: string) => {
+    setHistoricalState({ isLoading: true, dimension, data: null });
+    const data = await loadHistoricalTrend(dimension);
+    setHistoricalState(prev =>
+      // Discarded if the reader clicked another row while this was in flight, which would otherwise
+      // let the first answer land last and show one service's trend under another's heading.
+      prev.dimension === dimension ? { isLoading: false, dimension, data } : prev);
+  }, [loadHistoricalTrend]);
+
+  const handleCloseHistorical = useCallback(() => {
+    setHistoricalState({ isLoading: false, dimension: null, data: null });
   }, []);
 
   // Load forecast services and initial forecast
@@ -215,6 +267,10 @@ const GcpCostPage: React.FC = () => {
   const handleRefresh = useCallback(async () => {
     await Promise.all([refreshAll(), reloadBillingStatus(true)]);
     await loadForecastData();
+    // The insight sections are cached by react-query for half an hour, so a refresh that did not
+    // clear them would leave the invoice, network and change sections showing pre-refresh figures
+    // beside freshly refreshed KPI cards.
+    invalidateCurInsights();
   }, [refreshAll, reloadBillingStatus, loadForecastData]);
 
   return (
@@ -243,6 +299,7 @@ const GcpCostPage: React.FC = () => {
             <GcpCostKPICards
               costData={costData}
               isLoading={isLoading}
+              currency={currency}
             />
 
             {/* Budgets & Alerts Dashboard */}
@@ -253,11 +310,53 @@ const GcpCostPage: React.FC = () => {
                 <CostBudgetDashboard
                   budgets={budgets}
                   costData={costData}
-                  currency="INR"
+                  currency={currency}
                   onCreateBudget={() => setIsBudgetModalOpen(true)}
                   onDeleteBudget={handleDeleteBudget}
                 />
               )}
+            </RevealSection>
+
+            {/* What was billed, two ways, behind one switch in the card's own heading: the invoice
+                at SKU grain, and the same spend per resource. The breakdown section below stops at
+                one line — "Compute Engine", one total; this says which SKU and which instance that was.
+                "Charges by resource" needs GCP's detailed export and reports as unavailable on the
+                standard one, which is why the two live behind a switch rather than stacked. */}
+            <RevealSection>
+              <CostDetailTabs
+                accountId={selectedAccountId}
+                chargesFetcher={fetchGcpChargesByService}
+                resourcesFetcher={fetchGcpTopResources}
+                insightPrefix="gcp-"
+                currency={currency}
+                // Both panels default to AWS wording — "your AWS bill", "no Cost and Usage Report" —
+                // which this page inherited when it started passing its own fetchers.
+                chargesCopy={GCP_CHARGES_COPY}
+                resourcesCopy={GCP_RESOURCES_COPY}
+                changeFetcher={fetchGcpPriceVsVolume}
+                detailFetcher={fetchGcpResourceChange}
+                // Labels resolve through ResourceIdResolver, which arbitrates against the AWS
+                // inventory table — a GCP resource id would match nothing there and the control
+                // would appear to work while writing rows no page can read back.
+                labels={false}
+              />
+            </RevealSection>
+
+            {/* Network costs, directly under the budget panel and above the breakdown. They are
+                scattered across every service in the table below — Cloud NAT under Networking,
+                cross-zone under whatever moved the bytes — so this is the only place the total is
+                visible. Renders nothing when the project cannot answer, which is the case for
+                reseller-billed projects and for any project without a readable export. */}
+            <RevealSection>
+              <DataTransferSection
+                accountId={selectedAccountId}
+                fetcher={fetchGcpNetworkCosts}
+                insightName="gcp-network"
+                copy={GCP_NETWORK_COPY}
+                // The billing account's own currency, now that /costs/currency serves it. This was
+                // hardcoded to INR with a comment saying the real value existed and was unreachable.
+                currency={currency}
+              />
             </RevealSection>
 
             {/* Cost Breakdown Section */}
@@ -268,8 +367,23 @@ const GcpCostPage: React.FC = () => {
                 isLoading={isLoading}
                 onFiltersChange={handleFiltersChange}
                 billingStatus={billingStatus}
+                currency={currency}
+                onDimensionClick={handleHistoricalClick}
               />
             </RevealSection>
+
+            {/* Daily trend for one service, opened from a breakdown row. */}
+            {historicalState.dimension && (
+              <RevealSection>
+                <HistoricalTrendChart
+                  dimension={historicalState.dimension}
+                  data={historicalState.data}
+                  isLoading={historicalState.isLoading}
+                  onClose={handleCloseHistorical}
+                  currency={currency}
+                />
+              </RevealSection>
+            )}
 
             {/* Cost Forecast Chart */}
             <RevealSection delay={0.05}>
@@ -281,6 +395,8 @@ const GcpCostPage: React.FC = () => {
                 availableServices={forecastState.availableServices}
                 onServiceChange={handleForecastServiceChange}
                 onPeriodsChange={handleForecastPeriodsChange}
+                currency={currency}
+                accuracy={forecastAccuracy}
               />
             </RevealSection>
           </>
@@ -292,6 +408,7 @@ const GcpCostPage: React.FC = () => {
         isOpen={isBudgetModalOpen}
         isCreating={isBudgetCreating}
         availableServices={costData.map(item => item.name).sort()}
+        currency={currency}
         onClose={() => setIsBudgetModalOpen(false)}
         onSubmit={handleCreateBudget}
       />

@@ -1,9 +1,17 @@
 import React, { useMemo, useState } from 'react';
-import { fetchChargesByService } from '../../api/curInsightsApi';
+import {
+  fetchChargesByService,
+  fetchTopResources,
+  type PriceVolumeChange,
+  type ResourceChange,
+  type ServiceCharge,
+  type TopResources,
+} from '../../api/curInsightsApi';
 import { useCurInsight } from '../../hooks/useCurInsight';
 import { AriaTabGroup } from '../ui/Tabs';
-import ChargesByServiceSection from './ChargesByServiceSection';
-import TopResourcesSection from './TopResourcesSection';
+import ChargesByServiceSection, { type ChargesByServiceCopy } from './ChargesByServiceSection';
+import TopResourcesSection, { type TopResourcesCopy } from './TopResourcesSection';
+import PriceVsVolumeSection from './PriceVsVolumeSection';
 
 /**
  * Two views of the same bill, switched from the card's own heading.
@@ -41,16 +49,53 @@ import TopResourcesSection from './TopResourcesSection';
  * decides whether the card exists, and each panel only decides what fills it.
  */
 
-type TabId = 'charges' | 'resources';
+type TabId = 'charges' | 'resources' | 'change';
 
 interface CostDetailTabsProps {
   /**
-   * Single AWS account with a report, or null.
+   * Single account or project with a readable billing source, or null.
    *
-   * <p>A CUR belongs to one AWS account, so a multi-account or non-AWS selection has nothing to
-   * show here and the whole card is omitted rather than rendered empty.
+   * <p>A CUR belongs to one AWS account and a billing export to one GCP project, so a
+   * multi-account selection has nothing to show here and the whole card is omitted rather than
+   * rendered empty.
    */
   accountId: string | null;
+  /**
+   * Where the two panels read from. Defaults to the AWS Cost and Usage Report; GCP passes its
+   * BigQuery billing-export fetchers, which return the identical payload shapes.
+   */
+  chargesFetcher?: (accountId: string, period?: string) => Promise<ServiceCharge[] | null>;
+  resourcesFetcher?: (accountId: string, period?: string) => Promise<TopResources | null>;
+  /** Cache-key prefix, so two providers never share an entry for the same id. */
+  insightPrefix?: string;
+  /** ISO currency code the billing source reports in. */
+  currency?: string;
+  /** Whether resource rows offer the label control. Off for GCP — see TopResourcesSection. */
+  labels?: boolean;
+  /**
+   * What the two panels call the billing source.
+   *
+   * <p>Not optional in spirit, only in type. Both panels default to AWS wording — "your AWS bill",
+   * "the Cost and Usage Report" — and a provider that passes fetchers without passing copy will show
+   * an Azure subscription a sentence about a report it has never had.
+   */
+  chargesCopy?: ChargesByServiceCopy;
+  resourcesCopy?: TopResourcesCopy;
+  /**
+   * Where the month-on-month comparison comes from. Defaults to the AWS Cost and Usage Report.
+   *
+   * <p>This used to be a section of its own, stacked below the card. Moved in here because it reads the
+   * same bill at the same grain and only cuts it differently, which is exactly what this card is for —
+   * and because a page that grows a section for every question eventually costs more scrolling than the
+   * answers are worth.
+   */
+  changeFetcher?: (accountId: string, period?: string) => Promise<PriceVolumeChange[] | null>;
+  /** Where the per-resource detail panel's payload comes from. */
+  detailFetcher?: (
+    accountId: string,
+    resourceId: string,
+    period?: string,
+  ) => Promise<ResourceChange | null>;
 }
 
 /** The current billing month, in the form the CUR endpoints take. */
@@ -59,7 +104,18 @@ const currentPeriod = (): string => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
 
-const CostDetailTabs: React.FC<CostDetailTabsProps> = ({ accountId }) => {
+const CostDetailTabs: React.FC<CostDetailTabsProps> = ({
+  accountId,
+  chargesFetcher = fetchChargesByService,
+  resourcesFetcher = fetchTopResources,
+  insightPrefix = '',
+  currency = 'USD',
+  labels = true,
+  chargesCopy,
+  resourcesCopy,
+  changeFetcher,
+  detailFetcher,
+}) => {
   const [tab, setTab] = useState<TabId>('charges');
   /** Tabs the reader has opened, so the tree's query is never issued unasked. */
   const [visited, setVisited] = useState<Set<TabId>>(() => new Set<TabId>(['charges']));
@@ -73,11 +129,12 @@ const CostDetailTabs: React.FC<CostDetailTabsProps> = ({ accountId }) => {
    * for every visitor to the Cost page, including the ones who never open the tab.
    */
   const period = useMemo(currentPeriod, []);
+  const chargesInsight = `${insightPrefix}charges-by-service`;
   const { data: charges, isPending } = useCurInsight(
-    'charges-by-service',
+    chargesInsight,
     accountId,
     period,
-    fetchChargesByService,
+    chargesFetcher,
   );
 
   const select = (key: string) => {
@@ -103,6 +160,9 @@ const CostDetailTabs: React.FC<CostDetailTabsProps> = ({ accountId }) => {
         tabs={[
           { id: 'charges', label: 'Charges by service', icon: 'mdi:receipt-text-outline' },
           { id: 'resources', label: 'Charges by resource', icon: 'mdi:sitemap-outline' },
+          // Last, because it is the question that follows the other two: what was billed, then which
+          // resource, then why that moved.
+          { id: 'change', label: 'Why spend changed', icon: 'mdi:swap-vertical' },
         ]}
       />
     ),
@@ -127,12 +187,43 @@ const CostDetailTabs: React.FC<CostDetailTabsProps> = ({ accountId }) => {
   return (
     <div>
       <div hidden={tab !== 'charges'}>
-        <ChargesByServiceSection accountId={accountId} heading={control} />
+        <ChargesByServiceSection
+          accountId={accountId}
+          heading={control}
+          fetcher={chargesFetcher}
+          insightName={chargesInsight}
+          currency={currency}
+          copy={chargesCopy}
+        />
       </div>
 
       {visited.has('resources') && (
         <div hidden={tab !== 'resources'}>
-          <TopResourcesSection accountId={accountId} heading={control} />
+          <TopResourcesSection
+            accountId={accountId}
+            heading={control}
+            fetcher={resourcesFetcher}
+            insightName={`${insightPrefix}top-resources`}
+            currency={currency}
+            labels={labels}
+            copy={resourcesCopy}
+            detailFetcher={detailFetcher}
+          />
+        </div>
+      )}
+
+      {/* Mounted only once opened, like the resource list and for the same reason: the comparison scans
+          two months rather than one, so a reader who never asks "why did it change" should never pay
+          for the query that answers it. */}
+      {visited.has('change') && (
+        <div hidden={tab !== 'change'}>
+          <PriceVsVolumeSection
+            accountId={accountId}
+            heading={control}
+            fetcher={changeFetcher}
+            insightName={`${insightPrefix}price-vs-volume`}
+            currency={currency}
+          />
         </div>
       )}
     </div>

@@ -50,4 +50,56 @@ public final class GcpBillingSql {
     public static final String NET_COST_SUM =
             "(SUM(CAST(cost AS NUMERIC)) + SUM(IFNULL((SELECT SUM(CAST(c.amount AS NUMERIC)) "
                     + "FROM UNNEST(credits) AS c), 0)))";
+
+    /**
+     * What the same usage would have cost at list price, for the effective savings rate.
+     *
+     * <p>Falls back to {@code cost} when {@code cost_at_list} is null, which it is for rows that
+     * have no list price to discount — tax, adjustments, some Marketplace items. Treating those
+     * as "list equals net" is the honest reading: nothing was discounted, so they contribute
+     * zero savings rather than inflating or deflating the rate.
+     *
+     * <p>Not usable on the reseller path, which already reports {@code cost_at_list} as the cost
+     * itself — see the note in {@code GcpCostService} on the two cost bases. A savings rate there
+     * would always be zero, which is a fact about the query and not about the customer.
+     */
+    public static final String LIST_COST_SUM = "SUM(CAST(IFNULL(cost_at_list, cost) AS NUMERIC))";
+
+    /** What spend carrying no value for the requested label key is filed under. */
+    public static final String UNLABELLED = "(unlabelled)";
+
+    /**
+     * The value of one label key on a row, or {@link #UNLABELLED} when the row does not carry it.
+     *
+     * <p>A scalar subquery, deliberately, and this is the whole point of the method. The obvious
+     * form — {@code FROM table, UNNEST(labels) AS l WHERE l.key = @k} — reads like a filter and
+     * behaves like an inner join: that comma is a CROSS JOIN, so a row whose {@code labels} array
+     * is empty, or which carries labels but not this key, disappears from the result entirely.
+     * Unlabelled spend then reads as zero rather than as unlabelled, which is the one thing a
+     * cost-allocation view exists to show. A subquery evaluates per row and cannot drop one.
+     *
+     * <p>An empty string counts as absent. "Has the key, set to nothing" and "does not have the
+     * key" are different facts about the label and the same fact about ownership, which is what
+     * this expression is used to measure.
+     *
+     * @param parameterName the named query parameter holding the label key, without the {@code @}
+     */
+    public static String labelValueExpr(String parameterName) {
+        return "COALESCE((SELECT NULLIF(l.value, '') FROM UNNEST(labels) AS l"
+                + " WHERE l.key = @" + parameterName + " LIMIT 1), '" + UNLABELLED + "')";
+    }
+
+    /**
+     * Usage falling inside the requested dates, bound to {@code @startDate} and {@code @endDate}.
+     *
+     * <p>Filters on usage date rather than {@code invoice.month} for the same reason
+     * {@code CspBillingQueryService} switched: GCP bills usage sitting on a month boundary to the
+     * previous invoice period, so an invoice-month filter silently drops the first days of a
+     * month and makes a range query disagree with the month-to-date total.
+     */
+    public static final String USAGE_DATE_PREDICATE =
+            "DATE(usage_start_time) >= @startDate AND DATE(usage_start_time) <= @endDate";
+
+    /** Scopes a query to one project. Always present: it is the tenant boundary. */
+    public static final String PROJECT_PREDICATE = "project.id = @projectId";
 }

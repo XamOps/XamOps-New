@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { fetchChargesByService, type ServiceCharge } from '../../api/curInsightsApi';
+import { useMoneyIn } from './costCurrency';
 import { useCurInsight } from '../../hooks/useCurInsight';
 import { awsRegionName } from '../../utils/awsRegionNames';
 
@@ -24,9 +25,49 @@ import { awsRegionName } from '../../utils/awsRegionNames';
  * the screen before EC2 appears.
  */
 
+/**
+ * The wording that names the billing source.
+ *
+ * <p>Every sentence here said "your AWS bill" or "the Cost and Usage Report" because this section was
+ * written for AWS and nothing else rendered it. Once GCP and Azure began passing their own fetchers,
+ * those sentences became wrong on two of the three pages — an Azure subscription has no Cost and
+ * Usage Report to read, so telling a customer one could not be read points them at a thing that does
+ * not exist on their cloud.
+ *
+ * <p>Overridable rather than branched on a provider enum, matching {@code DataTransferCopy}: the
+ * arithmetic and the layout are identical everywhere, and only the name of the source changes.
+ */
+export interface ChargesByServiceCopy {
+  /** Follows "September 2026 so far, ". Defaults to naming the AWS bill. */
+  subheading?: string;
+  /** Shown while the query is in flight. */
+  loading?: string;
+  /** Why a month can legitimately hold nothing, which differs by billing source. */
+  emptyHint?: React.ReactNode;
+}
+
+const AWS_COPY: Required<ChargesByServiceCopy> = {
+  subheading: 'in the same breakdown as your AWS bill.',
+  loading: 'Reading the Cost and Usage Report…',
+  emptyHint: (
+    <>
+      A Cost and Usage Report only covers months from when it was created onward — it does not
+      backfill, so earlier months are not in it.
+    </>
+  ),
+};
+
 interface ChargesByServiceSectionProps {
-  /** Single AWS account with a report, or null to render nothing. */
+  /** Single account or project with a usable billing source, or null to render nothing. */
   accountId: string | null;
+  /** Defaults to the AWS Cost and Usage Report; GCP passes its billing-export fetcher. */
+  fetcher?: (accountId: string, period?: string) => Promise<ServiceCharge[] | null>;
+  /** Cache-key discriminator, so two providers never share an entry for the same id. */
+  insightName?: string;
+  /** ISO currency code the billing source reports in. */
+  currency?: string;
+  /** What this section calls the billing source. Defaults to AWS wording. */
+  copy?: ChargesByServiceCopy;
   /**
    * Replaces this section's own `h3`.
    *
@@ -116,11 +157,8 @@ const PRINT_CSS = `
   @page { margin: 14mm; }
 }`;
 
-const money = (v: number): string =>
-  `USD ${v < 0 ? '-' : ''}${Math.abs(v).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+// Money is formatted through useMoney inside the component, so the section follows whatever
+// currency its billing source reports. See ./costCurrency for why this is no longer a constant.
 
 /**
  * Usage quantities span a huge range — 5.033 Tag-Mo to 147,128,739 Requests — so a fixed
@@ -160,7 +198,13 @@ interface ServiceNode {
 const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
   accountId,
   heading,
+  fetcher = fetchChargesByService,
+  insightName = 'charges-by-service',
+  currency = 'USD',
+  copy,
 }) => {
+  const text = { ...AWS_COPY, ...copy };
+  const money = useMoneyIn(currency);
   const [open, setOpen] = useState<Set<string>>(new Set());
   /**
    * True only for the instant the print dialog is capturing the card. It forces every row
@@ -225,12 +269,7 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
   // Cached across mounts, so returning to this page does not re-scan the report. A
   // failure leaves `charges` null and the section hides itself, rather than showing an
   // error the reader can do nothing about.
-  const { data, isPending, isError } = useCurInsight(
-    'charges-by-service',
-    accountId,
-    period,
-    fetchChargesByService,
-  );
+  const { data, isPending, isError } = useCurInsight(insightName, accountId, period, fetcher);
   const charges: ServiceCharge[] | null = isError ? null : (data ?? null);
   // Only the first load blocks. A background revalidation keeps the table on screen
   // instead of replacing it with a skeleton showing the same numbers.
@@ -298,7 +337,7 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
           {heading ?? <h3 className="text-[15px] font-bold text-black">Charges by service</h3>}
           <p className="text-[12px] text-[rgba(0,0,0,0.45)] mt-1">
             {monthLabel}
-            {isCurrentMonth ? ' so far' : ''}, in the same breakdown as your AWS bill.
+            {isCurrentMonth ? ' so far' : ''}, {text.subheading}
             {!isEmpty && ' Click to expand.'}
           </p>
           {/* Printed copies lose the account context otherwise. */}
@@ -340,9 +379,7 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
       </div>
 
       {loading && (
-        <p className="text-[12.5px] text-[rgba(0,0,0,0.4)] py-6 text-center">
-          Reading the Cost and Usage Report…
-        </p>
+        <p className="text-[12.5px] text-[rgba(0,0,0,0.4)] py-6 text-center">{text.loading}</p>
       )}
 
       {isEmpty && !loading && (
@@ -353,9 +390,7 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
             className="text-[rgba(0,0,0,0.35)] flex-shrink-0 mt-0.5"
           />
           <div className="text-[11.5px] text-[rgba(0,0,0,0.55)] leading-relaxed">
-            No charges found for {monthLabel}. A Cost and Usage Report only covers months
-            from when it was created onward — it does not backfill, so earlier months are
-            not in it.
+            No charges found for {monthLabel}. {text.emptyHint}
           </div>
         </div>
       )}
