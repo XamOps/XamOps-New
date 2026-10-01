@@ -42,8 +42,17 @@ export interface ChargesByServiceCopy {
   subheading?: string;
   /** Shown while the query is in flight. */
   loading?: string;
-  /** Why a month can legitimately hold nothing, which differs by billing source. */
+  /** Why a *past* month can legitimately hold nothing, which differs by billing source. */
   emptyHint?: React.ReactNode;
+  /**
+   * Why the month still in progress can hold nothing, which is a different reason entirely.
+   *
+   * <p>Separate from {@code emptyHint} because that one explains an absence of coverage — the
+   * report does not reach back that far — and an open month is the opposite situation: it is
+   * covered, the data has simply not been delivered yet. Showing the backfill sentence for the
+   * current month sends the reader to look for a setup problem that is not there.
+   */
+  currentMonthHint?: React.ReactNode;
 }
 
 const AWS_COPY: Required<ChargesByServiceCopy> = {
@@ -53,6 +62,13 @@ const AWS_COPY: Required<ChargesByServiceCopy> = {
     <>
       A Cost and Usage Report only covers months from when it was created onward — it does not
       backfill, so earlier months are not in it.
+    </>
+  ),
+  currentMonthHint: (
+    <>
+      AWS delivers the first report for a new billing month a few hours after the month opens, then
+      refreshes it several times a day — so a month that has only just started reads as empty until
+      that first delivery lands. Pick last month to see a complete bill.
     </>
   ),
 };
@@ -316,9 +332,18 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
   if (!accountId) return null;
 
   const total = tree.reduce((s, n) => s + n.cost, 0);
-  const isEmpty = !loading && (!charges || charges.length === 0);
-  // Nothing to show and nothing chosen yet — the account may simply have no report.
-  if (isEmpty && isCurrentMonth) return null;
+
+  /*
+   * Null is the one reason to render nothing: the billing source cannot answer for this account,
+   * so there is no month worth offering and no table to put behind the selector.
+   *
+   * An empty month is not that, and used to be conflated with it for the current month. The
+   * report was read and this month is genuinely empty — the normal state on the 1st, before the
+   * new billing period has been delivered. Vanishing then took the month selector with it, which
+   * is the one control that would have got the reader to a month with data in it.
+   */
+  if (!loading && charges === null) return null;
+  const isEmpty = !loading && (charges?.length ?? 0) === 0;
   const toggle = (key: string) =>
     setOpen((prev) => {
       const next = new Set(prev);
@@ -390,7 +415,8 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
             className="text-[rgba(0,0,0,0.35)] flex-shrink-0 mt-0.5"
           />
           <div className="text-[11.5px] text-[rgba(0,0,0,0.55)] leading-relaxed">
-            No charges found for {monthLabel}. {text.emptyHint}
+            No charges found for {monthLabel}.{' '}
+            {isCurrentMonth ? text.currentMonthHint : text.emptyHint}
           </div>
         </div>
       )}

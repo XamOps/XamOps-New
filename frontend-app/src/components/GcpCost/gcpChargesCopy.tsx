@@ -24,6 +24,13 @@ export const GCP_CHARGES_COPY: ChargesByServiceCopy = {
       earlier months are not in it.
     </>
   ),
+
+  currentMonthHint: (
+    <>
+      A billing export is written continuously but lags the usage it describes by a few hours, so a
+      month that has only just started can still be empty. Pick last month for a complete invoice.
+    </>
+  ),
 };
 
 export const GCP_RESOURCES_COPY: TopResourcesCopy = {
@@ -40,6 +47,13 @@ export const GCP_RESOURCES_COPY: TopResourcesCopy = {
   emptyHint: (
     <>
       Either nothing was billed to a resource this month, or the export does not yet cover it.
+    </>
+  ),
+
+  currentMonthHint: (
+    <>
+      The export lags the usage it describes by a few hours, so a month that has only just started
+      can still be empty. Pick last month for a complete one.
     </>
   ),
 

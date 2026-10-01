@@ -31,6 +31,10 @@ export const AZURE_NETWORK_COPY: DataTransferCopy = {
     'than dropped, so an empty section here means no matching meters at all. Storage ' +
     'geo-replication traffic is included even though Azure bills it under Storage.',
 
+  currentMonthHint:
+    'Azure Cost Management refreshes every few hours, so a month that has only just begun can still ' +
+    'be empty. Pick last month for a complete picture.',
+
   categoryBlurbs: {
     'NAT Gateway':
       'Private subnets reaching the internet through a NAT gateway. Billed per gateway-hour and per ' +

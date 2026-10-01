@@ -130,7 +130,7 @@ const CostDetailTabs: React.FC<CostDetailTabsProps> = ({
    */
   const period = useMemo(currentPeriod, []);
   const chargesInsight = `${insightPrefix}charges-by-service`;
-  const { data: charges, isPending } = useCurInsight(
+  const { data: charges, isPending, isError } = useCurInsight(
     chargesInsight,
     accountId,
     period,
@@ -172,16 +172,23 @@ const CostDetailTabs: React.FC<CostDetailTabsProps> = ({
   if (!accountId) return null;
 
   /*
-   * Hidden entirely when there is nothing to show, matching what the page did before the tabs
-   * existed: `null` for no usable report, and an empty current month for an account whose report
-   * does not reach it yet — the same two conditions ChargesByServiceSection hides itself on.
+   * Hidden only when the billing source cannot answer for this account at all — no report, no
+   * readable export, or a read that failed outright. Then there is genuinely nothing behind the
+   * card and omitting it is right.
    *
-   * Not hidden while the query is still in flight: the charges panel has its own loading state,
-   * and gating on `isPending` would make the whole card appear a second late on every visit.
+   * An empty month is emphatically not that case, and used to be treated as it. The report was
+   * found, queried and answered; the month simply has nothing in it yet. That is the normal state
+   * on the 1st of a month, because a CUR's first delivery for a new billing period lands hours
+   * after the period opens — and it was making the whole card disappear, sub-tab control and
+   * month selector included, so the one action that would have helped (pick last month) was
+   * unreachable. An empty table that says why beats a page with a hole in it.
+   *
+   * Not hidden while the query is still in flight: each panel has its own loading state, and
+   * gating on `isPending` would make the card appear a second late on every visit.
    */
-  // `charges?.length` rather than a null check: the value is also undefined before the first
-  // fetch settles, and an empty array is the "report does not reach this month" case.
-  const readable = isPending || Boolean(charges?.length);
+  // `undefined` while the first fetch is in flight, `null` for "no usable source", `[]` for a
+  // readable source with an empty month. Only the middle one hides the card.
+  const readable = isPending || (!isError && (charges ?? null) !== null);
   if (!readable) return null;
 
   return (

@@ -27,6 +27,10 @@ export const GCP_NETWORK_COPY: DataTransferCopy = {
     'form this breakdown does not yet recognise. Anything unrecognised is listed under "Other ' +
     'network" rather than dropped, so an empty section here means no matching SKUs at all.',
 
+  currentMonthHint:
+    'A billing export lags the usage it describes by a few hours, so a month that has only just ' +
+    'started can still be empty. Pick last month for a complete picture.',
+
   categoryBlurbs: {
     'NAT Gateway':
       'Private instances reaching the internet through Cloud NAT. Billed per gateway-hour and per ' +

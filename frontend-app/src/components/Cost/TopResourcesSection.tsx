@@ -76,8 +76,16 @@ export interface TopResourcesCopy {
   unavailableTitle?: string;
   /** What that means and what to do about it. */
   unavailableDetail?: React.ReactNode;
-  /** Why a month with a readable source can still hold no resource rows. */
+  /** Why a past month with a readable source can still hold no resource rows. */
   emptyHint?: React.ReactNode;
+  /**
+   * Why the month in progress can hold none — delivery lag rather than missing coverage.
+   *
+   * <p>Worth separating from {@code emptyHint}: "the report does not yet cover this month" is
+   * true of a month before the report existed and false of the one currently open, where the
+   * data is coming and simply has not arrived.
+   */
+  currentMonthHint?: React.ReactNode;
   /** Why rows fall back to ids instead of names, which is a different setting on each cloud. */
   noNamesHint?: React.ReactNode;
 }
@@ -91,6 +99,12 @@ const AWS_COPY: Required<TopResourcesCopy> = {
     </>
   ),
   emptyHint: <>Either nothing was billed, or the report does not yet cover this month.</>,
+  currentMonthHint: (
+    <>
+      A new billing month reads as empty until AWS delivers its first report, a few hours after the
+      month opens. Pick last month for a complete one.
+    </>
+  ),
   noNamesHint: (
     <>
       Names come from each resource&apos;s <span className="font-mono">Name</span> tag, and this
@@ -293,6 +307,8 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({
   const money = useMoneyIn(currency);
   const months = useMemo(monthOptions, []);
   const [period, setPeriod] = useState(months[0].value);
+  /** The month still in progress, whose emptiness means something different. See the copy type. */
+  const isCurrentMonth = period === months[0].value;
   const [service, setService] = useState('all');
   const [region, setRegion] = useState('all');
   const [search, setSearch] = useState('');
@@ -629,7 +645,9 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({
         <div className="text-center py-8">
           <Icon icon="mdi:cube-outline" width={26} className="text-[rgba(0,0,0,0.18)] mx-auto mb-2" />
           <p className="text-[13px] text-[rgba(0,0,0,0.55)]">No resource costs in {selectedLabel}.</p>
-          <p className="text-[11.5px] text-[rgba(0,0,0,0.35)] mt-1">{text.emptyHint}</p>
+          <p className="text-[11.5px] text-[rgba(0,0,0,0.35)] mt-1">
+            {isCurrentMonth ? text.currentMonthHint : text.emptyHint}
+          </p>
         </div>
       ) : (
         <>

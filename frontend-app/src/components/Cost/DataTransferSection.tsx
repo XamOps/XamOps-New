@@ -39,8 +39,16 @@ export interface DataTransferCopy {
   heading?: string;
   subheading?: string;
   footnote?: string;
-  /** What an empty month might mean, which differs by billing source. */
+  /** What an empty *past* month might mean, which differs by billing source. */
   emptyHint?: string;
+  /**
+   * What an empty month-in-progress means — a different reason, so a different sentence.
+   *
+   * <p>{@code emptyHint} explains missing coverage. An open month is covered; its data has just
+   * not arrived yet, and saying "the report does not backfill" there describes a problem the
+   * reader does not have.
+   */
+  currentMonthHint?: string;
   /** Replaces the explanation under a category, where the fix differs by provider. */
   categoryBlurbs?: Record<string, string>;
   /** Why per-resource attribution is unavailable, which is a different setting on each provider. */
@@ -284,15 +292,20 @@ const DataTransferSection: React.FC<DataTransferSectionProps> = ({
     });
   };
 
-  // Nothing has been billed here, or the report does not reach this month. The 409 the
-  // resolver returns for an out-of-range month arrives as a null breakdown, the same as a
-  // month with genuinely no network spend — the two are indistinguishable here.
-  const isEmpty = !loading && (breakdown === null || groups.length === 0);
-  // Only hide for the current month: mid-month the account may simply have no report yet,
-  // and an empty widget then reads as broken. A *past* month with no data stays on the
-  // page and says so, matching Charges by service — a section that vanishes when you pick
-  // a month reads as the page losing its place.
-  if (!accountId || (isEmpty && isCurrentMonth)) return null;
+  if (!accountId) return null;
+
+  /*
+   * A null breakdown is the billing source declining to answer — the 409 the resolver returns
+   * when no report covers this account or this range. Nothing to show, so the section goes.
+   *
+   * An empty breakdown is an answer: the source was read and no network charges were found.
+   * That is routine on the 1st, before the new billing period has been delivered, and hiding
+   * the section then removed the month selector along with it — so the reader could neither see
+   * that network costs exist as a feature nor reach a month that has any. It now stays and says
+   * which of the two situations it is in.
+   */
+  if (!loading && breakdown === null) return null;
+  const isEmpty = !loading && groups.length === 0;
 
   return (
     <CostCurrencyContext.Provider value={currency}>
@@ -346,9 +359,15 @@ const DataTransferSection: React.FC<DataTransferSectionProps> = ({
               customers looking for something their cloud does not have. */}
           <div className="text-[11.5px] text-[rgba(0,0,0,0.55)] leading-relaxed">
             No network charges found for {monthLabel}.{' '}
-            {copy.emptyHint ??
-              'A Cost and Usage Report only covers months from when it was created onward — it'
-                + ' does not backfill, so earlier months are not in it.'}
+            {isCurrentMonth
+              ? (copy.currentMonthHint ??
+                  'AWS delivers the first report for a new billing month a few hours after the'
+                    + ' month opens, then refreshes it several times a day — so a month that has'
+                    + ' only just started reads as empty until that first delivery lands. Pick'
+                    + ' last month to see a complete bill.')
+              : (copy.emptyHint ??
+                  'A Cost and Usage Report only covers months from when it was created onward — it'
+                    + ' does not backfill, so earlier months are not in it.')}
           </div>
         </div>
       ) : (

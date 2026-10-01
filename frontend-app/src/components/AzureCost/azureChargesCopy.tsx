@@ -24,8 +24,15 @@ export const AZURE_CHARGES_COPY: ChargesByServiceCopy = {
   emptyHint: (
     <>
       Azure Cost Management serves roughly the last 13 months and refreshes every few hours, so a very
-      old month or one that has only just begun can legitimately be empty. A subscription connected
-      recently also has nothing before the day its spend started being collected.
+      old month can legitimately be empty. A subscription connected recently also has nothing before
+      the day its spend started being collected.
+    </>
+  ),
+
+  currentMonthHint: (
+    <>
+      Azure Cost Management refreshes every few hours, so a month that has only just begun can still
+      be empty. Pick last month for a complete invoice.
     </>
   ),
 };
@@ -46,6 +53,13 @@ export const AZURE_RESOURCES_COPY: TopResourcesCopy = {
     <>
       Either nothing was billed to a resource this month, or the charges were subscription-level
       purchases — Marketplace, support, reservations — which Azure attributes to no resource.
+    </>
+  ),
+
+  currentMonthHint: (
+    <>
+      Cost Management refreshes every few hours, so a month that has only just begun can still be
+      empty. Pick last month for a complete one.
     </>
   ),
 
