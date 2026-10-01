@@ -4,7 +4,9 @@ import type { Tenant, TenantUser, UserRole } from '../../types/auth';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTopbarActions } from '../../contexts/TopbarContext';
 import { useTheme } from '../../contexts/ThemeContext';
-import RefreshFromCurButton from '../Shared/RefreshFromCurButton';
+// Hidden from the topbar: it sat beside the ordinary Refresh and read as a second,
+// near-identical refresh control. Restore this import with the render below.
+// import RefreshFromCurButton from '../Shared/RefreshFromCurButton';
 import { setCostSourceMode } from '../../utils/apiClient';
 
 interface DashboardHeaderProps {
@@ -46,7 +48,9 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   isRefreshing,
   lastUpdateTime,
   onRefresh,
-  onCurRefreshed,
+  // Still accepted by the props type so callers need no change, but left undestructured
+  // while the CUR button below is commented out.
+  // onCurRefreshed,
   curAccountId = null,
   onSaveLayout,
   getLink,
@@ -178,11 +182,14 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           {isRefreshing ? 'Refreshing…' : 'Refresh'}
         </button>
 
+        {/* Refresh from CUR — hidden: two adjacent refresh controls in the topbar.
+            Re-enable together with the import at the top of this file.
         <RefreshFromCurButton
           accountId={curAccountId}
           onRefreshed={onCurRefreshed ?? onRefresh}
           dark={dark}
         />
+        */}
       </div>
     );
     return () => clearActions();
