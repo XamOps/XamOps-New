@@ -165,7 +165,17 @@ public class DiskAlertService {
     }
 
     /**
-     * Mirrors the alert digest onto SMS / WhatsApp for recipients who have a mobile number.
+     * Mirrors the CRITICAL part of the alert digest onto SMS / WhatsApp for recipients who have a
+     * mobile number.
+     *
+     * <p>Critical only. A phone message is for something about to break — a disk past
+     * {@link #NEAR_FULL_THRESHOLD}. Over-provisioned disks are WARNING-level cost tips, and arriving
+     * on a phone as "detected issues ... including 0 critical" teaches people to ignore the channel.
+     * They stay in the email digest, which still reports every alert in full.
+     *
+     * <p>The filter runs before the dispatcher's 24h per-account cooldown, and that ordering
+     * matters: if a warnings-only scan reached the dispatcher it would use up the window and
+     * silence a genuinely critical alert later the same day.
      *
      * <p>Additive: email remains the channel of record and runs first, so a provider outage or a
      * missing template changes nothing about existing behaviour. The extra recipient query is
@@ -176,6 +186,11 @@ public class DiskAlertService {
      */
     private void sendMobileAlerts(CloudAccount account, List<AlertDto> alerts) {
         if (!mobileNotificationDispatcher.isActive()) return;
+
+        List<AlertDto> critical = alerts.stream()
+                .filter(a -> "CRITICAL".equalsIgnoreCase(a.getStatus()))
+                .toList();
+        if (critical.isEmpty()) return;
 
         try {
             // Per-customer entitlement, checked before the recipient query. These channels are
@@ -191,9 +206,12 @@ public class DiskAlertService {
             List<String> contacts = scheduleRepository.findActiveContactsByAccountId(account.getId());
             if (contacts.isEmpty()) return;
 
+            // Counts come from the critical subset only, so the message never mentions the
+            // warnings it was filtered to exclude. With the approved xamops_alert template that
+            // reads "N resource(s) require attention, including N critical resource(s)".
             mobileNotificationDispatcher.dispatchAll(
                     contacts,
-                    alertTextBuilder.buildAlertVariables(alerts, account.getAccountName()),
+                    alertTextBuilder.buildAlertVariables(critical, account.getAccountName()),
                     MessageKind.ALERT,
                     "account " + account.getProviderAccountId(),
                     entitled);
