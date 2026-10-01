@@ -79,7 +79,21 @@ export interface DspmScan {
   lastScannedAt: number | null;
 }
 
+/**
+ * Detail-only fields attached to list rows where the table needs them (SaaS today). The SaaS Assets,
+ * Total Files and Total Size columns are the account email and `facet.drive_type`,
+ * `facet.total_inventories` and `facet.total_size_bytes`, none of which the list returns.
+ */
+export interface DspmRowProfile {
+  externalId: string | null;
+  facet: Record<string, unknown>;
+  /** Record count after removing duplicate object listings (endpoints); null when the list figure stands. */
+  recordCount?: number | null;
+}
+
 export interface DspmAssetRow {
+  /** Null for surfaces that do not need it, and for a row whose lookup failed. */
+  profile?: DspmRowProfile | null;
   id: string;
   name: string;
   subtype: string | null;
@@ -119,7 +133,15 @@ export interface DspmEntityCount {
   entityType: string;
   category: string | null;
   categoryLabel: string | null;
+  /** Instances across the returned objects. A lower bound when the detail's `breakdownPartial` is set. */
   count: number;
+  /** Returned objects containing the entity. Same lower-bound caveat as `count`. */
+  fileCount: number;
+  /**
+   * False for an entity the asset's facet names but none of the (capped) returned objects contain:
+   * detected, but not counted. Render its count as unavailable, never as zero.
+   */
+  sampled: boolean;
 }
 
 export interface DspmAssetDetail {
@@ -147,8 +169,16 @@ export interface DspmAssetDetail {
   /** True when `objects.length < objectTotal`. Say so in the UI — 50 of 5,211 is not "the contents". */
   objectsTruncated: boolean;
   entityBreakdown: DspmEntityCount[];
-  /** True when the breakdown was computed from a capped object list, so counts are lower bounds. */
+  /**
+   * True when some sensitive objects fell outside the returned list, so counts are lower bounds. False
+   * when the list was cut only after its last sensitive object (it is ordered most sensitive first).
+   */
   breakdownPartial: boolean;
+  /**
+   * Repeat listings removed from `objects`. The endpoint agent reports some files more than once and
+   * `objectTotal` still counts every listing, so when this is non-zero the total overstates distinct files.
+   */
+  duplicateObjects: number;
 }
 
 // ─── Paging, filters, summary ────────────────────────────────────────────────

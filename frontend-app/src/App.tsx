@@ -91,6 +91,8 @@ const AwsWarPage = lazy(() => import('./pages/AwsWarPage'));
 const GcpWarPage = lazy(() => import('./pages/GcpWarPage'));
 const AzureWarPage = lazy(() => import('./pages/AzureWarPage'));
 const XamSecurePage = lazy(() => import('./pages/XamSecurePage'));
+// DSPM (Matters.ai). Its own module, separate from XamSecure (Upwind CNAPP).
+const XamLensPage = lazy(() => import('./pages/XamLensPage'));
 const PerformancePage = lazy(() => import('./pages/PerformancePage'));
 const AlertsPage = lazy(() => import('./pages/AlertsPage'));
 
@@ -555,12 +557,10 @@ const AppContent: React.FC = () => {
                             <Route path="/gke-details" element={<GkeDetailsPage />} />
                             <Route path="/aks-details" element={<AksDetailsPage />} />
                             <Route path="/security" element={<SecurityPage />} />
-                            {/* No redirect here any more. It used to send /xamsecure to
-                                /xamsecure/overview, which is a CNAPP tab — a DSPM-only customer landed
-                                on an Upwind page with no data and no way out but guessing a URL. The
-                                page resolves the landing tab from what the client is entitled to. */}
-                            <Route path="/xamsecure" element={<XamSecurePage />} />
+                            <Route path="/xamsecure" element={<Navigate to="/xamsecure/overview" replace />} />
                             <Route path="/xamsecure/:tab" element={<XamSecurePage />} />
+                            <Route path="/xamlens" element={<Navigate to="/xamlens/cloud" replace />} />
+                            <Route path="/xamlens/:tab" element={<XamLensPage />} />
                             <Route path="/gcp-security" element={<GcpSecurityPage />} />
                             <Route path="/azure-security" element={<AzureSecurityPage />} />
                             <Route path="/war" element={<AwsWarPage />} />

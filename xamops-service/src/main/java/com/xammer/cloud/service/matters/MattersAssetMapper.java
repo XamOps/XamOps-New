@@ -11,9 +11,11 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Translates Matters' JSON into the DSPM DTOs.
@@ -66,7 +68,17 @@ public class MattersAssetMapper {
                 toRisk(node.path("risk")),
                 toSensitives(node.path("sensitives"), scanStatus),
                 toSource(node.path("source")),
-                toScan(node.path("scan_status")));
+                toScan(node.path("scan_status")),
+                // Detail-only; attached afterwards for the surfaces that show it.
+                null);
+    }
+
+    /** The detail-only fields a list row can carry, from an asset detail response. */
+    public DspmAssetRow.Profile toProfile(JsonNode detail) {
+        return new DspmAssetRow.Profile(text(detail, "external_id"), toFacet(detail.path("facet")),
+                // So the list shows the same deduplicated count as the asset page; null leaves the
+                // vendor's list figure in place.
+                objectsOf(detail).correctedRecordCount());
     }
 
     private DspmAssetRow.Risk toRisk(JsonNode risk) {
@@ -82,6 +94,12 @@ public class MattersAssetMapper {
     }
 
     private DspmAssetRow.Sensitives toSensitives(JsonNode sensitives, String scanStatus) {
+        return toSensitives(sensitives, scanStatus, null);
+    }
+
+    /** @param recordCountOverride replaces the vendor's {@code record_count} when non-null. */
+    private DspmAssetRow.Sensitives toSensitives(JsonNode sensitives, String scanStatus,
+                                                 Long recordCountOverride) {
         List<String> types = new ArrayList<>();
         for (JsonNode type : sensitives.path("types")) {
             String value = type.asText(null);
@@ -91,7 +109,7 @@ public class MattersAssetMapper {
         }
         List<String> labels = types.stream().map(DspmLabels::sensitiveCategoryLabel).toList();
         return new DspmAssetRow.Sensitives(
-                sensitives.path("record_count").asLong(0L),
+                recordCountOverride != null ? recordCountOverride : sensitives.path("record_count").asLong(0L),
                 // The vendor's total object count, not the sensitive subset. Passed through under a name
                 // that says so.
                 sensitives.path("object_count").asLong(0L),
@@ -127,14 +145,7 @@ public class MattersAssetMapper {
     public DspmAssetDetail toDetail(JsonNode node) {
         String scanStatus = text(node.path("scan_status"), "status");
         String subtype = text(node, "subtype");
-
-        List<DspmObject> objects = new ArrayList<>();
-        for (JsonNode objectNode : node.path("objects")) {
-            objects.add(toObject(objectNode));
-        }
-
-        long objectTotal = node.path("object_total").asLong(objects.size());
-        boolean truncated = objects.size() < objectTotal;
+        ObjectSet set = objectsOf(node);
 
         return new DspmAssetDetail(
                 text(node, "id"),
@@ -146,17 +157,78 @@ public class MattersAssetMapper {
                 text(node, "external_id"),
                 text(node.path("lifecycle"), "status"),
                 toRisk(node.path("risk")),
-                toSensitives(node.path("sensitives"), scanStatus),
+                toSensitives(node.path("sensitives"), scanStatus, set.correctedRecordCount()),
                 toSource(node.path("source")),
                 toScan(node.path("scan_status")),
                 toFacet(node.path("facet")),
-                objects,
-                objectTotal,
-                truncated,
-                aggregateEntities(objects),
-                // The breakdown is only ever as complete as the object array it was built from, and the
-                // vendor caps that at 50 with no way to page further in v1.
-                truncated);
+                set.objects(),
+                set.total(),
+                set.truncated(),
+                aggregateEntities(set.objects()),
+                // Counts are exact once every sensitive object is in hand, whether or not the list was cut.
+                !set.sensitiveComplete(),
+                set.duplicates());
+    }
+
+    /**
+     * The detail's objects with duplicate listings removed, and what can be concluded from them.
+     *
+     * @param objects              distinct objects, in the vendor's order (most sensitive first).
+     * @param total                the vendor's {@code object_total}.
+     * @param truncated            the vendor returned fewer objects than {@code total}.
+     * @param sensitiveComplete    every sensitive object is among those returned. True when nothing was
+     *                             cut, and also when the list reaches objects with no findings: it is
+     *                             ordered by sensitive count descending, so once a clean object appears
+     *                             there are no sensitive ones left behind the cap. Verified on every
+     *                             asset in the test project.
+     * @param duplicates           listings dropped because they repeat an earlier object.
+     * @param correctedRecordCount the asset's record count recomputed from distinct objects, when the
+     *                             vendor's own figure is known to include the duplicates; else null.
+     */
+    private record ObjectSet(List<DspmObject> objects, long total, boolean truncated,
+                             boolean sensitiveComplete, int duplicates, Long correctedRecordCount) {
+    }
+
+    /**
+     * Parses and deduplicates an asset's objects.
+     *
+     * <p>The endpoint agent reports some files more than once: on the live MacBook, 11 of the 50 returned
+     * objects repeat a path already listed, under a different object id, with identical findings. The
+     * vendor's own totals count every listing — {@code record_count} 6 where its console shows 3 — so the
+     * console deduplicates and so must we. None of the other 32 assets with objects in the test project
+     * has a repeat.
+     *
+     * <p>Keyed on object type, path and name, so two different files are never merged. Objects without a
+     * path (SaaS mail) keep their id as the key and are never merged at all.
+     */
+    private ObjectSet objectsOf(JsonNode node) {
+        List<DspmObject> listed = new ArrayList<>();
+        for (JsonNode objectNode : node.path("objects")) {
+            listed.add(toObject(objectNode));
+        }
+
+        Map<String, DspmObject> distinct = new LinkedHashMap<>();
+        for (DspmObject object : listed) {
+            String key = object.path() == null || object.path().isBlank()
+                    ? "id:" + object.id()
+                    : object.objectType() + "|" + object.path() + "|" + object.name();
+            distinct.putIfAbsent(key, object);
+        }
+        List<DspmObject> objects = new ArrayList<>(distinct.values());
+        int duplicates = listed.size() - objects.size();
+
+        long total = node.path("object_total").asLong(listed.size());
+        boolean truncated = listed.size() < total;
+        boolean sensitiveComplete = !truncated
+                || listed.stream().anyMatch(o -> o.sensitiveCount() == 0 && o.findings().isEmpty());
+
+        // Only replaced when the vendor's figure is known to be inflated (duplicates seen) and every
+        // sensitive object is present to recount from. Otherwise the vendor's figure stands.
+        Long corrected = duplicates > 0 && sensitiveComplete
+                ? objects.stream().mapToLong(DspmObject::sensitiveCount).sum()
+                : null;
+
+        return new ObjectSet(objects, total, truncated, sensitiveComplete, duplicates, corrected);
     }
 
     /**
@@ -226,18 +298,27 @@ public class MattersAssetMapper {
      * The All-Assets API exposes no per-asset entity rollup, so this is the only way to produce the
      * breakdown the vendor console shows — and it inherits the 50-object cap, which is why
      * {@link DspmAssetDetail#breakdownPartial()} exists to say so.
+     *
+     * Each entity also carries how many of the returned objects contain it, which is the "Total Files"
+     * figure the console's entity view leads with. Counted per object rather than per finding, because
+     * one file can report the same detector more than once.
      */
     private List<DspmAssetDetail.EntityCount> aggregateEntities(List<DspmObject> objects) {
         Map<String, long[]> totals = new LinkedHashMap<>();
+        Map<String, int[]> files = new LinkedHashMap<>();
         Map<String, String> categories = new LinkedHashMap<>();
 
         for (DspmObject object : objects) {
+            Set<String> seenInObject = new HashSet<>();
             for (DspmObject.Finding finding : object.findings()) {
                 String entity = finding.entityType();
                 if (entity == null || entity.isBlank()) {
                     continue;
                 }
                 totals.computeIfAbsent(entity, k -> new long[1])[0] += finding.count();
+                if (seenInObject.add(entity)) {
+                    files.computeIfAbsent(entity, k -> new int[1])[0]++;
+                }
                 categories.putIfAbsent(entity, finding.category());
             }
         }
@@ -246,10 +327,65 @@ public class MattersAssetMapper {
         totals.forEach((entity, sum) -> {
             String category = categories.get(entity);
             out.add(new DspmAssetDetail.EntityCount(
-                    entity, category, DspmLabels.sensitiveCategoryLabel(category), sum[0]));
+                    entity, category, DspmLabels.sensitiveCategoryLabel(category), sum[0],
+                    files.get(entity)[0], true));
         });
         out.sort(Comparator.comparingLong(DspmAssetDetail.EntityCount::count).reversed());
         return out;
+    }
+
+    /**
+     * Adds the entities the asset's facet names but its 50 sampled objects never mention.
+     *
+     * <p>The sample is the 50 <em>most sensitive</em> objects, which on a large asset is dominated by
+     * whichever detector fires most often. On the live {@code xamops-document-bucket} all 50 are CSVs
+     * full of person names: the sample yields PERSON NAME and ADDRESS, while the console lists five
+     * entities including a single ACCESS KEY AWS. Dropping that one would hide the only credential in the
+     * bucket, which is the finding a DSPM customer most needs to see.
+     *
+     * <p>{@code elements} comes from {@code /assets/filters} scoped to this one asset, so its
+     * {@code data_element} dimension is exactly the set of detectors that fired anywhere in it —
+     * verified against every truncated asset in the test project: the sampled set was a subset of the
+     * facet set in all 17, never the other way round.
+     *
+     * <p>Additions are appended after the counted entities with {@code sampled=false} and a zero count,
+     * which the UI renders as "detected, not counted" rather than as zero. The detail is returned
+     * unchanged when nothing is missing, or when the facet could not be read.
+     *
+     * @param elements facet values for the asset; blank values (the vendor emits one with a non-zero
+     *                 count) are ignored, since there is no entity to name.
+     */
+    public DspmAssetDetail withDetectedEntities(DspmAssetDetail detail, List<String> elements) {
+        if (elements == null || elements.isEmpty()) {
+            return detail;
+        }
+
+        Set<String> present = new HashSet<>();
+        for (DspmAssetDetail.EntityCount entity : detail.entityBreakdown()) {
+            present.add(entity.entityType());
+        }
+
+        List<DspmAssetDetail.EntityCount> merged = new ArrayList<>(detail.entityBreakdown());
+        boolean added = false;
+        for (String element : elements) {
+            if (element == null || element.isBlank() || !present.add(element)) {
+                continue;
+            }
+            String category = DspmLabels.entityCategory(element);
+            merged.add(new DspmAssetDetail.EntityCount(
+                    element, category, DspmLabels.sensitiveCategoryLabel(category), 0L, 0, false));
+            added = true;
+        }
+        if (!added) {
+            return detail;
+        }
+
+        return new DspmAssetDetail(
+                detail.id(), detail.name(), detail.subtype(), detail.subtypeLabel(), detail.category(),
+                detail.resourceType(), detail.externalId(), detail.lifecycle(), detail.risk(),
+                detail.sensitives(), detail.source(), detail.scan(), detail.facet(), detail.objects(),
+                detail.objectTotal(), detail.objectsTruncated(), merged, detail.breakdownPartial(),
+                detail.duplicateObjects());
     }
 
     // ── filters ──────────────────────────────────────────────────────────────────────────────────

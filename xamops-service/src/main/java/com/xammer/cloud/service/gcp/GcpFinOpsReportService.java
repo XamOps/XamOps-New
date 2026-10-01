@@ -489,6 +489,10 @@ public class GcpFinOpsReportService {
         String dbKey = DB_CACHE_KEY_PREFIX + gcpProjectId;
 
         // Always safe: drop the assembled report so it gets rebuilt from its sections.
+        // Guard the delete behind existsById (via deleteDbSnapshotIfPresent) exactly as
+        // clearFinOpsReportCache does — an unguarded deleteById on a project that was never
+        // snapshotted throws EmptyResultDataAccessException ("No ... CachedData entity with
+        // id GCP_FINOPS::<project> exists!"), surfacing as a 500 on the refresh path.
         redisCacheService.evict(cacheKey);
         deleteDbSnapshotIfPresent(dbKey);
 

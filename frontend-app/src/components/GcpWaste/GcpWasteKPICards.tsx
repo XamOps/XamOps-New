@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Icon } from '@iconify/react';
-import type { GcpWasteResource } from '../../types/gcpWaste';
+import type { GcpWasteResource, HighestWasteCategory } from '../../types/gcpWaste';
 
 interface GcpWasteKPICardsProps {
   wasteItems: GcpWasteResource[];
@@ -105,40 +105,6 @@ const KPICard: React.FC<KPICardProps> = ({ label, rawValue, subtitle, icon, icon
   );
 };
 
-interface KPICardTextProps {
-  label: string;
-  displayValue: string;
-  subtitle: string;
-  icon: string;
-  iconColor: string;
-  iconBg: string;
-  index: number;
-}
-
-const KPICardText: React.FC<KPICardTextProps> = ({ label, displayValue, subtitle, icon, iconColor, iconBg, index }) => (
-  <div
-    className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden card-hover-lift"
-    style={{ animation: `fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) ${0.05 + index * 0.09}s both` }}
-  >
-    {CLOUD_SVG}
-    <div className="relative z-10">
-      <p className="text-[12px] font-semibold uppercase tracking-[0.09em] leading-[15px] text-[rgba(0,0,0,0.88)] mb-2">{label}</p>
-      <div className="flex items-end justify-between mb-3">
-        <p
-          className="leading-8 truncate pr-2"
-          style={{ ...NUM_STYLE, fontSize: displayValue.length > 14 ? '18px' : '32px' }}
-        >
-          {displayValue}
-        </p>
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mb-0.5" style={{ backgroundColor: iconBg }}>
-          <Icon icon={icon} width={18} color={iconColor} />
-        </div>
-      </div>
-      <span className="text-[11px] text-[rgba(0,0,0,0.35)]">{subtitle}</span>
-    </div>
-  </div>
-);
-
 const GcpWasteKPICards: React.FC<GcpWasteKPICardsProps> = ({ wasteItems, isLoading }) => {
   if (isLoading) {
     return (
@@ -154,25 +120,44 @@ const GcpWasteKPICards: React.FC<GcpWasteKPICardsProps> = ({ wasteItems, isLoadi
     );
   }
 
-  const totalSavings = wasteItems.reduce((sum, item) => sum + (item.monthlySavings || 0), 0);
-  const totalCount = wasteItems.length;
+  // Split billable waste from hygiene findings. Free resources (noCostImpact) and unpriced
+  // ones (savingsUnknown) would otherwise be counted beside a currency figure that describes
+  // a disjoint set, so they are excluded from the savings, count and ranking.
+  const billable = wasteItems.filter(r => !r.noCostImpact && !r.savingsUnknown);
+  const freeFindings = wasteItems.filter(r => r.noCostImpact);
+  const unpricedCount = wasteItems.filter(r => r.savingsUnknown && !r.noCostImpact).length;
 
-  const topCategory = (() => {
-    if (!wasteItems.length) return '—';
-    const groups: Record<string, number> = {};
-    for (const item of wasteItems) {
-      const t = item.type || 'Other';
-      groups[t] = (groups[t] || 0) + (item.monthlySavings || 0);
-    }
-    return Object.entries(groups).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—';
+  const potentialSavings = billable.reduce((sum, r) => sum + (r.monthlySavings || 0), 0);
+  const resourceCount = billable.length;
+
+  const countSubtitle = [
+    'billable items',
+    freeFindings.length ? `${freeFindings.length} free` : null,
+    unpricedCount ? `${unpricedCount} unpriced` : null,
+  ].filter(Boolean).join(' · ');
+
+  const highestWasteCategory = (() => {
+    if (!billable.length) return null;
+    const groups = billable.reduce((acc, r) => {
+      const k = r.type || 'Other';
+      if (!acc[k]) acc[k] = { type: k, totalCost: 0, count: 0 } as HighestWasteCategory;
+      acc[k].totalCost += r.monthlySavings || 0;
+      acc[k].count += 1;
+      return acc;
+    }, {} as Record<string, HighestWasteCategory>);
+    return Object.values(groups).reduce((max, s) => s.totalCost > max.totalCost ? s : max);
   })();
+
+  const topCategorySubtitle = highestWasteCategory
+    ? `${highestWasteCategory.type} · ${highestWasteCategory.count} resource${highestWasteCategory.count !== 1 ? 's' : ''}`
+    : 'no data';
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       <KPICard
         index={0}
         label="Potential Savings"
-        rawValue={totalSavings}
+        rawValue={potentialSavings}
         subtitle="per month if cleaned up"
         icon="mdi:piggy-bank"
         iconColor="#16A34A"
@@ -181,18 +166,18 @@ const GcpWasteKPICards: React.FC<GcpWasteKPICardsProps> = ({ wasteItems, isLoadi
       <KPICard
         index={1}
         label="Wasted Resources"
-        rawValue={totalCount}
-        subtitle="items detected"
+        rawValue={resourceCount}
+        subtitle={countSubtitle}
         icon="mdi:alert-circle-outline"
         iconColor="#DC2626"
         iconBg="#DC262614"
         isCount
       />
-      <KPICardText
+      <KPICard
         index={2}
         label="Top Waste Category"
-        displayValue={topCategory}
-        subtitle="highest savings category"
+        rawValue={highestWasteCategory?.totalCost || 0}
+        subtitle={topCategorySubtitle}
         icon="mdi:fire"
         iconColor="#F59228"
         iconBg="#F5922814"

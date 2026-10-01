@@ -26,7 +26,7 @@ function groupByType(items: AzureWasteItem[]): AzureWasteGroup[] {
     .map(([type, resources]) => ({
       type,
       resources,
-      open: true,
+      open: false,
       totalSavings: resources.reduce((sum, r) => sum + (r.monthlySavings ?? 0), 0),
     }))
     .sort((a, b) => b.totalSavings - a.totalSavings);

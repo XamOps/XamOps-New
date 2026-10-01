@@ -246,6 +246,8 @@ const DataTransferSection: React.FC<DataTransferSectionProps> = ({
 
   const months = useMemo(monthOptions, []);
   const [period, setPeriod] = useState(months[0].value);
+  const monthLabel = months.find((m) => m.value === period)?.label ?? 'this period';
+  const isCurrentMonth = period === months[0].value;
 
   // Cached across mounts, so returning to this page does not re-scan the billing source.
   const { data, isPending, isError } = useCurInsight(insightName, accountId, period, fetcher);
@@ -282,8 +284,15 @@ const DataTransferSection: React.FC<DataTransferSectionProps> = ({
     });
   };
 
-  // No usable billing source for this account — the section does not belong on the page at all.
-  if (!accountId || (!loading && breakdown === null)) return null;
+  // Nothing has been billed here, or the report does not reach this month. The 409 the
+  // resolver returns for an out-of-range month arrives as a null breakdown, the same as a
+  // month with genuinely no network spend — the two are indistinguishable here.
+  const isEmpty = !loading && (breakdown === null || groups.length === 0);
+  // Only hide for the current month: mid-month the account may simply have no report yet,
+  // and an empty widget then reads as broken. A *past* month with no data stays on the
+  // page and says so, matching Charges by service — a section that vanishes when you pick
+  // a month reads as the page losing its place.
+  if (!accountId || (isEmpty && isCurrentMonth)) return null;
 
   return (
     <CostCurrencyContext.Provider value={currency}>
@@ -325,20 +334,22 @@ const DataTransferSection: React.FC<DataTransferSectionProps> = ({
             <div key={i} className="animate-pulse bg-[rgba(0,0,0,0.04)] h-[52px] rounded-lg" />
           ))}
         </div>
-      ) : groups.length === 0 ? (
-        <div className="text-center py-8">
+      ) : isEmpty ? (
+        <div className="flex items-start gap-2.5 px-3.5 py-3 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.07)] rounded-lg">
           <Icon
-            icon="mdi:transit-connection-variant"
-            width={26}
-            className="text-[rgba(0,0,0,0.18)] mx-auto mb-2"
+            icon="mdi:information-outline"
+            width={15}
+            className="text-[rgba(0,0,0,0.35)] flex-shrink-0 mt-0.5"
           />
-          <p className="text-[13px] text-[rgba(0,0,0,0.55)]">
-            No network charges in {months.find((m) => m.value === period)?.label ?? 'this period'}.
-          </p>
-          <p className="text-[11.5px] text-[rgba(0,0,0,0.35)] mt-1">
+          {/* Their wording kept as the AWS default, but behind `copy.emptyHint` — Azure has no Cost
+              and Usage Report and GCP has no backfill rule, so stating one as fact would send those
+              customers looking for something their cloud does not have. */}
+          <div className="text-[11.5px] text-[rgba(0,0,0,0.55)] leading-relaxed">
+            No network charges found for {monthLabel}.{' '}
             {copy.emptyHint ??
-              'Either nothing was billed, or the report does not yet cover this month.'}
-          </p>
+              'A Cost and Usage Report only covers months from when it was created onward — it'
+                + ' does not backfill, so earlier months are not in it.'}
+          </div>
         </div>
       ) : (
         <div className="space-y-1.5">

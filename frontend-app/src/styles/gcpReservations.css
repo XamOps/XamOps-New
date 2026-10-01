@@ -233,34 +233,68 @@
   }
 }
 
-/* Empty State */
-.empty-state {
+/* Empty State
+ * Scoped under .gcp-reservations-page so these rules out-specify the global,
+ * unscoped `.empty-state-icon` rule in cloudmap.css (which forces the icon into
+ * a fixed 5rem dark circle and clips the glyph). This lets the card grow to fit
+ * its content instead of being squeezed into a fixed-size box. */
+.gcp-reservations-page .empty-state {
+  /* Override cloudmap.css's global `.empty-state { position:absolute; inset:0 }`,
+   * which was ripping this box out of flow and letting the parent card clip the
+   * icon (top) and last line of text (bottom). Force normal flow. */
+  position: static;
+  inset: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   padding: 3rem 1.5rem;
   background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
   border-radius: 12px;
   border: 2px dashed #93c5fd;
+  /* Neutralize the global .glass-card:hover transform bleed so hovering the
+   * empty state doesn't shift/flash content. */
+  transform: none;
 }
 
-.empty-state-icon {
+.gcp-reservations-page .empty-state:hover {
+  transform: none;
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border-color: #93c5fd;
+  box-shadow: none;
+}
+
+/* Reset the inherited circular box (cloudmap.css / accountManager.css) so the
+ * icon renders as plain colored text at its intended size. */
+.gcp-reservations-page .empty-state-icon {
+  display: block;
+  width: auto;
+  height: auto;
+  background: none;
+  border-radius: 0;
+  box-shadow: none;
+  line-height: 1;
   font-size: 2.5rem;
-  margin-bottom: 1rem;
+  margin: 0 0 1rem 0;
 }
 
-.empty-state-title {
+
+
+.gcp-reservations-page .empty-state-title {
   font-size: 1rem;
   font-weight: 600;
   color: #1f2937;
   margin: 0 0 0.5rem 0;
 }
 
-.empty-state-subtitle {
+.gcp-reservations-page .empty-state-subtitle {
   font-size: 0.875rem;
   color: #6b7280;
   margin: 0;
 }
 
-.empty-state-text {
+.gcp-reservations-page .empty-state-text {
   font-size: 0.875rem;
   color: #6b7280;
   margin: 0.25rem 0 0 0;

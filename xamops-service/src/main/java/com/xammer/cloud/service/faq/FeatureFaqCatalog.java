@@ -151,6 +151,16 @@ public final class FeatureFaqCatalog {
                     "SecOps Alerts combines CloudGuard alerts (quota and anomaly alerts filterable by " +
                     "service) with a Grafana Alerts tab for external alert monitoring."),
 
+            new FeatureFaqEntry("secops-xamlens", "SecOps", "XamLens",
+                    List.of("dspm", "data security posture management", "sensitive data", "pii",
+                            "google workspace", "endpoint data"),
+                    "XamLens is data security posture management (DSPM): it finds where sensitive data " +
+                    "lives and what kind it is (personal, secrets, financial). Its Cloud tab covers cloud " +
+                    "and self-hosted datastores such as S3, EBS, BigQuery and Postgres; SaaS covers " +
+                    "accounts such as Google Workspace mail and Drive; Endpoint covers managed laptops " +
+                    "and desktops. Each shows record counts, severity, scan status and the files that " +
+                    "hold the data."),
+
             new FeatureFaqEntry("obs-overview", "Observability", "Overview",
                     List.of("observability overview", "openobserve", "data streams", "retention", "org id"),
                     "The Observability Overview shows stat cards for your total log, metric, and trace " +
@@ -288,7 +298,8 @@ public final class FeatureFaqCatalog {
             new FeatureFaqEntry("secops", "SecOps", "SecOps",
                     List.of("secops module", "security operations", "cloud security suite"),
                     "SecOps covers your security tooling — Security Center findings, XamSecure (CNAPP), " +
-                    "ComplianceOps framework scoring, Performance Insights, and Alerts."),
+                    "XamLens (data security posture), ComplianceOps framework scoring, Performance " +
+                    "Insights, and Alerts."),
 
             new FeatureFaqEntry("observability", "Observability", "Observability",
                     List.of("observability module", "logs metrics traces", "monitoring suite"),

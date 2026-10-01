@@ -16,6 +16,8 @@ import * as xamops from './xamopsMockData';
 import * as identity from './xamopsIdentityMockData';
 import * as billops from './billopsAdminMockData';
 import * as xamsecure from './xamsecureMockData';
+import * as xamlens from './xamlensMockData';
+import type { DspmSurface } from '../hooks/useDspmData';
 import * as soc2 from './soc2MockData';
 import * as war from './warMockData';
 
@@ -48,6 +50,11 @@ function makeResponse(data: unknown, status = 200): Response {
 }
 
 function routeXamops(url: string, method = 'GET', body?: string): Response | null {
+  // Sidebar profile. No tab restriction, and the XamLens add-on enabled, so the demo shows XamLens
+  // unlocked. The generic {} below would read as "not entitled" and put a Locked pill on it.
+  if (url.includes('/api/xamops/team/profile'))
+    return makeResponse({ allowedTabs: [], mattersDspmEnabled: true });
+
   // Accounts
   if (url.includes('/api/xamops/account-manager/accounts'))
     return makeResponse(xamops.demoAccounts);
@@ -789,6 +796,28 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // Anything else under XamSecure — {} is safe, every remaining consumer is a
   // POST action whose response is ignored.
   if (url.includes('/api/xamsecure/'))
+    return makeResponse({});
+
+  // XamLens (DSPM). The list and filter routes carry the surface; asset detail does not.
+  {
+    const surface = url.match(/\/api\/dspm\/(cloud|saas|endpoint)\/(assets|filters)/);
+    if (surface) {
+      const [, name, kind] = surface;
+      return makeResponse(kind === 'assets'
+        ? xamlens.demoDspmAssets(name as DspmSurface, url)
+        : xamlens.demoDspmFilters(name as DspmSurface, url));
+    }
+    const asset = url.match(/\/api\/dspm\/assets\/([^/?]+)/);
+    if (asset) {
+      const detail = xamlens.demoDspmAsset(decodeURIComponent(asset[1]));
+      return detail ? makeResponse(detail) : makeNotFound();
+    }
+  }
+  if (url.includes('/api/dspm/status'))
+    return makeResponse(xamlens.demoDspmStatus());
+  // Summary and anything else: {} is safe, nothing on screen reads it yet. Never the real API, which
+  // would read a customer's Matters project from a sales demo.
+  if (url.includes('/api/dspm/'))
     return makeResponse({});
 
   // SOC 2 Program. useSoc2ProgramData loads all eleven in one Promise.all, so a

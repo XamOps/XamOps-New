@@ -42,8 +42,31 @@ public record DspmAssetRow(
         Risk risk,
         Sensitives sensitives,
         Source source,
-        Scan scan
+        Scan scan,
+        Profile profile
 ) {
+
+    /** The same row with its detail-only fields attached. */
+    public DspmAssetRow withProfile(Profile value) {
+        return new DspmAssetRow(id, name, subtype, subtypeLabel, category, resourceType, sourceId,
+                lifecycle, risk, sensitives, source, scan, value);
+    }
+
+    /**
+     * Fields the vendor returns on asset detail only, attached to list rows where the table needs them.
+     *
+     * Null unless the surface asks for it (SaaS today). The SaaS table's Assets, Total Files and Total
+     * Size columns are the account email ({@code external_id}) and {@code facet.drive_type},
+     * {@code facet.total_inventories} and {@code facet.total_size_bytes}, none of which are on the list.
+     *
+     * @param externalId the asset's external identifier; the account email for SaaS.
+     * @param facet      the detail's type-specific attributes, untyped for the same reason as
+     *                   {@link DspmAssetDetail#facet()}.
+     * @param recordCount the record count after removing duplicate object listings, when the vendor's
+     *                    list figure is known to include them (endpoints); null otherwise.
+     */
+    public record Profile(String externalId, java.util.Map<String, Object> facet, Long recordCount) {
+    }
 
     /**
      * @param score                numeric risk score, null when not evaluated (90 of 100 rows in the

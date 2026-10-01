@@ -15,6 +15,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -68,15 +71,18 @@ public class MattersDspmService {
     private final MattersApiClient apiClient;
     private final MattersAssetMapper mapper;
     private final MattersProjectMappingRepository mappingRepository;
+    private final MattersIntegrationLabeler integrationLabeler;
     private final RedisCacheService cache;
 
     // ── Cloud surface ────────────────────────────────────────────────────────────────────────────
 
     /**
-     * The Cloud datastore list — cloud and on-prem together, matching the vendor console's own Cloud
-     * screen. See {@link DspmAssetQuery#CLOUD_RESOURCE_TYPE}.
+     * An asset list for one surface — datastores, SaaS accounts or managed endpoints.
+     *
+     * The surface is carried by the query's {@code resource_type} scope, so this method is the same for
+     * all three. The cache key derives from that scope, so one surface can never serve another's page.
      */
-    public DspmPage<DspmAssetRow> getCloudAssets(Long clientId, DspmAssetQuery query) {
+    public DspmPage<DspmAssetRow> getAssets(Long clientId, DspmAssetQuery query) {
         MattersCredential credential = credentialResolver.resolve(clientId);
         String key = KEY_PREFIX + "assets:" + clientId + ":" + query.cacheFragment();
 
@@ -88,18 +94,119 @@ public class MattersDspmService {
 
         JsonNode body = apiClient.listAssets(credential, query.toListParams());
         DspmPage<DspmAssetRow> page = mapper.toPage(body);
+        // SaaS for its email, drive type, file count and size; Endpoint for its deduplicated record count
+        // (the agent lists some files twice, and the list's figure counts both).
+        if (DspmAssetQuery.Surface.SAAS.resourceType().equals(query.resourceTypeScope())
+                || DspmAssetQuery.Surface.ENDPOINT.resourceType().equals(query.resourceTypeScope())) {
+            page = withProfiles(credential, clientId, page);
+        }
         cache.put(key, page, LIST_CACHE_MINUTES);
         return page;
+    }
+
+    // ── row profiles ─────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Longer than the page cache: an account's email and drive type never change, and its file count
+     * and size move only as scans progress. This is what keeps the per-row detail calls rare.
+     */
+    private static final int PROFILE_CACHE_MINUTES = 30;
+
+    /** Detail calls in flight at once for one page. Bounds the burst against the 600/min per-key limit. */
+    private static final int PROFILE_CONCURRENCY = 6;
+
+    private static final long PROFILE_TIMEOUT_SECONDS = 20;
+
+    private final java.util.concurrent.ExecutorService profilePool =
+            java.util.concurrent.Executors.newFixedThreadPool(PROFILE_CONCURRENCY, runnable -> {
+                Thread thread = new Thread(runnable, "dspm-profile");
+                thread.setDaemon(true);
+                return thread;
+            });
+
+    @jakarta.annotation.PreDestroy
+    void shutdownProfilePool() {
+        profilePool.shutdownNow();
+    }
+
+    /**
+     * Attaches detail-only fields to each row on the page.
+     *
+     * The SaaS table's Assets, Total Files and Total Size columns come from asset detail, not the list
+     * (see {@link DspmAssetRow.Profile}), so each row costs one detail call when its profile is not
+     * cached. Calls run in parallel on a small pool, carrying the caller's security and request context
+     * so the audit trail still records who read the data and from where.
+     *
+     * Best-effort per row: a failed or slow lookup leaves that row without a profile, and its cells
+     * render as a dash. A table missing two sizes is better than a table that fails to load.
+     */
+    private DspmPage<DspmAssetRow> withProfiles(MattersCredential credential, Long clientId,
+                                                DspmPage<DspmAssetRow> page) {
+        org.springframework.security.core.context.SecurityContext security =
+                org.springframework.security.core.context.SecurityContextHolder.getContext();
+        org.springframework.web.context.request.RequestAttributes request =
+                org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+
+        List<java.util.concurrent.CompletableFuture<DspmAssetRow.Profile>> lookups = page.data().stream()
+                .map(row -> java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                    org.springframework.security.core.context.SecurityContextHolder.setContext(security);
+                    org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(request);
+                    try {
+                        return profileOf(credential, clientId, row.id());
+                    } finally {
+                        // Pool threads are reused: clear both so no later task inherits this caller.
+                        org.springframework.security.core.context.SecurityContextHolder.clearContext();
+                        org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+                    }
+                }, profilePool))
+                .toList();
+
+        List<DspmAssetRow> rows = new java.util.ArrayList<>(page.data().size());
+        for (int i = 0; i < page.data().size(); i++) {
+            DspmAssetRow row = page.data().get(i);
+            DspmAssetRow.Profile profile = null;
+            try {
+                profile = lookups.get(i).get(PROFILE_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+                log.debug("[DSPM] no profile for asset {}: {}", row.id(), e.getMessage());
+            }
+            rows.add(profile == null ? row : row.withProfile(profile));
+        }
+        return new DspmPage<>(rows, page.page(), page.pageSize(), page.total(), page.totalPages());
+    }
+
+    /** One asset's profile, from cache or from its detail. Null when the lookup fails. */
+    private DspmAssetRow.Profile profileOf(MattersCredential credential, Long clientId, String assetId) {
+        String key = KEY_PREFIX + "profile:" + clientId + ":" + assetId;
+        Optional<DspmAssetRow.Profile> cached = cache.get(key, new TypeReference<DspmAssetRow.Profile>() {});
+        if (cached.isPresent()) {
+            return cached.get();
+        }
+        try {
+            DspmAssetRow.Profile profile = mapper.toProfile(apiClient.getAsset(credential, assetId));
+            cache.put(key, profile, PROFILE_CACHE_MINUTES);
+            return profile;
+        } catch (RuntimeException e) {
+            log.debug("[DSPM] could not load profile for asset {}: {}", assetId, e.getMessage());
+            return null;
+        }
     }
 
     /**
      * Filter options with faceted counts.
      *
-     * Called with the same filters as {@link #getCloudAssets}, which is what preserves the upstream's
+     * Called with the same filters as {@link #getAssets}, which is what preserves the upstream's
      * disjunctive counting — a dimension the user has already filtered on keeps showing all of its
      * options rather than collapsing to the selected one.
+     *
+     * <p>The {@code integration_id} options are relabelled on the way out. The vendor returns its own
+     * ObjectIds there while its console shows {@code 605134457560 (Xammer-prod)}; see
+     * {@link MattersIntegrationLabeler} for where each half of that comes from. Done before caching so
+     * the extra lookups are paid once per five-minute window rather than per request.
      */
-    public DspmFilters getCloudFilters(Long clientId, DspmAssetQuery query) {
+    public DspmFilters getFilters(Long clientId, DspmAssetQuery query) {
         MattersCredential credential = credentialResolver.resolve(clientId);
         String key = KEY_PREFIX + "filters:" + clientId + ":" + query.filterCacheFragment();
 
@@ -109,7 +216,7 @@ public class MattersDspmService {
         }
 
         JsonNode body = apiClient.listFilters(credential, query.toFilterParams());
-        DspmFilters filters = mapper.toFilters(body);
+        DspmFilters filters = integrationLabeler.withAccountLabels(credential, mapper.toFilters(body));
         cache.put(key, filters, FILTERS_CACHE_MINUTES);
         return filters;
     }
@@ -133,8 +240,64 @@ public class MattersDspmService {
 
         JsonNode body = apiClient.getAsset(credential, assetId);
         DspmAssetDetail detail = mapper.toDetail(body);
+        // Only paid when the 50-object cap may have hidden sensitive objects. Once the returned list
+        // reaches clean objects, every entity is already in hand.
+        if (detail.breakdownPartial()) {
+            detail = mapper.withDetectedEntities(detail, detectedElements(credential, detail));
+        }
         cache.put(key, detail, DETAIL_CACHE_MINUTES);
         return detail;
+    }
+
+    /**
+     * Every detector that fired anywhere in one asset, from a filter call scoped to just that asset.
+     *
+     * <p>There is no asset-id filter, so the scope is the asset's own attributes: name, resource type,
+     * integration, provider, scan status and severity. That isolated the asset in all 17 truncated assets
+     * in the test project, but it is checked on every call rather than assumed: the {@code resource_type}
+     * facet counts the matching assets, and anything other than exactly one means the facet would mix in
+     * another asset's detectors, so nothing is returned.
+     *
+     * <p>Best-effort. A failure returns an empty list, which leaves the sampled entities as they were.
+     */
+    private List<String> detectedElements(MattersCredential credential, DspmAssetDetail detail) {
+        if (detail.resourceType() == null || detail.name() == null) {
+            return List.of();
+        }
+        Map<String, List<String>> scope = new LinkedHashMap<>();
+        scope.put("resource_type", List.of(detail.resourceType()));
+        scope.put("q", List.of(detail.name()));
+        if (detail.source().account() != null) {
+            scope.put("integration_id", List.of(detail.source().account()));
+        }
+        if (detail.source().provider() != null) {
+            scope.put("provider", List.of(detail.source().provider()));
+        }
+        if (detail.scan().status() != null) {
+            scope.put("scan_status", List.of(detail.scan().status()));
+        }
+        // Already folded to NONE when the vendor sent null, which is the value this filter accepts.
+        scope.put("severity", List.of(detail.risk().level()));
+
+        try {
+            DspmFilters facets = mapper.toFilters(apiClient.listFilters(credential, scope));
+            long matching = facets.dimensions().getOrDefault("resource_type", List.of()).stream()
+                    .filter(option -> detail.resourceType().equals(option.value()))
+                    .mapToLong(DspmFilters.Option::count)
+                    .sum();
+            if (matching != 1) {
+                log.debug("[DSPM] entity scope for asset {} matched {} assets; using the sample only",
+                        detail.id(), matching);
+                return List.of();
+            }
+            return facets.dimensions().getOrDefault("data_element", List.of()).stream()
+                    .map(DspmFilters.Option::value)
+                    .toList();
+        } catch (RuntimeException e) {
+            // Includes MattersApiException. The detail is still correct without the extra entities.
+            log.debug("[DSPM] could not read detected entities for asset {}: {}", detail.id(), e.getMessage());
+            return List.of();
+        }
     }
 
     /**
@@ -246,6 +409,9 @@ public class MattersDspmService {
      */
     public void evictClient(Long clientId) {
         long removed = cache.evictByPattern(KEY_PREFIX + "*:" + clientId + ":*");
+        // Held under a different key shape (one entry per client, not per query) and with a twelve-hour
+        // TTL, so the pattern sweep above does not reach it and it would outlive a repoint by half a day.
+        integrationLabeler.evictClient(clientId);
         log.info("[DSPM] evicted {} cached entries for client {}", removed, clientId);
     }
 }

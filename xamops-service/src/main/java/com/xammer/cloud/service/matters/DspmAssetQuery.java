@@ -50,6 +50,47 @@ public final class DspmAssetQuery {
      */
     public static final String CLOUD_RESOURCE_TYPE = "DATASTORE";
 
+    /**
+     * The three surfaces, each scoped by its {@code resource_type}.
+     *
+     * Scoped this way rather than by {@code category} for the reason above, and because it happens to be
+     * exactly right for all three: every datastore (cloud and self-hosted) is {@code DATASTORE}, SaaS
+     * accounts are {@code SAAS_PRINCIPAL}, managed devices are {@code ENDPOINT_HOST}. One parameter
+     * covers all of them, with paging, sorting and faceting intact.
+     */
+    public enum Surface {
+        CLOUD("cloud", CLOUD_RESOURCE_TYPE),
+        SAAS("saas", "SAAS_PRINCIPAL"),
+        ENDPOINT("endpoint", "ENDPOINT_HOST");
+
+        private final String slug;
+        private final String resourceType;
+
+        Surface(String slug, String resourceType) {
+            this.slug = slug;
+            this.resourceType = resourceType;
+        }
+
+        public String slug() {
+            return slug;
+        }
+
+        public String resourceType() {
+            return resourceType;
+        }
+
+        /** Resolves a URL slug, or throws so an unknown surface is a 400 rather than an empty table. */
+        public static Surface fromSlug(String value) {
+            for (Surface surface : values()) {
+                if (surface.slug.equalsIgnoreCase(value)) {
+                    return surface;
+                }
+            }
+            throw new IllegalArgumentException(
+                    "Unknown DSPM surface '" + value + "' — expected cloud, saas or endpoint");
+        }
+    }
+
     /** Sort fields the API honours. Anything else is ignored upstream, so it is rejected here. */
     private static final Set<String> SORTABLE = Set.of(
             "name", "risk_score", "sensitive_record_count", "last_modified_at", "severity");
@@ -158,13 +199,25 @@ public final class DspmAssetQuery {
     }
 
     /**
-     * The Cloud surface: every datastore, cloud-hosted and self-hosted alike.
+     * A query for one surface.
      *
      * Scoped by {@code resource_type} rather than {@code category} — see {@link #CLOUD_RESOURCE_TYPE}.
      */
+    public static DspmAssetQuery forSurface(Surface surface, String search, String sort,
+                                            Integer page, Integer pageSize,
+                                            Map<String, List<String>> rawFilters) {
+        return of(null, surface.resourceType(), search, sort, page, pageSize, rawFilters);
+    }
+
+    /**
+     * The Cloud surface: every datastore, cloud-hosted and self-hosted alike.
+     *
+     * Kept as a named convenience because it is the one surface with a non-obvious scope — "cloud" in the
+     * UI covers self-hosted datastores too, matching the vendor's own Cloud screen.
+     */
     public static DspmAssetQuery cloud(String search, String sort, Integer page, Integer pageSize,
                                        Map<String, List<String>> rawFilters) {
-        return of(null, CLOUD_RESOURCE_TYPE, search, sort, page, pageSize, rawFilters);
+        return forSurface(Surface.CLOUD, search, sort, page, pageSize, rawFilters);
     }
 
     /**
@@ -257,6 +310,11 @@ public final class DspmAssetQuery {
      */
     private String scopeKey() {
         return (category == null ? "" : category) + ":" + (resourceTypeScope == null ? "" : resourceTypeScope);
+    }
+
+    /** The fixed {@code resource_type} scope, or null for a category-scoped query. */
+    public String resourceTypeScope() {
+        return resourceTypeScope;
     }
 
     public int page() {

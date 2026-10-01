@@ -73,9 +73,12 @@ const emptyStateFor = (billingStatus?: GcpBillingStatus | null): EmptyStateCopy 
   };
 };
 
+// Matches the AWS Cost Breakdown palette (indigo/violet/cyan/amber/emerald…)
+// so the GCP donut reads the same as the AWS one.
 const COLORS = [
-  '#f97316', '#f59e0b', '#ef4444', '#fb923c', '#fbbf24',
-  '#e11d48', '#f43f5e', '#dc2626', '#ea580c', '#d97706', '#b45309',
+  '#6366f1', '#8b5cf6', '#22d3ee', '#f59e0b', '#10b981',
+  '#f97316', '#3b82f6', '#ec4899', '#84cc16', '#14b8a6',
+  '#a78bfa',
 ];
 
 const inputCls = 'px-2.5 py-1.5 text-[12px] rounded-lg border border-[rgba(0,0,0,0.1)] bg-white text-[rgba(0,0,0,0.88)] focus:outline-none focus:border-[rgba(0,0,0,0.25)] transition-colors';
@@ -144,18 +147,10 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
         maintainAspectRatio: false,
         cutout: '68%',
         plugins: {
-          legend: {
-            position: 'bottom',
-            labels: {
-              boxWidth: 8,
-              boxHeight: 8,
-              font: { size: 11 },
-              usePointStyle: true,
-              pointStyle: 'circle',
-              padding: 12,
-              color: 'rgba(0,0,0,0.55)',
-            },
-          },
+          // Legend intentionally disabled — the Detailed Breakdown table beside
+          // the chart already serves as a full color-keyed legend, and hiding it
+          // frees the donut hole for the centered Total (matches the AWS chart).
+          legend: { display: false },
           tooltip: {
             backgroundColor: 'rgba(0,0,0,0.88)',
             titleColor: 'white',
@@ -279,10 +274,18 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-0 divide-x divide-[rgba(0,0,0,0.06)]">
 
           {/* Donut */}
-          <div className="lg:col-span-2 p-5">
+          <div className="lg:col-span-2 p-5 flex flex-col">
             <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] mb-4">Cost Distribution</p>
-            <div className="h-72 relative">
+            <div className="relative flex-1 min-h-[360px]">
               <canvas ref={chartRef}></canvas>
+              {/* Total in the donut hole (matches AWS). Currency stays ₹ / en-IN. */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.4)]">Total</span>
+                <span className="text-[22px] font-bold text-[rgba(0,0,0,0.85)] tabular-nums leading-tight">
+                  ₹{totalCost.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                </span>
+                <span className="text-[10px] text-[rgba(0,0,0,0.35)] font-medium">{sortedData.length} categories</span>
+              </div>
             </div>
           </div>
 
