@@ -327,6 +327,107 @@ export const fetchTopResources = async (
   return readShape<TopResources>(res, isRecordWith(['resources'], ['totalCost']));
 };
 
+// ── One resource, in depth ───────────────────────────────────────────────────
+
+/**
+ * One usage type's movement inside a resource.
+ *
+ * <p>The per-line split is exact rather than indicative, which is what makes this worth showing
+ * separately from the service-level table: one usage type bills in one unit, so cost ÷ quantity is a
+ * real unit rate. The service-level view has to blend units across everything a service bills for and
+ * can only point at a direction.
+ */
+export interface ResourceLineChange {
+  /** The billed line as the invoice words it. Falls back to the usage type when blank. */
+  description: string;
+  /** The stable code behind the description — usage type on AWS, SKU id on GCP, meter on Azure. */
+  usageType: string;
+  /** GB-Mo, Hrs, requests. Empty on Azure, which does not return it for this query. */
+  unit: string;
+  priorCost: number;
+  currentCost: number;
+  costChange: number;
+  priorQuantity: number;
+  currentQuantity: number;
+  priceEffect: number;
+  volumeEffect: number;
+}
+
+/** One day's cost. `date` is ISO-8601, so it sorts as a string. */
+export interface DailyCost {
+  date: string;
+  cost: number;
+}
+
+/**
+ * Everything the resource drill-down panel shows for one resource.
+ *
+ * <p>Answers the question a reader has the moment they see which resource costs the most: and why did
+ * *that* change. Identical in shape across all three clouds, so one panel renders any of them.
+ */
+export interface ResourceChange {
+  resourceId: string;
+  /** The Name tag, the resource's own name, or empty — see ResourceCost.name. */
+  name: string;
+  service: string;
+  region: string;
+  /** Instance type on AWS, resource group on Azure, empty on GCP. Matches ResourceCost. */
+  instanceType: string;
+  priorCost: number;
+  currentCost: number;
+  costChange: number;
+  priorQuantity: number;
+  currentQuantity: number;
+  priceEffect: number;
+  volumeEffect: number;
+  /**
+   * False when the billing source does not reach the earlier month, so the prior figures and both
+   * effects are zero and mean nothing.
+   *
+   * A CUR and a GCP billing export both begin when they were created and never backfill, so this is
+   * the normal state for a recently connected one. It is a flag rather than an absent payload because
+   * the lines and the daily series are still real — only the comparison is impossible, and showing
+   * zeros as a genuine earlier month would make every resource look newly created.
+   */
+  comparisonAvailable: boolean;
+  /** Per usage type, largest movement first. */
+  lines: ResourceLineChange[];
+  /** The selected month's spend, day by day. Empty when the daily query could not run. */
+  daily: DailyCost[];
+}
+
+/**
+ * One resource's month-over-month movement, which usage types moved, and its daily spend.
+ *
+ * Null means the billing source cannot attribute cost to this resource — no report, or a scope that
+ * will not group by resource. That is the same condition that hides the resource table itself, so a
+ * reader who can see the table can open the panel.
+ */
+export const fetchResourceChange = async (
+  accountId: string,
+  resourceId: string,
+  period?: string,
+  /**
+   * The row's service and region.
+   *
+   * <p>Passed so the panel answers the figure the reader clicked. The resource table groups by
+   * (resource, service, region), so one resource spanning two services is several rows each showing
+   * part of its cost — and a panel filtered on the id alone reported the resource's whole cost, a
+   * larger number than the row that opened it with nothing to explain the gap.
+   */
+  scope?: { service?: string; region?: string },
+): Promise<ResourceChange | null> => {
+  const params = new URLSearchParams({ resourceId });
+  if (period) params.set('period', period);
+  if (scope?.service) params.set('service', scope.service);
+  if (scope?.region) params.set('region', scope.region);
+  const res = await apiFetch(
+    `/api/xamops/cur-insights/resource-change/${encodeURIComponent(accountId)}?${params}`,
+  );
+  if (!res.ok) return null;
+  return readShape<ResourceChange>(res, isRecordWith(['lines', 'daily'], ['costChange']));
+};
+
 // ── Tag coverage and cost allocation ─────────────────────────────────────────
 
 /** One required tag's share of the bill. */

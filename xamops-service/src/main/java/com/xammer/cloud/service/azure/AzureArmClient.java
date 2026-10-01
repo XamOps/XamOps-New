@@ -390,7 +390,18 @@ public class AzureArmClient {
                     continue;
                 }
 
-                logger.warn("ARM {} {} returned unexpected HTTP {}", method, url, status);
+                // Azure's own reason, which was being discarded. A 400 from Cost Management says
+                // exactly which part of a query definition it would not accept — "the dimension X is
+                // not supported for this scope", "invalid query definition" — and that sentence is
+                // the whole diagnosis. Without it, a section that reports itself unavailable is
+                // indistinguishable from one whose subscription genuinely has no data, and the only
+                // way to tell them apart was to reproduce the call by hand.
+                //
+                // Truncated because an error body is occasionally a stack of nested details, and
+                // logged as a body rather than parsed: the shape varies by status and the text is
+                // for a human, not for a branch.
+                logger.warn("ARM {} {} returned unexpected HTTP {} — {}", method, url, status,
+                        summarise(response.body()));
                 return Optional.empty();
 
             } catch (AzureArmException e) {
@@ -416,6 +427,25 @@ public class AzureArmClient {
 
         throw lastFailure != null ? lastFailure
                 : new AzureArmException("ARM call failed for " + url + " after " + MAX_ATTEMPTS + " attempts");
+    }
+
+    /** How much of an error body is worth a log line. Long enough for the message, not the stack. */
+    private static final int ERROR_BODY_LIMIT = 600;
+
+    /**
+     * An error response body, trimmed to one log line.
+     *
+     * <p>Only reached on a non-2xx, where the body is an error document rather than data — so there is
+     * nothing here a customer would recognise as theirs. Newlines are collapsed so the line stays one
+     * line in an aggregator.
+     */
+    private static String summarise(String body) {
+        if (body == null || body.isBlank()) {
+            return "no response body";
+        }
+        String flat = body.replaceAll("\\s+", " ").trim();
+        return flat.length() <= ERROR_BODY_LIMIT ? flat
+                : flat.substring(0, ERROR_BODY_LIMIT) + "… (truncated)";
     }
 
     /**

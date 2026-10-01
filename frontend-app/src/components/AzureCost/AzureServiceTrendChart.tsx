@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { useMoneyIn } from '../Cost/costCurrency';
 
 declare global {
   interface Window { Chart: any; }
@@ -9,12 +10,24 @@ interface AzureServiceTrendChartProps {
   data: { labels: string[]; costs: number[] } | null;
   isLoading: boolean;
   onClose: () => void;
+  /**
+   * ISO code the subscription is billed in.
+   *
+   * <p>This chart hardcoded `'$'` while every other card on the same page hardcoded `'₹'` — so on an
+   * INR-billed subscription, clicking a service row swapped the currency symbol on the same screen
+   * for the same money. Neither was read from the data; both are now.
+   */
+  currency: string;
 }
 
-const formatCurrency = (value: number): string =>
-  '$' + (value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-const AzureServiceTrendChart: React.FC<AzureServiceTrendChartProps> = ({ dimension, data, isLoading, onClose }) => {
+const AzureServiceTrendChart: React.FC<AzureServiceTrendChartProps> = ({
+  dimension,
+  data,
+  isLoading,
+  onClose,
+  currency,
+}) => {
+  const money = useMoneyIn(currency);
   const chartRef = useRef<any>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -49,14 +62,14 @@ const AzureServiceTrendChart: React.FC<AzureServiceTrendChartProps> = ({ dimensi
             borderWidth: 1,
             cornerRadius: 8,
             padding: 10,
-            callbacks: { label: (c: any) => `Cost: ${formatCurrency(c.parsed.y)}` },
+            callbacks: { label: (c: any) => `Cost: ${money(c.parsed.y)}` },
           },
         },
         scales: {
           y: {
             beginAtZero: true,
             grid: { color: 'rgba(226,232,240,0.5)' },
-            ticks: { callback: (v: any) => '$' + Number(v).toLocaleString(), color: '#6b7280', font: { size: 10 } },
+            ticks: { callback: (v: any) => money(Number(v)), color: '#6b7280', font: { size: 10 } },
           },
           x: {
             grid: { display: false },
@@ -67,7 +80,7 @@ const AzureServiceTrendChart: React.FC<AzureServiceTrendChartProps> = ({ dimensi
     });
 
     return () => { chartRef.current?.destroy(); };
-  }, [data]);
+  }, [data, money]);
 
   return (
     <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 mb-6">

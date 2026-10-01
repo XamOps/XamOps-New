@@ -6,6 +6,7 @@ import type {
   GcpCostFilters,
   GcpGroupByType,
 } from '../../types/gcpCost';
+import { useMoneyIn } from '../Cost/costCurrency';
 
 Chart.register(ArcElement, DoughnutController, Tooltip, Legend);
 
@@ -20,6 +21,15 @@ interface GcpCostBreakdownSectionProps {
    * asserting a reason it does not have.
    */
   billingStatus?: GcpBillingStatus | null;
+  /** ISO code the billing account is denominated in. */
+  currency: string;
+  /**
+   * Opens the daily trend for one row.
+   *
+   * <p>Optional so the section still renders without it, but the AWS and Azure pages both make their
+   * breakdown rows clickable and `/costs/historical-trend` has always been able to answer for GCP.
+   */
+  onDimensionClick?: (dimension: string) => void;
 }
 
 /** What the empty panel should say, derived from the billing source's readiness. */
@@ -76,14 +86,24 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
   isLoading,
   onFiltersChange,
   billingStatus,
+  currency,
+  onDimensionClick,
 }) => {
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstanceRef = useRef<Chart<'doughnut'> | null>(null);
 
   const emptyState = useMemo(() => emptyStateFor(billingStatus), [billingStatus]);
 
-  const formatCurrency = (value: number): string =>
-    '₹' + (value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const formatCurrency = useMoneyIn(currency);
+
+  /**
+   * Whether a row names something the trend endpoint can be asked about.
+   *
+   * <p>`/costs/historical-trend` filters on service. A project or a tag value is not a service, so
+   * those rows stay inert rather than opening a chart of the whole project's spend under a heading
+   * naming one tag.
+   */
+  const rowsAreClickable = Boolean(onDimensionClick) && filters.groupBy === 'SERVICE';
 
   const sortedData = useMemo(() =>
     [...costData].sort((a, b) => b.amount - a.amount), [costData]);
@@ -168,12 +188,51 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">Cost Breakdown</p>
-            <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">Spending analysis for the last 90 days</p>
+            <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">
+              {/* The range is now real. It used to say "month to date" because the page never sent
+                  the dates that /breakdown has always accepted, so that was the only truth
+                  available; grouping by tag still ignores it, and says so. */}
+              {filters.groupBy === 'TAG'
+                ? 'Month to date — the tag breakdown does not take a date range'
+                : `${filters.startDate} to ${filters.endDate}`}
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {filters.groupBy !== 'TAG' && (
+              <>
+                <label className="flex items-center gap-1.5 text-[11px] font-medium text-[rgba(0,0,0,0.5)]">
+                  From
+                  <input
+                    type="date"
+                    value={filters.startDate}
+                    max={filters.endDate}
+                    onChange={e => onFiltersChange({ startDate: e.target.value })}
+                    className={inputCls}
+                  />
+                </label>
+                <label className="flex items-center gap-1.5 text-[11px] font-medium text-[rgba(0,0,0,0.5)]">
+                  To
+                  <input
+                    type="date"
+                    value={filters.endDate}
+                    min={filters.startDate}
+                    onChange={e => onFiltersChange({ endDate: e.target.value })}
+                    className={inputCls}
+                  />
+                </label>
+              </>
+            )}
             <span className="text-[11px] font-medium text-[rgba(0,0,0,0.5)]">Group by:</span>
-            <select value={filters.groupBy} onChange={e => onFiltersChange({ groupBy: e.target.value as GcpGroupByType })} className={inputCls}>
+            <select
+              aria-label="Group cost by"
+              value={filters.groupBy}
+              onChange={e => onFiltersChange({ groupBy: e.target.value as GcpGroupByType })}
+              className={inputCls}
+            >
               <option value="SERVICE">Service</option>
+              {/* Supported by GcpCostService all along and absent from this list, so the one
+                  breakdown the AWS and Azure pages both offer by default could not be asked for. */}
+              <option value="REGION">Region</option>
               <option value="PROJECT">Project</option>
               <option value="TAG">Tag Key</option>
             </select>
@@ -229,8 +288,11 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
 
           {/* Table */}
           <div className="lg:col-span-3 flex flex-col">
-            <div className="px-5 py-4 border-b border-[rgba(0,0,0,0.06)]">
+            <div className="px-5 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-baseline justify-between gap-3">
               <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">Detailed Breakdown</p>
+              <p className="text-[12px] text-[rgba(0,0,0,0.45)] tabular-nums">
+                {formatCurrency(totalCost)} total
+              </p>
             </div>
             <div className="overflow-auto flex-1" style={{ maxHeight: '340px' }}>
               <table className="w-full text-sm">
@@ -239,7 +301,11 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
                     <th className="px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.45)]">
                       {filters.groupBy.charAt(0) + filters.groupBy.slice(1).toLowerCase()}
                     </th>
-                    <th className="px-5 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.45)]">Cost (USD)</th>
+                    {/* Read off the billing account rather than asserted. This column said
+                        "Cost (USD)" while the cell beside it rendered a rupee symbol. */}
+                    <th className="px-5 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.45)]">
+                      Cost ({currency})
+                    </th>
                     <th className="px-5 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.45)]">%</th>
                   </tr>
                 </thead>
@@ -247,7 +313,15 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
                   {sortedData.map((item, index) => {
                     const pct = totalCost > 0 ? ((item.amount / totalCost) * 100).toFixed(1) : '0.0';
                     return (
-                      <tr key={item.name || index} className="border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.02)] transition-colors" style={{ animation: `fadeInUp 0.35s ease ${index * 0.035}s both` }}>
+                      <tr
+                        key={item.name || index}
+                        className={`border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.02)] transition-colors ${rowsAreClickable ? 'cursor-pointer' : ''}`}
+                        style={{ animation: `fadeInUp 0.35s ease ${index * 0.035}s both` }}
+                        onClick={rowsAreClickable && item.name
+                          ? () => onDimensionClick?.(item.name)
+                          : undefined}
+                        title={rowsAreClickable ? `Show the daily trend for ${item.name}` : undefined}
+                      >
                         <td className="px-5 py-3">
                           <div className="flex items-center gap-2.5">
                             <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: COLORS[index % COLORS.length] }}></span>

@@ -39,6 +39,8 @@ class ForecastAccuracyServiceTest {
     @Mock GcpCostService gcpCostService;
     @Mock CostDataSnapshotService snapshotService;
     @Mock ForecastingService forecastingService;
+    /** Azure's daily actuals source, read by fetchActuals for PROVIDER_AZURE records. */
+    @Mock com.xammer.cloud.service.azure.AzureBillingDataIngestionService azureBillingService;
 
     @Captor ArgumentCaptor<List<ForecastAccuracyRecord>> saveCaptor;
 
@@ -47,7 +49,8 @@ class ForecastAccuracyServiceTest {
     @BeforeEach
     void setUp() {
         service = new ForecastAccuracyService(
-                repository, costService, gcpCostService, snapshotService, forecastingService);
+                repository, costService, gcpCostService, snapshotService, forecastingService,
+                azureBillingService);
     }
 
     private ForecastDto point(String ds, double yhat, double lower, double upper) {

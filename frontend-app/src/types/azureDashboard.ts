@@ -131,6 +131,24 @@ export interface AzureDashboardData {
 
   /** Customer-facing reasons {@link dataComplete} is false, each naming what to do about it. */
   dataWarnings?: string[];
+
+  /**
+   * ISO code of the currency every cost in this payload is denominated in, e.g. `"INR"`.
+   *
+   * <p>Undefined when the backend has not ingested a currency for the subscription yet, which is
+   * deliberately distinguishable from `"USD"`: a caller that cannot tell them apart is how the
+   * hardcoded rupee symbol got there in the first place.
+   */
+  currency?: string;
+
+  /** The same month-to-date figure in USD, from Azure's own conversion rather than a local rate. */
+  monthToDateSpendUsd?: number;
+
+  /** How old the snapshot behind these figures is, so the page can say rather than imply. */
+  snapshotAgeMinutes?: number;
+
+  /** True when the snapshot is old enough that the page should say so. */
+  stale?: boolean;
 }
 
 export interface AzureResourceType {

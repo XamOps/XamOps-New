@@ -358,17 +358,22 @@ public class GcpCostService {
 
         LocalDate today = LocalDate.now();
         LocalDate startDate = today.withDayOfMonth(1);
+        // The label value comes from a scalar subquery, not `FROM t, UNNEST(labels)`. See
+        // GcpBillingSql.labelValueExpr: the comma form is a cross join that silently dropped
+        // every row carrying no label, so spend with no owner read as zero instead of appearing
+        // as "(unlabelled)" — and an allocation view that cannot show unallocated spend is
+        // reporting the opposite of what it is for.
         String query = String.format(
-                "SELECT l.value as name, " + GcpBillingSql.NET_COST_SUM
-                        + " as total_cost, false as is_anomaly " +
-                        "FROM `%s`, UNNEST(labels) as l " +
-                        "WHERE project.id = '%s' AND l.key = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' " +
-                        "GROUP BY 1 ORDER BY total_cost DESC",
-                tableNameOpt.get(), gcpProjectId, tagKey,
-                startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                today.format(DateTimeFormatter.ISO_LOCAL_DATE));
+                "SELECT %s AS name, %s AS total_cost, false AS is_anomaly"
+                        + " FROM `%s` WHERE %s AND %s"
+                        + " GROUP BY 1 ORDER BY total_cost DESC",
+                GcpBillingSql.labelValueExpr("labelKey"), GcpBillingSql.NET_COST_SUM,
+                tableNameOpt.get(), GcpBillingSql.PROJECT_PREDICATE,
+                GcpBillingSql.USAGE_DATE_PREDICATE);
 
-        List<GcpCostDto> result = executeQuery(bigquery, query, gcpProjectId);
+        List<GcpCostDto> result = executeQuery(bigquery,
+                exportQuery(query, gcpProjectId, startDate, today, Map.of("labelKey", tagKey)),
+                gcpProjectId);
         redisCacheService.put(cacheKey, result, 60 * 24);
         saveToDb(dbKey, result);
         return result;
@@ -980,6 +985,53 @@ public class GcpCostService {
         return executeQuery(bigquery, query, gcpProjectId);
     }
 
+    /**
+     * A parameterised query over the billing export, scoped to one project and date range.
+     *
+     * <p>Named parameters rather than {@code String.format}: a label key or service name arrives
+     * from a request, and this class interpolates most of them straight into SQL. Every query
+     * added from here on binds instead, which is both safe and what
+     * {@link CspBillingQueryService} already does on the reseller path.
+     *
+     * @param extraParams additional string parameters by name, without the {@code @}
+     */
+    private static QueryJobConfiguration exportQuery(String sql, String gcpProjectId,
+                                                     LocalDate start, LocalDate end,
+                                                     Map<String, String> extraParams) {
+        QueryJobConfiguration.Builder builder = QueryJobConfiguration.newBuilder(sql)
+                .addNamedParameter("projectId", QueryParameterValue.string(gcpProjectId))
+                .addNamedParameter("startDate",
+                        QueryParameterValue.date(start.format(DateTimeFormatter.ISO_LOCAL_DATE)))
+                .addNamedParameter("endDate",
+                        QueryParameterValue.date(end.format(DateTimeFormatter.ISO_LOCAL_DATE)));
+        if (extraParams != null) {
+            extraParams.forEach((name, value) ->
+                    builder.addNamedParameter(name, QueryParameterValue.string(value)));
+        }
+        return builder.build();
+    }
+
+    /** Runs a prebuilt parameterised query, mapping the standard name/total_cost/is_anomaly shape. */
+    private List<GcpCostDto> executeQuery(BigQuery bigquery, QueryJobConfiguration config,
+                                          String gcpProjectId) {
+        try {
+            TableResult results = bigquery.query(config);
+            return StreamSupport.stream(results.iterateAll().spliterator(), false)
+                    .map(row -> new GcpCostDto(
+                            row.get("name").isNull() ? GcpBillingSql.UNLABELLED
+                                    : row.get("name").getStringValue(),
+                            row.get("total_cost").isNull() ? 0.0 : row.get("total_cost").getDoubleValue(),
+                            row.get("is_anomaly").getBooleanValue()))
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.error("BigQuery query failed for project {}: {}", gcpProjectId, e.getMessage(), e);
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            return Collections.emptyList();
+        }
+    }
+
     private List<GcpCostDto> executeQuery(BigQuery bigquery, String query, String gcpProjectId) {
         try {
             log.info("Executing BigQuery query for project {}: {}", gcpProjectId, query);
@@ -1226,18 +1278,21 @@ public class GcpCostService {
             if (tableNameOpt.isEmpty())
                 return Collections.emptyList();
 
+            // Same correction as getCostByTagSync: the previous `FROM t, UNNEST(labels) AS l`
+            // cross-joined the label array, so rows with no labels were dropped rather than
+            // counted as unlabelled. The old COALESCE could not fix that — it only caught a NULL
+            // value on a row that already carried the key, which is the rarer case by far.
             String query = String.format(
-                    "SELECT COALESCE(l.value, 'Untagged') as labelValue, " + GcpBillingSql.NET_COST_SUM + " as cost " +
-                            "FROM `%s`, UNNEST(labels) as l " +
-                            "WHERE project.id = '%s' AND l.key = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s' "
-                            +
-                            "GROUP BY 1 HAVING cost > 0.01 ORDER BY cost DESC",
-                    tableNameOpt.get(), gcpProjectId, labelKey,
-                    start.format(DateTimeFormatter.ISO_LOCAL_DATE),
-                    end.format(DateTimeFormatter.ISO_LOCAL_DATE));
+                    "SELECT %s AS labelValue, %s AS cost"
+                            + " FROM `%s` WHERE %s AND %s"
+                            + " GROUP BY 1 HAVING cost > 0.01 ORDER BY cost DESC",
+                    GcpBillingSql.labelValueExpr("labelKey"), GcpBillingSql.NET_COST_SUM,
+                    tableNameOpt.get(), GcpBillingSql.PROJECT_PREDICATE,
+                    GcpBillingSql.USAGE_DATE_PREDICATE);
 
             try {
-                TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
+                TableResult results = bigquery.query(
+                        exportQuery(query, gcpProjectId, start, end, Map.of("labelKey", labelKey)));
                 List<Map<String, Object>> result = StreamSupport.stream(results.iterateAll().spliterator(), false)
                         .map(row -> Map.<String, Object>of(
                                 "labelValue", row.get("labelValue").getStringValue(),

@@ -2,15 +2,18 @@ package com.xammer.cloud.service.cur;
 
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.CurSource;
+import com.xammer.cloud.util.PriceVolumeSplit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Metrics that exist only in a CUR — the columns sitting in the same rows the cost
@@ -218,26 +221,14 @@ public class CurAdvancedMetricsService {
             double priorCost = priorValues[0];
             double priorQty = priorValues[1];
 
-            double curRate = curQty > 0 ? curCost / curQty : 0;
-            double priorRate = priorQty > 0 ? priorCost / priorQty : 0;
-
-            // Decompose at the prior rate: volume effect is the quantity change valued at
-            // the old unit price, and price effect is whatever is left.
-            //
-            // The baseline falls back to the current rate when there was no prior usage.
-            // Without that, a service that first appeared this period has priorRate 0, so
-            // the volume term vanishes and its entire cost is reported as a price
-            // increase — the opposite of the truth, since a new service is pure volume.
-            double baselineRate = priorQty > 0 ? priorRate : curRate;
-            double volumeEffect = (curQty - priorQty) * baselineRate;
-
-            // Price is the residual rather than (Δrate x qty) computed independently, so
-            // the two effects always sum to the cost change exactly. Computing both
-            // directly leaves a cross-term that shows up as an unexplained gap.
-            double priceEffect = (curCost - priorCost) - volumeEffect;
+            // Shared with the Azure and GCP paths and with the per-resource breakdown, so all four
+            // report the same split — including the new-service case the other two clouds used to get
+            // backwards. See PriceVolumeSplit for the decomposition and why price is the residual.
+            PriceVolumeSplit.Effects effects =
+                    PriceVolumeSplit.of(priorCost, curCost, priorQty, curQty);
 
             changes.add(new PriceVolumeChange(service, priorCost, curCost, curCost - priorCost,
-                    priorQty, curQty, priceEffect, volumeEffect));
+                    priorQty, curQty, effects.priceEffect(), effects.volumeEffect()));
         }
 
         changes.sort((a, b) -> Double.compare(Math.abs(b.costChange()), Math.abs(a.costChange())));
@@ -267,6 +258,290 @@ public class CurAdvancedMetricsService {
             byService.put(svc, new double[]{parse(row.get("cost")), parse(row.get("qty"))});
         }
         return byService;
+    }
+
+    // ── One resource, in depth ──────────────────────────────────────────────────
+
+    /**
+     * Everything the resource drill-down needs for one resource.
+     *
+     * <p>Two scans rather than one. The line-item comparison needs both months grouped by usage type;
+     * the daily series needs the current month grouped by day. Combining them would group by usage type
+     * <em>and</em> day, multiplying the rows by thirty for an answer that is summed back down — and
+     * Athena bills per byte scanned, so the wider grouping is the more expensive shape.
+     *
+     * <p>Both are scoped to a single {@code line_item_resource_id}, which is the narrowest predicate in
+     * this class. The cost of the drill-down is therefore roughly independent of how large the account
+     * is, which is what makes it safe to open on demand rather than precomputing it.
+     *
+     * @param resourceId the id as the report records it, or empty for the resource-less charges the
+     *                   table groups separately — those have no meaningful per-resource story, so the
+     *                   caller does not offer the drill-down for them
+     */
+    public ResourceChange getResourceChange(CurSource source, CloudAccount account, String resourceId,
+                                            String service, String region,
+                                            LocalDate currentStart, LocalDate currentEnd,
+                                            LocalDate priorStart, LocalDate priorEnd,
+                                            boolean comparePrior) {
+
+        // Scoped to the row that opened this, not to the resource id alone. See scopePredicate.
+        String scope = scopePredicate(resourceId, service, region);
+
+        Map<String, double[]> current = usageAndCostByLineItem(source, account, scope,
+                currentStart, currentEnd);
+        /*
+         * The earlier month is optional.
+         *
+         * A CUR begins at the month it was created and never backfills, so on a report younger than two
+         * months the prior month simply is not in it. Requiring it made this whole endpoint 409 — the
+         * panel opened onto "no detail available" even though the current month's lines and daily series
+         * were sitting right there, queryable. The comparison degrades; the rest does not.
+         *
+         * Skipped rather than queried-and-empty, because an empty prior month and an absent one are
+         * different facts: zero would make PriceVolumeSplit read the resource as brand new and report its
+         * entire cost as "used more", which is a statement about the report's age dressed up as a
+         * statement about the infrastructure.
+         */
+        Map<String, double[]> prior = comparePrior
+                ? usageAndCostByLineItem(source, account, scope, priorStart, priorEnd)
+                : Map.of();
+
+        // Descriptors are carried alongside the figures so a usage type present in only one of the two
+        // months still renders with its unit and description rather than as a bare code.
+        Map<String, String[]> descriptors = new LinkedHashMap<>();
+        if (comparePrior) {
+            descriptors.putAll(lineDescriptors(source, account, scope, priorStart, priorEnd));
+        }
+        // Current month last, so where the two disagree the newer wording wins.
+        descriptors.putAll(lineDescriptors(source, account, scope, currentStart, currentEnd));
+
+        Set<String> usageTypes = new java.util.LinkedHashSet<>(current.keySet());
+        usageTypes.addAll(prior.keySet());
+
+        List<ResourceLineChange> lines = new ArrayList<>();
+        double priorCost = 0;
+        double currentCost = 0;
+        double priorQty = 0;
+        double currentQty = 0;
+
+        for (String usageType : usageTypes) {
+            double[] cur = current.getOrDefault(usageType, new double[]{0, 0});
+            double[] pri = prior.getOrDefault(usageType, new double[]{0, 0});
+            priorCost += pri[0];
+            currentCost += cur[0];
+            priorQty += pri[1];
+            currentQty += cur[1];
+
+            // Per line, the split is exact rather than indicative: one usage type bills in one unit, so
+            // cost ÷ quantity is a real unit rate. That is the whole reason this breakdown exists — the
+            // service-level split has to blend units and can only point at a direction.
+            PriceVolumeSplit.Effects effects = PriceVolumeSplit.of(pri[0], cur[0], pri[1], cur[1]);
+            String[] descriptor = descriptors.getOrDefault(usageType, new String[]{"", ""});
+            lines.add(new ResourceLineChange(
+                    blankTo(descriptor[0], usageType),
+                    usageType,
+                    blankTo(descriptor[1], ""),
+                    pri[0], cur[0], cur[0] - pri[0],
+                    pri[1], cur[1],
+                    effects.priceEffect(), effects.volumeEffect()));
+        }
+        lines.sort(Comparator.comparingDouble((ResourceLineChange l) -> -Math.abs(l.costChange())));
+
+        PriceVolumeSplit.Effects total = PriceVolumeSplit.of(priorCost, currentCost, priorQty, currentQty);
+        ResourceIdentity identity = resourceIdentity(source, account, scope, currentStart, currentEnd,
+                comparePrior ? priorStart : currentStart, comparePrior ? priorEnd : currentEnd);
+
+        return new ResourceChange(resourceId, identity.name(), identity.service(), identity.region(),
+                identity.instanceType(),
+                priorCost, currentCost, currentCost - priorCost,
+                priorQty, currentQty,
+                total.priceEffect(), total.volumeEffect(),
+                comparePrior,
+                List.copyOf(lines),
+                dailyCost(source, account, scope, currentStart, currentEnd));
+    }
+
+    /** Cost and usage per usage type for one resource over one period. */
+    private Map<String, double[]> usageAndCostByLineItem(CurSource source, CloudAccount account,
+                                                         String scope,
+                                                         LocalDate start, LocalDate end) {
+        String sql = "SELECT line_item_usage_type AS usage_type,"
+                + " SUM(" + CurSql.numericExpr(source, "line_item_unblended_cost") + ") AS cost,"
+                + " SUM(" + CurSql.numericExpr(source, "line_item_usage_amount") + ") AS qty"
+                + " FROM " + source.qualifiedTable()
+                + " WHERE " + accountPredicate(account)
+                + " AND " + scope
+                + " AND " + CurSql.partitionPredicate(source, start, end)
+                + " AND " + CurSql.usageDatePredicate(source, start, end)
+                // Usage lines only, matching the service-level comparison: a tax or credit row has a
+                // cost but no comparable quantity, and averaging it into a unit rate is meaningless.
+                + " AND line_item_line_item_type = 'Usage'"
+                + " GROUP BY line_item_usage_type";
+
+        Map<String, double[]> byUsageType = new LinkedHashMap<>();
+        for (Map<String, String> row : athena.query(source, account, sql)) {
+            String usageType = blankTo(row.get("usage_type"), "Other");
+            byUsageType.put(usageType, new double[]{parse(row.get("cost")), parse(row.get("qty"))});
+        }
+        return byUsageType;
+    }
+
+    /** Description and unit per usage type, so a line reads as words rather than as a code. */
+    private Map<String, String[]> lineDescriptors(CurSource source, CloudAccount account,
+                                                  String scope, LocalDate start, LocalDate end) {
+        String sql = "SELECT line_item_usage_type AS usage_type,"
+                + " MAX(line_item_line_item_description) AS description,"
+                + " MAX(pricing_unit) AS unit"
+                + " FROM " + source.qualifiedTable()
+                + " WHERE " + accountPredicate(account)
+                + " AND " + scope
+                + " AND " + CurSql.partitionPredicate(source, start, end)
+                + " AND " + CurSql.usageDatePredicate(source, start, end)
+                + " AND line_item_line_item_type = 'Usage'"
+                + " GROUP BY line_item_usage_type";
+
+        Map<String, String[]> descriptors = new LinkedHashMap<>();
+        for (Map<String, String> row : athena.query(source, account, sql)) {
+            descriptors.put(blankTo(row.get("usage_type"), "Other"),
+                    new String[]{blankTo(row.get("description"), ""), blankTo(row.get("unit"), "")});
+        }
+        return descriptors;
+    }
+
+    /** What the resource is: name, service, region, instance type. */
+    private record ResourceIdentity(String name, String service, String region, String instanceType) {
+    }
+
+    /**
+     * The resource's descriptors, preferring the current month and falling back to the prior one.
+     *
+     * <p>The fallback matters: a resource deleted partway through the comparison has no current-month
+     * rows at all, and it is exactly the resource a reader most wants to open — its cost went to zero
+     * and they want to know what it was.
+     */
+    private ResourceIdentity resourceIdentity(CurSource source, CloudAccount account, String scope,
+                                              LocalDate currentStart, LocalDate currentEnd,
+                                              LocalDate priorStart, LocalDate priorEnd) {
+        ResourceIdentity current = readIdentity(source, account, scope, currentStart, currentEnd);
+        if (!current.service().isBlank()) {
+            return current;
+        }
+        return readIdentity(source, account, scope, priorStart, priorEnd);
+    }
+
+    private ResourceIdentity readIdentity(CurSource source, CloudAccount account, String scope,
+                                          LocalDate start, LocalDate end) {
+        String nameExpr = tagColumns.resourceNameExpr(source, account).orElse(null);
+        String nameSelect = nameExpr == null ? "" : " MAX(" + nameExpr + ") AS resource_name,";
+
+        String sql = "SELECT" + nameSelect
+                + " MAX(product_product_name) AS service,"
+                + " MAX(product_region) AS region,"
+                + " MAX(product_instance_type) AS instance_type"
+                + " FROM " + source.qualifiedTable()
+                + " WHERE " + accountPredicate(account)
+                + " AND " + scope
+                + " AND " + CurSql.partitionPredicate(source, start, end)
+                + " AND " + CurSql.usageDatePredicate(source, start, end);
+
+        for (Map<String, String> row : athena.query(source, account, sql)) {
+            return new ResourceIdentity(
+                    blankTo(row.get("resource_name"), ""),
+                    blankTo(row.get("service"), ""),
+                    blankTo(row.get("region"), "Global"),
+                    blankTo(row.get("instance_type"), ""));
+        }
+        return new ResourceIdentity("", "", "Global", "");
+    }
+
+    /**
+     * One resource's cost per day over the period.
+     *
+     * <p>Every line item type, unlike the comparison above — this is the resource's spend, and a reader
+     * looking at the shape of a change wants the day a charge landed whether or not it carried a
+     * quantity.
+     */
+    private List<DailyCost> dailyCost(CurSource source, CloudAccount account, String scope,
+                                      LocalDate start, LocalDate end) {
+        String day = CurSql.usageDateExpr(source);
+        String sql = "SELECT CAST(" + day + " AS DATE) AS day,"
+                + " SUM(" + CurSql.numericExpr(source, "line_item_unblended_cost") + ") AS cost"
+                + " FROM " + source.qualifiedTable()
+                + " WHERE " + accountPredicate(account)
+                + " AND " + scope
+                + " AND " + CurSql.partitionPredicate(source, start, end)
+                + " AND " + CurSql.usageDatePredicate(source, start, end)
+                + " GROUP BY CAST(" + day + " AS DATE)"
+                + " ORDER BY day";
+
+        List<DailyCost> daily = new ArrayList<>();
+        for (Map<String, String> row : athena.query(source, account, sql)) {
+            String date = blankTo(row.get("day"), "");
+            if (!date.isBlank()) {
+                // Athena returns a DATE as "2026-08-14"; trimmed to ten characters in case a driver
+                // renders it with a time component, so the axis labels stay dates.
+                daily.add(new DailyCost(date.length() > 10 ? date.substring(0, 10) : date,
+                        parse(row.get("cost"))));
+            }
+        }
+        return List.copyOf(daily);
+    }
+
+    /**
+     * Scopes a query to one resource.
+     *
+     * <p>Parameterised by literal rather than by a bind variable because this class builds Athena SQL as
+     * strings throughout, so the id is quoted and any embedded quote doubled. A resource id is an ARN
+     * the customer does not choose freely, but it arrives from a query parameter, and an id that
+     * terminated the string early would be a SQL injection into the tenant's own data.
+     */
+    private String resourcePredicate(String resourceId) {
+        return "line_item_resource_id = " + literal(resourceId);
+    }
+
+    /**
+     * Narrows the drill-down to the same slice the table row represents.
+     *
+     * <p>{@link #getTopResources} groups by {@code (resource_id, product_product_name,
+     * product_region)}, so one resource spanning two services or two regions is several rows, each
+     * showing part of its cost. The drill-down originally filtered on the resource id alone and
+     * therefore reported the resource's <em>whole</em> cost — a larger number than the row that opened
+     * it, with nothing on screen to explain the gap. Observed as a row reading $76.42 opening a panel
+     * whose trend summed to $86.01.
+     *
+     * <p>Scoping to the row is the right way round of the two. The panel exists to explain the figure
+     * the reader just clicked, and a resource that also bills under another service has its own row
+     * there with its own panel. Answering a question the reader did not ask, in a number that
+     * contradicts the one they did, is worse than answering a narrower one.
+     *
+     * <p>Both are optional: a caller that does not know the row's service and region gets the
+     * resource-wide figures, which is the correct degraded answer rather than an empty one.
+     */
+    private String scopePredicate(String resourceId, String service, String region) {
+        StringBuilder predicate = new StringBuilder(resourcePredicate(resourceId));
+        if (service != null && !service.isBlank()) {
+            predicate.append(" AND product_product_name = ").append(literal(service));
+        }
+        if (region != null && !region.isBlank()) {
+            // "Global" is this section's own word for a row the report gave no region, not a value the
+            // report contains — so it has to be matched as the absence it stands for.
+            predicate.append("Global".equals(region)
+                    ? " AND (product_region IS NULL OR product_region = '')"
+                    : " AND product_region = " + literal(region));
+        }
+        return predicate.toString();
+    }
+
+    /**
+     * A single-quoted SQL literal with embedded quotes doubled.
+     *
+     * <p>This class builds Athena SQL as strings, so values reaching it from a query parameter have to
+     * be escaped here. A resource id is an ARN and a service name comes from the report, but both
+     * arrive over HTTP, and one that terminated the string early would be an injection into the
+     * tenant's own billing data.
+     */
+    private String literal(String value) {
+        return "'" + (value == null ? "" : value.replace("'", "''")) + "'";
     }
 
     // ── Charges by service, invoice style ───────────────────────────────────────
@@ -1227,6 +1502,46 @@ public class CurAdvancedMetricsService {
      * @param groupCount how many there were in total
      */
     public record TopResources(List<ResourceCost> resources, double totalCost, long groupCount) {
+    }
+
+    /**
+     * One resource's month-over-month movement, its per-line-item detail, and its daily series.
+     *
+     * <p>What a drill-down on a single resource needs, in one payload. The resource table answers
+     * "which resource costs the most"; this answers "and why did that change", which is the question a
+     * reader has immediately afterwards and which no aggregate can reach.
+     *
+     * @param instanceType kept in step with {@link ResourceCost} so one drawer renders every provider —
+     *                     the instance type on AWS, the resource group on Azure
+     * @param comparisonAvailable false when the earlier month is not in the report at all, in which case
+     *                            the prior figures and both effects are zero and mean nothing. A CUR
+     *                            begins at the month it was created and never backfills, so this is the
+     *                            normal state for a recently connected report — and the reason this is a
+     *                            flag rather than an absent payload: the lines and the daily series are
+     *                            still real, only the comparison is impossible.
+     * @param lines        per usage type, largest movement first. This is the real depth: it separates
+     *                     "the volume grew" from "the volume's rate changed" inside one resource.
+     * @param daily        the selected month's spend, day by day, so the shape of the change is visible
+     */
+    public record ResourceChange(String resourceId, String name, String service, String region,
+                                 String instanceType,
+                                 double priorCost, double currentCost, double costChange,
+                                 double priorQuantity, double currentQuantity,
+                                 double priceEffect, double volumeEffect,
+                                 boolean comparisonAvailable,
+                                 List<ResourceLineChange> lines,
+                                 List<DailyCost> daily) {
+    }
+
+    /** One usage type's movement inside a resource. Field-identical across all three clouds. */
+    public record ResourceLineChange(String description, String usageType, String unit,
+                                     double priorCost, double currentCost, double costChange,
+                                     double priorQuantity, double currentQuantity,
+                                     double priceEffect, double volumeEffect) {
+    }
+
+    /** One day's cost. {@code date} is ISO-8601, so it sorts as a string and parses without a format. */
+    public record DailyCost(String date, double cost) {
     }
 
     /**

@@ -366,13 +366,13 @@ const CostBudgetDashboard: React.FC<CostBudgetDashboardProps> = ({
                 ACTUAL
               </p>
               <p className="text-[18px] font-bold text-black leading-none">
-                ${Math.floor(totalActual).toLocaleString()}<span className="text-[12px] text-[rgba(0,0,0,0.4)]">.{String(Math.round((totalActual % 1) * 100)).padStart(2, '0')}</span>
+                {symbol}{Math.floor(totalActual).toLocaleString()}<span className="text-[12px] text-[rgba(0,0,0,0.4)]">.{String(Math.round((totalActual % 1) * 100)).padStart(2, '0')}</span>
               </p>
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1">REMAINING</p>
               <p className="text-[18px] font-bold text-black leading-none">
-                ${Math.floor(Math.max(0, totalRemaining)).toLocaleString()}<span className="text-[12px] text-[rgba(0,0,0,0.4)]">.{String(Math.round((Math.abs(totalRemaining) % 1) * 100)).padStart(2, '0')}</span>
+                {symbol}{Math.floor(Math.max(0, totalRemaining)).toLocaleString()}<span className="text-[12px] text-[rgba(0,0,0,0.4)]">.{String(Math.round((Math.abs(totalRemaining) % 1) * 100)).padStart(2, '0')}</span>
               </p>
             </div>
           </div>

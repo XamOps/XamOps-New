@@ -6,6 +6,7 @@ import com.xammer.cloud.dto.ForecastAccuracyMetrics;
 import com.xammer.cloud.dto.ForecastDto;
 import com.xammer.cloud.dto.HistoricalCostDto;
 import com.xammer.cloud.repository.ForecastAccuracyRepository;
+import com.xammer.cloud.service.azure.AzureBillingDataIngestionService;
 import com.xammer.cloud.service.gcp.GcpCostService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,17 +48,20 @@ public class ForecastAccuracyService {
     private final GcpCostService gcpCostService;
     private final CostDataSnapshotService snapshotService;
     private final ForecastingService forecastingService;
+    private final AzureBillingDataIngestionService azureBillingService;
 
     public ForecastAccuracyService(ForecastAccuracyRepository repository,
                                    CostService costService,
                                    GcpCostService gcpCostService,
                                    CostDataSnapshotService snapshotService,
-                                   @Lazy ForecastingService forecastingService) {
+                                   @Lazy ForecastingService forecastingService,
+                                   AzureBillingDataIngestionService azureBillingService) {
         this.repository = repository;
         this.costService = costService;
         this.gcpCostService = gcpCostService;
         this.snapshotService = snapshotService;
         this.forecastingService = forecastingService;
+        this.azureBillingService = azureBillingService;
     }
 
     // ============================================================
@@ -261,8 +265,8 @@ public class ForecastAccuracyService {
     }
 
     /**
-     * Fetch realised daily costs keyed by date. AWS and GCP have true daily data;
-     * other providers return empty (records age out to SKIPPED).
+     * Fetch realised daily costs keyed by date. All three providers have true daily data;
+     * anything else returns empty (records age out to SKIPPED).
      */
     private Map<LocalDate, Double> fetchActuals(String provider, String accountId,
                                                 String serviceName, int daysBack) throws Exception {
@@ -298,8 +302,31 @@ public class ForecastAccuracyService {
                     out.put(d, c);
                 }
             }
+        } else if (ForecastAccuracyRecord.PROVIDER_AZURE.equals(provider)) {
+            // Azure used to return empty here, with a comment claiming it had "no reliable daily
+            // actuals source". That stopped being true once billing ingestion began caching a daily
+            // per-service series for anomaly detection — the same series, at the same grain, that
+            // this needs. Until now every Azure prediction sat pending until it aged out as SKIPPED,
+            // so the accuracy badge on the Azure cost page could only ever report insufficient data
+            // no matter how good the forecasts were.
+            Map<String, Map<String, Double>> byService =
+                    azureBillingService.readDailyServiceCosts(accountId).orElse(Map.of());
+            LocalDate from = LocalDate.now().minusDays(daysBack);
+            byService.forEach((service, byDay) -> {
+                // "ALL" sums every service for the day; a named one is matched exactly, as the
+                // forecast that produced the prediction was scoped.
+                if (!allServices && !service.equalsIgnoreCase(svcFilter)) {
+                    return;
+                }
+                byDay.forEach((isoDate, cost) -> {
+                    LocalDate d = parseDate(isoDate);
+                    if (d == null || cost == null || d.isBefore(from)) {
+                        return;
+                    }
+                    out.merge(d, cost, Double::sum);
+                });
+            });
         }
-        // AZURE: no reliable daily actuals source — return empty (handled gracefully).
         return out;
     }
 

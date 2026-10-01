@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
-import { fetchTopResources, type ResourceCost } from '../../api/curInsightsApi';
+import {
+  fetchTopResources,
+  type ResourceChange,
+  type ResourceCost,
+  type TopResources,
+} from '../../api/curInsightsApi';
+import { CostCurrencyContext, useMoney, useMoneyIn } from './costCurrency';
+import ResourceCostDrawer from './ResourceCostDrawer';
 import { useCurInsight } from '../../hooks/useCurInsight';
 import {
   invalidateResourceLabels,
@@ -52,9 +59,77 @@ import ResourceLabelCell from './ResourceLabelCell';
  * row under its ARN that the Cloud List, looking under its name, could never find.
  */
 
+/**
+ * The wording that names the billing source, and explains why it might not answer.
+ *
+ * <p>This section's unavailable state said "No Cost and Usage Report to read" and blamed Cost
+ * Explorer for stopping at the service. Both sentences are AWS facts. On Azure there is no Cost and
+ * Usage Report and no Cost Explorer — per-resource cost comes from a Cost Management query grouped by
+ * {@code ResourceId}, and whether a subscription will answer that depends on the agreement behind it.
+ * Telling an Azure customer to check a report they have never had sends them looking for something
+ * that does not exist.
+ *
+ * <p>Overridable rather than branched on a provider enum, matching {@code DataTransferCopy}.
+ */
+export interface TopResourcesCopy {
+  /** Headline when the source cannot answer. Rendered as "{title} for September 2026". */
+  unavailableTitle?: string;
+  /** What that means and what to do about it. */
+  unavailableDetail?: React.ReactNode;
+  /** Why a month with a readable source can still hold no resource rows. */
+  emptyHint?: React.ReactNode;
+  /** Why rows fall back to ids instead of names, which is a different setting on each cloud. */
+  noNamesHint?: React.ReactNode;
+}
+
+const AWS_COPY: Required<TopResourcesCopy> = {
+  unavailableTitle: 'No Cost and Usage Report to read',
+  unavailableDetail: (
+    <>
+      Per-resource cost comes from the report itself — Cost Explorer stops at the service. Either no
+      report covers this month, or the one connected has not been delivered recently enough to trust.
+    </>
+  ),
+  emptyHint: <>Either nothing was billed, or the report does not yet cover this month.</>,
+  noNamesHint: (
+    <>
+      Names come from each resource&apos;s <span className="font-mono">Name</span> tag, and this
+      report carries none. A CUR only includes tags activated for cost allocation — activate{' '}
+      <span className="font-mono">Name</span> in the payer account&apos;s billing console and it will
+      appear here from the next report.
+    </>
+  ),
+};
+
 interface TopResourcesSectionProps {
-  /** Single AWS account with a report, or null to render nothing. */
+  /** Single account or project with a usable billing source, or null to render nothing. */
   accountId: string | null;
+  /** Defaults to the AWS Cost and Usage Report; GCP and Azure pass their own fetchers. */
+  fetcher?: (accountId: string, period?: string) => Promise<TopResources | null>;
+  /** What this section calls the billing source. Defaults to AWS wording. */
+  copy?: TopResourcesCopy;
+  /** Cache-key discriminator, so two providers never share an entry for the same id. */
+  insightName?: string;
+  /** ISO currency code the billing source reports in. */
+  currency?: string;
+  /**
+   * Whether rows offer the label control.
+   *
+   * <p>Off for GCP. Labels are stored against a resource id and reconciled through
+   * {@code ResourceIdResolver}, which arbitrates using the AWS inventory table — so a GCP resource
+   * id would resolve against nothing and the control would appear to work while writing rows no
+   * page could read back. Better absent than silently wrong.
+   */
+  labels?: boolean;
+  /**
+   * Where the detail panel's payload comes from. Defaults to the AWS Cost and Usage Report; GCP and
+   * Azure pass their own, which return the identical shape.
+   */
+  detailFetcher?: (
+    accountId: string,
+    resourceId: string,
+    period?: string,
+  ) => Promise<ResourceChange | null>;
   /**
    * Replaces this section's own `h3`.
    *
@@ -81,9 +156,8 @@ const monthOptions = (): { value: string; label: string }[] => {
   return out;
 };
 
-const money = (v: number): string =>
-  (v < 0 ? '-$' : '$') +
-  Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Money is formatted through useMoney, which reads the section's currency from context so the
+// nested service and resource rows need no extra prop. See ./costCurrency.
 
 /**
  * Rows per page — for the service list and for the resources inside one open service.
@@ -198,12 +272,40 @@ interface Labelling {
 const NO_LABELS: ResourceLabel[] = [];
 const NO_LABEL_MAP: ResourceLabelMap = {};
 
-const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId, heading }) => {
+const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({
+  accountId,
+  heading,
+  fetcher = fetchTopResources,
+  insightName = 'top-resources',
+  currency = 'USD',
+  labels = true,
+  copy,
+  detailFetcher,
+}) => {
+  const text = { ...AWS_COPY, ...copy };
+  /*
+   * `useMoneyIn(currency)`, not `useMoney()`. See the same note in DataTransferSection: this
+   * component provides CostCurrencyContext inside its own return value and therefore cannot consume
+   * it there, so the four totals it renders itself — the header total, the filtered total, the
+   * account-level total and the account-level rows — were formatted in dollars while the grouped
+   * resource rows beneath them, which are separate components inside the provider, were correct.
+   */
+  const money = useMoneyIn(currency);
   const months = useMemo(monthOptions, []);
   const [period, setPeriod] = useState(months[0].value);
   const [service, setService] = useState('all');
   const [region, setRegion] = useState('all');
   const [search, setSearch] = useState('');
+  /**
+   * The resource whose detail panel is open, or null.
+   *
+   * <p>The row, not just the id: the panel needs a label to show in its header while the payload is
+   * still in flight, and the row already has one. A header that starts blank and fills in reads as a
+   * loading fault rather than as loading.
+   */
+  const [detail, setDetail] = useState<ResourceCost | null>(null);
+  const openDetail = useCallback((r: ResourceCost) => setDetail(r), []);
+  const closeDetail = useCallback(() => setDetail(null), []);
   /** Services the reader has drilled into. */
   const [open, setOpen] = useState<Set<string>>(new Set());
   /** Which page of the service list is showing, 1-based. */
@@ -220,12 +322,7 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId, he
   const [accountPage, setAccountPage] = useState(1);
 
   // Cached across mounts, so returning to this page does not re-scan the report.
-  const { data, isPending, isError } = useCurInsight(
-    'top-resources',
-    accountId,
-    period,
-    fetchTopResources,
-  );
+  const { data, isPending, isError } = useCurInsight(insightName, accountId, period, fetcher);
   const result = isError ? null : (data ?? null);
   const loading = Boolean(accountId) && isPending;
 
@@ -305,7 +402,7 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId, he
 
   const labelling: Labelling | null = useMemo(
     () =>
-      accountId
+      accountId && labels
         ? {
             accountId,
             allLabels,
@@ -315,7 +412,8 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId, he
             onRemove: handleLabelRemoved,
           }
         : null,
-    [accountId, allLabels, labelMap, handleLabelChanged, handleLabelCreated, handleLabelRemoved],
+    [accountId, labels, allLabels, labelMap, handleLabelChanged, handleLabelCreated,
+      handleLabelRemoved],
   );
 
   const services = useMemo(
@@ -474,12 +572,10 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId, he
             className="text-[rgba(0,0,0,0.2)] mx-auto mb-2"
           />
           <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.6)]">
-            No Cost and Usage Report to read for {selectedLabel}
+            {text.unavailableTitle} for {selectedLabel}
           </p>
           <p className="text-[11.5px] text-[rgba(0,0,0,0.4)] mt-1 max-w-[460px] mx-auto leading-relaxed">
-            Per-resource cost comes from the report itself — Cost Explorer stops at the service.
-            Either no report covers this month, or the one connected has not been delivered
-            recently enough to trust.
+            {text.unavailableDetail}
           </p>
         </div>
       </div>
@@ -487,6 +583,7 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId, he
   }
 
   return (
+    <CostCurrencyContext.Provider value={currency}>
     <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
       <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
         <div>
@@ -532,9 +629,7 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId, he
         <div className="text-center py-8">
           <Icon icon="mdi:cube-outline" width={26} className="text-[rgba(0,0,0,0.18)] mx-auto mb-2" />
           <p className="text-[13px] text-[rgba(0,0,0,0.55)]">No resource costs in {selectedLabel}.</p>
-          <p className="text-[11.5px] text-[rgba(0,0,0,0.35)] mt-1">
-            Either nothing was billed, or the report does not yet cover this month.
-          </p>
+          <p className="text-[11.5px] text-[rgba(0,0,0,0.35)] mt-1">{text.emptyHint}</p>
         </div>
       ) : (
         <>
@@ -618,6 +713,7 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId, he
                     onToggle={() => toggle(g.service)}
                     onPageChange={(p) => setResourcePage(g.service, p)}
                     labelling={labelling}
+                    onOpen={openDetail}
                   />
                 ))}
               </div>
@@ -670,10 +766,7 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId, he
 
           {!anyNamed && resources.length > 0 && (
             <p className="text-[11px] text-[rgba(0,0,0,0.35)] mt-3 leading-relaxed">
-              Names come from each resource's <span className="font-mono">Name</span> tag, and
-              this report carries none. A CUR only includes tags activated for cost allocation
-              — activate <span className="font-mono">Name</span> in the payer account's billing
-              console and it will appear here from the next report.
+              {text.noNamesHint}
             </p>
           )}
 
@@ -686,7 +779,26 @@ const TopResourcesSection: React.FC<TopResourcesSectionProps> = ({ accountId, he
           )}
         </>
       )}
+
+      {/* Rendered into a portal, so its position in this tree does not matter — but it lives here
+          rather than on the page so the section owns which resource is open, and closing it returns
+          the reader to the row they clicked with the table's scroll, paging and filters intact. */}
+      <ResourceCostDrawer
+        resourceId={detail?.resourceId ?? null}
+        resourceName={detail ? labelFor(detail).text : undefined}
+        accountId={accountId}
+        period={period}
+        onClose={closeDetail}
+        fetcher={detailFetcher}
+        insightName={`${insightName}-detail`}
+        currency={currency}
+        unavailableDetail={text.unavailableDetail}
+        // The row's own slice, so the panel's total matches the figure that was clicked. This table
+        // groups by (resource, service, region), so the id alone is not the same question.
+        scope={detail ? { service: detail.service, region: detail.region } : undefined}
+      />
     </div>
+    </CostCurrencyContext.Provider>
   );
 };
 
@@ -711,7 +823,10 @@ const ServiceGroupRow: React.FC<{
   onPageChange: (page: number) => void;
   /** Null until an account is selected, which is also when nothing is labellable. */
   labelling: Labelling | null;
-}> = ({ group, max, open, page, onToggle, onPageChange, labelling }) => {
+  /** Passed through to each row, which decides whether it is openable. */
+  onOpen?: (r: ResourceCost) => void;
+}> = ({ group, max, open, page, onToggle, onPageChange, labelling, onOpen }) => {
+  const money = useMoney();
   const share = max > 0 ? (Math.abs(group.cost) / max) * 100 : 0;
   const totalPages = Math.max(1, Math.ceil(group.resources.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -767,6 +882,7 @@ const ServiceGroupRow: React.FC<{
               r={r}
               max={maxInGroup}
               labelling={labelling}
+              onOpen={onOpen}
             />
           ))}
 
@@ -788,12 +904,51 @@ const ResourceRow: React.FC<{
   r: ResourceCost;
   max: number;
   labelling: Labelling | null;
-}> = ({ r, max, labelling }) => {
+  /** Opens the detail panel. Absent when the billing source cannot describe one resource. */
+  onOpen?: (r: ResourceCost) => void;
+}> = ({ r, max, labelling, onOpen }) => {
+  const money = useMoney();
   const share = max > 0 ? (Math.abs(r.cost) / max) * 100 : 0;
   const label = labelFor(r);
+  /*
+   * Only rows that name a resource open the panel.
+   *
+   * The resource-less charges — tax, support, Marketplace purchases — are grouped here deliberately so
+   * the section's total reconciles with the invoice, but there is no per-resource story to tell about
+   * them, and a panel that opened onto "no detail available" would be a dead end the row advertised.
+   */
+  const openable = Boolean(onOpen) && r.resourceId !== '';
 
   return (
-    <div className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-[rgba(0,0,0,0.02)] transition-colors">
+    <div
+      className={`flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-[rgba(0,0,0,0.02)] transition-colors ${
+        openable ? 'cursor-pointer' : ''
+      }`}
+      /* The label control and its popover live inside this row, so a click there must not also open
+         the panel. Anything inside an interactive element is treated as its own target. */
+      onClick={
+        openable
+          ? (e) => {
+              const target = e.target as HTMLElement;
+              if (target.closest('button, a, input, select, [role="dialog"]')) return;
+              onOpen?.(r);
+            }
+          : undefined
+      }
+      role={openable ? 'button' : undefined}
+      tabIndex={openable ? 0 : undefined}
+      onKeyDown={
+        openable
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onOpen?.(r);
+              }
+            }
+          : undefined
+      }
+      title={openable ? 'Open cost detail for this resource' : undefined}
+    >
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2">
           {/* The full id on hover: the label is for scanning, not for copying into a

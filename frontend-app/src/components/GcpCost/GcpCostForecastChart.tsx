@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useMemo } from 'react';
 import { Chart, ChartConfiguration, LineElement, PointElement, LineController, CategoryScale, LinearScale, Tooltip, Legend, Filler } from 'chart.js';
 import type { GcpForecastDataPoint } from '../../types/gcpCost';
+import type { ForecastAccuracyMetrics } from '../../types/cost';
+import { useMoneyIn } from '../Cost/costCurrency';
 
 Chart.register(LineElement, PointElement, LineController, CategoryScale, LinearScale, Tooltip, Legend, Filler);
 
@@ -12,9 +14,69 @@ interface GcpCostForecastChartProps {
   availableServices: string[];
   onServiceChange: (service: string) => void;
   onPeriodsChange: (periods: number) => void;
+  /** ISO code the billing account is denominated in. */
+  currency: string;
+  /**
+   * How the previous forecasts for this project turned out, or null when nothing has been scored.
+   *
+   * <p>The metrics have existed for a while and nothing displayed them: the forecast endpoint records
+   * its predictions against `PROVIDER_GCP` and the nightly evaluation scores them against the daily
+   * costs `GcpCostService` already serves. A forecast with no track record is a number the reader has
+   * no basis to trust or to discount.
+   */
+  accuracy?: ForecastAccuracyMetrics | null;
 }
 
 const inputCls = 'px-2.5 py-1.5 text-[12px] rounded-lg border border-[rgba(0,0,0,0.1)] bg-white text-[rgba(0,0,0,0.88)] focus:outline-none focus:border-[rgba(0,0,0,0.25)] transition-colors';
+
+/**
+ * How reliable the forecast has proven, as a badge.
+ *
+ * <p>Deliberately the same five states, wording and colours as the AWS and Azure badges. The same
+ * metric shown three different ways on three cost pages would undermine all three; only the currency
+ * differs, because a GCP billing account is denominated in whatever the customer signed up in.
+ */
+const AccuracyBadge: React.FC<{ accuracy: ForecastAccuracyMetrics; currency: string }> = ({
+  accuracy,
+  currency,
+}) => {
+  const money = useMoneyIn(currency);
+  const quality = accuracy.dataQuality;
+
+  const styles: Record<string, { bg: string; text: string; dot: string; label: string }> = {
+    GOOD: { bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700', dot: 'bg-emerald-500', label: 'Accurate' },
+    FAIR: { bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700', dot: 'bg-amber-500', label: 'Fair' },
+    POOR: { bg: 'bg-red-50 border-red-200', text: 'text-red-700', dot: 'bg-red-500', label: 'Low' },
+    INSUFFICIENT_DATA: { bg: 'bg-gray-50 border-gray-200', text: 'text-gray-500', dot: 'bg-gray-400', label: 'Learning' },
+  };
+  const s = styles[quality] || styles.INSUFFICIENT_DATA;
+
+  const scoreText =
+    quality === 'INSUFFICIENT_DATA' || accuracy.accuracyScore == null
+      ? 'Calibrating…'
+      : `${accuracy.accuracyScore.toFixed(0)}% accurate`;
+
+  return (
+    <div className={`group relative inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${s.bg} cursor-help`}>
+      <span className={`w-2 h-2 rounded-full ${s.dot}`}></span>
+      <span className={`text-[12px] font-semibold ${s.text}`}>{scoreText}</span>
+      <div className="absolute top-full right-0 mt-2 w-64 p-3 bg-[rgba(0,0,0,0.88)] text-white text-[11px] rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 leading-snug text-left">
+        <p className="font-semibold mb-1">Forecast accuracy ({s.label})</p>
+        <p className="mb-1.5 text-[rgba(255,255,255,0.8)]">{accuracy.message}</p>
+        {accuracy.mape != null && (
+          <p>Avg error (MAPE): <span className="font-semibold">{accuracy.mape.toFixed(1)}%</span></p>
+        )}
+        {accuracy.mae != null && (
+          <p>Avg error (MAE): <span className="font-semibold">{money(accuracy.mae)}</span></p>
+        )}
+        {accuracy.confidenceCoverage != null && (
+          <p>Within confidence band: <span className="font-semibold">{accuracy.confidenceCoverage.toFixed(0)}%</span></p>
+        )}
+        <p className="mt-1 text-[rgba(255,255,255,0.6)]">Based on {accuracy.evaluatedCount} evaluated day(s)</p>
+      </div>
+    </div>
+  );
+};
 
 const GcpCostForecastChart: React.FC<GcpCostForecastChartProps> = ({
   data,
@@ -24,7 +86,10 @@ const GcpCostForecastChart: React.FC<GcpCostForecastChartProps> = ({
   availableServices,
   onServiceChange,
   onPeriodsChange,
+  currency,
+  accuracy,
 }) => {
+  const money = useMoneyIn(currency);
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstanceRef = useRef<Chart<'line'> | null>(null);
 
@@ -126,7 +191,9 @@ const GcpCostForecastChart: React.FC<GcpCostForecastChartProps> = ({
                 const v = ctx.parsed.y;
                 if (v === null || v === undefined) return '';
                 if (ctx.dataset.label === 'Lower Bound') return '';
-                return `${ctx.dataset.label}: $${v.toFixed(2)}`;
+                // Was a hardcoded '$' while the y-axis below used '₹' — the same money labelled with
+                // two different currencies on one chart. Both now read the billing account's own.
+                return `${ctx.dataset.label}: ${money(v)}`;
               },
             },
           },
@@ -135,7 +202,7 @@ const GcpCostForecastChart: React.FC<GcpCostForecastChartProps> = ({
           y: {
             beginAtZero: true,
             grid: { color: 'rgba(226,232,240,0.5)' },
-            ticks: { font: { size: 11 }, callback: (v) => '₹' + Number(v).toLocaleString('en-IN') },
+            ticks: { font: { size: 11 }, callback: (v) => money(Number(v)) },
           },
           x: {
             grid: { display: false },
@@ -147,7 +214,7 @@ const GcpCostForecastChart: React.FC<GcpCostForecastChartProps> = ({
 
     chartInstanceRef.current = new Chart(chartRef.current, config);
     return () => { chartInstanceRef.current?.destroy(); };
-  }, [processedData, isLoading]);
+  }, [processedData, isLoading, money]);
 
   return (
     <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6 mb-6">
@@ -160,6 +227,7 @@ const GcpCostForecastChart: React.FC<GcpCostForecastChartProps> = ({
           <p className="text-[11px] text-[rgba(0,0,0,0.4)]">ML-powered cost predictions — next {periods} days</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {accuracy && <AccuracyBadge accuracy={accuracy} currency={currency} />}
           <select value={service} onChange={e => onServiceChange(e.target.value)} className={inputCls}>
             {availableServices.map(svc => (
               <option key={svc} value={svc}>{svc}</option>
