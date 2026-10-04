@@ -17,6 +17,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -35,9 +37,14 @@ import java.util.Collections;
  * touching the shared JSESSIONID cookie — so the admin's server session is
  * never read, written, or replaced.
  *
- * Registered as a Spring Security filter with STATELESS session policy, so
- * SecurityContextPersistenceFilter skips session load/save entirely for these
- * requests.
+ * Registered as a Spring Security filter with STATELESS session policy, so the
+ * HttpSession is never loaded or saved for these requests.
+ *
+ * The context is also saved to a request attribute, which is where that chain reads
+ * it back. Spring Security 7 re-authorizes the ASYNC and ERROR dispatches of a request,
+ * and this filter does not run on them, so without the save every CompletableFuture
+ * endpoint, and every error response, came back to an impersonated tab as a 401, which
+ * the frontend treats as a logout.
  */
 @Component
 public class ImpersonationJwtFilter extends OncePerRequestFilter {
@@ -65,6 +72,10 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
 
     @Autowired
     private UserRepository userRepository;
+
+    /** Request-scoped only: never touches the HttpSession, so no JSESSIONID is issued. */
+    private final SecurityContextRepository securityContextRepository =
+            new RequestAttributeSecurityContextRepository();
 
     @PostConstruct
     void initSigningKey() {
@@ -168,6 +179,8 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
             SecurityContext ctx = SecurityContextHolder.createEmptyContext();
             ctx.setAuthentication(auth);
             SecurityContextHolder.setContext(ctx);
+            // So the ASYNC/ERROR dispatches of this request are authenticated too.
+            securityContextRepository.saveContext(ctx, request, response);
 
             // Set ImpersonationContext so AccountManagerController filters
             // accounts to only those permitted for this user

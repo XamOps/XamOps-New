@@ -14,6 +14,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -46,6 +48,17 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
      * failed with nothing in the logs to say why.
      */
     private volatile SecretKey signingKey;
+
+    /**
+     * Where the impersonated context is saved for the rest of the request.
+     *
+     * The STATELESS chain reads the context back from a request attribute. Spring Security 7
+     * re-authorizes the ASYNC and ERROR dispatches of a request, and this filter does not run
+     * on them, so without the save those dispatches were anonymous and returned 401, which the
+     * frontend treats as a logout. Request-scoped only: the HttpSession is never touched.
+     */
+    private final SecurityContextRepository securityContextRepository =
+            new RequestAttributeSecurityContextRepository();
 
     @PostConstruct
     void initSigningKey() {
@@ -125,6 +138,7 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
             SecurityContext ctx = SecurityContextHolder.createEmptyContext();
             ctx.setAuthentication(auth);
             SecurityContextHolder.setContext(ctx);
+            securityContextRepository.saveContext(ctx, request, response);
 
             ImpersonationContext.setImpersonatedUserId(userId);
 

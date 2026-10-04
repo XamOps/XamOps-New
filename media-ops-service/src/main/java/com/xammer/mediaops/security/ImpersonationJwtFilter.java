@@ -15,6 +15,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -38,6 +40,11 @@ import java.util.Collections;
  *
  * Runs in a STATELESS filter chain, so the admin's own session cookie is never
  * read, written, or replaced by an impersonated request.
+ *
+ * That chain reads the context back from a request attribute, so the filter saves it
+ * there. Spring Security 7 re-authorizes the ASYNC and ERROR dispatches of a request,
+ * and this filter does not run on them; without the save they were anonymous and
+ * returned 401, which the frontend treats as a logout.
  */
 @Component
 public class ImpersonationJwtFilter extends OncePerRequestFilter {
@@ -48,6 +55,10 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
     private String secretKey;
 
     private final AppUserRepository appUserRepository;
+
+    /** Request-scoped only: never touches the HttpSession, so no JSESSIONID is issued. */
+    private final SecurityContextRepository securityContextRepository =
+            new RequestAttributeSecurityContextRepository();
 
     public ImpersonationJwtFilter(AppUserRepository appUserRepository) {
         this.appUserRepository = appUserRepository;
@@ -107,6 +118,7 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
             SecurityContext ctx = SecurityContextHolder.createEmptyContext();
             ctx.setAuthentication(auth);
             SecurityContextHolder.setContext(ctx);
+            securityContextRepository.saveContext(ctx, request, response);
 
         } catch (JwtException | IllegalArgumentException e) {
             unauthorized(response, "Invalid or expired impersonation token");
@@ -116,8 +128,9 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
         try {
             chain.doFilter(request, response);
         } finally {
-            // STATELESS chain — nothing persists the context, but clear it so the
-            // impersonated principal cannot leak onto a recycled request thread.
+            // The context outlives this dispatch only as a request attribute (saved above).
+            // Clear the thread's copy so the impersonated principal cannot leak onto a
+            // recycled request thread.
             SecurityContextHolder.clearContext();
         }
     }
