@@ -19,7 +19,10 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/admin/cloudfront")
-//@PreAuthorize("hasRole('ROLE_BILLOPS_ADMIN')")
+// BillOps admins and super admins only, like the other cross-client admin APIs
+// (TrialAdminController, ClientIntakeController). ROLE_BILLOPS_ADMIN_SUB is excluded on purpose:
+// nothing here is scoped to a sub-admin's own clients.
+@PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_SUPER_ADMIN')")
 public class AdminCloudFrontController {
 
     private final CloudFrontUsageService cloudFrontUsageService;

@@ -121,7 +121,6 @@ public class SecurityConfig {
                                 PATH.matcher("/css/**"),
                                 PATH.matcher("/js/**"),
                                 PATH.matcher("/icons/**"),
-                                PATH.matcher("/api/admin/cloudfront/**"),
                                 // External platform webhooks — must be public (no session/auth)
                                 PATH.matcher("/api/billops/webhook/**"))
                         .permitAll()
