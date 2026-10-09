@@ -40,7 +40,16 @@ managedNodeGroups:
     instanceType: t3.medium
     amiFamily: AmazonLinux2023
     spot: false   # ON-DEMAND capacity (eksctl default)
-    desiredCapacity: 2
+    # 4, not 2. A t3.medium reports 1930m allocatable CPU, and the seeded
+    # workload mix in 10-*.yaml … 17-*.yaml requests ~2880m once the
+    # system DaemonSets (aws-node, kube-proxy, cloudwatch-agent, fluent-bit)
+    # are accounted for — plus up to 1000m more when the team-b HPA rides to
+    # maxReplicas: 5. On 2 nodes the scheduler hit 97% CPU requested and left
+    # php-apache, pdb-guarded-web and idle-batch-listener replicas Pending,
+    # which hides the one pod (17-unschedulable.yaml) that is *meant* to be
+    # Pending. The 1-CPU request in 10-overprovisioned.yaml is the rightsizing
+    # test case, so the node count moves rather than the workload.
+    desiredCapacity: 4
     minSize: 1
     maxSize: 4
     volumeSize: 20
