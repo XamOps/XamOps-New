@@ -23,7 +23,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.annotation.PostConstruct;
 
@@ -120,10 +119,30 @@ public class AdminDashboardService {
                 LocalDateTime.now(ZoneId.of("Asia/Kolkata")).minusMinutes(SNAPSHOT_MAX_AGE_MINUTES));
     }
 
-    @Transactional
+    /**
+     * Logs one failed per-account read or lookup: one WARN with the cache key ({@code null} when the
+     * failure is not a cache read), the account and the month, and the stack at DEBUG. Payloads are
+     * never logged.
+     */
+    private void warnRead(String key, CloudAccount account, YearMonth month, Exception e) {
+        logger.warn("Admin dashboard cache access failed key={} accountId={} account={} provider={} month={}: {}: {}",
+                key, account.getId(), account.getAccountName(), account.getProvider(), month,
+                e.getClass().getSimpleName(), e.getMessage());
+        logger.debug("Admin dashboard cache access failure key={} accountId={}", key, account.getId(), e);
+    }
+
+    /** Logs a failed read of a stored dashboard snapshot: one WARN, and the stack at DEBUG. */
+    private void warnSnapshotRead(String key, Exception e) {
+        logger.warn("Admin dashboard snapshot read failed key={}: {}: {}", key, e.getClass().getSimpleName(), e.getMessage());
+        logger.debug("Admin dashboard snapshot read failure key={}", key, e);
+    }
+
+    // No method-wide transaction on the two public builders: each repository call runs in its own
+    // short transaction, so one failed cache read cannot abort the rest of the build. The accounts
+    // and the recent invoices are loaded with their associations (fetch joins) for the same reason.
     public AdminDashboardDto getAdminDashboardSummary(boolean forceRefresh) {
         // Sub-users get a custom filtered view — never served from (or stored to) the global cache
-        List<CloudAccount> filteredAccounts = accountAccessHelper.filterAccounts(cloudAccountRepository.findAll());
+        List<CloudAccount> filteredAccounts = accountAccessHelper.filterAccounts(cloudAccountRepository.findAllWithClient());
         boolean isSubUser = accountAccessHelper.getAllowedDbIds() != null;
 
         if (!isSubUser) {
@@ -138,8 +157,10 @@ public class AdminDashboardService {
                     logger.info("Returning Redis-cached admin dashboard for tenant: {}", tenantCacheKey);
                     return cached.get();
                 }
-                // 2. Try DB snapshot — only while it is still fresh, otherwise fall through and rebuild
-                Optional<CachedData> dbEntry = cachedDataRepository.findById(dbKey);
+                // 2. Try DB snapshot — only while it is still fresh, otherwise fall through and rebuild.
+                //    A null payload (an unreadable legacy reference, already logged by the type) is a miss.
+                Optional<CachedData> dbEntry = cachedDataRepository.findById(dbKey)
+                        .filter(row -> row.getJsonData() != null);
                 if (dbEntry.isPresent() && isSnapshotFresh(dbEntry.get())) {
                     try {
                         AdminDashboardDto dbData = objectMapper.readValue(dbEntry.get().getJsonData(), AdminDashboardDto.class);
@@ -177,7 +198,9 @@ public class AdminDashboardService {
                     logger.info("Returning Redis-cached sub-user dashboard for user {}", userId);
                     return cached.get();
                 }
-                Optional<CachedData> dbEntry = cachedDataRepository.findById(userDbKey);
+                // A null payload (an unreadable legacy reference, already logged by the type) is a miss.
+                Optional<CachedData> dbEntry = cachedDataRepository.findById(userDbKey)
+                        .filter(row -> row.getJsonData() != null);
                 if (dbEntry.isPresent() && isSnapshotFresh(dbEntry.get())) {
                     try {
                         AdminDashboardDto dbData = objectMapper.readValue(dbEntry.get().getJsonData(), AdminDashboardDto.class);
@@ -316,8 +339,8 @@ public class AdminDashboardService {
         dashboard.setSpendingByProvider(spendingByProvider);
 
         // Recent invoices (last 10)
-        List<Invoice> recentInvoiceEntities = invoiceRepository.findAll(
-                PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "invoiceDate"))).getContent();
+        List<Invoice> recentInvoiceEntities = invoiceRepository.findRecentWithAccountAndClient(
+                PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "invoiceDate")));
 
         List<InvoiceDto> recentInvoices = recentInvoiceEntities.stream()
                 .map(this::convertToInvoiceDto)
@@ -343,10 +366,10 @@ public class AdminDashboardService {
      * Fetches live current-month MTD cost from CE API for every AWS account,
      * reuses cached data for GCP/Azure, sorts and returns the top 10.
      * Persists the result to DB so subsequent full-dashboard loads stay fresh.
+     * No method-wide transaction, as for {@link #getAdminDashboardSummary(boolean)}.
      */
-    @Transactional
     public List<AccountSummaryDto> refreshTopSpendingAccountsLive() {
-        List<CloudAccount> allAccounts = accountAccessHelper.filterAccounts(cloudAccountRepository.findAll());
+        List<CloudAccount> allAccounts = accountAccessHelper.filterAccounts(cloudAccountRepository.findAllWithClient());
         YearMonth currentMonth = YearMonth.now();
         YearMonth lastMonth = currentMonth.minusMonths(1);
 
@@ -390,10 +413,12 @@ public class AdminDashboardService {
                 // Redis was cold — try DB snapshot
                 try {
                     Optional<CachedData> dbEntry = cachedDataRepository.findById(DB_CACHE_KEY_PREFIX + "system");
-                    if (dbEntry.isPresent()) {
+                    if (dbEntry.isPresent() && dbEntry.get().getJsonData() != null) {
                         return objectMapper.readValue(dbEntry.get().getJsonData(), AdminDashboardDto.class);
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    warnSnapshotRead(DB_CACHE_KEY_PREFIX + "system", e);
+                }
                 return new AdminDashboardDto();
             });
 
@@ -447,7 +472,7 @@ public class AdminDashboardService {
                     cachedDataRepository.save(snap);
                     logger.info("✅ Updated AWS_MTD_COST::{} = {}", accountId, total);
                 } catch (Exception e) {
-                    logger.debug("Failed to update AWS_MTD_COST for {}: {}", accountId, e.getMessage());
+                    warnRead("AWS_MTD_COST::" + accountId, account, currentMonth, e);
                 }
 
                 return BigDecimal.valueOf(total);
@@ -497,12 +522,12 @@ public class AdminDashboardService {
             String gcpKey = "GCP_MONTHLY_TOTAL::" + gcpProjectId + "::" + month;
             try {
                 Optional<CachedData> snap = cachedDataRepository.findById(gcpKey);
-                if (snap.isPresent()) {
+                if (snap.isPresent() && snap.get().getJsonData() != null) {
                     Double total = objectMapper.readValue(snap.get().getJsonData(), Double.class);
                     if (total != null) return BigDecimal.valueOf(total);
                 }
             } catch (Exception e) {
-                logger.debug("GCP_MONTHLY_TOTAL read failed for {}/{}: {}", gcpProjectId, month, e.getMessage());
+                warnRead(gcpKey, account, month, e);
             }
             return BigDecimal.ZERO;
         }
@@ -516,18 +541,18 @@ public class AdminDashboardService {
                 String azureKey = "AZURE_COST_BILLING_SUMMARY::" + subscriptionId;
                 try {
                     Optional<CachedData> snap = cachedDataRepository.findById(azureKey);
-                    if (snap.isPresent()) {
+                    if (snap.isPresent() && snap.get().getJsonData() != null) {
                         List<Map<String, Object>> summary = objectMapper.readValue(
                                 snap.get().getJsonData(), new TypeReference<List<Map<String, Object>>>() {});
                         double total = summary.stream()
                                 .mapToDouble(s -> ((Number) s.getOrDefault("monthToDateCost", 0.0)).doubleValue())
                                 .sum();
                         if (total > 0) return BigDecimal.valueOf(total);
-                    } else {
+                    } else if (snap.isEmpty()) {
                         logger.warn("Azure DB key not found: {}", azureKey);
                     }
                 } catch (Exception e) {
-                    logger.warn("AZURE_COST_BILLING_SUMMARY read failed for {}: {}", subscriptionId, e.getMessage());
+                    warnRead(azureKey, account, month, e);
                 }
             } else {
                 // For past months, read from cost history. Labels are formatted "MMM yyyy" (e.g. "Mar 2026").
@@ -535,7 +560,7 @@ public class AdminDashboardService {
                 String monthLabel = month.format(DateTimeFormatter.ofPattern("MMM yyyy"));
                 try {
                     Optional<CachedData> snap = cachedDataRepository.findById(historyKey);
-                    if (snap.isPresent()) {
+                    if (snap.isPresent() && snap.get().getJsonData() != null) {
                         Map<String, Object> history = objectMapper.readValue(
                                 snap.get().getJsonData(), new TypeReference<Map<String, Object>>() {});
                         @SuppressWarnings("unchecked")
@@ -551,7 +576,7 @@ public class AdminDashboardService {
                         }
                     }
                 } catch (Exception e) {
-                    logger.debug("AZURE_COST_HISTORY read failed for {}/{}: {}", subscriptionId, month, e.getMessage());
+                    warnRead(historyKey, account, month, e);
                 }
             }
             return BigDecimal.ZERO;
@@ -573,7 +598,7 @@ public class AdminDashboardService {
             String breakdownKey = breakdownPrefix + month.atEndOfMonth();
             try {
                 Optional<CachedData> breakdown = cachedDataRepository.findById(breakdownKey);
-                if (breakdown.isPresent()) {
+                if (breakdown.isPresent() && breakdown.get().getJsonData() != null) {
                     List<Map<String, Object>> costs = objectMapper.readValue(
                             breakdown.get().getJsonData(), new TypeReference<List<Map<String, Object>>>() {});
                     double total = costs.stream()
@@ -582,25 +607,25 @@ public class AdminDashboardService {
                     return BigDecimal.valueOf(total);
                 }
             } catch (Exception e) {
-                logger.debug("AWS_COST_BREAKDOWN read failed for {}/{}: {}", accountId, month, e.getMessage());
+                warnRead(breakdownKey, account, month, e);
             }
 
             // 1b. AWS_MTD_COST — populated on every dashboard visit and by the WED/SUN scheduler.
             String mtdKey = "AWS_MTD_COST::" + accountId;
             try {
                 Optional<CachedData> mtd = cachedDataRepository.findById(mtdKey);
-                if (mtd.isPresent()) {
+                if (mtd.isPresent() && mtd.get().getJsonData() != null) {
                     Double total = objectMapper.readValue(mtd.get().getJsonData(), Double.class);
                     if (total != null && total > 0) return BigDecimal.valueOf(total);
                 }
             } catch (Exception e) {
-                logger.debug("AWS_MTD_COST read failed for {}: {}", accountId, e.getMessage());
+                warnRead(mtdKey, account, month, e);
             }
 
             // 1c. Any breakdown row for this month, whatever its end date.
             try {
                 Optional<CachedData> breakdown = cachedDataRepository.findFirstByCacheKeyStartingWith(breakdownPrefix);
-                if (breakdown.isPresent()) {
+                if (breakdown.isPresent() && breakdown.get().getJsonData() != null) {
                     List<Map<String, Object>> costs = objectMapper.readValue(
                             breakdown.get().getJsonData(), new TypeReference<List<Map<String, Object>>>() {});
                     double total = costs.stream()
@@ -609,7 +634,7 @@ public class AdminDashboardService {
                     if (total > 0) return BigDecimal.valueOf(total);
                 }
             } catch (Exception e) {
-                logger.debug("AWS_COST_BREAKDOWN prefix read failed for {}/{}: {}", accountId, month, e.getMessage());
+                warnRead(breakdownPrefix + "*", account, month, e);
             }
 
             // 1d. DASHBOARD_DATA::{tenant}::{accountId} — last resort. Written by
@@ -617,7 +642,7 @@ public class AdminDashboardService {
             try {
                 Optional<CachedData> dashEntry = cachedDataRepository
                         .findFirstByCacheKeyStartingWithAndCacheKeyEndingWith("DASHBOARD_DATA::", "::" + accountId);
-                if (dashEntry.isPresent()) {
+                if (dashEntry.isPresent() && dashEntry.get().getJsonData() != null) {
                     Map<String, Object> dashMap = objectMapper.readValue(
                             dashEntry.get().getJsonData(), new TypeReference<Map<String, Object>>() {});
                     Object selectedAccount = dashMap.get("selectedAccount");
@@ -631,7 +656,7 @@ public class AdminDashboardService {
                     }
                 }
             } catch (Exception e) {
-                logger.debug("DASHBOARD_DATA read failed for {}: {}", accountId, e.getMessage());
+                warnRead("DASHBOARD_DATA::*::" + accountId, account, month, e);
             }
         }
 
@@ -639,19 +664,19 @@ public class AdminDashboardService {
         String monthlyKey = "AWS_MONTHLY_TOTAL::" + accountId + "::" + month;
         try {
             Optional<CachedData> snap = cachedDataRepository.findById(monthlyKey);
-            if (snap.isPresent()) {
+            if (snap.isPresent() && snap.get().getJsonData() != null) {
                 Double total = objectMapper.readValue(snap.get().getJsonData(), Double.class);
                 if (total != null) return BigDecimal.valueOf(total);
             }
         } catch (Exception e) {
-            logger.debug("AWS_MONTHLY_TOTAL read failed for {}/{}: {}", accountId, month, e.getMessage());
+            warnRead(monthlyKey, account, month, e);
         }
 
         // 3. For closed months, also try breakdown as a fallback (if MONTHLY_TOTAL missing).
         if (!isCurrentMonth) {
             try {
                 Optional<CachedData> breakdown = cachedDataRepository.findFirstByCacheKeyStartingWith(breakdownPrefix);
-                if (breakdown.isPresent()) {
+                if (breakdown.isPresent() && breakdown.get().getJsonData() != null) {
                     List<Map<String, Object>> costs = objectMapper.readValue(
                             breakdown.get().getJsonData(), new TypeReference<List<Map<String, Object>>>() {});
                     double total = costs.stream()
@@ -660,7 +685,7 @@ public class AdminDashboardService {
                     return BigDecimal.valueOf(total);
                 }
             } catch (Exception e) {
-                logger.debug("AWS_COST_BREAKDOWN prefix read failed for {}/{}: {}", accountId, month, e.getMessage());
+                warnRead(breakdownPrefix + "*", account, month, e);
             }
         }
 
@@ -674,7 +699,7 @@ public class AdminDashboardService {
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
             }
         } catch (Exception e) {
-            logger.warn("Error calculating spending for account {}: {}", account.getAccountName(), e.getMessage());
+            warnRead(null, account, month, e);
         }
         return BigDecimal.ZERO;
     }
@@ -686,7 +711,7 @@ public class AdminDashboardService {
                     .map(Invoice::getInvoiceDate)
                     .orElse(null);
         } catch (Exception e) {
-            logger.warn("Error getting last invoice date for account {}: {}", account.getAccountName(), e.getMessage());
+            warnRead(null, account, null, e);
         }
         return null;
     }

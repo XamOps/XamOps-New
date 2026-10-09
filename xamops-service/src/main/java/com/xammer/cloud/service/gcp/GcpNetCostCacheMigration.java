@@ -104,8 +104,12 @@ public class GcpNetCostCacheMigration {
     private final CachedDataRepository cachedDataRepository;
     private final RedisCacheService redisCacheService;
 
-    /** Escape hatch so an operator can control when the flush happens. */
-    @Value("${gcp.billing.net-cost-cache-migration.enabled:true}")
+    /**
+     * Off by default (FR-2.2), so an operator decides when the flush happens: env
+     * GCP_BILLING_NETCOSTCACHEMIGRATION_ENABLED=true for one boot, together with
+     * gcp.billing.history-snapshot-on-startup.enabled so the flushed months are refilled.
+     */
+    @Value("${gcp.billing.net-cost-cache-migration.enabled:false}")
     private boolean enabled;
 
     public GcpNetCostCacheMigration(CachedDataRepository cachedDataRepository,
@@ -117,7 +121,8 @@ public class GcpNetCostCacheMigration {
     @EventListener(ApplicationReadyEvent.class)
     public void flushGrossCostCachesOnce() {
         if (!enabled) {
-            log.info("[GCP net-cost migration] disabled by configuration — skipping");
+            log.info("[GCP net-cost migration] skipped: gcp.billing.net-cost-cache-migration.enabled is false"
+                    + " (no Redis eviction, DB delete or marker)");
             return;
         }
 

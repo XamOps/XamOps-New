@@ -2698,7 +2698,7 @@ public class GcpDataService {
                 log.info("✅ Retrieved GCP dashboard snapshot from DB: {} (Last Updated: {})",
                         key, cached.get().getLastUpdated());
                 return data;
-            } catch (JsonProcessingException e) {
+            } catch (JsonProcessingException | IllegalArgumentException e) {
                 log.error("❌ Failed to deserialize GCP dashboard snapshot {}", key, e);
             }
         }

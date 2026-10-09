@@ -44,6 +44,10 @@ public class GcpCostDataSnapshotService {
     @Value("${gcp.billing.export-table-name:}")
     private String billingExportTableName;
 
+    /** Startup history refill (FR-2.3); env GCP_BILLING_HISTORYSNAPSHOTONSTARTUP_ENABLED. */
+    @Value("${gcp.billing.history-snapshot-on-startup.enabled:false}")
+    private boolean historySnapshotOnStartupEnabled;
+
     public GcpCostDataSnapshotService(CloudAccountRepository cloudAccountRepository,
                                       CachedDataRepository cachedDataRepository,
                                       GcpClientProvider gcpClientProvider,
@@ -58,8 +62,19 @@ public class GcpCostDataSnapshotService {
     // Auto-run on startup — fills any missing historical snapshots in background
     // -------------------------------------------------------------------------
 
+    /**
+     * Fills missing closed months from BigQuery in a background thread, only when
+     * {@code gcp.billing.history-snapshot-on-startup.enabled=true}. Off by default (FR-2.3): one
+     * INFO line, no thread and no BigQuery call. There is no endpoint for this refill, so a new
+     * or flushed environment enables the flag for one boot.
+     */
     @EventListener(ApplicationReadyEvent.class)
     public void autoSnapshotOnStartup() {
+        if (!historySnapshotOnStartupEnabled) {
+            log.info("[GcpSnapshot] Startup history refill skipped: gcp.billing.history-snapshot-on-startup.enabled"
+                    + " is false (no thread, no BigQuery call)");
+            return;
+        }
         Thread t = new Thread(() -> {
             log.info("[GcpSnapshot] Auto-snapshot triggered on startup — filling missing historical months...");
             try {
@@ -294,6 +309,7 @@ public class GcpCostDataSnapshotService {
     private <T> Optional<T> readFromDb(String key, Class<T> type) {
         try {
             return cachedDataRepository.findById(key).map(row -> {
+                if (row.getJsonData() == null) return null;   // unreadable legacy reference: a miss
                 try { return objectMapper.readValue(row.getJsonData(), type); }
                 catch (Exception e) { log.warn("[GcpSnapshot] Deserialize failed {}: {}", key, e.getMessage()); return null; }
             });
@@ -306,6 +322,7 @@ public class GcpCostDataSnapshotService {
     private <T> Optional<T> readListFromDb(String key, TypeReference<T> typeRef) {
         try {
             return cachedDataRepository.findById(key).map(row -> {
+                if (row.getJsonData() == null) return null;   // unreadable legacy reference: a miss
                 try { return objectMapper.<T>readValue(row.getJsonData(), typeRef); }
                 catch (Exception e) { log.warn("[GcpSnapshot] Deserialize failed {}: {}", key, e.getMessage()); return null; }
             });

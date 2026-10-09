@@ -1,8 +1,13 @@
 package com.xammer.cloud.domain;
 
+import com.xammer.cloud.domain.type.LegacyLobTextType;
+import com.xammer.cloud.domain.type.OidShapeGuard;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.DynamicUpdate;
+import org.hibernate.annotations.Parameter;
+import org.hibernate.annotations.Type;
 
 /**
  * Entity to store a SonarQube project configuration, linked to a User.
@@ -11,6 +16,7 @@ import lombok.NoArgsConstructor;
 @Table(name = "sonarqube_project")
 @Data
 @NoArgsConstructor
+@DynamicUpdate
 public class SonarQubeProject {
 
     @Id
@@ -35,6 +41,7 @@ public class SonarQubeProject {
     // "Unable to access lob stream" / "Large Objects may not be used in auto-commit mode".
     // Hibernate 5 tolerated the mismatch; Hibernate 7 does not. columnDefinition = "TEXT"
     // already gives unbounded storage. Same fix as ScriptVersion/DevOpsScript/JenkinsIntegrationConfig.
+    @Type(value = LegacyLobTextType.class, parameters = @Parameter(name = LegacyLobTextType.KEY_COLUMN, value = "id"))
     @Column(nullable = false, columnDefinition = "TEXT")
     private String encryptedToken; // Encrypted SonarQube API token
 
@@ -44,5 +51,12 @@ public class SonarQubeProject {
         this.serverUrl = serverUrl;
         this.projectKey = projectKey;
         this.encryptedToken = encryptedToken;
+    }
+
+    // Refuses an OID-shaped inline value in both write modes (OidShapeGuard).
+    @PrePersist
+    @PreUpdate
+    private void rejectOidShapedEncryptedToken() {
+        OidShapeGuard.checkEntityWrite("sonarqube_project", id, encryptedToken);
     }
 }

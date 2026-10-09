@@ -1,3 +1,43 @@
+-- ############################################################################
+-- SUPERSEDED, do not run; see scripts/db/lob-text/normalize-lob-text-columns.sql
+-- ############################################################################
+--
+-- This file is kept for the record only. Everything below is superseded by the
+-- scripts in scripts/db/lob-text/ (census, Script N, Script D, rollback), which
+-- are idempotent, back every converted row up and never cast an unguarded value.
+-- Three specific pieces of advice below are WITHDRAWN:
+--
+--   1. The vacuumlo advice (line :52, "Reclaim them with vacuumlo only after
+--      verifying") is wrong and destructive. vacuumlo only understands oid and lo
+--      typed columns, so it does not see these TEXT columns, nor the backup
+--      tables, as referencing anything. Running it while any TEXT column or any
+--      backup table still holds an OID deletes the objects those references point
+--      at, which destroys both the data and the ability to roll back. No script
+--      in scripts/db/lob-text/ ever calls lo_unlink or vacuumlo.
+--
+--   2. The claim at line :45 that deploying first is safe "because
+--      CostDataSnapshotService.resolvePayload reads both formats and converts
+--      each row as it is touched" no longer holds. resolvePayload is now thin:
+--      it returns the already-decoded value, decoding happens in the mapping
+--      (LegacyLobTextType) and the opt-in convert-on-read path is gated behind
+--      xammer.lob-text.convert-on-read.enabled plus inline write mode. Treat this
+--      file's "cleanup, not a prerequisite" framing as obsolete and follow
+--      docs/runbooks/lob-text-cutover.md instead.
+--
+--   3. The unguarded ::oid casts at lines :80, :89, :98 and :103 are unsafe. They
+--      accept any value matching '^[0-9]{1,10}$', so a payload such as 0, 42 or
+--      9999999999 reaches the cast; values above 4294967295 raise "OID out of
+--      range" and abort the whole transaction, and a legitimately numeric payload
+--      can be mistaken for a reference. The replacement scripts always use a CASE
+--      that applies the regex '^[1-9][0-9]{4,9}$' first and then the range
+--      16384..4294967295, so the cast can never see a bad value, and they never
+--      put a bare cast in a WHERE clause.
+--
+-- Also note that this file covers only three columns and leaves
+-- cloudsitter_policies.schedule_json, dev_ops_script and devops_script untouched.
+--
+-- ############################################################################
+
 -- ============================================================================
 -- Repair cached_data rows that hold a PostgreSQL large-object OID instead of JSON
 -- ============================================================================

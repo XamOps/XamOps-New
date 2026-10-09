@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.config.multitenancy.TenantContext;
 import com.xammer.cloud.domain.*;
+import com.xammer.cloud.domain.type.OidShapeGuard;
 import com.xammer.cloud.dto.CloudsitterAssignmentDto;
 import com.xammer.cloud.dto.CloudsitterAssignmentRequest;
 import com.xammer.cloud.dto.CloudsitterPolicyDto;
@@ -97,6 +98,7 @@ public class AzureCloudsitterService {
 
     @Transactional
     public CloudsitterPolicy createPolicy(CloudsitterPolicyDto dto) {
+        OidShapeGuard.requireNotOidShaped("scheduleConfig", dto.getScheduleConfig());
         CloudsitterPolicy policy = new CloudsitterPolicy();
         policy.setName(dto.getName());
         policy.setType(dto.getType());
@@ -109,6 +111,7 @@ public class AzureCloudsitterService {
 
     @Transactional
     public CloudsitterPolicy updatePolicy(Long id, CloudsitterPolicyDto dto) {
+        OidShapeGuard.requireNotOidShaped("scheduleConfig", dto.getScheduleConfig());
         CloudsitterPolicy policy = policyRepo.findById(id)
                 .orElseThrow(() -> new RuntimeException("Policy not found: " + id));
         policy.setName(dto.getName());
@@ -343,7 +346,7 @@ public class AzureCloudsitterService {
             if (schedule.containsKey(currentDay)) {
                 return schedule.get(currentDay).contains(currentHour);
             }
-        } catch (IOException e) {
+        } catch (IOException | IllegalArgumentException e) {
             logger.error("Azure CloudSitter: Failed to parse schedule for policy {}, defaulting to RUNNING",
                     policy.getId(), e);
             return true;

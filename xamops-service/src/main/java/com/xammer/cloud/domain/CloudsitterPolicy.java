@@ -1,13 +1,19 @@
 package com.xammer.cloud.domain;
 
+import com.xammer.cloud.domain.type.LegacyLobTextType;
+import com.xammer.cloud.domain.type.OidShapeGuard;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import jakarta.persistence.*;
+import org.hibernate.annotations.DynamicUpdate;
+import org.hibernate.annotations.Parameter;
+import org.hibernate.annotations.Type;
 import java.time.LocalDateTime;
 
 @Entity
 @Data
 @NoArgsConstructor
+@DynamicUpdate
 @Table(name = "cloudsitter_policies")
 public class CloudsitterPolicy {
     @Id
@@ -25,6 +31,7 @@ public class CloudsitterPolicy {
     // "Unable to access lob stream" / "Large Objects may not be used in auto-commit mode".
     // Hibernate 5 tolerated the mismatch; Hibernate 7 does not. columnDefinition = "TEXT"
     // already gives unbounded storage. Same fix as ScriptVersion/DevOpsScript/JenkinsIntegrationConfig.
+    @Type(value = LegacyLobTextType.class, parameters = @Parameter(name = LegacyLobTextType.KEY_COLUMN, value = "id"))
     @Column(columnDefinition = "TEXT")
     private String scheduleJson;
 
@@ -34,4 +41,11 @@ public class CloudsitterPolicy {
     @ManyToOne
     @JoinColumn(name = "client_id")
     private Client client;
+
+    // Refuses an OID-shaped inline value in both write modes (OidShapeGuard).
+    @PrePersist
+    @PreUpdate
+    private void rejectOidShapedScheduleJson() {
+        OidShapeGuard.checkEntityWrite("cloudsitter_policies", id, scheduleJson);
+    }
 }

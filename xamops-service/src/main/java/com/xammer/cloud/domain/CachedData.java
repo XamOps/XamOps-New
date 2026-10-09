@@ -1,12 +1,19 @@
 package com.xammer.cloud.domain;
 
+import com.xammer.cloud.domain.type.LegacyLobTextType;
+import com.xammer.cloud.domain.type.OidShapeGuard;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import org.hibernate.annotations.DynamicUpdate;
+import org.hibernate.annotations.Parameter;
+import org.hibernate.annotations.Type;
 import java.time.LocalDateTime;
 
 @Entity
+@DynamicUpdate
 public class CachedData {
 
     @Id
@@ -17,6 +24,7 @@ public class CachedData {
     // "Unable to access lob stream" / "Large Objects may not be used in auto-commit mode".
     // Hibernate 5 tolerated the mismatch; Hibernate 7 does not. columnDefinition = "TEXT"
     // already gives unbounded storage. Same fix as ScriptVersion/DevOpsScript/JenkinsIntegrationConfig.
+    @Type(value = LegacyLobTextType.class, parameters = @Parameter(name = LegacyLobTextType.KEY_COLUMN, value = "cache_key"))
     @Column(columnDefinition = "TEXT")
     private String jsonData;
 
@@ -24,6 +32,13 @@ public class CachedData {
 
     // No-argument constructor for JPA
     public CachedData() {
+    }
+
+    // Refuses an OID-shaped inline value in both write modes (OidShapeGuard).
+    @PrePersist
+    @PreUpdate
+    private void rejectOidShapedJsonData() {
+        OidShapeGuard.checkEntityWrite("cached_data", cacheKey, jsonData);
     }
 
     // All-args constructor

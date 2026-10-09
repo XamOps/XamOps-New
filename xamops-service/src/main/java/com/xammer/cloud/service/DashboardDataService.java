@@ -301,7 +301,7 @@ public class DashboardDataService {
                 logger.info("✅ DB hit for dashboard snapshot — repopulating Redis: {}", key);
                 redisCache.put(key, data, 60); // re-warm Redis so next request skips DB
                 return data;
-            } catch (JsonProcessingException e) {
+            } catch (JsonProcessingException | IllegalArgumentException e) {
                 logger.error("Failed to deserialize snapshot {}", key, e);
             }
         }
@@ -330,7 +330,7 @@ public class DashboardDataService {
         if (cached.isPresent()) {
             try {
                 return objectMapper.readValue(cached.get().getJsonData(), FinOpsReportDto.class);
-            } catch (JsonProcessingException e) {
+            } catch (JsonProcessingException | IllegalArgumentException e) {
                 logger.error("Failed to deserialize FinOps snapshot {}", key, e);
             }
         }
@@ -356,7 +356,7 @@ public class DashboardDataService {
         if (cached.isPresent()) {
             try {
                 return objectMapper.readValue(cached.get().getJsonData(), GcpFinOpsReportDto.class);
-            } catch (JsonProcessingException e) {
+            } catch (JsonProcessingException | IllegalArgumentException e) {
                 logger.error("Failed to deserialize GCP FinOps snapshot {}", key, e);
             }
         }
@@ -383,7 +383,7 @@ public class DashboardDataService {
                 return objectMapper.readValue(cached.get().getJsonData(),
                         new TypeReference<List<DashboardData.WastedResource>>() {
                         });
-            } catch (JsonProcessingException e) {
+            } catch (JsonProcessingException | IllegalArgumentException e) {
                 logger.error("Failed to deserialize Waste snapshot {}", key, e);
             }
         }
@@ -435,7 +435,7 @@ public class DashboardDataService {
             }
             try {
                 return objectMapper.readValue(cached.get().getJsonData(), typeRef);
-            } catch (JsonProcessingException e) {
+            } catch (JsonProcessingException | IllegalArgumentException e) {
                 logger.error("Failed to deserialize Security snapshot {}", key, e);
             }
         }
@@ -485,7 +485,7 @@ public class DashboardDataService {
             }
             try {
                 return objectMapper.readValue(cached.get().getJsonData(), typeRef);
-            } catch (JsonProcessingException e) {
+            } catch (JsonProcessingException | IllegalArgumentException e) {
                 logger.warn("Stale/corrupted Alerts snapshot for key '{}' — deleting so warm-up can rebuild. Cause: {}",
                         key, e.getMessage());
                 cachedDataRepository.deleteById(key);
@@ -532,7 +532,7 @@ public class DashboardDataService {
         if (cached.isPresent()) {
             try {
                 return objectMapper.readValue(cached.get().getJsonData(), ReservationDto.class);
-            } catch (JsonProcessingException e) {
+            } catch (JsonProcessingException | IllegalArgumentException e) {
                 logger.error("Failed to deserialize Reservation snapshot {}", key, e);
             }
         }
@@ -558,7 +558,7 @@ public class DashboardDataService {
             try {
                 return objectMapper.readValue(cached.get().getJsonData(), new TypeReference<List<CostDto>>() {
                 });
-            } catch (JsonProcessingException e) {
+            } catch (JsonProcessingException | IllegalArgumentException e) {
                 logger.error("Failed to deserialize Cost snapshot {}", key, e);
             }
         }

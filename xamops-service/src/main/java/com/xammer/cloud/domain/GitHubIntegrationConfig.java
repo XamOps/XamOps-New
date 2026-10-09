@@ -1,9 +1,15 @@
 package com.xammer.cloud.domain;
 
+import com.xammer.cloud.domain.type.LegacyLobTextType;
+import com.xammer.cloud.domain.type.OidShapeGuard;
 import jakarta.persistence.*; // Use jakarta.persistence for Spring Boot 2.x
+import org.hibernate.annotations.DynamicUpdate;
+import org.hibernate.annotations.Parameter;
+import org.hibernate.annotations.Type;
 import java.time.Instant;
 
 @Entity
+@DynamicUpdate
 @Table(name = "github_integration_config") // Optional: Define table name explicitly
 public class GitHubIntegrationConfig {
 
@@ -26,6 +32,7 @@ public class GitHubIntegrationConfig {
     // "Unable to access lob stream" / "Large Objects may not be used in auto-commit mode".
     // Hibernate 5 tolerated the mismatch; Hibernate 7 does not. columnDefinition = "TEXT"
     // already gives unbounded storage. Same fix as ScriptVersion/DevOpsScript/JenkinsIntegrationConfig.
+    @Type(value = LegacyLobTextType.class, parameters = @Parameter(name = LegacyLobTextType.KEY_COLUMN, value = "id"))
     @Column(nullable = false, columnDefinition = "TEXT")
     private String encryptedPat; // Store the encrypted Personal Access Token
 
@@ -40,6 +47,13 @@ public class GitHubIntegrationConfig {
         this.githubOwner = githubOwner;
         this.githubRepo = githubRepo;
         this.encryptedPat = encryptedPat;
+    }
+
+    // Refuses an OID-shaped inline value in both write modes (OidShapeGuard).
+    @PrePersist
+    @PreUpdate
+    private void rejectOidShapedEncryptedPat() {
+        OidShapeGuard.checkEntityWrite("github_integration_config", id, encryptedPat);
     }
 
     // --- Getters and Setters ---

@@ -4,13 +4,18 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xammer.cloud.domain.CachedData;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.type.LegacyLobTextType;
+import com.xammer.cloud.domain.type.LobTextWriteMode;
 import com.xammer.cloud.dto.CostDto;
 import com.xammer.cloud.dto.DetailedCostDto;
 import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import jakarta.annotation.PostConstruct;
+import jakarta.persistence.EntityManagerFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -51,6 +56,20 @@ public class CostDataSnapshotService {
     private final ObjectMapper objectMapper;
     private final CurSnapshotReader curSnapshotReader;
 
+    /** Startup history refill (design D9); env AWS_BILLING_HISTORYSNAPSHOTONSTARTUP_ENABLED. */
+    @Value("${aws.billing.history-snapshot-on-startup.enabled:false}")
+    private boolean historySnapshotOnStartupEnabled;
+
+    /** Convert-on-read (design D13); env XAMMER_LOBTEXT_CONVERTONREAD_ENABLED. Ignored in legacy mode. */
+    @Value("${xammer.lob-text.convert-on-read.enabled:false}")
+    private boolean convertOnReadEnabled;
+
+    @Autowired
+    private EntityManagerFactory entityManagerFactory;
+
+    /** The mode the mapped LegacyLobTextType uses, read once from the Hibernate settings. */
+    private LobTextWriteMode writeMode = LobTextWriteMode.LEGACY;
+
     @Autowired
     public CostDataSnapshotService(CloudAccountRepository cloudAccountRepository,
                                    CachedDataRepository cachedDataRepository,
@@ -64,17 +83,29 @@ public class CostDataSnapshotService {
         this.curSnapshotReader = curSnapshotReader;
     }
 
+    @PostConstruct
+    void initWriteMode() {
+        writeMode = LobTextWriteMode.effective(entityManagerFactory);
+    }
+
     // -------------------------------------------------------------------------
     // Auto-run on startup — fills any missing historical snapshots
     // -------------------------------------------------------------------------
 
     /**
-     * Automatically runs snapshotAllHistoricalMonths() on application startup
-     * in a background thread. Already-snapshotted months are skipped (idempotent).
-     * This ensures historical data is preserved even if the manual endpoint is never called.
+     * Runs snapshotAllHistoricalMonths() on application startup in a background thread, only
+     * when {@code aws.billing.history-snapshot-on-startup.enabled=true} (env
+     * {@code AWS_BILLING_HISTORYSNAPSHOTONSTARTUP_ENABLED}). Off by default (design D9): one INFO
+     * line, no thread and no Cost Explorer call. Already-snapshotted months are skipped
+     * (idempotent). The manual trigger is POST /api/xamops/billops-admin/snapshot-cost-history.
      */
     @EventListener(ApplicationReadyEvent.class)
     public void autoSnapshotOnStartup() {
+        if (!historySnapshotOnStartupEnabled) {
+            logger.info("[Snapshot] Startup history refill skipped: aws.billing.history-snapshot-on-startup.enabled"
+                    + " is false. Manual trigger: POST /api/xamops/billops-admin/snapshot-cost-history");
+            return;
+        }
         Thread thread = new Thread(() -> {
             logger.info("[Snapshot] Auto-snapshot triggered on startup — filling missing historical months...");
             try {
@@ -131,108 +162,48 @@ public class CostDataSnapshotService {
     }
 
     /**
-     * True when a cached_data payload is a leftover PostgreSQL large-object OID
-     * rather than JSON.
+     * A cached row's JSON.
      *
-     * <p>{@code CachedData.jsonData} was once annotated {@code @Lob}. On PostgreSQL that
-     * makes Hibernate store the text as a large object and write only its OID into the
-     * TEXT column, so every row written before the annotation was removed holds a bare
-     * integer like {@code 1503879} — the real JSON is still in {@code pg_largeobject}.
+     * <p>{@code cached_data.json_data} holds either inline JSON or, in rows written the August
+     * way, the OID of a PostgreSQL large object. {@link LegacyLobTextType} already decoded the
+     * column when the row was loaded, so this returns {@code row.getJsonData()} as it is.
      *
-     * <p>List-typed reads survive this on their own: a number will not deserialize into a
-     * List, so they miss and refetch. A {@code Double} read does not — Jackson parses
-     * {@code 1503879} quite happily, and an OID is then rendered as $1,503,879 of spend.
-     * That is exactly the Account Dashboard's "Last Month" card and Cost Trend chart, and
-     * it is why every such read has to reject this shape before trusting it.
+     * <p>Convert-on-read (design D13, FR-2.1) is off by default. It runs only when
+     * {@code xammer.lob-text.convert-on-read.enabled=true} and the effective write mode is
+     * {@code inline}; in {@code legacy} mode the flag is ignored. It reads the stored text with
+     * {@link CachedDataRepository#findRawJsonData}. If that is still a reference and the decoded
+     * value is not itself OID-shaped, {@link CachedDataRepository#inlineLegacyRow} replaces the
+     * reference with the JSON in its own transaction. {@code last_updated} is left alone: it
+     * records when the data was fetched from AWS, and the snapshot schedulers use it to decide
+     * what needs refreshing. A failed conversion is logged and changes nothing for the caller.
+     * The large object itself is not removed.
      *
-     * <p>The test is exact, not a heuristic: Jackson always writes a Double with a decimal
-     * point or an exponent ({@code 1953.07}, {@code 2000.0}, {@code 1.0E10}), so a payload
-     * of nothing but digits is never a cost this code wrote.
-     *
-     * <p>Callers should not act on this directly — use {@link #resolvePayload(CachedData)},
-     * which reads the JSON back out of the large object. This predicate only identifies the
-     * shape.
-     */
-    public static boolean isLegacyLobOid(String payload) {
-        if (payload == null) {
-            return false;
-        }
-        String trimmed = payload.trim();
-        if (trimmed.isEmpty() || trimmed.length() > 10) {
-            return false;
-        }
-        for (int i = 0; i < trimmed.length(); i++) {
-            if (!Character.isDigit(trimmed.charAt(i))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * A cached row's JSON, whichever of the two storage formats it is in.
-     *
-     * <p>Every read of {@code cached_data} goes through here. A row written by the current
-     * code holds JSON and is returned as-is; a row written while {@code @Lob} was on the
-     * entity holds a large-object OID, and the JSON is read back out of
-     * {@code pg_largeobject}.
-     *
-     * <p>Both formats have to work at once because they coexist in the field. On
-     * 2026-09-16 prod held 62,207 rows, every one of them an OID and still being written
-     * that way, while UAT had a mix and local had another. Without this, deploying the
-     * {@code @Lob} removal would make every one of those rows unreadable simultaneously —
-     * not only historical cost, but everything else keyed in this table.
-     *
-     * <p>A resolved row is written back in its new form, so each one costs the extra
-     * lookup once and the data converges on the current format as it is read.
-     * {@code database_migration_cached_data_lob_oid_repair.sql} does the same thing in
-     * bulk for rows nobody happens to read; neither depends on the other having run.
-     *
-     * @return the JSON, or null when the row is an OID whose large object is gone —
-     *         treated as a cache miss so the caller refetches from AWS.
+     * @return the JSON, or null when the row is null, holds null, or references a large object
+     *         that is missing, unreadable or not UTF-8. Callers treat null as a cache miss and
+     *         refetch from AWS.
      */
     public String resolvePayload(CachedData row) {
         if (row == null) {
             return null;
         }
-        String payload = row.getJsonData();
-        if (!isLegacyLobOid(payload)) {
-            return payload;
-        }
-
-        String oid = payload.trim();
-        String json;
-        try {
-            json = cachedDataRepository.findLargeObjectText(oid);
-        } catch (Exception e) {
-            // Most likely the app's DB role cannot read the large object. Refetching from
-            // AWS is slower but correct, which beats surfacing an OID as a cost figure.
-            logger.warn("[Snapshot] Could not read large object {} for {}: {}",
-                    oid, row.getCacheKey(), e.getMessage());
-            return null;
-        }
-
-        if (json == null) {
-            logger.warn("[Snapshot] {} points at large object {}, which no longer exists — "
-                    + "treating as a miss. (vacuumlo does not see an OID held in a TEXT "
-                    + "column as a reference.)", row.getCacheKey(), oid);
-            return null;
-        }
-
-        try {
-            // lastUpdated is left alone: it records when the data was fetched from AWS, and
-            // the snapshot schedulers use it to decide what needs refreshing. Moving the
-            // payload between columns is not a refresh.
-            row.setJsonData(json);
-            cachedDataRepository.save(row);
-            logger.info("[Snapshot] Migrated {} from large object {} to inline JSON", row.getCacheKey(), oid);
-        } catch (Exception e) {
-            // The value is already in hand, so a failed write-back costs another lookup
-            // next time and nothing else.
-            logger.warn("[Snapshot] Read {} from large object {} but could not write it back: {}",
-                    row.getCacheKey(), oid, e.getMessage());
+        String json = row.getJsonData();
+        if (convertOnReadEnabled && writeMode == LobTextWriteMode.INLINE && json != null) {
+            convertLegacyRow(row.getCacheKey(), json);
         }
         return json;
+    }
+
+    /** Convert-on-read for one row: rewrites a legacy reference as {@code decoded}, if it still holds one. */
+    private void convertLegacyRow(String key, String decoded) {
+        try {
+            String raw = cachedDataRepository.findRawJsonData(key);
+            if (LegacyLobTextType.isCandidate(raw) && !LegacyLobTextType.isCandidate(decoded)
+                    && cachedDataRepository.inlineLegacyRow(key, raw, decoded) == 1) {
+                logger.debug("[Snapshot] Converted {} from large object {} to inline JSON", key, raw);
+            }
+        } catch (Exception e) {
+            logger.warn("[Snapshot] Convert-on-read failed for {}: {}", key, e.getMessage());
+        }
     }
 
     /**
@@ -411,7 +382,7 @@ public class CostDataSnapshotService {
 
     /**
      * Returns a per-account, per-month snapshot coverage report.
-     * Uses a single bulk findAllById query (no N+1).
+     * Uses a single bulk key-only query, findExistingKeys (no N+1, and no payload is read).
      *
      * Per month a "complete" entry means all 7 key types are present.
      * "partial" means some key types are missing for that month.
@@ -443,10 +414,9 @@ public class CostDataSnapshotService {
             }
         }
 
-        // Single bulk DB query — IN clause with all expected keys
+        // Single bulk DB query — IN clause with all expected keys, selecting keys only
         Set<String> existingKeys = new HashSet<>();
-        cachedDataRepository.findAllById(allExpectedKeys)
-                .forEach(row -> existingKeys.add(row.getCacheKey()));
+        if (!allExpectedKeys.isEmpty()) existingKeys.addAll(cachedDataRepository.findExistingKeys(allExpectedKeys));
 
         List<Map<String, Object>> accountStatuses = new ArrayList<>();
         int grandTotal = 0;
