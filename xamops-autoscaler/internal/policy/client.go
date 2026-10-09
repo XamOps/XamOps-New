@@ -65,7 +65,12 @@ func (c *Client) FetchPolicy(ctx context.Context) (PolicyBundle, error) {
 		return DefaultBundle(), fmt.Errorf("read policy response: %w", err)
 	}
 
-	var bundle PolicyBundle
+	// Unmarshal into the safe defaults, not a zero PolicyBundle: any field the backend
+	// omits would otherwise silently become false, so an older backend that does not yet
+	// serve e.g. evictorPolicy.analyseOnly would un-gate the evictor on a new autoscaler.
+	// Fields the backend does send still win, so there is no behaviour change against a
+	// correctly-serving backend.
+	bundle := DefaultBundle()
 	if err := json.Unmarshal(body, &bundle); err != nil {
 		return DefaultBundle(), fmt.Errorf("parse policy: %w", err)
 	}

@@ -174,9 +174,15 @@ public class AutoscalerDashboardDto {
 
     public static class EvictorPolicyDto {
         private boolean enabled = true;
+        /**
+         * Report consolidation candidates without cordoning or draining any node.
+         * The Evictor has no pod-fit simulation, so this stays on until the scheduler
+         * simulator exists. Default: true.
+         */
+        private boolean analyseOnly = true;
         /** Allow eviction of single-replica deployments (aggressive). Default: false. */
         private boolean aggressiveMode = false;
-        /** How often the bin-packing simulation runs (seconds). Default: 60s. */
+        /** How often the Evictor re-evaluates nodes (seconds). Default: 60s. */
         private int nodeCycleIntervalSeconds = 60;
         /**
          * Node must be older than this before Evictor considers it.
@@ -190,6 +196,8 @@ public class AutoscalerDashboardDto {
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean v) { this.enabled = v; }
+        public boolean isAnalyseOnly() { return analyseOnly; }
+        public void setAnalyseOnly(boolean v) { this.analyseOnly = v; }
         public boolean isAggressiveMode() { return aggressiveMode; }
         public void setAggressiveMode(boolean v) { this.aggressiveMode = v; }
         public int getNodeCycleIntervalSeconds() { return nodeCycleIntervalSeconds; }

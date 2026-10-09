@@ -29,7 +29,7 @@ type Config struct {
 
 	// Feature flags — all default to false for safety.
 	// Enable gradually via XamOps UI (autoscaling mode field) or these env vars.
-	EnableEvictor      bool // bin-packing simulation + pod eviction
+	EnableEvictor      bool // utilisation-threshold node scale-in + pod eviction
 	EnableRightsizer   bool // resource request patching (VPA-style, manual)
 	EnableRebalancer   bool // node rebalancing (drain + replace)
 	EnableHPAManager   bool // create/update/delete HPAs based on XamOps recommendations

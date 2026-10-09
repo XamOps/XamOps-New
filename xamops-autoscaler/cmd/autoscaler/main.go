@@ -196,7 +196,7 @@ func runCycle(
 		}
 	}
 
-	// ── 2. Evictor (bin-packing scale-in) ────────────────────────────────────
+	// ── 2. Evictor (utilisation-threshold scale-in, no pod-fit simulation) ───
 	evictorEnabled := cfg.EnableEvictor && bundle.EvictorPolicy.Enabled
 	if bundle.AutoscalerMode == "scoped" {
 		evictorEnabled = false // scoped mode: workload controllers only

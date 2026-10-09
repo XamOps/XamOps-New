@@ -29,6 +29,8 @@ type ScaleOutPolicy struct {
 
 type EvictorPolicy struct {
 	Enabled                 bool `json:"enabled"`
+	// Analyse mode: report consolidation candidates without cordoning or draining
+	AnalyseOnly             bool `json:"analyseOnly"`
 	AggressiveMode          bool `json:"aggressiveMode"`
 	NodeCycleIntervalSeconds int  `json:"nodeCycleIntervalSeconds"`
 	NodeGracePeriodMinutes  int  `json:"nodeGracePeriodMinutes"`
@@ -181,6 +183,7 @@ func DefaultBundle() PolicyBundle {
 		AutoscalerMode: "disabled",
 		EvictorPolicy: EvictorPolicy{
 			Enabled:                  false,
+			AnalyseOnly:              true, // safe default — recommendations only
 			NodeCycleIntervalSeconds: 60,
 			NodeGracePeriodMinutes:   5,
 			TargetUtilizationCpu:     80,

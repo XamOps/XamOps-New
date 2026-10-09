@@ -24,6 +24,7 @@ type EvictorResult struct {
 	NodesSaved      int              // count of removed nodes
 	SkipReasons     map[string]string // nodeNname → reason skipped
 	DryRun          bool
+	AnalyseOnly     bool             // true when the cycle only produced candidates and took no action
 }
 
 // NodeCandidate is a node the evictor considers for scale-in.
@@ -40,9 +41,28 @@ type NodeCandidate struct {
 	SkipReason     string  `json:"skipReason,omitempty"`
 }
 
-// Evictor implements bin-packing based scale-in.
-// It simulates whether all pods on a node can fit elsewhere BEFORE taking any action.
-// Safety checks run before every eviction attempt.
+// Evictor implements threshold-based scale-in.
+//
+// There is NO scheduling or pod-fit simulation here: the evictor never checks that
+// the pods it is about to evict can actually be placed on the remaining nodes. It
+// relies on the cluster autoscaler (or Karpenter) to schedule them afterwards.
+//
+// A node becomes a candidate only if it passes every gate in evaluateNode:
+//   - it is not already cordoned
+//   - it is older than p.NodeGracePeriodMinutes
+//   - it carries neither the control-plane nor the master role label
+//   - the SUM OF ITS PODS' RESOURCE REQUESTS is at or below TargetUtilizationCpu and
+//     TargetUtilizationMemory — this is a requests ratio, not live usage from metrics
+//   - none of its pods hits an eviction blocker (DaemonSet, protected StatefulSet,
+//     critical namespace, or ownerless pod outside aggressive mode)
+//
+// Run then sorts candidates by CPU utilisation and consolidates AT MOST ONE node per
+// cycle. Per-pod safety checks (blockers and PodDisruptionBudgets) run again during
+// the drain itself.
+//
+// Roadmap item C1 (the scheduler simulator) is where a real fit check would plug in,
+// in Run between candidate selection and the first cordon. Until it exists the
+// evictor defaults to analyse-only via EvictorPolicy.AnalyseOnly.
 type Evictor struct {
 	k8s   kubernetes.Interface
 	dryRun bool
@@ -53,7 +73,11 @@ func NewEvictor(k8s kubernetes.Interface, dryRun bool) *Evictor {
 }
 
 // Run executes one evictor cycle.
-// It identifies under-utilised nodes and, if consolidation is safe, drains them.
+//
+// It scores every node on summed pod REQUESTS against the policy's utilisation
+// targets, returns the full candidate list, and — unless p.AnalyseOnly is set —
+// cordons and drains the single most-empty candidate. One node per cycle, no
+// pod-fit simulation before acting.
 func (e *Evictor) Run(ctx context.Context, p policy.EvictorPolicy, guards policy.SafetyGuards) (*EvictorResult, error) {
 	result := &EvictorResult{
 		CycleTime:   time.Now(),
@@ -102,7 +126,16 @@ func (e *Evictor) Run(ctx context.Context, p policy.EvictorPolicy, guards policy
 	})
 	result.CandidateNodes = candidates
 
-	// 5. For nodes that can evict: simulate bin-packing, then act
+	// 5. Analyse-only mode (the default): report candidates, take no action.
+	// NodesSaved stays 0 so no "consolidated N node(s)" event is emitted.
+	if p.AnalyseOnly {
+		result.AnalyseOnly = true
+		log.Printf("Evictor: analyse-only mode — %d node(s) evaluated, %d consolidation candidate(s), no action taken",
+			len(candidates), len(filterCanEvict(candidates)))
+		return result, nil
+	}
+
+	// 6. Consolidate the most-empty candidate that passed every gate (one per cycle)
 	remainingCandidates := filterCanEvict(candidates)
 	if len(remainingCandidates) == 0 {
 		log.Printf("Evictor: no consolidation candidates this cycle")

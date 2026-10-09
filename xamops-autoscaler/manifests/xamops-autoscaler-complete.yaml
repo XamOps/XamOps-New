@@ -5,7 +5,7 @@
 # Deploys into the xamops-system namespace (same as xamops-agent).
 #
 # Controllers (all off by default, enable via XamOps UI or env vars):
-#   ENABLE_EVICTOR        — bin-packing simulation + pod eviction (scale-in)
+#   ENABLE_EVICTOR        — utilisation-threshold node scale-in + pod eviction
 #   ENABLE_RIGHTSIZER     — patch resource requests (VPA-style, P80/P100)
 #   ENABLE_REBALANCER     — cordon + drain nodes for AZ rebalancing
 #   ENABLE_HPA_MANAGER    — create/update/delete HPAs from UI recommendations
@@ -87,7 +87,7 @@ rules:
       - nodes
     verbs: ["patch", "update"]
 
-  # Evict pods (bin-packing / scale-in)
+  # Evict pods (node scale-in)
   - apiGroups: [""]
     resources:
       - pods/eviction
@@ -184,7 +184,8 @@ data:
   DRY_RUN: "true"
 
   # ── Tier 2 feature flags (all off by default — enable per-cluster in XamOps UI)
-  # Node scale-in: bin-packing simulation + pod eviction to remove underused nodes
+  # Node scale-in: evict pods off nodes whose summed pod requests are under target
+  # (no pod-fit simulation; analyse-only unless the policy sets analyseOnly=false)
   ENABLE_EVICTOR: "false"
   # Workload rightsizing: patch CPU/memory resource requests based on P80/P100 usage
   ENABLE_RIGHTSIZER: "false"
