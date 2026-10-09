@@ -1,0 +1,63 @@
+# PodDisruptionBudget case: minAvailable blocks naive node drains, which is
+# what bin-packing / consolidation / spot-interruption handling has to respect.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pdb-guarded-web
+  namespace: team-b
+  labels:
+    app: pdb-guarded-web
+    scenario: pdb
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-09"
+    ephemeral: "true"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: pdb-guarded-web
+  template:
+    metadata:
+      labels:
+        app: pdb-guarded-web
+        scenario: pdb
+        project: XamOps
+        purpose: CloudK8sFeatureTesting
+        owner: agent-provisioned
+        created-on: "2026-10-09"
+        ephemeral: "true"
+    spec:
+      containers:
+        - name: web
+          image: public.ecr.aws/nginx/nginx:1.27
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 50m
+              memory: 48Mi
+            limits:
+              cpu: 150m
+              memory: 128Mi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pdb-guarded-web
+  namespace: team-b
+  labels:
+    app: pdb-guarded-web
+    scenario: pdb
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-09"
+    ephemeral: "true"
+spec:
+  minAvailable: 3
+  selector:
+    matchLabels:
+      app: pdb-guarded-web

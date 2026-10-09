@@ -1,0 +1,39 @@
+# NO RESOURCE REQUESTS OR LIMITS AT ALL (BestEffort QoS).
+# Expected signal: "missing requests/limits" policy + governance findings,
+# and unschedulable-risk / noisy-neighbour analysis.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: no-requests-sidecar-app
+  namespace: dev-sim
+  labels:
+    app: no-requests-sidecar-app
+    scenario: no-requests
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-09"
+    ephemeral: "true"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: no-requests-sidecar-app
+  template:
+    metadata:
+      labels:
+        app: no-requests-sidecar-app
+        scenario: no-requests
+        project: XamOps
+        purpose: CloudK8sFeatureTesting
+        owner: agent-provisioned
+        created-on: "2026-10-09"
+        ephemeral: "true"
+    spec:
+      containers:
+        - name: app
+          image: public.ecr.aws/docker/library/busybox:1.36
+          command: ["/bin/sh", "-c"]
+          args:
+            - while true; do sleep 5; done
+          # Intentionally no resources block.

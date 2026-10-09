@@ -1,0 +1,48 @@
+# Namespaces for the CloudK8s feature-testing workload mix (xamops-test-1).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-a
+  labels:
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-09"
+    ephemeral: "true"
+    env: nonprod
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-b
+  labels:
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-09"
+    ephemeral: "true"
+    env: nonprod
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prod-sim
+  labels:
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-09"
+    ephemeral: "true"
+    env: prod
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev-sim
+  labels:
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-09"
+    ephemeral: "true"
+    env: dev
