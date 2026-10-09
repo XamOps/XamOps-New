@@ -1,0 +1,138 @@
+{
+  "verdict": "APPROVED",
+  "reviewDoc": "/Users/apple/Desktop/XamOps-New/.agents/tasks/cloudk8s-test-clusters-2026-10-09/provision-review.md",
+  "blocking": [],
+  "findings": [
+    {
+      "id": 1,
+      "label": "OIDC cleanup unreachable",
+      "blocking": false,
+      "confidence": "confirmed",
+      "file": "eks/test-clusters/teardown.sh",
+      "detail": "delete_cluster reads cluster.identity.oidc.issuer from describe-cluster AFTER 'eksctl delete cluster --wait' has removed the cluster, so the branch never fires and prints 'no OIDC issuer recorded' instead. Re-running cannot repair it: the second pass returns early at 'cluster not found'. Both OIDC providers survive a teardown that reports no problem. Fix: hoist the issuer lookup above the eksctl delete and cache it."
+    },
+    {
+      "id": 2,
+      "label": "DRY_RUN masks the OIDC bug",
+      "blocking": false,
+      "confidence": "confirmed",
+      "file": "eks/test-clusters/teardown.sh",
+      "detail": "Under DRY_RUN=1 the cluster still exists, so the OIDC branch resolves and prints 'deleting OIDC provider arn:...' — a dry run advertises behaviour the real run will not perform. Fixing finding 1 removes the divergence."
+    },
+    {
+      "id": 3,
+      "label": "Single-cluster teardown has region-wide scope",
+      "blocking": false,
+      "confidence": "confirmed",
+      "file": "eks/test-clusters/teardown.sh",
+      "detail": "delete_load_balancers, delete_ebs_volumes and delete_security_groups enumerate the whole region and accept any resource tagged Project=XamOps regardless of which cluster was named, so './teardown.sh xamops-test-2' can delete xamops-test-1's security groups, detached volumes and load balancers. Bounded today (the live account inventory shows the only Project=XamOps resources are these two clusters' stacks, ASGs and roles). Fix: require the kubernetes.io/cluster/<cluster> tag in those three sweeps."
+    },
+    {
+      "id": 4,
+      "label": "Tag guard is a substring match",
+      "blocking": false,
+      "confidence": "confirmed",
+      "file": "eks/test-clusters/teardown.sh",
+      "detail": "has_required_tag_list uses [[ \"$tags\" == *\"Project=XamOps\"* ]], which also matches Project=XamOpsProd or any longer value. Extract the tag value and compare it exactly."
+    },
+    {
+      "id": 5,
+      "label": "Log-group deletion is unguarded",
+      "blocking": false,
+      "confidence": "confirmed",
+      "file": "eks/test-clusters/teardown.sh",
+      "detail": "delete_log_groups deletes by name prefix with no tag check, contradicting the 'every resource is checked for the tag Project=XamOps' claim in the script header and in README.md. Add the check or amend both claims."
+    },
+    {
+      "id": 6,
+      "label": "SC2318 wrong-target risk in delete_log_groups",
+      "blocking": false,
+      "confidence": "confirmed",
+      "file": "eks/test-clusters/teardown.sh",
+      "detail": "'local cluster=\"$1\" lg=\"/aws/eks/${cluster}/cluster\"' expands ${cluster} before the local assignment takes effect, so it resolves to the global loop variable — currently the same value, which masks the defect. Called with a $1 that differs from the enclosing loop variable, the first half of the function would delete one cluster's log group while the second half targets the other's. Split into two local statements."
+    },
+    {
+      "id": 7,
+      "label": "Teardown always exits 0",
+      "blocking": false,
+      "confidence": "confirmed",
+      "file": "eks/test-clusters/teardown.sh",
+      "detail": "No 'set -e' and no exit-code accumulation; the 'Teardown pass finished' line prints regardless of failed steps or SKIPPED entries, so a caller cannot distinguish a clean pass from a partial one. Track a failure flag and exit non-zero."
+    },
+    {
+      "id": 8,
+      "label": "Teardown never executed",
+      "blocking": false,
+      "confidence": "confirmed",
+      "file": "eks/test-clusters/teardown.sh",
+      "detail": "No DRY_RUN=1 pass appears anywhere in the evidence; the first execution would be the real one. The stated criterion covers the script's properties (executable, idempotent, refuses untagged), which are establishable by reading, so this is a finding rather than a rejection. Reviewer parsed it clean under bash 3.2.57 and 5.x in place of a run. Run DRY_RUN=1 ./teardown.sh before the real teardown."
+    },
+    {
+      "id": 9,
+      "label": "DRY_RUN=1 writes to kubeconfig",
+      "blocking": false,
+      "confidence": "confirmed",
+      "file": "eks/test-clusters/teardown.sh",
+      "detail": "'aws eks update-kubeconfig' in drain_k8s_cloud_resources is not wrapped in run(), so a preview still rewrites the local kubeconfig and switches the current context, against the header's 'change nothing'. Wrap it or guard the whole function."
+    },
+    {
+      "id": 10,
+      "label": "Stale note in verification.md",
+      "blocking": false,
+      "confidence": "confirmed",
+      "file": ".agents/tasks/cloudk8s-test-clusters-2026-10-09/verification.md",
+      "detail": "Section 2 says xamops-test-1.yaml 'still declares desiredSize: 2'; the file was subsequently updated to desiredCapacity: 4. The next reader would scale up a cluster already at 4. Update the note."
+    },
+    {
+      "id": 11,
+      "label": "Unbudgeted audit-log ingest",
+      "blocking": false,
+      "confidence": "likely",
+      "file": "eks/test-clusters/xamops-test-1.yaml, eks/test-clusters/xamops-test-2.yaml",
+      "detail": "Both clusters enable api/audit/authenticator/controllerManager/scheduler logging at 7-day retention. CloudWatch ingest for audit is outside README.md's 'control planes plus four small nodes' cost claim. Note it, or drop audit while the clusters idle."
+    },
+    {
+      "id": 12,
+      "label": "Public API endpoint and public node IPs",
+      "blocking": false,
+      "confidence": "confirmed",
+      "file": "eks/test-clusters/xamops-test-1.yaml, eks/test-clusters/xamops-test-2.yaml",
+      "detail": "clusterEndpoints.publicAccess: true with no publicAccessCIDRs, and privateNetworking: false puts nodes in public subnets with public IPs. IAM-authenticated and ssh.allow: false, so ordinary public-EKS exposure — but a new internet-reachable control-plane endpoint in a live account with no CIDR restriction. Restrict publicAccessCIDRs or keep the cluster lifetime short."
+    },
+    {
+      "id": 13,
+      "label": "Live shared credential restated",
+      "blocking": false,
+      "confidence": "confirmed",
+      "file": ".agents/tasks/cloudk8s-test-clusters-2026-10-09/agent-assessment.md",
+      "detail": "The doc quotes the shared agent API key verbatim and confirms by live curl that it returns the account's OpenObserve credentials (those values are redacted). The key was already committed in xamops-agent/manifests, so there is no new exposure, but reference it by name instead. Per-cluster token rotation belongs in its own task."
+    }
+  ],
+  "criteria": [
+    { "criterion": "Both clusters ACTIVE", "result": "PASS", "note": "aws eks list-clusters independently re-checked by the reviewer; evidence shows ACTIVE on 1.36 / 1.35" },
+    { "criterion": "Capacity types correct (cluster 2 genuinely SPOT)", "result": "PASS", "note": "describe-nodegroup ng-spot-1 independently re-checked: capacityType SPOT, ACTIVE, t3.medium/t3a.medium/t2.medium. No on-demand fallback, so no fallback error needed" },
+    { "criterion": "OIDC providers present", "result": "PASS", "note": "both providers listed, IDs match the oidcIssuer values in section 1" },
+    { "criterion": "Nodes Ready on both", "result": "PASS", "note": "4 Ready on cluster 1, 2 Ready on cluster 2, with versions and IPs" },
+    { "criterion": "Container Insights metrics non-empty", "result": "PASS", "note": "3991 series / 87 names across both clusters, plus get-metric-statistics datapoints — throttled-encoder at ~100.0% of limit vs overprovisioned-api at ~0.002% of request" },
+    { "criterion": "kubectl top returns real numbers", "result": "PASS", "note": "top nodes and top pods -A on both clusters" },
+    { "criterion": "Full imperfect workload mix present", "result": "PASS", "note": "all 9 manifests reconcile replica-for-replica against the live pod listing; HPA at maxReplicas 5 on 62%/50%; PDB ALLOWED DISRUPTIONS 0" },
+    { "criterion": "Deliberately-Pending pod with scheduling event", "result": "PASS", "note": "unschedulable-giant, requests 32 CPU / 64Gi read off the live object, five FailedScheduling events captured verbatim" },
+    { "criterion": "teardown.sh executable", "result": "PASS", "note": "mode 755; parses clean under bash 3.2.57 and 5.x" },
+    { "criterion": "teardown.sh idempotent", "result": "PASS", "note": "every delete path treats a missing resource as already-deleted; never executed, see finding 8" },
+    { "criterion": "teardown.sh refuses untagged resources", "result": "PASS", "note": "ownership probes are fail-closed (a failed AWS call yields an empty tag string and skips). Scope and substring defects in findings 3-5" },
+    { "criterion": "Honest agent/autoscaler blocker assessment", "result": "PASS", "note": "nothing deployed and said so; B1-B3 with the real dry-run rejection text, dry-run namespace noise correctly excluded, and the production-backend-only data sink surfaced as a decision with three costed options" }
+  ],
+  "disclosedDeviations": [
+    "xamops-test-1 scaled 2 -> 4 nodes, disclosed with the 97%-CPU-requested scheduler evidence that forced it; config updated to desiredCapacity: 4, but verification.md section 2 not (finding 10)",
+    "xamops-test-2 carries observability only, no seeded app workloads — documented design; leaves spot-interruption, consolidation and PDB-aware draining untestable on the spot cluster",
+    "Neither xamops-agent nor xamops-autoscaler deployed — exact blockers B1-B3 recorded plus the production-backend gate; no end-to-end agent -> backend -> UI path exercised"
+  ],
+  "reviewerActions": [
+    "read verification.md and agent-assessment.md in full",
+    "read all 9 workload manifests, both eksctl configs, install-observability.sh, teardown.sh, README.md",
+    "spot-check (read-only): aws eks list-clusters; aws eks describe-nodegroup xamops-test-2/ng-spot-1; aws iam list-role-tags xamops-test-1-cw-observability",
+    "bash -n on teardown.sh and install-observability.sh under bash 3.2.57 and 5.x; shellcheck -S warning on teardown.sh",
+    "blast-radius check against the local account inventory snapshot at .agents/tasks/autospotting-e2e-2026-10-07/snapshots/aws/inventory.json",
+    "did NOT re-run cluster creation, workload apply, or teardown"
+  ]
+}
