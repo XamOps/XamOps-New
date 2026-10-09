@@ -1,0 +1,81 @@
+{
+  "autoscalerMode": "full",
+  "scaleOutPolicy": {
+    "enabled": false,
+    "headroomCpuPercent": 0,
+    "headroomMemoryPercent": 0,
+    "minCpuCores": 0,
+    "maxCpuCores": 0,
+    "minRamMib": 0,
+    "maxRamMib": 0,
+    "nodeReadinessTimeoutMinutes": 0
+  },
+  "evictorPolicy": {
+    "enabled": true,
+    "aggressiveMode": true,
+    "nodeCycleIntervalSeconds": 60,
+    "nodeGracePeriodMinutes": 0,
+    "targetUtilizationCpu": 100,
+    "targetUtilizationMemory": 100
+  },
+  "workloadRightsizerPolicy": {
+    "enabled": true,
+    "cpuPercentile": 80,
+    "memoryPercentile": 100,
+    "cpuOverheadPercent": 10,
+    "memoryOverheadPercent": 10,
+    "applyThresholdPercent": 5,
+    "lookbackHours": 72,
+    "applyMode": "immediate",
+    "surgeDetection": true
+  },
+  "hpaManagerPolicy": {
+    "enabled": true,
+    "analyseOnly": false,
+    "defaultMinReplicas": 1,
+    "defaultMaxReplicas": 10,
+    "defaultTargetCpuPct": 80
+  },
+  "vpaManagerPolicy": {
+    "enabled": true,
+    "updateMode": "Off",
+    "analyseOnly": false
+  },
+  "nodeOptimizerPolicy": {
+    "enabled": true,
+    "idleCpuThresholdPct": 10,
+    "idleMemThresholdPct": 20,
+    "autoCordonIdleNodes": true,
+    "autoDrainIdleNodes": true,
+    "handleSpotInterruptions": true,
+    "spotRatioTargetPct": 50,
+    "karpenterEnabled": false,
+    "maxParallelDrains": 1
+  },
+  "nodeTemplates": null,
+  "rebalancer": {
+    "enabled": true,
+    "gracefulDraining": true,
+    "drainTimeoutMinutes": 20,
+    "scheduleEnabled": false,
+    "scheduleCron": "",
+    "lastRebalanceAt": "",
+    "lastRebalanceSavingsPercent": 0,
+    "lastRebalanceDuration": 0,
+    "status": "running"
+  },
+  "safetyGuards": {
+    "respectPodDisruptionBudgets": true,
+    "protectSingleReplicas": true,
+    "protectStatefulSets": true,
+    "protectCriticalNamespaces": true,
+    "criticalNamespaces": [
+      "kube-system",
+      "monitoring",
+      "ingress-nginx",
+      "xamops-system"
+    ]
+  },
+  "_label": "phase5-dryrun-actions",
+  "_note": "Every action path switched on so DRY_RUN must be the only thing stopping mutations: evictor targets 100/100 grace 0 aggressive, rightsizer immediate, rebalancer running, node optimizer auto-cordon/drain + spot ratio 50 + spot handling. Run with DRY_RUN=true only."
+}

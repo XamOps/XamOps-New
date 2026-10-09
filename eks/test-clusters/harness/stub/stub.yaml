@@ -1,0 +1,98 @@
+# In-cluster stand-in for the XamOps backend agent API (see stub.py).
+# ClusterIP only — nothing is exposed outside the cluster. Deployed by
+# ../deploy.sh, which also creates the stub-code / stub-policy ConfigMaps and
+# the harness-only API key Secret (xamops-stub-key) — the key is never in git.
+#
+# xamops-system is in DefaultBundle().SafetyGuards.CriticalNamespaces, so the
+# controllers under test treat the stub (and themselves) as protected.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: xamops-system
+  labels:
+    app.kubernetes.io/managed-by: xamops
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    ephemeral: "true"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xamops-stub
+  namespace: xamops-system
+  labels:
+    app: xamops-stub
+    app.kubernetes.io/part-of: xamops-automation-harness
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: xamops-stub
+  template:
+    metadata:
+      labels:
+        app: xamops-stub
+        app.kubernetes.io/part-of: xamops-automation-harness
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+        - name: stub
+          image: public.ecr.aws/docker/library/python:3.12-alpine
+          command: ["python3", "-u", "/app/stub.py"]
+          env:
+            - name: STUB_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: xamops-stub-key
+                  key: STUB_API_KEY
+            - name: POLICY_FILE
+              value: /etc/stub-policy/policy.json
+            - name: CAPTURE_DIR
+              value: /captures
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 10m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: code, mountPath: /app, readOnly: true }
+            - { name: policy, mountPath: /etc/stub-policy, readOnly: true }
+            - { name: captures, mountPath: /captures }
+      volumes:
+        - name: code
+          configMap: { name: xamops-stub-code }
+        - name: policy
+          configMap: { name: xamops-stub-policy }
+        - name: captures
+          emptyDir: { sizeLimit: 1Gi }   # no PVC, no EBS volume
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: xamops-stub
+  namespace: xamops-system
+  labels:
+    app: xamops-stub
+spec:
+  type: ClusterIP
+  selector:
+    app: xamops-stub
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

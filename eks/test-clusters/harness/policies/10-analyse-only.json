@@ -1,0 +1,81 @@
+{
+  "autoscalerMode": "full",
+  "scaleOutPolicy": {
+    "enabled": false,
+    "headroomCpuPercent": 0,
+    "headroomMemoryPercent": 0,
+    "minCpuCores": 0,
+    "maxCpuCores": 0,
+    "minRamMib": 0,
+    "maxRamMib": 0,
+    "nodeReadinessTimeoutMinutes": 0
+  },
+  "evictorPolicy": {
+    "enabled": true,
+    "aggressiveMode": false,
+    "nodeCycleIntervalSeconds": 60,
+    "nodeGracePeriodMinutes": 5,
+    "targetUtilizationCpu": 80,
+    "targetUtilizationMemory": 80
+  },
+  "workloadRightsizerPolicy": {
+    "enabled": true,
+    "cpuPercentile": 80,
+    "memoryPercentile": 100,
+    "cpuOverheadPercent": 10,
+    "memoryOverheadPercent": 10,
+    "applyThresholdPercent": 5,
+    "lookbackHours": 72,
+    "applyMode": "deferred",
+    "surgeDetection": true
+  },
+  "hpaManagerPolicy": {
+    "enabled": true,
+    "analyseOnly": true,
+    "defaultMinReplicas": 1,
+    "defaultMaxReplicas": 10,
+    "defaultTargetCpuPct": 80
+  },
+  "vpaManagerPolicy": {
+    "enabled": true,
+    "updateMode": "Off",
+    "analyseOnly": true
+  },
+  "nodeOptimizerPolicy": {
+    "enabled": true,
+    "idleCpuThresholdPct": 10,
+    "idleMemThresholdPct": 20,
+    "autoCordonIdleNodes": false,
+    "autoDrainIdleNodes": false,
+    "handleSpotInterruptions": false,
+    "spotRatioTargetPct": 0,
+    "karpenterEnabled": false,
+    "maxParallelDrains": 1
+  },
+  "nodeTemplates": null,
+  "rebalancer": {
+    "enabled": true,
+    "gracefulDraining": false,
+    "drainTimeoutMinutes": 0,
+    "scheduleEnabled": false,
+    "scheduleCron": "",
+    "lastRebalanceAt": "",
+    "lastRebalanceSavingsPercent": 0,
+    "lastRebalanceDuration": 0,
+    "status": "idle"
+  },
+  "safetyGuards": {
+    "respectPodDisruptionBudgets": true,
+    "protectSingleReplicas": true,
+    "protectStatefulSets": true,
+    "protectCriticalNamespaces": true,
+    "criticalNamespaces": [
+      "kube-system",
+      "monitoring",
+      "ingress-nginx",
+      "xamops-system"
+    ]
+  },
+  "_label": "phase5-analyse-only",
+  "_note": "DefaultBundle with mode=full and all six controllers enabled; no action flags (rightsizer deferred, HPA/VPA analyseOnly, rebalancer idle, node optimizer auto-* off). Run with DRY_RUN=true."
+}

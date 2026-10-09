@@ -1,0 +1,175 @@
+# OSS baseline: one upstream VerticalPodAutoscaler per seeded Deployment,
+# updateMode Off (recommendation only — the recommender writes
+# status.recommendation, nothing evicts or mutates pods).
+#   kubectl apply -f vpa-objects.yaml
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: overprovisioned-api-baseline
+  namespace: team-a
+  labels:
+    app.kubernetes.io/part-of: xamops-automation-harness
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    ephemeral: "true"
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: overprovisioned-api
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: unschedulable-giant-baseline
+  namespace: team-a
+  labels:
+    app.kubernetes.io/part-of: xamops-automation-harness
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    ephemeral: "true"
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: unschedulable-giant
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: rightsized-worker-baseline
+  namespace: prod-sim
+  labels:
+    app.kubernetes.io/part-of: xamops-automation-harness
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    ephemeral: "true"
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: rightsized-worker
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: throttled-encoder-baseline
+  namespace: prod-sim
+  labels:
+    app.kubernetes.io/part-of: xamops-automation-harness
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    ephemeral: "true"
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: throttled-encoder
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: idle-batch-listener-baseline
+  namespace: dev-sim
+  labels:
+    app.kubernetes.io/part-of: xamops-automation-harness
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    ephemeral: "true"
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: idle-batch-listener
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: no-requests-sidecar-app-baseline
+  namespace: dev-sim
+  labels:
+    app.kubernetes.io/part-of: xamops-automation-harness
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    ephemeral: "true"
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: no-requests-sidecar-app
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: php-apache-baseline
+  namespace: team-b
+  labels:
+    app.kubernetes.io/part-of: xamops-automation-harness
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    ephemeral: "true"
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: php-apache
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: load-generator-baseline
+  namespace: team-b
+  labels:
+    app.kubernetes.io/part-of: xamops-automation-harness
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    ephemeral: "true"
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: load-generator
+  updatePolicy:
+    updateMode: "Off"
+---
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: pdb-guarded-web-baseline
+  namespace: team-b
+  labels:
+    app.kubernetes.io/part-of: xamops-automation-harness
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    ephemeral: "true"
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: pdb-guarded-web
+  updatePolicy:
+    updateMode: "Off"
