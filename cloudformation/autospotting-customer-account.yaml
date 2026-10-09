@@ -1,0 +1,368 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  AutoSpotting Customer Account Template - Forwards EC2 and AutoScaling events
+  to the main AutoSpotting account's EventBridge and provides IAM role for
+  cross-account AutoSpotting operations.
+
+Parameters:
+  MainAccountId:
+    Type: String
+    Description: The AWS Account ID where AutoSpotting is installed.
+    AllowedPattern: "^[0-9]{12}$"
+    ConstraintDescription: Must be a valid 12-digit AWS Account ID.
+    Default: "982534352845"
+
+  MainRegion:
+    Type: String
+    Description: The AWS region where AutoSpotting is installed.
+    Default: ap-south-1
+
+  AutoSpottingLambdaRoleArn:
+    Type: String
+    Description: >
+      The ARN of the AutoSpotting Lambda execution role in the main account.
+    AllowedPattern: "^arn:aws:iam::[0-9]{12}:role/.+$"
+    ConstraintDescription: Must be a valid IAM role ARN.
+    Default: "arn:aws:iam::982534352845:role/lambda/autospotting-LambdaExecutionRole-QLEgqMN3g4f1"
+
+  Regions:
+    Type: CommaDelimitedList
+    Description: >
+      Comma-separated list of regions where to deploy the event forwarding rules.
+      NOTE: DO NOT include the deployment region.
+    Default: "ap-northeast-1,ap-northeast-2,ap-northeast-3,ap-south-1,ap-southeast-1,ap-southeast-2,ca-central-1,eu-central-1,eu-north-1,eu-west-1,eu-west-2,eu-west-3,sa-east-1,us-east-2,us-west-1,us-west-2"
+
+  DeployRegionalStackSet:
+    Type: String
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "true"
+    Description: Whether to deploy a StackSet for multi-region event forwarding.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Main AutoSpotting Account Configuration
+        Parameters:
+          - MainAccountId
+          - MainRegion
+          - AutoSpottingLambdaRoleArn
+      - Label:
+          default: Regional Deployment
+        Parameters:
+          - Regions
+          - DeployRegionalStackSet
+
+Conditions:
+  DeployStackSet:
+    Fn::Equals:
+      - Ref: DeployRegionalStackSet
+      - "true"
+
+Resources:
+  AutoSpottingExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AutoSpotting-Execution-Role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref AutoSpottingLambdaRoleArn
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                "sts:ExternalId": !Ref AWS::AccountId
+      Path: /
+      Policies:
+        - PolicyName: AutoSpottingPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AutoScalingPermissions
+                Effect: Allow
+                Action:
+                  - "autoscaling:*"
+                Resource: "*"
+              - Sid: EC2Permissions
+                Effect: Allow
+                Action:
+                  - "ec2:*"
+                Resource: "*"
+              - Sid: ELBPermissions
+                Effect: Allow
+                Action:
+                  - "elasticloadbalancing:*"
+                Resource: "*"
+              - Sid: ECSPermissions
+                Effect: Allow
+                Action:
+                  - "ecs:*"
+                Resource: "*"
+              - Sid: OtherPermissions
+                Effect: Allow
+                Action:
+                  - "elasticbeanstalk:*"
+                  - "codedeploy:*"
+                  - "cloudformation:Describe*"
+                  - "iam:CreateServiceLinkedRole"
+                  - "iam:PassRole"
+                Resource: "*"
+
+  EventBridgeCrossAccountRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AutoSpotting-EventBridge-CrossAccount-Role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: PutEventsToMainAccount
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: events:PutEvents
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:events:${MainRegion}:${MainAccountId}:event-bus/default"
+
+  SpotTerminationEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: AutoSpotting-SpotTermination-Forward
+      Description: Forwards Spot termination events
+      EventPattern:
+        detail-type:
+          - "EC2 Spot Instance Interruption Warning"
+          - "EC2 Instance Rebalance Recommendation"
+        source:
+          - "aws.ec2"
+      State: ENABLED
+      Targets:
+        - Arn: !Sub "arn:${AWS::Partition}:events:${MainRegion}:${MainAccountId}:event-bus/default"
+          Id: ForwardToMainAccount
+          RoleArn: !GetAtt EventBridgeCrossAccountRole.Arn
+
+  InstanceRunningEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: AutoSpotting-InstanceRunning-Forward
+      Description: Forwards instance running events
+      EventPattern:
+        detail-type:
+          - "EC2 Instance State-change Notification"
+        source:
+          - "aws.ec2"
+        detail:
+          state:
+            - "running"
+      State: ENABLED
+      Targets:
+        - Arn: !Sub "arn:${AWS::Partition}:events:${MainRegion}:${MainAccountId}:event-bus/default"
+          Id: ForwardToMainAccount
+          RoleArn: !GetAtt EventBridgeCrossAccountRole.Arn
+
+  LifecycleHookEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: AutoSpotting-LifecycleHook-Forward
+      Description: Forwards lifecycle hook events
+      EventPattern:
+        detail-type:
+          - "AWS API Call via CloudTrail"
+        source:
+          - "aws.autoscaling"
+        detail:
+          eventName:
+            - "CompleteLifecycleAction"
+          errorCode:
+            - "ValidationException"
+          requestParameters:
+            lifecycleActionResult:
+              - "CONTINUE"
+      State: ENABLED
+      Targets:
+        - Arn: !Sub "arn:${AWS::Partition}:events:${MainRegion}:${MainAccountId}:event-bus/default"
+          Id: ForwardToMainAccount
+          RoleArn: !GetAtt EventBridgeCrossAccountRole.Arn
+
+  StackSetAdministrationRole:
+    Condition: DeployStackSet
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AWSCloudFormationStackSetAdministrationRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: AssumeRole-AWSCloudFormationStackSetExecutionRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Resource: !Sub "arn:${AWS::Partition}:iam::*:role/AWSCloudFormationStackSetExecutionRole"
+
+  StackSetExecutionRole:
+    Condition: DeployStackSet
+    Type: AWS::IAM::Role
+    DependsOn: EventBridgeCrossAccountRole
+    Properties:
+      RoleName: AWSCloudFormationStackSetExecutionRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref AWS::AccountId
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: StackSetExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:*
+                  - events:*
+                Resource: "*"
+              # ? CRITICAL FIX: Allow passing the EventBridge role
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !GetAtt EventBridgeCrossAccountRole.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::cf-templates-*"
+                  - !Sub "arn:${AWS::Partition}:s3:::autospotting-*"
+                  - !Sub "arn:${AWS::Partition}:s3:::xamops-*"
+
+  RegionalStackSet:
+    Condition: DeployStackSet
+    DependsOn:
+      - StackSetAdministrationRole
+      - StackSetExecutionRole
+      - EventBridgeCrossAccountRole
+    Type: AWS::CloudFormation::StackSet
+    Properties:
+      StackSetName: AutoSpotting-CustomerRegionalResources
+      Description: Deploys EventBridge rules to other regions
+      TemplateBody: |
+        AWSTemplateFormatVersion: "2010-09-09"
+        Description: Regional event forwarding rules
+        
+        Parameters:
+          MainAccountId:
+            Type: String
+          MainRegion:
+            Type: String
+          EventsRoleArn:
+            Type: String
+
+        Resources:
+          SpotTerminationEventRule:
+            Type: AWS::Events::Rule
+            Properties:
+              Name: AutoSpotting-SpotTermination-Forward
+              Description: Forwards Spot termination events
+              EventPattern:
+                detail-type:
+                  - "EC2 Spot Instance Interruption Warning"
+                  - "EC2 Instance Rebalance Recommendation"
+                source:
+                  - "aws.ec2"
+              State: ENABLED
+              Targets:
+                - Arn: !Sub "arn:aws:events:${MainRegion}:${MainAccountId}:event-bus/default"
+                  Id: ForwardToMainAccount
+                  RoleArn: !Ref EventsRoleArn
+
+          InstanceRunningEventRule:
+            Type: AWS::Events::Rule
+            Properties:
+              Name: AutoSpotting-InstanceRunning-Forward
+              Description: Forwards instance running events
+              EventPattern:
+                detail-type:
+                  - "EC2 Instance State-change Notification"
+                source:
+                  - "aws.ec2"
+                detail:
+                  state:
+                    - "running"
+              State: ENABLED
+              Targets:
+                - Arn: !Sub "arn:aws:events:${MainRegion}:${MainAccountId}:event-bus/default"
+                  Id: ForwardToMainAccount
+                  RoleArn: !Ref EventsRoleArn
+
+          LifecycleHookEventRule:
+            Type: AWS::Events::Rule
+            Properties:
+              Name: AutoSpotting-LifecycleHook-Forward
+              Description: Forwards lifecycle hook events
+              EventPattern:
+                detail-type:
+                  - "AWS API Call via CloudTrail"
+                source:
+                  - "aws.autoscaling"
+                detail:
+                  eventName:
+                    - "CompleteLifecycleAction"
+                  errorCode:
+                    - "ValidationException"
+                  requestParameters:
+                    lifecycleActionResult:
+                      - "CONTINUE"
+              State: ENABLED
+              Targets:
+                - Arn: !Sub "arn:aws:events:${MainRegion}:${MainAccountId}:event-bus/default"
+                  Id: ForwardToMainAccount
+                  RoleArn: !Ref EventsRoleArn
+      Capabilities:
+        - CAPABILITY_NAMED_IAM
+      PermissionModel: SELF_MANAGED
+      Parameters:
+        - ParameterKey: MainAccountId
+          ParameterValue: !Ref MainAccountId
+        - ParameterKey: MainRegion
+          ParameterValue: !Ref MainRegion
+        - ParameterKey: EventsRoleArn
+          ParameterValue: !GetAtt EventBridgeCrossAccountRole.Arn
+      StackInstancesGroup:
+        - DeploymentTargets:
+            Accounts:
+              - !Ref AWS::AccountId
+          Regions: !Ref Regions
+      OperationPreferences:
+        FailureTolerancePercentage: 50
+        MaxConcurrentPercentage: 100
+        RegionConcurrencyType: PARALLEL
+
+Outputs:
+  AutoSpottingExecutionRoleArn:
+    Value: !GetAtt AutoSpottingExecutionRole.Arn
+  EventBridgeRoleArn:
+    Value: !GetAtt EventBridgeCrossAccountRole.Arn
+  CustomerAccountId:
+    Value: !Ref AWS::AccountId
+  ExternalId:
+    Value: !Ref AWS::AccountId
+
