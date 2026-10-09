@@ -6,6 +6,14 @@ Parameters:
     Type: String
     Description: Xammer AWS Account ID (where the central engine runs)
     Default: '605134457560'
+  ExternalId:
+    Type: String
+    Description: >
+      A unique secret value provided by XamOps to secure the cross-account role
+      assumption (confused-deputy protection). Must never be the account ID -
+      account IDs are public.
+    NoEcho: true
+    MinLength: 8
   
   XammerSQSQueueUrl:
     Type: String
@@ -183,6 +191,9 @@ Resources:
             Principal:
               AWS: !Sub 'arn:aws:iam::${XammerAccountId}:root'
             Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
       Policies:
         - PolicyName: AutoSpottingExecutionPolicy
           PolicyDocument:
