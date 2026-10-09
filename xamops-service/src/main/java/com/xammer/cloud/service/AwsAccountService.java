@@ -21,7 +21,6 @@ import com.xammer.cloud.repository.SpotOptimizationEventRepository;
 import com.xammer.cloud.repository.SreInvestigationRepository;
 import com.xammer.cloud.repository.StatefulAsgConfigRepository;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
-import com.xammer.cloud.repository.VmssSpotConfigRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -494,7 +493,6 @@ public class AwsAccountService {
     @Autowired private DailySpotSavingsRepository dailySpotSavingsRepository;
     @Autowired private AsgSpotConfigRepository asgSpotConfigRepository;
     @Autowired private StatefulAsgConfigRepository statefulAsgConfigRepository;
-    @Autowired private VmssSpotConfigRepository vmssSpotConfigRepository;
     @Autowired private DiskPolicyRepository diskPolicyRepository;
     @Autowired private AutoSpottingSettingsRepository autoSpottingSettingsRepository;
     @Autowired private FinOpsReportScheduleRepository finOpsReportScheduleRepository;
@@ -519,7 +517,6 @@ public class AwsAccountService {
         dailySpotSavingsRepository.deleteByAccountId(accountId);
         asgSpotConfigRepository.deleteByAccountId(accountId);
         statefulAsgConfigRepository.deleteByAccount_Id(accountId);
-        vmssSpotConfigRepository.deleteByAccountId(accountId);
         diskPolicyRepository.deleteByAccountId(accountId);
         diskAlertStateRepository.deleteByAccount_Id(accountId);
         autoSpottingSettingsRepository.deleteByAccountId(accountId);
@@ -589,9 +586,15 @@ public class AwsAccountService {
      * but no longer have an entity or repository in this codebase — leftovers from code
      * that has since been removed. Nothing else deletes them, so a single surviving row
      * blocks the account delete with no Java-side owner to point at.
+     *
+     * <p>
+     * {@code vmss_spot_config} (removed Azure AutoSpotting) is dropped by
+     * V20261006_1, but it is listed so rows are still cleared where Flyway is disabled
+     * (the local profile) or where an older instance's ddl-auto recreated the table.
      */
     private void deleteOrphanedAccountTables(Long accountId) {
-        for (String table : List.of("agent_commands", "rightsizing_history", "rightsizing_recommendations")) {
+        for (String table : List.of("agent_commands", "rightsizing_history", "rightsizing_recommendations",
+                "vmss_spot_config")) {
             if (!hasColumn(table, "account_id")) {
                 continue;
             }

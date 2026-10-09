@@ -8,8 +8,6 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cloudformation.CloudFormationClient;
 import software.amazon.awssdk.services.cloudformation.model.*;
-import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
-import software.amazon.awssdk.services.dynamodb.model.*;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
 import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
@@ -17,11 +15,19 @@ import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * CloudFormation quick-create links for customer accounts, plus a health probe for the
+ * AutoSpotting host stack.
+ *
+ * <p>The legacy DynamoDB registry endpoints (account sync, account list and delete, and the host
+ * stack info) were removed. They had no tenant or role checks: any signed-in user could list every
+ * tenant's AWS account ID, name and role ARN, add or delete the registry entry of any account ID,
+ * and read the host stack's details. Nothing in the product called them.
+ */
 @Slf4j
 @RestController
 @RequestMapping("/api/cloudformation")
@@ -29,7 +35,6 @@ import java.util.stream.Collectors;
 public class CloudFormationController {
 
     private final CloudFormationClient cloudFormationClient;
-    private final DynamoDbClient dynamoDbClient;
     private final StsClient stsClient;
 
     /**
@@ -48,14 +53,8 @@ public class CloudFormationController {
     private static final String MAIN_REGION = "ap-south-1";
     private static final String MAIN_STACK_NAME = "autospotting";
 
-    // Host Role for checking Main Engine Status & DynamoDB Access
+    // Host Role for checking Main Engine Status
     private static final String HOST_ROLE_ARN = "arn:aws:iam::982534352845:role/XamOps-AutoSpotting-HostRole";
-
-    // Lambda Execution Role for the Child Stack
-    private static final String LAMBDA_EXECUTION_ROLE_ARN = "arn:aws:iam::982534352845:role/lambda/autospotting-LambdaExecutionRole-QLEgqMN3g4f1";
-
-    // DynamoDB Table in the Main Account
-    private static final String DYNAMODB_TABLE_NAME = "autospotting-CustomerAccounts";
 
     // Template S3 URL
     private static final String TEMPLATE_S3_URL = "https://xamops-cloudformation-templates.s3.amazonaws.com/autospotting-customer-account.yaml";
@@ -73,10 +72,8 @@ public class CloudFormationController {
 
     public CloudFormationController(
             CloudFormationClient cloudFormationClient,
-            DynamoDbClient dynamoDbClient,
             StsClient stsClient) {
         this.cloudFormationClient = cloudFormationClient;
-        this.dynamoDbClient = dynamoDbClient;
         this.stsClient = stsClient;
     }
 
@@ -111,130 +108,7 @@ public class CloudFormationController {
         }
     }
 
-    /**
-     * Helper: Create a DynamoDB client that assumes the Host Role.
-     * This allows the backend to write/read the table in the Main Account (9825...)
-     */
-    private DynamoDbClient getHostDynamoDbClient() {
-        try {
-            AssumeRoleRequest roleRequest = AssumeRoleRequest.builder()
-                    .roleArn(HOST_ROLE_ARN)
-                    .roleSessionName("XamOps-DDB-Access")
-                    .build();
-
-            AssumeRoleResponse roleResponse = stsClient.assumeRole(roleRequest);
-
-            AwsSessionCredentials credentials = AwsSessionCredentials.create(
-                    roleResponse.credentials().accessKeyId(),
-                    roleResponse.credentials().secretAccessKey(),
-                    roleResponse.credentials().sessionToken());
-
-            return DynamoDbClient.builder()
-                    .region(Region.of(MAIN_REGION)) // DynamoDB table is in ap-south-1
-                    .credentialsProvider(StaticCredentialsProvider.create(credentials))
-                    .build();
-
-        } catch (Exception e) {
-            log.warn("Failed to assume host role {}, falling back to default client: {}", HOST_ROLE_ARN,
-                    e.getMessage());
-            return this.dynamoDbClient;
-        }
-    }
-
     // ================= API ENDPOINTS =================
-
-    /**
-     * Sync customer account to DynamoDB (Enable AutoSpotting)
-     */
-    @PostMapping("/sync-account")
-    public ResponseEntity<Map<String, Object>> syncCustomerAccount(@RequestBody Map<String, String> request) {
-        log.info("📋 Syncing customer account request received");
-
-        try {
-            String customerAccountId = request.get("accountId");
-            String accountName = request.get("accountName");
-            String regions = request.get("regions");
-
-            if (customerAccountId == null || !customerAccountId.matches("^\\d{12}$")) {
-                return ResponseEntity.badRequest().body(Map.of(
-                        "error", "Invalid account ID",
-                        "message", "AWS account ID must be exactly 12 digits"));
-            }
-
-            String customerRoleArn = String.format("arn:aws:iam::%s:role/XamOpsReadWriteRole",
-                    customerAccountId);
-
-            updateDynamoDb(customerAccountId, accountName, regions, customerRoleArn);
-
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Account synced successfully",
-                    "accountId", customerAccountId));
-
-        } catch (Exception e) {
-            log.error("❌ Error syncing account", e);
-            return ResponseEntity.status(500)
-                    .body(Map.of("error", "Failed to sync account", "message", e.getMessage()));
-        }
-    }
-
-    /**
-     * Get all customer accounts from DynamoDB
-     */
-    @GetMapping("/accounts")
-    public ResponseEntity<Map<String, Object>> listCustomerAccounts() {
-        try {
-            // ✅ Use Host Client for Scan
-            DynamoDbClient client = getHostDynamoDbClient();
-            ScanResponse scanResponse = client.scan(ScanRequest.builder().tableName(DYNAMODB_TABLE_NAME).build());
-
-            return ResponseEntity.ok(Map.of(
-                    "accounts", scanResponse.items().stream()
-                            .map(item -> Map.of(
-                                    "accountId", item.get("AccountId").s(),
-                                    "accountName", item.containsKey("AccountName") ? item.get("AccountName").s() : "",
-                                    "roleArn", item.containsKey("RoleArn") ? item.get("RoleArn").s() : "",
-                                    "state", item.containsKey("State") ? item.get("State").s() : "unknown"))
-                            .collect(Collectors.toList()),
-                    "count", scanResponse.count()));
-        } catch (Exception e) {
-            return ResponseEntity.status(500)
-                    .body(Map.of("error", "Failed to fetch accounts", "message", e.getMessage()));
-        }
-    }
-
-    /**
-     * Delete/Disable a customer account from AutoSpotting
-     */
-    @DeleteMapping("/accounts/{accountId}")
-    public ResponseEntity<Map<String, Object>> deleteCustomerAccount(@PathVariable String accountId) {
-        log.info("🗑️ Deleting customer account: {}", accountId);
-
-        try {
-            // ✅ Use Host Client for Delete
-            DynamoDbClient client = getHostDynamoDbClient();
-
-            DeleteItemRequest deleteRequest = DeleteItemRequest.builder()
-                    .tableName(DYNAMODB_TABLE_NAME)
-                    .key(Map.of("AccountId", AttributeValue.builder().s(accountId).build()))
-                    .build();
-
-            client.deleteItem(deleteRequest);
-
-            log.info("✅ Account {} deleted successfully", accountId);
-
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Account deleted successfully",
-                    "accountId", accountId));
-
-        } catch (Exception e) {
-            log.error("❌ Error deleting account", e);
-            return ResponseEntity.status(500).body(Map.of(
-                    "error", "Failed to delete account",
-                    "message", e.getMessage()));
-        }
-    }
 
     /**
      * Generate CloudFormation Quick Create URL
@@ -327,43 +201,7 @@ public class CloudFormationController {
         return ResponseEntity.ok(Map.of("status", healthy ? "healthy" : "unhealthy", "mainStack", MAIN_STACK_NAME));
     }
 
-    @GetMapping("/main-stack-info")
-    public ResponseEntity<Map<String, Object>> getMainStackInfo() {
-        Map<String, Object> info = new HashMap<>();
-        info.put("stackName", MAIN_STACK_NAME);
-        info.put("dynamoDbTable", DYNAMODB_TABLE_NAME);
-        info.put("lambdaRoleArn", LAMBDA_EXECUTION_ROLE_ARN);
-        info.put("mainAccountId", MAIN_ACCOUNT_ID);
-        info.put("mainRegion", MAIN_REGION);
-        info.put("healthy", isMainStackHealthy());
-        info.put("templateUrl", TEMPLATE_S3_URL);
-        info.put("defaultRegions", DEFAULT_REGIONS);
-        return ResponseEntity.ok(info);
-    }
-
     // ================= INTERNAL METHODS =================
-
-    private void updateDynamoDb(String accountId, String name, String regions, String roleArn) {
-        log.info("Updating DynamoDB table '{}' for account {}", DYNAMODB_TABLE_NAME, accountId);
-
-        // ✅ Use Host Client for PutItem
-        DynamoDbClient client = getHostDynamoDbClient();
-
-        Map<String, AttributeValue> item = new HashMap<>();
-        item.put("AccountId", AttributeValue.builder().s(accountId).build());
-        item.put("AccountName", AttributeValue.builder().s(name != null ? name : "Customer-" + accountId).build());
-        item.put("RoleArn", AttributeValue.builder().s(roleArn).build());
-        item.put("ExternalId", AttributeValue.builder().s(accountId).build());
-        item.put("Regions",
-                AttributeValue.builder().s(regions != null && !regions.isEmpty() ? regions : DEFAULT_REGIONS).build());
-        item.put("State", AttributeValue.builder().s("enabled").build());
-        item.put("LastUpdated", AttributeValue.builder().s(Instant.now().toString()).build());
-
-        client.putItem(PutItemRequest.builder()
-                .tableName(DYNAMODB_TABLE_NAME)
-                .item(item)
-                .build());
-    }
 
     private boolean isMainStackHealthy() {
         try {

@@ -128,7 +128,6 @@ const AzureCloudList = lazy(() => import('./pages/AzureCloudList'));
 const AzureSecurityPage = lazy(() => import('./pages/AzureSecurityPage'));
 const AzurePerformancePage = lazy(() => import('./pages/AzurePerformancePage'));
 const AzureAlertsPage = lazy(() => import('./pages/AzureAlertsPage'));
-const AzureSpotAutomationPage = lazy(() => import('./pages/AzureSpotAutomationPage'));
 
 // DevOps & Tools
 const AccountManagerPage = lazy(() => import('./pages/AccountManagerPage'));
@@ -638,7 +637,7 @@ const AppContent: React.FC = () => {
                             <Route path="/billops-admin-user-manager" element={<BillOpsAdminUserManagerPage />} />
                             <Route path="/dspm-admin" element={<DspmAdminPage />} />
                             <Route path="/gcp-autospotting" element={<GcpSpotAutomationPage />} />
-                            <Route path="/azure-autospotting" element={<AzureSpotAutomationPage />} />
+                            <Route path="/azure-autospotting" element={<Navigate to="/azure-dashboard" replace />} />
                             <Route path="/gcp-cloudsitter" element={<GcpCloudSitterPage />} />
                             <Route path="/azure-cloudsitter" element={<AzureCloudSitterPage />} />
                             <Route path="/calculator" element={<CalculatorPage />} />

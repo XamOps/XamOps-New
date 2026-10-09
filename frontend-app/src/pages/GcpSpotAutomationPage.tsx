@@ -6,7 +6,11 @@ import { useGcpSpotAutomationData, GcpMIG } from '../hooks/useGcpSpotAutomationD
 import SpotAutomationKPIs from '../components/SpotAutomation/SpotAutomationKPIs';
 import SpotAutomationChart from '../components/SpotAutomation/SpotAutomationChart';
 import ActionsHistory from '../components/ActionsHistory/ActionsHistory';
+import ConversionsPausedNotice from '../components/SpotAutomation/ConversionsPausedNotice';
+import { gcpToggleState } from '../components/SpotAutomation/toggleState';
 import apiClient from '../utils/apiClient';
+import { isConversionsPausedError, parseAutoSpottingError, PAUSED_MESSAGE } from '../utils/autospottingErrors';
+import { useAutoSpottingFeatureStatus } from '../hooks/useAutoSpottingFeatureStatus';
 import { useTabState } from '../hooks/useTabState';
 import { useTopbar } from '../contexts/TopbarContext';
 
@@ -43,6 +47,8 @@ interface ConfigModalProps {
     accountId: string;
     onClose: () => void;
     onSaved: () => void;
+    /** New Spot conversions are paused: config can be viewed but not saved. */
+    conversionsPaused: boolean;
 }
 
 const GCP_MACHINE_FAMILIES: Record<string, string[]> = {
@@ -56,7 +62,7 @@ const GCP_MACHINE_FAMILIES: Record<string, string[]> = {
 
 const inputCls = 'w-full border border-[rgba(0,0,0,0.15)] rounded-lg px-3 py-2 text-[13px] font-mono focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none bg-white';
 
-const ConfigModal: React.FC<ConfigModalProps> = ({ mig, accountId, onClose, onSaved }) => {
+const ConfigModal: React.FC<ConfigModalProps> = ({ mig, accountId, onClose, onSaved, conversionsPaused }) => {
     const [config, setConfig] = useState<MigConfig | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -72,8 +78,8 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ mig, accountId, onClose, onSa
                     `/api/gcp/autospotting/migs/${accountId}/config?region=${encodeURIComponent(mig.region)}&migName=${encodeURIComponent(mig.name)}`
                 );
                 setConfig(data);
-            } catch (e: any) {
-                setError(e?.message || 'Failed to load config');
+            } catch (e: unknown) {
+                setError(parseAutoSpottingError(e, 'Failed to load config').message);
             } finally {
                 setLoading(false);
             }
@@ -82,7 +88,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ mig, accountId, onClose, onSa
     }, [accountId, mig.name, mig.region]);
 
     const handleSave = async () => {
-        if (!config) return;
+        if (!config || conversionsPaused) return;
         setSaving(true);
         setError(null);
         try {
@@ -92,8 +98,8 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ mig, accountId, onClose, onSa
             );
             setSaveSuccess(true);
             setTimeout(() => { onSaved(); onClose(); }, 1200);
-        } catch (e: any) {
-            setError(e?.message || 'Failed to save config');
+        } catch (e: unknown) {
+            setError(parseAutoSpottingError(e, 'Failed to save config').message);
         } finally {
             setSaving(false);
         }
@@ -335,14 +341,21 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ mig, accountId, onClose, onSa
                         </div>
 
                         {/* Footer */}
-                        <div className="px-6 py-4 border-t border-[rgba(0,0,0,0.08)] flex justify-end gap-3 bg-[rgba(0,0,0,0.01)] shrink-0">
+                        {conversionsPaused && (
+                            <div className="px-6 pt-4 border-t border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.01)] shrink-0">
+                                <ConversionsPausedNotice />
+                            </div>
+                        )}
+                        <div className={`px-6 py-4 flex justify-end gap-3 bg-[rgba(0,0,0,0.01)] shrink-0 ${conversionsPaused ? '' : 'border-t border-[rgba(0,0,0,0.08)]'}`}>
                             <button onClick={onClose}
                                 className="px-4 py-2 text-[13px] font-semibold text-[rgba(0,0,0,0.65)] hover:text-[rgba(0,0,0,0.88)] transition-colors">
                                 Cancel
                             </button>
                             <button onClick={handleSave}
-                                disabled={saving || saveSuccess || activeSection === 'types'}
-                                title={activeSection === 'types' ? 'Machine type changes require GCP Console' : ''}
+                                disabled={saving || saveSuccess || conversionsPaused || activeSection === 'types'}
+                                title={conversionsPaused
+                                    ? 'Saving is paused while AutoSpotting is being upgraded.'
+                                    : activeSection === 'types' ? 'Machine type changes require GCP Console' : ''}
                                 className="flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-[13px] font-bold rounded-xl transition-all">
                                 {saving
                                     ? <><Icon icon="mdi:loading" width={14} className="animate-spin" /> Saving…</>
@@ -576,6 +589,10 @@ const GcpSpotAutomationPage: React.FC = () => {
         toggleMIG,
     } = useGcpSpotAutomationData({ selectedAccountId });
 
+    // Fails closed: treated as paused until the server says otherwise.
+    const featureStatus = useAutoSpottingFeatureStatus();
+    const gcpPaused = !featureStatus.gcpConversionsEnabled;
+
     const [activeTab, setActiveTab] = useTabState<'dashboard' | 'analytics' | 'history'>('dashboard');
     const [configMig, setConfigMig] = useState<GcpMIG | null>(null);
 
@@ -658,14 +675,20 @@ const GcpSpotAutomationPage: React.FC = () => {
     }, [migs, detectChanges]);
 
     const handleToggle = async (mig: GcpMIG) => {
+        if (gcpToggleState(mig, gcpPaused).mode !== 'switch') return;
         snapshotStates(migs);
         const nextState = !mig.isEnabled;
         try {
             await toggleMIG(mig);
             showToast(`AutoSpotting ${nextState ? 'enabled' : 'disabled'} for ${mig.name}. Rolling update started.`, 'success');
             startPolling(`${mig.name}:${mig.region}`);
-        } catch (err: any) {
-            showToast(err?.message || 'Toggle failed', 'error');
+        } catch (err: unknown) {
+            if (isConversionsPausedError(err)) {
+                showToast(PAUSED_MESSAGE, 'info');
+                featureStatus.refresh();
+            } else {
+                showToast(parseAutoSpottingError(err, 'Toggle failed').message, 'error');
+            }
         }
     };
 
@@ -728,6 +751,7 @@ const GcpSpotAutomationPage: React.FC = () => {
                     accountId={selectedAccountId}
                     onClose={() => setConfigMig(null)}
                     onSaved={() => { refresh(); showToast('Config saved', 'success'); }}
+                    conversionsPaused={gcpPaused}
                 />
             )}
 
@@ -775,6 +799,8 @@ const GcpSpotAutomationPage: React.FC = () => {
                 {/* ── Dashboard Tab ──────────────────────────────────────────── */}
                 {activeTab === 'dashboard' && (
                     <motion.div key="dashboard" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="space-y-5">
+                        {gcpPaused && <ConversionsPausedNotice />}
+
                         <SpotAutomationKPIs
                             costs={costs}
                             savings={savings}
@@ -796,7 +822,7 @@ const GcpSpotAutomationPage: React.FC = () => {
                             {error && (
                                 <span className="text-red-600 flex items-center gap-1">
                                     <Icon icon="mdi:alert-circle-outline" width={12} />
-                                    {(error as any).message}
+                                    {parseAutoSpottingError(error).message}
                                 </span>
                             )}
                         </div>
@@ -870,6 +896,8 @@ const GcpSpotAutomationPage: React.FC = () => {
                                         {migs.length > 0 ? migs.map(mig => {
                                             const migKey = `${mig.name}:${mig.region}`;
                                             const isPollingThis = pollingMig === migKey;
+                                            const toggle = gcpToggleState(mig, gcpPaused);
+                                            const reasonId = `mig-toggle-reason-${migKey.replace(/[^A-Za-z0-9_-]/g, '-')}`;
 
                                             return (
                                                 <tr key={migKey} className={`hover:bg-[rgba(0,0,0,0.01)] transition-colors group ${isPollingThis ? 'bg-indigo-50/20' : ''}`}>
@@ -879,8 +907,13 @@ const GcpSpotAutomationPage: React.FC = () => {
                                                                 <Icon icon="mdi:layers-outline" width={15} color="#4F46E5" />
                                                             </div>
                                                             <div>
-                                                                <div className="text-[13px] font-bold text-[rgba(0,0,0,0.88)] group-hover:text-indigo-600 transition-colors">
-                                                                    {mig.name}
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <span className="text-[13px] font-bold text-[rgba(0,0,0,0.88)] group-hover:text-indigo-600 transition-colors">
+                                                                        {mig.name}
+                                                                    </span>
+                                                                    {mig.gkeManagedPool && (
+                                                                        <span className="text-[9px] font-bold bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.6)] px-1.5 py-0.5 rounded-full border border-[rgba(0,0,0,0.1)]">GKE</span>
+                                                                    )}
                                                                 </div>
                                                                 <div className="text-[10px] text-[rgba(0,0,0,0.35)] font-mono mt-0.5">GOOGLE CLOUD MIG</div>
                                                             </div>
@@ -931,24 +964,48 @@ const GcpSpotAutomationPage: React.FC = () => {
                                                     </td>
 
                                                     <td className={`${COL} text-right`}>
-                                                        <span className="text-[13px] font-bold text-indigo-600">+${mig.potentialSavings.toFixed(4)}</span>
+                                                        {mig.gkeManagedPool
+                                                            ? <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.3)]">N/A</span>
+                                                            : <span className="text-[13px] font-bold text-indigo-600">+${mig.potentialSavings.toFixed(4)}</span>}
                                                     </td>
 
                                                     <td className={`${COL}`}>
                                                         <div className="flex flex-col items-center gap-2">
+                                                            {toggle.mode === 'locked' ? (
+                                                                <div className="relative group/gke inline-block">
+                                                                    <div
+                                                                        className="flex items-center gap-1.5 whitespace-nowrap text-[11px] font-semibold text-[rgba(0,0,0,0.3)] bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-lg px-2.5 py-1.5 cursor-not-allowed select-none"
+                                                                        aria-disabled="true"
+                                                                        aria-describedby={reasonId}
+                                                                    >
+                                                                        <Icon icon="mdi:lock-outline" width={11} aria-hidden="true" />
+                                                                        GKE Managed
+                                                                    </div>
+                                                                    <span id={reasonId} className="sr-only">{toggle.reason}</span>
+                                                                    {/* Right-aligned: this is the last column, and a centered card is cut off by the table's overflow. */}
+                                                                    <div aria-hidden="true" className="absolute bottom-full mb-2 right-0 w-64 bg-[rgba(0,0,0,0.88)] text-white text-[10px] rounded-lg px-3 py-2 shadow-lg hidden group-hover/gke:block z-10 pointer-events-none leading-relaxed">
+                                                                        {toggle.reason}
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
                                                             <button
                                                                 onClick={() => handleToggle(mig)}
-                                                                disabled={mig.updating}
-                                                                title={mig.isEnabled ? 'Disable AutoSpotting' : 'Enable AutoSpotting'}
+                                                                disabled={mig.updating || toggle.mode === 'disabled'}
+                                                                title={toggle.mode === 'disabled' ? toggle.reason : mig.isEnabled ? 'Disable AutoSpotting' : 'Enable AutoSpotting'}
+                                                                aria-describedby={toggle.mode === 'disabled' ? reasonId : undefined}
                                                                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2
                                                                     ${mig.isEnabled ? 'bg-indigo-600' : 'bg-[rgba(0,0,0,0.12)]'}
-                                                                    ${mig.updating ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                                                                    ${mig.updating || toggle.mode === 'disabled' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                                                             >
                                                                 <span className="sr-only">Toggle AutoSpotting</span>
                                                                 <span className={`${mig.isEnabled ? 'translate-x-6' : 'translate-x-1'} inline-flex h-4 w-4 transform rounded-full bg-white transition-transform ease-in-out duration-200 items-center justify-center`}>
                                                                     {mig.updating && <Icon icon="mdi:loading" width={8} className="animate-spin text-indigo-600" />}
                                                                 </span>
                                                             </button>
+                                                            )}
+                                                            {toggle.mode === 'disabled' && (
+                                                                <span id={reasonId} className="sr-only">{toggle.reason}</span>
+                                                            )}
 
                                                             <button onClick={() => setConfigMig(mig)}
                                                                 className="text-[10px] text-indigo-500 hover:text-indigo-700 flex items-center gap-1 px-2 py-0.5 rounded hover:bg-indigo-50 transition-colors font-bold uppercase tracking-wide">

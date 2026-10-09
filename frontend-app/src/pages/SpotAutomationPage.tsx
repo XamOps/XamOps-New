@@ -19,7 +19,6 @@
  * - POST /api/autospotting/asgs/${accountId}/enable - Enable ASG
  * - POST /api/autospotting/asgs/${accountId}/disable - Disable ASG
  * - GET /api/cloudformation/deploy-url - Generate deployment URL
- * - POST /api/cloudformation/sync-account - Sync account
  */
 
 import React, { useState } from 'react';
@@ -28,11 +27,14 @@ import { Icon } from '@iconify/react';
 import { gooeyToast } from 'goey-toast';
 import { useAccounts } from '../contexts/AccountContext';
 import { useSpotAutomationData } from '../hooks/useSpotAutomationData';
+import { useAutoSpottingFeatureStatus } from '../hooks/useAutoSpottingFeatureStatus';
+import { isConversionsPausedError, parseAutoSpottingError, PAUSED_MESSAGE } from '../utils/autospottingErrors';
 import { AriaTabGroup } from '../components/ui';
 import SpotAutomationHeader from '../components/SpotAutomation/SpotAutomationHeader';
 import SpotAutomationKPIs from '../components/SpotAutomation/SpotAutomationKPIs';
 import SpotAutomationChart from '../components/SpotAutomation/SpotAutomationChart';
 import SpotAutomationASGTable from '../components/SpotAutomation/SpotAutomationASGTable';
+import ConversionsPausedNotice from '../components/SpotAutomation/ConversionsPausedNotice';
 import ActionsHistory from '../components/ActionsHistory/ActionsHistory';
 import LaunchAnalytics from '../components/LaunchAnalytics/LaunchAnalytics';
 import RispCoverage from '../components/RispCoverage/RispCoverage';
@@ -53,11 +55,16 @@ const SpotAutomationPage: React.FC = () => {
     historySummary,
     isLoading,
     isLoadingHistory,
+    error,
     toggleASG,
     syncASG,
     fetchCostData,
     fetchHistoryData,
   } = useSpotAutomationData({ selectedAccountId });
+
+  // Fails closed: treated as paused until the server says otherwise.
+  const featureStatus = useAutoSpottingFeatureStatus();
+  const conversionsPaused = !featureStatus.awsConversionsEnabled;
 
   // Modal states
   const [historyTimeRange, setHistoryTimeRange] = useState<'last24h' | 'last7d' | 'last30d'>('last7d');
@@ -70,9 +77,14 @@ const SpotAutomationPage: React.FC = () => {
       await toggleASG(asg);
       gooeyToast.success(`AutoSpotting ${!asg.isEnabled ? 'enabled' : 'disabled'} for ${asg.name}`);
     } catch (err) {
-      gooeyToast.error(`Failed to toggle ${asg.name}`, {
-        description: err instanceof Error ? err.message : 'Unknown error',
-      });
+      if (isConversionsPausedError(err)) {
+        gooeyToast.info('Spot conversions are paused', { description: PAUSED_MESSAGE });
+        featureStatus.refresh();
+      } else {
+        gooeyToast.error(`Failed to update ${asg.name}`, {
+          description: parseAutoSpottingError(err).message,
+        });
+      }
     }
   };
 
@@ -110,6 +122,8 @@ const SpotAutomationPage: React.FC = () => {
           <span><strong>Beta Feature:</strong> AWS Spot Automation is currently in beta. Some features may be incomplete or subject to change.</span>
         </div>
 
+        {conversionsPaused && <ConversionsPausedNotice className="mb-4" />}
+
         <AnimatePresence mode="wait">
           {/* Dashboard Tab */}
           {activeTab === 'dashboard' && (
@@ -144,6 +158,9 @@ const SpotAutomationPage: React.FC = () => {
                     onToggleASG={handleToggleASG}
                     onSyncASG={syncASG}
                     onRefresh={() => fetchCostData(true)}
+                    conversionsPaused={conversionsPaused}
+                    error={error ? parseAutoSpottingError(error).message : null}
+                    onRetry={() => fetchCostData(true)}
                   />
                 </div>
               )}

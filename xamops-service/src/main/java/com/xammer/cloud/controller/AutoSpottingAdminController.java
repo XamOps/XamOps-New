@@ -72,7 +72,7 @@ public class AutoSpottingAdminController {
     }
 
     /**
-     * Get per-customer AutoSpotting savings broken down by provider (AWS/GCP/Azure).
+     * Get per-customer AutoSpotting savings broken down by provider (AWS/GCP).
      * Only includes customers with AutoSpotting enabled on at least one account.
      * GET /api/admin/autospotting/customer-savings
      */

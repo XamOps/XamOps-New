@@ -10,14 +10,12 @@ export interface DailyPoint {
   date: string
   awsSpot: number
   gcpSpot: number
-  azureSpot: number
   awsEbs: number
 }
 
 export interface ClientSavingsDashboardData {
   realizedSpotAws: number
   realizedSpotGcp: number
-  realizedSpotAzure: number
   realizedEbsAws: number
 
   potentialRightsizingAws: number

@@ -138,7 +138,7 @@ const Sidebar: React.FC = () => {
     const finopsRoutes = ['/cost', '/gcp-cost', '/azure-cost', '/reservation', '/gcp-reservations', '/azure-reservations',
       '/finops', '/gcp-finops', '/azure-finops', '/waste', '/gcp-waste', '/azure-waste',
       '/rightsizing', '/gcp-rightsizing', '/azure-rightsizing', '/ebs-rightsizing', '/gcp-disk-rightsizing',
-      '/cloudsitter', '/gcp-cloudsitter', '/azure-cloudsitter', '/flex-compute', '/autospotting', '/gcp-autospotting', '/azure-autospotting'];
+      '/cloudsitter', '/gcp-cloudsitter', '/azure-cloudsitter', '/flex-compute', '/autospotting', '/gcp-autospotting'];
     const cloudopsRoutes = ['/cloudk8s', '/gcp-cloudk8s', '/azure-cloudk8s',
       '/sonarqube', '/cicd-pipelines', '/devops-in-the-box', '/aiops', '/dataops', '/gcp-dataops', '/azure-dataops', '/ebs-rightsizing'];
     const ticketsRoutes = ['/tickets', '/billops-tickets'];
@@ -369,7 +369,6 @@ const Sidebar: React.FC = () => {
                 {selectedAccountDisplay.provider === 'Azure' && (
                   <>
                     {isXamTabAllowed('finops-cloudsitter') && <NavItem href="/azure-cloudsitter" icon="fas fa-clock" label="CloudSitter" isActive={isActive('/azure-cloudsitter')} />}
-                    {isXamTabAllowed('finops-autospotting') && <NavItem href="/azure-autospotting" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/azure-autospotting')} />}
                   </>
                 )}
               </NavSection>

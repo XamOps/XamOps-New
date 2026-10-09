@@ -232,3 +232,17 @@ describe('demo router — ComplianceOps Prowler (ROLE_XAMOPS)', () => {
       expect(Object.keys(f.unmapped.compliance).length).toBeGreaterThan(0));
   });
 });
+
+describe('demo router — AutoSpotting feature status', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+
+  it('reports AWS and GCP conversions as paused', async () => {
+    expect(await readDemoBody('/api/autospotting/feature-status')).toEqual({
+      aws: { conversionsEnabled: false },
+      gcp: { conversionsEnabled: false },
+    });
+  });
+});

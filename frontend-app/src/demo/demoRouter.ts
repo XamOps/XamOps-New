@@ -529,6 +529,8 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(xamops.demoAutoSpottingRispCoverage);
   if (url.includes('/api/autospotting/events/'))
     return makeResponse(xamops.demoAutoSpottingActionsHistory);
+  if (url.includes('/api/autospotting/feature-status'))
+    return makeResponse({ aws: { conversionsEnabled: false }, gcp: { conversionsEnabled: false } });
   if (url.includes('/api/autospotting/'))
     return makeResponse(xamops.demoGenericEmpty);
 
@@ -554,13 +556,6 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   if (url.includes('/api/gcp/disks/'))
     return makeResponse(xamops.demoGcpDisks);
 
-  // Azure AutoSpotting — uses /api/azure/autospotting/ prefix
-  if (url.includes('/api/azure/autospotting/vmss/all-regions/'))
-    return makeResponse(xamops.demoAzureAutoSpottingVmss);
-  if (url.includes('/api/azure/autospotting/history/'))
-    return makeResponse(xamops.demoAzureAutoSpottingHistory);
-  if (url.includes('/api/azure/autospotting/'))
-    return makeResponse(xamops.demoGenericEmpty);
 
   // Azure CloudSitter
   if (url.includes('/api/azure/cloudsitter/policies'))

@@ -213,7 +213,6 @@ public class ProactiveCacheRefreshService {
                 for (CloudAccount account : accounts) {
                     if (!"AWS".equals(account.getProvider()) || account.getAwsAccountId() == null) continue;
                     String accountId = account.getAwsAccountId();
-                    Long id = account.getId();
                     String startDate = LocalDate.now().withDayOfMonth(1).toString();
                     String endDate = LocalDate.now().toString();
 
@@ -238,7 +237,9 @@ public class ProactiveCacheRefreshService {
                     try { optimizationService.getAllOptimizationRecommendations(accountId, false).join(); }
                     catch (Exception e) { logger.debug("[Seed] Optimization skipped for {}: {}", accountId, e.getMessage()); }
 
-                    try { autoSpottingService.listAsgsAllRegions(id, false); }
+                    // Cache-only: the seed must not call AWS. getCachedCostData re-warms Redis
+                    // from the DB snapshot when one exists.
+                    try { autoSpottingService.getCachedCostData(account); }
                     catch (Exception e) { logger.debug("[Seed] SpotAuto skipped for {}: {}", accountId, e.getMessage()); }
 
                     try { xamOpsRightsizingService.getLiveRecommendations(accountId, false); }
@@ -1867,10 +1868,10 @@ public class ProactiveCacheRefreshService {
                     if (!"AWS".equals(account.getProvider()) || account.getAwsAccountId() == null) continue;
                     try {
                         // Force-refresh ASG list and cost data via the new overloads
-                        autoSpottingService.listAsgsAllRegions(account.getId(), true);
-                        autoSpottingService.getCostData(account.getId(), true);
-                        autoSpottingService.getSpotInstances(account.getId(), true);
-                        autoSpottingService.getRiSpCoverage(account.getId(), true);
+                        autoSpottingService.listAsgsAllRegions(account, true);
+                        autoSpottingService.getCostData(account, true);
+                        autoSpottingService.getSpotInstances(account, true);
+                        autoSpottingService.getRiSpCoverage(account, true);
                         logger.info("✓ SpotAutomation cached for account {} (cloudAccountId={})",
                                 account.getAwsAccountId(), account.getId());
                         count++;

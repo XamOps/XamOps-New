@@ -28,7 +28,6 @@ interface CustomerSpotSavings {
   clientName: string;
   awsSavings: number;
   gcpSavings: number;
-  azureSavings: number;
   totalSavings: number;
 }
 
@@ -866,7 +865,6 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                         <th className="bo-th text-left">Customer</th>
                         <th className="bo-th text-right"><Icon icon="mdi:aws" width={13} color="#FF9900" className="inline mr-1" />AWS</th>
                         <th className="bo-th text-right"><Icon icon="mdi:google-cloud" width={13} color="#34A853" className="inline mr-1" />GCP</th>
-                        <th className="bo-th text-right"><Icon icon="mdi:microsoft-azure" width={13} color="#0078D4" className="inline mr-1" />Azure</th>
                         <th className="bo-th text-right">Total Saved</th>
                       </tr>
                     </thead>
@@ -876,7 +874,6 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                           <td className="bo-td text-[13px] font-medium text-[rgba(0,0,0,0.85)]">{row.clientName}</td>
                           <td className="bo-td text-[13px] text-right text-[rgba(0,0,0,0.6)]">{row.awsSavings > 0 ? formatCurrency(row.awsSavings) : <span className="text-[rgba(0,0,0,0.2)]">—</span>}</td>
                           <td className="bo-td text-[13px] text-right text-[rgba(0,0,0,0.6)]">{row.gcpSavings > 0 ? formatCurrency(row.gcpSavings) : <span className="text-[rgba(0,0,0,0.2)]">—</span>}</td>
-                          <td className="bo-td text-[13px] text-right text-[rgba(0,0,0,0.6)]">{row.azureSavings > 0 ? formatCurrency(row.azureSavings) : <span className="text-[rgba(0,0,0,0.2)]">—</span>}</td>
                           <td className="bo-td text-[13px] text-right font-semibold text-[#158045]">{formatCurrency(row.totalSavings)}</td>
                         </tr>
                       ))}

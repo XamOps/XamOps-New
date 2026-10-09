@@ -71,9 +71,9 @@ public final class FeatureFaqCatalog {
                     "integration, which you connect and authenticate from this page."),
 
             new FeatureFaqEntry("finops-autospotting", "FinOps", "AutoSpotting",
-                    List.of("autospotting", "auto spotting", "spot instances", "asg", "auto scaling group", "mig", "vmss"),
+                    List.of("autospotting", "auto spotting", "spot instances", "asg", "auto scaling group", "mig"),
                     "AutoSpotting automates Spot Instance usage inside your Auto Scaling Groups (or GCP " +
-                    "MIGs / Azure VMSS), replacing on-demand capacity with spot capacity for up to " +
+                    "MIGs), replacing on-demand capacity with spot capacity for up to " +
                     "around 70% compute savings, with per-group enable/disable toggles and a " +
                     "savings-history chart."),
 

@@ -108,6 +108,8 @@ const GcpDashboard: React.FC = () => {
       // contributing a zero that looks like a real measurement.
       const totalPotentialSavings = migsData.reduce((sum: number, mig: any) => {
         if (mig.savingsUnknown) return sum;
+        // GKE node pools are never converted (the backend already zeroes them; this covers cached lists).
+        if (mig.gkeManagedPool || String(mig.name || '').startsWith('gke-')) return sum;
         return sum + ((mig.potentialHourlySavings || 0) * 730);
       }, 0);
       setAutoSpottingSavings(totalPotentialSavings);

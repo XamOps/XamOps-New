@@ -5,6 +5,7 @@ import { gooeyToast } from 'goey-toast';
 import type { ASG, SpotCosts } from '../../hooks/useSpotAutomationData';
 import { InfoTooltip } from '../ui';
 import { Switch } from 'react-aria-components';
+import { awsToggleState } from './toggleState';
 
 interface SpotAutomationASGTableProps {
   asgs: ASG[];
@@ -15,6 +16,12 @@ interface SpotAutomationASGTableProps {
   onToggleASG: (asg: ASG) => Promise<void>;
   onSyncASG: (asg: ASG) => Promise<{ backfilled: number; message: string }>;
   onRefresh: () => void;
+  /** New Spot conversions are paused: Enable is disabled, Disable stays available. */
+  conversionsPaused?: boolean;
+  /** User-facing message from the last failed fetch, or null. */
+  error?: string | null;
+  /** Retry handler for the error state. Defaults to onRefresh. */
+  onRetry?: () => void;
 }
 
 const fmt = (v: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(v);
@@ -32,13 +39,17 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
   onToggleASG,
   onSyncASG,
   onRefresh,
+  conversionsPaused = false,
+  error = null,
+  onRetry,
 }) => {
+  const retry = onRetry ?? onRefresh;
   const [togglingASGs, setTogglingASGs] = useState<Set<string>>(new Set());
   const [syncingASGs, setSyncingASGs]   = useState<Set<string>>(new Set());
   const postToggleLock = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const handleToggle = async (asg: ASG) => {
-    if (asg.eksManaged) return;
+    if (awsToggleState(asg, conversionsPaused).mode !== 'switch') return;
     const key = `${asg.name}-${asg.region}`;
     if (togglingASGs.has(key) || postToggleLock.current.has(key)) return;
     setTogglingASGs((prev) => new Set(prev).add(key));
@@ -89,6 +100,23 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
         </button>
       </div>
 
+      {!isLoading && error && asgs.length > 0 && (
+        <div role="alert" className="px-5 py-2.5 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.03)] flex items-center gap-3 text-[12px] text-[rgba(0,0,0,0.7)]">
+          <Icon icon="mdi:alert-circle-outline" width={14} className="flex-shrink-0 text-[rgba(0,0,0,0.55)]" aria-hidden="true" />
+          <span className="flex-1 min-w-0">
+            <span className="font-semibold">Couldn't refresh. Showing the last loaded data.</span>{' '}
+            <span className="text-[rgba(0,0,0,0.55)]">{error}</span>
+          </span>
+          <button
+            onClick={retry}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white text-[12px] font-semibold rounded-md transition-colors flex-shrink-0"
+          >
+            <Icon icon="mdi:refresh" width={13} />
+            Retry
+          </button>
+        </div>
+      )}
+
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
@@ -127,7 +155,28 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
               </tr>
             )}
 
-            {!isLoading && asgs.length === 0 && (
+            {!isLoading && error && asgs.length === 0 && (
+              <tr>
+                <td colSpan={10} className="px-6 py-16 text-center">
+                  <div role="alert" className="flex flex-col items-center">
+                    <div className="w-12 h-12 bg-[rgba(0,0,0,0.04)] rounded-full flex items-center justify-center mx-auto mb-3">
+                      <Icon icon="mdi:alert-circle-outline" width={24} color="rgba(0,0,0,0.55)" aria-hidden="true" />
+                    </div>
+                    <p className="text-[14px] font-bold text-[rgba(0,0,0,0.88)] mb-1">Couldn't load Auto Scaling groups</p>
+                    <p className="text-[12px] text-[rgba(0,0,0,0.55)] mb-3 max-w-md">{error}</p>
+                    <button
+                      onClick={retry}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white text-[13px] font-semibold rounded-md transition-colors mx-auto"
+                    >
+                      <Icon icon="mdi:refresh" width={14} />
+                      Retry
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            )}
+
+            {!isLoading && !error && asgs.length === 0 && (
               <tr>
                 <td colSpan={10} className="px-6 py-16 text-center">
                   <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -149,6 +198,8 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
               const asgKey    = `${asg.name}-${asg.region}`;
               const isToggling = togglingASGs.has(asgKey);
               const isSyncing  = syncingASGs.has(asgKey);
+              const toggle     = awsToggleState(asg, conversionsPaused);
+              const reasonId   = `asg-toggle-reason-${asgKey.replace(/[^A-Za-z0-9_-]/g, '-')}`;
 
               return (
                 <tr key={asgKey} className="hover:bg-[rgba(0,0,0,0.01)] transition-colors">
@@ -204,7 +255,7 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
                     )}
                   </td>
                   <td className={`${COL} text-center`}>
-                    {asg.eksManaged ? (
+                    {toggle.mode === 'locked' ? (
                       <div className="relative group/eks inline-block">
                         <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[rgba(0,0,0,0.3)] bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] rounded-lg px-2.5 py-1.5 cursor-not-allowed select-none">
                           <Icon icon="mdi:lock-outline" width={11} />
@@ -212,6 +263,26 @@ const SpotAutomationASGTable: React.FC<SpotAutomationASGTableProps> = ({
                         </div>
                         <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-64 bg-[rgba(0,0,0,0.88)] text-white text-[10px] rounded-lg px-3 py-2 shadow-lg hidden group-hover/eks:block z-10 pointer-events-none leading-relaxed">
                           This is an <strong className="text-white">EKS-managed node group</strong>. AutoSpotting cannot convert it — EKS controls its lifecycle. To use Spot, create a dedicated Spot node group in the EKS console.
+                        </div>
+                      </div>
+                    ) : toggle.mode === 'disabled' ? (
+                      <div className="relative group/paused inline-block">
+                        <Switch
+                          isSelected={asg.isEnabled}
+                          isDisabled
+                          aria-label={`AutoSpotting for ${asg.name}`}
+                          aria-describedby={reasonId}
+                          className="flex items-center gap-2 cursor-not-allowed outline-none"
+                        >
+                          <div className="relative w-11 h-6 rounded-full bg-[rgba(0,0,0,0.08)] opacity-60">
+                            <div className="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow" />
+                          </div>
+                          <span className="text-[11px] font-bold text-[rgba(0,0,0,0.3)]">Paused</span>
+                        </Switch>
+                        <span id={reasonId} className="sr-only">{toggle.reason}</span>
+                        {/* Right-aligned: this is the last column, and a centered card is cut off by the table's overflow. */}
+                        <div aria-hidden="true" className="absolute bottom-full mb-2 right-0 w-64 bg-[rgba(0,0,0,0.88)] text-white text-[10px] rounded-lg px-3 py-2 shadow-lg hidden group-hover/paused:block z-10 pointer-events-none leading-relaxed">
+                          {toggle.reason}
                         </div>
                       </div>
                     ) : (

@@ -54,7 +54,6 @@ public class ClientSavingsService {
 
         double awsSpot   = sumSpotSavings(awsAccounts,   startDate, endDate);
         double gcpSpot   = sumSpotSavings(gcpAccounts,   startDate, endDate);
-        double azureSpot = sumSpotSavings(azureAccounts, startDate, endDate);
         double awsEbs    = sumEbsSavings(awsAccounts, startInstant, endInstant);
 
         double awsRightsizing   = sumCachedSavings(awsAccounts,   "DASHBOARD_OPT::",      "totalMonthlySavings");
@@ -65,14 +64,13 @@ public class ClientSavingsService {
         double gcpReservations   = sumCachedSavings(gcpAccounts,   "RESERVATION_PAGE::",     "totalMonthlySavings");
         double azureReservations = sumCachedSavings(azureAccounts, "RESERVATION_PAGE::",     "totalMonthlySavings");
 
-        double realizedTotal  = awsSpot + gcpSpot + azureSpot + awsEbs;
+        double realizedTotal  = awsSpot + gcpSpot + awsEbs;
         double potentialTotal = awsRightsizing + gcpRightsizing + azureRightsizing
                               + awsReservations + gcpReservations + azureReservations;
 
         ClientSavingsDashboardDto result = ClientSavingsDashboardDto.builder()
             .realizedSpotAws(awsSpot)
             .realizedSpotGcp(gcpSpot)
-            .realizedSpotAzure(azureSpot)
             .realizedEbsAws(awsEbs)
             .potentialRightsizingAws(awsRightsizing)
             .potentialRightsizingGcp(gcpRightsizing)
@@ -83,7 +81,7 @@ public class ClientSavingsService {
             .realizedTotal(realizedTotal)
             .potentialTotal(potentialTotal)
             .grandTotal(realizedTotal + potentialTotal)
-            .timeSeries(buildTimeSeries(awsAccounts, gcpAccounts, azureAccounts, startDate, endDate, startInstant, endInstant))
+            .timeSeries(buildTimeSeries(awsAccounts, gcpAccounts, startDate, endDate, startInstant, endInstant))
             .startDate(startDate.toString())
             .endDate(endDate.toString())
             .clientName(clientName)
@@ -134,12 +132,12 @@ public class ClientSavingsService {
     }
 
     private List<ClientSavingsDashboardDto.DailyPoint> buildTimeSeries(
-            List<CloudAccount> aws, List<CloudAccount> gcp, List<CloudAccount> azure,
+            List<CloudAccount> aws, List<CloudAccount> gcp,
             LocalDate start, LocalDate end, Instant startInstant, Instant endInstant) {
 
         Map<LocalDate, double[]> byDate = new TreeMap<>();
         for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
-            byDate.put(d, new double[]{0, 0, 0, 0});
+            byDate.put(d, new double[]{0, 0, 0});
         }
 
         for (CloudAccount a : aws) {
@@ -150,22 +148,18 @@ public class ClientSavingsService {
             dailySpotSavingsRepository.findByAccountIdAndDateBetweenOrderByDateAsc(a.getId(), start, end)
                 .forEach(r -> byDate.get(r.getDate())[1] += r.getAmountSaved() != null ? r.getAmountSaved() : 0.0);
         }
-        for (CloudAccount a : azure) {
-            dailySpotSavingsRepository.findByAccountIdAndDateBetweenOrderByDateAsc(a.getId(), start, end)
-                .forEach(r -> byDate.get(r.getDate())[2] += r.getAmountSaved() != null ? r.getAmountSaved() : 0.0);
-        }
         for (CloudAccount a : aws) {
             ebsVolumeActionRepository.findByAccountIdAndStatusAndInitiatedAtBetween(a.getId(), "SUCCESS", startInstant, endInstant)
                 .forEach(r -> {
                     LocalDate d = r.getInitiatedAt().atZone(ZoneOffset.UTC).toLocalDate();
-                    double[] arr = byDate.getOrDefault(d, new double[]{0, 0, 0, 0});
-                    arr[3] += r.getEstimatedSavings() != null ? r.getEstimatedSavings() : 0.0;
+                    double[] arr = byDate.getOrDefault(d, new double[]{0, 0, 0});
+                    arr[2] += r.getEstimatedSavings() != null ? r.getEstimatedSavings() : 0.0;
                 });
         }
 
         return byDate.entrySet().stream()
             .map(e -> new ClientSavingsDashboardDto.DailyPoint(
-                e.getKey().toString(), e.getValue()[0], e.getValue()[1], e.getValue()[2], e.getValue()[3]))
+                e.getKey().toString(), e.getValue()[0], e.getValue()[1], e.getValue()[2]))
             .collect(Collectors.toList());
     }
 

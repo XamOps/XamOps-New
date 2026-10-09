@@ -11,6 +11,7 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DailySpotSavingsRepository;
 import com.xammer.cloud.repository.SpotOptimizationEventRepository;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.service.autospotting.AutoSpottingBlockedException;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -114,6 +115,61 @@ public class GcpAutoSpottingService {
          * zero means "not counted" rather than "free".
          */
         public boolean savingsUnknown;
+
+        /**
+         * True when this MIG backs a GKE node pool (name starts with {@code gke-} or its template
+         * carries the {@code goog-gke-node} label). GKE controls these VMs and reverts template
+         * changes made outside it; GKE only offers Spot on new node pools. XamOps never converts
+         * them, and their potential savings are reported as 0 because they aren't actionable here.
+         */
+        public boolean gkeManagedPool;
+
+        /**
+         * True when the MIG's current template was created by XamOps AutoSpotting (its description
+         * carries the XamOps marker). For a GKE pool this is the only case where Disable is allowed:
+         * XamOps may undo its own conversion but never touches a native GKE Spot pool.
+         */
+        public boolean xamopsManagedTemplate;
+    }
+
+    /** Label GKE puts on every node-pool instance template. */
+    static final String GKE_NODE_LABEL = "goog-gke-node";
+
+    /** Marker that {@link GcpRestTemplateService#createSpotTemplate} writes into the template description. */
+    static final String XAMOPS_TEMPLATE_MARKER = "created by XamOps AutoSpotting";
+
+    /** GKE-managed if the MIG name has GKE's {@code gke-} prefix or the template has the GKE node label. */
+    static boolean isGkeManaged(String migName, Map<String, String> templateLabels) {
+        if (migName != null && migName.startsWith("gke-")) {
+            return true;
+        }
+        return templateLabels != null && templateLabels.containsKey(GKE_NODE_LABEL);
+    }
+
+    /** True when the template description carries the XamOps AutoSpotting marker. */
+    static boolean isXamOpsCreatedTemplate(String description) {
+        return description != null && description.contains(XAMOPS_TEMPLATE_MARKER);
+    }
+
+    /** {@link #isGkeManaged} for REST template JSON ({@code properties.labels}). */
+    static boolean isGkeManagedJson(String migName, com.google.gson.JsonObject template) {
+        Map<String, String> labels = new HashMap<>();
+        if (template != null && template.has("properties") && template.get("properties").isJsonObject()) {
+            com.google.gson.JsonObject properties = template.getAsJsonObject("properties");
+            if (properties.has("labels") && properties.get("labels").isJsonObject()) {
+                properties.getAsJsonObject("labels").entrySet().forEach(e -> labels.put(e.getKey(),
+                        e.getValue().isJsonPrimitive() ? e.getValue().getAsString() : ""));
+            }
+        }
+        return isGkeManaged(migName, labels);
+    }
+
+    /** {@link #isXamOpsCreatedTemplate} for REST template JSON (top-level {@code description}). */
+    static boolean isXamOpsCreatedTemplateJson(com.google.gson.JsonObject template) {
+        if (template == null || !template.has("description") || !template.get("description").isJsonPrimitive()) {
+            return false;
+        }
+        return isXamOpsCreatedTemplate(template.get("description").getAsString());
     }
 
     public List<GcpAutoSpottingGroupDto> listMigsAllRegionsWithCosts(String accountId) {
@@ -143,6 +199,10 @@ public class GcpAutoSpottingService {
             } catch (Exception e) {
                 log.warn("Failed to enrich cost data for MIG {}: {}", mig.name, e.getMessage());
                 markCostUnknown(mig, "Cost enrichment failed: " + e.getMessage());
+            }
+            if (mig.gkeManagedPool) {
+                // Not actionable from XamOps, so it must not count toward potential savings.
+                mig.potentialHourlySavings = 0.0;
             }
         }
 
@@ -293,6 +353,9 @@ public class GcpAutoSpottingService {
         // IMPROVED: Check actual instance template configuration instead of name-based detection
         boolean isSpotEnabled = false;
         String machineType = "n1-standard-1"; // default fallback
+        // Name-only GKE detection unless the template is fetched below.
+        boolean gkeManagedPool = isGkeManaged(igm.getName(), null);
+        boolean xamopsManagedTemplate = false;
 
         try {
             String templateUri = igm.getInstanceTemplate();
@@ -318,6 +381,11 @@ public class GcpAutoSpottingService {
                         String machineTypeUri = template.getProperties().getMachineType();
                         machineType = machineTypeUri.substring(machineTypeUri.lastIndexOf('/') + 1);
                     }
+
+                    gkeManagedPool = isGkeManaged(igm.getName(), template.getProperties().getLabelsMap());
+                }
+                if (template != null) {
+                    xamopsManagedTemplate = isXamOpsCreatedTemplate(template.getDescription());
                 }
 
                 log.debug("MIG {}: template={}, isSpot={}, machineType={}",
@@ -340,6 +408,8 @@ public class GcpAutoSpottingService {
                 .ondemandInstanceCount(isSpotEnabled ? 0 : instanceCount)
                 .spotInstanceCount(isSpotEnabled ? instanceCount : 0)
                 .machineType(machineType)
+                .gkeManagedPool(gkeManagedPool)
+                .xamopsManagedTemplate(xamopsManagedTemplate)
                 .build();
     }
 
@@ -752,6 +822,11 @@ public class GcpAutoSpottingService {
         try {
             log.info("🔍 [GCP DEBUG] Step 1: Getting MIG details for location: {}", region);
             InstanceGroupManager igm = getMig(projectId, region, igmName);
+            // GKE node pools: GKE owns these VMs, so refuse before any template fetch or REST call.
+            if (isGkeManaged(igmName, null)) {
+                log.warn("[GCP] Refusing to enable Spot on GKE-managed MIG {}", igmName);
+                throw AutoSpottingBlockedException.gkeManaged();
+            }
             String currentTemplateUri = igm.getInstanceTemplate();
             log.info("🔍 [GCP DEBUG] Step 2: Found current template URI: {}", currentTemplateUri);
 
@@ -783,6 +858,13 @@ public class GcpAutoSpottingService {
                 }
             }
             log.info("🔍 [GCP DEBUG] Step 4: Successfully fetched current template properties");
+
+            // A GKE node-pool template can sit behind a MIG without the gke- prefix.
+            if (isGkeManaged(igmName, currentTemplate.getProperties().getLabelsMap())) {
+                log.warn("[GCP] Refusing to enable Spot on MIG {}: its template has the {} label", igmName,
+                        GKE_NODE_LABEL);
+                throw AutoSpottingBlockedException.gkeManaged();
+            }
 
             // ── CRITICAL FIX: Use REST API to check SPOT status ──────────────────────────
             // The Java SDK gRPC client can return empty-string for provisioningModel even
@@ -848,12 +930,8 @@ public class GcpAutoSpottingService {
                 restTemplateService.startRollingUpdate(projectId, region, igmName, newTemplateUrl, numZones);
                 log.info("✅ [GCP] Rolling update initiated. Instances being replaced with SPOT VMs gradually.");
 
-                // Step 5: Clean up old template if it was previously managed
-                if (currentTemplateName.contains("-spot") || currentTemplateName.contains("-od-")) {
-                    log.info("🗑️ [GCP] Step 5: Cleaning up old template: {}", currentTemplateName);
-                    restTemplateService.deleteTemplate(projectId, templateRegion, currentTemplateName);
-                }
-
+                // The previous template is kept on purpose: it may be customer-owned, and it is
+                // the rollback target. Template cleanup is a Phase B concern.
                 log.info("✅ [GCP] Successfully enabled SPOT for MIG: {}", igmName);
 
                 // Evict cache so next fetch reflects the updated MIG state
@@ -884,11 +962,15 @@ public class GcpAutoSpottingService {
                     log.warn("⚠️ [GCP] Could not record savings event: {}", e.getMessage());
                 }
 
+            } catch (AutoSpottingBlockedException e) {
+                throw e;
             } catch (Exception e) {
                 log.error("❌ [GCP] Failed to enable SPOT: {}", e.getMessage(), e);
                 throw new RuntimeException("Failed to enable Spot: " + e.getMessage());
             }
 
+        } catch (AutoSpottingBlockedException e) {
+            throw e;
         } catch (Exception e) {
             String errorMsg = e.getMessage();
             if (e instanceof com.google.api.gax.rpc.ApiException) {
@@ -906,6 +988,9 @@ public class GcpAutoSpottingService {
         String projectId = account.getGcpProjectId();
         log.info("🔴 [GCP] Disabling AutoSpotting (Spot→OnDemand) for MIG {} in project {}", igmName, projectId);
 
+        // Name of the On-Demand template once its insert has been attempted; logged if a later
+        // step fails so the orphan can be found (cleanup is Phase B).
+        String insertedTemplateName = null;
         try {
             InstanceGroupManager igm = getMig(projectId, region, igmName);
             String currentTemplateUri = igm.getInstanceTemplate();
@@ -916,26 +1001,26 @@ public class GcpAutoSpottingService {
             String currentTemplateName = currentTemplateUri.substring(currentTemplateUri.lastIndexOf('/') + 1);
             String templateRegion = getTemplateRegion(currentTemplateUri);
 
-            // ── CRITICAL FIX: Use REST API to check SPOT status ──────────────────────────
-            // The Java SDK gRPC client can return empty-string for provisioningModel even when
-            // the template was created with SPOT via REST API. Reading via REST returns
-            // the actual JSON including "provisioningModel":"SPOT".
-            boolean isCurrentlySpot;
-            try {
-                isCurrentlySpot = restTemplateService.isSpotTemplate(projectId, templateRegion, currentTemplateName);
-            } catch (Exception e) {
-                log.warn("⚠️ [GCP] Could not check template via REST, falling back to SDK check: {}", e.getMessage());
-                // Fallback: attempt SDK check
-                InstanceTemplate sdkTemplate = fetchInstanceTemplate(projectId, templateRegion, currentTemplateName);
-                isCurrentlySpot = sdkTemplate != null
-                    && sdkTemplate.getProperties().hasScheduling()
-                    && ("SPOT".equals(sdkTemplate.getProperties().getScheduling().getProvisioningModel())
-                        || sdkTemplate.getProperties().getScheduling().getPreemptible());
-            }
+            // One REST read gives Spot status, labels and description, and it is the clone source.
+            // The REST JSON is used because the gRPC SDK can return an empty provisioningModel
+            // for templates created over REST.
+            com.google.gson.JsonObject source = restTemplateService.getInstanceTemplate(
+                    projectId, templateRegion, currentTemplateName);
 
-            if (!isCurrentlySpot) {
+            if (!GcpRestTemplateService.isSpotTemplateJson(source)) {
                 log.info("ℹ️ [GCP] MIG {} is already using a non-SPOT template, nothing to disable.", igmName);
                 return;
+            }
+
+            if (isGkeManagedJson(igmName, source)) {
+                if (!isXamOpsCreatedTemplateJson(source)) {
+                    // A native GKE Spot node pool: GKE owns it, XamOps never touches it.
+                    log.warn("[GCP] Refusing to disable Spot on GKE-managed MIG {}: template {} was not "
+                            + "created by XamOps", igmName, currentTemplateName);
+                    throw AutoSpottingBlockedException.gkeManaged();
+                }
+                log.warn("[GCP] Reverting XamOps-converted GKE MIG {} to On-Demand without a cordon/drain; "
+                        + "GKE may reconcile the node pool", igmName);
             }
 
             // ── Build a safe on-demand template name (max 63 chars, GCP requirement) ─────
@@ -954,71 +1039,67 @@ public class GcpAutoSpottingService {
 
             log.info("🔧 [GCP] Creating ON-DEMAND template: {}", newTemplateName);
 
-            try {
-                // Step 1: Get current template JSON via REST API
-                com.google.gson.JsonObject sourceTemplate = restTemplateService.getInstanceTemplate(
-                    projectId, templateRegion, currentTemplateName);
+            // Step 1: Create the ON-DEMAND clone (keeps GPUs, accelerator-aware host maintenance)
+            insertedTemplateName = newTemplateName;
+            restTemplateService.createSpotTemplate(projectId, templateRegion, newTemplateName, source, false);
+            log.info("✅ [GCP] Created ON-DEMAND template: {}", newTemplateName);
 
-                // Step 2: Create new ON-DEMAND template
-                restTemplateService.createSpotTemplate(
-                    projectId, templateRegion, newTemplateName, sourceTemplate, false);
-                log.info("✅ [GCP] Created ON-DEMAND template: {}", newTemplateName);
-
-                // Step 3: Build the full self-link URL (GCP REST API requires full URL for instanceTemplate field)
-                String newTemplateUrl;
-                if (templateRegion != null) {
-                    newTemplateUrl = String.format(
-                        "https://www.googleapis.com/compute/v1/projects/%s/regions/%s/instanceTemplates/%s",
-                        projectId, templateRegion, newTemplateName);
-                } else {
-                    newTemplateUrl = String.format(
-                        "https://www.googleapis.com/compute/v1/projects/%s/global/instanceTemplates/%s",
-                        projectId, newTemplateName);
-                }
-
-                // Step 4: Apply rolling update back to ON-DEMAND (region-aware surge/unavailable)
-                int numZones = igm.hasDistributionPolicy()
-                        ? igm.getDistributionPolicy().getZonesCount() : 0;
-                log.info("🔄 [GCP] Step 4: Rolling update → ON-DEMAND (numZones={})", numZones);
-                restTemplateService.startRollingUpdate(projectId, region, igmName, newTemplateUrl, numZones);
-                log.info("✅ [GCP] Rolling update initiated. Instances will be replaced with ON-DEMAND VMs gradually.");
-
-                // Step 5: Clean up old spot template
-                if (currentTemplateName.contains("-spot") || currentTemplateName.contains("-od-")) {
-                    log.info("🗑️ [GCP] Cleaning up old template: {}", currentTemplateName);
-                    restTemplateService.deleteTemplate(projectId, templateRegion, currentTemplateName);
-                }
-
-                log.info("✅ [GCP] Successfully disabled SPOT for MIG: {}", igmName);
-
-                // Evict cache
-                redisCacheService.evict(CACHE_KEY_MIGS + accountId);
-                redisCacheService.evict(CACHE_KEY_INSTANCES + accountId);
-
-                // Record disable event
-                try {
-                    int instanceCount = igm.getTargetSize();
-                    SpotOptimizationEvent event = new SpotOptimizationEvent();
-                    event.setAccount(account);
-                    event.setAsgName(igmName);
-                    event.setRegion(region);
-                    event.setStatus("DISABLED");
-                    event.setHourlySavings(0.0);
-                    event.setDetails(String.format("Disabled AutoSpotting for MIG %s with %d instance(s)", igmName, instanceCount));
-                    event.setEventTime(java.time.Instant.now());
-                    eventRepository.save(event);
-                } catch (Exception ev) {
-                    log.warn("⚠️ [GCP] Could not record disable event: {}", ev.getMessage());
-                }
-
-            } catch (Exception e) {
-                log.error("❌ [GCP] Failed to disable SPOT: {}", e.getMessage(), e);
-                throw new RuntimeException("Failed to disable Spot: " + e.getMessage());
+            // Step 2: Build the full self-link URL (GCP REST API requires full URL for instanceTemplate field)
+            String newTemplateUrl;
+            if (templateRegion != null) {
+                newTemplateUrl = String.format(
+                    "https://www.googleapis.com/compute/v1/projects/%s/regions/%s/instanceTemplates/%s",
+                    projectId, templateRegion, newTemplateName);
+            } else {
+                newTemplateUrl = String.format(
+                    "https://www.googleapis.com/compute/v1/projects/%s/global/instanceTemplates/%s",
+                    projectId, newTemplateName);
             }
 
+            // Step 3: Rolling update back to ON-DEMAND. A regional MIG with no zone count is
+            // refused by startRollingUpdate before any request.
+            int numZones = igm.hasDistributionPolicy()
+                    ? igm.getDistributionPolicy().getZonesCount() : 0;
+            log.info("🔄 [GCP] Step 3: Rolling update → ON-DEMAND (numZones={})", numZones);
+            restTemplateService.startRollingUpdate(projectId, region, igmName, newTemplateUrl, numZones);
+            log.info("✅ [GCP] Rolling update accepted. Instances will be replaced with ON-DEMAND VMs gradually.");
+
+            // The previous Spot template is kept: it may be customer-owned. Cleanup is Phase B.
+            log.info("✅ [GCP] Successfully disabled SPOT for MIG: {}", igmName);
+
+            // Only now, after the rollout PATCH operation completed without error.
+            redisCacheService.evict(CACHE_KEY_MIGS + accountId);
+            redisCacheService.evict(CACHE_KEY_INSTANCES + accountId);
+
+            try {
+                int instanceCount = igm.getTargetSize();
+                SpotOptimizationEvent event = new SpotOptimizationEvent();
+                event.setAccount(account);
+                event.setAsgName(igmName);
+                event.setRegion(region);
+                event.setStatus("DISABLED");
+                event.setHourlySavings(0.0);
+                event.setDetails(String.format("Disabled AutoSpotting for MIG %s with %d instance(s)", igmName, instanceCount));
+                event.setEventTime(java.time.Instant.now());
+                eventRepository.save(event);
+            } catch (Exception ev) {
+                log.warn("⚠️ [GCP] Could not record disable event: {}", ev.getMessage());
+            }
+
+        } catch (AutoSpottingBlockedException e) {
+            logOrphanTemplate(insertedTemplateName, igmName);
+            throw e;
         } catch (Exception e) {
+            logOrphanTemplate(insertedTemplateName, igmName);
             log.error("Failed to disable Spot for MIG {}: {}", igmName, e.getMessage(), e);
             throw new RuntimeException("Failed to disable Spot: " + e.getMessage());
+        }
+    }
+
+    private void logOrphanTemplate(String templateName, String igmName) {
+        if (templateName != null) {
+            log.warn("[GCP] Disable failed for MIG {} after inserting template {}; that template may be "
+                    + "left unused and can be deleted once the MIG is confirmed not to use it", igmName, templateName);
         }
     }
 

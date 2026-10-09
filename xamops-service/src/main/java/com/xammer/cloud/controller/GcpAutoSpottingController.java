@@ -4,6 +4,8 @@ import com.xammer.cloud.domain.SpotOptimizationEvent;
 import com.xammer.cloud.dto.autospotting.HistoryResponse;
 import com.xammer.cloud.dto.autospotting.SpotInstanceDto;
 import com.xammer.cloud.dto.gcp.GcpMigConfigDto;
+import com.xammer.cloud.service.autospotting.AutoSpottingBlockedException;
+import com.xammer.cloud.service.autospotting.AutoSpottingFeatureFlags;
 import com.xammer.cloud.service.gcp.GcpAutoSpottingService;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CloudAccountAccessService;
@@ -24,6 +26,21 @@ public class GcpAutoSpottingController {
 
     private final GcpAutoSpottingService gcpAutoSpottingService;
     private final CloudAccountAccessService accountAccessService;
+    private final AutoSpottingFeatureFlags featureFlags;
+
+    /**
+     * Typed refusals (paused conversions, GKE-managed pools, MIG update conflicts) as
+     * {@code {success:false, code, error}}. Local, so it wins over the catch-all
+     * {@code @ExceptionHandler(Exception.class)} in {@code GlobalExceptionHandler}.
+     */
+    @ExceptionHandler(AutoSpottingBlockedException.class)
+    public ResponseEntity<Map<String, Object>> handleBlocked(AutoSpottingBlockedException e) {
+        log.info("GCP AutoSpotting action refused: {}", e.getCode());
+        return ResponseEntity.status(e.getStatus()).body(Map.of(
+                "success", false,
+                "code", e.getCode(),
+                "error", e.getMessage()));
+    }
 
     @GetMapping("/migs/all-regions/{accountId}")
     public ResponseEntity<?> listMigsAllRegions(@PathVariable("accountId") String accountId,
@@ -105,6 +122,7 @@ public class GcpAutoSpottingController {
             @RequestParam("migName") String migName,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         accountAccessService.requireAccessByIdentifier(userDetails, accountId);
+        featureFlags.requireGcpConversionsEnabled();
         log.info("🚀 [GCP DEBUG] enableAutoSpotting called - accountId: {}, region: {}, migName: {}", accountId, region,
                 migName);
         try {
@@ -113,6 +131,8 @@ public class GcpAutoSpottingController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "AutoSpotting enabled for MIG " + migName));
+        } catch (AutoSpottingBlockedException e) {
+            throw e;
         } catch (Exception e) {
             String enableErr = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName() + " (no message)";
             log.error("❌ [GCP DEBUG] Failed to enable AutoSpotting for {}: {}", migName, enableErr, e);
@@ -137,6 +157,8 @@ public class GcpAutoSpottingController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "AutoSpotting disabled for MIG " + migName));
+        } catch (AutoSpottingBlockedException e) {
+            throw e;
         } catch (Exception e) {
             String disableErr = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName() + " (no message)";
             log.error("❌ [GCP DEBUG] Failed to disable AutoSpotting for {}: {}", migName, disableErr, e);
@@ -186,11 +208,14 @@ public class GcpAutoSpottingController {
             @RequestBody GcpMigConfigDto config,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
         accountAccessService.requireAccessByIdentifier(userDetails, accountId);
+        featureFlags.requireGcpConversionsEnabled();
         log.info("PUT /migs/{}/config  region={} migName={} maxSurge={} maxUnavailable={} minReadySec={}",
                 accountId, region, migName, config.getMaxSurge(), config.getMaxUnavailable(), config.getMinReadySeconds());
         try {
             GcpMigConfigDto updated = gcpAutoSpottingService.updateMigConfig(accountId, region, migName, config);
             return ResponseEntity.ok(updated);
+        } catch (AutoSpottingBlockedException e) {
+            throw e;
         } catch (Exception e) {
             String updErr = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName() + " (no message)";
             log.error("Failed to update MIG config for {}: {}", migName, updErr, e);

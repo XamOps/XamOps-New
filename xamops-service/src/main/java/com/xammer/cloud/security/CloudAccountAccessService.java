@@ -134,6 +134,62 @@ public class CloudAccountAccessService {
     }
 
     /**
+     * AWS-only variant for endpoints whose {@code accountId} is the 12-digit AWS account
+     * number (the frontend's {@code AccountDto.id} for AWS), not a primary key.
+     *
+     * <p>
+     * The value is trimmed and must be 1-12 digits. It is tried left-padded to 12 digits
+     * first, then as given, so an account stored as {@code 012345678901} resolves from
+     * either form. Only rows whose provider is AWS are considered, so an AWS endpoint can
+     * never act on a GCP or Azure row that happens to share the identifier, and there is no
+     * primary-key fallback.
+     *
+     * <p>
+     * Invalid, unknown and not-yours all raise the same message, for the reason given on
+     * {@link #requireAccess(ClientUserDetails, Long)}.
+     *
+     * @throws AccessDeniedException if the caller is absent or the identifier does not
+     *                               resolve to an AWS account the caller may use.
+     */
+    public CloudAccount requireAwsAccess(ClientUserDetails userDetails, String awsAccountId) {
+        if (userDetails == null) {
+            throw new AccessDeniedException("Authentication required.");
+        }
+
+        String padded = normalizeAwsAccountId(awsAccountId);
+        CloudAccount account = null;
+        if (padded != null) {
+            account = java.util.stream.Stream.of(padded, awsAccountId.trim())
+                    .distinct()
+                    .flatMap(candidate -> cloudAccountRepository.findByAwsAccountId(candidate).stream())
+                    .filter(a -> a != null && "AWS".equalsIgnoreCase(a.getProvider()))
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        if (account == null || !canAccess(userDetails, account)) {
+            log.warn("Denied AWS account access: user={} requested AWS account identifier", userDetails.getId());
+            throw new AccessDeniedException("Account not found or access denied.");
+        }
+        return account;
+    }
+
+    /**
+     * @return the trimmed value left-padded with zeros to 12 digits, or {@code null} unless
+     *         it is 1-12 ASCII digits.
+     */
+    static String normalizeAwsAccountId(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        if (!trimmed.matches("^[0-9]{1,12}$")) {
+            return null;
+        }
+        return "0".repeat(12 - trimmed.length()) + trimmed;
+    }
+
+    /**
      * @return true only if {@code userDetails} is entitled to operate on {@code account}.
      *         Fails closed on any missing input.
      */

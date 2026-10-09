@@ -1,14 +1,18 @@
 package com.xammer.cloud.controller;
 
+import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.autospotting.*;
 import com.xammer.cloud.service.AutoSpottingService;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CloudAccountAccessService;
+import com.xammer.cloud.service.autospotting.AutoSpottingBlockedException;
+import com.xammer.cloud.service.autospotting.AutoSpottingFeatureFlags;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -16,6 +20,24 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * AWS AutoSpotting API.
+ *
+ * <p>
+ * Account-id contract: every {@code {accountId}} path variable is the 12-digit AWS account
+ * number (the frontend's {@code AccountDto.id} for AWS), kept as a string so leading zeros
+ * survive. It is resolved with {@link CloudAccountAccessService#requireAwsAccess}, which also
+ * accepts the unpadded form, considers AWS rows only, and enforces tenancy; the service
+ * layer only ever receives the resolved {@link CloudAccount}. It is never a primary key.
+ *
+ * <p>
+ * New Spot conversions (register, enable, config changes that apply to the ASG) are gated by
+ * {@code autospotting.aws.conversions-enabled}. The check runs after the tenancy guard, so a
+ * foreign account still gets 403, and before any service call, so a paused request makes no
+ * cloud call and no DB write. Reads, sync, refresh-regions, RI/SP settings and disable stay
+ * available. Refusals are {@link AutoSpottingBlockedException}s, returned as
+ * {@code {success:false, code, error}} by the local handler below.
+ */
 @RestController
 @RequestMapping("/api/autospotting")
 @RequiredArgsConstructor
@@ -25,6 +47,36 @@ public class AutoSpottingController {
 
     private final AutoSpottingService autoSpottingService;
     private final CloudAccountAccessService accountAccessService;
+    private final AutoSpottingFeatureFlags featureFlags;
+
+    /**
+     * Local, so it wins over the catch-all {@code @ExceptionHandler(Exception.class)} in
+     * {@code GlobalExceptionHandler}.
+     */
+    @ExceptionHandler(AutoSpottingBlockedException.class)
+    public ResponseEntity<Map<String, Object>> handleBlocked(AutoSpottingBlockedException e) {
+        log.info("AutoSpotting action refused: {}", e.getCode());
+        return ResponseEntity.status(e.getStatus()).body(Map.of(
+                "success", false,
+                "code", e.getCode(),
+                "error", e.getMessage()));
+    }
+
+    /**
+     * Which conversion switches are on. Authenticated by the {@code /api/autospotting/**}
+     * matcher; returns no tenant data.
+     * GET /api/autospotting/feature-status
+     */
+    @GetMapping("/feature-status")
+    public ResponseEntity<Map<String, Object>> getFeatureStatus(
+            @AuthenticationPrincipal ClientUserDetails userDetails) {
+        if (userDetails == null) {
+            throw new AccessDeniedException("Authentication required.");
+        }
+        return ResponseEntity.ok(Map.of(
+                "aws", Map.of("conversionsEnabled", featureFlags.isAwsConversionsEnabled()),
+                "gcp", Map.of("conversionsEnabled", featureFlags.isGcpConversionsEnabled())));
+    }
 
     // ================= ACCOUNT REGISTRATION =================
 
@@ -33,15 +85,18 @@ public class AutoSpottingController {
      * POST /api/autospotting/register/{accountId}
      */
     @PostMapping("/register/{accountId}")
-    public ResponseEntity<?> registerAccount(@PathVariable Long accountId,
+    public ResponseEntity<?> registerAccount(@PathVariable String accountId,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
+        featureFlags.requireAwsConversionsEnabled();
         log.info("AutoSpottingController.registerAccount called with accountId={}", accountId);
         try {
-            autoSpottingService.registerCustomerAccount(accountId);
+            autoSpottingService.registerCustomerAccount(account);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Account registered successfully in AutoSpotting DynamoDB"));
+        } catch (AutoSpottingBlockedException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to register account: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of(
@@ -57,13 +112,13 @@ public class AutoSpottingController {
      * GET /api/autospotting/costs/{accountId}
      */
     @GetMapping("/costs/{accountId}")
-    public ResponseEntity<?> getCostData(@PathVariable Long accountId,
+    public ResponseEntity<?> getCostData(@PathVariable String accountId,
             @RequestParam(defaultValue = "false") boolean forceRefresh,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
         log.info("getCostData called: accountId={}, forceRefresh={}", accountId, forceRefresh);
         try {
-            CostResponse costData = autoSpottingService.getCostData(accountId, forceRefresh);
+            CostResponse costData = autoSpottingService.getCostData(account, forceRefresh);
             log.info("Cost data retrieved: {} ASGs, ${}/hr",
                     costData.getAsgs() != null ? costData.getAsgs().size() : 0,
                     costData.getSummary() != null ? costData.getSummary().getTotalCurrentHourlyCost() : 0.0);
@@ -85,18 +140,18 @@ public class AutoSpottingController {
      */
     @GetMapping("/costs/history/{accountId}")
     public ResponseEntity<?> getCostHistory(
-            @PathVariable Long accountId,
+            @PathVariable String accountId,
             @RequestParam(required = false) String start,
             @RequestParam(required = false) String end,
             @RequestParam(defaultValue = "daily") String interval,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.getCostHistory called with accountId={}, start={}, end={}, interval={}",
                 accountId, start, end, interval);
 
         try {
-            HistoryResponse history = autoSpottingService.getCostHistory(accountId, start, end, interval);
+            HistoryResponse history = autoSpottingService.getCostHistory(account, start, end, interval);
             return ResponseEntity.ok(history);
         } catch (Exception e) {
             log.error("Failed to get cost history from AutoSpotting API: {}", e.getMessage(), e);
@@ -111,12 +166,12 @@ public class AutoSpottingController {
      * GET /api/autospotting/savings/{accountId}
      */
     @GetMapping("/savings/{accountId}")
-    public ResponseEntity<?> getSavings(@PathVariable Long accountId,
+    public ResponseEntity<?> getSavings(@PathVariable String accountId,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
         log.info("AutoSpottingController.getSavings called with accountId={}", accountId);
         try {
-            DashboardData.SavingsSummary savings = autoSpottingService.getSavingsMetrics(accountId);
+            DashboardData.SavingsSummary savings = autoSpottingService.getSavingsMetrics(account);
             return ResponseEntity.ok(savings);
         } catch (Exception e) {
             log.error("Failed to get savings metrics: {}", e.getMessage(), e);
@@ -133,13 +188,13 @@ public class AutoSpottingController {
      * GET /api/autospotting/asgs/all-regions/{accountId}
      */
     @GetMapping("/asgs/all-regions/{accountId}")
-    public ResponseEntity<?> listAsgsAllRegions(@PathVariable Long accountId,
+    public ResponseEntity<?> listAsgsAllRegions(@PathVariable String accountId,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
         log.info("AutoSpottingController.listAsgsAllRegions called with accountId={}", accountId);
         try {
             List<AutoSpottingService.AutoSpottingGroupDto> asgs = autoSpottingService
-                    .listAsgsAllRegionsWithCosts(accountId);
+                    .listAsgsAllRegionsWithCosts(account);
             return ResponseEntity.ok(asgs);
         } catch (Exception e) {
             log.error("Failed to list ASGs across all regions: {}", e.getMessage(), e);
@@ -156,13 +211,13 @@ public class AutoSpottingController {
      */
     @GetMapping("/asgs/{accountId}")
     public ResponseEntity<?> listAsgs(
-            @PathVariable Long accountId,
+            @PathVariable String accountId,
             @RequestParam(defaultValue = "us-east-1") String region,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
         log.info("AutoSpottingController.listAsgs called with accountId={}, region={}", accountId, region);
         try {
-            List<AutoSpottingService.AutoSpottingGroupDto> asgs = autoSpottingService.listAsgs(accountId, region);
+            List<AutoSpottingService.AutoSpottingGroupDto> asgs = autoSpottingService.listAsgs(account, region);
             return ResponseEntity.ok(asgs);
         } catch (Exception e) {
             log.error("Failed to list ASGs in region {}: {}", region, e.getMessage(), e);
@@ -177,16 +232,18 @@ public class AutoSpottingController {
      * POST /api/autospotting/asgs/{accountId}/refresh-regions
      */
     @PostMapping("/asgs/{accountId}/refresh-regions")
-    public ResponseEntity<Map<String, Object>> refreshRegionCache(@PathVariable Long accountId,
+    public ResponseEntity<Map<String, Object>> refreshRegionCache(@PathVariable String accountId,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
         log.info("AutoSpottingController.refreshRegionCache called with accountId={}", accountId);
 
         try {
-            autoSpottingService.refreshRegionCache(accountId);
+            autoSpottingService.refreshRegionCache(account);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Region cache refreshed successfully. Next ASG fetch will re-scan all regions."));
+        } catch (AutoSpottingBlockedException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Error refreshing region cache: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of(
@@ -205,20 +262,23 @@ public class AutoSpottingController {
      */
     @PostMapping("/asgs/{accountId}/enable")
     public ResponseEntity<?> enableAutoSpotting(
-            @PathVariable Long accountId,
+            @PathVariable String accountId,
             @RequestParam String region,
             @RequestParam String asgName,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
+        featureFlags.requireAwsConversionsEnabled();
 
         log.info("AutoSpottingController.enableAutoSpotting called with accountId={}, region={}, asgName={}",
                 accountId, region, asgName);
 
         try {
-            autoSpottingService.enableAutoSpotting(accountId, region, asgName);
+            autoSpottingService.enableAutoSpotting(account, region, asgName);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "AutoSpotting enabled successfully for " + asgName));
+        } catch (AutoSpottingBlockedException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to enable AutoSpotting: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of(
@@ -236,22 +296,24 @@ public class AutoSpottingController {
      */
     @PostMapping("/asgs/{accountId}/sync")
     public ResponseEntity<?> syncSpotEvents(
-            @PathVariable Long accountId,
+            @PathVariable String accountId,
             @RequestParam String region,
             @RequestParam String asgName,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.syncSpotEvents called: accountId={} region={} asgName={}",
                 accountId, region, asgName);
         try {
-            int backfilled = autoSpottingService.backfillSpotEvents(accountId, region, asgName);
+            int backfilled = autoSpottingService.backfillSpotEvents(account, region, asgName);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "backfilled", backfilled,
                     "message", backfilled > 0
                             ? backfilled + " Spot event(s) synced to Actions History."
                             : "No new Spot instances found to sync."));
+        } catch (AutoSpottingBlockedException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to sync Spot events: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of(
@@ -269,16 +331,16 @@ public class AutoSpottingController {
      */
     @GetMapping("/asgs/{accountId}/instance-types")
     public ResponseEntity<?> getInstanceTypeConfig(
-            @PathVariable Long accountId,
+            @PathVariable String accountId,
             @RequestParam String region,
             @RequestParam String asgName,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.getInstanceTypeConfig called: accountId={} region={} asgName={}",
                 accountId, region, asgName);
         try {
-            List<String> types = autoSpottingService.getConfiguredInstanceTypes(accountId, region, asgName);
+            List<String> types = autoSpottingService.getConfiguredInstanceTypes(account, region, asgName);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "allowedInstanceTypes", types));
@@ -298,20 +360,23 @@ public class AutoSpottingController {
      */
     @PutMapping("/asgs/{accountId}/instance-types")
     public ResponseEntity<?> updateInstanceTypeConfig(
-            @PathVariable Long accountId,
+            @PathVariable String accountId,
             @RequestParam String region,
             @RequestParam String asgName,
             @RequestParam(defaultValue = "true") boolean apply,
             @RequestBody Map<String, Object> body,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
+        if (apply) {
+            featureFlags.requireAwsConversionsEnabled();
+        }
 
         log.info("AutoSpottingController.updateInstanceTypeConfig: accountId={} region={} asgName={} apply={}",
                 accountId, region, asgName, apply);
         try {
             @SuppressWarnings("unchecked")
             List<String> types = (List<String>) body.get("instanceTypes");
-            autoSpottingService.saveInstanceTypeConfig(accountId, region, asgName,
+            autoSpottingService.saveInstanceTypeConfig(account, region, asgName,
                     types != null ? types : Collections.emptyList(),
                     apply);
 
@@ -324,6 +389,8 @@ public class AutoSpottingController {
                     "message", message,
                     "instanceTypes", types != null ? types : Collections.emptyList(),
                     "applied", apply));
+        } catch (AutoSpottingBlockedException e) {
+            throw e;
         } catch (IllegalStateException e) {
             // AutoSpotting not enabled - config saved but not applied
             return ResponseEntity.ok(Map.of(
@@ -348,16 +415,16 @@ public class AutoSpottingController {
      */
     @GetMapping("/asgs/{accountId}/spot-config")
     public ResponseEntity<?> getSpotConfig(
-            @PathVariable Long accountId,
+            @PathVariable String accountId,
             @RequestParam String region,
             @RequestParam String asgName,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.getSpotConfig called: accountId={} region={} asgName={}",
                 accountId, region, asgName);
         try {
-            Map<String, Object> config = autoSpottingService.getSpotConfig(accountId, region, asgName);
+            Map<String, Object> config = autoSpottingService.getSpotConfig(account, region, asgName);
             return ResponseEntity.ok(config);
         } catch (Exception e) {
             log.error("Failed to get spot config: {}", e.getMessage(), e);
@@ -374,13 +441,16 @@ public class AutoSpottingController {
      */
     @PutMapping("/asgs/{accountId}/spot-config")
     public ResponseEntity<?> saveSpotConfig(
-            @PathVariable Long accountId,
+            @PathVariable String accountId,
             @RequestParam String region,
             @RequestParam String asgName,
             @RequestParam(defaultValue = "true") boolean apply,
             @RequestBody Map<String, Object> body,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
+        if (apply) {
+            featureFlags.requireAwsConversionsEnabled();
+        }
 
         log.info("AutoSpottingController.saveSpotConfig: accountId={} region={} asgName={} apply={} body={}",
                 accountId, region, asgName, apply, body);
@@ -392,7 +462,7 @@ public class AutoSpottingController {
                     ? ((Number) body.get("onDemandCount")).intValue()
                     : null;
 
-            autoSpottingService.saveSpotConfig(accountId, region, asgName,
+            autoSpottingService.saveSpotConfig(account, region, asgName,
                                               spotPercentage, onDemandCount,
                                               apply);
 
@@ -404,6 +474,8 @@ public class AutoSpottingController {
                     "success", true,
                     "message", message,
                     "applied", apply));
+        } catch (AutoSpottingBlockedException e) {
+            throw e;
         } catch (IllegalStateException e) {
             // AutoSpotting not enabled - config saved but not applied
             return ResponseEntity.ok(Map.of(
@@ -426,15 +498,15 @@ public class AutoSpottingController {
      */
     @GetMapping("/instances/{accountId}")
     public ResponseEntity<?> getSpotInstances(
-            @PathVariable Long accountId,
+            @PathVariable String accountId,
             @RequestParam(required = false) String asgName,
             @RequestParam(required = false) String region,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
         log.info("AutoSpottingController.getSpotInstances called with accountId={}, asgName={}, region={}",
                 accountId, asgName, region);
         try {
-            List<SpotInstanceDto> instances = autoSpottingService.getSpotInstances(accountId);
+            List<SpotInstanceDto> instances = autoSpottingService.getSpotInstances(account);
 
             // Filter by asgName and region if provided
             if (asgName != null && !asgName.isEmpty()) {
@@ -465,20 +537,22 @@ public class AutoSpottingController {
      */
     @PostMapping("/asgs/{accountId}/disable")
     public ResponseEntity<?> disableAutoSpotting(
-            @PathVariable Long accountId,
+            @PathVariable String accountId,
             @RequestParam String region,
             @RequestParam String asgName,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.disableAutoSpotting called with accountId={}, region={}, asgName={}",
                 accountId, region, asgName);
 
         try {
-            autoSpottingService.disableAutoSpotting(accountId, region, asgName);
+            autoSpottingService.disableAutoSpotting(account, region, asgName);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "AutoSpotting disabled successfully for " + asgName));
+        } catch (AutoSpottingBlockedException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to disable AutoSpotting: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of(
@@ -495,17 +569,17 @@ public class AutoSpottingController {
      */
     @GetMapping("/asgs/{accountId}/config")
     public ResponseEntity<?> getAsgConfig(
-            @PathVariable Long accountId,
+            @PathVariable String accountId,
             @RequestParam String region,
             @RequestParam String asgName,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.getAsgConfig called with accountId={}, region={}, asgName={}",
                 accountId, region, asgName);
 
         try {
-            ASGConfig config = autoSpottingService.getAsgConfig(accountId, region, asgName);
+            ASGConfig config = autoSpottingService.getAsgConfig(account, region, asgName);
             return ResponseEntity.ok(config);
         } catch (Exception e) {
             log.error("Failed to get ASG config: {}", e.getMessage(), e);
@@ -522,20 +596,24 @@ public class AutoSpottingController {
      */
     @PutMapping("/asgs/{accountId}/config")
     public ResponseEntity<?> updateAsgConfig(
-            @PathVariable Long accountId,
+            @PathVariable String accountId,
             @RequestParam String region,
             @RequestParam String asgName,
             @RequestBody ASGConfigUpdate config,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
+        // Always paused: enabled=true here calls enable, and POST /disable stays open.
+        featureFlags.requireAwsConversionsEnabled();
 
         log.info("AutoSpottingController.updateAsgConfig called with accountId={}, region={}, asgName={}",
                 accountId, region, asgName);
         log.debug("Config update payload: {}", config);
 
         try {
-            ASGConfig updated = autoSpottingService.updateAsgConfig(accountId, region, asgName, config);
+            ASGConfig updated = autoSpottingService.updateAsgConfig(account, region, asgName, config);
             return ResponseEntity.ok(updated);
+        } catch (AutoSpottingBlockedException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to update ASG config: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of(
@@ -574,13 +652,13 @@ public class AutoSpottingController {
      */
     @GetMapping("/events/{accountId}")
     public ResponseEntity<?> getEvents(
-            @PathVariable Long accountId,
+            @PathVariable String accountId,
             @RequestParam(required = false) String start,
             @RequestParam(required = false) String end,
             @RequestParam(required = false) String eventType,
             @RequestParam(required = false) String asgName,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
 
         log.info(
                 "AutoSpottingController.getEvents called with accountId={}, start={}, end={}, eventType={}, asgName={}",
@@ -597,7 +675,7 @@ public class AutoSpottingController {
                 end = java.time.Instant.now().toString();
             }
 
-            EventsResponse events = autoSpottingService.getEvents(accountId, start, end, eventType, asgName);
+            EventsResponse events = autoSpottingService.getEvents(account, start, end, eventType, asgName);
             return ResponseEntity.ok(events);
 
         } catch (Exception e) {
@@ -620,11 +698,11 @@ public class AutoSpottingController {
      */
     @GetMapping("/analytics/launches/{accountId}")
     public ResponseEntity<?> getLaunchAnalytics(
-            @PathVariable Long accountId,
+            @PathVariable String accountId,
             @RequestParam(required = false) String start,
             @RequestParam(required = false) String end,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.getLaunchAnalytics called with accountId={}, start={}, end={}",
                 accountId, start, end);
@@ -640,7 +718,7 @@ public class AutoSpottingController {
                 end = java.time.LocalDate.now().toString();
             }
 
-            LaunchAnalyticsResponse analytics = autoSpottingService.getLaunchAnalytics(accountId, start, end);
+            LaunchAnalyticsResponse analytics = autoSpottingService.getLaunchAnalytics(account, start, end);
             return ResponseEntity.ok(analytics);
 
         } catch (Exception e) {
@@ -652,13 +730,13 @@ public class AutoSpottingController {
     }
 
     @GetMapping("/analytics/risp-coverage/{accountId}")
-    public ResponseEntity<?> getRiSpCoverage(@PathVariable Long accountId,
+    public ResponseEntity<?> getRiSpCoverage(@PathVariable String accountId,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
         log.info("AutoSpottingController.getRiSpCoverage called with accountId={}", accountId);
 
         try {
-            RiSpCoverageResponse coverage = autoSpottingService.getRiSpCoverage(accountId, false);
+            RiSpCoverageResponse coverage = autoSpottingService.getRiSpCoverage(account, false);
             return ResponseEntity.ok(coverage);
 
         } catch (Exception e) {
@@ -673,13 +751,13 @@ public class AutoSpottingController {
      * Get AutoSpotting settings including RI/SP respect configuration
      */
     @GetMapping("/settings/{accountId}")
-    public ResponseEntity<?> getSettings(@PathVariable Long accountId,
+    public ResponseEntity<?> getSettings(@PathVariable String accountId,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
         log.info("AutoSpottingController.getSettings called with accountId={}", accountId);
 
         try {
-            Map<String, Object> settings = autoSpottingService.getSettings(accountId);
+            Map<String, Object> settings = autoSpottingService.getSettings(account);
             return ResponseEntity.ok(settings);
 
         } catch (Exception e) {
@@ -700,10 +778,10 @@ public class AutoSpottingController {
      */
     @PutMapping("/settings/{accountId}/risp-respect")
     public ResponseEntity<?> updateRispRespectSettings(
-            @PathVariable Long accountId,
+            @PathVariable String accountId,
             @RequestBody Map<String, Object> request,
             @AuthenticationPrincipal ClientUserDetails userDetails) {
-        accountAccessService.requireAccess(userDetails, accountId);
+        CloudAccount account = accountAccessService.requireAwsAccess(userDetails, accountId);
 
         log.info("AutoSpottingController.updateRispRespectSettings called with accountId={}, request={}", 
                 accountId, request);
@@ -712,7 +790,7 @@ public class AutoSpottingController {
             Boolean respectRiSp = (Boolean) request.get("respectRiSpCommitments");
             Integer threshold = (Integer) request.get("riSpUtilizationThreshold");
 
-            autoSpottingService.updateRispRespectSettings(accountId, respectRiSp, threshold);
+            autoSpottingService.updateRispRespectSettings(account, respectRiSp, threshold);
 
             return ResponseEntity.ok(Map.of(
                     "success", true,
@@ -720,6 +798,8 @@ public class AutoSpottingController {
                     "respectRiSpCommitments", respectRiSp != null ? respectRiSp : false,
                     "riSpUtilizationThreshold", threshold != null ? threshold : 90));
 
+        } catch (AutoSpottingBlockedException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to update RI/SP respect settings: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of(

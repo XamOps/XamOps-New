@@ -5,6 +5,7 @@ import com.xammer.cloud.domain.DailySpotSavings;
 import com.xammer.cloud.dto.autospotting.CostResponse;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DailySpotSavingsRepository;
+import com.xammer.cloud.service.autospotting.AutoSpottingFeatureFlags;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -20,6 +21,10 @@ import java.util.List;
  * ensuring continuous data in the graph (not just event-based snapshots).
  *
  * Runs at 11:59 PM daily to record the day's savings.
+ *
+ * Gated by {@code autospotting.aws.savings-ledger.enabled} (default false): while it is off,
+ * no AWS row is written to {@code daily_spot_savings}, because the AWS savings figures are
+ * not yet reliable (AWS-13).
  */
 @Component
 @Slf4j
@@ -29,6 +34,7 @@ public class AutoSpottingScheduler {
     private final CloudAccountRepository cloudAccountRepository;
     private final DailySpotSavingsRepository savingsRepository;
     private final AutoSpottingService autoSpottingService;
+    private final AutoSpottingFeatureFlags featureFlags;
 
     /**
      * Runs every day at 11:59 PM to record daily savings for all AWS accounts with AutoSpotting enabled.
@@ -37,6 +43,11 @@ public class AutoSpottingScheduler {
     @Scheduled(cron = "0 59 23 * * *")
     public void recordDailySavings() {
         LocalDate today = LocalDate.now();
+        if (!featureFlags.isAwsSavingsLedgerEnabled()) {
+            log.info("[AWS AutoSpotting Scheduler] Savings ledger disabled "
+                    + "(autospotting.aws.savings-ledger.enabled=false); skipping daily_spot_savings for {}", today);
+            return;
+        }
         log.info("🕐 [AWS AutoSpotting Scheduler] Starting daily savings calculation for {}", today);
 
         List<CloudAccount> awsAccounts = cloudAccountRepository.findAll().stream()
@@ -56,7 +67,7 @@ public class AutoSpottingScheduler {
                     account.getAccountName(), account.getAwsAccountId());
 
                 // Get cost data which includes all ASGs with their current savings
-                CostResponse costData = autoSpottingService.getCostData(account.getId());
+                CostResponse costData = autoSpottingService.getCostData(account);
 
                 if (costData == null || costData.getSummary() == null) {
                     log.debug("⏭️  [AWS Scheduler] No cost data for account {}, skipping", account.getAwsAccountId());
@@ -112,6 +123,11 @@ public class AutoSpottingScheduler {
      * @param endDate End date for backfill
      */
     public void backfillHistoricalSavings(Long accountId, LocalDate startDate, LocalDate endDate) {
+        if (!featureFlags.isAwsSavingsLedgerEnabled()) {
+            log.info("[AWS AutoSpotting Scheduler] Savings ledger disabled "
+                    + "(autospotting.aws.savings-ledger.enabled=false); skipping backfill for account {}", accountId);
+            return;
+        }
         log.info("🔄 [AWS Scheduler] Starting backfill for account {} from {} to {}",
                 accountId, startDate, endDate);
 
@@ -126,7 +142,7 @@ public class AutoSpottingScheduler {
             final LocalDate processingDate = currentDate;
             try {
                 // Get cost data
-                CostResponse costData = autoSpottingService.getCostData(account.getId());
+                CostResponse costData = autoSpottingService.getCostData(account);
 
                 if (costData != null && costData.getSummary() != null) {
                     double hourlyActualSavings = costData.getSummary().getTotalActualSavings();

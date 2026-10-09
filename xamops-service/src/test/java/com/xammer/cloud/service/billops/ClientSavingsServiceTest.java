@@ -25,6 +25,8 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -92,6 +94,30 @@ class ClientSavingsServiceTest {
         assertThat(result.getRealizedTotal()).isEqualTo(150.0);
     }
 
+    @Test
+    void getSavings_excludesAzureSpotRows() {
+        // Azure AutoSpotting was removed: an Azure account's daily_spot_savings rows must
+        // not be read or counted toward realized savings.
+        CloudAccount aws = makeAccount(1L, "AWS", "123456789012");
+        CloudAccount azure = makeAccount(3L, "Azure", "sub-1");
+        when(cloudAccountRepository.findByClientId(99L)).thenReturn(List.of(aws, azure));
+        LocalDate start = LocalDate.of(2025, 4, 1);
+        LocalDate end = LocalDate.of(2025, 4, 7);
+        DailySpotSavings awsSaving = new DailySpotSavings();
+        awsSaving.setAmountSaved(100.0);
+        awsSaving.setDate(start);
+        when(dailySpotSavingsRepository.findByAccountIdAndDateBetweenOrderByDateAsc(1L, start, end))
+            .thenReturn(List.of(awsSaving));
+        when(ebsVolumeActionRepository.findByAccountIdAndStatusAndInitiatedAtBetween(
+            anyLong(), anyString(), any(Instant.class), any(Instant.class)))
+            .thenReturn(List.of());
+        when(cachedDataRepository.findById(anyString())).thenReturn(Optional.empty());
+        ClientSavingsDashboardDto result = service.getSavings(99L, start, end);
+        assertThat(result.getRealizedSpotAws()).isEqualTo(100.0);
+        assertThat(result.getRealizedTotal()).isEqualTo(100.0);
+        verify(dailySpotSavingsRepository, never())
+            .findByAccountIdAndDateBetweenOrderByDateAsc(eq(3L), any(), any());
+    }
     @Test
     void getSavings_sumsPotentialRightsizingFromCachedData() throws Exception {
         CloudAccount gcp = makeAccount(2L, "GCP", "my-project");

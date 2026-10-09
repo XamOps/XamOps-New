@@ -8,16 +8,21 @@ import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
 import com.xammer.cloud.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -188,5 +193,105 @@ class CloudAccountAccessServiceTest {
 
         assertThat(service.canAccess(caller("ROLE_USER"), account(ACCOUNT_ID, CALLER_CLIENT_ID)))
                 .isFalse();
+    }
+
+    // ── requireAwsAccess: the AWS AutoSpotting account-id contract ───────────
+
+    private static final String AWS_ID = "012345678901";
+    private static final String DENIED = "Account not found or access denied.";
+
+    private CloudAccount awsAccount(String awsAccountId, Long clientId, String provider) {
+        CloudAccount account = account(ACCOUNT_ID, clientId);
+        account.setAwsAccountId(awsAccountId);
+        account.setProvider(provider);
+        return account;
+    }
+
+    private void givenStored(CloudAccount account) {
+        when(cloudAccountRepository.findByAwsAccountId(anyString())).thenReturn(List.of());
+        when(cloudAccountRepository.findByAwsAccountId(account.getAwsAccountId())).thenReturn(List.of(account));
+    }
+
+    @Test
+    void requireAwsAccess_rootOwnerReachesOwnAwsAccount() {
+        CloudAccount stored = awsAccount(AWS_ID, CALLER_CLIENT_ID, "AWS");
+        givenStored(stored);
+        givenNoExplicitGrants();
+        givenRootUser();
+
+        assertThat(service.requireAwsAccess(caller("ROLE_USER"), AWS_ID)).isSameAs(stored);
+    }
+
+    @Test
+    void requireAwsAccess_anotherClientsAccount_isDenied() {
+        givenStored(awsAccount(AWS_ID, OTHER_CLIENT_ID, "AWS"));
+        givenNoExplicitGrants();
+        givenRootUser();
+
+        assertThatThrownBy(() -> service.requireAwsAccess(caller("ROLE_USER"), AWS_ID))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessage(DENIED);
+    }
+
+    @Test
+    void requireAwsAccess_superAdminReachesAnyAccount() {
+        CloudAccount stored = awsAccount(AWS_ID, OTHER_CLIENT_ID, "AWS");
+        givenStored(stored);
+
+        assertThat(service.requireAwsAccess(caller("ROLE_SUPER_ADMIN"), AWS_ID)).isSameAs(stored);
+    }
+
+    @Test
+    void requireAwsAccess_leadingZeroAccount_resolvesFromBothForms() {
+        CloudAccount stored = awsAccount(AWS_ID, OTHER_CLIENT_ID, "AWS");
+        givenStored(stored);
+
+        assertThat(service.requireAwsAccess(caller("ROLE_SUPER_ADMIN"), "012345678901")).isSameAs(stored);
+        assertThat(service.requireAwsAccess(caller("ROLE_SUPER_ADMIN"), "12345678901")).isSameAs(stored);
+        assertThat(service.requireAwsAccess(caller("ROLE_SUPER_ADMIN"), " 12345678901 ")).isSameAs(stored);
+    }
+
+    @Test
+    void requireAwsAccess_invalidIdentifiers_areDeniedWithTheSameMessage() {
+        for (String bad : java.util.Arrays.asList("abc", "1234567890123", "", "   ", "-12345", null)) {
+            assertThatThrownBy(() -> service.requireAwsAccess(caller("ROLE_SUPER_ADMIN"), bad))
+                    .as("identifier %s", bad)
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessage(DENIED);
+        }
+        verify(cloudAccountRepository, never()).findByAwsAccountId(any());
+    }
+
+    @Test
+    void requireAwsAccess_nonAwsRowIsIgnored() {
+        givenStored(awsAccount(AWS_ID, CALLER_CLIENT_ID, "GCP"));
+
+        assertThatThrownBy(() -> service.requireAwsAccess(caller("ROLE_SUPER_ADMIN"), AWS_ID))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessage(DENIED);
+    }
+
+    @Test
+    void requireAwsAccess_unknownAccount_isDenied() {
+        when(cloudAccountRepository.findByAwsAccountId(anyString())).thenReturn(List.of());
+
+        assertThatThrownBy(() -> service.requireAwsAccess(caller("ROLE_SUPER_ADMIN"), "999999999999"))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessage(DENIED);
+    }
+
+    @Test
+    void requireAwsAccess_nullPrincipal_requiresAuthentication() {
+        assertThatThrownBy(() -> service.requireAwsAccess(null, AWS_ID))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessage("Authentication required.");
+        verifyNoInteractions(cloudAccountRepository);
+    }
+
+    @Test
+    void normalizeAwsAccountId_padsToTwelveDigits() {
+        assertThat(CloudAccountAccessService.normalizeAwsAccountId("12345678901")).isEqualTo(AWS_ID);
+        assertThat(CloudAccountAccessService.normalizeAwsAccountId(" 7 ")).isEqualTo("000000000007");
+        assertThat(CloudAccountAccessService.normalizeAwsAccountId("１２３")).isNull();
     }
 }

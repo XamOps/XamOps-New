@@ -4,6 +4,7 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.permissions.AwsPermissionCatalog;
 import com.xammer.cloud.permissions.AwsPermissionInterceptor;
 import com.xammer.cloud.permissions.XamOpsExecutionAttributes;
+import com.xammer.cloud.service.autospotting.AutoSpottingBlockedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -207,49 +208,39 @@ public class AwsClientProvider {
     // ================= AutoSpotting-specific clients =================
 
     /**
-     * Creates an AutoScalingClient for the customer account using the AutoSpotting
-     * cross-account role.
-     * This is used to list, enable, and disable AutoSpotting on ASGs in the
-     * customer account.
+     * Auto Scaling client for AutoSpotting writes (tagging, MixedInstancesPolicy updates).
+     *
+     * <p>
+     * Writes reuse the read-path credentials on purpose: the role ARN and ExternalId that
+     * onboarding stored for this account, assumed through the cached
+     * {@code StsAssumeRoleCredentialsProvider} with permission tracking. The old path
+     * assumed a role name derived from the account number with the account number as the
+     * ExternalId. That never matched the random UUID onboarding issues, so AssumeRole
+     * failed, and a guessable ExternalId is the confused-deputy pattern ExternalId exists to
+     * prevent (AWS-04/05, XC-13/25). Its clients were also built per call and never closed.
+     *
+     * <p>
+     * The connection must be read-write and verified (CONNECTED, with a stored role ARN and
+     * ExternalId). Otherwise this fails before any AWS call, with a typed error the
+     * AutoSpotting controller maps to 409.
+     *
+     * @throws AutoSpottingBlockedException {@code AUTOSPOTTING_READ_ONLY_CONNECTION} or
+     *                                      {@code AUTOSPOTTING_CONNECTION_NOT_VERIFIED}
      */
-    public AutoScalingClient getAutoSpottingAsgClient(String customerAccountId, String region, String accessType) {
-        logger.info("Creating AutoSpotting ASG client for customerAccountId={} region={} accessType={}",
-                customerAccountId, region, accessType);
-
-        // ReadWrite-onboarded accounts use XamOpsReadWriteRole directly.
-        // ReadOnly-onboarded accounts must have deployed the AutoSpotting CF stack,
-        // which creates AutoSpotting-Execution-Role with the required permissions.
-        boolean isReadWrite = "read-write".equals(accessType);
-        String roleArn = isReadWrite
-                ? String.format("arn:aws:iam::%s:role/XamOpsReadWriteRole", customerAccountId)
-                : String.format("arn:aws:iam::%s:role/AutoSpotting-Execution-Role", customerAccountId);
-        logger.debug("Assuming role: {} (accessType={})", roleArn, accessType);
-
-        try {
-            AssumeRoleRequest.Builder roleRequestBuilder = AssumeRoleRequest.builder()
-                    .roleArn(roleArn)
-                    .roleSessionName("XamOps-AutoSpotting-Action");
-            if (isReadWrite) {
-                roleRequestBuilder.externalId(customerAccountId);
-            }
-            AssumeRoleRequest roleRequest = roleRequestBuilder.build();
-
-            AssumeRoleResponse roleResponse = stsClient.assumeRole(roleRequest);
-            logger.info("Successfully assumed AutoSpotting role for account {}", customerAccountId);
-
-            return AutoScalingClient.builder()
-                    .region(Region.of(region))
-                    .credentialsProvider(StaticCredentialsProvider.create(
-                            AwsSessionCredentials.create(
-                                    roleResponse.credentials().accessKeyId(),
-                                    roleResponse.credentials().secretAccessKey(),
-                                    roleResponse.credentials().sessionToken())))
-                    .build();
-        } catch (Exception e) {
-            logger.error("Failed to assume AutoSpotting role for account {} in region {}: {}",
-                    customerAccountId, region, e.getMessage(), e);
-            throw new RuntimeException("Failed to create AutoSpotting ASG client: " + e.getMessage(), e);
+    public AutoScalingClient getAutoScalingWriteClient(CloudAccount account, String region) {
+        if (account == null || !"read-write".equalsIgnoreCase(account.getAccessType())) {
+            throw AutoSpottingBlockedException.readOnlyConnection();
         }
+        if (!"CONNECTED".equalsIgnoreCase(account.getStatus())
+                || isBlank(account.getRoleArn())
+                || isBlank(account.getExternalId())) {
+            throw AutoSpottingBlockedException.connectionNotVerified();
+        }
+        return getAutoScalingClient(account, region);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     public DynamoDbClient getHostDynamoDbClient() {

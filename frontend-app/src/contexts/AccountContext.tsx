@@ -83,7 +83,7 @@ const PROVIDER_PAGE_MAP: ProviderRoutes[] = [
   { AWS: '/cloudmap', GCP: '/gcp-cloudmap' },
   { AWS: '/dataops', GCP: '/gcp-dataops', Azure: '/azure-dataops' },
   { AWS: '/cloudsitter', GCP: '/gcp-cloudsitter', Azure: '/azure-cloudsitter' },
-  { AWS: '/spot-automation', GCP: '/gcp-autospotting', Azure: '/azure-autospotting' },
+  { AWS: '/spot-automation', GCP: '/gcp-autospotting' },
 ];
 
 const providerDashboard = (provider: CloudProvider): string => {

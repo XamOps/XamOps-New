@@ -14,6 +14,10 @@ export interface GcpMIG {
     currentCost: number;
     savings: number;
     potentialSavings: number;
+    /** Belongs to a GKE node pool: GKE manages its VMs, so XamOps never converts it. */
+    gkeManagedPool: boolean;
+    /** The current template was created by XamOps AutoSpotting, so Disable may undo it. */
+    xamopsManagedTemplate: boolean;
     updating?: boolean;
 }
 
@@ -91,13 +95,19 @@ export const useGcpSpotAutomationData = ({ selectedAccountId }: UseGcpSpotAutoma
                 currentCost: mig.currentHourlyCost,
                 savings: mig.actualHourlySavings,
                 potentialSavings: mig.potentialHourlySavings,
+                // Name fallback covers MIG lists cached before the backend sent the flag.
+                gkeManagedPool: mig.gkeManagedPool ?? (typeof mig.name === 'string' && mig.name.startsWith('gke-')),
+                xamopsManagedTemplate: mig.xamopsManagedTemplate === true,
             }));
 
             setMigs(migData);
 
             const totalCurrent = migData.reduce((sum, item) => sum + item.currentCost, 0);
             const totalSavings = migData.reduce((sum, item) => sum + item.savings, 0);
-            const totalPotential = migData.reduce((sum, item) => sum + item.potentialSavings, 0);
+            // GKE node pools cannot be converted to Spot, so they add no potential savings.
+            const totalPotential = migData
+                .filter(m => !m.gkeManagedPool)
+                .reduce((sum, item) => sum + item.potentialSavings, 0);
 
             setCosts({
                 currentHourly: totalCurrent,

@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.xammer.cloud.config.HttpClient5Support;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.service.autospotting.AutoSpottingBlockedException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.springframework.http.*;
@@ -47,9 +48,12 @@ public class GcpRestTemplateService {
     }
 
     /**
-     * Get access token for API requests
+     * Get access token for API requests.
+     *
+     * <p>Package-private as a test seam: tests override it so no credentials are parsed and no
+     * token request leaves the JVM.
      */
-    private String getAccessToken(String projectId) throws IOException {
+    String getAccessToken(String projectId) throws IOException {
         Optional<CloudAccount> accountOpt = cloudAccountRepository.findByProviderAccountId(projectId);
         if (accountOpt.isEmpty()) {
             throw new RuntimeException("GCP account not found for project: " + projectId);
@@ -135,7 +139,7 @@ public class GcpRestTemplateService {
         } else {
             scheduling.addProperty("provisioningModel", "STANDARD");
             scheduling.addProperty("preemptible", false);
-            scheduling.addProperty("onHostMaintenance", "MIGRATE");
+            scheduling.addProperty("onHostMaintenance", onHostMaintenanceForStandard(sourceProperties));
             scheduling.addProperty("automaticRestart", true);
         }
         newProperties.add("scheduling", scheduling);
@@ -227,7 +231,47 @@ public class GcpRestTemplateService {
             cleanedProps.add("labels", sourceProperties.get("labels"));
         }
 
+        // Copy attached GPUs. Dropping them would turn a GPU workload into a CPU-only VM.
+        if (sourceProperties.has("guestAccelerators")) {
+            cleanedProps.add("guestAccelerators", sourceProperties.get("guestAccelerators").deepCopy());
+        }
+
         return cleanedProps;
+    }
+
+    /**
+     * Host-maintenance policy for a STANDARD (On-Demand) clone of {@code properties}.
+     *
+     * <p>Google documents that VMs with attached GPUs, bare-metal instances and H4D VMs can't be
+     * live-migrated, so they must use {@code TERMINATE}; the accelerator-optimized A and G series
+     * attach GPUs automatically, so their templates have no {@code guestAccelerators} entry but
+     * the same rule applies. Sending {@code MIGRATE} for any of them makes the template insert
+     * fail. Everything else keeps {@code MIGRATE}. Sources (paraphrased):
+     * https://docs.cloud.google.com/compute/docs/instances/live-migration-process and
+     * https://docs.cloud.google.com/compute/docs/gpus
+     */
+    static String onHostMaintenanceForStandard(JsonObject properties) {
+        if (properties == null) {
+            return "MIGRATE";
+        }
+        if (properties.has("guestAccelerators")
+                && properties.get("guestAccelerators").isJsonArray()
+                && !properties.getAsJsonArray("guestAccelerators").isEmpty()) {
+            return "TERMINATE";
+        }
+        if (properties.has("machineType") && properties.get("machineType").isJsonPrimitive()) {
+            String machineType = properties.get("machineType").getAsString();
+            machineType = machineType.substring(machineType.lastIndexOf('/') + 1).toLowerCase();
+            for (String series : new String[] {"a2-", "a3-", "a4-", "a4x-", "g2-", "g4-", "h4d-"}) {
+                if (machineType.startsWith(series)) {
+                    return "TERMINATE";
+                }
+            }
+            if (machineType.endsWith("-metal")) {
+                return "TERMINATE";
+            }
+        }
+        return "MIGRATE";
     }
 
     /**
@@ -378,45 +422,36 @@ public class GcpRestTemplateService {
     }
 
     /**
-     * Delete an instance template
-     */
-    public void deleteTemplate(String projectId, String region, String templateName) throws IOException {
-        String url;
-        if (region != null) {
-            url = String.format("%s/projects/%s/regions/%s/instanceTemplates/%s",
-                    COMPUTE_API_BASE, projectId, region, templateName);
-        } else {
-            url = String.format("%s/projects/%s/global/instanceTemplates/%s",
-                    COMPUTE_API_BASE, projectId, templateName);
-        }
-
-        try {
-            HttpHeaders headers = createHeaders(projectId);
-            HttpEntity<String> entity = new HttpEntity<>(headers);
-
-            log.info("🗑️ [GCP REST] Deleting old template: {}", templateName);
-            restTemplate.exchange(url, HttpMethod.DELETE, entity, String.class);
-            log.info("✅ [GCP REST] Template deleted: {}", templateName);
-        } catch (Exception e) {
-            log.warn("⚠️ [GCP REST] Failed to delete template {} (non-critical): {}", templateName, e.getMessage());
-        }
-    }
-
-    /**
-     * Trigger a zero-downtime rolling update on a MIG using GCP's native update policy.
+     * Point a MIG at {@code templateUrl} and let GCP replace its VMs with a PROACTIVE rolling
+     * update that never drops below the target size.
      *
-     * Instead of recreateInstances (which kills everything at once), we PATCH the MIG
-     * with a PROACTIVE update policy (maxSurge=1, maxUnavailable=0). GCP will then
-     * replace instances one-by-one, bringing a new one UP before taking the old one DOWN.
+     * <p>Policy:
+     * <ul>
+     *   <li>Zonal MIG: {@code maxSurge.fixed=1}, {@code maxUnavailable.fixed=0}.</li>
+     *   <li>Regional MIG: {@code maxSurge.fixed=numZones}, {@code maxUnavailable.fixed=0}. Google
+     *       requires each fixed value on a regional MIG to be 0 or at least the zone count, so
+     *       one surge VM per zone is the smallest valid surge. {@code maxUnavailable=0} with a
+     *       positive surge means a replacement is running before an old VM is removed, so
+     *       capacity is kept. (The previous 0 / numZones policy deleted VMs before their
+     *       replacements existed.)</li>
+     *   <li>Regional MIG with an unknown zone count ({@code numZones <= 0}): refused with
+     *       {@link IllegalStateException} before any request, instead of guessing.</li>
+     * </ul>
+     * {@code minReadySeconds} is not sent: it is not a field of the v1 updatePolicy.
      *
-     * This is the equivalent of AWS AutoScaling "RefreshInstances" with
-     * minHealthyPercentage=100%.
+     * <p>HTTP 409 or 412 from the PATCH means another update is running or the MIG changed
+     * underneath us. That is a {@link AutoSpottingBlockedException#gcpUpdateConflict} (the MIG
+     * was not changed), never a silent success.
      */
     public void startRollingUpdate(String projectId, String zone, String migName,
                                    String templateUrl, int numZones)
             throws IOException, InterruptedException {
 
         boolean isZonal = zone.split("-").length == 3;
+        if (!isZonal && numZones <= 0) {
+            throw new IllegalStateException("Cannot determine the zone count for regional MIG " + migName
+                    + "; refusing to start a rollout");
+        }
 
         String url;
         if (isZonal) {
@@ -427,40 +462,20 @@ public class GcpRestTemplateService {
                     COMPUTE_API_BASE, projectId, zone, migName);
         }
 
-        // ── Update policy ────────────────────────────────────────────────────────
-        // GCP rule (all regions): maxSurge.fixed and maxUnavailable.fixed must each be
-        // 0 OR >= numZones for regional MIGs. Any value between 1 and numZones-1 → 400.
-        //
-        // Strategy chosen for AutoSpotting:
-        //   Zonal   → maxSurge=1, maxUnavailable=0  (zero-downtime: new VM up before old is down)
-        //   Regional → maxSurge=0, maxUnavailable=numZones  (no surge cost; replace 1 row at a time)
+        int surge = isZonal ? 1 : numZones;
         JsonObject updatePolicy = new JsonObject();
         updatePolicy.addProperty("type", "PROACTIVE");
-        updatePolicy.addProperty("minReadySeconds", 30);
 
-        if (isZonal) {
-            JsonObject maxSurge = new JsonObject();
-            maxSurge.addProperty("fixed", 1);
-            updatePolicy.add("maxSurge", maxSurge);
+        JsonObject maxSurge = new JsonObject();
+        maxSurge.addProperty("fixed", surge);
+        updatePolicy.add("maxSurge", maxSurge);
 
-            JsonObject maxUnavailable = new JsonObject();
-            maxUnavailable.addProperty("fixed", 0);
-            updatePolicy.add("maxUnavailable", maxUnavailable);
+        JsonObject maxUnavailable = new JsonObject();
+        maxUnavailable.addProperty("fixed", 0);
+        updatePolicy.add("maxUnavailable", maxUnavailable);
 
-            log.info("🔄 [GCP REST] Rolling update: zonal MIG {} — maxSurge=1 maxUnavailable=0 (zero-downtime)", migName);
-        } else {
-            // Regional: maxSurge=0 (always valid), maxUnavailable=numZones (always valid, = 1 per zone)
-            int effectiveZones = numZones > 0 ? numZones : 3; // fallback to 3 if unknown
-            JsonObject maxSurge = new JsonObject();
-            maxSurge.addProperty("fixed", 0);
-            updatePolicy.add("maxSurge", maxSurge);
-
-            JsonObject maxUnavailable = new JsonObject();
-            maxUnavailable.addProperty("fixed", effectiveZones);
-            updatePolicy.add("maxUnavailable", maxUnavailable);
-
-            log.info("🔄 [GCP REST] Rolling update: regional MIG {} ({} zones) — maxSurge=0 maxUnavailable={} (1 row at a time)", migName, effectiveZones, effectiveZones);
-        }
+        log.info("🔄 [GCP REST] Rolling update: {} MIG {} — maxSurge={} maxUnavailable=0 (capacity kept)",
+                isZonal ? "zonal" : "regional (" + numZones + " zones)", migName, surge);
 
         JsonObject body = new JsonObject();
         body.addProperty("instanceTemplate", templateUrl);
@@ -473,11 +488,11 @@ public class GcpRestTemplateService {
         try {
             response = restTemplate.exchange(url, HttpMethod.PATCH, entity, String.class);
         } catch (HttpClientErrorException e) {
-            // 409 means another update is already in progress — that is fine, the template
-            // change will still take effect when that update finishes.
-            if (e.getStatusCode().value() == 409) {
-                log.warn("⚠️ [GCP REST] Rolling update 409 Conflict (another update in progress) — template will apply when current update completes.");
-                return;
+            int code = e.getStatusCode().value();
+            if (code == 409 || code == 412) {
+                log.warn("⚠️ [GCP REST] Rolling update PATCH on {} refused with {} (update in progress or "
+                        + "MIG changed); the MIG was not changed", migName, code);
+                throw AutoSpottingBlockedException.gcpUpdateConflict(migName);
             }
             log.error("❌ [GCP REST] Rolling update PATCH failed: {} — {}", e.getStatusCode(), e.getResponseBodyAsString());
             throw new RuntimeException("Rolling update PATCH failed (" + e.getStatusCode() + "): " + e.getResponseBodyAsString());
@@ -489,7 +504,7 @@ public class GcpRestTemplateService {
         // Wait for the PATCH operation to be accepted (actual instance replacement is async).
         waitForOperation(projectId, operation);
 
-        log.info("✅ [GCP REST] Rolling update accepted. Instances will be replaced gradually with minUnavailable=0.");
+        log.info("✅ [GCP REST] Rolling update accepted. Instances will be replaced gradually with maxUnavailable=0.");
     }
 
     /**
@@ -530,7 +545,15 @@ public class GcpRestTemplateService {
     public boolean isSpotTemplate(String projectId, String region, String templateName) throws IOException {
         // NOTE: Do NOT catch exceptions here — callers rely on exceptions propagating
         // so they can fall back to the Java SDK check if the REST call fails.
-        JsonObject template = getInstanceTemplate(projectId, region, templateName);
+        return isSpotTemplateJson(getInstanceTemplate(projectId, region, templateName));
+    }
+
+    /**
+     * True when the REST template JSON is SPOT ({@code provisioningModel=SPOT}) or legacy
+     * preemptible.
+     */
+    static boolean isSpotTemplateJson(JsonObject template) {
+        if (template == null) return false;
         JsonObject properties = template.getAsJsonObject("properties");
         if (properties == null) return false;
 

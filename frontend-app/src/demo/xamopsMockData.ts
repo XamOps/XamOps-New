@@ -2304,28 +2304,6 @@ export const demoAzureAlertsData = {
   ],
 };
 
-// ─── Azure AutoSpotting (/api/azure/autospotting/vmss/all-regions) ────────────
-// Field names must match what useAzureSpotAutomationData reads exactly
-export const demoAzureAutoSpottingVmss = [
-  { name: 'prod-worker-vmss',  resourceGroup: 'rg-production', region: 'East US',     isEnabled: true,  aksManaged: false, instanceCount: 4, spotInstanceCount: 3, ondemandInstanceCount: 1, vmSku: 'Standard_D4s_v3', currentHourlyCost: 0.52, actualHourlySavings: 0.31, potentialHourlySavings: 0.42 },
-  { name: 'batch-jobs-vmss',   resourceGroup: 'rg-production', region: 'East US',     isEnabled: true,  aksManaged: false, instanceCount: 6, spotInstanceCount: 5, ondemandInstanceCount: 1, vmSku: 'Standard_D8s_v3', currentHourlyCost: 0.71, actualHourlySavings: 0.48, potentialHourlySavings: 0.58 },
-  { name: 'staging-api-vmss',  resourceGroup: 'rg-staging',    region: 'West Europe', isEnabled: false, aksManaged: false, instanceCount: 2, spotInstanceCount: 0, ondemandInstanceCount: 2, vmSku: 'Standard_D2s_v3', currentHourlyCost: 0.22, actualHourlySavings: 0.00, potentialHourlySavings: 0.13 },
-];
-
-// Field names must match what useAzureSpotAutomationData.fetchHistoryData reads: data.data_points, data.summary
-export const demoAzureAutoSpottingHistory = {
-  data_points: [
-    { timestamp: new Date(Date.now() - 6 * 86400_000).toISOString(), total_actual_savings: 0.72, total_potential_savings: 1.10 },
-    { timestamp: new Date(Date.now() - 5 * 86400_000).toISOString(), total_actual_savings: 0.80, total_potential_savings: 1.18 },
-    { timestamp: new Date(Date.now() - 4 * 86400_000).toISOString(), total_actual_savings: 0.75, total_potential_savings: 1.14 },
-    { timestamp: new Date(Date.now() - 3 * 86400_000).toISOString(), total_actual_savings: 0.83, total_potential_savings: 1.22 },
-    { timestamp: new Date(Date.now() - 2 * 86400_000).toISOString(), total_actual_savings: 0.91, total_potential_savings: 1.35 },
-    { timestamp: new Date(Date.now() - 1 * 86400_000).toISOString(), total_actual_savings: 0.87, total_potential_savings: 1.30 },
-    { timestamp: new Date().toISOString(),                            total_actual_savings: 0.94, total_potential_savings: 1.42 },
-  ],
-  summary: { total_savings: 17.4, average_hourly_savings: 0.87, peak_savings: 1.42 },
-};
-
 // ─── AKS Clusters (/api/xamops/aks/clusters) ─────────────────────────────────
 export const demoAksClusters = [
   { name: 'aks-prod-cluster',    resourceGroup: 'rg-production', location: 'eastus',       kubernetesVersion: '1.28.5', provisioningState: 'Succeeded', nodeCount: 5, connected: true  },

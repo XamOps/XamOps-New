@@ -46,8 +46,12 @@ import com.xammer.cloud.repository.CachedDataRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DailySpotSavingsRepository;
 import com.xammer.cloud.repository.SpotOptimizationEventRepository;
+import com.xammer.cloud.service.autospotting.AutoSpottingFeatureFlags;
 
 import software.amazon.awssdk.services.autoscaling.AutoScalingClient;
+import software.amazon.awssdk.services.autoscaling.model.DeleteTagsRequest;
+import software.amazon.awssdk.services.autoscaling.model.DescribeAutoScalingGroupsRequest;
+import software.amazon.awssdk.services.autoscaling.model.UpdateAutoScalingGroupRequest;
 import software.amazon.awssdk.services.costexplorer.CostExplorerClient;
 import software.amazon.awssdk.services.costexplorer.model.DateInterval;
 import software.amazon.awssdk.services.costexplorer.model.GetReservationCoverageResponse;
@@ -76,6 +80,7 @@ public class AutoSpottingService {
     private final RedisCacheService redisCacheService;
     private final CachedDataRepository cachedDataRepository;
     private final ObjectMapper objectMapper;
+    private final AutoSpottingFeatureFlags featureFlags;
 
     // Redis cache key prefixes for SpotAutomation page data
     private static final String CACHE_KEY_ASG_LIST          = "autospotting-asgs-";
@@ -112,7 +117,8 @@ public class AutoSpottingService {
             com.xammer.cloud.repository.AsgSpotConfigRepository asgSpotConfigRepository,
             RedisCacheService redisCacheService,
             CachedDataRepository cachedDataRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            AutoSpottingFeatureFlags featureFlags) {
         this.awsClientProvider = awsClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.spotPricingService = spotPricingService;
@@ -123,42 +129,33 @@ public class AutoSpottingService {
         this.redisCacheService = redisCacheService;
         this.cachedDataRepository = cachedDataRepository;
         this.objectMapper = objectMapper;
+        this.featureFlags = featureFlags;
         logger.info("AutoSpottingService initialized with table={} tagKey={} tagValue={} namespace={}",
                 tableName, tagKey, tagValue, metricNamespace);
     }
 
     // ================= HELPER METHODS =================
     /**
-     * Resolve CloudAccount by AWS account ID ✅ UPDATED: Handles leading zero
-     * mismatch (e.g. input 157... finds DB 0157...)
+     * Cache and snapshot key suffix for an account: the 12-digit AWS account number as
+     * stored, leading zeros kept. Callers resolve the account through
+     * {@code CloudAccountAccessService.requireAwsAccess} (controller) or iterate stored
+     * AWS rows (scheduler, cache refresh), so this is never a primary key.
      */
-    private CloudAccount getByAwsAccountId(Long awsAccountId) {
-        String idStr = String.valueOf(awsAccountId);
-        logger.debug("Resolving CloudAccount for awsAccountId={}", idStr);
+    private static String cacheId(CloudAccount account) {
+        return account.getAwsAccountId();
+    }
 
-        // 1. Try finding by the direct numeric string (e.g., "15764906357")
-        Optional<CloudAccount> account = cloudAccountRepository.findByAwsAccountId(idStr).stream().findFirst();
-
-        if (account.isPresent()) {
-            return account.get();
+    /** Cheap sanity check at public entry points: this service only handles AWS rows. */
+    private static void requireAws(CloudAccount account) {
+        if (account == null) {
+            throw new IllegalArgumentException("AWS account is required");
         }
-
-        // 2. If not found, try padding with leading zero to 12 digits (e.g.,
-        // "015764906357")
-        // AWS Account IDs are always 12 digits.
-        String paddedId = String.format("%012d", awsAccountId);
-        if (!paddedId.equals(idStr)) {
-            logger.debug("Account not found as '{}'. Trying padded ID: '{}'", idStr, paddedId);
-            account = cloudAccountRepository.findByAwsAccountId(paddedId).stream().findFirst();
-            if (account.isPresent()) {
-                logger.debug("✓ Found account using padded ID: {}", paddedId);
-                return account.get();
-            }
+        if (!"AWS".equalsIgnoreCase(account.getProvider())) {
+            throw new IllegalArgumentException("AutoSpotting (AWS) called for a non-AWS account");
         }
-
-        // 3. Fail if neither is found
-        logger.error("No CloudAccount found for awsAccountId={} or padded ID={}", idStr, paddedId);
-        throw new RuntimeException("Account not found for AWS account " + idStr);
+        if (account.getAwsAccountId() == null || account.getAwsAccountId().isBlank()) {
+            throw new IllegalArgumentException("AWS account has no AWS account number");
+        }
     }
 
     // ================= REGISTRATION =================
@@ -166,11 +163,11 @@ public class AutoSpottingService {
      * Registers the customer AWS account ID into the Main Account's DynamoDB
      * table. AND updates the local PostgreSQL settings to enabled=true.
      */
-    public void registerCustomerAccount(Long cloudAccountId) {
+    public void registerCustomerAccount(CloudAccount account) {
+        requireAws(account);
         logger.info("=== AutoSpotting Registration Started ===");
-        logger.info("Customer AWS account ID to register: {}", cloudAccountId);
+        logger.info("Customer AWS account ID to register: {}", account.getAwsAccountId());
 
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
         logger.info("Resolved CloudAccount: id={}, awsAccountId={}, client={}",
                 account.getId(), account.getAwsAccountId(),
                 account.getClient() != null ? account.getClient().getName() : "null");
@@ -211,7 +208,7 @@ public class AutoSpottingService {
         } catch (Exception e) {
             logger.error("=== AutoSpotting Registration FAILED ===");
             logger.error("Failed to register account {} in AutoSpotting DB: {}",
-                    cloudAccountId, e.getMessage(), e);
+                    account.getAwsAccountId(), e.getMessage(), e);
             throw new RuntimeException("Failed to enable AutoSpotting: " + e.getMessage(), e);
         }
     }
@@ -222,46 +219,30 @@ public class AutoSpottingService {
      * Get current cost data using AWS SDK + SpotPricingService (in-house).
      * Convenience overload — reads from Redis cache.
      */
-    public CostResponse getCostData(Long cloudAccountId) {
-        return getCostData(cloudAccountId, false);
+    public CostResponse getCostData(CloudAccount account) {
+        return getCostData(account, false);
     }
 
     /**
      * Get current cost data using AWS SDK + SpotPricingService (in-house).
      * @param forceRefresh when true, bypasses Redis cache and fetches live from AWS.
      */
-    public CostResponse getCostData(Long cloudAccountId, boolean forceRefresh) {
-        String cacheKey = CACHE_KEY_COST + cloudAccountId;
-        String dbKey = "AUTOSPOTTING_COST::" + cloudAccountId;
+    public CostResponse getCostData(CloudAccount account, boolean forceRefresh) {
+        requireAws(account);
+        String dbKey = "AUTOSPOTTING_COST::" + cacheId(account);
 
         if (!forceRefresh) {
-            Optional<CostResponse> cached = redisCacheService.get(cacheKey, CostResponse.class);
+            Optional<CostResponse> cached = getCachedCostData(account);
             if (cached.isPresent()) {
-                logger.info("--- AUTOSPOTTING COST: loaded from Redis for cloudAccountId={} ---", cloudAccountId);
                 return cached.get();
-            }
-            try {
-                Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
-                if (dbCached.isPresent()) {
-                    CostResponse dbData = objectMapper.readValue(dbCached.get().getJsonData(), CostResponse.class);
-                    if (dbData != null) {
-                        redisCacheService.put(cacheKey, dbData, CACHE_TTL_MINUTES);
-                        logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
-                        return dbData;
-                    }
-                }
-            } catch (Exception dbEx) {
-                logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
             }
         }
 
         logger.info("=== Fetching Cost Data (In-House SDK) ===");
-        logger.info("CloudAccountId={}", cloudAccountId);
-
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
+        logger.info("AwsAccountId={}", account.getAwsAccountId());
 
         try {
-            List<AutoSpottingGroupDto> asgs = listAsgsAllRegions(cloudAccountId, forceRefresh);
+            List<AutoSpottingGroupDto> asgs = listAsgsAllRegions(account, forceRefresh);
 
             List<ASGCostData> asgCostDataList = new ArrayList<>();
             double totalCurrentHourlyCost = 0.0;
@@ -297,7 +278,7 @@ public class AutoSpottingService {
                     String.format("%.4f", totalCurrentHourlyCost),
                     String.format("%.4f", totalActualSavings));
 
-            redisCacheService.put(CACHE_KEY_COST + cloudAccountId, response, CACHE_TTL_MINUTES);
+            redisCacheService.put(CACHE_KEY_COST + cacheId(account), response, CACHE_TTL_MINUTES);
             try {
                 CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                 snapshot.setCacheKey(dbKey);
@@ -312,7 +293,7 @@ public class AutoSpottingService {
             logger.error("Failed to build cost data from SDK: {}", e.getMessage(), e);
             CostResponse fallback = buildCostResponseFromAwsSdk(account);
             if (fallback != null) {
-                redisCacheService.put(CACHE_KEY_COST + cloudAccountId, fallback, CACHE_TTL_MINUTES);
+                redisCacheService.put(CACHE_KEY_COST + cacheId(account), fallback, CACHE_TTL_MINUTES);
                 try {
                     CachedData snapshot = cachedDataRepository.findById(dbKey).orElse(new CachedData());
                     snapshot.setCacheKey(dbKey);
@@ -328,12 +309,44 @@ public class AutoSpottingService {
     }
 
     /**
+     * Cache-only cost read: Redis first, then the {@code AUTOSPOTTING_COST::} DB snapshot
+     * (which re-warms Redis). Never calls AWS, so the dashboard and the startup cache seed
+     * keep their latency and AWS load whatever the account's state.
+     *
+     * @return the cached cost data, or empty when neither cache has it.
+     */
+    public Optional<CostResponse> getCachedCostData(CloudAccount account) {
+        requireAws(account);
+        String cacheKey = CACHE_KEY_COST + cacheId(account);
+        String dbKey = "AUTOSPOTTING_COST::" + cacheId(account);
+
+        Optional<CostResponse> cached = redisCacheService.get(cacheKey, CostResponse.class);
+        if (cached.isPresent()) {
+            logger.info("--- AUTOSPOTTING COST: loaded from Redis for awsAccountId={} ---", account.getAwsAccountId());
+            return cached;
+        }
+        try {
+            Optional<CachedData> dbCached = cachedDataRepository.findById(dbKey);
+            if (dbCached.isPresent()) {
+                CostResponse dbData = objectMapper.readValue(dbCached.get().getJsonData(), CostResponse.class);
+                if (dbData != null) {
+                    redisCacheService.put(cacheKey, dbData, CACHE_TTL_MINUTES);
+                    logger.info("✅ DB snapshot hit — re-warmed Redis: {}", dbKey);
+                    return Optional.of(dbData);
+                }
+            }
+        } catch (Exception dbEx) {
+            logger.warn("DB cache miss for {}: {}", dbKey, dbEx.getMessage());
+        }
+        return Optional.empty();
+    }
+
+    /**
      * Get historical cost data from PostgreSQL DailySpotSavings
      */
-    public HistoryResponse getCostHistory(Long cloudAccountId, String start, String end, String interval) {
-        logger.info("Fetching cost history from PostgreSQL for cloudAccountId={}", cloudAccountId);
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
-
+    public HistoryResponse getCostHistory(CloudAccount account, String start, String end, String interval) {
+        requireAws(account);
+        logger.info("Fetching cost history from PostgreSQL for awsAccountId={}", account.getAwsAccountId());
         try {
             LocalDate startDate = (start != null && !start.isEmpty())
                     ? LocalDate.parse(start.substring(0, 10))
@@ -410,7 +423,7 @@ public class AutoSpottingService {
             double currentCost = 0.0;
             double onDemandCost = 0.0;
             try {
-                CostResponse currentCosts = getCostData(cloudAccountId);
+                CostResponse currentCosts = getCostData(account);
                 if (currentCosts != null && currentCosts.getSummary() != null) {
                     activeSavingsRate = currentCosts.getSummary().getTotalActualSavings();
                     activePotentialRate = currentCosts.getSummary().getTotalPotentialSavings();
@@ -509,13 +522,13 @@ public class AutoSpottingService {
     /**
      * Get monthly savings summary using API data
      */
-    public DashboardData.SavingsSummary getSavingsMetrics(Long cloudAccountId) {
+    public DashboardData.SavingsSummary getSavingsMetrics(CloudAccount account) {
         logger.info("=== Calculating Savings Metrics ===");
-        logger.info("CloudAccountId={}", cloudAccountId);
+        logger.info("AwsAccountId={}", account.getAwsAccountId());
 
         try {
             // Get current cost data from API
-            CostResponse costData = getCostData(cloudAccountId);
+            CostResponse costData = getCostData(account);
 
             if (costData == null || costData.getSummary() == null) {
                 logger.warn("No cost data available, returning zeros");
@@ -575,13 +588,11 @@ public class AutoSpottingService {
     /**
      * Lists ASGs with cost data using AWS SDK + SpotPricingService (in-house)
      */
-    public List<AutoSpottingGroupDto> listAsgsAllRegionsWithCosts(Long cloudAccountId) {
+    public List<AutoSpottingGroupDto> listAsgsAllRegionsWithCosts(CloudAccount account) {
         logger.info("=== Listing ASGs with Cost Data (In-House SDK) ===");
-        logger.info("CloudAccountId={}", cloudAccountId);
+        logger.info("AwsAccountId={}", account.getAwsAccountId());
 
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
-
-        List<AutoSpottingGroupDto> asgs = listAsgsAllRegions(cloudAccountId);
+        List<AutoSpottingGroupDto> asgs = listAsgsAllRegions(account);
 
         for (AutoSpottingGroupDto asg : asgs) {
             try {
@@ -607,30 +618,30 @@ public class AutoSpottingService {
      * Lists ASGs across regions where AutoSpotting member stack is deployed.
      * Convenience overload — reads from Redis cache.
      */
-    public List<AutoSpottingGroupDto> listAsgsAllRegions(Long cloudAccountId) {
-        return listAsgsAllRegions(cloudAccountId, false);
+    public List<AutoSpottingGroupDto> listAsgsAllRegions(CloudAccount account) {
+        return listAsgsAllRegions(account, false);
     }
 
     /**
      * Lists ASGs across regions where AutoSpotting member stack is deployed.
      * @param forceRefresh when true, bypasses Redis cache and fetches live from AWS.
      */
-    public List<AutoSpottingGroupDto> listAsgsAllRegions(Long cloudAccountId, boolean forceRefresh) {
-        String cacheKey = CACHE_KEY_ASG_LIST + cloudAccountId;
+    public List<AutoSpottingGroupDto> listAsgsAllRegions(CloudAccount account, boolean forceRefresh) {
+        requireAws(account);
+        String cacheKey = CACHE_KEY_ASG_LIST + cacheId(account);
 
         if (!forceRefresh) {
             Optional<List<AutoSpottingGroupDto>> cached = redisCacheService.get(cacheKey,
                     new com.fasterxml.jackson.core.type.TypeReference<List<AutoSpottingGroupDto>>() {});
             if (cached.isPresent()) {
-                logger.info("--- AUTOSPOTTING ASGS: loaded from Redis for cloudAccountId={} ---", cloudAccountId);
+                logger.info("--- AUTOSPOTTING ASGS: loaded from Redis for awsAccountId={} ---", account.getAwsAccountId());
                 return cached.get();
             }
         }
 
         logger.info("=== Listing ASGs via AWS SDK (Fallback) ===");
-        logger.info("CloudAccountId={}", cloudAccountId);
+        logger.info("AwsAccountId={}", account.getAwsAccountId());
 
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
         List<AutoSpottingGroupDto> allAsgs = new ArrayList<>();
 
         try {
@@ -661,7 +672,7 @@ public class AutoSpottingService {
             long enabledCount = allAsgs.stream().filter(a -> a.isEnabled).count();
             logger.info("=== Total: {} ASG(s) found, {} enabled ===", allAsgs.size(), enabledCount);
 
-            redisCacheService.put(CACHE_KEY_ASG_LIST + cloudAccountId, allAsgs, CACHE_TTL_MINUTES);
+            redisCacheService.put(CACHE_KEY_ASG_LIST + cacheId(account), allAsgs, CACHE_TTL_MINUTES);
             return allAsgs;
         } catch (Exception e) {
             logger.error("Failed to list ASGs: {}", e.getMessage(), e);
@@ -672,9 +683,8 @@ public class AutoSpottingService {
     /**
      * Lists ASGs in a specific region
      */
-    public List<AutoSpottingGroupDto> listAsgs(Long cloudAccountId, String region) {
-        logger.info("Listing ASGs for cloudAccountId={} region={}", cloudAccountId, region);
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
+    public List<AutoSpottingGroupDto> listAsgs(CloudAccount account, String region) {
+        logger.info("Listing ASGs for awsAccountId={} region={}", account.getAwsAccountId(), region);
         return listAsgsInRegion(account, region);
     }
 
@@ -744,29 +754,29 @@ public class AutoSpottingService {
      * (Spot/On-Demand)
      */
     /** Convenience overload — reads from Redis cache. */
-    public List<SpotInstanceDto> getSpotInstances(Long cloudAccountId) {
-        return getSpotInstances(cloudAccountId, false);
+    public List<SpotInstanceDto> getSpotInstances(CloudAccount account) {
+        return getSpotInstances(account, false);
     }
 
     /**
      * @param forceRefresh when true, bypasses Redis cache and fetches live from AWS.
      */
-    public List<SpotInstanceDto> getSpotInstances(Long cloudAccountId, boolean forceRefresh) {
-        String cacheKey = CACHE_KEY_INSTANCES + cloudAccountId;
+    public List<SpotInstanceDto> getSpotInstances(CloudAccount account, boolean forceRefresh) {
+        requireAws(account);
+        String cacheKey = CACHE_KEY_INSTANCES + cacheId(account);
 
         if (!forceRefresh) {
             Optional<List<SpotInstanceDto>> cached = redisCacheService.get(cacheKey,
                     new com.fasterxml.jackson.core.type.TypeReference<List<SpotInstanceDto>>() {});
             if (cached.isPresent()) {
-                logger.info("--- AUTOSPOTTING INSTANCES: loaded from Redis for cloudAccountId={} ---", cloudAccountId);
+                logger.info("--- AUTOSPOTTING INSTANCES: loaded from Redis for awsAccountId={} ---", account.getAwsAccountId());
                 return cached.get();
             }
         }
 
         logger.info("=== Listing Spot Instances ===");
-        logger.info("CloudAccountId={}", cloudAccountId);
+        logger.info("AwsAccountId={}", account.getAwsAccountId());
 
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
         List<SpotInstanceDto> allInstances = new ArrayList<>();
 
         try {
@@ -879,7 +889,7 @@ public class AutoSpottingService {
             }
 
             if (!allInstances.isEmpty()) {
-                redisCacheService.put(CACHE_KEY_INSTANCES + cloudAccountId, allInstances, CACHE_TTL_MINUTES);
+                redisCacheService.put(CACHE_KEY_INSTANCES + cacheId(account), allInstances, CACHE_TTL_MINUTES);
             }
             return allInstances;
 
@@ -973,8 +983,8 @@ public class AutoSpottingService {
     /**
      * Force refresh region cache
      */
-    public void refreshRegionCache(Long cloudAccountId) {
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
+    public void refreshRegionCache(CloudAccount account) {
+        requireAws(account);
         regionCache.remove(account.getAwsAccountId());
         logger.info("✓ Cleared region cache for account {}", account.getAwsAccountId());
     }
@@ -985,16 +995,18 @@ public class AutoSpottingService {
      * MixedInstancesPolicy so new/replacement instances launch as Spot 3.
      * Starts an instance refresh to gradually replace existing OD instances
      */
-    public void enableAutoSpotting(Long cloudAccountId, String region, String asgName) {
-        logger.info("Enabling AutoSpotting: account={} region={} asg={}", cloudAccountId, region, asgName);
+    public void enableAutoSpotting(CloudAccount account, String region, String asgName) {
+        requireAws(account);
+        logger.info("Enabling AutoSpotting: account={} region={} asg={}", account.getAwsAccountId(), region, asgName);
 
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
+        // Read-write + verified connection first, so a read-only account fails before any
+        // cloud read or DB write. The same cached client serves the EKS check and the writes.
+        AutoScalingClient asgClient = awsClientProvider.getAutoScalingWriteClient(account, region);
 
         // Guard: EKS-managed ASGs cannot be converted — same lock as GKE MIGs and AKS VMSS
         // Primary: check AWS tags (eks:cluster-name, kubernetes.io/cluster/*, eks:nodegroup-name)
         // Fallback: name prefix "eks-"
         try {
-            AutoScalingClient asgClient = awsClientProvider.getAutoScalingClient(account, region);
             var describeResp = asgClient.describeAutoScalingGroups(r -> r.autoScalingGroupNames(asgName));
             if (!describeResp.autoScalingGroups().isEmpty()) {
                 var tags = describeResp.autoScalingGroups().get(0).tags();
@@ -1015,10 +1027,10 @@ public class AutoSpottingService {
         // NEW FEATURE: Check RI/SP commitment utilization if feature is enabled
         AutoSpottingSettings settings = settingsRepository.findById(account.getId()).orElse(null);
         if (settings != null && settings.isRespectRiSpCommitments()) {
-            logger.info("RI/SP Respect is ENABLED for account {} - checking utilization before enabling Spot", cloudAccountId);
+            logger.info("RI/SP Respect is ENABLED for account {} - checking utilization before enabling Spot", account.getAwsAccountId());
             
             try {
-                RiSpCoverageResponse rispCoverage = getRiSpCoverage(cloudAccountId, false);
+                RiSpCoverageResponse rispCoverage = getRiSpCoverage(account, false);
                 double riUtilization = rispCoverage.getTotalRiUtilizationPercent() != null 
                     ? rispCoverage.getTotalRiUtilizationPercent() : 0.0;
                 double spUtilization = rispCoverage.getTotalSpUtilizationPercent() != null 
@@ -1051,14 +1063,11 @@ public class AutoSpottingService {
             }
         } else {
             logger.info("RI/SP Respect is DISABLED for account {} - proceeding with Spot conversion without RI/SP check", 
-                cloudAccountId);
+                account.getAwsAccountId());
         }
 
 
         try {
-            AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), region, account.getAccessType());
-
             // 1. Add the marker tag
             asgClient.createOrUpdateTags(req -> req.tags(
                     software.amazon.awssdk.services.autoscaling.model.Tag.builder()
@@ -1079,7 +1088,7 @@ public class AutoSpottingService {
             var asg = asgResponse.autoScalingGroups().get(0);
 
             // Get configured instance types for Spot diversification
-            List<String> configuredTypes = getConfiguredInstanceTypes(cloudAccountId, region, asgName);
+            List<String> configuredTypes = getConfiguredInstanceTypes(account, region, asgName);
             List<software.amazon.awssdk.services.autoscaling.model.LaunchTemplateOverrides> overrides = null;
             if (!configuredTypes.isEmpty()) {
                 overrides = configuredTypes.stream()
@@ -1091,7 +1100,7 @@ public class AutoSpottingService {
             }
 
             // Get Spot/On-Demand configuration
-            Map<String, Object> spotConfig = getSpotConfig(cloudAccountId, region, asgName);
+            Map<String, Object> spotConfig = getSpotConfig(account, region, asgName);
             int onDemandBase = 0;
             int onDemandPercentage = 0;
 
@@ -1244,9 +1253,9 @@ public class AutoSpottingService {
 
             // Evict ASG list, cost caches, and DB snapshot so next fetch goes to AWS
             // and returns the updated enabled state (not stale re-warmed cache data).
-            redisCacheService.evict(CACHE_KEY_ASG_LIST + cloudAccountId);
-            redisCacheService.evict(CACHE_KEY_COST + cloudAccountId);
-            cachedDataRepository.deleteById("AUTOSPOTTING_COST::" + cloudAccountId);
+            redisCacheService.evict(CACHE_KEY_ASG_LIST + cacheId(account));
+            redisCacheService.evict(CACHE_KEY_COST + cacheId(account));
+            cachedDataRepository.deleteById("AUTOSPOTTING_COST::" + cacheId(account));
 
         } catch (Exception e) {
             logger.error("Failed to enable AutoSpotting for {}: {}", asgName, e.getMessage(), e);
@@ -1264,9 +1273,8 @@ public class AutoSpottingService {
      *
      * @return number of new events backfilled
      */
-    public int backfillSpotEvents(Long cloudAccountId, String region, String asgName) {
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
-
+    public int backfillSpotEvents(CloudAccount account, String region, String asgName) {
+        requireAws(account);
         AutoScalingClient asgClient = awsClientProvider.getAutoScalingClient(account, region);
         var asgResponse = asgClient.describeAutoScalingGroups(req -> req.autoScalingGroupNames(asgName));
         if (asgResponse.autoScalingGroups().isEmpty()) {
@@ -1338,8 +1346,7 @@ public class AutoSpottingService {
      * Get configured instance types for an ASG. Returns alternative instance
      * types for Spot diversification.
      */
-    public List<String> getConfiguredInstanceTypes(Long cloudAccountId, String region, String asgName) {
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
+    public List<String> getConfiguredInstanceTypes(CloudAccount account, String region, String asgName) {
         return asgSpotConfigRepository
                 .findByAccountIdAndRegionAndAsgName(account.getId(), region, asgName)
                 .map(config -> {
@@ -1356,9 +1363,13 @@ public class AutoSpottingService {
      * types that will be used when enabling AutoSpotting.
      * @param applyImmediately if true, applies config to running ASG (if AutoSpotting enabled)
      */
-    public void saveInstanceTypeConfig(Long cloudAccountId, String region, String asgName, List<String> instanceTypes,
+    public void saveInstanceTypeConfig(CloudAccount account, String region, String asgName, List<String> instanceTypes,
                                        boolean applyImmediately) {
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
+        requireAws(account);
+        if (applyImmediately) {
+            // Fail before the DB save so a read-only connection gets the typed 409.
+            awsClientProvider.getAutoScalingWriteClient(account, region);
+        }
         com.xammer.cloud.domain.AsgSpotConfig config = asgSpotConfigRepository
                 .findByAccountIdAndRegionAndAsgName(account.getId(), region, asgName)
                 .orElse(new com.xammer.cloud.domain.AsgSpotConfig());
@@ -1405,7 +1416,7 @@ public class AutoSpottingService {
         // is never rolled back by an AWS API failure during apply.
         if (applyImmediately) {
             try {
-                applySpotConfiguration(cloudAccountId, region, asgName);
+                applySpotConfiguration(account, region, asgName);
             } catch (IllegalStateException e) {
                 logger.info("Config saved but not applied - AutoSpotting not enabled: {}", e.getMessage());
             } catch (Exception e) {
@@ -1420,8 +1431,7 @@ public class AutoSpottingService {
      * Get Spot/On-Demand configuration for an ASG.
      * Returns spotPercentage (0-100) or onDemandCount (fixed number).
      */
-    public Map<String, Object> getSpotConfig(Long cloudAccountId, String region, String asgName) {
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
+    public Map<String, Object> getSpotConfig(CloudAccount account, String region, String asgName) {
         return asgSpotConfigRepository
                 .findByAccountIdAndRegionAndAsgName(account.getId(), region, asgName)
                 .map(config -> {
@@ -1453,10 +1463,14 @@ public class AutoSpottingService {
      * Either spotPercentage (0-100) OR onDemandCount (fixed number) should be provided.
      * @param applyImmediately if true, applies config to running ASG (if AutoSpotting enabled)
      */
-    public void saveSpotConfig(Long cloudAccountId, String region, String asgName,
+    public void saveSpotConfig(CloudAccount account, String region, String asgName,
                                 Integer spotPercentage, Integer onDemandCount,
                                 boolean applyImmediately) {
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
+        requireAws(account);
+        if (applyImmediately) {
+            // Fail before the DB save so a read-only connection gets the typed 409.
+            awsClientProvider.getAutoScalingWriteClient(account, region);
+        }
         com.xammer.cloud.domain.AsgSpotConfig config = asgSpotConfigRepository
                 .findByAccountIdAndRegionAndAsgName(account.getId(), region, asgName)
                 .orElse(new com.xammer.cloud.domain.AsgSpotConfig());
@@ -1525,7 +1539,7 @@ public class AutoSpottingService {
         // is never rolled back by an AWS API failure during apply.
         if (applyImmediately) {
             try {
-                applySpotConfiguration(cloudAccountId, region, asgName);
+                applySpotConfiguration(account, region, asgName);
             } catch (IllegalStateException e) {
                 logger.info("Config saved but not applied - AutoSpotting not enabled: {}", e.getMessage());
             } catch (Exception e) {
@@ -1539,14 +1553,16 @@ public class AutoSpottingService {
      * Only works if AutoSpotting is already enabled for this ASG.
      * Updates the MixedInstancesPolicy and triggers instance refresh.
      */
-    public void applySpotConfiguration(Long cloudAccountId, String region, String asgName) {
+    public void applySpotConfiguration(CloudAccount account, String region, String asgName) {
+        requireAws(account);
         logger.info("Applying Spot configuration to running ASG: account={} region={} asg={}",
-                cloudAccountId, region, asgName);
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
+                account.getAwsAccountId(), region, asgName);
+
+        // Outside the try: a read-only or unverified connection must surface as the typed
+        // error, without a FAILED audit row for an update that was never attempted.
+        AutoScalingClient asgClient = awsClientProvider.getAutoScalingWriteClient(account, region);
 
         try {
-            AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), region, account.getAccessType());
 
             // 1. Fetch current ASG configuration
             var asgResponse = asgClient.describeAutoScalingGroups(req -> req.autoScalingGroupNames(asgName));
@@ -1574,7 +1590,7 @@ public class AutoSpottingService {
             }
 
             // 3. Get configured instance types for Spot diversification
-            List<String> configuredTypes = getConfiguredInstanceTypes(cloudAccountId, region, asgName);
+            List<String> configuredTypes = getConfiguredInstanceTypes(account, region, asgName);
             List<software.amazon.awssdk.services.autoscaling.model.LaunchTemplateOverrides> overrides = null;
             if (!configuredTypes.isEmpty()) {
                 overrides = configuredTypes.stream()
@@ -1586,7 +1602,7 @@ public class AutoSpottingService {
             }
 
             // 4. Get Spot/On-Demand configuration
-            Map<String, Object> spotConfig = getSpotConfig(cloudAccountId, region, asgName);
+            Map<String, Object> spotConfig = getSpotConfig(account, region, asgName);
             int onDemandBase = 0;
             int onDemandPercentage = 0;
 
@@ -1752,47 +1768,72 @@ public class AutoSpottingService {
     }
 
     /**
-     * Disable AutoSpotting: 1. Removes the spot-enabled tag 2. Sets
-     * OnDemandPercentageAboveBaseCapacity=100 so new instances launch as OD
+     * Disable AutoSpotting, policy first and tag second, so a failure never leaves an ASG
+     * that looks disabled but still launches Spot.
+     *
+     * <ol>
+     *   <li>Resolve the write client (read-write, verified connection) before any AWS call.</li>
+     *   <li>Describe the ASG; an unknown name fails with {@link IllegalArgumentException}.</li>
+     *   <li>If it has a MixedInstancesPolicy, set OnDemandBase 0 / OnDemand% 100. A failure
+     *       propagates and the tag stays, so the UI keeps showing the group as enabled.</li>
+     *   <li>Only then remove the marker tag. If that fails the policy is already
+     *       On-Demand and retrying Disable is safe.</li>
+     *   <li>Record DISABLED, then evict caches (also on failure once a change was attempted).</li>
+     * </ol>
+     *
+     * No instance refresh is started: AWS replaces Spot capacity with On-Demand gradually
+     * after the distribution change, launching new instances before terminating old ones.
      */
-    public void disableAutoSpotting(Long cloudAccountId, String region, String asgName) {
-        logger.info("Disabling AutoSpotting: account={} region={} asg={}", cloudAccountId, region, asgName);
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
+    public void disableAutoSpotting(CloudAccount account, String region, String asgName) {
+        requireAws(account);
+        logger.info("Disabling AutoSpotting: account={} region={} asg={}", account.getAwsAccountId(), region, asgName);
 
+        AutoScalingClient asgClient = awsClientProvider.getAutoScalingWriteClient(account, region);
+
+        var asgResponse = asgClient.describeAutoScalingGroups(DescribeAutoScalingGroupsRequest.builder()
+                .autoScalingGroupNames(asgName)
+                .build());
+        if (asgResponse.autoScalingGroups().isEmpty()) {
+            throw new IllegalArgumentException("ASG not found: " + asgName);
+        }
+        var asg = asgResponse.autoScalingGroups().get(0);
+
+        boolean mutationAttempted = false;
         try {
-            AutoScalingClient asgClient = awsClientProvider.getAutoSpottingAsgClient(
-                    account.getAwsAccountId(), region, account.getAccessType());
-
-            // 1. Remove the marker tag
-            asgClient.deleteTags(req -> req.tags(
-                    software.amazon.awssdk.services.autoscaling.model.Tag.builder()
-                            .resourceId(asgName)
-                            .resourceType("auto-scaling-group")
-                            .key(tagKey)
-                            .build()));
-            logger.info("✓ Tag '{}' removed from ASG {}", tagKey, asgName);
-
-            // 2. Revert MixedInstancesPolicy to 100% OD if it exists
-            var asgResponse = asgClient.describeAutoScalingGroups(req -> req.autoScalingGroupNames(asgName));
-            if (!asgResponse.autoScalingGroups().isEmpty()) {
-                var asg = asgResponse.autoScalingGroups().get(0);
-                if (asg.mixedInstancesPolicy() != null) {
-                    // Update instancesDistribution ONLY back to 100% OD.
-                    // Do NOT re-specify the launch template: AWS preserves the existing one,
-                    // and omitting it avoids the ec2:UseLaunchTemplate IAM check.
-                    asgClient.updateAutoScalingGroup(req -> req
-                            .autoScalingGroupName(asgName)
-                            .mixedInstancesPolicy(
-                                    software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
-                                            .instancesDistribution(d -> d
-                                            .onDemandBaseCapacity(0)
-                                            .onDemandPercentageAboveBaseCapacity(100))
-                                            .build()));
-                    logger.info("✓ MixedInstancesPolicy reverted to OnDemand-only for {}", asgName);
-                }
+            // 1. Revert the distribution to 100% On-Demand. Do NOT re-specify the launch
+            //    template: AWS preserves the existing one, and omitting it avoids the
+            //    ec2:UseLaunchTemplate IAM check.
+            if (asg.mixedInstancesPolicy() != null) {
+                mutationAttempted = true;
+                asgClient.updateAutoScalingGroup(UpdateAutoScalingGroupRequest.builder()
+                        .autoScalingGroupName(asgName)
+                        .mixedInstancesPolicy(software.amazon.awssdk.services.autoscaling.model.MixedInstancesPolicy.builder()
+                                .instancesDistribution(software.amazon.awssdk.services.autoscaling.model.InstancesDistribution.builder()
+                                        .onDemandBaseCapacity(0)
+                                        .onDemandPercentageAboveBaseCapacity(100)
+                                        .build())
+                                .build())
+                        .build());
+                logger.info("✓ MixedInstancesPolicy reverted to OnDemand-only for {}", asgName);
             }
 
-            // Record the disable action for audit / history
+            // 2. Remove the marker tag, only after the policy is safe.
+            mutationAttempted = true;
+            try {
+                asgClient.deleteTags(DeleteTagsRequest.builder()
+                        .tags(software.amazon.awssdk.services.autoscaling.model.Tag.builder()
+                                .resourceId(asgName)
+                                .resourceType("auto-scaling-group")
+                                .key(tagKey)
+                                .build())
+                        .build());
+            } catch (RuntimeException e) {
+                throw new RuntimeException("Policy reverted to On-Demand but the " + tagKey
+                        + " tag could not be removed; retrying Disable is safe: " + e.getMessage(), e);
+            }
+            logger.info("✓ Tag '{}' removed from ASG {}", tagKey, asgName);
+
+            // 3. Record the disable action for audit / history
             try {
                 SpotOptimizationEvent ev = new SpotOptimizationEvent();
                 ev.setAccount(account);
@@ -1800,22 +1841,35 @@ public class AutoSpottingService {
                 ev.setRegion(region);
                 ev.setStatus("DISABLED");
                 ev.setDetails("AutoSpotting disabled by user. MixedInstancesPolicy reverted to 100% On-Demand. "
-                        + "New instances will launch as On-Demand until re-enabled.");
+                        + "New instances will launch as On-Demand until re-enabled. "
+                        + "Existing Spot instances are replaced with On-Demand gradually, launching new "
+                        + "instances before terminating old ones.");
                 ev.setHourlySavings(0.0);
                 eventRepository.save(ev);
             } catch (Exception e) {
                 logger.warn("Failed to record DISABLED event for ASG {}: {}", asgName, e.getMessage());
             }
-
-            // Evict ASG list, cost caches, and DB snapshot so next fetch goes to AWS
-            // and returns the updated disabled state (not stale re-warmed cache data).
-            redisCacheService.evict(CACHE_KEY_ASG_LIST + cloudAccountId);
-            redisCacheService.evict(CACHE_KEY_COST + cloudAccountId);
-            cachedDataRepository.deleteById("AUTOSPOTTING_COST::" + cloudAccountId);
-
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.error("Failed to disable AutoSpotting for {}: {}", asgName, e.getMessage(), e);
-            throw new RuntimeException("Failed to disable AutoSpotting: " + e.getMessage(), e);
+            throw e;
+        } finally {
+            // Evict ASG list, cost caches, and DB snapshot so the next fetch goes to AWS and
+            // shows the real state, including after a partial failure.
+            if (mutationAttempted) {
+                evictAccountCaches(account);
+            }
+        }
+    }
+
+    /** Best-effort: a cache outage must not mask the result of the AWS call. */
+    private void evictAccountCaches(CloudAccount account) {
+        try {
+            redisCacheService.evict(CACHE_KEY_ASG_LIST + cacheId(account));
+            redisCacheService.evict(CACHE_KEY_COST + cacheId(account));
+            cachedDataRepository.deleteById("AUTOSPOTTING_COST::" + cacheId(account));
+        } catch (Exception e) {
+            logger.warn("Failed to evict AutoSpotting caches for account {}: {}",
+                    account.getAwsAccountId(), e.getMessage());
         }
     }
 
@@ -1981,6 +2035,10 @@ public class AutoSpottingService {
     }
 
     private void updateDailySavings(CloudAccount account, double hourlySavings) {
+        if (!featureFlags.isAwsSavingsLedgerEnabled()) {
+            logger.debug("[AWS AutoSpotting] savings ledger disabled; not writing daily_spot_savings");
+            return;
+        }
         java.time.LocalDate today = java.time.LocalDate.now();
         DailySpotSavings savings = savingsRepository.findByAccountIdAndDate(account.getId(), today)
                 .orElse(new DailySpotSavings(account, today));
@@ -1999,10 +2057,8 @@ public class AutoSpottingService {
     /**
      * Get ASG configuration from PostgreSQL settings + ASG tags
      */
-    public ASGConfig getAsgConfig(Long cloudAccountId, String region, String asgName) {
+    public ASGConfig getAsgConfig(CloudAccount account, String region, String asgName) {
         logger.info("Fetching config for ASG {} in {} (PostgreSQL + ASG tags)", asgName, region);
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
-
         try {
             Optional<AutoSpottingSettings> settingsOpt = settingsRepository.findByAccountId(account.getId());
 
@@ -2051,10 +2107,9 @@ public class AutoSpottingService {
     /**
      * Update ASG configuration in PostgreSQL + ASG tags
      */
-    public ASGConfig updateAsgConfig(Long cloudAccountId, String region, String asgName, ASGConfigUpdate configUpdate) {
+    public ASGConfig updateAsgConfig(CloudAccount account, String region, String asgName, ASGConfigUpdate configUpdate) {
+        requireAws(account);
         logger.info("Updating config for ASG {} in {} (PostgreSQL + ASG tags)", asgName, region);
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
-
         try {
             AutoSpottingSettings settings = settingsRepository.findByAccountId(account.getId())
                     .orElse(new AutoSpottingSettings(account));
@@ -2076,13 +2131,13 @@ public class AutoSpottingService {
 
             if (configUpdate.getEnabled() != null) {
                 if (configUpdate.getEnabled()) {
-                    enableAutoSpotting(cloudAccountId, region, asgName);
+                    enableAutoSpotting(account, region, asgName);
                 } else {
-                    disableAutoSpotting(cloudAccountId, region, asgName);
+                    disableAutoSpotting(account, region, asgName);
                 }
             }
 
-            return getAsgConfig(cloudAccountId, region, asgName);
+            return getAsgConfig(account, region, asgName);
 
         } catch (Exception e) {
             logger.error("Failed to update ASG config: {}", e.getMessage(), e);
@@ -2127,7 +2182,7 @@ public class AutoSpottingService {
     private CostResponse buildCostResponseFromAwsSdk(CloudAccount account) {
         logger.info("Building cost response from AWS SDK (fallback mode - no cost data available)");
 
-        List<AutoSpottingGroupDto> asgs = listAsgsAllRegions(Long.parseLong(account.getAwsAccountId()));
+        List<AutoSpottingGroupDto> asgs = listAsgsAllRegions(account);
 
         CostResponse response = new CostResponse();
 
@@ -2321,9 +2376,10 @@ public class AutoSpottingService {
     /**
      * Get RI/SP Coverage via AWS Cost Explorer (in-house)
      */
-    public RiSpCoverageResponse getRiSpCoverage(Long cloudAccountId, boolean forceRefresh) {
-        String cacheKey = "AUTOSPOTTING_RISP::" + cloudAccountId;
-        String dbKey = "AUTOSPOTTING_RISP::" + cloudAccountId;
+    public RiSpCoverageResponse getRiSpCoverage(CloudAccount account, boolean forceRefresh) {
+        requireAws(account);
+        String cacheKey = "AUTOSPOTTING_RISP::" + cacheId(account);
+        String dbKey = "AUTOSPOTTING_RISP::" + cacheId(account);
         final int RISP_CACHE_TTL = 60 * 24; // 24 hours
 
         if (!forceRefresh) {
@@ -2348,9 +2404,7 @@ public class AutoSpottingService {
             }
         }
 
-        logger.info("Fetching RI/SP coverage via AWS Cost Explorer for cloudAccountId={}", cloudAccountId);
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
-
+        logger.info("Fetching RI/SP coverage via AWS Cost Explorer for awsAccountId={}", account.getAwsAccountId());
         try {
             CostExplorerClient ceClient = awsClientProvider.getCostExplorerClient(account);
 
@@ -2479,12 +2533,10 @@ public class AutoSpottingService {
     /**
      * Get events (actions history) from PostgreSQL
      */
-    public EventsResponse getEvents(Long cloudAccountId, String start, String end, String eventType, String asgName) {
+    public EventsResponse getEvents(CloudAccount account, String start, String end, String eventType, String asgName) {
         logger.info("=== Fetching Events from PostgreSQL ===");
-        logger.info("CloudAccountId={}, start={}, end={}, eventType={}, asgName={}",
-                cloudAccountId, start, end, eventType, asgName);
-
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
+        logger.info("AwsAccountId={}, start={}, end={}, eventType={}, asgName={}",
+                account.getAwsAccountId(), start, end, eventType, asgName);
 
         try {
             Instant startTime = (start != null && !start.isEmpty()) ? Instant.parse(start) : Instant.now().minus(7, ChronoUnit.DAYS);
@@ -2662,11 +2714,9 @@ public class AutoSpottingService {
     /**
      * Get launch analytics from PostgreSQL event data
      */
-    public LaunchAnalyticsResponse getLaunchAnalytics(Long cloudAccountId, String start, String end) {
+    public LaunchAnalyticsResponse getLaunchAnalytics(CloudAccount account, String start, String end) {
         logger.info("=== Fetching Launch Analytics from PostgreSQL ===");
-        logger.info("CloudAccountId={}, start={}, end={}", cloudAccountId, start, end);
-
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
+        logger.info("AwsAccountId={}, start={}, end={}", account.getAwsAccountId(), start, end);
 
         try {
             Instant startTime = (start != null && !start.isEmpty())
@@ -2918,7 +2968,7 @@ public class AutoSpottingService {
     }
 
     /**
-     * Get per-customer AutoSpotting savings breakdown by provider (AWS/GCP/Azure).
+     * Get per-customer AutoSpotting savings breakdown by provider (AWS/GCP).
      * Only includes customers who have AutoSpotting enabled on at least one account.
      * Groups savings by client (customer), summing across all their cloud accounts per provider.
      * Result is cached in Redis for CACHE_TTL_ADMIN_MINUTES minutes.
@@ -2937,7 +2987,7 @@ public class AutoSpottingService {
         List<com.xammer.cloud.domain.AutoSpottingSettings> enabledSettings =
                 settingsRepository.findAllByEnabled(true);
 
-        // clientId → { clientName, awsSavings, gcpSavings, azureSavings }
+        // clientId → { clientName, awsSavings, gcpSavings }
         Map<Long, Map<String, Object>> clientMap = new java.util.LinkedHashMap<>();
 
         for (com.xammer.cloud.domain.AutoSpottingSettings settings : enabledSettings) {
@@ -2949,7 +2999,9 @@ public class AutoSpottingService {
 
             com.xammer.cloud.domain.Client client = account.getClient();
             Long clientId = client.getId();
-            String provider = account.getProvider(); // AWS, GCP, Azure
+            String provider = account.getProvider();
+            // Only AWS and GCP have AutoSpotting; skip any other provider's settings rows.
+            if (!"AWS".equals(provider) && !"GCP".equals(provider)) continue;
 
             // Sum all-time savings from DailySpotSavings for this account
             double savings = savingsRepository
@@ -2964,7 +3016,6 @@ public class AutoSpottingService {
                 m.put("clientName", client.getName());
                 m.put("awsSavings", 0.0);
                 m.put("gcpSavings", 0.0);
-                m.put("azureSavings", 0.0);
                 return m;
             });
 
@@ -2972,8 +3023,6 @@ public class AutoSpottingService {
                 entry.put("awsSavings", (Double) entry.get("awsSavings") + savings);
             } else if ("GCP".equals(provider)) {
                 entry.put("gcpSavings", (Double) entry.get("gcpSavings") + savings);
-            } else if ("Azure".equals(provider)) {
-                entry.put("azureSavings", (Double) entry.get("azureSavings") + savings);
             }
         }
 
@@ -2981,8 +3030,7 @@ public class AutoSpottingService {
         List<Map<String, Object>> result = clientMap.values().stream()
                 .map(entry -> {
                     double total = (Double) entry.get("awsSavings")
-                            + (Double) entry.get("gcpSavings")
-                            + (Double) entry.get("azureSavings");
+                            + (Double) entry.get("gcpSavings");
                     entry.put("totalSavings", total);
                     return entry;
                 })
@@ -3026,8 +3074,7 @@ public class AutoSpottingService {
     /**
      * Get AutoSpotting settings for an account
      */
-    public Map<String, Object> getSettings(Long cloudAccountId) {
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
+    public Map<String, Object> getSettings(CloudAccount account) {
         AutoSpottingSettings settings = settingsRepository.findById(account.getId())
                 .orElseGet(() -> {
                     AutoSpottingSettings newSettings = new AutoSpottingSettings(account);
@@ -3049,14 +3096,14 @@ public class AutoSpottingService {
     /**
      * Update RI/SP respect settings for an account
      */
-    public void updateRispRespectSettings(Long cloudAccountId, Boolean respectRiSp, Integer threshold) {
-        CloudAccount account = getByAwsAccountId(cloudAccountId);
+    public void updateRispRespectSettings(CloudAccount account, Boolean respectRiSp, Integer threshold) {
+        requireAws(account);
         AutoSpottingSettings settings = settingsRepository.findById(account.getId())
                 .orElseGet(() -> new AutoSpottingSettings(account));
 
         if (respectRiSp != null) {
             settings.setRespectRiSpCommitments(respectRiSp);
-            logger.info("Updated respectRiSpCommitments to {} for account {}", respectRiSp, cloudAccountId);
+            logger.info("Updated respectRiSpCommitments to {} for account {}", respectRiSp, account.getAwsAccountId());
         }
 
         if (threshold != null) {
@@ -3064,11 +3111,11 @@ public class AutoSpottingService {
                 throw new IllegalArgumentException("Threshold must be between 0 and 100");
             }
             settings.setRiSpUtilizationThreshold(threshold);
-            logger.info("Updated riSpUtilizationThreshold to {}% for account {}", threshold, cloudAccountId);
+            logger.info("Updated riSpUtilizationThreshold to {}% for account {}", threshold, account.getAwsAccountId());
         }
 
         settingsRepository.save(settings);
-        logger.info("RI/SP respect settings saved successfully for account {}", cloudAccountId);
+        logger.info("RI/SP respect settings saved successfully for account {}", account.getAwsAccountId());
     }
 
 }

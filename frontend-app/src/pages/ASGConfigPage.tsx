@@ -13,6 +13,8 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useTopbar } from '../contexts/TopbarContext';
 import apiClient from '../utils/apiClient';
+import { useAutoSpottingFeatureStatus } from '../hooks/useAutoSpottingFeatureStatus';
+import ConversionsPausedNotice from '../components/SpotAutomation/ConversionsPausedNotice';
 import { InfoTooltip, AriaSlider } from '../components/ui';
 import { RadioGroup, Radio } from 'react-aria-components';
 import clsx from 'clsx';
@@ -20,6 +22,10 @@ import clsx from 'clsx';
 const ASGConfigPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { setTitle, setActions, clearActions } = useTopbar();
+  // While conversions are paused, toggling OFF -> ON would revert the ASG and then fail to
+  // re-enable it, so the OFF -> ON instruction is replaced by the paused notice.
+  const { awsConversionsEnabled } = useAutoSpottingFeatureStatus();
+  const conversionsPaused = !awsConversionsEnabled;
 
   // Get params from URL
   const asgName = searchParams.get('asgName');
@@ -114,7 +120,9 @@ const ASGConfigPage: React.FC = () => {
         );
       }
 
-      setSuccessMessage('Configuration saved! To apply to AWS: toggle AutoSpotting OFF → ON on the ASG row.');
+      setSuccessMessage(conversionsPaused
+        ? 'Configuration saved. It applies after AutoSpotting conversions resume.'
+        : 'Configuration saved! To apply to AWS: toggle AutoSpotting OFF → ON on the ASG row.');
       setTimeout(() => setSuccessMessage(null), 8000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save configuration');
@@ -160,7 +168,7 @@ const ASGConfigPage: React.FC = () => {
       clearActions();
       setTitle(null);
     };
-  }, [setTitle, setActions, clearActions, asgName, accountId, region, saving]);
+  }, [setTitle, setActions, clearActions, asgName, accountId, region, saving, conversionsPaused]);
 
   // Handle invalid params
   if (!asgName || !accountId || !region) {
@@ -216,7 +224,10 @@ const ASGConfigPage: React.FC = () => {
           </div>
         ) : (
           <>
-            {/* How-to-apply info banner */}
+            {/* How-to-apply info banner (replaced by the paused notice while conversions are paused) */}
+            {conversionsPaused ? (
+              <ConversionsPausedNotice />
+            ) : (
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
               <i className="fas fa-info-circle text-blue-500 mt-0.5 shrink-0"></i>
               <div className="text-sm text-blue-800">
@@ -224,6 +235,7 @@ const ASGConfigPage: React.FC = () => {
                 <span className="font-semibold">OFF → ON</span> on the ASG row — it will pick up your saved settings automatically.
               </div>
             </div>
+            )}
 
             {/* Spot/On-Demand Configuration Section */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">

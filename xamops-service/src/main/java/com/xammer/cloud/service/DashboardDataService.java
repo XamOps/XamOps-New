@@ -106,7 +106,6 @@ public class DashboardDataService {
     private final CloudsitterService cloudsitterService;
     private final com.xammer.cloud.service.gcp.GcpAutoSpottingService gcpAutoSpottingService;
     private final com.xammer.cloud.service.gcp.GcpDiskRightsizingService gcpDiskRightsizingService;
-    private final com.xammer.cloud.service.azure.AzureAutoSpottingService azureAutoSpottingService;
     private final com.xammer.cloud.service.azure.AzureDiskRightsizingService azureDiskRightsizingService;
     private final com.xammer.cloud.service.azure.AzureWasteService azureWasteService;
     private final CurrencyConversionService currencyConversionService;
@@ -167,7 +166,6 @@ public class DashboardDataService {
             @Lazy CloudsitterService cloudsitterService,
             @Lazy com.xammer.cloud.service.gcp.GcpAutoSpottingService gcpAutoSpottingService,
             @Lazy com.xammer.cloud.service.gcp.GcpDiskRightsizingService gcpDiskRightsizingService,
-            @Lazy com.xammer.cloud.service.azure.AzureAutoSpottingService azureAutoSpottingService,
             @Lazy com.xammer.cloud.service.azure.AzureDiskRightsizingService azureDiskRightsizingService,
             @Lazy com.xammer.cloud.service.azure.AzureWasteService azureWasteService,
             CurrencyConversionService currencyConversionService,
@@ -196,7 +194,6 @@ public class DashboardDataService {
         this.cloudsitterService = cloudsitterService;
         this.gcpAutoSpottingService = gcpAutoSpottingService;
         this.gcpDiskRightsizingService = gcpDiskRightsizingService;
-        this.azureAutoSpottingService = azureAutoSpottingService;
         this.azureDiskRightsizingService = azureDiskRightsizingService;
         this.azureWasteService = azureWasteService;
         this.currencyConversionService = currencyConversionService;
@@ -588,7 +585,6 @@ public class DashboardDataService {
             }
         }
 
-        messages.add("🚀 New: AutoSpotting is now available for Azure Virtual Scale Sets.");
         messages.add("💰 Global savings opportunity detected: Rightsizing suggestions updated.");
         messages.add("⚡ System Performance: All systems operational. API Latency: 42ms.");
 
@@ -3340,14 +3336,24 @@ public class DashboardDataService {
                             .mapToDouble(DashboardData.OptimizationRecommendation::getEstimatedMonthlySavings)
                             .sum();
 
-                    // AutoSpotting potential savings — served from Redis cache (fast)
+                    // AutoSpotting potential savings — cache-only (Redis, then the DB snapshot).
+                    // Every caller passes Long.parseLong(awsAccountId) here, i.e. the AWS
+                    // account number with any leading zero dropped, not a primary key. Resolve
+                    // the AWS row from both forms, as the old service-side resolver did.
                     double spotPotentialSavings = 0.0;
                     if (cloudAccountId != null) {
                         try {
-                            com.xammer.cloud.dto.autospotting.CostResponse spotCost = autoSpottingService
-                                    .getCostData(cloudAccountId);
-                            if (spotCost != null && spotCost.getSummary() != null) {
-                                double hourly = spotCost.getSummary().getTotalPotentialSavings();
+                            Double hourly = java.util.stream.Stream
+                                    .of(String.valueOf(cloudAccountId), String.format("%012d", cloudAccountId))
+                                    .distinct()
+                                    .flatMap(id -> cloudAccountRepository.findByAwsAccountId(id).stream())
+                                    .filter(a -> "AWS".equalsIgnoreCase(a.getProvider()))
+                                    .findFirst()
+                                    .flatMap(autoSpottingService::getCachedCostData)
+                                    .map(com.xammer.cloud.dto.autospotting.CostResponse::getSummary)
+                                    .map(com.xammer.cloud.dto.autospotting.CostResponse.CostSummary::getTotalPotentialSavings)
+                                    .orElse(null);
+                            if (hourly != null) {
                                 spotPotentialSavings = hourly * 24 * 30; // convert hourly → monthly
                             }
                         } catch (Exception e) {
@@ -3428,11 +3434,15 @@ public class DashboardDataService {
 
         if ("AWS".equalsIgnoreCase(provider)) {
 
-            // AutoSpotting potential savings
+            // AutoSpotting potential savings. Cache-only (Redis, then the DB snapshot): the
+            // dashboard must not trigger a multi-region ASG scan.
             try {
-                com.xammer.cloud.dto.autospotting.CostResponse spot = autoSpottingService.getCostData(account.getId());
-                if (spot != null && spot.getSummary() != null && spot.getSummary().getTotalPotentialSavings() != null) {
-                    total += spot.getSummary().getTotalPotentialSavings() * 24 * 30;
+                Double potentialHourly = autoSpottingService.getCachedCostData(account)
+                        .map(com.xammer.cloud.dto.autospotting.CostResponse::getSummary)
+                        .map(com.xammer.cloud.dto.autospotting.CostResponse.CostSummary::getTotalPotentialSavings)
+                        .orElse(null);
+                if (potentialHourly != null) {
+                    total += potentialHourly * 24 * 30;
                 }
             } catch (Exception e) {
                 logger.warn("[Dashboard] AutoSpotting savings unavailable for {}: {}", account.getAwsAccountId(),
@@ -3482,18 +3492,6 @@ public class DashboardDataService {
             }
 
         } else if ("Azure".equalsIgnoreCase(provider)) {
-            // Azure Spot Automation (VMSS) — hourly → monthly
-            try {
-                com.xammer.cloud.dto.autospotting.CostResponse spot =
-
-                        azureAutoSpottingService.getCostData(account.getAzureSubscriptionId());
-                if (spot != null && spot.getSummary() != null && spot.getSummary().getTotalPotentialSavings() != null) {
-                    total += spot.getSummary().getTotalPotentialSavings() * 24 * 30;
-                }
-            } catch (Exception e) {
-                logger.warn("[Dashboard] Azure Spot savings unavailable for {}: {}", account.getAzureSubscriptionId(),
-                        e.getMessage());
-            }
             // Azure Disk Rightsizing
             try {
                 // Internal caller: the account is already resolved and trusted here, so its

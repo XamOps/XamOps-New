@@ -29,7 +29,7 @@ export default function ClientSavingsTab({ clientId }: Props) {
 
   let cumulative = 0
   const cumulativeData = data.timeSeries.map(p => {
-    cumulative += p.awsSpot + p.gcpSpot + p.azureSpot + p.awsEbs
+    cumulative += p.awsSpot + p.gcpSpot + p.awsEbs
     return { date: p.date, cumulative }
   })
 
@@ -103,11 +103,11 @@ export default function ClientSavingsTab({ clientId }: Props) {
             <tbody>
               <GridRow label="AWS"   spot={data.realizedSpotAws + data.realizedEbsAws} rightsizing={data.potentialRightsizingAws}   reservations={data.potentialReservationsAws} />
               <GridRow label="GCP"   spot={data.realizedSpotGcp}                        rightsizing={data.potentialRightsizingGcp}   reservations={data.potentialReservationsGcp} />
-              <GridRow label="Azure" spot={data.realizedSpotAzure}                      rightsizing={data.potentialRightsizingAzure} reservations={data.potentialReservationsAzure} />
+              <GridRow label="Azure" spot={0}                                           rightsizing={data.potentialRightsizingAzure} reservations={data.potentialReservationsAzure} />
               <tr className="bg-gray-50 font-semibold text-xs">
                 <td className="p-2 border border-gray-200 text-gray-700">Total</td>
                 <td className="p-2 border border-gray-200 text-right text-gray-900">
-                  {fmt(data.realizedSpotAws + data.realizedSpotGcp + data.realizedSpotAzure + data.realizedEbsAws)}
+                  {fmt(data.realizedSpotAws + data.realizedSpotGcp + data.realizedEbsAws)}
                 </td>
                 <td className="p-2 border border-gray-200 text-right text-gray-900">{fmt(totalRightsizing)}</td>
                 <td className="p-2 border border-gray-200 text-right text-gray-900">{fmt(totalReservations)}</td>
@@ -130,7 +130,6 @@ export default function ClientSavingsTab({ clientId }: Props) {
               <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
               <Bar dataKey="awsSpot"   name="AWS Spot"   stackId="a" fill="#f59e0b" />
               <Bar dataKey="gcpSpot"   name="GCP Spot"   stackId="a" fill="#3b82f6" />
-              <Bar dataKey="azureSpot" name="Azure Spot" stackId="a" fill="#8b5cf6" />
               <Bar dataKey="awsEbs"    name="AWS EBS"    stackId="a" fill="#10b981" />
             </BarChart>
           </ResponsiveContainer>

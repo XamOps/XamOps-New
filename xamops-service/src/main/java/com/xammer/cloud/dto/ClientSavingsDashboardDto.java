@@ -14,7 +14,6 @@ public class ClientSavingsDashboardDto {
     // Realized savings (from actual DB rows in the requested date range)
     private double realizedSpotAws;
     private double realizedSpotGcp;
-    private double realizedSpotAzure;
     private double realizedEbsAws;
 
     // Potential savings (from latest CachedData snapshots — point-in-time)
@@ -47,7 +46,6 @@ public class ClientSavingsDashboardDto {
         private String date;
         private double awsSpot;
         private double gcpSpot;
-        private double azureSpot;
         private double awsEbs;
     }
 }

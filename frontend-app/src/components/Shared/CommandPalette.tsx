@@ -98,7 +98,6 @@ const COMMANDS: RouteCommand[] = [
   { path: '/azure-security',      label: 'Azure Security',            group: 'Azure',            icon: HiOutlineShieldCheck },
   { path: '/azure-performance',   label: 'Azure Performance',         group: 'Azure',            icon: HiOutlineTrendingUp },
   { path: '/azure-alerts',        label: 'Azure Alerts',              group: 'Azure',            icon: HiOutlineBell },
-  { path: '/azure-autospotting',  label: 'Azure Spot Automation',     group: 'Azure',            icon: HiOutlineLightningBolt },
   { path: '/azure-disk-rightsizing', label: 'Azure Disk Rightsizing', group: 'Azure',            icon: HiOutlineScale, keywords: 'disk managed volume' },
   { path: '/azure-dataops',       label: 'Azure Data Operations',     group: 'Azure',            icon: HiOutlineServer, keywords: 'dataops dbops' },
 

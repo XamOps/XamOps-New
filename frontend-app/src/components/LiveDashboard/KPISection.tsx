@@ -70,8 +70,6 @@ const PROVIDER_OVERRIDES: Record<string, Record<string, Partial<KPICardDef>>> = 
     // Platform overrides for Azure
     flexComputeInstances:  { title: 'Spot VM Instances',              description: 'Azure Spot VMs running workloads at reduced cost.',                unit: 'VMs'       },
     flexComputeSavings:    { title: 'Spot VM Savings',                description: 'Monthly savings achieved through Azure Spot VM usage.'            },
-    autoSpottingSavings:   { title: 'Spot VM AutoSpotting Savings',   description: 'Monthly savings from AutoSpotting Spot VM management on Azure.'   },
-    autoSpottingInstances: { title: 'AutoSpotting Instances',         description: 'Azure VMs managed and optimized by AutoSpotting.',                 unit: 'VMs'       },
     diskRightsizing:       { title: 'Managed Disk Rightsizing',       description: 'Azure managed disk rightsizing opportunities to reduce costs.',    unit: 'disks'     },
     diskRightsizingSavings:{ title: 'Disk Rightsizing Savings',       description: 'Potential savings from managed disk rightsizing on Azure.'        },
     cicdPipelines:         { title: 'Azure DevOps Pipelines',         description: 'Active Azure DevOps pipelines monitored in this subscription.',   unit: 'pipelines' },
@@ -80,6 +78,10 @@ const PROVIDER_OVERRIDES: Record<string, Record<string, Partial<KPICardDef>>> = 
   },
 };
 
+// Cards a provider does not offer. AutoSpotting is AWS and GCP only.
+const PROVIDER_HIDDEN_CARDS: Record<string, ReadonlySet<string>> = {
+  Azure: new Set(['autoSpottingSavings', 'autoSpottingInstances']),
+};
 // "View more" targets — swap the AWS route for the provider's variant when one exists
 const PROVIDER_LINKS: Record<string, Record<string, string>> = {
   GCP: {
@@ -340,11 +342,13 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
   const providerOverrides = PROVIDER_OVERRIDES[provider] || {};
   const providerLinks = PROVIDER_LINKS[provider] || {};
   const activeCards: KPICardDef[] = useMemo(() =>
-    ALL_KPI_CARDS.map(card => ({
-      ...card,
-      ...(providerOverrides[card.id] || {}),
-      link: card.link ? (providerLinks[card.link] || card.link) : undefined,
-    })),
+    ALL_KPI_CARDS
+      .filter(card => !PROVIDER_HIDDEN_CARDS[provider]?.has(card.id))
+      .map(card => ({
+        ...card,
+        ...(providerOverrides[card.id] || {}),
+        link: card.link ? (providerLinks[card.link] || card.link) : undefined,
+      })),
   [provider]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch data for extended KPI cards that are currently selected

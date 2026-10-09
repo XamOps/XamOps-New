@@ -321,7 +321,6 @@ public class SecurityConfig {
                                                                 PATH.matcher("/terminal"),
                                                                 PATH.matcher("/terminal/**"),
                                                                 PATH.matcher("/api/autospotting/**"),
-                                                                PATH.matcher("/api/azure/autospotting/**"),
                                                                 PATH.matcher("/api/gcp/autospotting/**"),
                                                                 PATH.matcher("/api/flexcompute/**"),
                                                                 PATH.matcher("/api/dev_ops_script/**"),
