@@ -1095,6 +1095,111 @@ Resources:
                 Resource:
                   - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}'
                   - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/*'
+        # -----------------------------------------------------------------
+        # CloudK8s fleet read - roadmap Appendix 8.1 Catalog-A read delta.
+        # Kept as its own inline policy: 2,722 compacted chars does not fit in
+        # the headroom of any existing policy on this role, and the read-write
+        # role is already at the 10 managed-policies-per-role quota. The four
+        # ecr:* actions are deferred to Phase 3 by Appendix 8.1 itself.
+        # -----------------------------------------------------------------
+        - PolicyName: XamOpsPolicyEksFleetRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: EksFleetInventory
+                Effect: Allow
+                Action:
+                  - 'eks:ListNodegroups'
+                  - 'eks:DescribeNodegroup'
+                  - 'eks:ListAddons'
+                  - 'eks:DescribeAddon'
+                  - 'eks:DescribeAddonVersions'
+                  - 'eks:DescribeAddonConfiguration'
+                  - 'eks:ListFargateProfiles'
+                  - 'eks:DescribeFargateProfile'
+                  - 'eks:ListUpdates'
+                  - 'eks:DescribeUpdate'
+                  - 'eks:ListInsights'
+                  - 'eks:DescribeInsight'
+                  - 'eks:DescribeClusterVersions'
+                  - 'eks:ListAccessEntries'
+                  - 'eks:DescribeAccessEntry'
+                  - 'eks:ListAssociatedAccessPolicies'
+                  - 'eks:ListAccessPolicies'
+                  - 'eks:ListPodIdentityAssociations'
+                  - 'eks:DescribePodIdentityAssociation'
+                  - 'eks:ListTagsForResource'
+                Resource: '*'
+              - Sid: SpotCapacityScoring
+                Effect: Allow
+                Action:
+                  - 'ec2:GetSpotPlacementScores'
+                Resource: '*'
+              - Sid: CloudWatchMetricDiscovery
+                Effect: Allow
+                Action:
+                  - 'cloudwatch:ListMetrics'
+                Resource: '*'
+              - Sid: CommitmentCoverageForEksSpend
+                Effect: Allow
+                Action:
+                  - 'ce:GetSavingsPlansPurchaseRecommendation'
+                  - 'ce:GetSavingsPlansCoverage'
+                  - 'ce:GetSavingsPlansUtilization'
+                  - 'ce:GetSavingsPlansUtilizationDetails'
+                  - 'ce:GetCostAndUsageWithResources'
+                  - 'ce:GetCostForecast'
+                  - 'ce:GetUsageForecast'
+                  - 'ce:GetRightsizingRecommendation'
+                  - 'ce:GetTags'
+                  - 'savingsplans:DescribeSavingsPlans'
+                  - 'savingsplans:DescribeSavingsPlanRates'
+                  - 'savingsplans:DescribeSavingsPlansOfferings'
+                  - 'savingsplans:ListTagsForResource'
+                Resource: '*'
+              - Sid: OptimizerRecommendations
+                Effect: Allow
+                Action:
+                  - 'compute-optimizer:GetAutoScalingGroupRecommendations'
+                  - 'compute-optimizer:GetRecommendationSummaries'
+                  - 'compute-optimizer:GetEffectiveRecommendationPreferences'
+                  - 'compute-optimizer:GetRecommendationPreferences'
+                  - 'cost-optimization-hub:ListRecommendations'
+                  - 'cost-optimization-hub:GetRecommendation'
+                  - 'cost-optimization-hub:ListRecommendationSummaries'
+                  - 'cost-optimization-hub:GetPreferences'
+                Resource: '*'
+              - Sid: EksOptimizedAmiLookup
+                Effect: Allow
+                Action:
+                  - 'ssm:GetParameter'
+                  - 'ssm:GetParameters'
+                  - 'ssm:GetParametersByPath'
+                Resource: 'arn:aws:ssm:*::parameter/aws/service/eks/*'
+              - Sid: SplitCostAllocationExportRead
+                Effect: Allow
+                Action:
+                  - 'bcm-data-exports:GetExport'
+                  - 'bcm-data-exports:ListExports'
+                  - 'bcm-data-exports:GetTable'
+                  - 'bcm-data-exports:ListTables'
+                  - 'bcm-data-exports:ListTagsForResource'
+                Resource: '*'
+              - Sid: StackDriftDetectionReadOnly
+                Effect: Allow
+                Action:
+                  - 'cloudformation:DetectStackDrift'
+                  - 'cloudformation:DetectStackResourceDrift'
+                  - 'cloudformation:DescribeStackDriftDetectionStatus'
+                  - 'cloudformation:DescribeStackResourceDrifts'
+                  - 'cloudformation:ListStacks'
+                  - 'cloudformation:DescribeStackSet'
+                  - 'cloudformation:ListStackSets'
+                  - 'cloudformation:ListStackInstances'
+                  - 'cloudformation:DescribeStackInstance'
+                  - 'cloudformation:DetectStackSetDrift'
+                  - 'cloudformation:DescribeStackSetOperation'
+                Resource: '*'
       Tags:
         - Key: ManagedBy
           Value: CloudFormation
