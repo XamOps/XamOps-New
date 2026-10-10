@@ -7,16 +7,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.util.ArrayList;
-import java.util.List;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -58,12 +48,12 @@ class VerticalPolicyMigrationPgTest {
         PgTestSupport.execute(url, "CREATE TABLE kubernetes_cluster_config ("
                 + "id BIGSERIAL PRIMARY KEY, cluster_name VARCHAR(255) NOT NULL)");
 
-        List<String> statements = statements();
-        assertThat(statements).as("the migration file must be on the test classpath").isNotEmpty();
+        MigrationScript migration = MigrationScript.of(MIGRATION);
+        assertThat(migration.statements()).as("the migration file must be on the test classpath").isNotEmpty();
 
         // Twice: the second run must be a no-op, not an error.
-        runAll(statements);
-        runAll(statements);
+        migration.applyTo(url);
+        migration.applyTo(url);
     }
 
     @Test
@@ -110,10 +100,23 @@ class VerticalPolicyMigrationPgTest {
                 .isEqualTo(WorkloadPolicyDefaults.MEM_DECREASE.minAbsolute());
         assertThat(defaultOf("apply_method")).isEqualTo("'IN_PLACE'::character varying");
         assertThat(numericDefault("cooldown_minutes")).isEqualTo(WorkloadPolicyDefaults.COOLDOWN_MINUTES);
-        assertThat(defaultOf("max_limit_increase_factor")).startsWith("4.00");
+        assertThat(doubleDefault("max_limit_increase_factor"))
+                .isEqualTo(WorkloadPolicyDefaults.MAX_LIMIT_INCREASE_FACTOR);
         assertThat(defaultOf("protect_single_replica")).isEqualTo("true");
-        assertThat(defaultOf("node_capacity_fraction")).startsWith("0.900");
+        assertThat(doubleDefault("node_capacity_fraction"))
+                .isEqualTo(WorkloadPolicyDefaults.NODE_CAPACITY_FRACTION);
         assertThat(defaultOf("last_applied_at")).isNull();
+    }
+
+    @Test
+    @DisplayName("the two fractional columns are the type the entity maps, so ddl-auto=update is a no-op")
+    void theFractionalColumnsMatchTheMappedType() {
+        // Every deployed profile runs ddl-auto=update. A NUMERIC column here would be rewritten to
+        // double precision by Hibernate on the next boot, because WorkloadVerticalPolicy maps both
+        // as Double -- so the migration declares what the entity means.
+        // SchemaUpdateNoAlterPgTest asserts the other half: that Hibernate emits no DDL for it.
+        assertThat(typeOf("max_limit_increase_factor")).isEqualTo("double precision");
+        assertThat(typeOf("node_capacity_fraction")).isEqualTo("double precision");
     }
 
     @Test
@@ -185,94 +188,28 @@ class VerticalPolicyMigrationPgTest {
                         + " WHERE table_name = 'vertical_workload_policy' AND column_name = ?", column);
     }
 
-    private static long numericDefault(String column) {
-        String raw = defaultOf(column);
-        assertThat(raw).as("column %s has no default", column).isNotNull();
-        // PostgreSQL renders a default as a literal plus an optional cast, and quotes it when the
-        // literal's type differs from the column's: 25, '25'::bigint and 4.00 are all possible.
-        return Long.parseLong(raw.replaceAll("::.*$", "").replace("'", "").trim());
+    private static String typeOf(String column) {
+        return PgTestSupport.queryString(url,
+                "SELECT data_type FROM information_schema.columns"
+                        + " WHERE table_name = 'vertical_workload_policy' AND column_name = ?", column);
     }
 
-    private static void runAll(List<String> statements) {
-        try (Connection connection = PgTestSupport.connect(url); Statement statement = connection.createStatement()) {
-            for (String sql : statements) {
-                statement.execute(sql);
-            }
-        } catch (SQLException e) {
-            throw new IllegalStateException("migration " + MIGRATION + " failed to apply", e);
-        }
+    private static long numericDefault(String column) {
+        return Long.parseLong(literalDefault(column));
+    }
+
+    private static double doubleDefault(String column) {
+        return Double.parseDouble(literalDefault(column));
     }
 
     /**
-     * The migration's statements, with {@code --} comments stripped.
-     *
-     * <p>Both the comment stripping and the statement split have to be <strong>quote-aware</strong>,
-     * which is why this is a single scanner rather than a {@code split(";")}. The file's own comments
-     * document the reversal with a {@code DROP TABLE … ;} line, several columns carry trailing
-     * {@code --} notes, and the {@code COMMENT ON} strings contain semicolons — so a naive splitter
-     * both breaks statements and executes comments. Flyway's parser handles all three; this one has
-     * to as well, or the test would report a problem the production path does not have.
+     * The default's literal, with PostgreSQL's rendering stripped: it writes a literal plus an
+     * optional cast, and quotes it when the literal's type differs from the column's, so
+     * {@code 25}, {@code '25'::bigint} and {@code 4.0} are all possible.
      */
-    private static List<String> statements() {
-        String sql = read();
-        List<String> statements = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        boolean inString = false;
-
-        for (int i = 0; i < sql.length(); i++) {
-            char c = sql.charAt(i);
-            char next = i + 1 < sql.length() ? sql.charAt(i + 1) : '\0';
-
-            if (inString) {
-                current.append(c);
-                if (c == '\'') {
-                    if (next == '\'') {        // '' is an escaped quote, not the end of the literal
-                        current.append(next);
-                        i++;
-                    } else {
-                        inString = false;
-                    }
-                }
-                continue;
-            }
-            if (c == '\'') {
-                inString = true;
-                current.append(c);
-                continue;
-            }
-            if (c == '-' && next == '-') {     // line comment: skip to end of line
-                while (i < sql.length() && sql.charAt(i) != '\n') {
-                    i++;
-                }
-                current.append('\n');
-                continue;
-            }
-            if (c == ';') {
-                addIfPresent(statements, current);
-                current.setLength(0);
-                continue;
-            }
-            current.append(c);
-        }
-        addIfPresent(statements, current);
-        return statements;
-    }
-
-    private static void addIfPresent(List<String> statements, StringBuilder candidate) {
-        String trimmed = candidate.toString().strip();
-        if (!trimmed.isEmpty()) {
-            statements.add(trimmed);
-        }
-    }
-
-    private static String read() {
-        try (InputStream in = VerticalPolicyMigrationPgTest.class.getResourceAsStream(MIGRATION)) {
-            if (in == null) {
-                throw new IllegalStateException(MIGRATION + " is not on the test classpath");
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+    private static String literalDefault(String column) {
+        String raw = defaultOf(column);
+        assertThat(raw).as("column %s has no default", column).isNotNull();
+        return raw.replaceAll("::.*$", "").replace("'", "").trim();
     }
 }

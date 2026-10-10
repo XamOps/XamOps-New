@@ -102,7 +102,7 @@ class WorkloadReasonCodeContractTest {
 
         assertThat(Arrays.stream(ContainerReason.values()).map(Enum::name))
                 .containsExactly("HPA_CPU_MANAGED", "HPA_MEMORY_MANAGED", "FLOOR_CLAMPED",
-                        "BELOW_FLOOR_NO_RAISE", "LIMIT_RAISED", "DEMAND_CENSORED_BY_LIMIT",
+                        "BELOW_FLOOR_NO_RAISE", "LIMIT_MOVED", "DEMAND_CENSORED_BY_LIMIT",
                         "NODE_CAPACITY_CAPPED", "QOS_PRESERVED_NO_CHANGE", "COOLDOWN",
                         "WITHIN_HYSTERESIS", "REQUESTS_UNSET", "OOM_RISK");
 

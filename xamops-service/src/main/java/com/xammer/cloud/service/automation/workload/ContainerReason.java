@@ -24,8 +24,17 @@ public enum ContainerReason {
      */
     BELOW_FLOOR_NO_RAISE,
 
-    /** A limit moved along with its request. */
-    LIMIT_RAISED,
+    /**
+     * A limit moved along with its request — in <strong>either</strong> direction.
+     *
+     * <p>Deliberately direction-neutral. This was {@code LIMIT_RAISED}, which the engine added
+     * whenever the new limit differed from the current one, so the flagship floored decrease
+     * (1000m/1Gi → 25m/250Mi, a 97.5% <em>reduction</em>) reported a limit <em>raise</em>. The UI
+     * renders these codes as text, so that told an operator the opposite of what the recommendation
+     * does. The direction is already unambiguous from {@code current} and {@code recommended} in the
+     * same payload; the reason only needs to say that the limit was not left behind.
+     */
+    LIMIT_MOVED,
 
     /** Usage was pinned at the limit by throttling, so the target came from the limit. */
     DEMAND_CENSORED_BY_LIMIT,

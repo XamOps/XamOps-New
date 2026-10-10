@@ -503,7 +503,7 @@ public final class WorkloadAutoscalingEngine {
                         toLong(current.cpuLimitMillis()), cpuTarget, policy.maxLimitIncreaseFactor());
                 newCpuLimit = limit == null ? null : Math.toIntExact(limit);
                 if (!java.util.Objects.equals(newCpuLimit, current.cpuLimitMillis())) {
-                    reasons.add(ContainerReason.LIMIT_RAISED);
+                    reasons.add(ContainerReason.LIMIT_MOVED);
                 }
             }
 
@@ -514,7 +514,7 @@ public final class WorkloadAutoscalingEngine {
                 newMemLimit = QosRules.limitFor(shape, current.memRequestBytes(), current.memLimitBytes(),
                         memTarget, policy.maxLimitIncreaseFactor());
                 if (!java.util.Objects.equals(newMemLimit, current.memLimitBytes())) {
-                    reasons.add(ContainerReason.LIMIT_RAISED);
+                    reasons.add(ContainerReason.LIMIT_MOVED);
                 }
             }
 

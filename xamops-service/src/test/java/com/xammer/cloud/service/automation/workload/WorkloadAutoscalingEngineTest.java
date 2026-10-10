@@ -55,7 +55,16 @@ class WorkloadAutoscalingEngineTest {
         assertThat(api.recommended().memLimitBytes()).isEqualTo(250 * MI);
         assertThat(QosRules.shapeOf(api.recommended())).isEqualTo(QosRules.Shape.GUARANTEED_SHAPED);
         assertThat(api.qosClass()).isEqualTo(QosClass.GUARANTEED);
-        assertThat(api.reasons()).contains(ContainerReason.LIMIT_RAISED);
+
+        // The reason code must not claim a direction the numbers contradict: both limits fall by
+        // ~97.5% here, and the code used to be LIMIT_RAISED. The UI renders reasons as text, so a
+        // direction-carrying code on a reduction told the operator the opposite of what happens.
+        assertThat(api.reasons()).contains(ContainerReason.LIMIT_MOVED);
+        assertThat(api.recommended().cpuLimitMillis()).isLessThan(api.current().cpuLimitMillis());
+        assertThat(api.recommended().memLimitBytes()).isLessThan(api.current().memLimitBytes());
+        assertThat(api.reasons().stream().map(Enum::name).toList())
+                .as("no reason code may assert a limit raise while the limits are being cut")
+                .doesNotContain("LIMIT_RAISED");
     }
 
     // ============================================================ 2. the control workload
@@ -113,7 +122,10 @@ class WorkloadAutoscalingEngineTest {
         assertThat(encoder.recommended().cpuLimitMillis())
                 .as("ratio 5.0 would give 315m, capped at 4x the current 50m limit")
                 .isEqualTo(200);
-        assertThat(encoder.reasons()).contains(ContainerReason.LIMIT_RAISED);
+        // The same code as case 1, where the limits fall: one direction-neutral code, with the
+        // direction readable from the numbers in the same payload.
+        assertThat(encoder.reasons()).contains(ContainerReason.LIMIT_MOVED);
+        assertThat(encoder.recommended().cpuLimitMillis()).isGreaterThan(encoder.current().cpuLimitMillis());
         assertThat(encoder.recommended().cpuRequestMillis())
                 .isLessThanOrEqualTo(encoder.recommended().cpuLimitMillis());
         assertThat(QosRules.shapeOf(encoder.recommended())).isEqualTo(QosRules.Shape.BURSTABLE_SHAPED);

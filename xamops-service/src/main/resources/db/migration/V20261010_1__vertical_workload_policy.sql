@@ -134,7 +134,17 @@ CREATE TABLE IF NOT EXISTS vertical_workload_policy (
 
     -- A limit is never raised beyond this multiple of its current value, so
     -- relieving throttling cannot hand a container an unbounded limit.
-    max_limit_increase_factor   NUMERIC(5,2) NOT NULL DEFAULT 4.00,
+    --
+    -- DOUBLE PRECISION, not NUMERIC(5,2). Both of the fractional columns here are
+    -- read into a Java double, the range guard lives in WorkloadPolicy's
+    -- constructor (factor >= 1.0, fraction in (0,1]), and every deployed profile
+    -- runs ddl-auto=update -- so a NUMERIC column would be rewritten to
+    -- double precision by Hibernate on the next boot, silently, whichever of
+    -- Flyway or Hibernate created the table first. Matching the mapped type keeps
+    -- both creation paths converging on the same column, and keeps a stored
+    -- 0.9995 from being rounded to 1.000, i.e. to "the whole node".
+    -- SchemaUpdateNoAlterPgTest asserts Hibernate has nothing to alter here.
+    max_limit_increase_factor   DOUBLE PRECISION NOT NULL DEFAULT 4.0,
 
     -- A single-replica workload has no spare capacity: any disruption is a full
     -- outage. One of the two guards the Go rightsizer did honour correctly.
@@ -143,8 +153,8 @@ CREATE TABLE IF NOT EXISTS vertical_workload_policy (
     -- Fraction of the largest schedulable node a pod's total requests may occupy.
     -- A recommendation that cannot be scheduled is worse than none: the measured
     -- team-a/unschedulable-giant asked for 32 CPU / 64Gi on 1930m / 3294Mi nodes
-    -- and sat Pending for 8 hours.
-    node_capacity_fraction      NUMERIC(4,3) NOT NULL DEFAULT 0.900,
+    -- and sat Pending for 8 hours. DOUBLE PRECISION for the reason given above.
+    node_capacity_fraction      DOUBLE PRECISION NOT NULL DEFAULT 0.9,
 
     -- Drives cooldown. NULL means nothing has ever been applied, which is the
     -- state of every workload in this release: no executor exists yet.
