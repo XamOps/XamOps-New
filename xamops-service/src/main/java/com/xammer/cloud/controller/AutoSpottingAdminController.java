@@ -26,11 +26,16 @@ import lombok.RequiredArgsConstructor;
  * xamops-service. The previous {@code /api/admin/autospotting} mapping was unreachable: both
  * route {@code /api/admin/} to billops, which has no such controller (NO-02, core §6.6).
  * {@code RoutingContractTest} pins the route.
+ *
+ * <p>Every read returns cross-customer aggregates. Beyond the three admin roles,
+ * {@link com.xammer.cloud.security.AutoSpottingAdminAccess} denies Login-As sessions that don't
+ * hold ROLE_SUPER_ADMIN and the OTP-exempt demo accounts.
  */
 @RestController
 @RequestMapping("/api/xamops/autospotting-admin")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyAuthority('ROLE_SUPER_ADMIN', 'ROLE_XAMOPS_ADMIN', 'ROLE_BILLOPS_ADMIN')")
+@PreAuthorize("hasAnyAuthority('ROLE_SUPER_ADMIN', 'ROLE_XAMOPS_ADMIN', 'ROLE_BILLOPS_ADMIN')"
+        + " and @autoSpottingAdminAccess.permits(authentication)")
 public class AutoSpottingAdminController {
 
     private static final Logger log = LoggerFactory.getLogger(AutoSpottingAdminController.class);
