@@ -54,7 +54,7 @@ def main():
     fails, notes = [], []
     cycles = []
     totals = {}
-    for path in sorted(glob.glob(os.path.join(a.capture_dir, "ingest", "*.json"))):
+    for path in sorted(glob.glob(os.path.join(a.capture_dir, "ingest", "*"))):
         doc = json.load(open(path))
         p = doc.get("payload") or {}
         if "autoscaler" not in str(p.get("agentVersion", "")):

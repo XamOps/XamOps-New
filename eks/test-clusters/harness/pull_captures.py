@@ -85,7 +85,9 @@ def main():
         summary = []
         for path in files:
             raw = get(base, "/_stub/captures/" + path)
-            with open(os.path.join(a.dest, path), "wb") as fh:
+            # Older stub builds truncate long names past the ".json" suffix.
+            local = path if path.endswith(".json") else path + ".json"
+            with open(os.path.join(a.dest, local), "wb") as fh:
                 fh.write(raw)
             doc = json.loads(raw)
             p = doc.get("payload") or {}

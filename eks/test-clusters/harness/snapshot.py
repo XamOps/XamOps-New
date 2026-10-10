@@ -28,7 +28,8 @@ LEDGER = "xamops-automation-state"
 
 
 def kubectl(ctx, *args):
-    out = subprocess.run(["kubectl", "--context", ctx, *args], check=True,
+    # --show-managed-fields: kubectl strips managedFields from -o json by default.
+    out = subprocess.run(["kubectl", "--context", ctx, *args, "--show-managed-fields"], check=True,
                          capture_output=True, text=True).stdout
     return json.loads(out)
 
