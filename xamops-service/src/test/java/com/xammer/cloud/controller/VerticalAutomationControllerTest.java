@@ -158,6 +158,24 @@ class VerticalAutomationControllerTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    @DisplayName("a server-side invariant failure is not reported as a malformed parameter")
+    void domainInvariantFailuresAreNotBlamedOnTheCaller() throws Exception {
+        // ClusterTarget, ContainerDecision and ResourceEnvelope.recommendation all raise
+        // IllegalArgumentException for an engine/domain invariant. The controller's 400 handler used
+        // to catch that whole family and splice the message into "The {message} parameter is missing
+        // or malformed", so a server fault arrived as a 400 blaming the caller, in copy like
+        // "The clientId is mandatory: tenant scoping is not optional parameter is missing...".
+        givenClusterConfigByPrimaryKey();
+        VerticalAutomationReadService exploding = mock(VerticalAutomationReadService.class);
+        when(exploding.read(any(), any()))
+                .thenThrow(new IllegalArgumentException("clientId is mandatory: tenant scoping is not optional"));
+
+        mvc(exploding).perform(get(BASE + "/xamops-test-cluster" + QUERY))
+                .andExpect(jsonPath("$.field").doesNotExist())
+                .andExpect(jsonPath("$.code").doesNotExist());
+    }
+
     private void givenClusterConfigByPrimaryKey() {
         when(clusterConfigRepository.findByCloudAccountIdAndClusterName(3L, "xamops-test-cluster"))
                 .thenReturn(Optional.of(clusterConfig()));
@@ -172,9 +190,12 @@ class VerticalAutomationControllerTest {
     }
 
     private MockMvc mvc() {
-        VerticalAutomationReadService readService = new VerticalAutomationReadService(
+        return mvc(new VerticalAutomationReadService(
                 new WorkloadAutoscalingProperties(false, false),
-                new StubUsageHistoryProvider(), List.of());
+                new StubUsageHistoryProvider(), List.of()));
+    }
+
+    private MockMvc mvc(VerticalAutomationReadService readService) {
         VerticalAutomationController controller =
                 new VerticalAutomationController(accessService, clusterConfigRepository, readService);
         return MockMvcBuilders.standaloneSetup(controller)

@@ -54,10 +54,26 @@ public class WorkloadAutoscalingProperties {
     }
 
     /**
+     * Whether an executor exists that could carry an apply at all.
+     *
+     * <p>A constant rather than a flag: no {@code WorkloadActionExecutor} implementation ships in
+     * this release, which {@code ProductionClassScan} asserts by scanning the production classpath.
+     * It is written as part of the expression below so that when an executor lands, the one place
+     * that has to change is obvious — and so that no amount of configuration can turn auto-apply on
+     * before then.
+     */
+    private static final boolean EXECUTOR_AVAILABLE = false;
+
+    /**
      * Whether a decision may be applied automatically. Requires both flags <em>and</em> an executor,
      * of which there is none in this run — so this is false by construction, not by configuration.
+     *
+     * <p><strong>This is a live guard, not documentation.</strong>
+     * {@code VerticalDecisionMapper.toDto} takes this object and publishes
+     * {@code autoApplyEligible} as {@code engine AND this}, so a stored {@code AUTO} policy with a
+     * clean recommendation still reaches the UI as not auto-appliable.
      */
     public boolean isAutoApplyPermitted() {
-        return false;
+        return enabled && ready && EXECUTOR_AVAILABLE;
     }
 }

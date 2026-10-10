@@ -148,16 +148,26 @@ public class VerticalAutomationController {
 
     private static void requireShape(String value, Pattern pattern, String field) {
         if (value == null || !pattern.matcher(value.trim()).matches()) {
-            throw new IllegalArgumentException(field);
+            throw new ParameterShapeException(field);
         }
     }
 
     // ------------------------------------------------------------------ refusals
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    ResponseEntity<RefusalDto> onInvalidRequest(IllegalArgumentException e) {
-        return ResponseEntity.badRequest().body(RefusalDto.invalidRequest(e.getMessage(),
-                "The " + e.getMessage() + " parameter is missing or malformed."));
+    /**
+     * A malformed parameter is the caller's mistake, so it is a 400 naming the field.
+     *
+     * <p>Scoped to {@link ParameterShapeException} on purpose. This handler used to catch every
+     * {@code IllegalArgumentException} and splice its message into "The {message} parameter is
+     * missing or malformed" — which turned any server-side invariant violation
+     * ({@code ClusterTarget}, {@code ContainerDecision}, {@code ResourceEnvelope.recommendation})
+     * into a 400 blaming the caller, in garbled copy. Those now reach
+     * {@code GlobalExceptionHandler} instead, where a server fault is reported as one.
+     */
+    @ExceptionHandler(ParameterShapeException.class)
+    ResponseEntity<RefusalDto> onInvalidRequest(ParameterShapeException e) {
+        return ResponseEntity.badRequest().body(RefusalDto.invalidRequest(e.field(),
+                "The " + e.field() + " parameter is missing or malformed."));
     }
 
     /**

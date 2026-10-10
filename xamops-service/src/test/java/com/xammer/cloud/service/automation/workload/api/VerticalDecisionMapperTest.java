@@ -5,6 +5,7 @@ import com.xammer.cloud.service.automation.workload.ContainerUsageFixtures;
 import com.xammer.cloud.service.automation.workload.NodeCapacity;
 import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingEngine;
+import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadDecision;
 import com.xammer.cloud.service.automation.workload.WorkloadMode;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicy;
@@ -34,6 +35,10 @@ class VerticalDecisionMapperTest {
 
     private static final long MI = 1024L * 1024L;
 
+    /** Both flags on — the most permissive gate this release can be configured into. */
+    private static final WorkloadAutoscalingProperties GATE =
+            new WorkloadAutoscalingProperties(true, true);
+
     private final WorkloadAutoscalingEngine engine =
             new WorkloadAutoscalingEngine(Clock.fixed(ContainerUsageFixtures.NOW, ZoneOffset.UTC));
     private final WorkloadPolicy policy = WorkloadPolicyDefaults.policy(WorkloadMode.RECOMMEND);
@@ -44,7 +49,7 @@ class VerticalDecisionMapperTest {
         WorkloadSnapshot snapshot = guaranteedOverprovisioned();
         WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded());
 
-        VerticalWorkloadDto dto = VerticalDecisionMapper.toDto(snapshot, policy, decision);
+        VerticalWorkloadDto dto = VerticalDecisionMapper.toDto(snapshot, policy, decision, GATE);
 
         assertThat(dto.ref().namespace()).isEqualTo("team-a");
         assertThat(dto.ref().kind()).isEqualTo("Deployment");
@@ -74,7 +79,7 @@ class VerticalDecisionMapperTest {
                         ContainerUsageFixtures.usage("app", 120, 300 * MI))));
         WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded());
 
-        VerticalWorkloadDto dto = VerticalDecisionMapper.toDto(snapshot, policy, decision);
+        VerticalWorkloadDto dto = VerticalDecisionMapper.toDto(snapshot, policy, decision, GATE);
         VerticalWorkloadDto.ContainerDto container = dto.containers().get(0);
 
         assertThat(container.qosClass()).isEqualTo("BestEffort");
@@ -99,7 +104,7 @@ class VerticalDecisionMapperTest {
                         ContainerUsageFixtures.usage("worker", 48, 41 * MI))));
         WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded());
 
-        VerticalWorkloadDto dto = VerticalDecisionMapper.toDto(snapshot, policy, decision);
+        VerticalWorkloadDto dto = VerticalDecisionMapper.toDto(snapshot, policy, decision, GATE);
         VerticalWorkloadDto.ContainerDto container = dto.containers().get(0);
 
         assertThat(container.recommended())
@@ -117,7 +122,7 @@ class VerticalDecisionMapperTest {
                         ContainerUsageFixtures.usage("coredns", 50, 64 * MI))));
         WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded());
 
-        VerticalWorkloadDto dto = VerticalDecisionMapper.toDto(snapshot, policy, decision);
+        VerticalWorkloadDto dto = VerticalDecisionMapper.toDto(snapshot, policy, decision, GATE);
 
         assertThat(dto.skipReason()).isEqualTo("PROTECTED_NAMESPACE");
         assertThat(dto.containers()).isEmpty();
@@ -129,7 +134,7 @@ class VerticalDecisionMapperTest {
         WorkloadSnapshot snapshot = guaranteedOverprovisioned();
         WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded());
 
-        VerticalWorkloadDto dto = VerticalDecisionMapper.toDto(snapshot, policy, decision);
+        VerticalWorkloadDto dto = VerticalDecisionMapper.toDto(snapshot, policy, decision, GATE);
 
         assertThat(dto.policy().mode()).isEqualTo("RECOMMEND");
         assertThat(dto.policy().percentile()).isEqualTo(95);
@@ -150,7 +155,7 @@ class VerticalDecisionMapperTest {
         WorkloadSnapshot snapshot = guaranteedOverprovisioned();
         WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded());
 
-        VerticalWorkloadDto dto = VerticalDecisionMapper.toDto(snapshot, policy, decision);
+        VerticalWorkloadDto dto = VerticalDecisionMapper.toDto(snapshot, policy, decision, GATE);
 
         assertThat(dto.horizontal().state()).isEqualTo("NOT_EVALUATED");
         assertThat(dto.horizontal().minReplicas()).isNull();
@@ -159,12 +164,34 @@ class VerticalDecisionMapperTest {
     }
 
     @Test
+    @DisplayName("an AUTO policy with a clean recommendation still reaches the wire as not appliable")
+    void theGateForcesAutoApplyFalseEvenWhenTheEngineSaysYes() {
+        WorkloadPolicy auto = WorkloadPolicyDefaults.policy(WorkloadMode.AUTO);
+        WorkloadSnapshot snapshot = guaranteedOverprovisioned();
+        WorkloadDecision decision = engine.decide(snapshot, auto, NodeCapacity.unbounded());
+
+        // The engine is pure: it answers "does the POLICY permit this", and here it says yes.
+        assertThat(decision.autoApplyEligible())
+                .as("the fixture must actually exercise the gate, not pass for another reason")
+                .isTrue();
+
+        // The wire value is engine AND gate, and the gate is false while no executor exists — so a
+        // stored AUTO policy is inert rather than merely undocumented.
+        assertThat(VerticalDecisionMapper.toDto(snapshot, auto, decision, GATE).autoApplyEligible())
+                .isFalse();
+
+        // Same with both flags off, which is the shipped default.
+        assertThat(VerticalDecisionMapper.toDto(snapshot, auto, decision,
+                new WorkloadAutoscalingProperties(false, false)).autoApplyEligible()).isFalse();
+    }
+
+    @Test
     @DisplayName("lastAction is null: nothing has ever been applied, because there is no executor")
     void lastActionIsNull() {
         WorkloadSnapshot snapshot = guaranteedOverprovisioned();
         WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded());
 
-        assertThat(VerticalDecisionMapper.toDto(snapshot, policy, decision).lastAction()).isNull();
+        assertThat(VerticalDecisionMapper.toDto(snapshot, policy, decision, GATE).lastAction()).isNull();
     }
 
     private static WorkloadSnapshot guaranteedOverprovisioned() {
