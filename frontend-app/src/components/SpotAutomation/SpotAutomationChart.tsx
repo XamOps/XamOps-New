@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Icon } from '@iconify/react';
 import { Chart, registerables } from 'chart.js';
 import type { HistoryDataPoint, HistorySummary } from '../../hooks/useSpotAutomationData';
+import LegacyUnverifiedTag, { LEGACY_UNVERIFIED_LABEL } from './LegacyUnverifiedTag';
 
 Chart.register(...registerables);
 
@@ -46,6 +47,22 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
       return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
     });
 
+    // A missing value is null, drawn as a gap: nothing was recorded, so nothing reads as $0.
+    // Legacy amounts get their own grey series and never appear as actual savings.
+    const hasLegacy = sortedData.some((d) => d.legacy);
+    const legacyDataset = {
+      label: LEGACY_UNVERIFIED_LABEL,
+      data: sortedData.map((d) => (d.legacy ? (d.total_actual_savings ?? null) : null)),
+      borderColor: '#9ca3af',
+      backgroundColor: 'transparent',
+      borderWidth: 2,
+      borderDash: [3, 3],
+      tension: 0.4,
+      pointBackgroundColor: '#9ca3af',
+      pointRadius: 3,
+      pointHoverRadius: 5,
+    };
+
     chartInstanceRef.current = new Chart(chartRef.current, {
       type: 'line',
       data: {
@@ -53,7 +70,7 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
         datasets: [
           {
             label: 'Actual Savings',
-            data: sortedData.map((d) => d.total_actual_savings || 0),
+            data: sortedData.map((d) => (d.legacy ? null : (d.total_actual_savings ?? null))),
             borderColor: '#10b981',
             backgroundColor: 'rgba(16, 185, 129, 0.08)',
             borderWidth: 2.5,
@@ -65,7 +82,7 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
           },
           {
             label: 'Potential Savings',
-            data: sortedData.map((d) => d.total_potential_savings || 0),
+            data: sortedData.map((d) => d.total_potential_savings ?? null),
             borderColor: '#f59e0b',
             backgroundColor: 'transparent',
             borderWidth: 2.5,
@@ -75,6 +92,7 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
             pointRadius: 3,
             pointHoverRadius: 5,
           },
+          ...(hasLegacy ? [legacyDataset] : []),
         ],
       },
       options: {
@@ -151,7 +169,7 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
         </div>
       </div>
 
-      {/* Summary pills */}
+      {/* Summary pills (legacy amounts are excluded from all three) */}
       <div className="grid grid-cols-3 gap-4 mb-5">
         {[
           { label: 'Period Savings', value: formatCurrency(historySummary.total_savings || 0), color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-100' },
@@ -164,6 +182,16 @@ const SpotAutomationChart: React.FC<SpotAutomationChartProps> = ({
           </div>
         ))}
       </div>
+
+      {(historySummary.legacy_total_savings || 0) > 0 && (
+        <div data-testid="history-legacy-total" className="-mt-2 mb-5 flex items-center gap-2 text-[12px] text-[rgba(0,0,0,0.55)]">
+          <span className="font-semibold tabular-nums text-[rgba(0,0,0,0.75)]">
+            {formatCurrency(historySummary.legacy_total_savings || 0)}
+          </span>
+          <LegacyUnverifiedTag />
+          <span className="text-[rgba(0,0,0,0.4)]">Not in totals</span>
+        </div>
+      )}
 
       {/* Chart */}
       <div className="relative h-72">

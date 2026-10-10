@@ -49,6 +49,27 @@ function makeResponse(data: unknown, status = 200): Response {
   });
 }
 
+const AUTOSPOTTING_ADMIN_PREFIX = '/api/xamops/autospotting-admin/';
+
+/**
+ * AutoSpotting admin reads, answered the same way for both demo roles. None may reach the backend:
+ * the BillOps demo login is a real ROLE_BILLOPS_ADMIN user, so a pass-through would show every
+ * AutoSpotting customer's real name and savings. Lists are empty and totals 0, which both pages
+ * render as "no data"; any other path under the prefix is a 404.
+ */
+function routeAutoSpottingAdmin(url: string): Response {
+  if (url.includes(`${AUTOSPOTTING_ADMIN_PREFIX}total-savings`))
+    return makeResponse({ totalSavings: 0, legacyUnverifiedTotal: 0, activeSpotInstances: 0 });
+  if (
+    url.includes(`${AUTOSPOTTING_ADMIN_PREFIX}customer-savings`) ||
+    url.includes(`${AUTOSPOTTING_ADMIN_PREFIX}recent-activity`) ||
+    url.includes(`${AUTOSPOTTING_ADMIN_PREFIX}historical-savings`) ||
+    url.includes(`${AUTOSPOTTING_ADMIN_PREFIX}account-breakdown`)
+  )
+    return makeResponse([]);
+  return makeNotFound();
+}
+
 function routeXamops(url: string, method = 'GET', body?: string): Response | null {
   // Sidebar profile. No tab restriction, and the XamLens add-on enabled, so the demo shows XamLens
   // unlocked. The generic {} below would read as "not entitled" and put a Locked pill on it.
@@ -501,6 +522,11 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse([]);
   if (url.includes('/api/xamops/calls'))
     return makeResponse({});
+
+  // AutoSpotting admin reads: mocked, never passed through (see routeAutoSpottingAdmin). Must come
+  // before the catch-all below, whose {} would break the pages' arrays.
+  if (url.includes(AUTOSPOTTING_ADMIN_PREFIX))
+    return routeAutoSpottingAdmin(url);
 
   // Any other /api/xamops/* — empty fallback
   if (url.includes('/api/xamops/'))
@@ -1061,6 +1087,11 @@ function routeBillopsAdmin(url: string): Response | null {
     return makeResponse([]);
   if (url.includes('/api/xamops/billops-admin/'))
     return makeResponse({});
+
+  // AutoSpotting card and its Full Report page. This demo login is a real BillOps admin, so these
+  // reads must never reach the backend (see routeAutoSpottingAdmin).
+  if (url.includes(AUTOSPOTTING_ADMIN_PREFIX))
+    return routeAutoSpottingAdmin(url);
 
   // Any other /api/billops/* — empty fallback
   if (url.includes('/api/billops/'))

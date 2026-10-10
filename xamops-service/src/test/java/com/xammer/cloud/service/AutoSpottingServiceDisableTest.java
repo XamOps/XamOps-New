@@ -67,7 +67,7 @@ class AutoSpottingServiceDisableTest {
                 mock(SpotPricingService.class), eventRepository, mock(DailySpotSavingsRepository.class),
                 mock(AutoSpottingSettingsRepository.class), mock(AsgSpotConfigRepository.class),
                 redisCacheService, cachedDataRepository, new ObjectMapper(),
-                new AutoSpottingFeatureFlags(false, false, false));
+                new AutoSpottingFeatureFlags(false, false, false, false));
         ReflectionTestUtils.setField(service, "tagKey", "spot-enabled");
         ReflectionTestUtils.setField(service, "tagValue", "true");
         ReflectionTestUtils.setField(service, "tableName", "autospotting-CustomerAccounts");

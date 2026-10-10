@@ -12,6 +12,7 @@ import com.xammer.cloud.repository.DailySpotSavingsRepository;
 import com.xammer.cloud.repository.SpotOptimizationEventRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import com.xammer.cloud.service.autospotting.AutoSpottingBlockedException;
+import com.xammer.cloud.service.autospotting.AutoSpottingFeatureFlags;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -36,6 +37,7 @@ public class GcpAutoSpottingService {
     private final GcpPricingService pricingService;
     private final GcpRestTemplateService restTemplateService;
     private final RedisCacheService redisCacheService;
+    private final AutoSpottingFeatureFlags featureFlags;
 
     private static final String CACHE_KEY_MIGS      = "gcp-autospotting-migs-";
     private static final String CACHE_KEY_INSTANCES  = "gcp-autospotting-instances-";
@@ -47,7 +49,8 @@ public class GcpAutoSpottingService {
             DailySpotSavingsRepository savingsRepository,
             GcpPricingService pricingService,
             GcpRestTemplateService restTemplateService,
-            RedisCacheService redisCacheService) {
+            RedisCacheService redisCacheService,
+            AutoSpottingFeatureFlags featureFlags) {
         this.gcpClientProvider = gcpClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.eventRepository = eventRepository;
@@ -55,6 +58,7 @@ public class GcpAutoSpottingService {
         this.pricingService = pricingService;
         this.restTemplateService = restTemplateService;
         this.redisCacheService = redisCacheService;
+        this.featureFlags = featureFlags;
     }
 
     public CloudAccount resolveAccount(String accountId) {
@@ -471,14 +475,15 @@ public class GcpAutoSpottingService {
         HistoryResponse response = new HistoryResponse();
         List<HistoryResponse.DataPoint> dataPoints = new ArrayList<>();
 
-        double totalSaved = 0;
         for (DailySpotSavings saving : findings) {
             HistoryResponse.DataPoint dp = new HistoryResponse.DataPoint();
             dp.setTimestamp(saving.getDate().toString());
             dp.setActualHourlySavings(saving.getAmountSaved());
-            dp.setPotentialHourlySavings(saving.getAmountSaved() * 0.2);
+            // Not recorded for past days. This used to be invented as 20% of the actual figure.
+            dp.setPotentialHourlySavings(null);
+            // Every daily_spot_savings row is legacy (D-12).
+            dp.setLegacy(Boolean.TRUE);
             dataPoints.add(dp);
-            totalSaved += saving.getAmountSaved();
         }
 
         // Step 2: Fallback to SpotOptimizationEvent if daily savings are empty
@@ -511,9 +516,11 @@ public class GcpAutoSpottingService {
                     HistoryResponse.DataPoint dp = new HistoryResponse.DataPoint();
                     dp.setTimestamp(entry.getKey().toString());
                     dp.setActualHourlySavings(entry.getValue());
-                    dp.setPotentialHourlySavings(entry.getValue() * 0.2);
+                    // Not recorded for past days (was invented as 20% of the actual figure).
+                    dp.setPotentialHourlySavings(null);
+                    // spot_optimization_event is legacy history (core §8).
+                    dp.setLegacy(Boolean.TRUE);
                     dataPoints.add(dp);
-                    totalSaved += entry.getValue();
                 }
 
                 if (!dataPoints.isEmpty()) {
@@ -524,46 +531,38 @@ public class GcpAutoSpottingService {
             }
         }
 
-        // Step 3: Gap-fill missing dates with $0 entries for proper timeline
-        long rangeDays = startDate.until(endDate, java.time.temporal.ChronoUnit.DAYS) + 1;
-        if (rangeDays <= 90) {
-            java.util.Set<LocalDate> covered = dataPoints.stream()
-                    .map(dp -> LocalDate.parse(dp.getTimestamp().substring(0, 10)))
-                    .collect(java.util.stream.Collectors.toCollection(java.util.HashSet::new));
-
-            LocalDate cur = startDate;
-            while (!cur.isAfter(endDate)) {
-                if (!covered.contains(cur)) {
-                    HistoryResponse.DataPoint dp = new HistoryResponse.DataPoint();
-                    dp.setTimestamp(cur.toString());
-                    dp.setActualHourlySavings(0.0);
-                    dp.setPotentialHourlySavings(0.0);
-                    dataPoints.add(dp);
-                }
-                cur = cur.plusDays(1);
-            }
-
-            // Sort by timestamp to ensure proper order
-            dataPoints.sort((a, b) -> a.getTimestamp().compareTo(b.getTimestamp()));
-            log.info("📊 [GCP] Gap-filled history data, total points: {}", dataPoints.size());
-        }
-
+        // A day without data gets no point, as on AWS: a padded $0 would read as measured zero
+        // savings (P01-R5). Rows and events both come out in date order.
         response.setDataPoints(dataPoints);
+
+        // Legacy points stay out of every summary figure and are summed apart (D-12, AC-LED-11).
+        List<HistoryResponse.DataPoint> nonLegacy = dataPoints.stream()
+                .filter(dp -> !Boolean.TRUE.equals(dp.getLegacy()))
+                .collect(java.util.stream.Collectors.toList());
+        double totalSaved = nonLegacy.stream()
+                .mapToDouble(dp -> dp.getActualHourlySavings() != null ? dp.getActualHourlySavings() : 0.0)
+                .sum();
+        double legacySaved = dataPoints.stream()
+                .filter(dp -> Boolean.TRUE.equals(dp.getLegacy()))
+                .mapToDouble(dp -> dp.getActualHourlySavings() != null ? dp.getActualHourlySavings() : 0.0)
+                .sum();
 
         HistoryResponse.HistorySummary summary = new HistoryResponse.HistorySummary();
         summary.setTotalActualSavings(totalSaved);
-        summary.setAverageHourlySavings(dataPoints.size() > 0 ? totalSaved / dataPoints.size() : 0);
+        summary.setAverageHourlySavings(nonLegacy.size() > 0 ? totalSaved / nonLegacy.size() : 0);
 
         // Calculate peak savings
-        double peakSavings = dataPoints.stream()
+        double peakSavings = nonLegacy.stream()
                 .mapToDouble(dp -> dp.getActualHourlySavings() != null ? dp.getActualHourlySavings() : 0.0)
                 .max()
                 .orElse(0.0);
         summary.setPeakSavings(peakSavings);
+        summary.setLegacyTotalSavings(legacySaved);
 
         response.setSummary(summary);
 
-        log.info("✅ [GCP] Returning {} data points, total savings: ${}", dataPoints.size(), totalSaved);
+        log.info("[GCP] Returning {} history point(s): non-legacy total ${}, legacy total ${}",
+                dataPoints.size(), totalSaved, legacySaved);
         return response;
     }
 
@@ -1392,9 +1391,15 @@ public class GcpAutoSpottingService {
     }
 
     /**
-     * Update daily savings aggregation
+     * Update daily savings aggregation. Off while {@code autospotting.gcp.savings-ledger.enabled}
+     * is false (the default): the gate sits here, in the callee, so the enable path is unchanged.
      */
     private void updateDailySavings(CloudAccount account, double savings) {
+        if (!featureFlags.isGcpSavingsLedgerEnabled()) {
+            log.info("[GCP AutoSpotting] Savings ledger disabled "
+                    + "(autospotting.gcp.savings-ledger.enabled=false); not writing daily_spot_savings");
+            return;
+        }
         try {
             java.time.LocalDate today = java.time.LocalDate.now();
 
@@ -1424,10 +1429,16 @@ public class GcpAutoSpottingService {
 
     /**
      * Scheduled job to record daily savings for all active spot instances
-     * Runs every day at 11:30 PM
+     * Runs every day at 11:30 PM. Does nothing while {@code autospotting.gcp.savings-ledger.enabled}
+     * is false (the default).
      */
     @Scheduled(cron = "0 30 23 * * *")
     public void recordDailySavingsForAllAccounts() {
+        if (!featureFlags.isGcpSavingsLedgerEnabled()) {
+            log.info("[GCP AutoSpotting] Savings ledger disabled "
+                    + "(autospotting.gcp.savings-ledger.enabled=false); skipping daily_spot_savings");
+            return;
+        }
         log.info("🕐 [GCP] Starting scheduled daily savings recording...");
         
         try {

@@ -35,14 +35,20 @@ export interface GcpSpotSavings {
 
 export interface GcpHistoryDataPoint {
     timestamp: string;
-    total_actual_savings: number;
-    total_potential_savings: number;
+    /** null when nothing was recorded; never read as $0. Days without data have no point. */
+    total_actual_savings: number | null;
+    total_potential_savings: number | null;
+    /** The amount comes from a legacy source: shown only as "Legacy (unverified)". */
+    legacy?: boolean;
 }
 
 export interface GcpHistorySummary {
+    /** Non-legacy points only (the backend leaves legacy amounts out of these three). */
     total_savings: number;
     average_hourly_savings: number;
     peak_savings: number;
+    /** Legacy amounts in the range, reported apart. */
+    legacy_total_savings?: number;
 }
 
 interface UseGcpSpotAutomationDataProps {
@@ -139,12 +145,13 @@ export const useGcpSpotAutomationData = ({ selectedAccountId }: UseGcpSpotAutoma
             const data = await apiClient.get(`/api/gcp/autospotting/history/${selectedAccountId}?range=${range}`);
             setHistoryData(data.data_points || []);
             // Backend serialises HistorySummary with @JsonProperty keys:
-            // total_savings, average_hourly_savings, peak_savings
+            // total_savings, average_hourly_savings, peak_savings, legacy_total_savings
             const s = data.summary || {};
             setHistorySummary({
                 total_savings: s.total_savings ?? 0,
                 average_hourly_savings: s.average_hourly_savings ?? 0,
                 peak_savings: s.peak_savings ?? 0,
+                legacy_total_savings: s.legacy_total_savings ?? 0,
             });
         } catch (err) {
             console.error('[GcpSpotAutomation] History fetch error:', err);

@@ -7,6 +7,7 @@ import com.xammer.cloud.dto.autospotting.CostResponse;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DailySpotSavingsRepository;
 import com.xammer.cloud.service.autospotting.AutoSpottingFeatureFlags;
+import com.xammer.cloud.service.autospotting.DefaultAutoSpottingFlags;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -26,7 +27,8 @@ import static org.mockito.Mockito.when;
 /**
  * The nightly AWS ledger writer must not touch daily_spot_savings while
  * autospotting.aws.savings-ledger.enabled is false, and must pass the CloudAccount (not a
- * primary key) to the service when it is on.
+ * primary key) to the service when it is on. The defaultConfig cases run with no property line
+ * at all, so they prove the code default (AC-LED-19).
  */
 class AutoSpottingSchedulerTest {
 
@@ -43,7 +45,40 @@ class AutoSpottingSchedulerTest {
 
     private AutoSpottingScheduler scheduler(boolean ledgerEnabled) {
         return new AutoSpottingScheduler(cloudAccountRepository, savingsRepository, autoSpottingService,
-                new AutoSpottingFeatureFlags(false, false, ledgerEnabled));
+                new AutoSpottingFeatureFlags(false, false, ledgerEnabled, false));
+    }
+
+    /** The flags as Spring builds them with no autospotting.* property line (code defaults). */
+    private AutoSpottingScheduler schedulerWithDefaultConfig() {
+        return new AutoSpottingScheduler(cloudAccountRepository, savingsRepository, autoSpottingService,
+                DefaultAutoSpottingFlags.load());
+    }
+
+    private void givenAnAwsAccountWithSavings() {
+        CloudAccount account = new CloudAccount();
+        account.setId(7L);
+        account.setProvider("AWS");
+        account.setAwsAccountId("012345678901");
+        when(cloudAccountRepository.findAll()).thenReturn(List.of(account));
+        when(cloudAccountRepository.findById(7L)).thenReturn(Optional.of(account));
+    }
+
+    @Test
+    void defaultConfig_recordDailySavingsTouchesNothing() {
+        givenAnAwsAccountWithSavings();
+
+        schedulerWithDefaultConfig().recordDailySavings();
+
+        verifyNoInteractions(cloudAccountRepository, savingsRepository, autoSpottingService);
+    }
+
+    @Test
+    void defaultConfig_backfillTouchesNothing() {
+        givenAnAwsAccountWithSavings();
+
+        schedulerWithDefaultConfig().backfillHistoricalSavings(7L, LocalDate.now().minusDays(3), LocalDate.now());
+
+        verifyNoInteractions(cloudAccountRepository, savingsRepository, autoSpottingService);
     }
 
     @Test

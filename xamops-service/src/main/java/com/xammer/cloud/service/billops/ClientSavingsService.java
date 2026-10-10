@@ -14,6 +14,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -56,6 +58,10 @@ public class ClientSavingsService {
         double gcpSpot   = sumSpotSavings(gcpAccounts,   startDate, endDate);
         double awsEbs    = sumEbsSavings(awsAccounts, startInstant, endInstant);
 
+        // Legacy rows: reported apart, never added into a total (D-12, AC-LED-11).
+        BigDecimal legacyAwsSpot = sumLegacySpotSavings(awsAccounts, startDate, endDate);
+        BigDecimal legacyGcpSpot = sumLegacySpotSavings(gcpAccounts, startDate, endDate);
+
         double awsRightsizing   = sumCachedSavings(awsAccounts,   "DASHBOARD_OPT::",      "totalMonthlySavings");
         double gcpRightsizing   = sumCachedSavings(gcpAccounts,   "GCP_RIGHTSIZING::",    "monthlySavings");
         double azureRightsizing = sumCachedSavings(azureAccounts, "AZURE_RIGHTSIZING::",  "estimatedMonthlySavings");
@@ -72,6 +78,8 @@ public class ClientSavingsService {
             .realizedSpotAws(awsSpot)
             .realizedSpotGcp(gcpSpot)
             .realizedEbsAws(awsEbs)
+            .legacySpotUnverifiedAws(legacyAwsSpot)
+            .legacySpotUnverifiedGcp(legacyGcpSpot)
             .potentialRightsizingAws(awsRightsizing)
             .potentialRightsizingGcp(gcpRightsizing)
             .potentialRightsizingAzure(azureRightsizing)
@@ -92,12 +100,21 @@ public class ClientSavingsService {
         return result;
     }
 
+    /** Realized spot savings: non-legacy rows only, so 0 until the savings ledger exists. */
     private double sumSpotSavings(List<CloudAccount> accounts, LocalDate start, LocalDate end) {
         return accounts.stream()
             .mapToDouble(a -> dailySpotSavingsRepository
-                .findByAccountIdAndDateBetweenOrderByDateAsc(a.getId(), start, end)
+                .findByAccountIdAndDateBetweenAndLegacyFalseOrderByDateAsc(a.getId(), start, end)
                 .stream().mapToDouble(r -> r.getAmountSaved() != null ? r.getAmountSaved() : 0.0).sum())
             .sum();
+    }
+
+    /** Legacy spot savings in the range, rounded to cents for display; zero when there are none. */
+    private BigDecimal sumLegacySpotSavings(List<CloudAccount> accounts, LocalDate start, LocalDate end) {
+        if (accounts.isEmpty()) return BigDecimal.ZERO;
+        List<Long> accountIds = accounts.stream().map(CloudAccount::getId).collect(Collectors.toList());
+        Double legacy = dailySpotSavingsRepository.sumLegacyAmount(accountIds, start, end);
+        return legacy == null ? BigDecimal.ZERO : BigDecimal.valueOf(legacy).setScale(2, RoundingMode.HALF_UP);
     }
 
     private double sumEbsSavings(List<CloudAccount> accounts, Instant start, Instant end) {
@@ -140,12 +157,13 @@ public class ClientSavingsService {
             byDate.put(d, new double[]{0, 0, 0});
         }
 
+        // Spot points come from non-legacy rows only; legacy amounts never enter the series.
         for (CloudAccount a : aws) {
-            dailySpotSavingsRepository.findByAccountIdAndDateBetweenOrderByDateAsc(a.getId(), start, end)
+            dailySpotSavingsRepository.findByAccountIdAndDateBetweenAndLegacyFalseOrderByDateAsc(a.getId(), start, end)
                 .forEach(r -> byDate.get(r.getDate())[0] += r.getAmountSaved() != null ? r.getAmountSaved() : 0.0);
         }
         for (CloudAccount a : gcp) {
-            dailySpotSavingsRepository.findByAccountIdAndDateBetweenOrderByDateAsc(a.getId(), start, end)
+            dailySpotSavingsRepository.findByAccountIdAndDateBetweenAndLegacyFalseOrderByDateAsc(a.getId(), start, end)
                 .forEach(r -> byDate.get(r.getDate())[1] += r.getAmountSaved() != null ? r.getAmountSaved() : 0.0);
         }
         for (CloudAccount a : aws) {

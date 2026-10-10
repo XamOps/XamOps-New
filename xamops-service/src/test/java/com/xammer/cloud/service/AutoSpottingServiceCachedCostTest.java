@@ -50,7 +50,7 @@ class AutoSpottingServiceCachedCostTest {
                 mock(SpotPricingService.class), mock(SpotOptimizationEventRepository.class),
                 mock(DailySpotSavingsRepository.class), mock(AutoSpottingSettingsRepository.class),
                 mock(AsgSpotConfigRepository.class), redisCacheService, cachedDataRepository, objectMapper,
-                new AutoSpottingFeatureFlags(false, false, false));
+                new AutoSpottingFeatureFlags(false, false, false, false));
 
         account = new CloudAccount();
         account.setId(7L);

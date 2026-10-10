@@ -49,11 +49,11 @@ export interface CustomerDashboardData {
 }
 
 export interface SavingsMetrics {
+    /** Verified (non-legacy) savings only: 0 until the savings ledger exists. */
     totalSavings: number;
-    monthlySavings: number;
-    dailySavings: number;
+    /** Legacy savings, reported apart and shown only as "Legacy (unverified)". */
+    legacyUnverifiedTotal: number;
     activeSpotInstances: number;
-    conversionRate: number;
 }
 
 export interface SpotActivity {
@@ -65,7 +65,8 @@ export interface SpotActivity {
     instanceType: string;
     spotInstanceType: string;
     eventType: 'LAUNCH' | 'TERMINATE';
-    hourlySavings: number;
+    /** Null on events that record no savings, such as ASG config saves. */
+    hourlySavings: number | null;
     onDemandPrice: number;
     spotPrice: number;
     region: string;
@@ -73,14 +74,19 @@ export interface SpotActivity {
 
 export interface HistoricalSavings {
     date: string;
-    savings: number;
+    /** Verified savings that day; null when there is none. */
+    savings: number | null;
+    /** Legacy savings that day, a separate series; null when there is none. */
+    legacySavings: number | null;
     instanceCount: number;
 }
 
 export interface AccountSavings {
     accountId: string;
     accountName: string;
+    /** Verified savings only. */
     totalSavings: number;
+    legacyUnverifiedSavings: number;
     instanceCount: number;
 }
 
@@ -110,5 +116,6 @@ export interface SpotAutomationCacheData {
         total_savings: number;
         average_hourly_savings: number;
         peak_savings: number;
+        legacy_total_savings?: number;
     };
 }

@@ -22,13 +22,17 @@ import type { TopSpendingAccount, AdminInvoice, AdminTicket, SpendingTrendItem }
 import { apiFetch } from '../utils/apiClient';
 import { useCurrency } from '../hooks/useCurrency';
 import { useTabState } from '../hooks/useTabState';
+import LegacyUnverifiedTag from '../components/SpotAutomation/LegacyUnverifiedTag';
 
 interface CustomerSpotSavings {
   clientId: number;
   clientName: string;
+  // Verified (non-legacy) savings only: 0 until the savings ledger exists.
   awsSavings: number;
   gcpSavings: number;
   totalSavings: number;
+  // Legacy savings, shown in their own column and never added into the figures above.
+  legacyUnverifiedTotal?: number;
 }
 
 interface ClientsApiAccount {
@@ -125,7 +129,8 @@ const BillOpsAdminDashboardPage: React.FC = () => {
 
   // Fetch customer savings (backend caching ensures instant response like AWS Cost page)
   useEffect(() => {
-    apiFetch('/api/admin/autospotting/customer-savings', { credentials: 'include' })
+    // xamops-service serves this under /api/xamops/; /api/admin/ is routed to billops (NO-02).
+    apiFetch('/api/xamops/autospotting-admin/customer-savings', { credentials: 'include' })
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then((d: CustomerSpotSavings[]) => setCustomerSavings(d))
       .catch(err => console.error('Failed to load customer spot savings', err))
@@ -866,6 +871,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                         <th className="bo-th text-right"><Icon icon="mdi:aws" width={13} color="#FF9900" className="inline mr-1" />AWS</th>
                         <th className="bo-th text-right"><Icon icon="mdi:google-cloud" width={13} color="#34A853" className="inline mr-1" />GCP</th>
                         <th className="bo-th text-right">Total Saved</th>
+                        <th className="bo-th text-right"><LegacyUnverifiedTag /></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -875,6 +881,7 @@ const BillOpsAdminDashboardPage: React.FC = () => {
                           <td className="bo-td text-[13px] text-right text-[rgba(0,0,0,0.6)]">{row.awsSavings > 0 ? formatCurrency(row.awsSavings) : <span className="text-[rgba(0,0,0,0.2)]">—</span>}</td>
                           <td className="bo-td text-[13px] text-right text-[rgba(0,0,0,0.6)]">{row.gcpSavings > 0 ? formatCurrency(row.gcpSavings) : <span className="text-[rgba(0,0,0,0.2)]">—</span>}</td>
                           <td className="bo-td text-[13px] text-right font-semibold text-[#158045]">{formatCurrency(row.totalSavings)}</td>
+                          <td className="bo-td text-[13px] text-right text-[rgba(0,0,0,0.5)]">{(row.legacyUnverifiedTotal ?? 0) > 0 ? formatCurrency(row.legacyUnverifiedTotal ?? 0) : <span className="text-[rgba(0,0,0,0.2)]">—</span>}</td>
                         </tr>
                       ))}
                     </tbody>
