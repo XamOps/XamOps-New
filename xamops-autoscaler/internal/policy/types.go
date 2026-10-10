@@ -50,7 +50,17 @@ type WorkloadRightsizerPolicy struct {
 	LookbackHours         int    `json:"lookbackHours"`
 	ApplyMode             string `json:"applyMode"` // immediate | deferred
 	SurgeDetection        bool   `json:"surgeDetection"`
+	// Floors of the hard clamp (plan.md D9): a request is never decreased below them,
+	// and never raised to them. ≤0 → default (25m / 250Mi, upstream VPA minimums).
+	MinCpuMillicores int `json:"minCpuMillicores"`
+	MinMemoryMib     int `json:"minMemoryMib"`
 }
+
+// Rightsizer clamp floor defaults (upstream VPA recommender minimums).
+const (
+	DefaultMinCpuMillicores = 25
+	DefaultMinMemoryMib     = 250
+)
 
 type NodeTemplate struct {
 	ID                     string              `json:"id"`
@@ -248,6 +258,17 @@ func (b *PolicyBundle) Normalize() []string {
 			b.NodeOptimizerPolicy.MaxParallelDrains))
 		b.NodeOptimizerPolicy.MaxParallelDrains = 1
 	}
+	rs := &b.WorkloadRightsizerPolicy
+	if rs.MinCpuMillicores <= 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"workloadRightsizerPolicy.minCpuMillicores=%d is not positive — using %d", rs.MinCpuMillicores, DefaultMinCpuMillicores))
+		rs.MinCpuMillicores = DefaultMinCpuMillicores
+	}
+	if rs.MinMemoryMib <= 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"workloadRightsizerPolicy.minMemoryMib=%d is not positive — using %d", rs.MinMemoryMib, DefaultMinMemoryMib))
+		rs.MinMemoryMib = DefaultMinMemoryMib
+	}
 	if b.SafetyGuards.ProtectCriticalNamespaces && len(b.SafetyGuards.CriticalNamespaces) == 0 {
 		warnings = append(warnings,
 			"safetyGuards.criticalNamespaces is empty — only the autoscaler's own namespace stays protected")
@@ -277,6 +298,8 @@ func DefaultBundle() PolicyBundle {
 			LookbackHours:         72,
 			ApplyMode:             "deferred",
 			SurgeDetection:        true,
+			MinCpuMillicores:      DefaultMinCpuMillicores,
+			MinMemoryMib:          DefaultMinMemoryMib,
 		},
 		HPAManagerPolicy: HPAManagerPolicy{
 			Enabled:             false,

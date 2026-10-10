@@ -155,6 +155,43 @@ func (c *cycleActions) addOutcome(eventType string, o drain.Outcome) {
 	c.add(eventType, len(o.Reports), o.Actions...)
 }
 
+// addRightsizer records the rightsizer's per-container actions. Simulated, refused,
+// failed and unverified records get their own honest legacy event. Verified live
+// patches are recorded individually and summarised in ONE event, "Rightsizer patched
+// N Deployment template(s) — rollout pending", backed by a summary record (same ID).
+func (c *cycleActions) addRightsizer(recs []policy.ActionRecord) {
+	var verified []policy.ActionRecord
+	for _, r := range recs {
+		if telemetry.VerifiedLive(r) {
+			verified = append(verified, r)
+			continue
+		}
+		c.add("workload-resize", 0, r)
+	}
+	if len(verified) == 0 {
+		return
+	}
+	deployments := map[string]bool{}
+	ids := make([]string, 0, len(verified))
+	for _, r := range verified {
+		c.records = append(c.records, r)
+		ids = append(ids, r.ID)
+		if w, ok := r.Details["workload"].(string); ok {
+			deployments[w] = true
+		}
+	}
+	n := len(deployments)
+	sum := telemetry.NewAction(policy.ControllerRightsizer, "patch-requests-summary",
+		fmt.Sprintf("%d Deployment template(s)", n), false)
+	telemetry.SetDetail(&sum, "actionIds", ids)
+	sum.Verification = "Deployment templates carry the new requests; rollout pending"
+	sum = telemetry.Finish(sum, policy.ActionSucceeded, true, "")
+	ev := telemetry.LegacyEvent(sum, "workload-resize", 0)
+	ev.Message = fmt.Sprintf("Rightsizer patched %d Deployment template(s) — rollout pending", n)
+	c.records = append(c.records, sum)
+	c.events = append(c.events, ev)
+}
+
 // cycleDecisions are all gate decisions of one cycle, computed once.
 type cycleDecisions struct {
 	Rebalancer, Evictor, NodeOptimizer, Cordon, IdleDrain, SpotRatio, Karpenter, Interruption,
@@ -300,16 +337,9 @@ func runCycle(
 		}
 	}
 
-	// ── 3. Rightsizer (workload CPU/memory request patching) ─────────────────
+	// ── 3. Rightsizer (floor clamp; apply only when gate.RightsizerApply is Live) ─
 	if d.Rightsizer.Mode != gate.Off {
-		// Interim until FEAT-002 wires the apply decision into the rightsizer: apply
-		// is possible only when gate.RightsizerApply is Live (ENABLE_RIGHTSIZER_APPLY
-		// ∧ applyMode=immediate ∧ !DRY_RUN); otherwise the rightsizer sees deferred.
-		rp := bundle.WorkloadRightsizerPolicy
-		if d.RightsizerApply.Mode != gate.Live {
-			rp.ApplyMode = "deferred"
-		}
-		results, err := rightsizer.Run(ctx, rp, bundle.SafetyGuards)
+		results, recs, err := rightsizer.Run(ctx, bundle.WorkloadRightsizerPolicy, bundle.SafetyGuards, d.RightsizerApply)
 		if err != nil {
 			log.Printf("ERROR: rightsizer: %v", err)
 		}
@@ -320,18 +350,13 @@ func runCycle(
 				Count:       len(results),
 				CollectedAt: time.Now(),
 			})
-			if applied := countApplied(results); applied > 0 {
-				rec := telemetry.NewAction(policy.ControllerRightsizer, "patch-requests",
-					fmt.Sprintf("%d container(s)", applied), cfg.DryRun)
-				acts.add("workload-resize", 0, telemetry.Finish(rec, policy.ActionSucceeded, false,
-					"Deployment template patch issued; rollout not verified"))
-			}
 		}
+		acts.addRightsizer(recs)
 	}
 
 	// ── 4. HPA Manager (analysis only) ───────────────────────────────────────
 	if d.HPAManager.Mode != gate.Off {
-		recs, err := hpaMgr.Analyse(ctx, bundle.SafetyGuards)
+		recs, err := hpaMgr.Analyse(ctx, bundle.HPAManagerPolicy, bundle.SafetyGuards, cfg.DryRun)
 		if err != nil {
 			log.Printf("ERROR: hpa-manager analyse: %v", err)
 		}
@@ -501,14 +526,4 @@ func startHealthServer() {
 	if err := http.ListenAndServe(":8081", mux); err != nil {
 		log.Printf("Health server error: %v", err)
 	}
-}
-
-func countApplied(results []policy.WorkloadRightsizingResult) int {
-	n := 0
-	for _, r := range results {
-		if r.Applied {
-			n++
-		}
-	}
-	return n
 }

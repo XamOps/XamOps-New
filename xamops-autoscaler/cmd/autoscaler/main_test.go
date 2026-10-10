@@ -9,10 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
@@ -27,6 +29,7 @@ import (
 	"github.com/xamops/automation/internal/controller"
 	"github.com/xamops/automation/internal/policy"
 	"github.com/xamops/automation/internal/pusher"
+	"github.com/xamops/automation/internal/telemetry"
 )
 
 // fixture reads a harness policy file and strips the harness-only _label/_note keys
@@ -65,6 +68,13 @@ func (c *captured) items(collector string) []json.RawMessage {
 // empty vectors.
 func backend(t *testing.T, policyBody []byte) (*httptest.Server, *captured) {
 	t.Helper()
+	return backendWithProm(t, policyBody, nil)
+}
+
+// backendWithProm is backend with a Prometheus answer function: prom returns the
+// sample value for a query, or "" for an empty vector.
+func backendWithProm(t *testing.T, policyBody []byte, prom func(query string) string) (*httptest.Server, *captured) {
+	t.Helper()
 	cap := &captured{batches: map[string][]json.RawMessage{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/agent/autoscaling-policy", func(w http.ResponseWriter, r *http.Request) {
@@ -90,6 +100,12 @@ func backend(t *testing.T, policyBody []byte) (*httptest.Server, *captured) {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("/api/v1/query", func(w http.ResponseWriter, r *http.Request) {
+		if prom != nil {
+			if v := prom(r.URL.Query().Get("query")); v != "" {
+				_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1,"` + v + `"]}]}}`))
+				return
+			}
+		}
 		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
 	})
 	srv := httptest.NewServer(mux)
@@ -304,5 +320,148 @@ func TestRunCycleRebalancerEnvOffIsOff(t *testing.T) {
 	}
 	if w := writeVerbs(c); len(w) != 0 {
 		t.Errorf("writes: %v", w)
+	}
+}
+
+func cycleDeployment(ns, name string, replicas int32, cpu, mem string) *appsv1.Deployment {
+	l := map[string]string{"app": name}
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{MatchLabels: l},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: l},
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "app", Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(cpu), corev1.ResourceMemory: resource.MustParse(mem)}}}}},
+			},
+		},
+		Status: appsv1.DeploymentStatus{ReadyReplicas: replicas},
+	}
+}
+
+// 11-dryrun-actions + DRY_RUN=true + ENABLE_RIGHTSIZER_APPLY=true (applyMode immediate):
+// the rightsizer simulates but never patches, every row is applied=false with a dry-run
+// reason, and every HPA row carries dryRun=true.
+func TestRunCycleDryRunRightsizerApplyFlagOnWritesNothing(t *testing.T) {
+	prom := func(q string) string {
+		switch {
+		case strings.HasPrefix(q, "quantile_over_time"): // rightsizer CPU p80 (millicores)
+			return "0.04"
+		case strings.HasPrefix(q, "max_over_time"): // rightsizer memory p100 (bytes)
+			return "339968"
+		case strings.HasPrefix(q, "quantile(0.9"): // HPA p90 (cores)
+			return "0.05"
+		}
+		return ""
+	}
+	srv, cap := backendWithProm(t, fixture(t, "11-dryrun-actions.json"), prom)
+	c := seededCluster()
+	for _, d := range []*appsv1.Deployment{
+		cycleDeployment("team-a", "overprovisioned-api", 2, "1", "1Gi"),
+		cycleDeployment("dev-sim", "idle-batch-listener", 3, "100m", "512Mi"),
+		cycleDeployment("default", "web", 2, "200m", "300Mi"),
+	} {
+		if err := c.Tracker().Add(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := &config.Config{DryRun: true, EnableEvictor: true, EnableRightsizer: true, EnableRightsizerApply: true,
+		EnableRebalancer: true, EnableHPAManager: true, EnableVPAManager: true, EnableNodeOptimizer: true}
+	runTestCycle(t, cfg, c, srv.URL)
+
+	for _, a := range c.Actions() {
+		if a.GetVerb() == "patch" && a.GetResource().Resource == "deployments" {
+			t.Errorf("deployment patched under DRY_RUN: %v", a)
+		}
+	}
+	if w := writeVerbs(c); len(w) != 0 {
+		t.Errorf("DRY_RUN cycle issued writes: %v", w)
+	}
+
+	rows := cap.items("autoscaling-rightsizing")
+	if len(rows) != 3 {
+		t.Fatalf("rightsizing rows = %d, want 3", len(rows))
+	}
+	for _, raw := range rows {
+		var r map[string]interface{}
+		_ = json.Unmarshal(raw, &r)
+		if r["applied"] != false || !strings.HasPrefix(r["reason"].(string), "dry-run") {
+			t.Errorf("rightsizing row = %s", raw)
+		}
+		if r["recommendedCpu"] == "0m" {
+			t.Errorf("0m CPU: %s", raw)
+		}
+		if len(r) > 14 {
+			t.Errorf("rightsizing row has %d keys (frozen at 14): %s", len(r), raw)
+		}
+	}
+
+	simulated := 0
+	for _, raw := range cap.items("autoscaling-actions") {
+		var a map[string]interface{}
+		_ = json.Unmarshal(raw, &a)
+		if a["controller"] == policy.ControllerRightsizer {
+			if a["status"] != policy.ActionSimulated || a["dryRun"] != true || a["verified"] != false {
+				t.Errorf("rightsizer action = %s", raw)
+			}
+			simulated++
+		}
+	}
+	if simulated != 3 {
+		t.Errorf("simulated rightsizer actions = %d, want 3", simulated)
+	}
+	for _, raw := range cap.items("autoscaling-events") {
+		var ev map[string]interface{}
+		_ = json.Unmarshal(raw, &ev)
+		if ev["severity"] == "success" || outcomeWords.MatchString(ev["message"].(string)) {
+			t.Errorf("dry-run event claims an outcome: %s", raw)
+		}
+	}
+
+	hpa := cap.items("hpa-recommendations")
+	if len(hpa) != 3 {
+		t.Fatalf("hpa rows = %d, want 3", len(hpa))
+	}
+	for _, raw := range hpa {
+		var r map[string]interface{}
+		_ = json.Unmarshal(raw, &r)
+		if r["dryRun"] != true || r["applied"] != false || r["finding"] == "" {
+			t.Errorf("hpa row = %s", raw)
+		}
+	}
+}
+
+// Verified live rightsizer patches are summarised in one event with the agreed wording;
+// simulated ones keep their own honest event.
+func TestAddRightsizerSummarisesVerifiedPatches(t *testing.T) {
+	live := func(target, workload string) policy.ActionRecord {
+		r := telemetry.NewAction(policy.ControllerRightsizer, "patch-requests", target, false)
+		telemetry.SetDetail(&r, "workload", workload)
+		return telemetry.Finish(r, policy.ActionSucceeded, true, "")
+	}
+	sim := telemetry.Finish(telemetry.NewAction(policy.ControllerRightsizer, "patch-requests", "ns/c/x", true),
+		policy.ActionSimulated, false, "dry-run")
+	acts := &cycleActions{}
+	acts.addRightsizer([]policy.ActionRecord{live("ns/a/x", "ns/a"), live("ns/a/y", "ns/a"), live("ns/b/x", "ns/b"), sim})
+
+	if len(acts.records) != 5 || len(acts.events) != 2 {
+		t.Fatalf("records=%d events=%d, want 5/2", len(acts.records), len(acts.events))
+	}
+	ids := map[string]bool{}
+	for _, r := range acts.records {
+		ids[r.ID] = true
+	}
+	var summary policy.AutoscalingEvent
+	for _, ev := range acts.events {
+		if !ids[ev.ID] {
+			t.Errorf("event %s has no paired record", ev.ID)
+		}
+		if ev.Severity == "success" {
+			summary = ev
+		}
+	}
+	if summary.Message != "Rightsizer patched 2 Deployment template(s) — rollout pending" {
+		t.Errorf("summary = %+v", summary)
 	}
 }

@@ -87,6 +87,54 @@ func TestFetchPolicyPartialBundleKeepsSafetyGuards(t *testing.T) {
 	}
 }
 
+// A bundle without the FEAT-002 fields keeps the rightsizer clamp floors.
+func TestFetchPolicyPartialBundleKeepsRightsizerFloors(t *testing.T) {
+	bundle := fetchFromBody(t, partialBundleBody)
+
+	rs := bundle.WorkloadRightsizerPolicy
+	if rs.MinCpuMillicores != 25 || rs.MinMemoryMib != 250 {
+		t.Errorf("rightsizer floors = %dm/%dMi, want 25m/250Mi", rs.MinCpuMillicores, rs.MinMemoryMib)
+	}
+}
+
+func TestFetchPolicyExplicitRightsizerFloorsAreHonoured(t *testing.T) {
+	bundle := fetchFromBody(t, `{"autoscalerMode":"full",`+
+		`"workloadRightsizerPolicy":{"enabled":true,"minCpuMillicores":50,"minMemoryMib":128}}`)
+
+	rs := bundle.WorkloadRightsizerPolicy
+	if rs.MinCpuMillicores != 50 || rs.MinMemoryMib != 128 {
+		t.Errorf("rightsizer floors = %dm/%dMi, want 50m/128Mi", rs.MinCpuMillicores, rs.MinMemoryMib)
+	}
+}
+
+func TestNormalizeRightsizerFloors(t *testing.T) {
+	cases := []struct {
+		name             string
+		cpu, mem         int
+		wantCPU, wantMem int
+		wantWarnings     int
+	}{
+		{"defaults untouched", 25, 250, 25, 250, 0},
+		{"explicit kept", 50, 128, 50, 128, 0},
+		{"zero cpu", 0, 250, 25, 250, 1},
+		{"negative both", -5, -1, 25, 250, 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b := DefaultBundle()
+			b.WorkloadRightsizerPolicy.MinCpuMillicores, b.WorkloadRightsizerPolicy.MinMemoryMib = tc.cpu, tc.mem
+			w := b.Normalize()
+			rs := b.WorkloadRightsizerPolicy
+			if rs.MinCpuMillicores != tc.wantCPU || rs.MinMemoryMib != tc.wantMem {
+				t.Errorf("floors = %dm/%dMi, want %dm/%dMi", rs.MinCpuMillicores, rs.MinMemoryMib, tc.wantCPU, tc.wantMem)
+			}
+			if len(w) != tc.wantWarnings {
+				t.Errorf("warnings = %v, want %d", w, tc.wantWarnings)
+			}
+		})
+	}
+}
+
 // An explicit empty criticalNamespaces list is the operator's choice and is honoured.
 func TestFetchPolicyExplicitEmptyCriticalNamespacesIsHonoured(t *testing.T) {
 	bundle := fetchFromBody(t, `{"autoscalerMode":"full","safetyGuards":{"respectPodDisruptionBudgets":true,`+
