@@ -36,7 +36,17 @@ public enum ContainerReason {
      */
     LIMIT_MOVED,
 
-    /** Usage was pinned at the limit by throttling, so the target came from the limit. */
+    /**
+     * Usage was pinned at the limit, so the target came from the limit rather than from the
+     * percentile.
+     *
+     * <p>Recorded only when the container is <strong>both</strong> throttled (ratio ≥ 0.2) and
+     * measured within 10% of its limit — the condition under which the percentile genuinely is not a
+     * measurement of demand. Throttling on its own does not qualify: the engine used to take the
+     * limit whenever the ratio cleared 0.2, which turned a container measured using 80m against a
+     * 1000m limit into a 1250m request, and — because the limit moves with the request — made each
+     * cycle's basis a number the previous cycle had written.
+     */
     DEMAND_CENSORED_BY_LIMIT,
 
     /** Capped to fit the largest schedulable node. */

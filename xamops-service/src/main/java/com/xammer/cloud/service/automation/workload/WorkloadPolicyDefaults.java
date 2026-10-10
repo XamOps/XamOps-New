@@ -112,8 +112,29 @@ public final class WorkloadPolicyDefaults {
     /** An HPA that scaled within this window makes current usage a transient. */
     public static final Duration HPA_VOLATILITY_WINDOW = Duration.ofMinutes(5);
 
-    /** CFS throttling at or above this ratio means measured usage is censored by the limit. */
+    /** CFS throttling at or above this ratio is worth reporting as a {@code THROTTLED} finding. */
     public static final double THROTTLE_RATIO_THRESHOLD = 0.2;
+
+    /**
+     * How close the measured CPU percentile has to sit to the container's own limit before that
+     * limit may be used as the demand basis: <strong>within 10% of it</strong>.
+     *
+     * <p>Throttling alone is not evidence that usage is censored. A container throttled 25% of the
+     * time while its p95 sits at 8% of its limit is bursting briefly, not running pinned at the
+     * ceiling — and deriving its request from the limit would have produced a 12.5× increase for a
+     * container measured using 80m, justified with {@code DEMAND_CENSORED_BY_LIMIT}. The premise of
+     * that rule ("measured usage <em>is</em> the limit, so it is not a measurement of demand") holds
+     * at the measured throttle ratio of 1.0, where usage sat exactly on the limit; this constant is
+     * what makes the code apply the rule only where its premise is true.
+     *
+     * <p>It is also what bounds the series under repetition. The limit moves with the request, so an
+     * ungated limit-derived basis makes the next cycle's input a number this engine wrote: 10m →
+     * 63m → 250m → 993m, each step clearing the band by hundreds of percent and terminating only at
+     * the node-capacity cap. With the gate, the basis can exceed the measured percentile by at most
+     * {@code 1/0.9} ≈ 11%, so every increase stays anchored to measurement — the same property that
+     * makes the decrease path converge.
+     */
+    public static final double CENSORED_USAGE_FRACTION_OF_LIMIT = 0.9;
 
     /** CPU usage at or below {@code max(1m, this fraction of the request)} counts as idle. */
     public static final double IDLE_CPU_FRACTION_OF_REQUEST = 0.01;

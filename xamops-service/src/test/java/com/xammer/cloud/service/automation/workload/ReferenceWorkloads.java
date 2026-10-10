@@ -143,6 +143,57 @@ final class ReferenceWorkloads {
                         usage("encoder", 50, 20 * MI, 1.0, 0, 1.0))));
     }
 
+    /**
+     * The throttled encoder <strong>after its own recommendation was applied</strong>: 63m request
+     * against a 200m limit, with the measured window unchanged at p95 50m and the container still
+     * reporting throttling.
+     *
+     * <p>This is the throttled path's fixed-point case. Raising a limit does not retroactively change
+     * what was measured, so the next cycle still sees 50m — which is now far below the 200m limit and
+     * therefore not censored. The basis is the measurement again, the target is 63m, and 63m is where
+     * the request already sits. Without the censoring test the basis would be the new 200m limit, i.e.
+     * a number this engine wrote, and the request would walk 63m → 250m → 993m to the node cap.
+     */
+    static WorkloadSnapshot throttledEncoderAfterApply() {
+        WorkloadRef ref = WorkloadRef.of("prod-sim", "Deployment", "throttled-encoder");
+        return workload(ref, 2, List.of(
+                container("encoder", burstable(63, 200, 32 * MI, null),
+                        usage("encoder", 50, 20 * MI, 1.0, 0, 1.0))));
+    }
+
+    /**
+     * The same encoder once its usage genuinely rises to fill the raised limit: p95 200m against a
+     * 200m limit, still throttled.
+     *
+     * <p>Here the premise holds — usage <em>is</em> the limit — so the limit may stand in for demand,
+     * and 200 × 1.25 = 250m. The point of the fixture is that the step is the same one the ordinary
+     * usage-derived path would produce: a limit-derived increase is only ever as large as measurement
+     * supports.
+     */
+    static WorkloadSnapshot throttledEncoderSaturatingTheRaisedLimit() {
+        WorkloadRef ref = WorkloadRef.of("prod-sim", "Deployment", "throttled-encoder");
+        return workload(ref, 2, List.of(
+                container("encoder", burstable(63, 200, 32 * MI, null),
+                        usage("encoder", 200, 20 * MI, 1.0, 0, 1.0))));
+    }
+
+    /**
+     * A container that throttles in short bursts: ratio 0.25, but a p95 of 80m against a 1000m limit
+     * — 8% of the ceiling.
+     *
+     * <p>Not one of the nine measured workloads. It exists because the engine used to treat any ratio
+     * ≥ 0.2 as proof that usage was censored and take the limit as the basis: 1000 × 1.25 = 1250m, a
+     * 12.5× request increase for a container measured using 80m, reported to the operator as
+     * {@code DEMAND_CENSORED_BY_LIMIT}. Bursty throttling is real, but the remedy is a limit, not a
+     * request an order of magnitude above measured demand.
+     */
+    static WorkloadSnapshot intermittentlyThrottledApi() {
+        WorkloadRef ref = WorkloadRef.of("team-a", "Deployment", "bursty-api");
+        return workload(ref, 3, List.of(
+                container("api", burstable(100, 1000, 300 * MI, null),
+                        usage("api", 80, 200 * MI, 0.25, 0, 1.0))));
+    }
+
     // ---------------------------------------------------------------- 4. php-apache (HPA)
 
     /**

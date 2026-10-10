@@ -26,8 +26,14 @@ public enum Finding {
     IDLE,
 
     /**
-     * CFS throttling ratio ≥ 0.2, so measured usage is <em>censored by the limit</em> and cannot be
-     * used as demand. The request target is derived from the limit instead, and the limit is raised.
+     * CFS throttling ratio ≥ 0.2: this container is being held back by its CPU limit often enough to
+     * report.
+     *
+     * <p>An observation, <strong>not</strong> a branch. Whether the limit then stands in for demand
+     * is a separate, stricter test — the measured percentile must also sit within 10% of the limit,
+     * i.e. usage must actually <em>be</em> the limit. A container that bursts briefly throttles
+     * without its percentile being censored, and for that one the ordinary usage-derived target
+     * applies; see {@code ContainerReason.DEMAND_CENSORED_BY_LIMIT}.
      */
     THROTTLED,
 

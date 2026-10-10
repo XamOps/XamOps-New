@@ -32,8 +32,9 @@ import java.util.Locale;
  *
  * <ol>
  *   <li>{@linkplain #gate Gates} — the first match stops evaluation entirely.</li>
- *   <li>Per-container targets from the policy's percentile plus headroom, with the throttled case
- *       deriving demand from the limit instead of from censored usage.</li>
+ *   <li>Per-container targets from the policy's percentile plus headroom, with the limit standing in
+ *       for demand only where usage is <em>measurably</em> censored by it
+ *       ({@link #demandCensoredByLimit}).</li>
  *   <li>Floors, clamping <strong>decreases only</strong>.</li>
  *   <li>The node-capacity cap, computed over all containers together.</li>
  *   <li>Asymmetric relative-<em>and</em>-absolute hysteresis against the <strong>current</strong>
@@ -181,21 +182,22 @@ public final class WorkloadAutoscalingEngine {
             findings.add(Finding.IDLE);
         }
 
-        boolean throttled = usage.cpuThrottleRatio() >= WorkloadPolicyDefaults.THROTTLE_RATIO_THRESHOLD;
-        if (throttled) {
+        if (usage.cpuThrottleRatio() >= WorkloadPolicyDefaults.THROTTLE_RATIO_THRESHOLD) {
             findings.add(Finding.THROTTLED);
         }
 
         // ---- CPU
-        long cpuBasis;
-        if (throttled && current.cpuLimitMillis() != null) {
+        long cpuPercentile = usage.cpuMillis().at(policy.percentile());
+        long cpuBasis = cpuPercentile;
+        if (demandCensoredByLimit(usage, current, cpuPercentile)) {
             // Usage is pinned at the limit, so it is not a measurement of demand. Deriving the
             // target from the limit is what actually relieves the throttling; the Go engine raised
             // the request to match the censored usage and left the pod throttled at ratio 1.0.
-            cpuBasis = current.cpuLimitMillis();
+            //
+            // max(), not the limit outright: the basis must never fall below what was actually
+            // measured, and must never exceed it by more than the censoring tolerance allows.
+            cpuBasis = Math.max(cpuPercentile, current.cpuLimitMillis());
             draft.reasons.add(ContainerReason.DEMAND_CENSORED_BY_LIMIT);
-        } else {
-            cpuBasis = usage.cpuMillis().at(policy.percentile());
         }
         draft.cpuTarget = applyFloor(withHeadroom(cpuBasis, policy.headroomPct()),
                 toLong(current.cpuRequestMillis()), policy.cpuFloorMillis(), draft);
@@ -213,6 +215,38 @@ public final class WorkloadAutoscalingEngine {
             draft.reasons.add(ContainerReason.OOM_RISK);
         }
         return draft;
+    }
+
+    /**
+     * Whether measured CPU usage is <strong>actually</strong> censored by the container's own limit,
+     * which is the only condition under which that limit may stand in for demand.
+     *
+     * <p>Both halves are required: CFS throttling at or above
+     * {@link WorkloadPolicyDefaults#THROTTLE_RATIO_THRESHOLD}, <em>and</em> a measured percentile
+     * within {@link WorkloadPolicyDefaults#CENSORED_USAGE_FRACTION_OF_LIMIT} of the limit. Throttling
+     * alone is not evidence of censoring — a container that bursts briefly can throttle at ratio 0.25
+     * while its p95 sits far below the ceiling, and treating its limit as demand turned a measured
+     * 80m into a 1250m request.
+     *
+     * <p>This is also the bound on the series. The limit moves with the request
+     * ({@link QosRules#limitFor}), so an ungated limit-derived basis would make each cycle's input a
+     * number the previous cycle wrote and the request would ratchet until the node-capacity cap bound
+     * it — the measured {@code 1Mi → 4Mi} thrash loop running in the opposite direction. With the
+     * gate, the basis is at most {@code percentile / 0.9} and every increase therefore stays anchored
+     * to measurement.
+     */
+    private static boolean demandCensoredByLimit(ContainerUsageAggregate usage, ResourceEnvelope current,
+                                                 long cpuPercentileMillis) {
+        Integer limit = current.cpuLimitMillis();
+        if (limit == null || limit <= 0) {
+            return false;
+        }
+        if (usage.cpuThrottleRatio() < WorkloadPolicyDefaults.THROTTLE_RATIO_THRESHOLD) {
+            return false;
+        }
+        long censoringThreshold =
+                Math.round(limit * WorkloadPolicyDefaults.CENSORED_USAGE_FRACTION_OF_LIMIT);
+        return cpuPercentileMillis >= censoringThreshold;
     }
 
     /**

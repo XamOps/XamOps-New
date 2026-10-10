@@ -133,6 +133,91 @@ class WorkloadAutoscalingEngineTest {
         // Memory: the current 32Mi request is below the 250Mi floor, so it is not raised.
         assertThat(encoder.recommended().memRequestBytes()).isEqualTo(32 * MI);
         assertThat(encoder.reasons()).contains(ContainerReason.BELOW_FLOOR_NO_RAISE);
+
+        // The limit is only usable as the basis because the measurement sat ON it: p95 50m against
+        // a 50m limit. 50 x 1.25 = 63m either way, so this step is backed by measurement and not
+        // only by the limit's existence.
+        assertThat(encoder.recommended().cpuRequestMillis())
+                .as("the limit-derived target may not exceed the measured percentile plus headroom "
+                        + "by more than the censoring tolerance")
+                .isLessThanOrEqualTo((int) Math.round(50 * 1.25 / 0.9));
+    }
+
+    @Test
+    @DisplayName("3b: the throttled path converges — feeding its own output back recommends nothing")
+    void theThrottledPathConverges() {
+        WorkloadDecision first = engine.decide(
+                ReferenceWorkloads.throttledEncoder(), recommend, NodeCapacity.unbounded());
+        assertThat(only(first).recommended().cpuRequestMillis()).isEqualTo(63);
+        assertThat(only(first).recommended().cpuLimitMillis()).isEqualTo(200);
+
+        // The engine raised the limit, so on the next cycle the limit is a number THIS ENGINE wrote.
+        // Taking it as the demand basis again would walk the request 63m -> 250m -> 993m until the
+        // node-capacity cap bound it -- the measured 1Mi -> 4Mi thrash loop in the other direction.
+        // The measured window is unchanged at p95 50m, which is no longer anywhere near the 200m
+        // limit, so the basis is the measurement again and 63m is where the request already sits.
+        WorkloadDecision second = engine.decide(
+                ReferenceWorkloads.throttledEncoderAfterApply(), recommend, NodeCapacity.unbounded());
+
+        ContainerDecision encoder = only(second);
+        assertThat(encoder.recommended())
+                .as("a second pass over the throttled path's own output must recommend nothing")
+                .isNull();
+        assertThat(encoder.reasons())
+                .as("the limit is not evidence of demand once usage is far below it")
+                .doesNotContain(ContainerReason.DEMAND_CENSORED_BY_LIMIT);
+    }
+
+    @Test
+    @DisplayName("3c: throttling alone is not censoring — a bursty container keeps the measured basis")
+    void burstyThrottlingDoesNotLicenseALimitDerivedTarget() {
+        // Ratio 0.25 clears the 0.2 throttling threshold, but p95 80m is 8% of the 1000m limit, so
+        // usage is plainly not pinned at the ceiling. The engine used to take the limit here and
+        // recommend 1250m -- a 12.5x increase for a container measured using 80m.
+        WorkloadDecision decision = engine.decide(
+                ReferenceWorkloads.intermittentlyThrottledApi(), recommend, NodeCapacity.unbounded());
+
+        assertThat(decision.findings())
+                .as("the throttling is real and is still reported")
+                .contains(Finding.THROTTLED);
+
+        ContainerDecision api = only(decision);
+        assertThat(api.reasons()).doesNotContain(ContainerReason.DEMAND_CENSORED_BY_LIMIT);
+        assertThat(api.recommended())
+                .as("80m measured, 100m already requested: there is nothing to recommend, and "
+                        + "certainly not 1250m")
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("3d: once usage really does fill the raised limit, the increase is backed by measurement")
+    void aCensoredTargetIsBoundedByWhatWasMeasured() {
+        WorkloadDecision decision = engine.decide(
+                ReferenceWorkloads.throttledEncoderSaturatingTheRaisedLimit(), recommend,
+                NodeCapacity.unbounded());
+
+        ContainerDecision encoder = only(decision);
+
+        assertThat(encoder.reasons()).contains(ContainerReason.DEMAND_CENSORED_BY_LIMIT);
+        assertThat(encoder.recommended().cpuRequestMillis())
+                .as("p95 200m x 1.25 = 250m: the same step the ordinary usage-derived path gives, "
+                        + "because the measurement and the limit now coincide")
+                .isEqualTo(250);
+
+        // And that step terminates too: with the request at 250m and the limit raised to 794m, the
+        // same 200m measurement is no longer censored, so the series stops instead of ratcheting.
+        WorkloadSnapshot afterTheIncrease = ReferenceWorkloads.workload(
+                WorkloadRef.of("prod-sim", "Deployment", "throttled-encoder"), 2, List.of(
+                        ReferenceWorkloads.container("encoder",
+                                ReferenceWorkloads.burstable(250, encoder.recommended().cpuLimitMillis(),
+                                        32 * MI, null),
+                                ReferenceWorkloads.usage("encoder", 200, 20 * MI, 1.0, 0, 1.0))));
+
+        ContainerDecision settled =
+                only(engine.decide(afterTheIncrease, recommend, NodeCapacity.unbounded()));
+
+        assertThat(settled.recommended()).isNull();
+        assertThat(settled.reasons()).doesNotContain(ContainerReason.DEMAND_CENSORED_BY_LIMIT);
     }
 
     // ============================================================ 4. HPA coexistence
@@ -487,6 +572,9 @@ class WorkloadAutoscalingEngineTest {
                 ReferenceWorkloads.rightsizedWorker(),
                 ReferenceWorkloads.rightsizedWorkerAtMeasuredDrift(),
                 ReferenceWorkloads.throttledEncoder(),
+                ReferenceWorkloads.throttledEncoderAfterApply(),
+                ReferenceWorkloads.throttledEncoderSaturatingTheRaisedLimit(),
+                ReferenceWorkloads.intermittentlyThrottledApi(),
                 ReferenceWorkloads.phpApache(115, 40 * MI),
                 ReferenceWorkloads.phpApache(320, 400 * MI),
                 ReferenceWorkloads.noRequestsSidecarApp(),
