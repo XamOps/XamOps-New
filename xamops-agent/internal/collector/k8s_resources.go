@@ -59,10 +59,10 @@ func collectK8sResources(ctx context.Context, k8s kubernetes.Interface, mc metri
 	nsRunningCount := map[string]int{}
 	for _, ns := range nsList.Items {
 		resources.Namespaces = append(resources.Namespaces, NamespaceDetail{
-			Name:    ns.Name,
-			Labels:  ns.Labels,
-			Status:  string(ns.Status.Phase),
-			Age:     ns.CreationTimestamp.UTC().Format(time.RFC3339),
+			Name:   ns.Name,
+			Labels: ns.Labels,
+			Status: string(ns.Status.Phase),
+			Age:    ns.CreationTimestamp.UTC().Format(time.RFC3339),
 		})
 		resources.Summary.TotalNamespaces++
 		nsPodCount[ns.Name] = 0
@@ -92,12 +92,6 @@ func collectK8sResources(ctx context.Context, k8s kubernetes.Interface, mc metri
 			resources.Summary.FailedPods++
 		}
 	}
-	// Back-fill namespace pod counts
-	for i, ns := range resources.Namespaces {
-		resources.Namespaces[i].PodCount = nsPodCount[ns.Name]
-		resources.Namespaces[i].RunningPodCount = nsRunningCount[ns.Name]
-		resources.Namespaces[i].DeploymentCount = nsDeployCount[ns.Name]
-	}
 
 	// ── Deployments ──────────────────────────────────────────────────────────
 	deplList, err := k8s.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
@@ -121,6 +115,13 @@ func collectK8sResources(ctx context.Context, k8s kubernetes.Interface, mc metri
 			})
 			resources.Summary.TotalDeployments++
 		}
+	}
+	// Back-fill namespace counts. Must run after the Deployments loop so
+	// DeploymentCount sees nsDeployCount (it was always 0 when this ran earlier).
+	for i, ns := range resources.Namespaces {
+		resources.Namespaces[i].PodCount = nsPodCount[ns.Name]
+		resources.Namespaces[i].RunningPodCount = nsRunningCount[ns.Name]
+		resources.Namespaces[i].DeploymentCount = nsDeployCount[ns.Name]
 	}
 
 	// ── StatefulSets ─────────────────────────────────────────────────────────
@@ -495,11 +496,11 @@ func buildPodDetail(p corev1.Pod) PodDetail {
 		spec := findContainer(p.Spec.Containers, cs.Name)
 		state, waitReason := containerState(cs)
 		cd := ContainerDetail{
-			Name:         cs.Name,
-			Image:        cs.Image,
-			Ready:        cs.Ready,
-			RestartCount: cs.RestartCount,
-			State:        state,
+			Name:          cs.Name,
+			Image:         cs.Image,
+			Ready:         cs.Ready,
+			RestartCount:  cs.RestartCount,
+			State:         state,
 			WaitingReason: waitReason,
 		}
 		if spec != nil {
@@ -585,8 +586,8 @@ func buildIngressDetail(ing networkingv1.Ingress) IngressDetail {
 					sp = fmt.Sprintf("%d", p.Backend.Service.Port.Number)
 				}
 				paths = append(paths, IngressPath{
-					Path:        p.Path,
-					PathType:    pt,
+					Path:     p.Path,
+					PathType: pt,
 					ServiceName: func() string {
 						if p.Backend.Service != nil {
 							return p.Backend.Service.Name
