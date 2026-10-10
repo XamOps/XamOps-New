@@ -22,8 +22,8 @@ import java.util.List;
  */
 final class ReferenceWorkloads {
 
-    static final Instant NOW = Instant.parse("2026-10-10T06:00:00Z");
-    static final Instant WINDOW_START = NOW.minus(Duration.ofHours(24));
+    static final Instant NOW = ContainerUsageFixtures.NOW;
+    static final Instant WINDOW_START = ContainerUsageFixtures.WINDOW_START;
 
     static final long MI = 1024L * 1024L;
 
@@ -39,10 +39,8 @@ final class ReferenceWorkloads {
 
     static ContainerUsageAggregate usage(String container, long cpuMillisP95, long memBytesP95,
                                          double throttleRatio, int oomKills, double coverage) {
-        return new ContainerUsageAggregate(container,
-                PercentileSet.single(95, cpuMillisP95),
-                PercentileSet.single(95, memBytesP95),
-                throttleRatio, oomKills, WINDOW_START, NOW, coverage, "harness");
+        return ContainerUsageFixtures.usage(container, cpuMillisP95, memBytesP95,
+                throttleRatio, oomKills, coverage, "harness");
     }
 
     static ResourceEnvelope guaranteed(int cpuMillis, long memBytes) {

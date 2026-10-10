@@ -148,14 +148,8 @@ class UsageContractTest {
     @Test
     @DisplayName("no real UsageHistoryProvider is implemented in this run")
     void onlyTheStubExists() {
-        org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider scanner =
-                new org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider(false);
-        scanner.addIncludeFilter(
-                new org.springframework.core.type.filter.AssignableTypeFilter(UsageHistoryProvider.class));
-
-        List<String> implementations = scanner.findCandidateComponents("com.xammer.cloud").stream()
-                .map(org.springframework.beans.factory.config.BeanDefinition::getBeanClassName)
-                .toList();
+        List<String> implementations = com.xammer.cloud.service.automation.workload.ProductionClassScan
+                .implementationsOf(UsageHistoryProvider.class);
 
         assertThat(implementations)
                 .as("A provider that returned plausible-looking numbers would be worse than no "

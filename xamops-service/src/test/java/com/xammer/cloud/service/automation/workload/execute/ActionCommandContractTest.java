@@ -1,16 +1,14 @@
 package com.xammer.cloud.service.automation.workload.execute;
 
 import com.xammer.cloud.service.automation.workload.ApplyMethod;
+import com.xammer.cloud.service.automation.workload.ProductionClassScan;
 import com.xammer.cloud.service.automation.workload.WorkloadRef;
 import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.type.filter.AssignableTypeFilter;
-import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -193,13 +191,7 @@ class ActionCommandContractTest {
 
     @Test
     void noWorkloadActionExecutorIsImplementedInThisModule() {
-        ClassPathScanningCandidateComponentProvider scanner =
-                new ClassPathScanningCandidateComponentProvider(false);
-        scanner.addIncludeFilter(new AssignableTypeFilter(WorkloadActionExecutor.class));
-
-        Set<String> implementations = scanner.findCandidateComponents("com.xammer.cloud").stream()
-                .map(definition -> definition.getBeanClassName())
-                .collect(java.util.stream.Collectors.toSet());
+        List<String> implementations = ProductionClassScan.implementationsOf(WorkloadActionExecutor.class);
 
         assertThat(implementations)
                 .as("No executor may exist in this run: the absence of a collaborator, not a flag "
