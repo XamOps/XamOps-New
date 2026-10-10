@@ -208,6 +208,68 @@ class VerticalAutomationReadServiceTest {
     }
 
     @Test
+    @DisplayName("the direct-path probe is cached: a poll loop does not re-dial the cluster")
+    void theProbeIsNotRepeatedOnEveryRequest() {
+        // Opening the EKS provider means describeCluster, a token mint, a TLS handshake and a
+        // namespaces GET. This endpoint is a UI poll target, so one probe per poll would put an AWS
+        // call on the latency path of every refresh.
+        RecordingProvider provider = new RecordingProvider();
+        long[] now = {0L};
+        VerticalAutomationReadService service = new VerticalAutomationReadService(
+                new WorkloadAutoscalingProperties(true, true),
+                new StubUsageHistoryProvider(), List.of(provider), () -> now[0]);
+
+        VerticalEngineResponse first = service.read(TARGET, config(null));
+        now[0] += VerticalAutomationReadService.PROBE_TTL.toNanos() / 2;
+        VerticalEngineResponse second = service.read(TARGET, config(null));
+
+        assertThat(provider.opened).isEqualTo(1);
+        // This provider fails, so the cached entry is a failure — deliberately cached on the same
+        // terms, which is what stops a broken cluster being re-dialled on every poll.
+        assertThat(second.engine().clusterAccess())
+                .as("the cached answer is the same answer, not a weaker one")
+                .isEqualTo(first.engine().clusterAccess())
+                .isEqualTo("UNREACHABLE");
+        assertThat(second.gateReasons()).isEqualTo(first.gateReasons());
+    }
+
+    @Test
+    @DisplayName("once the TTL has elapsed the cluster is probed again")
+    void theCachedProbeExpires() {
+        // A customer who fixes an access entry must see it on their next refresh, not on a restart.
+        RecordingProvider provider = new RecordingProvider();
+        long[] now = {0L};
+        VerticalAutomationReadService service = new VerticalAutomationReadService(
+                new WorkloadAutoscalingProperties(true, true),
+                new StubUsageHistoryProvider(), List.of(provider), () -> now[0]);
+
+        service.read(TARGET, config(null));
+        now[0] += VerticalAutomationReadService.PROBE_TTL.toNanos();
+        service.read(TARGET, config(null));
+
+        assertThat(provider.opened).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("two clusters do not share one cached probe")
+    void theCacheIsPerCluster() {
+        RecordingProvider provider = new RecordingProvider();
+        long[] now = {0L};
+        VerticalAutomationReadService service = new VerticalAutomationReadService(
+                new WorkloadAutoscalingProperties(true, true),
+                new StubUsageHistoryProvider(), List.of(provider), () -> now[0]);
+
+        service.read(TARGET, config(null));
+        service.read(new ClusterTarget(7L, 43L, "102227938259", "another-cluster", "ap-south-1"),
+                config(null));
+
+        assertThat(provider.opened)
+                .as("the key is client.id + cluster_config_id, so one cluster's result is never "
+                        + "served for another")
+                .isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("a real usage source would be named in the payload rather than hidden")
     void aNamedSourceIsReported() {
         VerticalAutomationReadService service = new VerticalAutomationReadService(
