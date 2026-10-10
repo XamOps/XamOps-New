@@ -1,5 +1,5 @@
 # HARNESS COPY of xamops-agent/manifests/xamops-agent-complete.yaml (original untouched).
-# Changes: B1 image pinned to the ECR build of main HEAD; B2 real CLUSTER_NAME/CLOUD_ACCOUNT_ID;
+# Changes: B1 image rendered by deploy.sh (AGENT_IMAGE, default a pinned ECR digest); B2 real CLUSTER_NAME/CLOUD_ACCOUNT_ID;
 # server URL -> in-cluster stub; the committed shared API key is NOT copied (harness key is
 # rendered by deploy.sh); COLLECT_INTERVAL 120s; COLLECTOR_AUTOSCALING on.
 # NetworkPolicy kept as shipped — inert here (VPC CNI --enable-network-policy=false).
@@ -390,7 +390,7 @@ spec:
       containers:
         - name: agent
           # Use your agent image
-          image: 102227938259.dkr.ecr.ap-south-1.amazonaws.com/xamops-cloudk8s-harness:agent-1aabb2500b2a@sha256:2ebcb01683e045ca2a83d9f2eb3da50babe36bb6d6cfc5441edf73a677327802   # B1 fix: pinned, built from main HEAD 1aabb2500b2a
+          image: __AGENT_IMAGE__   # rendered by deploy.sh (AGENT_IMAGE=...)
           imagePullPolicy: IfNotPresent
 
           # Environment variables from ConfigMap and Secret

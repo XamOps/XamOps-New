@@ -48,17 +48,17 @@ type VPARecommendation struct {
 	WorkloadKind  string `json:"workloadKind"` // Deployment | StatefulSet | DaemonSet
 	ContainerName string `json:"containerName"`
 	// VPA lower/target/upper bounds
-	LowerCPU    string `json:"lowerCpu,omitempty"`
-	TargetCPU   string `json:"targetCpu,omitempty"`
-	UpperCPU    string `json:"upperCpu,omitempty"`
-	LowerMemory string `json:"lowerMemory,omitempty"`
+	LowerCPU     string `json:"lowerCpu,omitempty"`
+	TargetCPU    string `json:"targetCpu,omitempty"`
+	UpperCPU     string `json:"upperCpu,omitempty"`
+	LowerMemory  string `json:"lowerMemory,omitempty"`
 	TargetMemory string `json:"targetMemory,omitempty"`
 	UpperMemory  string `json:"upperMemory,omitempty"`
 	// Current requests for comparison
 	CurrentCPU    string `json:"currentCpu,omitempty"`
 	CurrentMemory string `json:"currentMemory,omitempty"`
 	// VPA update mode applied
-	UpdateMode string `json:"updateMode"` // Off | Initial | Recreate | Auto
+	UpdateMode  string `json:"updateMode"` // Off | Initial | Recreate | Auto
 	CollectedAt string `json:"collectedAt"`
 }
 
@@ -204,7 +204,7 @@ func (v *VPAManager) upsertVPA(ctx context.Context, req VPAApplyRequest, vpaName
 				"resourcePolicy": map[string]interface{}{
 					"containerPolicies": []interface{}{
 						map[string]interface{}{
-							"containerName": "*",
+							"containerName":       "*",
 							"controlledResources": []interface{}{"cpu", "memory"},
 						},
 					},

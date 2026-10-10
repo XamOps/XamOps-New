@@ -1,6 +1,7 @@
 # HARNESS COPY of xamops-autoscaler/manifests/xamops-autoscaler-complete.yaml (original untouched).
-# Changes: B3 Secret uses stringData; image = ECR build of main HEAD; real cluster identity;
+# Changes: B3 Secret uses stringData; image rendered by deploy.sh (AUTOSCALER_IMAGE); real cluster identity;
 # server URL -> in-cluster stub; DRY_RUN / ENABLE_* rendered per test by deploy.sh.
+# Role/RoleBinding carry the harness labels (project/purpose/owner/created-on/ephemeral).
 # NetworkPolicy kept as shipped — inert here (VPC CNI --enable-network-policy=false).
 # ═══════════════════════════════════════════════════════════════════════════════
 # XamOps Automation Agent — Complete Kubernetes Manifest
@@ -9,14 +10,23 @@
 # Deploys into the xamops-system namespace (same as xamops-agent).
 #
 # Controllers (all off by default, enable via XamOps UI or env vars):
-#   ENABLE_EVICTOR        — utilisation-threshold node scale-in + pod eviction
-#   ENABLE_RIGHTSIZER     — patch resource requests (VPA-style, P80/P100)
-#   ENABLE_REBALANCER     — cordon + drain nodes for AZ rebalancing
+#   ENABLE_EVICTOR        — utilisation-threshold node scale-in (analyse-only by default;
+#                           drains only through the shared drain executor)
+#   ENABLE_RIGHTSIZER     — rightsizing analysis (P80/P100 recommendations)
+#   ENABLE_RIGHTSIZER_APPLY — let the rightsizer patch requests (also needs
+#                           applyMode=immediate AND DRY_RUN=false)
+#   ENABLE_REBALANCER     — drain on-demand nodes when XamOps triggers a rebalance
+#                           (needs this AND rebalancer.enabled AND status=running;
+#                           each operation runs at most once)
 #   ENABLE_HPA_MANAGER    — create/update/delete HPAs from UI recommendations
 #   ENABLE_VPA_MANAGER    — create VPA objects + collect recommendations
 #   ENABLE_NODE_OPTIMIZER — idle node detection, spot analysis, interruption handling
 #
 # IMPORTANT: DRY_RUN=true by default — zero cluster changes until explicitly enabled.
+# Every node drain goes through one executor: global budget (maxParallelDrains),
+# a plan that must prove the drain is safe, Eviction API only (never pod delete),
+# replacements verified by new pod UID, abort + uncordon on failure. This build
+# has no fit simulator yet, so every live drain/cordon is refused.
 # ═══════════════════════════════════════════════════════════════════════════════
 ---
 # ── Namespace (shared with xamops-agent) ──────────────────────────────────────
@@ -91,17 +101,12 @@ rules:
       - nodes
     verbs: ["patch", "update"]
 
-  # Evict pods (node scale-in)
+  # Evict pods — the only way pods leave a node (Eviction API honours PDBs).
+  # There is deliberately no pods "delete" grant.
   - apiGroups: [""]
     resources:
       - pods/eviction
     verbs: ["create"]
-
-  # Delete pods (fallback drain path when eviction blocked)
-  - apiGroups: [""]
-    resources:
-      - pods
-    verbs: ["delete"]
 
   # Patch Deployment resource requests (rightsizer)
   - apiGroups: ["apps"]
@@ -156,7 +161,55 @@ subjects:
   - kind: ServiceAccount
     name: xamops-automation
     namespace: xamops-system
-
+---
+# ── Role + RoleBinding — operation ledger (namespaced) ────────────────────────
+# The rebalancer records each operation's live outcome in ConfigMap
+# xamops-automation-state so an operation never runs twice (across cycles and
+# restarts). DRY_RUN=true never writes it. get/update/patch are limited to that one
+# ConfigMap; create cannot be restricted by resourceNames, so it is namespace-wide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: xamops-automation-state
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-09"
+    ephemeral: "true"
+rules:
+  - apiGroups: [""]
+    resources:
+      - configmaps
+    resourceNames: ["xamops-automation-state"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: [""]
+    resources:
+      - configmaps
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: xamops-automation-state
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-09"
+    ephemeral: "true"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: xamops-automation-state
+subjects:
+  - kind: ServiceAccount
+    name: xamops-automation
+    namespace: xamops-system
 ---
 # ── Secret — API credentials (edit before applying) ───────────────────────────
 # Replace <BASE64_API_KEY> and <BASE64_SERVER_URL> with base64-encoded values:
@@ -189,12 +242,18 @@ data:
   DRY_RUN: "__DRY_RUN__"
 
   # ── Tier 2 feature flags (all off by default — enable per-cluster in XamOps UI)
-  # Node scale-in: evict pods off nodes whose summed pod requests are under target
-  # (no pod-fit simulation; analyse-only unless the policy sets analyseOnly=false)
+  # Node scale-in: candidates are nodes whose summed pod requests are under target.
+  # Analyse-only unless the policy sets analyseOnly=false; any drain goes through the
+  # shared executor (budget, plan, Eviction API) and is refused in this build.
   ENABLE_EVICTOR: "__ENABLE_EVICTOR__"
-  # Workload rightsizing: patch CPU/memory resource requests based on P80/P100 usage
+  # Workload rightsizing: P80/P100 recommendations (patching also needs ENABLE_RIGHTSIZER_APPLY)
   ENABLE_RIGHTSIZER: "__ENABLE_RIGHTSIZER__"
-  # Node rebalance: drain + replace nodes for cost optimization or AZ balance
+  # Rightsizer apply: patches requests ONLY when this is "true" AND
+  # workloadRightsizerPolicy.applyMode=immediate AND DRY_RUN=false.
+  ENABLE_RIGHTSIZER_APPLY: "__ENABLE_RIGHTSIZER_APPLY__"
+  # Node rebalance: when XamOps sets rebalancer.status=running (and enabled), drain
+  # on-demand nodes oldest-first through the shared executor; one run per operation
+  # (rebalancer.operationId or a generation counter), recorded in the ledger ConfigMap.
   ENABLE_REBALANCER: "__ENABLE_REBALANCER__"
   # HPA management: create/update/delete HPAs from XamOps UI recommendations
   ENABLE_HPA_MANAGER: "__ENABLE_HPA_MANAGER__"
@@ -269,7 +328,7 @@ spec:
           # Replace with your actual image once built:
           #   docker build -t <registry>/xamops-automation:latest ./xamops-automation
           #   docker push <registry>/xamops-automation:latest
-          image: 102227938259.dkr.ecr.ap-south-1.amazonaws.com/xamops-cloudk8s-harness:autoscaler-1aabb2500b2a@sha256:2e8c9afe9d2b0142601ca1e3b720f5f12b5c3ea3e5c6f1385029f421676838ef   # built from main HEAD 1aabb2500b2a (Docker Hub v1.0.0 is stale)
+          image: __AUTOSCALER_IMAGE__   # rendered by deploy.sh (AUTOSCALER_IMAGE=...)
           imagePullPolicy: IfNotPresent
 
           ports:
@@ -318,6 +377,11 @@ spec:
 
             - name: CLOUD_ACCOUNT_ID
               value: "102227938259"
+            # Own namespace: never drained, and home of the ledger ConfigMap
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
 
           # ── Resource limits ───────────────────────────────────────────────
           resources:

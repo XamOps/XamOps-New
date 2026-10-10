@@ -3,11 +3,14 @@
 #
 #   ./deploy.sh <cluster> stub                      # namespace, key Secret, stub
 #   ./deploy.sh <cluster> policy policies/<f>.json  # swap the bundle the stub serves
-#   ./deploy.sh <cluster> agent                     # xamops-agent -> stub
+#   ./deploy.sh <cluster> agent [AGENT_IMAGE=ref]   # xamops-agent -> stub
 #   ./deploy.sh <cluster> autoscaler [VAR=val ...]  # xamops-autoscaler -> stub
 #        VARs: DRY_RUN (default true) and ENABLE_EVICTOR, ENABLE_RIGHTSIZER,
-#              ENABLE_REBALANCER, ENABLE_HPA_MANAGER, ENABLE_VPA_MANAGER,
-#              ENABLE_NODE_OPTIMIZER (default false)
+#              ENABLE_RIGHTSIZER_APPLY, ENABLE_REBALANCER, ENABLE_HPA_MANAGER,
+#              ENABLE_VPA_MANAGER, ENABLE_NODE_OPTIMIZER (default false);
+#              AUTOSCALER_IMAGE (default: the pinned digest below)
+#        AGENT_IMAGE / AUTOSCALER_IMAGE default to the last pinned ECR digests; pass
+#        the refs printed by build-images.sh to deploy a new build.
 #   ./deploy.sh <cluster> wait-policy policies/<f>.json  # block until the stub serves it
 #
 # <cluster> is xamops-test-1 or xamops-test-2. The harness API key is generated
@@ -32,9 +35,14 @@ render() {  # render <file> [VAR=val ...] — substitutes __NAME__ tokens, print
   KEY="$(key)" CLUSTER="$CLUSTER" python3 - "$file" "$@" <<'EOF'
 import os, sys
 text = open(sys.argv[1]).read()
+REPO = "102227938259.dkr.ecr.ap-south-1.amazonaws.com/xamops-cloudk8s-harness"
 vals = {"DRY_RUN": "true", "ENABLE_EVICTOR": "false", "ENABLE_RIGHTSIZER": "false",
+        "ENABLE_RIGHTSIZER_APPLY": "false",
         "ENABLE_REBALANCER": "false", "ENABLE_HPA_MANAGER": "false",
-        "ENABLE_VPA_MANAGER": "false", "ENABLE_NODE_OPTIMIZER": "false"}
+        "ENABLE_VPA_MANAGER": "false", "ENABLE_NODE_OPTIMIZER": "false",
+        # pinned builds of main HEAD 1aabb2500b2a; override with the refs from build-images.sh
+        "AUTOSCALER_IMAGE": REPO + ":autoscaler-1aabb2500b2a@sha256:2e8c9afe9d2b0142601ca1e3b720f5f12b5c3ea3e5c6f1385029f421676838ef",
+        "AGENT_IMAGE": REPO + ":agent-1aabb2500b2a@sha256:2ebcb01683e045ca2a83d9f2eb3da50babe36bb6d6cfc5441edf73a677327802"}
 for a in sys.argv[2:]:
     k, v = a.split("=", 1)
     if k not in vals:
@@ -85,7 +93,7 @@ case "$ACTION" in
     echo "timed out waiting for policy '$want' (stub serves '$got')" >&2; exit 1
     ;;
   agent)
-    render "$HERE/agent.yaml" | "${K[@]}" apply -f -
+    render "$HERE/agent.yaml" "$@" | "${K[@]}" apply -f -
     "${K[@]}" -n xamops-system rollout status deploy/xamops-agent --timeout=180s
     ;;
   autoscaler)

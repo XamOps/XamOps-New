@@ -164,7 +164,7 @@ func (r *Rightsizer) analyzeContainer(
 		namespace, workload, container.Name, lookback,
 	)
 
-	p80CPU, cpuErr := r.promInstantQuery(ctx, cpuQuery)     // in millicores
+	p80CPU, cpuErr := r.promInstantQuery(ctx, cpuQuery)  // in millicores
 	p100Mem, memErr := r.promInstantQuery(ctx, memQuery) // in bytes
 
 	if cpuErr != nil && memErr != nil {
@@ -176,7 +176,7 @@ func (r *Rightsizer) analyzeContainer(
 		return val * (1 + float64(pct)/100.0)
 	}
 
-	recommendedCPU := overhead(p80CPU, p.CpuOverheadPercent)   // millicores
+	recommendedCPU := overhead(p80CPU, p.CpuOverheadPercent)     // millicores
 	recommendedMem := overhead(p100Mem, p.MemoryOverheadPercent) // bytes
 
 	// Current requests
@@ -186,7 +186,7 @@ func (r *Rightsizer) analyzeContainer(
 	// Estimated savings (% reduction in request vs current)
 	var savingsPct float64
 	if currentCPU > 0 && recommendedCPU < float64(currentCPU) {
-		savingsPct = (float64(currentCPU)-recommendedCPU) / float64(currentCPU) * 100
+		savingsPct = (float64(currentCPU) - recommendedCPU) / float64(currentCPU) * 100
 	}
 
 	return &policy.WorkloadRightsizingResult{

@@ -4,19 +4,7 @@ import (
 	"math"
 
 	corev1 "k8s.io/api/core/v1"
-	policyv1 "k8s.io/api/policy/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
-
-// buildEviction creates a policyv1.Eviction object for a pod.
-func buildEviction(podName, namespace string) *policyv1.Eviction {
-	return &policyv1.Eviction{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      podName,
-			Namespace: namespace,
-		},
-	}
-}
 
 // isSpotNode returns true if the node is a spot/preemptible instance.
 // Checks labels set by EKS, Karpenter, GKE, and AKS.

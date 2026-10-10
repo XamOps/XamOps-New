@@ -8,23 +8,24 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/xamops/automation/internal/drain"
+	"github.com/xamops/automation/internal/gate"
 	"github.com/xamops/automation/internal/policy"
 )
 
 // EvictorResult is returned after each evictor cycle.
 type EvictorResult struct {
-	CycleTime       time.Time
-	CandidateNodes  []NodeCandidate  // nodes that could be consolidated
-	EvictedPods     []string         // pod names that were evicted
-	DrainedNodes    []string         // node names that were drained
-	NodesSaved      int              // count of removed nodes
-	SkipReasons     map[string]string // nodeNname → reason skipped
-	DryRun          bool
-	AnalyseOnly     bool             // true when the cycle only produced candidates and took no action
+	CycleTime      time.Time
+	CandidateNodes []NodeCandidate   // nodes that could be consolidated
+	EvictedPods    []string          // pod names that were evicted
+	DrainedNodes   []string          // nodes drained live AND verified by the executor
+	NodesSaved     int               // verified live drains only (never counts simulations)
+	SkipReasons    map[string]string // nodeNname → reason skipped
+	DryRun         bool
+	AnalyseOnly    bool // true when the cycle only produced candidates and took no action
 }
 
 // NodeCandidate is a node the evictor considers for scale-in.
@@ -39,13 +40,10 @@ type NodeCandidate struct {
 	PodCount       int     `json:"podCount"`
 	CanEvict       bool    `json:"canEvict"`
 	SkipReason     string  `json:"skipReason,omitempty"`
+	DryRun         bool    `json:"dryRun"`
 }
 
 // Evictor implements threshold-based scale-in.
-//
-// There is NO scheduling or pod-fit simulation here: the evictor never checks that
-// the pods it is about to evict can actually be placed on the remaining nodes. It
-// relies on the cluster autoscaler (or Karpenter) to schedule them afterwards.
 //
 // A node becomes a candidate only if it passes every gate in evaluateNode:
 //   - it is not already cordoned
@@ -56,15 +54,14 @@ type NodeCandidate struct {
 //   - none of its pods hits an eviction blocker (DaemonSet, protected StatefulSet,
 //     critical namespace, or ownerless pod outside aggressive mode)
 //
-// Run then sorts candidates by CPU utilisation and consolidates AT MOST ONE node per
-// cycle. Per-pod safety checks (blockers and PodDisruptionBudgets) run again during
-// the drain itself.
-//
-// Roadmap item C1 (the scheduler simulator) is where a real fit check would plug in,
-// in Run between candidate selection and the first cordon. Until it exists the
-// evictor defaults to analyse-only via EvictorPolicy.AnalyseOnly.
+// Run sorts candidates by CPU utilisation and hands AT MOST ONE node per cycle to
+// the shared drain.Executor, within the global drain budget. The executor asks its
+// Planner to prove the drain is safe before touching the node; in this build the
+// planner is drain.UnavailablePlanner, so every live drain is refused and a dry run
+// reports a refused simulation (fitChecked=false). The fit simulator (roadmap C1,
+// FEAT-005) plugs in as the planner. AnalyseOnly (the default) only reports.
 type Evictor struct {
-	k8s   kubernetes.Interface
+	k8s    kubernetes.Interface
 	dryRun bool
 }
 
@@ -75,31 +72,38 @@ func NewEvictor(k8s kubernetes.Interface, dryRun bool) *Evictor {
 // Run executes one evictor cycle.
 //
 // It scores every node on summed pod REQUESTS against the policy's utilisation
-// targets, returns the full candidate list, and — unless p.AnalyseOnly is set —
-// cordons and drains the single most-empty candidate. One node per cycle, no
-// pod-fit simulation before acting.
-func (e *Evictor) Run(ctx context.Context, p policy.EvictorPolicy, guards policy.SafetyGuards) (*EvictorResult, error) {
+// targets and returns the full candidate list. In Analyse mode it stops there. In
+// Simulate/Live it passes the single most-empty candidate to exec.Drain; NodesSaved
+// and DrainedNodes count only verified live drains.
+func (e *Evictor) Run(
+	ctx context.Context,
+	p policy.EvictorPolicy,
+	guards policy.SafetyGuards,
+	d gate.Decision,
+	budget *drain.Budget,
+	exec *drain.Executor,
+) (*EvictorResult, []policy.ActionRecord, error) {
 	result := &EvictorResult{
 		CycleTime:   time.Now(),
 		SkipReasons: map[string]string{},
-		DryRun:      e.dryRun,
+		DryRun:      d.Mode != gate.Live,
 	}
 
-	if !p.Enabled {
-		log.Println("Evictor: disabled in policy, skipping")
-		return result, nil
+	if d.Mode == gate.Off || !p.Enabled {
+		log.Printf("Evictor: off (%s), skipping", d.Reason)
+		return result, nil, nil
 	}
 
 	// 1. List all nodes
 	nodes, err := e.k8s.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("list nodes: %w", err)
+		return nil, nil, fmt.Errorf("list nodes: %w", err)
 	}
 
 	// 2. List all pods
 	pods, err := e.k8s.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("list pods: %w", err)
+		return nil, nil, fmt.Errorf("list pods: %w", err)
 	}
 
 	// 3. Group pods by node
@@ -117,62 +121,48 @@ func (e *Evictor) Run(ctx context.Context, p policy.EvictorPolicy, guards policy
 
 	for _, node := range nodes.Items {
 		candidate := e.evaluateNode(node, podsByNode[node.Name], p, guards, gracePeriod)
+		candidate.DryRun = result.DryRun
 		candidates = append(candidates, candidate)
 	}
 
-	// Sort: most empty first
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].UtilizationCPU < candidates[j].UtilizationCPU
+	// Sort: most empty first, then name (deterministic)
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].UtilizationCPU != candidates[j].UtilizationCPU {
+			return candidates[i].UtilizationCPU < candidates[j].UtilizationCPU
+		}
+		return candidates[i].NodeName < candidates[j].NodeName
 	})
 	result.CandidateNodes = candidates
 
 	// 5. Analyse-only mode (the default): report candidates, take no action.
-	// NodesSaved stays 0 so no "consolidated N node(s)" event is emitted.
-	if p.AnalyseOnly {
+	if d.Mode == gate.Analyse || p.AnalyseOnly {
 		result.AnalyseOnly = true
 		log.Printf("Evictor: analyse-only mode — %d node(s) evaluated, %d consolidation candidate(s), no action taken",
 			len(candidates), len(filterCanEvict(candidates)))
-		return result, nil
+		return result, nil, nil
 	}
 
-	// 6. Consolidate the most-empty candidate that passed every gate (one per cycle)
+	// 6. Hand the most-empty candidate to the executor (one per cycle)
 	remainingCandidates := filterCanEvict(candidates)
 	if len(remainingCandidates) == 0 {
 		log.Printf("Evictor: no consolidation candidates this cycle")
-		return result, nil
+		return result, nil, nil
 	}
 
-	// Attempt to consolidate the most-empty node
 	target := remainingCandidates[0]
-	log.Printf("Evictor: attempting to consolidate node %s (CPU=%.1f%%, Pods=%d)",
-		target.NodeName, target.UtilizationCPU, target.PodCount)
+	log.Printf("Evictor: consolidation candidate %s (CPU=%.1f%%, Pods=%d) — %s",
+		target.NodeName, target.UtilizationCPU, target.PodCount, d.Mode)
 
-	if e.dryRun {
-		log.Printf("DRY-RUN: would drain node %s", target.NodeName)
-		result.DrainedNodes = append(result.DrainedNodes, target.NodeName+" (dry-run)")
+	opID := fmt.Sprintf("evictor-%s-%d", target.NodeName, result.CycleTime.Unix())
+	out := exec.Drain(ctx, policy.ControllerEvictor, opID, []string{target.NodeName}, d.Mode, budget)
+	if out.Verified() {
+		result.DrainedNodes = append(result.DrainedNodes, target.NodeName)
+		result.EvictedPods = append(result.EvictedPods, out.Evicted...)
 		result.NodesSaved++
-		return result, nil
+	} else if len(out.Actions) > 0 {
+		result.SkipReasons[target.NodeName] = out.Status + ": " + out.Actions[0].Reason
 	}
-
-	// Cordon the node
-	if err := e.cordonNode(ctx, target.NodeName); err != nil {
-		log.Printf("Evictor: cordon %s failed: %v", target.NodeName, err)
-		return result, nil
-	}
-
-	// Drain (evict pods with safety checks)
-	evicted, err := e.drainNode(ctx, target.NodeName, podsByNode[target.NodeName], guards, p)
-	result.EvictedPods = append(result.EvictedPods, evicted...)
-	if err != nil {
-		log.Printf("Evictor: drain %s had errors: %v — node remains cordoned", target.NodeName, err)
-		return result, err
-	}
-
-	result.DrainedNodes = append(result.DrainedNodes, target.NodeName)
-	result.NodesSaved++
-	log.Printf("Evictor: successfully drained node %s (%d pods evicted)", target.NodeName, len(evicted))
-
-	return result, nil
+	return result, out.Actions, nil
 }
 
 // evaluateNode determines whether a node is a consolidation candidate.
@@ -281,71 +271,6 @@ func (e *Evictor) podBlocksEviction(pod corev1.Pod, guards policy.SafetyGuards, 
 	return ""
 }
 
-// cordonNode marks a node as unschedulable
-func (e *Evictor) cordonNode(ctx context.Context, nodeName string) error {
-	node, err := e.k8s.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-	node.Spec.Unschedulable = true
-	_, err = e.k8s.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
-	return err
-}
-
-// drainNode evicts all pods from a node respecting PDBs and safety guards
-func (e *Evictor) drainNode(ctx context.Context, nodeName string, pods []corev1.Pod, guards policy.SafetyGuards, p policy.EvictorPolicy) ([]string, error) {
-	evicted := make([]string, 0)
-	for _, pod := range pods {
-		if reason := e.podBlocksEviction(pod, guards, p.AggressiveMode); reason != "" {
-			log.Printf("Evictor: skip pod %s/%s: %s", pod.Namespace, pod.Name, reason)
-			continue
-		}
-
-		// PDB check
-		if guards.RespectPodDisruptionBudgets {
-			if blocked, reason := e.checkPDB(ctx, pod); blocked {
-				log.Printf("Evictor: pod %s/%s blocked by PDB: %s", pod.Namespace, pod.Name, reason)
-				continue
-			}
-		}
-
-		// Evict
-		eviction := &policyv1.Eviction{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      pod.Name,
-				Namespace: pod.Namespace,
-			},
-		}
-		if err := e.k8s.CoreV1().Pods(pod.Namespace).EvictV1(ctx, eviction); err != nil {
-			log.Printf("Evictor: evict pod %s/%s failed: %v", pod.Namespace, pod.Name, err)
-			continue
-		}
-		evicted = append(evicted, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
-		log.Printf("Evictor: evicted pod %s/%s from node %s", pod.Namespace, pod.Name, nodeName)
-	}
-	return evicted, nil
-}
-
-// checkPDB checks whether evicting this pod would violate its PodDisruptionBudget
-func (e *Evictor) checkPDB(ctx context.Context, pod corev1.Pod) (bool, string) {
-	pdbList, err := e.k8s.PolicyV1().PodDisruptionBudgets(pod.Namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return false, "" // if we can't check, allow eviction
-	}
-	for _, pdb := range pdbList.Items {
-		if pdb.Status.DisruptionsAllowed == 0 {
-			selector, err := metav1.LabelSelectorAsSelector(pdb.Spec.Selector)
-			if err != nil {
-				continue
-			}
-			if selector.Matches(labelSet(pod.Labels)) {
-				return true, fmt.Sprintf("PDB %s allows 0 disruptions", pdb.Name)
-			}
-		}
-	}
-	return false, ""
-}
-
 func filterCanEvict(candidates []NodeCandidate) []NodeCandidate {
 	out := make([]NodeCandidate, 0)
 	for _, c := range candidates {
@@ -355,15 +280,3 @@ func filterCanEvict(candidates []NodeCandidate) []NodeCandidate {
 	}
 	return out
 }
-
-// labelSet converts map[string]string to labels.Set for selector matching
-func labelSet(m map[string]string) labelsSet {
-	return labelsSet(m)
-}
-
-type labelsSet map[string]string
-
-func (l labelsSet) Has(key string) bool         { _, ok := l[key]; return ok }
-func (l labelsSet) Get(key string) string        { return l[key] }
-func (l labelsSet) AsSelector() interface{}      { return nil }
-func (l labelsSet) String() string               { return fmt.Sprintf("%v", map[string]string(l)) }

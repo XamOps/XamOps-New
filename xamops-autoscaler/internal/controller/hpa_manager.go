@@ -44,7 +44,7 @@ type HPARecommendation struct {
 	WorkloadName    string  `json:"workloadName"`
 	WorkloadKind    string  `json:"workloadKind"` // Deployment | StatefulSet
 	ContainerName   string  `json:"containerName"`
-	CurrentHPA      bool    `json:"currentHpa"`     // HPA already exists?
+	CurrentHPA      bool    `json:"currentHpa"` // HPA already exists?
 	RecommendMin    int32   `json:"recommendMin"`
 	RecommendMax    int32   `json:"recommendMax"`
 	RecommendTarget int32   `json:"recommendTargetCpuPct"` // CPU utilization target %
@@ -57,13 +57,13 @@ type HPARecommendation struct {
 
 // HPAApplyRequest is received from XamOps backend telling the agent to apply an HPA.
 type HPAApplyRequest struct {
-	Namespace   string `json:"namespace"`
+	Namespace    string `json:"namespace"`
 	WorkloadName string `json:"workloadName"`
 	WorkloadKind string `json:"workloadKind"`
-	MinReplicas int32  `json:"minReplicas"`
-	MaxReplicas int32  `json:"maxReplicas"`
-	TargetCPUPct int32 `json:"targetCpuPct"`
-	Delete      bool   `json:"delete"` // true = remove the HPA
+	MinReplicas  int32  `json:"minReplicas"`
+	MaxReplicas  int32  `json:"maxReplicas"`
+	TargetCPUPct int32  `json:"targetCpuPct"`
+	Delete       bool   `json:"delete"` // true = remove the HPA
 }
 
 // Analyse scans all Deployments and StatefulSets without HPAs and recommends settings.

@@ -5,14 +5,23 @@
 # Deploys into the xamops-system namespace (same as xamops-agent).
 #
 # Controllers (all off by default, enable via XamOps UI or env vars):
-#   ENABLE_EVICTOR        — utilisation-threshold node scale-in + pod eviction
-#   ENABLE_RIGHTSIZER     — patch resource requests (VPA-style, P80/P100)
-#   ENABLE_REBALANCER     — cordon + drain nodes for AZ rebalancing
+#   ENABLE_EVICTOR        — utilisation-threshold node scale-in (analyse-only by default;
+#                           drains only through the shared drain executor)
+#   ENABLE_RIGHTSIZER     — rightsizing analysis (P80/P100 recommendations)
+#   ENABLE_RIGHTSIZER_APPLY — let the rightsizer patch requests (also needs
+#                           applyMode=immediate AND DRY_RUN=false)
+#   ENABLE_REBALANCER     — drain on-demand nodes when XamOps triggers a rebalance
+#                           (needs this AND rebalancer.enabled AND status=running;
+#                           each operation runs at most once)
 #   ENABLE_HPA_MANAGER    — create/update/delete HPAs from UI recommendations
 #   ENABLE_VPA_MANAGER    — create VPA objects + collect recommendations
 #   ENABLE_NODE_OPTIMIZER — idle node detection, spot analysis, interruption handling
 #
 # IMPORTANT: DRY_RUN=true by default — zero cluster changes until explicitly enabled.
+# Every node drain goes through one executor: global budget (maxParallelDrains),
+# a plan that must prove the drain is safe, Eviction API only (never pod delete),
+# replacements verified by new pod UID, abort + uncordon on failure. This build
+# has no fit simulator yet, so every live drain/cordon is refused.
 # ═══════════════════════════════════════════════════════════════════════════════
 ---
 # ── Namespace (shared with xamops-agent) ──────────────────────────────────────
@@ -87,17 +96,12 @@ rules:
       - nodes
     verbs: ["patch", "update"]
 
-  # Evict pods (node scale-in)
+  # Evict pods — the only way pods leave a node (Eviction API honours PDBs).
+  # There is deliberately no pods "delete" grant.
   - apiGroups: [""]
     resources:
       - pods/eviction
     verbs: ["create"]
-
-  # Delete pods (fallback drain path when eviction blocked)
-  - apiGroups: [""]
-    resources:
-      - pods
-    verbs: ["delete"]
 
   # Patch Deployment resource requests (rightsizer)
   - apiGroups: ["apps"]
@@ -152,7 +156,45 @@ subjects:
   - kind: ServiceAccount
     name: xamops-automation
     namespace: xamops-system
-
+---
+# ── Role + RoleBinding — operation ledger (namespaced) ────────────────────────
+# The rebalancer records each operation's live outcome in ConfigMap
+# xamops-automation-state so an operation never runs twice (across cycles and
+# restarts). DRY_RUN=true never writes it. get/update/patch are limited to that one
+# ConfigMap; create cannot be restricted by resourceNames, so it is namespace-wide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: xamops-automation-state
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+rules:
+  - apiGroups: [""]
+    resources:
+      - configmaps
+    resourceNames: ["xamops-automation-state"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: [""]
+    resources:
+      - configmaps
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: xamops-automation-state
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: xamops-automation-state
+subjects:
+  - kind: ServiceAccount
+    name: xamops-automation
+    namespace: xamops-system
 ---
 # ── Secret — API credentials (edit before applying) ───────────────────────────
 # Replace <BASE64_API_KEY> and <BASE64_SERVER_URL> with base64-encoded values:
@@ -184,12 +226,18 @@ data:
   DRY_RUN: "true"
 
   # ── Tier 2 feature flags (all off by default — enable per-cluster in XamOps UI)
-  # Node scale-in: evict pods off nodes whose summed pod requests are under target
-  # (no pod-fit simulation; analyse-only unless the policy sets analyseOnly=false)
+  # Node scale-in: candidates are nodes whose summed pod requests are under target.
+  # Analyse-only unless the policy sets analyseOnly=false; any drain goes through the
+  # shared executor (budget, plan, Eviction API) and is refused in this build.
   ENABLE_EVICTOR: "false"
-  # Workload rightsizing: patch CPU/memory resource requests based on P80/P100 usage
+  # Workload rightsizing: P80/P100 recommendations (patching also needs ENABLE_RIGHTSIZER_APPLY)
   ENABLE_RIGHTSIZER: "false"
-  # Node rebalance: drain + replace nodes for cost optimization or AZ balance
+  # Rightsizer apply: patches requests ONLY when this is "true" AND
+  # workloadRightsizerPolicy.applyMode=immediate AND DRY_RUN=false.
+  ENABLE_RIGHTSIZER_APPLY: "false"
+  # Node rebalance: when XamOps sets rebalancer.status=running (and enabled), drain
+  # on-demand nodes oldest-first through the shared executor; one run per operation
+  # (rebalancer.operationId or a generation counter), recorded in the ledger ConfigMap.
   ENABLE_REBALANCER: "false"
   # HPA management: create/update/delete HPAs from XamOps UI recommendations
   ENABLE_HPA_MANAGER: "false"
@@ -313,6 +361,11 @@ spec:
 
             - name: CLOUD_ACCOUNT_ID
               value: "123456789012"            # ← EDIT THIS (AWS account ID)
+            # Own namespace: never drained, and home of the ledger ConfigMap
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
 
           # ── Resource limits ───────────────────────────────────────────────
           resources:

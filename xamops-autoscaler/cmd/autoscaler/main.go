@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -17,8 +18,12 @@ import (
 
 	"github.com/xamops/automation/internal/config"
 	"github.com/xamops/automation/internal/controller"
+	"github.com/xamops/automation/internal/drain"
+	"github.com/xamops/automation/internal/gate"
 	"github.com/xamops/automation/internal/policy"
 	"github.com/xamops/automation/internal/pusher"
+	"github.com/xamops/automation/internal/state"
+	"github.com/xamops/automation/internal/telemetry"
 )
 
 const version = "1.0.0-automation"
@@ -36,10 +41,10 @@ func main() {
 	}
 
 	log.Printf("Cluster: %s | Account: %s | Server: %s", cfg.ClusterName, cfg.CloudAccountID, cfg.ServerURL)
-	log.Printf("Controllers — Evictor=%v Rightsizer=%v Rebalancer=%v HPAManager=%v VPAManager=%v NodeOptimizer=%v DryRun=%v",
-		cfg.EnableEvictor, cfg.EnableRightsizer, cfg.EnableRebalancer,
+	log.Printf("Controllers — Evictor=%v Rightsizer=%v RightsizerApply=%v Rebalancer=%v HPAManager=%v VPAManager=%v NodeOptimizer=%v DryRun=%v PodNamespace=%s StateConfigMap=%s",
+		cfg.EnableEvictor, cfg.EnableRightsizer, cfg.EnableRightsizerApply, cfg.EnableRebalancer,
 		cfg.EnableHPAManager, cfg.EnableVPAManager, cfg.EnableNodeOptimizer,
-		cfg.DryRun)
+		cfg.DryRun, cfg.PodNamespace, cfg.StateConfigMap)
 
 	// ── Kubernetes clients ───────────────────────────────────────────────
 	k8sCfg, err := rest.InClusterConfig()
@@ -85,7 +90,7 @@ func main() {
 	go startHealthServer()
 
 	// ── Main control loop ────────────────────────────────────────────────
-	go runControlLoop(ctx, cfg, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
+	go runControlLoop(ctx, cfg, k8s, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
 
 	// ── Heartbeat loop ────────────────────────────────────────────────────
 	go runHeartbeatLoop(ctx, cfg, push)
@@ -105,6 +110,7 @@ func main() {
 func runControlLoop(
 	ctx context.Context,
 	cfg *config.Config,
+	k8s kubernetes.Interface,
 	policyClient *policy.Client,
 	push *pusher.Pusher,
 	evictor *controller.Evictor,
@@ -125,14 +131,72 @@ func runControlLoop(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			runCycle(ctx, cfg, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
+			runCycle(ctx, cfg, k8s, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
 		}
 	}
+}
+
+// cycleActions collects the action records of one cycle and their legacy events.
+type cycleActions struct {
+	records []policy.ActionRecord
+	events  []policy.AutoscalingEvent
+}
+
+// add records each action and its paired legacy event (same ID). nodeCount is the
+// node count of a verified outcome; LegacyEvent zeroes it for anything else.
+func (c *cycleActions) add(eventType string, nodeCount int, recs ...policy.ActionRecord) {
+	for _, r := range recs {
+		c.records = append(c.records, r)
+		c.events = append(c.events, telemetry.LegacyEvent(r, eventType, nodeCount))
+	}
+}
+
+func (c *cycleActions) addOutcome(eventType string, o drain.Outcome) {
+	c.add(eventType, len(o.Reports), o.Actions...)
+}
+
+// cycleDecisions are all gate decisions of one cycle, computed once.
+type cycleDecisions struct {
+	Rebalancer, Evictor, NodeOptimizer, Cordon, IdleDrain, SpotRatio, Karpenter, Interruption,
+	Rightsizer, RightsizerApply, HPAManager gate.Decision
+}
+
+func decide(cfg *config.Config, b policy.PolicyBundle) cycleDecisions {
+	nop := b.NodeOptimizerPolicy
+	return cycleDecisions{
+		Rebalancer:      gate.Rebalancer(cfg, b),
+		Evictor:         gate.Evictor(cfg, b),
+		NodeOptimizer:   gate.NodeOptimizerAnalysis(cfg, b),
+		Cordon:          gate.NodeAction(cfg, b, nop.AutoCordonIdleNodes, "autoCordonIdleNodes"),
+		IdleDrain:       gate.NodeAction(cfg, b, nop.AutoDrainIdleNodes, "autoDrainIdleNodes"),
+		SpotRatio:       gate.NodeAction(cfg, b, nop.SpotRatioTargetPct > 0, "spotRatioTargetPct"),
+		Karpenter:       gate.NodeAction(cfg, b, nop.SpotRatioTargetPct > 0 && nop.KarpenterEnabled, "karpenterEnabled"),
+		Interruption:    gate.NodeAction(cfg, b, nop.HandleSpotInterruptions, "handleSpotInterruptions"),
+		Rightsizer:      gate.RightsizerAnalysis(cfg, b),
+		RightsizerApply: gate.RightsizerApply(cfg, b),
+		HPAManager:      gate.HPAManager(cfg, b),
+	}
+}
+
+// nodeActionMode is the strongest mode of any node-action gate: orphan recovery
+// may write only when some node action is Live.
+func (d cycleDecisions) nodeActionMode() gate.Mode {
+	m := gate.Off
+	for _, x := range []gate.Decision{d.Rebalancer, d.Evictor, d.Cordon, d.IdleDrain, d.SpotRatio, d.Interruption} {
+		if x.Mode == gate.Live {
+			return gate.Live
+		}
+		if x.Mode == gate.Simulate {
+			m = gate.Simulate
+		}
+	}
+	return m
 }
 
 func runCycle(
 	ctx context.Context,
 	cfg *config.Config,
+	k8s kubernetes.Interface,
 	policyClient *policy.Client,
 	push *pusher.Pusher,
 	evictor *controller.Evictor,
@@ -144,7 +208,7 @@ func runCycle(
 ) {
 	log.Println("── Automation cycle start ──────────────────────────────────────")
 
-	// 1. Fetch current policy from XamOps backend
+	// 1. Fetch current policy from XamOps backend (normalized by the client)
 	bundle, err := policyClient.FetchPolicy(ctx)
 	if err != nil {
 		log.Printf("ERROR: fetch policy: %v", err)
@@ -156,23 +220,56 @@ func runCycle(
 		return
 	}
 
+	// 2. Gate decisions, once per cycle
+	d := decide(cfg, bundle)
+	log.Printf("Gates — rebalancer=%s | evictor=%s | nodeopt=%s cordon=%s idleDrain=%s spotRatio=%s karpenter=%s interruption=%s | rightsizer=%s apply=%s | hpa=%s",
+		d.Rebalancer, d.Evictor, d.NodeOptimizer, d.Cordon, d.IdleDrain, d.SpotRatio, d.Karpenter, d.Interruption,
+		d.Rightsizer, d.RightsizerApply, d.HPAManager)
+
+	// 3. Per-cycle drain machinery: one global budget, one executor, one ledger.
+	var inflight []string
+	if nodes, err := k8s.CoreV1().Nodes().List(ctx, metav1.ListOptions{}); err != nil {
+		log.Printf("WARN: list nodes for drain budget: %v", err)
+	} else {
+		inflight = drain.InflightNodes(nodes.Items)
+	}
+	budget := drain.NewBudget(bundle.NodeOptimizerPolicy.MaxParallelDrains, inflight)
+	exec := drain.NewExecutor(k8s, drain.UnavailablePlanner{}, cfg.PodNamespace)
+	ledger := state.New(k8s, cfg.PodNamespace, cfg.StateConfigMap, cfg.DryRun)
+	log.Printf("Drain budget capacity=%d inflight=%v planner=unavailable (live drains refused) selfNamespace=%s",
+		budget.Capacity(), inflight, cfg.PodNamespace)
+
 	var batches []pusher.Batch
-	events := make([]policy.AutoscalingEvent, 0)
+	acts := &cycleActions{}
+	var drainReports []controller.DrainProgressReport
+
+	// Orphaned drains from an earlier process are handled before anything else.
+	acts.add("scale-in", 1, exec.RecoverOrphans(ctx, d.nodeActionMode())...)
 
 	// ── 1. Rebalancer (highest priority — changes node topology) ─────────────
-	if cfg.EnableRebalancer || bundle.Rebalancer.Status == "running" {
-		result, err := rebalancer.Run(ctx, bundle.Rebalancer, bundle.SafetyGuards)
+	armed := cfg.EnableRebalancer && bundle.AutoscalerMode == "full" && bundle.Rebalancer.Enabled
+	if err := controller.ObserveRebalancerStatus(ctx, ledger, armed, bundle.Rebalancer.Status); err != nil {
+		log.Printf("ERROR: rebalancer ledger: %v", err)
+	}
+	if d.Rebalancer.Mode != gate.Off {
+		result, recs, err := rebalancer.Run(ctx, bundle.Rebalancer, bundle.SafetyGuards, d.Rebalancer, budget, exec, ledger)
 		if err != nil {
 			log.Printf("ERROR: rebalancer: %v", err)
 		}
-		if result != nil && result.Status != "idle" {
+		acts.add("rebalance", 1, recs...)
+		if result != nil {
 			status := policy.RebalanceStatus{
 				Status:          result.Status,
 				StartedAt:       result.StartedAt.Format(time.RFC3339),
-				NodesProcessed:  len(result.NodesDrained),
+				NodesProcessed:  len(recs),
 				NodesDrained:    len(result.NodesDrained),
 				DurationMinutes: result.DurationMinutes,
 				Error:           result.Error,
+				DryRun:          result.DryRun,
+				OperationID:     result.OperationID,
+				NodesSimulated:  result.NodesSimulated,
+				Verified:        result.Verified,
+				Reason:          result.Reason,
 			}
 			if !result.CompletedAt.IsZero() {
 				status.CompletedAt = result.CompletedAt.Format(time.RFC3339)
@@ -183,39 +280,16 @@ func runCycle(
 				Count:       1,
 				CollectedAt: time.Now(),
 			})
-			if result.Status == "completed" {
-				events = append(events, policy.AutoscalingEvent{
-					ID:        fmt.Sprintf("rebalance-%d", time.Now().Unix()),
-					Timestamp: time.Now().UTC().Format(time.RFC3339),
-					Type:      "rebalance",
-					Severity:  "success",
-					Message:   fmt.Sprintf("Rebalance completed: %d nodes drained in %d min", len(result.NodesDrained), result.DurationMinutes),
-					NodeCount: len(result.NodesDrained),
-				})
-			}
 		}
 	}
 
-	// ── 2. Evictor (utilisation-threshold scale-in, no pod-fit simulation) ───
-	evictorEnabled := cfg.EnableEvictor && bundle.EvictorPolicy.Enabled
-	if bundle.AutoscalerMode == "scoped" {
-		evictorEnabled = false // scoped mode: workload controllers only
-	}
-	if evictorEnabled {
-		result, err := evictor.Run(ctx, bundle.EvictorPolicy, bundle.SafetyGuards)
+	// ── 2. Evictor (utilisation-threshold scale-in through the executor) ─────
+	if d.Evictor.Mode != gate.Off {
+		result, recs, err := evictor.Run(ctx, bundle.EvictorPolicy, bundle.SafetyGuards, d.Evictor, budget, exec)
 		if err != nil {
 			log.Printf("ERROR: evictor: %v", err)
 		}
-		if result != nil && result.NodesSaved > 0 {
-			events = append(events, policy.AutoscalingEvent{
-				ID:        fmt.Sprintf("evictor-%d", time.Now().Unix()),
-				Timestamp: time.Now().UTC().Format(time.RFC3339),
-				Type:      "scale-in",
-				Severity:  "success",
-				Message:   fmt.Sprintf("Evictor consolidated %d node(s) (%d pods evicted)", result.NodesSaved, len(result.EvictedPods)),
-				NodeCount: result.NodesSaved,
-			})
-		}
+		acts.add("scale-in", 1, recs...)
 		if result != nil && len(result.CandidateNodes) > 0 {
 			batches = append(batches, pusher.Batch{
 				Collector:   "autoscaling-evictor-candidates",
@@ -227,8 +301,15 @@ func runCycle(
 	}
 
 	// ── 3. Rightsizer (workload CPU/memory request patching) ─────────────────
-	if cfg.EnableRightsizer && bundle.WorkloadRightsizerPolicy.Enabled {
-		results, err := rightsizer.Run(ctx, bundle.WorkloadRightsizerPolicy, bundle.SafetyGuards)
+	if d.Rightsizer.Mode != gate.Off {
+		// Interim until FEAT-002 wires the apply decision into the rightsizer: apply
+		// is possible only when gate.RightsizerApply is Live (ENABLE_RIGHTSIZER_APPLY
+		// ∧ applyMode=immediate ∧ !DRY_RUN); otherwise the rightsizer sees deferred.
+		rp := bundle.WorkloadRightsizerPolicy
+		if d.RightsizerApply.Mode != gate.Live {
+			rp.ApplyMode = "deferred"
+		}
+		results, err := rightsizer.Run(ctx, rp, bundle.SafetyGuards)
 		if err != nil {
 			log.Printf("ERROR: rightsizer: %v", err)
 		}
@@ -240,19 +321,16 @@ func runCycle(
 				CollectedAt: time.Now(),
 			})
 			if applied := countApplied(results); applied > 0 {
-				events = append(events, policy.AutoscalingEvent{
-					ID:        fmt.Sprintf("rightsizer-%d", time.Now().Unix()),
-					Timestamp: time.Now().UTC().Format(time.RFC3339),
-					Type:      "workload-resize",
-					Severity:  "success",
-					Message:   fmt.Sprintf("Rightsizer applied %d resource adjustments", applied),
-				})
+				rec := telemetry.NewAction(policy.ControllerRightsizer, "patch-requests",
+					fmt.Sprintf("%d container(s)", applied), cfg.DryRun)
+				acts.add("workload-resize", 0, telemetry.Finish(rec, policy.ActionSucceeded, false,
+					"Deployment template patch issued; rollout not verified"))
 			}
 		}
 	}
 
-	// ── 4. HPA Manager (analyse + optionally create/update HPAs) ─────────────
-	if cfg.EnableHPAManager && bundle.HPAManagerPolicy.Enabled {
+	// ── 4. HPA Manager (analysis only) ───────────────────────────────────────
+	if d.HPAManager.Mode != gate.Off {
 		recs, err := hpaMgr.Analyse(ctx, bundle.SafetyGuards)
 		if err != nil {
 			log.Printf("ERROR: hpa-manager analyse: %v", err)
@@ -282,163 +360,101 @@ func runCycle(
 		}
 	}
 
-	// ── 6. Node Optimizer (idle detection, spot analysis, interruption handling)
-	if cfg.EnableNodeOptimizer && bundle.NodeOptimizerPolicy.Enabled {
+	// ── 6. Node Optimizer (analysis; node actions via gate + budget + executor)
+	if d.NodeOptimizer.Mode != gate.Off {
 		report, err := nodeOpt.Analyse(ctx, bundle.SafetyGuards)
 		if err != nil {
 			log.Printf("ERROR: node-optimizer analyse: %v", err)
 		}
 		if report != nil {
+			report.DryRun = cfg.DryRun
 			batches = append(batches, pusher.Batch{
 				Collector:   "node-optimizer-report",
 				Items:       []interface{}{report},
 				Count:       1,
 				CollectedAt: time.Now(),
 			})
+			drainTimeout := time.Duration(cfg.DrainTimeoutSeconds) * time.Second
+			drainOne := func(eventType, trigger, nodeName string, mode gate.Mode) {
+				dctx, cancel := context.WithTimeout(ctx, drainTimeout)
+				defer cancel()
+				var out drain.Outcome
+				if trigger == "spot-interruption" {
+					out = nodeOpt.HandleSpotInterruption(dctx, nodeName, mode, budget, exec)
+				} else {
+					out = nodeOpt.DrainForSpotConversion(dctx, trigger, nodeName, mode, budget, exec)
+				}
+				acts.addOutcome(eventType, out)
+				drainReports = append(drainReports, out.Reports...)
+			}
 
-			// Auto-cordon idle nodes if policy says so
-			if bundle.NodeOptimizerPolicy.AutoCordonIdleNodes {
+			// Idle drain (budget order: idle drain, spot-ratio drain, interruption, cordon)
+			if d.IdleDrain.Mode != gate.Off {
 				for _, idle := range report.IdleNodes {
 					if idle.RecommendDrain {
-						if err := nodeOpt.CordonIdleNode(ctx, idle.NodeName); err != nil {
-							log.Printf("WARN: cordon idle node %s: %v", idle.NodeName, err)
-						} else {
-							events = append(events, policy.AutoscalingEvent{
-								ID:        fmt.Sprintf("node-opt-cordon-%d", time.Now().Unix()),
-								Timestamp: time.Now().UTC().Format(time.RFC3339),
-								Type:      "scale-in",
-								Severity:  "info",
-								Message:   fmt.Sprintf("Cordoned idle node %s (CPU=%.1f%% Mem=%.1f%%)", idle.NodeName, idle.CPUUsagePct, idle.MemUsagePct),
-								NodeCount: 1,
-							})
-						}
+						drainOne("scale-in", "idle-drain", idle.NodeName, d.IdleDrain.Mode)
 					}
 				}
 			}
 
-			// Auto-drain idle nodes (PDB-aware safe drain, one at a time)
-			if bundle.NodeOptimizerPolicy.AutoDrainIdleNodes {
-				drainReports := make([]controller.DrainProgressReport, 0)
-				for _, idle := range report.IdleNodes {
-					if !idle.RecommendDrain {
-						continue
-					}
-					drainCtx, cancel := context.WithTimeout(ctx, time.Duration(cfg.DrainTimeoutSeconds)*time.Second)
-					drainRpt := nodeOpt.DrainForSpotConversion(drainCtx, idle.NodeName, bundle.SafetyGuards, cfg.DrainTimeoutSeconds)
-					cancel()
-					drainReports = append(drainReports, *drainRpt)
-					if drainRpt.Status == "drained" {
-						events = append(events, policy.AutoscalingEvent{
-							ID:        fmt.Sprintf("idle-drain-%d", time.Now().Unix()),
-							Timestamp: time.Now().UTC().Format(time.RFC3339),
-							Type:      "scale-in",
-							Severity:  "success",
-							Message:   fmt.Sprintf("Drained idle node %s (%d pods evicted)", idle.NodeName, drainRpt.PodsEvicted),
-							NodeCount: 1,
-						})
-					} else if drainRpt.Status == "failed" {
-						events = append(events, policy.AutoscalingEvent{
-							ID:        fmt.Sprintf("idle-drain-fail-%d", time.Now().Unix()),
-							Timestamp: time.Now().UTC().Format(time.RFC3339),
-							Type:      "scale-in",
-							Severity:  "warning",
-							Message:   fmt.Sprintf("Drain failed for idle node %s: %s", idle.NodeName, drainRpt.Error),
-							NodeCount: 0,
-						})
-					}
-				}
-				if len(drainReports) > 0 {
-					batches = append(batches, pusher.Batch{
-						Collector:   "node-drain-progress",
-						Items:       drainReports,
-						Count:       len(drainReports),
-						CollectedAt: time.Now(),
-					})
-				}
-			}
-
-			// ── Spot ratio management (drain on-demand → let CA/Karpenter provision spot)
-			if bundle.NodeOptimizerPolicy.SpotRatioTargetPct > 0 {
-				maxDrains := bundle.NodeOptimizerPolicy.MaxParallelDrains
-				if maxDrains <= 0 {
-					maxDrains = 1
-				}
-				candidates := nodeOpt.SelectOnDemandNodesForDrain(report, bundle.NodeOptimizerPolicy.SpotRatioTargetPct, maxDrains)
+			// Spot ratio management (drain on-demand → let CA/Karpenter provision spot)
+			if d.SpotRatio.Mode != gate.Off {
+				candidates := nodeOpt.SelectOnDemandNodesForDrain(report, bundle.NodeOptimizerPolicy.SpotRatioTargetPct, budget.Capacity())
 				if len(candidates) > 0 {
-					log.Printf("NodeOptimizer: spot ratio target=%d%% current=%d/%d — draining %d on-demand node(s)",
-						bundle.NodeOptimizerPolicy.SpotRatioTargetPct,
-						report.SpotNodes, report.TotalNodes, len(candidates))
-
-					// Annotate Karpenter NodePools if enabled
-					if bundle.NodeOptimizerPolicy.KarpenterEnabled {
-						if err := nodeOpt.PatchKarpenterSpotRatio(ctx, bundle.NodeOptimizerPolicy.SpotRatioTargetPct); err != nil {
-							log.Printf("WARN: Karpenter NodePool patch: %v", err)
-						}
+					log.Printf("NodeOptimizer: spot ratio target=%d%% current=%d/%d — %d on-demand candidate(s) %v (%s)",
+						bundle.NodeOptimizerPolicy.SpotRatioTargetPct, report.SpotNodes, report.TotalNodes,
+						len(candidates), candidates, d.SpotRatio.Mode)
+					if d.Karpenter.Mode != gate.Off {
+						acts.add("node-replace", 0, nodeOpt.PatchKarpenterSpotRatio(ctx, bundle.NodeOptimizerPolicy.SpotRatioTargetPct, d.Karpenter.Mode))
 					}
-
-					spotDrainReports := make([]controller.DrainProgressReport, 0, len(candidates))
 					for _, nodeName := range candidates {
-						drainCtx, cancel := context.WithTimeout(ctx, time.Duration(cfg.DrainTimeoutSeconds)*time.Second)
-						rpt := nodeOpt.DrainForSpotConversion(drainCtx, nodeName, bundle.SafetyGuards, cfg.DrainTimeoutSeconds)
-						cancel()
-						spotDrainReports = append(spotDrainReports, *rpt)
-						if rpt.Status == "drained" {
-							events = append(events, policy.AutoscalingEvent{
-								ID:        fmt.Sprintf("spot-convert-%d", time.Now().Unix()),
-								Timestamp: time.Now().UTC().Format(time.RFC3339),
-								Type:      "node-replace",
-								Severity:  "info",
-								Message:   fmt.Sprintf("Drained on-demand node %s for spot conversion (%d pods evicted)", nodeName, rpt.PodsEvicted),
-								NodeCount: 1,
-							})
-						} else if rpt.Status == "failed" {
-							events = append(events, policy.AutoscalingEvent{
-								ID:        fmt.Sprintf("spot-convert-fail-%d", time.Now().Unix()),
-								Timestamp: time.Now().UTC().Format(time.RFC3339),
-								Type:      "node-replace",
-								Severity:  "warning",
-								Message:   fmt.Sprintf("Spot conversion drain failed for %s: %s", nodeName, rpt.Error),
-							})
-						}
-					}
-					if len(spotDrainReports) > 0 {
-						batches = append(batches, pusher.Batch{
-							Collector:   "node-drain-progress",
-							Items:       spotDrainReports,
-							Count:       len(spotDrainReports),
-							CollectedAt: time.Now(),
-						})
+						drainOne("node-replace", "spot-ratio-drain", nodeName, d.SpotRatio.Mode)
 					}
 				}
 			}
 
-			// Handle spot interruption notices
-			if bundle.NodeOptimizerPolicy.HandleSpotInterruptions {
+			// Spot interruption notices (same executor and guards; never "evict anyway")
+			if d.Interruption.Mode != gate.Off {
 				for _, nodeName := range report.InterruptedNodes {
-					action, err := nodeOpt.HandleSpotInterruption(ctx, nodeName, bundle.SafetyGuards)
-					if err != nil {
-						log.Printf("ERROR: spot interruption handler %s: %v", nodeName, err)
-					} else {
-						events = append(events, policy.AutoscalingEvent{
-							ID:        fmt.Sprintf("spot-interrupt-%d", time.Now().Unix()),
-							Timestamp: time.Now().UTC().Format(time.RFC3339),
-							Type:      "spot-fallback",
-							Severity:  "warning",
-							Message:   fmt.Sprintf("Spot interruption: cordoned+drained node %s (status=%s)", action.NodeName, action.Status),
-							NodeCount: 1,
-						})
+					drainOne("spot-fallback", "spot-interruption", nodeName, d.Interruption.Mode)
+				}
+			}
+
+			// Auto-cordon idle nodes
+			if d.Cordon.Mode != gate.Off {
+				for _, idle := range report.IdleNodes {
+					if idle.RecommendDrain {
+						out := nodeOpt.CordonIdleNode(ctx, idle.NodeName, d.Cordon.Mode, budget, exec)
+						acts.addOutcome("scale-in", out)
 					}
 				}
 			}
 		}
 	}
 
-	// ── Push events ───────────────────────────────────────────────────────────
-	if len(events) > 0 {
+	if len(drainReports) > 0 {
+		batches = append(batches, pusher.Batch{
+			Collector:   "node-drain-progress",
+			Items:       drainReports,
+			Count:       len(drainReports),
+			CollectedAt: time.Now(),
+		})
+	}
+
+	// ── Push actions + their honest legacy events ─────────────────────────────
+	if len(acts.records) > 0 {
+		batches = append(batches, pusher.Batch{
+			Collector:   "autoscaling-actions",
+			Items:       acts.records,
+			Count:       len(acts.records),
+			CollectedAt: time.Now(),
+		})
+	}
+	if len(acts.events) > 0 {
 		batches = append(batches, pusher.Batch{
 			Collector:   "autoscaling-events",
-			Items:       events,
-			Count:       len(events),
+			Items:       acts.events,
+			Count:       len(acts.events),
 			CollectedAt: time.Now(),
 		})
 	}

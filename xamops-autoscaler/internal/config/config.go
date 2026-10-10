@@ -29,12 +29,23 @@ type Config struct {
 
 	// Feature flags — all default to false for safety.
 	// Enable gradually via XamOps UI (autoscaling mode field) or these env vars.
-	EnableEvictor      bool // utilisation-threshold node scale-in + pod eviction
-	EnableRightsizer   bool // resource request patching (VPA-style, manual)
-	EnableRebalancer   bool // node rebalancing (drain + replace)
-	EnableHPAManager   bool // create/update/delete HPAs based on XamOps recommendations
-	EnableVPAManager   bool // create/manage VPA objects (requires VPA CRD installed)
+	EnableEvictor       bool // utilisation-threshold node scale-in + pod eviction
+	EnableRightsizer    bool // resource request patching (VPA-style, manual)
+	EnableRebalancer    bool // node rebalancing (drain + replace)
+	EnableHPAManager    bool // create/update/delete HPAs based on XamOps recommendations
+	EnableVPAManager    bool // create/manage VPA objects (requires VPA CRD installed)
 	EnableNodeOptimizer bool // idle node detection, spot candidate analysis, spot interruption handling
+
+	// EnableRightsizerApply — the rightsizer patches requests only when this is true AND
+	// workloadRightsizerPolicy.applyMode=immediate AND DryRun is false (plan.md D9).
+	EnableRightsizerApply bool
+
+	// PodNamespace — the autoscaler's own namespace (downward API). Its pods are never
+	// evicted and the operation ledger ConfigMap lives here.
+	PodNamespace string
+
+	// StateConfigMap — name of the ConfigMap holding the rebalancer operation ledger.
+	StateConfigMap string
 
 	// DryRun — when true the controller logs all actions but makes no actual changes.
 	// Strongly recommended on first deployment. Disable once you trust the recommendations.
@@ -70,6 +81,10 @@ func Load() (*Config, error) {
 		EnableHPAManager:    getEnvBool("ENABLE_HPA_MANAGER", false),
 		EnableVPAManager:    getEnvBool("ENABLE_VPA_MANAGER", false),
 		EnableNodeOptimizer: getEnvBool("ENABLE_NODE_OPTIMIZER", false),
+
+		EnableRightsizerApply: getEnvBool("ENABLE_RIGHTSIZER_APPLY", false),
+		PodNamespace:          getEnv("POD_NAMESPACE", "xamops-system"),
+		StateConfigMap:        getEnv("STATE_CONFIGMAP", "xamops-automation-state"),
 
 		// DryRun defaults to TRUE for safety
 		DryRun: getEnvBool("DRY_RUN", true),
