@@ -70,10 +70,10 @@ public final class WorkloadPolicyDefaults {
      * size for the smallest clearable one</strong>, once headroom is the only thing generating the
      * delta. On a Guaranteed-shaped container the limit is the request and CFS caps measured usage at
      * it, so the largest target is {@code request × 1.25} and the delta is at most 25% of the
-     * request — which clears 25m only from a 100m request upwards. The engine's own floored decrease
-     * lands at 25m, so the absolute half of this band is waived where usage is <em>measurably</em>
-     * censored by the limit; the relative half still applies. See
-     * {@link HysteresisBand#relativeOnly()}.
+     * request — which clears 25m only from a 100m request upwards, while the engine's own floored
+     * decrease lands at 25m. So every absolute threshold here is <em>reachability-capped</em> at
+     * evaluation time: see {@link HysteresisBand#cappedTo(long)}. The flat numbers in this class are
+     * the thresholds where they are satisfiable, and a ceiling everywhere else.
      */
     public static final HysteresisBand CPU_INCREASE = new HysteresisBand(15, 25);
 
@@ -88,6 +88,12 @@ public final class WorkloadPolicyDefaults {
      * causes outages, and because the kubelet was measured applying even a {@code 1Mi} memory
      * request in place without complaint — there is no platform backstop below this number.
      */
+    // Reachability: "below 100m a recommendation buys churn, not capacity" is a claim about a
+    // container that COULD shed 100m. A 120m container measured using 10m floors to 25m -- 95m, the
+    // most it can give -- and a flat 100m band suppressed that for ever. Capped at evaluation time
+    // (HysteresisBand.cappedTo) the band is 95m there and the 30% relative half decides, which is
+    // also what keeps the control workload's measured 26m drift suppressed: 80m against a 25m floor
+    // caps the band at 55m.
     public static final HysteresisBand CPU_DECREASE = new HysteresisBand(30, 100);
 
     /**

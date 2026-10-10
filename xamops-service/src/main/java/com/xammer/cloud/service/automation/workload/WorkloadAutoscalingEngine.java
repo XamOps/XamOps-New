@@ -38,7 +38,7 @@ import java.util.Locale;
  *   <li>Floors, clamping <strong>decreases only</strong>.</li>
  *   <li>The node-capacity cap, computed over all containers together.</li>
  *   <li>Asymmetric relative-<em>and</em>-absolute hysteresis against the <strong>current</strong>
- *       request, the absolute half waived for a measurably censored CPU increase.</li>
+ *       request, each absolute half capped at the largest move expressible in its direction.</li>
  *   <li>The OOM guard, then cooldown — which an OOM-driven memory increase outranks.</li>
  *   <li>{@link #reconcile}: a resource-metric HPA freezes that resource's request.</li>
  *   <li>QoS-preserving {@code (request, limit)} pairs, validated at construction.</li>
@@ -197,7 +197,6 @@ public final class WorkloadAutoscalingEngine {
             // max(), not the limit outright: the basis must never fall below what was actually
             // measured, and must never exceed it by more than the censoring tolerance allows.
             cpuBasis = Math.max(cpuPercentile, current.cpuLimitMillis());
-            draft.cpuDemandCensored = true;
             draft.reasons.add(ContainerReason.DEMAND_CENSORED_BY_LIMIT);
         }
         draft.cpuTarget = applyFloor(withHeadroom(cpuBasis, policy.headroomPct()),
@@ -375,23 +374,20 @@ public final class WorkloadAutoscalingEngine {
      * <p>A container with no current request is exempt: there is no baseline to take a percentage
      * of, and suppressing the advisory would hide the {@code REQUESTS_UNSET} finding's whole point.
      *
-     * <p>One further exemption, in the <strong>increase</strong> direction only: where CPU usage is
-     * measurably censored by the container's own limit, the absolute half of the band is waived and
-     * the relative half is the whole test ({@link HysteresisBand#relativeOnly()}). Without it the
-     * engine's own floored decrease is a one-way door — a 25m/25m Guaranteed container cannot express
-     * a target above 31m, which never clears a 25m absolute band, so the container stays pinned at
-     * the floor at any load. That Javadoc carries the full arithmetic.
+     * <p>Each band's <strong>absolute</strong> half is capped at the largest move this engine can
+     * express in that direction at this container's scale — headroom for an increase, the distance to
+     * the floor for a decrease ({@link HysteresisBand#cappedTo}). An absolute threshold may filter a
+     * move; it may never make a direction unreachable, which a flat threshold does below a certain
+     * request size. The <strong>relative</strong> half is never capped, and it is what keeps doing
+     * the filtering at small scale.
      */
     private void applyHysteresis(List<Draft> drafts, WorkloadPolicy policy) {
         for (Draft draft : drafts) {
             ResourceEnvelope current = draft.container.current();
             Long currentCpu = toLong(current.cpuRequestMillis());
             if (draft.cpuTarget != null && currentCpu != null) {
-                boolean increase = draft.cpuTarget > currentCpu;
-                HysteresisBand band = increase ? policy.cpuIncrease() : policy.cpuDecrease();
-                if (increase && draft.cpuDemandCensored) {
-                    band = band.relativeOnly();
-                }
+                HysteresisBand band = reachableBand(policy.cpuIncrease(), policy.cpuDecrease(),
+                        currentCpu, draft.cpuTarget, policy.cpuFloorMillis(), policy.headroomPct());
                 if (!band.clears(currentCpu, draft.cpuTarget)) {
                     draft.cpuTarget = null;
                     draft.reasons.add(ContainerReason.WITHIN_HYSTERESIS);
@@ -399,7 +395,8 @@ public final class WorkloadAutoscalingEngine {
             }
             if (draft.memTarget != null && current.memRequestBytes() != null) {
                 long currentMem = current.memRequestBytes();
-                HysteresisBand band = draft.memTarget > currentMem ? policy.memIncrease() : policy.memDecrease();
+                HysteresisBand band = reachableBand(policy.memIncrease(), policy.memDecrease(),
+                        currentMem, draft.memTarget, policy.memFloorBytes(), policy.headroomPct());
                 if (!band.clears(currentMem, draft.memTarget)) {
                     draft.memTarget = null;
                     draft.reasons.add(ContainerReason.WITHIN_HYSTERESIS);
@@ -413,6 +410,32 @@ public final class WorkloadAutoscalingEngine {
                 draft.memTarget = null;
             }
         }
+    }
+
+    /**
+     * The band for this move's direction, with its absolute half capped at what the engine can
+     * actually express — so the threshold can never be unsatisfiable by construction.
+     *
+     * <p>The bound is a property of the arithmetic, not of the workload:
+     *
+     * <ul>
+     *   <li><strong>Increase:</strong> {@code request × headroomPct/100}. A container whose demand
+     *       basis is capped at its own request — a Guaranteed-shaped one, where the limit is the
+     *       request and CFS caps measured usage at the limit — has only headroom to generate a
+     *       delta. The engine writes containers into exactly that state when it floors them, so
+     *       without the cap its own most aggressive recommendation would be irreversible.</li>
+     *   <li><strong>Decrease:</strong> {@code request − floor}. Floors clamp every target, so no
+     *       larger decrease exists to be recommended.</li>
+     * </ul>
+     *
+     * @see HysteresisBand#cappedTo(long)
+     */
+    private static HysteresisBand reachableBand(HysteresisBand increase, HysteresisBand decrease,
+                                                long current, long target, long floor, int headroomPct) {
+        if (target > current) {
+            return increase.cappedTo(current * headroomPct / 100);
+        }
+        return decrease.cappedTo(current - floor);
     }
 
     /**
@@ -563,12 +586,6 @@ public final class WorkloadAutoscalingEngine {
         private Long memTarget;
         private boolean cpuFrozen;
         private boolean memFrozen;
-        /**
-         * Whether the CPU basis came from the limit because usage was measurably pinned at it. Held
-         * as a field rather than read back out of {@link #reasons}, so the hysteresis waiver depends
-         * on what the arithmetic did and not on what gets published.
-         */
-        private boolean cpuDemandCensored;
 
         private Draft(ContainerSnapshot container) {
             this.container = container;

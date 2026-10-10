@@ -36,36 +36,54 @@ public record HysteresisBand(int minPercent, long minAbsolute) {
     }
 
     /**
-     * The same band with its <strong>absolute</strong> threshold waived, leaving the relative half as
-     * the whole test.
+     * The same band with its <strong>absolute</strong> threshold capped at the largest move the
+     * engine can actually express in this direction, at this container's scale.
      *
-     * <h2>Why this exists</h2>
+     * <h2>The invariant</h2>
      *
-     * The absolute threshold is a churn guard: it suppresses a move that is too small to pay for the
-     * write, however large it looks in percentage terms. That reasoning holds for a target derived
-     * from an uncensored measurement, and it fails for one derived from a container <em>pinned at its
-     * own limit</em>.
+     * <strong>An absolute threshold may filter a move. It may never make a direction
+     * unreachable.</strong> A flat threshold does exactly that below a certain request size, and the
+     * flat numbers were calibrated on one container shape (80m–1000m) where the condition never
+     * binds.
      *
-     * <p>The CPU floor (25m) and the absolute CPU-increase band (25m) are the same size, and headroom
-     * is 25%, so on a Guaranteed-shaped container — where the limit <em>is</em> the request, and CFS
-     * caps measured usage at that limit — the largest expressible target is {@code request × 1.25}.
-     * The delta offered to this band is therefore at most 25% of the request, which clears 25m only
-     * from a 100m request upwards. Below that the engine could cut a container to its floor and then
-     * never raise it again at any load, while reporting {@code THROTTLED} and
-     * {@code DEMAND_CENSORED_BY_LIMIT} — the recovery path for its own most aggressive
-     * recommendation. Memory escapes the trap because its increase band (32Mi) is small relative to
-     * its floor (250Mi); CPU does not.
+     * <p>The reachability bound differs by direction, and both are properties of the engine's own
+     * arithmetic rather than of the workload:
      *
-     * <p>So where usage is <em>measurably</em> censored by the limit, the move clears on relative
-     * grounds alone. A percentile sitting on the ceiling is direct evidence of unmet demand rather
-     * than a speculative reclaim, and evidence does not need a churn guard. The relative half still
-     * applies, so the step must still be worth 15% of the request, and the basis is still bounded by
-     * measurement — see {@link WorkloadPolicyDefaults#CENSORED_USAGE_FRACTION_OF_LIMIT}.
+     * <ul>
+     *   <li><strong>Increase → {@code request × headroomPct/100}.</strong> On a Guaranteed-shaped
+     *       container the limit <em>is</em> the request, and CFS caps measured CPU usage at the
+     *       limit, so the demand basis cannot exceed the request and the largest target expressible
+     *       is {@code request × (1 + headroom)}. Headroom alone generates the whole delta. With a
+     *       25m floor, a 25m absolute band and 25% headroom, that cleared only from a 100m request
+     *       upwards — and the engine's own flagship recommendation <em>writes</em> containers to
+     *       25m. A container floored at 25m and later throttled at ratio 1.0 was reported
+     *       {@code THROTTLED} with {@code DEMAND_CENSORED_BY_LIMIT} and handed no recommendation, at
+     *       any load, permanently: the engine could cut a workload by 97.5% and then had no way to
+     *       give any of it back. Memory escaped the trap only because its increase band (32Mi) is
+     *       small relative to its floor (250Mi).</li>
+     *   <li><strong>Decrease → {@code request − floor}.</strong> Floors clamp every target, so no
+     *       decrease larger than this is expressible at all. A 120m container measured using 10m
+     *       floors to 25m — a 95m move that a flat 100m band suppressed, so small workloads were
+     *       systematically ignored in <em>both</em> directions.</li>
+     * </ul>
      *
-     * @return this band with {@code minAbsolute} dropped to zero
+     * <h2>What it does not do</h2>
+     *
+     * It is a cap, never a raise: {@code min(minAbsolute, bound)}, so the band is unchanged wherever
+     * it was already satisfiable, and no suppression that held before is loosened at any scale where
+     * the flat number could be met. The <strong>relative</strong> half is untouched and keeps doing
+     * the filtering at small scale — a floor-clamped decrease always has
+     * {@code delta == request − floor}, so it always clears the capped absolute half and is then
+     * judged purely on percentage. That is what still suppresses the measured false positive on the
+     * control workload: 80m with a 25m floor gives a 55m cap, and the measured drift was 26m.
+     *
+     * @param largestExpressibleMove the reachability bound for this direction, in canonical units;
+     *                               negative values are treated as zero
+     * @return this band, or a copy with {@code minAbsolute} lowered to the bound
      */
-    public HysteresisBand relativeOnly() {
-        return minAbsolute == 0 ? this : new HysteresisBand(minPercent, 0);
+    public HysteresisBand cappedTo(long largestExpressibleMove) {
+        long bound = Math.max(0, largestExpressibleMove);
+        return bound >= minAbsolute ? this : new HysteresisBand(minPercent, bound);
     }
 
     /**

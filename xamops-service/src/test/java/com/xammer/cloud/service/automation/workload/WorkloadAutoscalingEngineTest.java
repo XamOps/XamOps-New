@@ -72,11 +72,11 @@ class WorkloadAutoscalingEngineTest {
     void aFlooredGuaranteedContainerCanStillBeRaised() {
         // The state case 1 produces, under load: 25m request = 25m limit, p95 pinned at 25m,
         // throttled 100% of the time. CFS caps measured usage at the limit, so the largest target
-        // the arithmetic can express is 25 x 1.25 = 31m -- a 6m delta that does not clear the 25m
-        // ABSOLUTE CPU-increase band. The engine used to report THROTTLED and
+        // the arithmetic can express is 25 x 1.25 = 31m -- a 6m delta that could not clear a FLAT
+        // 25m absolute CPU-increase band. The engine used to report THROTTLED and
         // DEMAND_CENSORED_BY_LIMIT here and propose nothing, at any load, for ever: a 97.5% cut it
-        // could not walk back. Measured censoring is evidence of unmet demand, not a speculative
-        // reclaim, so it clears the band on relative grounds alone.
+        // could not walk back. The absolute half is now capped at what headroom can generate
+        // (25 x 25% = 6m), so a threshold can filter a move but never make a direction unreachable.
         WorkloadDecision decision = engine.decide(
                 ReferenceWorkloads.flooredGuaranteedApiUnderLoad(), recommend, NodeCapacity.unbounded());
 
@@ -88,8 +88,8 @@ class WorkloadAutoscalingEngineTest {
                 .as("a container pinned at a limit this engine set must have a way back up")
                 .isNotNull();
         assertThat(api.recommended().cpuRequestMillis())
-                .as("25m x 1.25 = 31m: 6m, which is below the 25m absolute band and 24%% of the "
-                        + "request, so it clears on relative grounds")
+                .as("25m x 1.25 = 31m: a 6m step, which is the most headroom can generate at this "
+                        + "scale and so cannot be the move the absolute band suppresses")
                 .isEqualTo(31);
         assertThat(api.changeKind()).isEqualTo(ChangeKind.INCREASE);
         assertThat(api.reasons()).doesNotContain(ContainerReason.WITHIN_HYSTERESIS);
@@ -117,22 +117,95 @@ class WorkloadAutoscalingEngineTest {
     }
 
     @Test
-    @DisplayName("1c: the waiver needs measured censoring — an uncensored 6m step is still suppressed")
-    void aSmallIncreaseWithoutCensoringIsStillSuppressed() {
-        // The same 25m request and the same 31m target, but no throttling and a limit far above
-        // usage: nothing says demand is unmet, so the absolute band still applies. This is what
-        // keeps the waiver an exemption for evidence rather than a general relaxation.
+    @DisplayName("1c: the cap is a cap, not a waiver — the relative half still suppresses a 5% increase")
+    void theRelativeHalfStillSuppressesASmallPercentageIncrease() {
+        // 1000m request, p95 840m -> 1050m: a 50m step that clears the 25m absolute band outright,
+        // so the only thing that can suppress it is the 15% relative half. The reachability cap is
+        // 1000 x 25% = 250m, i.e. far above the flat 25m, so capping changes nothing here -- which
+        // is the point. The cap only ever lowers a threshold that could not be met at all.
         WorkloadSnapshot snapshot = ReferenceWorkloads.workload(
-                WorkloadRef.of("team-a", "Deployment", "quiet-api"), 3, List.of(
+                WorkloadRef.of("team-a", "Deployment", "busy-api"), 3, List.of(
                         ReferenceWorkloads.container("api",
-                                ReferenceWorkloads.burstable(25, 500, 300 * MI, null),
-                                ReferenceWorkloads.usage("api", 25, 240 * MI, 0.0, 0, 1.0))));
+                                ReferenceWorkloads.burstable(1000, 2000, 300 * MI, null),
+                                ReferenceWorkloads.usage("api", 840, 240 * MI, 0.0, 0, 1.0))));
 
         ContainerDecision api = only(engine.decide(snapshot, recommend, NodeCapacity.unbounded()));
 
-        assertThat(api.reasons()).doesNotContain(ContainerReason.DEMAND_CENSORED_BY_LIMIT);
-        assertThat(api.recommended()).isNull();
+        assertThat(api.recommended())
+                .as("+50m on a 1000m request is 5%%: below the 15%% relative band")
+                .isNull();
         assertThat(api.reasons()).contains(ContainerReason.WITHIN_HYSTERESIS);
+    }
+
+    @Test
+    @DisplayName("1d: a small workload can shed what it has — a 120m container using 10m reaches its floor")
+    void aSmallWorkloadCanStillBeDecreased() {
+        // The decrease half of the same defect. 120m measured at 10m floors to 25m: 95m, which is
+        // the MOST this container can give, and a flat 100m band suppressed it for ever -- so small
+        // workloads were systematically ignored in both directions, not just upwards. The band is
+        // capped at (request - floor) = 95m, and the 79% relative move decides.
+        ContainerDecision api = only(engine.decide(
+                ReferenceWorkloads.smallOverprovisionedWorker(), recommend, NodeCapacity.unbounded()));
+
+        assertThat(api.recommended()).isNotNull();
+        assertThat(api.recommended().cpuRequestMillis())
+                .as("10m x 1.25 = 13m, clamped up to the 25m floor — never 13m, never 0m")
+                .isEqualTo(25);
+        assertThat(api.reasons()).contains(ContainerReason.FLOOR_CLAMPED);
+        assertThat(api.changeKind()).isEqualTo(ChangeKind.DECREASE);
+
+        // And it converges: at 25m the container is AT the floor, so (request - floor) is 0, the
+        // absolute band is 0, and the only expressible decrease is none at all.
+        ContainerDecision settled = only(engine.decide(
+                ReferenceWorkloads.smallOverprovisionedWorkerAtTheFloor(), recommend,
+                NodeCapacity.unbounded()));
+        assertThat(settled.recommended()).isNull();
+        assertThat(settled.reasons()).contains(ContainerReason.BELOW_FLOOR_NO_RAISE);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {25, 30, 40, 80, 100, 250, 1000})
+    @DisplayName("1e: no request size is unreachable upwards — a saturated container is always raisable")
+    void theAbsoluteBandNeverMakesAnIncreaseUnreachable(int requestMillis) {
+        // The structural form of finding 1: whatever the request, a Guaranteed container measured
+        // pinned at its own limit must be offered SOMETHING. The old flat 25m band failed every
+        // value below 100m here, which is most of the measured cluster.
+        WorkloadSnapshot snapshot = ReferenceWorkloads.workload(
+                WorkloadRef.of("team-a", "Deployment", "pinned"), 3, List.of(
+                        ReferenceWorkloads.container("api",
+                                ReferenceWorkloads.guaranteed(requestMillis, 250 * MI),
+                                ReferenceWorkloads.usage("api", requestMillis, 419_430L, 1.0, 0, 1.0))));
+
+        ContainerDecision api = only(engine.decide(snapshot, recommend, NodeCapacity.unbounded()));
+
+        assertThat(api.recommended())
+                .as("a container saturating its limit at %dm must have a way up", requestMillis)
+                .isNotNull();
+        assertThat(api.recommended().cpuRequestMillis()).isGreaterThan(requestMillis);
+        assertThat(QosRules.shapeOf(api.recommended())).isEqualTo(QosRules.Shape.GUARANTEED_SHAPED);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {40, 60, 120, 200, 1000})
+    @DisplayName("1f: nor downwards — an idle container of any size can reach its floor")
+    void theAbsoluteBandNeverMakesADecreaseUnreachable(int requestMillis) {
+        // The decrease direction of the same claim, over the range where the 30% relative band is
+        // satisfiable (it is the relative half's job to reject a small percentage move, and below
+        // ~36m the move to the floor is less than 30%).
+        WorkloadSnapshot snapshot = ReferenceWorkloads.workload(
+                WorkloadRef.of("team-a", "Deployment", "quiet"), 3, List.of(
+                        ReferenceWorkloads.container("api",
+                                ReferenceWorkloads.burstable(requestMillis, null, 128 * MI, null),
+                                ReferenceWorkloads.usage("api", 1, 20 * MI))));
+
+        ContainerDecision api = only(engine.decide(snapshot, recommend, NodeCapacity.unbounded()));
+
+        assertThat(api.recommended())
+                .as("an idle container at %dm must be able to shed what it has", requestMillis)
+                .isNotNull();
+        assertThat(api.recommended().cpuRequestMillis())
+                .as("the floor, never below it and never 0m")
+                .isEqualTo(25);
     }
 
     // ============================================================ 2. the control workload
@@ -406,20 +479,45 @@ class WorkloadAutoscalingEngineTest {
     // ============================================================ 6. idle
 
     @Test
-    @DisplayName("6: idle-batch-listener — IDLE finding, and no request recommendation")
-    void anIdleWorkloadGetsAFindingNotANumber() {
+    @DisplayName("6: idle-batch-listener — IDLE finding, and a floored decrease, never 0m")
+    void anIdleWorkloadGetsAFindingAndTheFloorNeverZero() {
         WorkloadDecision decision = engine.decide(
                 ReferenceWorkloads.idleBatchListener(), recommend, NodeCapacity.unbounded());
 
         assertThat(decision.findings()).contains(Finding.IDLE);
         ContainerDecision listener = only(decision);
 
-        // The Go engine recommended a 0m CPU request here. No recommendation survives, and it falls
-        // out of the ordinary rules: 100m -> the 25m floor is only -75m, below the 100m absolute
-        // decrease band, and 128Mi is already below the 250Mi memory floor.
-        assertThat(listener.recommended()).isNull();
+        // The Go engine recommended a 0m CPU request here, and an HPA with minReplicas: 2 to pin an
+        // idle workload at two replicas for ever. The requirement this case exists for is "no
+        // near-zero request, no 0m" -- which the FLOOR delivers, not the hysteresis band.
+        //
+        // This assertion changed when the absolute band became reachability-capped. 100m -> the 25m
+        // floor is -75m, which is the most this container can give, so the capped band is 75m and
+        // the 75% relative move clears it. Previously the flat 100m band suppressed it and the case
+        // asserted no recommendation at all. Letting it through is the same fix as case 1d, and the
+        // honest behaviour: 75m x 3 replicas is real capacity, 25m is VPA's own floor, and the IDLE
+        // finding still tells the operator the real remedy is scale-to-zero or deletion -- which
+        // this engine does not do.
+        assertThat(listener.recommended()).isNotNull();
+        assertThat(listener.recommended().cpuRequestMillis())
+                .as("the floor, never 0m and never near-zero")
+                .isEqualTo(25);
+        assertThat(listener.recommended().memRequestBytes())
+                .as("128Mi is already below the 250Mi floor, so memory is left alone")
+                .isEqualTo(128 * MI);
         assertThat(listener.reasons()).contains(ContainerReason.FLOOR_CLAMPED,
-                ContainerReason.WITHIN_HYSTERESIS, ContainerReason.BELOW_FLOOR_NO_RAISE);
+                ContainerReason.BELOW_FLOOR_NO_RAISE);
+        assertThat(listener.changeKind()).isEqualTo(ChangeKind.DECREASE);
+
+        // And it is a fixed point: at the floor there is no expressible decrease left.
+        WorkloadSnapshot afterApply = ReferenceWorkloads.workload(
+                WorkloadRef.of("dev-sim", "Deployment", "idle-batch-listener"), 3, List.of(
+                        ReferenceWorkloads.container("listener",
+                                ReferenceWorkloads.burstable(25, null, 128 * MI, null),
+                                ReferenceWorkloads.usage("listener", 0, 20 * MI))));
+
+        assertThat(only(engine.decide(afterApply, recommend, NodeCapacity.unbounded())).recommended())
+                .isNull();
     }
 
     // ============================================================ 7. single replica
@@ -687,6 +785,8 @@ class WorkloadAutoscalingEngineTest {
                 ReferenceWorkloads.overprovisionedApi(),
                 ReferenceWorkloads.overprovisionedApiAfterApply(),
                 ReferenceWorkloads.flooredGuaranteedApiUnderLoad(),
+                ReferenceWorkloads.smallOverprovisionedWorker(),
+                ReferenceWorkloads.smallOverprovisionedWorkerAtTheFloor(),
                 ReferenceWorkloads.oomKilledAfterApply(),
                 ReferenceWorkloads.rightsizedWorker(),
                 ReferenceWorkloads.rightsizedWorkerAtMeasuredDrift(),

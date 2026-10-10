@@ -112,6 +112,35 @@ final class ReferenceWorkloads {
     }
 
     /**
+     * A <strong>small</strong> overprovisioned container: 120m CPU / 600Mi memory, measured using
+     * 10m CPU. The decrease half of the same reachability defect {@link #flooredGuaranteedApiUnderLoad()}
+     * covers upwards.
+     *
+     * <p>Not one of the nine measured workloads. 10m × 1.25 = 13m, clamped up to the 25m floor, so
+     * the move is −95m — which is the <em>most</em> this container can give, the floor being the
+     * limit of any decrease. A flat 100m absolute band therefore suppressed it permanently, which
+     * means small workloads were systematically ignored in both directions rather than only upwards.
+     *
+     * <p>Memory is set so it stays out of the way: 600Mi against a p95 of 400Mi is a 100Mi move,
+     * below the 128Mi absolute decrease band (reachability-capped at 350Mi here, so the flat number
+     * still applies), which keeps the case about CPU.
+     */
+    static WorkloadSnapshot smallOverprovisionedWorker() {
+        WorkloadRef ref = WorkloadRef.of("team-a", "Deployment", "small-overprovisioned");
+        return workload(ref, 3, List.of(
+                container("api", burstable(120, null, 600 * MI, null),
+                        usage("api", 10, 400 * MI))));
+    }
+
+    /** The same small worker once its CPU request sits on the floor: nothing left to shed. */
+    static WorkloadSnapshot smallOverprovisionedWorkerAtTheFloor() {
+        WorkloadRef ref = WorkloadRef.of("team-a", "Deployment", "small-overprovisioned");
+        return workload(ref, 3, List.of(
+                container("api", burstable(25, null, 500 * MI, null),
+                        usage("api", 10, 400 * MI))));
+    }
+
+    /**
      * A container that <strong>OOM-killed right after an apply</strong>: 500m / 256Mi Burstable, p95
      * memory 400Mi, 2 OOM kills in the window, and CPU demand that would support a decrease.
      *
