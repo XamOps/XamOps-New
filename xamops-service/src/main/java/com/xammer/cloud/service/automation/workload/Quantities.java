@@ -111,10 +111,26 @@ public final class Quantities {
         return Long.toString(bytes);
     }
 
-    /** Bytes as whole MiB, rounded half-up — the API's wire unit for memory. */
-    public static long bytesToMi(long bytes) {
+    /**
+     * Bytes as whole MiB, <strong>rounded up</strong> — the API's wire unit for memory.
+     *
+     * <p>Up, not half-up, for two reasons. A positive memory request can then never publish as
+     * {@code 0}: rounding half-up sent anything under ~512KiB to zero, and {@code 0} on the wire
+     * means "a request of zero", which the contract states never happens and which the UI treats as
+     * a bug — so a container configured in bytes or kilobytes (419430B, the magnitude of the measured
+     * p95 for {@code overprovisioned-api}) would have rendered as having no memory request at all.
+     * And up is the safe direction for memory specifically: a published value is never below the real
+     * one, so a current request is never understated (which would overstate savings) and a
+     * recommendation is never under-provisioned (which OOM-kills).
+     *
+     * <p>The cost is quantisation — 419430B publishes as {@code 1}, and a recommendation of
+     * 53739520B (51.25MiB) publishes as {@code 52} — which {@code api-contract.md} §2.3 records.
+     * Engine-internal arithmetic is unaffected: it is in bytes from end to end, and this conversion
+     * happens once, at the wire boundary.
+     */
+    public static long bytesToMiCeil(long bytes) {
         return BigDecimal.valueOf(bytes)
-                .divide(BigDecimal.valueOf(MI), 0, RoundingMode.HALF_UP)
+                .divide(BigDecimal.valueOf(MI), 0, RoundingMode.CEILING)
                 .longValueExact();
     }
 

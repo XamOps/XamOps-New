@@ -6,15 +6,31 @@ import java.util.Set;
 /**
  * What the engine decided for one container.
  *
- * <p>{@code recommended} is <strong>null when nothing is recommended</strong>. It is never a copy of
- * {@code current}, never a zero and never a placeholder: a caller reading a non-null
- * {@code recommended} knows a real change was decided, and does not have to compare it against
- * {@code current} to find out.
+ * <p>{@code recommended} is <strong>null when nothing is recommended</strong>. It is never a zero
+ * and never a placeholder: a non-null {@code recommended} means at least one field was decided.
+ *
+ * <h2>It is a complete envelope, not a change set</h2>
+ *
+ * A non-null {@code recommended} is the <strong>whole desired state</strong> of the container, so a
+ * field that was deliberately left alone carries its current value rather than a null. That is
+ * required, not incidental: the QoS rules are a property of the complete {@code (request, limit)}
+ * pairs, so {@link ResourceEnvelope#recommendation} can only validate a complete envelope — and
+ * {@code null} inside an envelope already means "unset", so it cannot also mean "unchanged" without
+ * making the two indistinguishable.
+ *
+ * <p><strong>Consequence for consumers: a per-field change must be found by diffing against
+ * {@code current}.</strong> The clearest case is an HPA-managed workload, where {@code reconcile}
+ * freezes the CPU request ({@code HPA_CPU_MANAGED}) while memory still moves: the recommended CPU
+ * request then equals the current one, because the engine refused to touch it. Anything turning a
+ * decision into a cluster write must therefore go through
+ * {@code ContainerApplyTarget.ofChanges(ContainerDecision)}, which performs exactly that diff and
+ * leaves a frozen field null — i.e. unpatched. Writing {@code recommended} wholesale would patch a
+ * request the engine deliberately did not decide.
  *
  * @param containerName the container
  * @param qosClass      the <em>pod's</em> QoS class, which is what the UI shows on the row
  * @param current       its present envelope; {@code null} fields mean unset, never {@code 0}
- * @param recommended   the decided envelope, or null when no change is recommended
+ * @param recommended   the complete decided envelope, or null when no change is recommended
  * @param reasons       why — including why nothing moved
  * @param changeKind    direction, measured against the current request
  */

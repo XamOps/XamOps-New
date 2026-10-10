@@ -83,11 +83,14 @@ public final class VerticalDecisionMapper {
         if (envelope == null) {
             return null;
         }
+        // Memory rounds UP to whole MiB. The contract's wire unit is MiB, and half-up sent a
+        // sub-512KiB request to 0 -- a value the contract says never appears and the UI flags as a
+        // bug. Up is also the safe direction: never below the real value, for either half of the pair.
         return new VerticalWorkloadDto.ResourcesDto(
                 envelope.cpuRequestMillis(),
-                envelope.memRequestBytes() == null ? null : Quantities.bytesToMi(envelope.memRequestBytes()),
+                envelope.memRequestBytes() == null ? null : Quantities.bytesToMiCeil(envelope.memRequestBytes()),
                 envelope.cpuLimitMillis(),
-                envelope.memLimitBytes() == null ? null : Quantities.bytesToMi(envelope.memLimitBytes()));
+                envelope.memLimitBytes() == null ? null : Quantities.bytesToMiCeil(envelope.memLimitBytes()));
     }
 
     private static VerticalWorkloadDto.ProvenanceDto provenance(WorkloadDecision decision) {

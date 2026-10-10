@@ -110,8 +110,23 @@ class QuantitiesTest {
     @Test
     @DisplayName("MiB conversion is used for the wire format and stays exact for whole MiB")
     void mebibyteConversion() {
-        assertThat(Quantities.bytesToMi(262144000L)).isEqualTo(250);
-        assertThat(Quantities.bytesToMi(1073741824L)).isEqualTo(1024);
+        assertThat(Quantities.bytesToMiCeil(262144000L)).isEqualTo(250);
+        assertThat(Quantities.bytesToMiCeil(1073741824L)).isEqualTo(1024);
         assertThat(Quantities.miToBytes(250)).isEqualTo(262144000L);
+    }
+
+    @Test
+    @DisplayName("a positive sub-MiB request never publishes as 0")
+    void subMebibyteValuesRoundUpRatherThanToZero() {
+        // 419430B is the magnitude of the harness's measured p95 for overprovisioned-api. Half-up
+        // sent it to 0, and the contract states a 0 never appears -- the UI reads one as a bug and
+        // drops the container from savings, Simulate and Apply.
+        assertThat(Quantities.bytesToMiCeil(419_430L)).isEqualTo(1);
+        assertThat(Quantities.bytesToMiCeil(1L)).isEqualTo(1);
+        assertThat(Quantities.bytesToMiCeil(0L)).isZero();
+
+        // Rounding up, not to nearest: a published value is never below the real one, so a current
+        // request is never understated and a recommendation is never under-provisioned.
+        assertThat(Quantities.bytesToMiCeil(53_739_520L)).isEqualTo(52);
     }
 }

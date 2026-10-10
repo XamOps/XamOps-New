@@ -2,6 +2,7 @@ package com.xammer.cloud.service.automation.workload.api;
 
 import com.xammer.cloud.service.automation.workload.ContainerSnapshot;
 import com.xammer.cloud.service.automation.workload.ContainerUsageFixtures;
+import com.xammer.cloud.service.automation.workload.HpaView;
 import com.xammer.cloud.service.automation.workload.NodeCapacity;
 import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingEngine;
@@ -13,6 +14,7 @@ import com.xammer.cloud.service.automation.workload.WorkloadPolicyDefaults;
 import com.xammer.cloud.service.automation.workload.WorkloadRef;
 import com.xammer.cloud.service.automation.workload.WorkloadSnapshot;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalWorkloadDto;
+import com.xammer.cloud.service.automation.workload.execute.ContainerApplyTarget;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -93,6 +95,58 @@ class VerticalDecisionMapperTest {
         // The advisory carries no invented limit: that would change the QoS class.
         assertThat(container.recommended().cpuRequestM()).isEqualTo(150);
         assertThat(container.recommended().cpuLimitM()).isNull();
+    }
+
+    @Test
+    @DisplayName("a sub-MiB memory request publishes as 1, never as 0")
+    void subMebibyteMemoryIsNeverPublishedAsZero() {
+        // A container configured in bytes or kilobytes: 419430B is the magnitude of the harness's
+        // measured p95 for overprovisioned-api. Rounding to nearest MiB sent it to 0, which the
+        // contract says never appears -- the UI reads a 0 as a bug, flags the container "invalid
+        // value reported" and gives it no savings, no Simulate and no Apply.
+        WorkloadRef ref = WorkloadRef.of("team-a", "Deployment", "tiny-memory-app");
+        WorkloadSnapshot snapshot = new WorkloadSnapshot(ref, 3, false, false, null, null, null, List.of(
+                new ContainerSnapshot("app", new ResourceEnvelope(1000, null, 419_430L, null),
+                        ContainerUsageFixtures.usage("app", 1, 419_430L))));
+        WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded());
+
+        VerticalWorkloadDto.ContainerDto container =
+                VerticalDecisionMapper.toDto(snapshot, policy, decision, GATE).containers().get(0);
+
+        assertThat(container.current().memRequestMi())
+                .as("0 would mean 'a request of zero', which this container does not have")
+                .isEqualTo(1);
+        assertThat(container.current().memLimitMi()).isNull();
+    }
+
+    @Test
+    @DisplayName("an HPA-frozen field reaches the wire as its current value, and the diff knows it")
+    void aFrozenFieldIsPublishedAsItsCurrentValueAndIsNotAChange() {
+        // `recommended` is a complete envelope, so the frozen CPU request appears in it with its
+        // current value -- equal numbers on both sides, which is what tells a reader nothing moved.
+        // The change set is the diff, and that is what any apply must be built from.
+        WorkloadRef ref = WorkloadRef.of("team-b", "Deployment", "php-apache");
+        HpaView cpuHpa = HpaView.cpuHpa("php-apache", ref, 50, 1, 5);
+        WorkloadSnapshot snapshot = new WorkloadSnapshot(ref, 2, false, false, cpuHpa, null, null, List.of(
+                new ContainerSnapshot("php-apache", new ResourceEnvelope(200, null, 64 * MI, null),
+                        ContainerUsageFixtures.usage("php-apache", 320, 400 * MI))));
+        WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded());
+
+        VerticalWorkloadDto.ContainerDto container =
+                VerticalDecisionMapper.toDto(snapshot, policy, decision, GATE).containers().get(0);
+
+        assertThat(container.reasons()).contains("HPA_CPU_MANAGED");
+        assertThat(container.recommended().cpuRequestM())
+                .as("the same value as current, because the engine refused to decide it")
+                .isEqualTo(container.current().cpuRequestM());
+        assertThat(container.recommended().memRequestMi()).isEqualTo(500);
+
+        ContainerApplyTarget change =
+                ContainerApplyTarget.ofChanges(decision.containers().get(0)).orElseThrow();
+        assertThat(change.cpuRequestMillis())
+                .as("an apply derived from this decision must not patch the frozen request")
+                .isNull();
+        assertThat(change.memRequestBytes()).isEqualTo(500 * MI);
     }
 
     @Test

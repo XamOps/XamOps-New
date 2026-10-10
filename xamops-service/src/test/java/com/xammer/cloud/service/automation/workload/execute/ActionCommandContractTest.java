@@ -1,7 +1,12 @@
 package com.xammer.cloud.service.automation.workload.execute;
 
 import com.xammer.cloud.service.automation.workload.ApplyMethod;
+import com.xammer.cloud.service.automation.workload.ChangeKind;
+import com.xammer.cloud.service.automation.workload.ContainerDecision;
+import com.xammer.cloud.service.automation.workload.ContainerReason;
 import com.xammer.cloud.service.automation.workload.ProductionClassScan;
+import com.xammer.cloud.service.automation.workload.QosClass;
+import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
 import com.xammer.cloud.service.automation.workload.WorkloadRef;
 import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
 import org.junit.jupiter.api.Test;
@@ -151,6 +156,55 @@ class ActionCommandContractTest {
 
         assertThat(memoryOnly.cpuRequestMillis()).isNull();
         assertThat(memoryOnly.memRequestBytes()).isEqualTo(262144000L);
+    }
+
+    // ------------------------------------------------------------------ decision -> command
+
+    @Test
+    void aFrozenFieldIsDiffedOutRatherThanPatchedWithItsOwnValue() {
+        // The engine froze CPU on this container (an HPA's utilisation denominator) and moved memory.
+        // `recommended` is a complete envelope, so its CPU request equals the current one -- which a
+        // wholesale copy would turn into a patch of a request the engine refused to decide.
+        ContainerDecision hpaManaged = new ContainerDecision("php-apache", QosClass.BURSTABLE,
+                new ResourceEnvelope(200, null, 67_108_864L, null),
+                ResourceEnvelope.recommendation(new ResourceEnvelope(200, null, 67_108_864L, null),
+                        200, null, 524_288_000L, null),
+                List.of(ContainerReason.HPA_CPU_MANAGED), ChangeKind.INCREASE);
+
+        ContainerApplyTarget target = ContainerApplyTarget.ofChanges(hpaManaged).orElseThrow();
+
+        assertThat(target.cpuRequestMillis())
+                .as("frozen by HPA_CPU_MANAGED: null means leave it alone, which is what the "
+                        + "engine decided")
+                .isNull();
+        assertThat(target.cpuLimitMillis()).isNull();
+        assertThat(target.memRequestBytes()).isEqualTo(524_288_000L);
+    }
+
+    @Test
+    void everyDecidedFieldSurvivesTheDiff() {
+        ResourceEnvelope current = new ResourceEnvelope(1000, 1000, 1_073_741_824L, 1_073_741_824L);
+        ContainerDecision flooredDecrease = new ContainerDecision("api", QosClass.GUARANTEED, current,
+                ResourceEnvelope.recommendation(current, 25, 25, 262_144_000L, 262_144_000L),
+                List.of(ContainerReason.FLOOR_CLAMPED), ChangeKind.DECREASE);
+
+        ContainerApplyTarget target = ContainerApplyTarget.ofChanges(flooredDecrease).orElseThrow();
+
+        assertThat(target.cpuRequestMillis()).isEqualTo(25);
+        assertThat(target.cpuLimitMillis()).isEqualTo(25);
+        assertThat(target.memRequestBytes()).isEqualTo(262_144_000L);
+        assertThat(target.memLimitBytes()).isEqualTo(262_144_000L);
+    }
+
+    @Test
+    void noRecommendationYieldsNoCommandAtAll() {
+        ResourceEnvelope current = new ResourceEnvelope(80, null, 67_108_864L, null);
+        ContainerDecision noChange = new ContainerDecision("worker", QosClass.BURSTABLE, current, null,
+                List.of(ContainerReason.WITHIN_HYSTERESIS), ChangeKind.NONE);
+
+        assertThat(ContainerApplyTarget.ofChanges(noChange))
+                .as("nothing to apply must be an empty result, not a command that patches nothing")
+                .isEmpty();
     }
 
     // ------------------------------------------------------------------ submission and outcome
