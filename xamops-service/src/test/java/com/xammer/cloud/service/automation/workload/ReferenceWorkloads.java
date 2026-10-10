@@ -88,6 +88,45 @@ final class ReferenceWorkloads {
                 container("api", guaranteed(25, 250 * MI), usage("api", 1, 419_430L))));
     }
 
+    /**
+     * The <strong>same floored container under real load</strong>: 25m / 250Mi Guaranteed, p95 CPU
+     * 25m, CFS throttle ratio 1.0. The recovery path for this engine's most aggressive
+     * recommendation.
+     *
+     * <p>Not one of the nine measured workloads — it is {@link #overprovisionedApiAfterApply()} with
+     * demand. It exists because the arithmetic made the floor a one-way door: on a Guaranteed
+     * container the limit is the request and CFS caps measured usage at it, so the basis cannot
+     * exceed 25m, the target is {@code (25 × 1.25) = 31m}, and a 6m delta never cleared the 25m
+     * absolute CPU-increase band. The engine reported {@code THROTTLED} with
+     * {@code DEMAND_CENSORED_BY_LIMIT} and proposed nothing, at any load, permanently — having
+     * itself cut the container by 97.5%.
+     *
+     * <p>Memory is left at the floor with the original near-idle usage, so the case isolates CPU:
+     * the memory target is below the 250Mi floor and the current request is <em>at</em> it, which is
+     * {@code BELOW_FLOOR_NO_RAISE}.
+     */
+    static WorkloadSnapshot flooredGuaranteedApiUnderLoad() {
+        WorkloadRef ref = WorkloadRef.of("team-a", "Deployment", "overprovisioned-api");
+        return workload(ref, 2, List.of(
+                container("api", guaranteed(25, 250 * MI), usage("api", 25, 419_430L, 1.0, 0, 1.0))));
+    }
+
+    /**
+     * A container that <strong>OOM-killed right after an apply</strong>: 500m / 256Mi Burstable, p95
+     * memory 400Mi, 2 OOM kills in the window, and CPU demand that would support a decrease.
+     *
+     * <p>Not one of the nine measured workloads. It is the sequence a direction-blind cooldown
+     * handles worst: a memory decrease is applied, the container OOM-kills under the new request, and
+     * the next cycle lands inside the 60-minute window. The memory increase (256Mi → 500Mi) is
+     * evidence-driven and must survive; the speculative CPU decrease (500m → 125m) must not.
+     */
+    static WorkloadSnapshot oomKilledAfterApply() {
+        WorkloadRef ref = WorkloadRef.of("prod-sim", "Deployment", "oom-after-apply");
+        return workload(ref, 3, List.of(
+                container("app", burstable(500, null, 256 * MI, null),
+                        usage("app", 100, 400 * MI, 0.0, 2, 1.0))));
+    }
+
     // ---------------------------------------------------------------- 2. rightsized-worker (control)
 
     /**

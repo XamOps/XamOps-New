@@ -38,8 +38,8 @@ import java.util.Locale;
  *   <li>Floors, clamping <strong>decreases only</strong>.</li>
  *   <li>The node-capacity cap, computed over all containers together.</li>
  *   <li>Asymmetric relative-<em>and</em>-absolute hysteresis against the <strong>current</strong>
- *       request.</li>
- *   <li>The OOM guard, then cooldown.</li>
+ *       request, the absolute half waived for a measurably censored CPU increase.</li>
+ *   <li>The OOM guard, then cooldown — which an OOM-driven memory increase outranks.</li>
  *   <li>{@link #reconcile}: a resource-metric HPA freezes that resource's request.</li>
  *   <li>QoS-preserving {@code (request, limit)} pairs, validated at construction.</li>
  * </ol>
@@ -197,6 +197,7 @@ public final class WorkloadAutoscalingEngine {
             // max(), not the limit outright: the basis must never fall below what was actually
             // measured, and must never exceed it by more than the censoring tolerance allows.
             cpuBasis = Math.max(cpuPercentile, current.cpuLimitMillis());
+            draft.cpuDemandCensored = true;
             draft.reasons.add(ContainerReason.DEMAND_CENSORED_BY_LIMIT);
         }
         draft.cpuTarget = applyFloor(withHeadroom(cpuBasis, policy.headroomPct()),
@@ -373,13 +374,24 @@ public final class WorkloadAutoscalingEngine {
      *
      * <p>A container with no current request is exempt: there is no baseline to take a percentage
      * of, and suppressing the advisory would hide the {@code REQUESTS_UNSET} finding's whole point.
+     *
+     * <p>One further exemption, in the <strong>increase</strong> direction only: where CPU usage is
+     * measurably censored by the container's own limit, the absolute half of the band is waived and
+     * the relative half is the whole test ({@link HysteresisBand#relativeOnly()}). Without it the
+     * engine's own floored decrease is a one-way door — a 25m/25m Guaranteed container cannot express
+     * a target above 31m, which never clears a 25m absolute band, so the container stays pinned at
+     * the floor at any load. That Javadoc carries the full arithmetic.
      */
     private void applyHysteresis(List<Draft> drafts, WorkloadPolicy policy) {
         for (Draft draft : drafts) {
             ResourceEnvelope current = draft.container.current();
             Long currentCpu = toLong(current.cpuRequestMillis());
             if (draft.cpuTarget != null && currentCpu != null) {
-                HysteresisBand band = draft.cpuTarget > currentCpu ? policy.cpuIncrease() : policy.cpuDecrease();
+                boolean increase = draft.cpuTarget > currentCpu;
+                HysteresisBand band = increase ? policy.cpuIncrease() : policy.cpuDecrease();
+                if (increase && draft.cpuDemandCensored) {
+                    band = band.relativeOnly();
+                }
                 if (!band.clears(currentCpu, draft.cpuTarget)) {
                     draft.cpuTarget = null;
                     draft.reasons.add(ContainerReason.WITHIN_HYSTERESIS);
@@ -403,7 +415,26 @@ public final class WorkloadAutoscalingEngine {
         }
     }
 
-    /** Nothing new is recommended within {@code cooldownMinutes} of an apply. */
+    /**
+     * Nothing new is recommended within {@code cooldownMinutes} of an apply — <strong>except</strong>
+     * a memory increase on a container that OOM-killed inside the window.
+     *
+     * <p>The cooldown exists to damp thrash: a second opinion arriving minutes after the first is
+     * usually the engine arguing with its own write. An OOM kill is not that. It is evidence, it
+     * arrived <em>after</em> the apply, and the sequence that produces it is ordinary — a memory
+     * decrease is applied, the container OOM-kills under the new request, the next cycle lands inside
+     * the cooldown. Suppressing the remedy there would have the operator reading {@code OOM_RISK} in
+     * the findings beside {@code COOLDOWN} as the reason nothing was proposed, for the rest of the
+     * hour.
+     *
+     * <p>The exemption is deliberately narrow: memory only, increases only, and only with kills
+     * measured in the window. The upstream guard already refuses a memory <em>decrease</em> on the
+     * same evidence, so the two together make this container's memory increase-only until the kills
+     * age out of the window. CPU is not exempt — an OOM kill says nothing about CPU demand.
+     *
+     * <p>{@code COOLDOWN} is recorded only when something was actually suppressed, so the reason
+     * never claims a hold that did not happen.
+     */
     private void applyCooldown(List<Draft> drafts, WorkloadPolicy policy, Instant now) {
         Instant lastApplied = policy.lastAppliedAt();
         if (lastApplied == null || policy.cooldownMinutes() <= 0) {
@@ -413,12 +444,39 @@ public final class WorkloadAutoscalingEngine {
             return;
         }
         for (Draft draft : drafts) {
-            if (draft.cpuTarget != null || draft.memTarget != null) {
+            boolean memoryExempt = isOomDrivenMemoryIncrease(draft);
+            boolean suppressed = false;
+            if (draft.cpuTarget != null) {
                 draft.cpuTarget = null;
+                suppressed = true;
+            }
+            if (draft.memTarget != null && !memoryExempt) {
                 draft.memTarget = null;
+                suppressed = true;
+            }
+            if (memoryExempt) {
+                draft.reasons.add(ContainerReason.OOM_RISK);
+            }
+            if (suppressed) {
                 draft.reasons.add(ContainerReason.COOLDOWN);
             }
         }
+    }
+
+    /**
+     * Whether this draft's memory target is a <em>raise</em> on a container with OOM kills measured
+     * in the window — the one case the cooldown does not outrank.
+     *
+     * <p>An unset current request counts as a raise, which is the same convention
+     * {@link Draft#changeKind} uses. Such a recommendation is advisory and never auto-applied
+     * ({@code REQUESTS_UNSET}), so the exemption only affects what the operator is shown.
+     */
+    private static boolean isOomDrivenMemoryIncrease(Draft draft) {
+        if (draft.memTarget == null || draft.container.usage().oomKillsInWindow() <= 0) {
+            return false;
+        }
+        Long currentMem = draft.container.current().memRequestBytes();
+        return currentMem == null || draft.memTarget > currentMem;
     }
 
     // ------------------------------------------------------------------ coexistence (bug 5)
@@ -505,6 +563,12 @@ public final class WorkloadAutoscalingEngine {
         private Long memTarget;
         private boolean cpuFrozen;
         private boolean memFrozen;
+        /**
+         * Whether the CPU basis came from the limit because usage was measurably pinned at it. Held
+         * as a field rather than read back out of {@link #reasons}, so the hysteresis waiver depends
+         * on what the arithmetic did and not on what gets published.
+         */
+        private boolean cpuDemandCensored;
 
         private Draft(ContainerSnapshot container) {
             this.container = container;

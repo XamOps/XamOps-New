@@ -65,6 +65,15 @@ public final class WorkloadPolicyDefaults {
      * instead of a node fraction. This asymmetry is what lets the throttled encoder's +53m increase
      * through while the control workload's −26m decrease is suppressed: similar magnitude, opposite
      * risk.
+     *
+     * <p><strong>One floor-unit is the right size for the smallest expressible step and the wrong
+     * size for the smallest clearable one</strong>, once headroom is the only thing generating the
+     * delta. On a Guaranteed-shaped container the limit is the request and CFS caps measured usage at
+     * it, so the largest target is {@code request × 1.25} and the delta is at most 25% of the
+     * request — which clears 25m only from a 100m request upwards. The engine's own floored decrease
+     * lands at 25m, so the absolute half of this band is waived where usage is <em>measurably</em>
+     * censored by the limit; the relative half still applies. See
+     * {@link HysteresisBand#relativeOnly()}.
      */
     public static final HysteresisBand CPU_INCREASE = new HysteresisBand(15, 25);
 

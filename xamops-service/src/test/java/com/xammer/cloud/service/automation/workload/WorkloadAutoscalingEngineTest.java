@@ -67,6 +67,74 @@ class WorkloadAutoscalingEngineTest {
                 .doesNotContain("LIMIT_RAISED");
     }
 
+    @Test
+    @DisplayName("1b: the floor is not a one-way door — a floored Guaranteed container can be raised again")
+    void aFlooredGuaranteedContainerCanStillBeRaised() {
+        // The state case 1 produces, under load: 25m request = 25m limit, p95 pinned at 25m,
+        // throttled 100% of the time. CFS caps measured usage at the limit, so the largest target
+        // the arithmetic can express is 25 x 1.25 = 31m -- a 6m delta that does not clear the 25m
+        // ABSOLUTE CPU-increase band. The engine used to report THROTTLED and
+        // DEMAND_CENSORED_BY_LIMIT here and propose nothing, at any load, for ever: a 97.5% cut it
+        // could not walk back. Measured censoring is evidence of unmet demand, not a speculative
+        // reclaim, so it clears the band on relative grounds alone.
+        WorkloadDecision decision = engine.decide(
+                ReferenceWorkloads.flooredGuaranteedApiUnderLoad(), recommend, NodeCapacity.unbounded());
+
+        assertThat(decision.findings()).contains(Finding.THROTTLED);
+        ContainerDecision api = only(decision);
+
+        assertThat(api.reasons()).contains(ContainerReason.DEMAND_CENSORED_BY_LIMIT);
+        assertThat(api.recommended())
+                .as("a container pinned at a limit this engine set must have a way back up")
+                .isNotNull();
+        assertThat(api.recommended().cpuRequestMillis())
+                .as("25m x 1.25 = 31m: 6m, which is below the 25m absolute band and 24%% of the "
+                        + "request, so it clears on relative grounds")
+                .isEqualTo(31);
+        assertThat(api.changeKind()).isEqualTo(ChangeKind.INCREASE);
+        assertThat(api.reasons()).doesNotContain(ContainerReason.WITHIN_HYSTERESIS);
+
+        // The waiver does not cost the QoS guarantee: limit moves with request, class preserved.
+        assertThat(api.recommended().cpuLimitMillis()).isEqualTo(31);
+        assertThat(QosRules.shapeOf(api.recommended())).isEqualTo(QosRules.Shape.GUARANTEED_SHAPED);
+        assertThat(api.qosClass()).isEqualTo(QosClass.GUARANTEED);
+
+        // Memory is at its floor with near-idle usage, so the case isolates CPU.
+        assertThat(api.recommended().memRequestBytes()).isEqualTo(250 * MI);
+        assertThat(api.reasons()).contains(ContainerReason.BELOW_FLOOR_NO_RAISE);
+
+        // And the climb terminates on satisfaction rather than ratcheting: at 31m/31m with demand
+        // measured at 25m the container is no longer censored, the basis is the measurement, and
+        // 25 x 1.25 = 31m is where the request already sits.
+        WorkloadSnapshot satisfied = ReferenceWorkloads.workload(
+                WorkloadRef.of("team-a", "Deployment", "overprovisioned-api"), 2, List.of(
+                        ReferenceWorkloads.container("api", ReferenceWorkloads.guaranteed(31, 250 * MI),
+                                ReferenceWorkloads.usage("api", 25, 419_430L, 0.0, 0, 1.0))));
+
+        ContainerDecision settled = only(engine.decide(satisfied, recommend, NodeCapacity.unbounded()));
+        assertThat(settled.recommended()).isNull();
+        assertThat(settled.reasons()).doesNotContain(ContainerReason.DEMAND_CENSORED_BY_LIMIT);
+    }
+
+    @Test
+    @DisplayName("1c: the waiver needs measured censoring — an uncensored 6m step is still suppressed")
+    void aSmallIncreaseWithoutCensoringIsStillSuppressed() {
+        // The same 25m request and the same 31m target, but no throttling and a limit far above
+        // usage: nothing says demand is unmet, so the absolute band still applies. This is what
+        // keeps the waiver an exemption for evidence rather than a general relaxation.
+        WorkloadSnapshot snapshot = ReferenceWorkloads.workload(
+                WorkloadRef.of("team-a", "Deployment", "quiet-api"), 3, List.of(
+                        ReferenceWorkloads.container("api",
+                                ReferenceWorkloads.burstable(25, 500, 300 * MI, null),
+                                ReferenceWorkloads.usage("api", 25, 240 * MI, 0.0, 0, 1.0))));
+
+        ContainerDecision api = only(engine.decide(snapshot, recommend, NodeCapacity.unbounded()));
+
+        assertThat(api.reasons()).doesNotContain(ContainerReason.DEMAND_CENSORED_BY_LIMIT);
+        assertThat(api.recommended()).isNull();
+        assertThat(api.reasons()).contains(ContainerReason.WITHIN_HYSTERESIS);
+    }
+
     // ============================================================ 2. the control workload
 
     @Test
@@ -494,6 +562,55 @@ class WorkloadAutoscalingEngineTest {
         assertThat(only(decision).reasons()).doesNotContain(ContainerReason.COOLDOWN);
     }
 
+    @Test
+    @DisplayName("11d: an OOM-driven memory increase outranks the cooldown; the CPU decrease does not")
+    void theCooldownDoesNotHoldAnOomDrivenIncrease() {
+        // The sequence a direction-blind cooldown handles worst: a memory decrease is applied, the
+        // container OOM-kills under the new request, and the next cycle lands inside the 60-minute
+        // window. The operator used to read OOM_RISK in the findings with COOLDOWN as the reason
+        // nothing was proposed -- for the rest of the hour. An OOM kill is evidence, not thrash.
+        WorkloadPolicy justApplied = recommend.withLastAppliedAt(
+                ReferenceWorkloads.NOW.minus(Duration.ofMinutes(5)));
+
+        WorkloadDecision decision = engine.decide(
+                ReferenceWorkloads.oomKilledAfterApply(), justApplied, NodeCapacity.unbounded());
+
+        assertThat(decision.findings()).contains(Finding.OOM_RISK);
+        ContainerDecision app = only(decision);
+
+        assertThat(app.recommended()).isNotNull();
+        assertThat(app.recommended().memRequestBytes())
+                .as("p95 400Mi x 1.25 = 500Mi: the remedy is not held behind the cooldown")
+                .isEqualTo(500 * MI);
+        assertThat(app.reasons()).contains(ContainerReason.OOM_RISK);
+
+        // The exemption is memory-only and increase-only. An OOM kill says nothing about CPU
+        // demand, so the speculative 500m -> 125m reclaim is still held, and still says so.
+        assertThat(app.recommended().cpuRequestMillis()).isEqualTo(500);
+        assertThat(app.reasons()).contains(ContainerReason.COOLDOWN);
+        assertThat(app.changeKind()).isEqualTo(ChangeKind.INCREASE);
+    }
+
+    @Test
+    @DisplayName("11e: without OOM kills the same increase is held — the exemption is the evidence")
+    void theCooldownStillHoldsASpeculativeIncrease() {
+        WorkloadPolicy justApplied = recommend.withLastAppliedAt(
+                ReferenceWorkloads.NOW.minus(Duration.ofMinutes(5)));
+        WorkloadSnapshot noKills = ReferenceWorkloads.workload(
+                WorkloadRef.of("prod-sim", "Deployment", "oom-after-apply"), 3, List.of(
+                        ReferenceWorkloads.container("app",
+                                ReferenceWorkloads.burstable(500, null, 256 * MI, null),
+                                ReferenceWorkloads.usage("app", 100, 400 * MI, 0.0, 0, 1.0))));
+
+        ContainerDecision app = only(engine.decide(noKills, justApplied, NodeCapacity.unbounded()));
+
+        assertThat(app.recommended())
+                .as("the cooldown still damps churn; only measured harm overrides it")
+                .isNull();
+        assertThat(app.reasons()).contains(ContainerReason.COOLDOWN);
+        assertThat(app.reasons()).doesNotContain(ContainerReason.OOM_RISK);
+    }
+
     // ============================================================ 12. node capacity
 
     @Test
@@ -569,6 +686,8 @@ class WorkloadAutoscalingEngineTest {
         List<WorkloadSnapshot> everyFixture = List.of(
                 ReferenceWorkloads.overprovisionedApi(),
                 ReferenceWorkloads.overprovisionedApiAfterApply(),
+                ReferenceWorkloads.flooredGuaranteedApiUnderLoad(),
+                ReferenceWorkloads.oomKilledAfterApply(),
                 ReferenceWorkloads.rightsizedWorker(),
                 ReferenceWorkloads.rightsizedWorkerAtMeasuredDrift(),
                 ReferenceWorkloads.throttledEncoder(),

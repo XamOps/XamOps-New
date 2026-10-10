@@ -70,6 +70,16 @@ public enum ContainerReason {
     /** This container has no request for some resource, so its recommendation is advisory only. */
     REQUESTS_UNSET,
 
-    /** OOM kills were observed, so a memory decrease is refused regardless of measured usage. */
+    /**
+     * OOM kills were observed in the window, so this container's memory is <strong>increase-only</strong>
+     * regardless of measured usage.
+     *
+     * <p>Two effects, both from the same evidence: a memory decrease is refused, and a memory
+     * increase outranks the {@link #COOLDOWN}. The second matters because the sequence that produces
+     * it is ordinary — a decrease is applied, the container OOM-kills under the new request, and the
+     * next cycle lands inside the cooldown window. A direction-blind cooldown would hold the remedy
+     * for the rest of the hour while reporting {@code OOM_RISK} beside {@code COOLDOWN} as the reason
+     * nothing was proposed.
+     */
     OOM_RISK
 }

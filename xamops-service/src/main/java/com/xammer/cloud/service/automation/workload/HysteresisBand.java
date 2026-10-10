@@ -36,6 +36,39 @@ public record HysteresisBand(int minPercent, long minAbsolute) {
     }
 
     /**
+     * The same band with its <strong>absolute</strong> threshold waived, leaving the relative half as
+     * the whole test.
+     *
+     * <h2>Why this exists</h2>
+     *
+     * The absolute threshold is a churn guard: it suppresses a move that is too small to pay for the
+     * write, however large it looks in percentage terms. That reasoning holds for a target derived
+     * from an uncensored measurement, and it fails for one derived from a container <em>pinned at its
+     * own limit</em>.
+     *
+     * <p>The CPU floor (25m) and the absolute CPU-increase band (25m) are the same size, and headroom
+     * is 25%, so on a Guaranteed-shaped container — where the limit <em>is</em> the request, and CFS
+     * caps measured usage at that limit — the largest expressible target is {@code request × 1.25}.
+     * The delta offered to this band is therefore at most 25% of the request, which clears 25m only
+     * from a 100m request upwards. Below that the engine could cut a container to its floor and then
+     * never raise it again at any load, while reporting {@code THROTTLED} and
+     * {@code DEMAND_CENSORED_BY_LIMIT} — the recovery path for its own most aggressive
+     * recommendation. Memory escapes the trap because its increase band (32Mi) is small relative to
+     * its floor (250Mi); CPU does not.
+     *
+     * <p>So where usage is <em>measurably</em> censored by the limit, the move clears on relative
+     * grounds alone. A percentile sitting on the ceiling is direct evidence of unmet demand rather
+     * than a speculative reclaim, and evidence does not need a churn guard. The relative half still
+     * applies, so the step must still be worth 15% of the request, and the basis is still bounded by
+     * measurement — see {@link WorkloadPolicyDefaults#CENSORED_USAGE_FRACTION_OF_LIMIT}.
+     *
+     * @return this band with {@code minAbsolute} dropped to zero
+     */
+    public HysteresisBand relativeOnly() {
+        return minAbsolute == 0 ? this : new HysteresisBand(minPercent, 0);
+    }
+
+    /**
      * @param current the present request, in canonical units
      * @param target  the computed target, in canonical units
      * @return true when the move clears both thresholds and should be recommended
