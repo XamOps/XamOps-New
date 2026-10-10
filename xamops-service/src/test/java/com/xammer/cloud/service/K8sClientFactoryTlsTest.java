@@ -216,6 +216,60 @@ class K8sClientFactoryTlsTest {
                 .hasMessageContaining("X.509");
     }
 
+    // ------------------------------------------------------------------ CA as a file path
+
+    @Test
+    void kubeconfigWithACorrectCaFileStillWorks() throws IOException {
+        // kubectl writes certificate-authority (a path) as readily as certificate-authority-data,
+        // so this is the second shape Kubescape / Trivy / Karpenter / OpenCost can arrive with.
+        Path caFile = Files.writeString(workDir.resolve("ca-correct.pem"), correctCaPem);
+        int before = handshakesCompleted.get();
+
+        try (KubernetesClient client = factory.createFromKubeconfig(kubeconfigWithCaFile(caFile.toString()))) {
+            callApi(client);
+        } catch (Exception ignored) {
+            // Only the handshake is under test here.
+        }
+
+        assertThat(handshakesCompleted.get()).isGreaterThan(before);
+    }
+
+    @Test
+    void kubeconfigWithAMissingCaFileFailsClosedNamingTheField() {
+        // Fails closed either way — trustCerts is false — but unvalidated it failed inside the HTTP
+        // client's truststore construction with a message that named nothing the operator could fix.
+        assertThatThrownBy(() -> factory.createFromKubeconfig(
+                kubeconfigWithCaFile(workDir.resolve("not-written.pem").toString())))
+                .isInstanceOf(K8sClientFactory.TlsTrustException.class)
+                .hasMessageContaining("certificate-authority")
+                .hasMessageContaining("not a readable file");
+    }
+
+    @Test
+    void kubeconfigWithAnEmptyCaFileFailsClosed() throws IOException {
+        Path caFile = Files.writeString(workDir.resolve("ca-empty.pem"), "   \n");
+
+        assertThatThrownBy(() -> factory.createFromKubeconfig(kubeconfigWithCaFile(caFile.toString())))
+                .isInstanceOf(K8sClientFactory.TlsTrustException.class)
+                .hasMessageContaining("empty");
+    }
+
+    @Test
+    void kubeconfigWithACaFileThatIsNotACertificateFailsClosed() throws IOException {
+        Path caFile = Files.writeString(workDir.resolve("ca-garbage.pem"), "this is not a certificate\n");
+
+        assertThatThrownBy(() -> factory.createFromKubeconfig(kubeconfigWithCaFile(caFile.toString())))
+                .isInstanceOf(K8sClientFactory.TlsTrustException.class)
+                .hasMessageContaining("X.509");
+    }
+
+    @Test
+    void aCaFileIsNotACaFileIfItIsADirectory() {
+        assertThatThrownBy(() -> factory.createFromKubeconfig(kubeconfigWithCaFile(workDir.toString())))
+                .isInstanceOf(K8sClientFactory.TlsTrustException.class)
+                .hasMessageContaining("not a readable file");
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private static void callApi(KubernetesClient client) {
@@ -236,14 +290,24 @@ class K8sClientFactoryTlsTest {
         return Base64.getEncoder().encodeToString(pem.getBytes(StandardCharsets.UTF_8));
     }
 
+    /** A kubeconfig whose cluster entry carries {@code certificate-authority} (a path), not data. */
+    private static String kubeconfigWithCaFile(String caFilePath) {
+        return clusterEntry("    certificate-authority: " + caFilePath + "\n");
+    }
+
     private static String kubeconfig(String caCertDataBase64, boolean insecureSkipTlsVerify) {
-        StringBuilder cluster = new StringBuilder("    server: ").append(serverUrl).append('\n');
+        StringBuilder cluster = new StringBuilder();
         if (caCertDataBase64 != null) {
             cluster.append("    certificate-authority-data: ").append(caCertDataBase64).append('\n');
         }
         if (insecureSkipTlsVerify) {
             cluster.append("    insecure-skip-tls-verify: true\n");
         }
+        return clusterEntry(cluster.toString());
+    }
+
+    private static String clusterEntry(String caLines) {
+        String cluster = "    server: " + serverUrl + "\n" + caLines;
         return """
                 apiVersion: v1
                 kind: Config

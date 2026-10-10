@@ -9,7 +9,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.util.Base64;
@@ -72,8 +76,10 @@ public class K8sClientFactory {
      * the CA the kubeconfig itself declares.
      *
      * @throws TlsTrustException if the kubeconfig declares neither {@code certificate-authority-data}
-     *                           nor {@code certificate-authority}, or declares CA data that does not
-     *                           parse as an X.509 certificate. There is no insecure fallback.
+     *                           nor {@code certificate-authority}; if the declared CA data does not
+     *                           parse as an X.509 certificate; or if the declared CA
+     *                           <em>file</em> is missing, unreadable, empty or not a certificate.
+     *                           There is no insecure fallback.
      */
     public KubernetesClient createFromKubeconfig(String kubeconfigYaml) {
         logger.info("Creating Kubernetes client from kubeconfig");
@@ -103,8 +109,14 @@ public class K8sClientFactory {
                             + "'insecure-skip-tls-verify' is not accepted.");
         }
 
+        // Both forms are validated here, and for the same reason: the point of the fix is that a
+        // connection XamOps cannot verify stops with a message naming the field to fix. A CA file
+        // accepted unchecked would still fail closed, but it would fail inside the HTTP client's
+        // truststore construction with an error that names nothing.
         if (hasCaData) {
             requireX509(caCertData, "the kubeconfig's certificate-authority-data");
+        } else {
+            requireX509(readCaFile(caCertFile), "the kubeconfig's certificate-authority file " + caCertFile);
         }
 
         // Explicit rather than implied: verification stays on even if the kubeconfig asked for
@@ -151,6 +163,44 @@ public class K8sClientFactory {
         KubernetesClient client = new KubernetesClientBuilder().withConfig(config).build();
         logger.info("Kubernetes client created with TLS verification against the cluster CA");
         return client;
+    }
+
+    /**
+     * Reads the file a kubeconfig's {@code certificate-authority} points at.
+     *
+     * @throws TlsTrustException if it is missing, unreadable, a directory or empty — each of which
+     *                           means the API server's certificate cannot be verified
+     */
+    private static String readCaFile(String caCertFile) {
+        Path path;
+        try {
+            path = Path.of(caCertFile);
+        } catch (InvalidPathException e) {
+            throw new TlsTrustException(
+                    "The kubeconfig's 'certificate-authority' is not a usable file path: " + caCertFile
+                            + ". Set 'certificate-authority-data' (base64 PEM) instead.", e);
+        }
+        if (!Files.isRegularFile(path)) {
+            throw new TlsTrustException(
+                    "The kubeconfig's 'certificate-authority' points at " + caCertFile
+                            + ", which is not a readable file on this server, so the API server's "
+                            + "certificate cannot be verified. A stored kubeconfig should carry "
+                            + "'certificate-authority-data' (base64 PEM) instead of a path to a file "
+                            + "that only exists on the machine the kubeconfig was written on.");
+        }
+        String contents;
+        try {
+            contents = Files.readString(path, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new TlsTrustException(
+                    "Could not read the kubeconfig's 'certificate-authority' file " + caCertFile + ".", e);
+        }
+        if (contents.isBlank()) {
+            throw new TlsTrustException(
+                    "The kubeconfig's 'certificate-authority' file " + caCertFile + " is empty, so the "
+                            + "API server's certificate cannot be verified.");
+        }
+        return contents;
     }
 
     /**
