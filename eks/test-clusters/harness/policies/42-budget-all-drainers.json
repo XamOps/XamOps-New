@@ -1,0 +1,85 @@
+{
+  "autoscalerMode": "full",
+  "scaleOutPolicy": {
+    "enabled": false,
+    "headroomCpuPercent": 0,
+    "headroomMemoryPercent": 0,
+    "minCpuCores": 0,
+    "maxCpuCores": 0,
+    "minRamMib": 0,
+    "maxRamMib": 0,
+    "nodeReadinessTimeoutMinutes": 0
+  },
+  "evictorPolicy": {
+    "enabled": true,
+    "aggressiveMode": false,
+    "nodeCycleIntervalSeconds": 60,
+    "nodeGracePeriodMinutes": 0,
+    "targetUtilizationCpu": 80,
+    "targetUtilizationMemory": 80,
+    "analyseOnly": false
+  },
+  "workloadRightsizerPolicy": {
+    "enabled": false,
+    "cpuPercentile": 80,
+    "memoryPercentile": 100,
+    "cpuOverheadPercent": 10,
+    "memoryOverheadPercent": 10,
+    "applyThresholdPercent": 5,
+    "lookbackHours": 72,
+    "applyMode": "deferred",
+    "surgeDetection": true
+  },
+  "hpaManagerPolicy": {
+    "enabled": false,
+    "analyseOnly": true,
+    "defaultMinReplicas": 1,
+    "defaultMaxReplicas": 10,
+    "defaultTargetCpuPct": 80
+  },
+  "vpaManagerPolicy": {
+    "enabled": false,
+    "updateMode": "Off",
+    "analyseOnly": true
+  },
+  "nodeOptimizerPolicy": {
+    "enabled": true,
+    "idleCpuThresholdPct": 10,
+    "idleMemThresholdPct": 20,
+    "autoCordonIdleNodes": false,
+    "autoDrainIdleNodes": true,
+    "handleSpotInterruptions": false,
+    "spotRatioTargetPct": 50,
+    "karpenterEnabled": false,
+    "maxParallelDrains": 1
+  },
+  "nodeTemplates": null,
+  "rebalancer": {
+    "enabled": true,
+    "gracefulDraining": false,
+    "drainTimeoutMinutes": 0,
+    "scheduleEnabled": false,
+    "scheduleCron": "",
+    "lastRebalanceAt": "",
+    "lastRebalanceSavingsPercent": 0,
+    "lastRebalanceDuration": 0,
+    "status": "running",
+    "operationId": "pass2-budget"
+  },
+  "safetyGuards": {
+    "respectPodDisruptionBudgets": true,
+    "protectSingleReplicas": true,
+    "protectStatefulSets": true,
+    "protectCriticalNamespaces": true,
+    "criticalNamespaces": [
+      "kube-system",
+      "monitoring",
+      "ingress-nginx",
+      "xamops-system",
+      "vpa",
+      "amazon-cloudwatch"
+    ]
+  },
+  "_label": "retest-budget-all-drainers",
+  "_note": "41 + rebalancer running (operationId pass2-budget) + node optimizer spot ratio 50 and auto-drain idle; maxParallelDrains 1. P2-5: DRY_RUN=true, exactly one simulated drain per cycle."
+}
