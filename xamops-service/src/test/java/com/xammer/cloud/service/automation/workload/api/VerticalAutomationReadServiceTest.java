@@ -6,6 +6,8 @@ import com.xammer.cloud.service.automation.workload.access.ClusterAccess;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessException;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessProvider;
 import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
+import com.xammer.cloud.service.automation.workload.access.EksClusterAccessProvider;
+import com.xammer.cloud.service.automation.workload.access.KubeconfigClusterAccessProvider;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalEngineResponse;
 import com.xammer.cloud.service.automation.workload.usage.ContainerUsageAggregate;
 import com.xammer.cloud.service.automation.workload.usage.StubUsageHistoryProvider;
@@ -14,6 +16,7 @@ import com.xammer.cloud.service.automation.workload.usage.UsageQuery;
 import com.xammer.cloud.service.automation.workload.usage.UsageUnavailableException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.annotation.Order;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -136,6 +139,45 @@ class VerticalAutomationReadServiceTest {
     }
 
     @Test
+    @DisplayName("provider selection follows declared precedence, not the order they were injected")
+    void providerSelectionIsDecidedNotIncidental() {
+        // Both predicates are true for a registered EKS cluster, so without a declared precedence
+        // which provider served a cluster would depend on component-scan ordering.
+        PrecedenceProvider eksPath = new EksPrecedenceProvider();
+        PrecedenceProvider kubeconfigPath = new KubeconfigPrecedenceProvider();
+
+        // Injected in the wrong order on purpose.
+        VerticalAutomationReadService service = new VerticalAutomationReadService(
+                new WorkloadAutoscalingProperties(true, true),
+                new StubUsageHistoryProvider(), List.of(kubeconfigPath, eksPath));
+
+        service.read(TARGET, config(null));
+
+        assertThat(eksPath.opened)
+                .as("for a cluster reached through a connected AWS account, the customer's own role "
+                        + "is the credential of record")
+                .isEqualTo(1);
+        assertThat(kubeconfigPath.opened).as("the kubeconfig path is the fallback").isZero();
+    }
+
+    @Test
+    @DisplayName("the precedence lives on the production providers, not only in this test")
+    void theProductionProvidersDeclareTheirPrecedence() {
+        assertThat(EksClusterAccessProvider.PRECEDENCE)
+                .isLessThan(KubeconfigClusterAccessProvider.PRECEDENCE);
+
+        assertThat(EksClusterAccessProvider.class.getAnnotation(Order.class))
+                .as("without @Order, Spring's injected list order is incidental again")
+                .isNotNull()
+                .extracting(Order::value)
+                .isEqualTo(EksClusterAccessProvider.PRECEDENCE);
+        assertThat(KubeconfigClusterAccessProvider.class.getAnnotation(Order.class))
+                .isNotNull()
+                .extracting(Order::value)
+                .isEqualTo(KubeconfigClusterAccessProvider.PRECEDENCE);
+    }
+
+    @Test
     @DisplayName("with the switch on, CLUSTER_ACCESS_NOT_CONFIGURED maps to NOT_CONFIGURED and a gate")
     void misconfiguredAccessIsReportedAsSuch() {
         ClusterAccessProvider failing = failing(ClusterAccessException.Kind.CLUSTER_ACCESS_NOT_CONFIGURED);
@@ -229,6 +271,41 @@ class VerticalAutomationReadServiceTest {
         public ClusterAccess open(ClusterTarget target) throws ClusterAccessException {
             opened++;
             throw new ClusterAccessException(ClusterAccessException.Kind.CLUSTER_UNREACHABLE, "never");
+        }
+    }
+
+    /** Supports everything, records whether it was the one chosen, and never performs I/O. */
+    private abstract static class PrecedenceProvider implements ClusterAccessProvider {
+
+        private int opened;
+
+        @Override
+        public boolean supports(ClusterTarget target) {
+            return true;
+        }
+
+        @Override
+        public ClusterAccess open(ClusterTarget target) throws ClusterAccessException {
+            opened++;
+            throw new ClusterAccessException(ClusterAccessException.Kind.CLUSTER_UNREACHABLE, "not opened");
+        }
+    }
+
+    @Order(EksClusterAccessProvider.PRECEDENCE)
+    private static final class EksPrecedenceProvider extends PrecedenceProvider {
+
+        @Override
+        public String providerName() {
+            return "eks-direct";
+        }
+    }
+
+    @Order(KubeconfigClusterAccessProvider.PRECEDENCE)
+    private static final class KubeconfigPrecedenceProvider extends PrecedenceProvider {
+
+        @Override
+        public String providerName() {
+            return "kubeconfig";
         }
     }
 

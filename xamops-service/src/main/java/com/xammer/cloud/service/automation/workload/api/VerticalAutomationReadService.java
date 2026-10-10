@@ -10,6 +10,7 @@ import com.xammer.cloud.service.automation.workload.api.dto.VerticalEngineRespon
 import com.xammer.cloud.service.automation.workload.usage.UsageHistoryProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.annotation.AnnotationAwareOrderComparator;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -52,7 +53,13 @@ public class VerticalAutomationReadService {
                                          List<ClusterAccessProvider> accessProviders) {
         this.properties = properties;
         this.usageProvider = usageProvider;
-        this.accessProviders = List.copyOf(accessProviders);
+        // Sorted here rather than relying on the injected order. Spring does order a List<T>
+        // injection point by @Order, but the two providers' supports() predicates overlap for
+        // essentially every registered cluster, so which one serves a cluster is a decision and
+        // must be visible as one in the code that makes it -- not an artefact of component scanning.
+        List<ClusterAccessProvider> ordered = new ArrayList<>(accessProviders);
+        AnnotationAwareOrderComparator.sort(ordered);
+        this.accessProviders = List.copyOf(ordered);
     }
 
     public VerticalEngineResponse read(ClusterTarget target, KubernetesClusterConfig config) {
@@ -117,6 +124,9 @@ public class VerticalAutomationReadService {
         if (!properties.isEnabled()) {
             return new DirectPath(false, null, null);
         }
+        // accessProviders is sorted by declared precedence in the constructor, so "first that
+        // supports the target" is the EKS direct path whenever it applies, and the kubeconfig
+        // fallback otherwise.
         Optional<ClusterAccessProvider> provider = accessProviders.stream()
                 .filter(candidate -> candidate.supports(target))
                 .findFirst();

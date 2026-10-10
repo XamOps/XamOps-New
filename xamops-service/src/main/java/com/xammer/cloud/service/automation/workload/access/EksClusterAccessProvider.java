@@ -8,6 +8,7 @@ import com.xammer.cloud.service.K8sClientFactory;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.eks.EksClient;
 import software.amazon.awssdk.services.eks.model.Cluster;
@@ -18,6 +19,13 @@ import java.util.Optional;
 /**
  * Production access path: reach the customer's EKS API server directly, authenticated as the
  * customer's XamOps role through an EKS access entry.
+ *
+ * <p><strong>Tried first</strong> ({@link #PRECEDENCE}). The two providers' {@code supports}
+ * predicates overlap for essentially every registered EKS cluster — this one needs an account and a
+ * region, the kubeconfig one needs a stored cluster config — so without a declared precedence the
+ * path a cluster took would depend on component-scan ordering. For a cluster XamOps connected
+ * through an AWS account, the customer's own role is the credential of record; an uploaded
+ * kubeconfig is the fallback.
  *
  * <p>This is the <strong>optional fast path</strong>, not the primary one. The primary execution
  * path is agent-mediated, because the agent polls outbound-only and therefore already reaches
@@ -46,7 +54,11 @@ import java.util.Optional;
  * default in every profile.
  */
 @Service
+@Order(EksClusterAccessProvider.PRECEDENCE)
 public class EksClusterAccessProvider implements ClusterAccessProvider {
+
+    /** Lower wins. Ahead of {@link KubeconfigClusterAccessProvider#PRECEDENCE}. */
+    public static final int PRECEDENCE = 10;
 
     private static final Logger logger = LoggerFactory.getLogger(EksClusterAccessProvider.class);
 

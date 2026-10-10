@@ -9,9 +9,12 @@ package com.xammer.cloud.service.automation.workload.access;
  * and {@link KubeconfigClusterAccessProvider} (a stored kubeconfig or an explicit API server + CA +
  * ServiceAccount token, for the deferred live-test slice).
  *
- * <p>Selection is by {@link #supports(ClusterTarget)}. No implementation is {@code @Primary}, and
- * neither is invoked while {@code xamops.automation.vertical.enabled} is false — which is its
- * default in every profile.
+ * <p>Selection is by {@link #supports(ClusterTarget)} <em>in declared precedence order</em>: the
+ * predicates overlap for essentially every registered EKS cluster, so each implementation carries an
+ * {@code @Order} and {@code VerticalAutomationReadService} sorts them before asking. EKS direct wins
+ * where it applies ({@link EksClusterAccessProvider#PRECEDENCE}), the stored kubeconfig is the
+ * fallback ({@link KubeconfigClusterAccessProvider#PRECEDENCE}). Neither is invoked while
+ * {@code xamops.automation.vertical.enabled} is false — which is its default in every profile.
  */
 public interface ClusterAccessProvider {
 
