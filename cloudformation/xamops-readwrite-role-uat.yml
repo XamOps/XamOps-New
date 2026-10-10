@@ -1,3 +1,16 @@
+# Template version rw-2026.10.1 (Metadata.XamOps.TemplateVersion and Outputs.TemplateVersion).
+# Bump both, identically in the prod, uat and local variants, on every permission change.
+#
+# rw-2026.10.1: AutoSpotting least-privilege policy XamOpsAutoSpottingPolicy; 22 unused
+# Spot/Fleet/ASG actions removed from XamOpsPolicySpots; iam:PassRole limited to EC2 and
+# this account's roles.
+#
+# Do not change RoleName, Path, the trust policy, any logical id, or any
+# ManagedPolicyName/Description: those replace the resource and break Update stack.
+#
+# Non-production variant: no parameter default may name a production resource. The AutoSpotting
+# event queue defaults to blank with forwarding off (UAT has no AutoSpotting queue of its own
+# yet), and the inventory queue defaults to UAT's own queue.
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   XamOps Read-Write (UAT) + AutoSpotting Stack: Creates a secure IAM Role for the XamOps platform
@@ -6,6 +19,8 @@ Description: >
   Deploys EventBridge rules and a Lambda forwarder for real-time Spot instance event capture.
 
 Metadata:
+  XamOps:
+    TemplateVersion: rw-2026.10.1
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
@@ -23,6 +38,7 @@ Metadata:
           - XammerSQSQueueUrl
           - XammerRegion
           - EnableAutoSpotting
+          - AutoSpottingPassRoleArns
     ParameterLabels:
       XamOpsAccountId:
         default: "XamOps AWS Account ID"
@@ -36,6 +52,8 @@ Metadata:
         default: "Xammer AWS Region"
       EnableAutoSpotting:
         default: "Enable AutoSpotting"
+      AutoSpottingPassRoleArns:
+        default: "AutoSpotting instance-profile roles (optional)"
 
 Parameters:
   XamOpsAccountId:
@@ -55,10 +73,16 @@ Parameters:
     Description: (Optional) A comma-separated list of your EKS cluster names. XamOps will be granted admin access to these clusters.
     Default: ""
 
+  # Blank, with forwarding off, until UAT has an AutoSpotting event queue of its own. The
+  # production queue is never a valid default here: a UAT stack forwarding to it would mix
+  # UAT events into production.
   XammerSQSQueueUrl:
     Type: String
-    Description: URL of the Xammer SQS queue for AutoSpotting events. Provided by XamOps.
-    Default: 'https://sqs.ap-south-1.amazonaws.com/605134457560/autospotting-events.fifo'
+    Description: >
+      URL of the XamOps SQS queue for AutoSpotting events. Provided by XamOps. Blank by default
+      because UAT has no AutoSpotting event queue of its own yet; set it together with
+      EnableAutoSpotting=true once it exists. Never the production queue.
+    Default: ''
 
   XammerRegion:
     Type: String
@@ -67,11 +91,22 @@ Parameters:
 
   EnableAutoSpotting:
     Type: String
-    Default: 'true'
+    Default: 'false'
     AllowedValues:
       - 'true'
       - 'false'
-    Description: Enable or disable AutoSpotting event forwarding to XamOps.
+    Description: >
+      Enable or disable AutoSpotting event forwarding to XamOps. Off by default in UAT, where
+      XammerSQSQueueUrl is blank. Spot conversion itself does not depend on it.
+
+  AutoSpottingPassRoleArns:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: >
+      (Optional) ARNs of the IAM roles your Auto Scaling launch templates' instance profiles
+      use. When set, XamOps may pass only these roles to EC2 when it updates or refreshes an
+      Auto Scaling group (AutoSpotting, EBS automation). Leave blank to allow any role in this
+      account, still only to EC2.
 
   # -------------------------------------------------------------------
   # Inventory events (near-real-time resource discovery)
@@ -100,10 +135,13 @@ Parameters:
       Also forward Security Hub, GuardDuty and AWS Config findings. These events
       are free on the default event bus.
 
+  # UAT's own queue: the one the UAT app reads (xamops.inventory.events.queue-url) and already
+  # passes in its quick-create link. Not blank, because the nested stack derives the queue
+  # name from this URL. Never the production queue.
   XamOpsInventoryQueueUrl:
     Type: String
     Description: URL of the XamOps inventory event queue.
-    Default: 'https://sqs.ap-south-1.amazonaws.com/605134457560/xamops-inventory-events.fifo'
+    Default: 'https://sqs.ap-south-1.amazonaws.com/605134457560/xamops-inventory-events-uat.fifo'
 
   XamOpsInventoryRegion:
     Type: String
@@ -166,6 +204,10 @@ Parameters:
 
 Conditions:
   IsAutoSpottingEnabled: !Equals [!Ref EnableAutoSpotting, 'true']
+
+  # True when the customer listed instance-profile roles in AutoSpottingPassRoleArns. A blank
+  # CommaDelimitedList arrives as [''], so it is joined before the comparison.
+  HasPassRoleScope: !Not [!Equals [!Join ['', !Ref AutoSpottingPassRoleArns], '']]
 
   # Guards the nested stack. With inventory events off, nothing below is created
   # and the account simply relies on 60s polling.
@@ -242,16 +284,24 @@ Resources:
               - 'elasticloadbalancing:DescribeTargetGroups'
               - 'elasticloadbalancing:DescribeTargetHealth'
               - 'iam:GetAccountPasswordPolicy'
+              - 'iam:GetGroupPolicy'
               - 'iam:GetLoginProfile'
+              - 'iam:GetPolicy'
               - 'iam:GetPolicyVersion'
               - 'iam:GetRole'
+              - 'iam:GetRolePolicy'
+              - 'iam:GetUserPolicy'
               - 'iam:ListAccessKeys'
               - 'iam:ListAccountAliases'
+              - 'iam:ListAttachedGroupPolicies'
+              - 'iam:ListAttachedRolePolicies'
               - 'iam:ListAttachedUserPolicies'
+              - 'iam:ListGroupPolicies'
               - 'iam:ListGroups'
               - 'iam:ListGroupsForUser'
               - 'iam:ListMFADevices'
               - 'iam:ListPolicies'
+              - 'iam:ListRolePolicies'
               - 'iam:ListRoles'
               - 'iam:ListUserPolicies'
               - 'iam:ListUsers'
@@ -335,6 +385,7 @@ Resources:
               - 'sts:GetCallerIdentity'
               - 'aws-marketplace:SearchAgreements'
               - 'aws-marketplace:DescribeAgreement'
+              - 'aws-marketplace:GetAgreementApprovalRequest'
               - 'aws-marketplace:GetAgreementTerms'
               - 'aws-marketplace:DescribeEntity'
               - 'aws-marketplace:SendAgreementPaymentRequest'
@@ -411,42 +462,45 @@ Resources:
       Description: Spot Fleet, EC2 Fleet, and Auto Scaling Group management for XamOps AutoSpotting
       PolicyDocument:
         Version: '2012-10-17'
+        # rw-2026.10.1 removed these 22 actions: no XamOps code path calls these; Phase B does
+        # not need them. ec2:RequestSpotInstances, ec2:CancelSpotInstanceRequests,
+        # ec2:RequestSpotFleet, ec2:CancelSpotFleetRequests, ec2:ModifySpotFleetRequest,
+        # ec2:CreateFleet, ec2:DeleteFleets, ec2:ModifyFleet, ec2:CreateLaunchTemplate,
+        # ec2:DeleteLaunchTemplate, ec2:DeleteLaunchTemplateVersions,
+        # autoscaling:CreateAutoScalingGroup, autoscaling:SetDesiredCapacity,
+        # autoscaling:TerminateInstanceInAutoScalingGroup, autoscaling:PutScalingPolicy,
+        # autoscaling:DeletePolicy, autoscaling:PutScheduledUpdateGroupAction,
+        # autoscaling:DeleteScheduledAction, autoscaling:AttachInstances,
+        # autoscaling:DetachInstances, autoscaling:CreateLaunchConfiguration,
+        # autoscaling:DeleteLaunchConfiguration.
         Statement:
-          - Effect: Allow
+          # Reads, also in ReadOnlyAccess. Spot pricing: SpotPricingService.
+          - Sid: XamOpsSpotReads
+            Effect: Allow
             Action:
-              - 'ec2:RequestSpotInstances'
-              - 'ec2:CancelSpotInstanceRequests'
               - 'ec2:DescribeSpotInstanceRequests'
               - 'ec2:DescribeSpotFleetInstances'
               - 'ec2:DescribeSpotFleetRequests'
               - 'ec2:DescribeSpotPriceHistory'
-              - 'ec2:RequestSpotFleet'
-              - 'ec2:CancelSpotFleetRequests'
-              - 'ec2:ModifySpotFleetRequest'
-              - 'ec2:CreateFleet'
-              - 'ec2:DeleteFleets'
               - 'ec2:DescribeFleets'
               - 'ec2:DescribeFleetInstances'
-              - 'ec2:ModifyFleet'
-              - 'ec2:CreateLaunchTemplate'
-              - 'ec2:ModifyLaunchTemplate'
-              - 'ec2:DeleteLaunchTemplate'
-              - 'ec2:CreateLaunchTemplateVersion'
-              - 'ec2:DeleteLaunchTemplateVersions'
-              - 'autoscaling:CreateAutoScalingGroup'
+            Resource: '*'
+          # AutoSpotting (UpdateAutoScalingGroup, StartInstanceRefresh), EBS automation
+          # (StartInstanceRefresh: EbsAsgHelper.startInstanceRefresh), waste cleanup
+          # (DeleteAutoScalingGroup: WasteDeleteService.deleteAutoScalingGroup).
+          - Sid: XamOpsAutoScalingGroupWrites
+            Effect: Allow
+            Action:
               - 'autoscaling:UpdateAutoScalingGroup'
-              - 'autoscaling:DeleteAutoScalingGroup'
-              - 'autoscaling:SetDesiredCapacity'
-              - 'autoscaling:TerminateInstanceInAutoScalingGroup'
-              - 'autoscaling:PutScalingPolicy'
-              - 'autoscaling:DeletePolicy'
-              - 'autoscaling:PutScheduledUpdateGroupAction'
-              - 'autoscaling:DeleteScheduledAction'
-              - 'autoscaling:AttachInstances'
-              - 'autoscaling:DetachInstances'
-              - 'autoscaling:CreateLaunchConfiguration'
-              - 'autoscaling:DeleteLaunchConfiguration'
               - 'autoscaling:StartInstanceRefresh'
+              - 'autoscaling:DeleteAutoScalingGroup'
+            Resource: '*'
+          # EBS automation: new launch template version and set it as default (EbsAsgHelper).
+          - Sid: XamOpsLaunchTemplateVersions
+            Effect: Allow
+            Action:
+              - 'ec2:CreateLaunchTemplateVersion'
+              - 'ec2:ModifyLaunchTemplate'
             Resource: '*'
 
   # -----------------------------------------------------------------
@@ -964,7 +1018,6 @@ Resources:
                   - 'ecs:UpdateService'
                   - 'elasticache:ModifyReplicationGroup'
                   - 'es:UpdateDomainConfig'
-                  - 'iam:PassRole'
                   - 'kms:CreateGrant'
                   - 'kms:Decrypt'
                   - 'kms:Encrypt'
@@ -983,6 +1036,21 @@ Resources:
                   - 'lambda:UpdateFunctionConfiguration'
                   - 'rds:ModifyDBInstance'
                 Resource: '*'
+              # iam:PassRole, formerly unconditioned in the statement above. Its one consumer
+              # is EBS automation's instance refresh (EbsAsgHelper.startInstanceRefresh):
+              # Auto Scaling validates the launch template's instance profile by checking that
+              # the caller may pass its role to EC2. No XamOps code passes a role to any other
+              # service from this role. Instance profiles hold only roles of this account.
+              - Sid: XamOpsRightsizingPassRoleToEc2
+                Effect: Allow
+                Action: 'iam:PassRole'
+                Resource: !If
+                  - HasPassRoleScope
+                  - !Ref AutoSpottingPassRoleArns
+                  - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*'
+                Condition:
+                  StringEquals:
+                    'iam:PassedToService': 'ec2.amazonaws.com'
         # -----------------------------------------------------------------
         # CloudK8s fleet read - roadmap Appendix 8.1 Catalog-A read delta.
         # Kept as its own inline policy: 2,722 compacted chars does not fit in
@@ -1146,6 +1214,131 @@ Resources:
           Value: CloudFormation
         - Key: Platform
           Value: XamOps
+
+  # =================================================================
+  # AUTOSPOTTING: least-privilege policy (rw-2026.10.1)
+  #
+  # Everything Spot automation needs, for the current code and for Phase B. The reads
+  # duplicate ReadOnlyAccess on purpose, so the set is self-contained and matches the action
+  # set of the Phase B session policy, which must stay a subset of this policy.
+  #
+  # Marker-tag keys: autospotting.tag.key (default spot-enabled) and Phase B's
+  # xamops:autospotting:group-id. A deployment with a non-default autospotting.tag.key must
+  # add that key to XamOpsAutoSpottingMarkerTags.
+  #
+  # Phase B's Deny-by-tag statements (EKS, Elastic Beanstalk and Karpenter groups) belong only
+  # in the session policy, never here: this role is shared with other features.
+  #
+  # An AWS::IAM::Policy rather than an entry in the role's Policies, so the simulate statement
+  # can name the role with !GetAtt without a cycle. Keep this block identical in the prod, uat
+  # and local templates.
+  # =================================================================
+  XamOpsAutoSpottingPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: xamops-autospotting
+      Roles:
+        - !Ref XamOpsReadWriteRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: XamOpsAutoSpottingRead
+            Effect: Allow
+            Action:
+              - 'autoscaling:DescribeAutoScalingGroups'
+              - 'autoscaling:DescribeAutoScalingInstances'
+              - 'autoscaling:DescribeInstanceRefreshes'
+              - 'autoscaling:DescribeLifecycleHooks'
+              - 'autoscaling:DescribePolicies'
+              - 'autoscaling:DescribeScalingActivities'
+              - 'autoscaling:DescribeScheduledActions'
+              - 'autoscaling:DescribeTags'
+              - 'autoscaling:DescribeTrafficSources'
+              - 'autoscaling:DescribeWarmPool'
+              - 'ce:GetReservationCoverage'
+              - 'ce:GetReservationUtilization'
+              - 'ce:GetSavingsPlansCoverage'
+              - 'ce:GetSavingsPlansUtilization'
+              - 'cloudformation:DescribeStacks'
+              - 'cloudwatch:GetMetricData'
+              - 'ec2:DescribeCapacityReservations'
+              - 'ec2:DescribeImages'
+              - 'ec2:DescribeInstanceTypeOfferings'
+              - 'ec2:DescribeInstanceTypes'
+              - 'ec2:DescribeInstances'
+              - 'ec2:DescribeLaunchTemplateVersions'
+              - 'ec2:DescribeLaunchTemplates'
+              - 'ec2:DescribePlacementGroups'
+              - 'ec2:DescribeRegions'
+              - 'ec2:DescribeSpotPriceHistory'
+              - 'ec2:DescribeSubnets'
+              - 'ec2:GetSpotPlacementScores'
+              - 'ecs:DescribeCapacityProviders'
+              - 'elasticloadbalancing:DescribeInstanceHealth'
+              - 'elasticloadbalancing:DescribeTargetGroupAttributes'
+              - 'elasticloadbalancing:DescribeTargetHealth'
+              - 'events:DescribeRule'
+              - 'iam:GetInstanceProfile'
+              - 'servicequotas:GetServiceQuota'
+              - 'ssm:GetParameters'
+            Resource: '*'
+          # Phase B: forwarder role id fallback.
+          - Sid: XamOpsAutoSpottingForwarderRoleLookup
+            Effect: Allow
+            Action: 'iam:GetRole'
+            Resource: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/xamops-as-events-fwd-role*'
+          # Phase B: pre-flight permission check, on this role only.
+          - Sid: XamOpsAutoSpottingSimulateSelf
+            Effect: Allow
+            Action: 'iam:SimulatePrincipalPolicy'
+            Resource: !GetAtt XamOpsReadWriteRole.Arn
+          # Enable, apply and disable. StartInstanceRefresh is for the current code only;
+          # Phase B never starts a refresh.
+          - Sid: XamOpsAutoSpottingUpdateGroups
+            Effect: Allow
+            Action:
+              - 'autoscaling:UpdateAutoScalingGroup'
+              - 'autoscaling:StartInstanceRefresh'
+            Resource: !Sub 'arn:${AWS::Partition}:autoscaling:*:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/*'
+          - Sid: XamOpsAutoSpottingMarkerTags
+            Effect: Allow
+            Action:
+              - 'autoscaling:CreateOrUpdateTags'
+              - 'autoscaling:DeleteTags'
+            Resource: !Sub 'arn:${AWS::Partition}:autoscaling:*:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/*'
+            Condition:
+              'ForAllValues:StringEquals':
+                'aws:TagKeys':
+                  - 'spot-enabled'
+                  - 'xamops:autospotting:group-id'
+          # Auto Scaling dry-runs RunInstances for the caller whenever an update or refresh
+          # involves the group's launch template.
+          - Sid: XamOpsAutoSpottingLaunchTemplateUse
+            Effect: Allow
+            Action: 'ec2:RunInstances'
+            Resource: '*'
+            Condition:
+              ArnLike:
+                'ec2:LaunchTemplate': !Sub 'arn:${AWS::Partition}:ec2:*:${AWS::AccountId}:launch-template/*'
+          # Launch templates with tag specifications.
+          - Sid: XamOpsAutoSpottingTagOnLaunch
+            Effect: Allow
+            Action: 'ec2:CreateTags'
+            Resource: !Sub 'arn:${AWS::Partition}:ec2:*:${AWS::AccountId}:*/*'
+            Condition:
+              StringEquals:
+                'ec2:CreateAction': 'RunInstances'
+          # Launch templates with an instance profile.
+          - Sid: XamOpsAutoSpottingPassRoleToEc2
+            Effect: Allow
+            Action: 'iam:PassRole'
+            Resource: !If
+              - HasPassRoleScope
+              - !Ref AutoSpottingPassRoleArns
+              - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/*'
+            Condition:
+              StringEquals:
+                'iam:PassedToService': 'ec2.amazonaws.com'
 
   # =================================================================
   # EKS CONFIGMAP AUTOMATION
@@ -1831,3 +2024,7 @@ Outputs:
       - DeployInventoryEvents
       - !GetAtt XamOpsInventoryEvents.Outputs.RegionCount
       - '0'
+
+  TemplateVersion:
+    Description: Version of this XamOps read-write template. XamOps reads it to know which permissions the stack carries.
+    Value: rw-2026.10.1
