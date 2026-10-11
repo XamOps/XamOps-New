@@ -40,7 +40,7 @@ export function LockIcon({ className = '' }: { className?: string }) {
   );
 }
 
-const linkClass =
+export const linkClass =
   'font-semibold text-[rgba(0,0,0,0.88)] underline underline-offset-2 rounded-sm '
   + 'outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] focus-visible:ring-offset-2';
 
@@ -58,6 +58,22 @@ function RemedyLink({ remedy }: { remedy: Extract<Remedy, { kind: 'link' }> }) {
   return <Link to={to} className={linkClass}>{remedy.label}</Link>;
 }
 
+/**
+ * The D1 path to read-write: support switches the connection; Account Manager is the self-service
+ * route. Never a link to Add Account, which fails for an account that is already connected.
+ */
+export function ReadWriteHelp({ className = '' }: { className?: string }) {
+  return (
+    <span className={`block text-[12px] text-[rgba(0,0,0,0.6)] ${className}`}>
+      {READ_WRITE_EXPLAINER}
+      <span className="mt-1 flex flex-wrap gap-3">
+        <Link to="/tickets" className={linkClass}>Contact support</Link>
+        <Link to="/account-manager" className={linkClass}>Open Account Manager</Link>
+      </span>
+    </span>
+  );
+}
+
 function Explainer({ remedy }: { remedy: Extract<Remedy, { kind: 'explainer' }> }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
@@ -72,14 +88,10 @@ function Explainer({ remedy }: { remedy: Extract<Remedy, { kind: 'explainer' }> 
       >
         {remedy.label}
       </button>
-      <span id={panelId} hidden={!open} className="mt-1 block text-[12px] text-[rgba(0,0,0,0.6)]">
-        {remedy.explainer === 'read-write' ? READ_WRITE_EXPLAINER : NOT_READY_EXPLAINER}
-        {remedy.explainer === 'read-write' && (
-          <span className="mt-1 flex flex-wrap gap-3">
-            <Link to="/tickets" className={linkClass}>Contact support</Link>
-            <Link to="/account-manager" className={linkClass}>Open Account Manager</Link>
-          </span>
-        )}
+      <span id={panelId} hidden={!open} className="mt-1 block">
+        {remedy.explainer === 'read-write'
+          ? <ReadWriteHelp />
+          : <span className="block text-[12px] text-[rgba(0,0,0,0.6)]">{NOT_READY_EXPLAINER}</span>}
       </span>
     </span>
   );
