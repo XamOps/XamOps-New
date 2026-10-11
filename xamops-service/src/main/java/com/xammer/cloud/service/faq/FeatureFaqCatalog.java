@@ -79,8 +79,13 @@ public final class FeatureFaqCatalog {
 
             new FeatureFaqEntry("cloudops-cloudk8s", "CloudOps", "CloudK8s",
                     List.of("kubernetes", "cloud k8s", "eks", "gke", "aks", "cluster", "monitoring", "k8s"),
-                    "CloudK8s monitors your EKS, GKE, or AKS clusters in real time, lets you enable " +
-                    "monitoring per cluster, and walks you through observability setup."),
+                    "CloudK8s monitors your EKS, GKE, or AKS clusters. Each cluster page has seven " +
+                    "sections: Overview, Cost, Workloads, Nodes, Automation, Security and Data sources, " +
+                    "and every number names its source and how fresh it is. Recommendations, " +
+                    "consolidation analysis and projected savings are visible to everyone who can see " +
+                    "the cluster. Changing automation needs a read-write account connection and, for " +
+                    "team members with restricted tabs, the \"Allow automation changes\" permission; " +
+                    "controls that can't be used yet stay visible, greyed out, with the reason."),
 
             new FeatureFaqEntry("cloudops-code-quality", "CloudOps", "Code Quality",
                     List.of("sonarqube", "code quality", "bugs", "vulnerabilities", "coverage", "quality gate"),
