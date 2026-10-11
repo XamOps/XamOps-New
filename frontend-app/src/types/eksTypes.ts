@@ -349,7 +349,7 @@ export interface KarpenterStatus {
   color: string;
 }
 
-export type TabType = 'overview' | 'cost' | 'performance' | 'security' | 'workloads' | 'pods' | 'containers' | 'nodes' | 'resources' | 'karpenter' | 'autoscaling';
+export type TabType = 'overview' | 'cost' | 'performance' | 'security' | 'workloads' | 'pods' | 'containers' | 'nodes' | 'resources' | 'karpenter' | 'automation' | 'autoscaling';
 
 // ─── XamOps Autoscaling Types (CAST.ai blueprint) ────────────────────────────
 
