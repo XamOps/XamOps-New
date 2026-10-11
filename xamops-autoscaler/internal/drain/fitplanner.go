@@ -55,6 +55,19 @@ func (p *FitPlanner) SelectSet(ctx context.Context, candidates []string, capacit
 	return sel, plans, nil
 }
 
+// PlanEach simulates draining each node on its own, over one snapshot.
+func (p *FitPlanner) PlanEach(ctx context.Context, nodes []string) (map[string]Plan, error) {
+	s, err := fitsim.BuildSnapshot(ctx, p.k8s)
+	if err != nil {
+		return nil, err
+	}
+	plans := make(map[string]Plan, len(nodes))
+	for _, n := range nodes {
+		plans[n] = FromFit(fitsim.SimulateDrain(s, []string{n}, p.opts))
+	}
+	return plans, nil
+}
+
 // FromFit maps a simulator plan to the executor's plan: moves in placement order
 // (largest first), reasons from errors/refused/blocked/strands, Detail = the full
 // simulator plan.

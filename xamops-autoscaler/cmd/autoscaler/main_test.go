@@ -628,3 +628,86 @@ func TestRunCycleDryRunSection4FixtureRefusesWithReasons(t *testing.T) {
 		}
 	}
 }
+
+type drainReport struct {
+	NodeName    string `json:"nodeName"`
+	Status      string `json:"status"`
+	Reason      string `json:"reason"`
+	DryRun      bool   `json:"dryRun"`
+	Verified    bool   `json:"verified"`
+	OperationID string `json:"operationId"`
+}
+
+func drainReports(t *testing.T, cap *captured) map[string]drainReport {
+	t.Helper()
+	out := map[string]drainReport{}
+	for _, raw := range cap.items("node-drain-progress") {
+		var r drainReport
+		if err := json.Unmarshal(raw, &r); err != nil {
+			t.Fatal(err)
+		}
+		if _, dup := out[r.NodeName]; dup {
+			t.Errorf("two node-drain-progress reports for %s", r.NodeName)
+		}
+		out[r.NodeName] = r
+	}
+	return out
+}
+
+// The evictor's and the rebalancer's drains reach collector node-drain-progress
+// (plan.md section 4), simulated and live, with dryRun, verified and operationId. On
+// the seeded cluster node-3 (DaemonSet pods only) is the one drainable node; a live
+// drain of it cordons, evicts nothing and verifies.
+func TestRunCycleEvictorAndRebalancerDrainsReachNodeDrainProgress(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		policy     string
+		cfg        config.Config
+		opPrefix   string
+		wantStatus string
+		wantOthers map[string]string // node -> status of the other candidates
+	}{
+		{"evictor simulated", "41-evictor-positive.json", config.Config{DryRun: true, EnableEvictor: true},
+			"evictor-", "simulated", nil},
+		{"evictor live", "41-evictor-positive.json", config.Config{DryRun: false, EnableEvictor: true},
+			"evictor-", "drained", nil},
+		{"rebalancer simulated", "17-rebalancer-running-opid.json", config.Config{DryRun: true, EnableRebalancer: true},
+			"pass2-reb-1", "simulated", map[string]string{"node-1": "refused", "node-2": "refused", "node-4": "skipped"}},
+		{"rebalancer live", "17-rebalancer-running-opid.json", config.Config{DryRun: false, EnableRebalancer: true},
+			"pass2-reb-1", "drained", map[string]string{"node-1": "refused", "node-2": "refused", "node-4": "skipped"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, cap := backend(t, fixture(t, tc.policy))
+			c := seededCluster()
+			cfg := tc.cfg
+			runTestCycle(t, &cfg, c, srv.URL)
+
+			reps := drainReports(t, cap)
+			r, ok := reps["node-3"]
+			if !ok {
+				t.Fatalf("no node-drain-progress report for node-3: %v", cap.items("node-drain-progress"))
+			}
+			live := !tc.cfg.DryRun
+			if r.Status != tc.wantStatus || r.DryRun == live || r.Verified != live || !strings.HasPrefix(r.OperationID, tc.opPrefix) {
+				t.Errorf("node-3 report = %+v", r)
+			}
+			for node, st := range tc.wantOthers {
+				o, ok := reps[node]
+				if !ok || o.Status != st || o.DryRun == live || o.Verified || o.Reason == "" {
+					t.Errorf("%s report = %+v (ok=%v), want status %s with a reason", node, o, ok, st)
+				}
+				if st == "skipped" && !strings.Contains(o.Reason, "on its own: not drainable") {
+					t.Errorf("%s skipped without its own plan verdict: %q", node, o.Reason)
+				}
+			}
+			if len(reps) != 1+len(tc.wantOthers) {
+				t.Errorf("reports = %+v", reps)
+			}
+			if !live {
+				if w := writeVerbs(c); len(w) != 0 {
+					t.Errorf("DRY_RUN cycle issued writes: %v", w)
+				}
+			}
+		})
+	}
+}

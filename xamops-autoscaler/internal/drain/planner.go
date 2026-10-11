@@ -24,6 +24,14 @@ type SetSelector interface {
 	SelectSet(ctx context.Context, candidates []string, capacity int) ([]string, map[string]Plan, error)
 }
 
+// EachPlanner is implemented by planners that plan every node on its own in one
+// consistent view. DrainCandidates uses it to tell a candidate skipped for budget
+// why it could (not) have been drained anyway; planners without it are asked once
+// per node with Plan.
+type EachPlanner interface {
+	PlanEach(ctx context.Context, nodes []string) (map[string]Plan, error)
+}
+
 // Plan is a planner's verdict for one drain set.
 type Plan struct {
 	Nodes      []string `json:"nodes"`

@@ -60,6 +60,10 @@ type RebalanceResult struct {
 	NodesSimulated  int       `json:"nodesSimulated"`
 	Verified        bool      `json:"verified"`
 	Reason          string    `json:"reason,omitempty"`
+	// DrainReports are the executor's node reports of the drain attempted in THIS
+	// call (collector "node-drain-progress"); empty when the operation was not
+	// (re-)run.
+	DrainReports []drain.Report `json:"-"`
 }
 
 // Run executes (or simulates) the current rebalance operation. It returns nil when
@@ -123,6 +127,7 @@ func (rb *Rebalancer) Run(
 		}
 	} else if prev, ok := rb.simulated[opID]; ok {
 		again := *prev
+		again.DrainReports = nil // nothing was simulated again
 		again.Reason = fmt.Sprintf("operation %s already simulated in this process; not re-run", opID)
 		return &again, nil, nil
 	}
@@ -204,6 +209,7 @@ func (rb *Rebalancer) finish(ctx context.Context, ledger *state.Ledger, result *
 		}
 	}
 	result.Reason = strings.Join(reasons, "; ")
+	result.DrainReports = cr.Reports()
 	result.CompletedAt = time.Now()
 	result.DurationMinutes = int(result.CompletedAt.Sub(result.StartedAt).Minutes())
 

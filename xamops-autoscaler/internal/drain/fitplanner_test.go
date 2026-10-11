@@ -293,7 +293,9 @@ func TestDrainCandidatesSelectsWithinBudget(t *testing.T) {
 	if o := res.Others[0]; o.Status != policy.ActionRefused || !strings.Contains(o.Actions[0].Reason, "critical-namespace") || !o.Actions[0].DryRun {
 		t.Errorf("n-blocked = %s %q", o.Status, o.Actions[0].Reason)
 	}
-	if o := res.Others[1]; o.Status != policy.ActionSkipped || !strings.Contains(o.Actions[0].Reason, "budget exhausted") {
+	// Skipped for budget, but the record still carries the node's own verdict.
+	if o := res.Others[1]; o.Status != policy.ActionSkipped || !strings.Contains(o.Actions[0].Reason, "budget exhausted") ||
+		!strings.HasSuffix(o.Actions[0].Reason, "; on its own: drainable") {
 		t.Errorf("n-ok-2 = %s %q", o.Status, o.Actions[0].Reason)
 	}
 	if b.Remaining() != 0 {
@@ -310,7 +312,8 @@ func TestDrainCandidatesSelectsWithinBudget(t *testing.T) {
 	}
 	// maxNodes caps the selection below the budget.
 	res = e.DrainCandidates(context.Background(), "node-optimizer", "op", []string{"n-ok-1", "n-ok-2"}, 1, gate.Simulate, NewBudget(3, nil))
-	if len(res.Selected) != 1 || len(res.Others) != 1 || !strings.Contains(res.Others[0].Actions[0].Reason, "selection limit") {
+	if len(res.Selected) != 1 || len(res.Others) != 1 || !strings.Contains(res.Others[0].Actions[0].Reason, "selection limit") ||
+		!strings.Contains(res.Others[0].Actions[0].Reason, "on its own: drainable") {
 		t.Errorf("maxNodes: selected = %v others = %+v", res.Selected, res.Others)
 	}
 	// Off: every candidate skipped by the executor's own gate check.

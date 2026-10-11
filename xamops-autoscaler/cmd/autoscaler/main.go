@@ -297,6 +297,7 @@ func runCycle(
 		}
 		acts.add("rebalance", 1, recs...)
 		if result != nil {
+			drainReports = append(drainReports, result.DrainReports...)
 			status := policy.RebalanceStatus{
 				Status:          result.Status,
 				StartedAt:       result.StartedAt.Format(time.RFC3339),
@@ -329,6 +330,9 @@ func runCycle(
 			log.Printf("ERROR: evictor: %v", err)
 		}
 		acts.add("scale-in", 1, recs...)
+		if result != nil {
+			drainReports = append(drainReports, result.DrainReports...)
+		}
 		if result != nil && len(result.CandidateNodes) > 0 {
 			batches = append(batches, pusher.Batch{
 				Collector:   "autoscaling-evictor-candidates",
@@ -453,6 +457,7 @@ func runCycle(
 					if idle.RecommendDrain {
 						out := nodeOpt.CordonIdleNode(ctx, idle.NodeName, d.Cordon.Mode, budget, exec)
 						acts.addOutcome("scale-in", out)
+						drainReports = append(drainReports, out.Reports...)
 					}
 				}
 			}

@@ -156,7 +156,14 @@ func (r *run) done(status, reportStatus string, verified bool, reason string) Ou
 		}
 	}
 	rec := telemetry.Finish(r.rec, status, verified, reason)
-	log.Printf("Drain[%s %s %s]: %s — %s", r.controller, rec.Action, rec.Target, status, reason)
+	detail := reason
+	if detail == "" {
+		detail = rec.Verification
+	}
+	if detail == "" {
+		detail = "no further detail"
+	}
+	log.Printf("Drain[%s %s %s]: %s (verified=%v) — %s", r.controller, rec.Action, rec.Target, status, verified, detail)
 	return Outcome{Reports: r.reports, Actions: []policy.ActionRecord{rec}, Status: status, Plan: r.plan, Evicted: r.evicted}
 }
 
@@ -566,6 +573,13 @@ func (e *Executor) DrainCandidates(ctx context.Context, controller, operationID 
 	for _, n := range res.Selected {
 		inSet[n] = true
 	}
+	var unplanned []string
+	for _, c := range cands {
+		if _, ok := res.Plans[c]; !ok && !inSet[c] {
+			unplanned = append(unplanned, c)
+		}
+	}
+	solo := e.planEach(ctx, unplanned)
 	for _, c := range cands {
 		if inSet[c] {
 			continue
@@ -586,10 +600,49 @@ func (e *Executor) DrainCandidates(ctx context.Context, controller, operationID 
 		if limited {
 			reason = fmt.Sprintf("selection limit reached (%d node(s) needed)", maxNodes)
 		}
+		if p, ok := solo[c]; ok {
+			reason += "; on its own: " + ownPlanSummary(p)
+		}
 		res.Others = append(res.Others, e.finishedWithout(controller, operationID, c, mode, nil,
 			policy.ActionSkipped, StatusSkipped, reason))
 	}
 	return res
+}
+
+// planEach plans every node on its own (read-only), so a candidate skipped for budget
+// or the selection limit still says why it could (not) have been drained. A planner
+// error leaves the node without a plan (its record keeps the budget reason only).
+func (e *Executor) planEach(ctx context.Context, nodes []string) map[string]Plan {
+	if len(nodes) == 0 {
+		return nil
+	}
+	if ep, ok := e.planner.(EachPlanner); ok {
+		plans, err := ep.PlanEach(ctx, nodes)
+		if err != nil {
+			log.Printf("WARN: drain: per-node plans of skipped candidates: %v", err)
+			return nil
+		}
+		return plans
+	}
+	plans := map[string]Plan{}
+	for _, n := range nodes {
+		if p, err := e.planner.Plan(ctx, []string{n}); err == nil {
+			plans[n] = p
+		}
+	}
+	return plans
+}
+
+// ownPlanSummary is a one-line verdict of a single-node plan.
+func ownPlanSummary(p Plan) string {
+	if p.Drainable {
+		return "drainable"
+	}
+	reason := strings.Join(p.Reasons, "; ")
+	if reason == "" {
+		reason = "plan is not drainable"
+	}
+	return "not drainable — " + reason
 }
 
 // finishedWithout records a candidate that was never handed to Drain (no budget

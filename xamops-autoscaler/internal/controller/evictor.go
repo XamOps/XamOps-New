@@ -25,8 +25,12 @@ type EvictorResult struct {
 	DrainedNodes   []string          // nodes drained live AND verified by the executor
 	NodesSaved     int               // verified live drains only (never counts simulations)
 	SkipReasons    map[string]string // nodeName → reason the drain did not complete
-	DryRun         bool
-	AnalyseOnly    bool // true when the cycle only produced candidates and took no action
+	// DrainReports are the executor's node reports of this cycle's drain attempt
+	// (selected set first, then every refused/skipped candidate) — collector
+	// "node-drain-progress".
+	DrainReports []drain.Report
+	DryRun       bool
+	AnalyseOnly  bool // true when the cycle only produced candidates and took no action
 }
 
 // NodeCandidate is one node as the evictor sees it (collector
@@ -169,6 +173,7 @@ func (e *Evictor) Run(
 	log.Printf("Evictor: consolidation candidates %v — %s", names, d.Mode)
 	opID := fmt.Sprintf("evictor-%d", result.CycleTime.Unix())
 	res := exec.DrainCandidates(ctx, policy.ControllerEvictor, opID, names, 0, d.Mode, budget)
+	result.DrainReports = res.Reports()
 	if res.Set != nil && res.Set.Verified() {
 		result.DrainedNodes = append(result.DrainedNodes, res.Selected...)
 		result.EvictedPods = append(result.EvictedPods, res.Set.Evicted...)
