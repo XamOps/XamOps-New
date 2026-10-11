@@ -7,6 +7,7 @@ import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.File;
@@ -87,6 +88,17 @@ class GcpOnboardingScriptTest {
     /**
      * Stand-in for gcloud. Every call is logged as one tab-joined line; state (service account and
      * custom roles created) lives in $STUB_STATE so a second run sees the first one's results.
+     *
+     * <p>Optional failure knobs, each a space-separated list:
+     * <ul>
+     *   <li>{@code STUB_FAIL}, {@code STUB_FAIL_ONCE}: calls that always fail, or fail the first time
+     *       only: {@code instance-groups} and {@code instances} (the listings), {@code get-iam-policy},
+     *       or a service account email (its {@code describe} answers PERMISSION_DENIED);</li>
+     *   <li>{@code STUB_SA_NOT_FOUND}: service accounts whose {@code describe} answers NOT_FOUND;</li>
+     *   <li>{@code STUB_DELETED_ROLES}: custom role IDs that exist in a deleted state;</li>
+     *   <li>{@code STUB_ROLE_CREATE_ERROR}: the error {@code iam roles create} fails with;</li>
+     *   <li>{@code STUB_UNGRANTABLE_ROLES}: project roles whose binding fails with INVALID_ARGUMENT.</li>
+     * </ul>
      */
     private static final String STUB_GCLOUD = """
             #!/bin/bash
@@ -101,14 +113,40 @@ class GcpOnboardingScriptTest {
                 return 1
             }
 
+            # Whether the space-separated list $1 contains the word $2.
+            listed() {
+                case " $1 " in *" $2 "*) return 0 ;; esac
+                return 1
+            }
+
+            # Calls whose key is in STUB_FAIL always fail; those in STUB_FAIL_ONCE fail the first time only.
+            fails() {
+                if listed "${STUB_FAIL:-}" "$1"; then return 0; fi
+                if listed "${STUB_FAIL_ONCE:-}" "$1" && [ ! -e "$STUB_STATE/failed-once-$1" ]; then
+                    touch "$STUB_STATE/failed-once-$1"
+                    return 0
+                fi
+                return 1
+            }
+
             case "$1 $2" in
                 "projects add-iam-policy-binding")
-                    if has --help "$@"; then echo "  --condition=CONDITION"; fi
+                    if has --help "$@"; then echo "  --condition=CONDITION"; exit 0; fi
+                    for role in ${STUB_UNGRANTABLE_ROLES:-}; do
+                        if has "--role=$role" "$@"; then
+                            echo "ERROR: (gcloud.projects.add-iam-policy-binding) INVALID_ARGUMENT: Role $role is not supported for this resource." >&2
+                            exit 1
+                        fi
+                    done
                     exit 0 ;;
                 "projects describe")
                     echo "123456789012"
                     exit 0 ;;
                 "projects get-iam-policy")
+                    if fails get-iam-policy; then
+                        echo "ERROR: (gcloud.projects.get-iam-policy) PERMISSION_DENIED: The caller does not have permission" >&2
+                        exit 1
+                    fi
                     if [ -n "${STUB_PROJECT_ROLES:-}" ]; then printf '%s\\n' "$STUB_PROJECT_ROLES"; fi
                     exit 0 ;;
                 "iam service-accounts")
@@ -119,6 +157,17 @@ class GcpOnboardingScriptTest {
                                 exit 1
                             fi
                             touch "$STUB_STATE/sa-exists"
+                            exit 0 ;;
+                        describe)
+                            if listed "${STUB_SA_NOT_FOUND:-}" "$4"; then
+                                echo "ERROR: (gcloud.iam.service-accounts.describe) NOT_FOUND: Unknown service account. This command is authenticated as user@example.com which is the active account specified by the [core/account] property" >&2
+                                exit 1
+                            fi
+                            if fails "$4"; then
+                                echo "ERROR: (gcloud.iam.service-accounts.describe) PERMISSION_DENIED: Permission 'iam.serviceAccounts.get' denied on resource (or it may not exist)." >&2
+                                exit 1
+                            fi
+                            echo "email: $4"
                             exit 0 ;;
                         keys)
                             if [ "$4" = "create" ]; then
@@ -131,15 +180,25 @@ class GcpOnboardingScriptTest {
                 "iam roles")
                     case "$3" in
                         describe)
+                            if listed "${STUB_DELETED_ROLES:-}" "$4"; then echo "True"; exit 0; fi
                             if [ -e "$STUB_STATE/role-$4" ]; then echo ""; exit 0; fi
                             echo "ERROR: (gcloud.iam.roles.describe) NOT_FOUND: Role $4 not found." >&2
                             exit 1 ;;
                         create)
+                            if [ -n "${STUB_ROLE_CREATE_ERROR:-}" ]; then
+                                printf '%s\\n' "$STUB_ROLE_CREATE_ERROR" >&2
+                                exit 1
+                            fi
                             touch "$STUB_STATE/role-$4"
                             exit 0 ;;
                     esac
                     exit 0 ;;
                 "compute instance-groups")
+                    if fails instance-groups; then
+                        echo "ERROR: (gcloud.compute.instance-groups.managed.list) Some requests did not succeed:" >&2
+                        echo " - Required 'compute.instanceGroupManagers.list' permission for 'projects/my-proj'" >&2
+                        exit 1
+                    fi
                     if has '--flatten=versions[]' "$@"; then
                         echo "https://www.googleapis.com/compute/v1/projects/my-proj/regions/us-central1/instanceTemplates/tpl-b"
                         echo "https://www.googleapis.com/compute/v1/projects/my-proj/global/instanceTemplates/tpl-gke"
@@ -164,6 +223,11 @@ class GcpOnboardingScriptTest {
                     esac
                     exit 0 ;;
                 "compute instances")
+                    if fails instances; then
+                        echo "ERROR: (gcloud.compute.instances.list) Some requests did not succeed:" >&2
+                        echo " - Required 'compute.instances.list' permission for 'projects/my-proj'" >&2
+                        exit 1
+                    fi
                     printf '%s\\n' "${STUB_VM_SAS-vm-sa@my-proj.iam.gserviceaccount.com}"
                     exit 0 ;;
             esac
@@ -237,6 +301,7 @@ class GcpOnboardingScriptTest {
         assertThat(result.calls()).noneMatch(c -> String.join(" ", c).contains("serviceAccountUser"));
         assertThat(result.calls()).allMatch(c -> !c.contains("add-iam-policy-binding") || c.contains("--help")
                 || c.contains("--member=serviceAccount:" + XAMOPS_SA));
+        assertThat(result.output()).contains("Billing & cost data (full access)", "Store key securely");
         assertKeyFileIsPrivateAndNeverPrinted(result);
     }
 
@@ -307,6 +372,7 @@ class GcpOnboardingScriptTest {
         assertThat(result.exitCode()).as(result.output()).isZero();
         assertThat(result.calls("iam", "service-accounts", "keys", "create")).isEmpty();
         assertThat(result.serviceAccountBindings()).containsExactlyInAnyOrder(APP_SA, DEFAULT_SA, VM_SA);
+        assertThat(result.output()).as("no key, so no reminder to store one").doesNotContain("Store key securely");
     }
 
     @Test
@@ -368,6 +434,17 @@ class GcpOnboardingScriptTest {
         assertThat(result.output()).contains("--refresh --revoke-legacy-roles");
     }
 
+    @Test
+    void revokeLegacyRolesStopsWhenTheIamPolicyCannotBeRead() throws Exception {
+        Result result = run(Map.of("STUB_FAIL", "get-iam-policy", "STUB_PROJECT_ROLES", String.join("\n", LEGACY_ROLES)),
+                "my-proj", "read-write", "--revoke-legacy-roles");
+
+        assertThat(result.exitCode()).as(result.output()).isEqualTo(1);
+        assertThat(result.output()).contains("Could not read the IAM policy of 'my-proj'");
+        assertThat(result.calls("projects", "remove-iam-policy-binding")).isEmpty();
+        assertThat(result.calls("iam", "service-accounts", "keys", "create")).isEmpty();
+    }
+
     // ------------------------------------------------------------------ 8. service account name
 
     @Test
@@ -419,6 +496,149 @@ class GcpOnboardingScriptTest {
         assertThat(result.exitCode()).isEqualTo(1);
         assertThat(result.output()).contains("This script needs bash");
         assertThat(result.calls()).isEmpty();
+    }
+
+    // ------------------------------------------------------------------ 11. custom roles in a deleted state
+
+    @Test
+    void aDeletedCustomRoleIsUndeletedAndThenSetToTheExactDefinition() throws Exception {
+        Result result = run(Map.of("STUB_DELETED_ROLES", "xamopsAutoSpotting xamopsComputeOps"), "my-proj", "read-write");
+
+        assertThat(result.exitCode()).as(result.output()).isZero();
+        assertThat(result.calls("iam", "roles", "create")).isEmpty();
+        for (String roleId : List.of("xamopsAutoSpotting", "xamopsComputeOps")) {
+            assertThat(result.calls("iam", "roles", "undelete", roleId)).singleElement()
+                    .satisfies(c -> assertThat(c).contains("--project=my-proj"));
+            assertThat(result.lastIndexOf("iam", "roles", "undelete", roleId)).as(roleId + " is undeleted before the update")
+                    .isLessThan(result.lastIndexOf("iam", "roles", "update", roleId));
+        }
+        assertCustomRole(result, "update", "xamopsAutoSpotting", AUTOSPOTTING_PERMISSIONS);
+        assertCustomRole(result, "update", "xamopsComputeOps", COMPUTE_OPS_PERMISSIONS);
+        assertThat(result.projectBindings()).contains(CUSTOM_ROLE_AUTOSPOTTING, CUSTOM_ROLE_COMPUTE_OPS);
+        assertKeyFileIsPrivateAndNeverPrinted(result);
+    }
+
+    static Stream<Arguments> roleCreateErrors() {
+        return Stream.of(
+                // What gcloud users report for a role ID that is still reserved after deletion.
+                Arguments.of("ERROR: (gcloud.iam.roles.create) FAILED_PRECONDITION: You can't create a role_id"
+                        + " (xamopsAutoSpotting) which has been marked for deletion.", true),
+                // The wording review finding 5 expected.
+                Arguments.of("ERROR: (gcloud.iam.roles.create) FAILED_PRECONDITION: You can't create a role with role_id"
+                        + " (xamopsAutoSpotting) where there is an existing role with that role_id in a deleted state.", true),
+                Arguments.of("ERROR: (gcloud.iam.roles.create) PERMISSION_DENIED: Permission 'iam.roles.create' denied"
+                        + " on resource (or it may not exist).", false));
+    }
+
+    @ParameterizedTest
+    @MethodSource("roleCreateErrors")
+    void aCustomRoleThatCannotBeCreatedStopsWithoutAKey(String error, boolean idStillReserved) throws Exception {
+        Result result = run(Map.of("STUB_ROLE_CREATE_ERROR", error), "my-proj", "read-write");
+
+        assertThat(result.exitCode()).as(result.output()).isEqualTo(1);
+        assertThat(result.output()).contains("Failed to create or update the custom role xamopsAutoSpotting", error);
+        if (idStillReserved) {
+            assertThat(result.output()).contains("Google Cloud reserves a deleted custom role ID");
+        } else {
+            assertThat(result.output()).doesNotContain("Google Cloud reserves a deleted custom role ID");
+        }
+        assertThat(result.calls("iam", "service-accounts", "add-iam-policy-binding")).isEmpty();
+        assertThat(result.calls("iam", "service-accounts", "keys", "create")).isEmpty();
+    }
+
+    // ------------------------------------------------------------------ 12. discovery failures
+
+    @Test
+    void aListingThatFailsOnceIsRetried() throws Exception {
+        Result result = run(Map.of("STUB_FAIL_ONCE", "instances"), "my-proj", "read-write");
+
+        assertThat(result.exitCode()).as(result.output()).isZero();
+        assertThat(result.calls("compute", "instances", "list")).hasSize(2);
+        assertThat(result.output()).doesNotContain("could not be listed");
+        assertThat(result.serviceAccountBindings()).containsExactlyInAnyOrder(APP_SA, DEFAULT_SA, VM_SA);
+    }
+
+    @Test
+    void aListingThatFailsTwiceIsReportedAndWhatWasFoundIsStillGranted() throws Exception {
+        Result result = run(Map.of("STUB_FAIL", "instance-groups"), "my-proj", "read-write");
+
+        assertThat(result.exitCode()).as(result.output()).isZero();
+        assertThat(result.calls("compute", "instance-groups", "managed", "list")).as("two listings, each tried twice")
+                .hasSize(4);
+        assertThat(result.output()).contains("WARNING: Some instance groups, templates or VMs could not be listed",
+                "my-proj read-write --refresh");
+        assertThat(result.serviceAccountBindings()).containsExactlyInAnyOrder(DEFAULT_SA, VM_SA);
+        assertKeyFileIsPrivateAndNeverPrinted(result);
+    }
+
+    @Test
+    void revokeLegacyRolesRefusesAfterAFailedDiscovery() throws Exception {
+        Result result = run(Map.of("STUB_FAIL", "instance-groups", "STUB_PROJECT_ROLES", String.join("\n", LEGACY_ROLES)),
+                "my-proj", "read-write", "--refresh", "--revoke-legacy-roles");
+
+        assertThat(result.exitCode()).as(result.output()).isEqualTo(1);
+        assertThat(result.calls("projects", "remove-iam-policy-binding")).isEmpty();
+        assertThat(result.output()).contains("The legacy project-wide write roles were not removed",
+                "my-proj read-write --refresh --revoke-legacy-roles");
+        assertThat(result.serviceAccountBindings()).as("the grants that could be made are in place")
+                .containsExactlyInAnyOrder(DEFAULT_SA, VM_SA);
+    }
+
+    @Test
+    void afterAFailedDiscoveryRevokeLegacyRolesHasNothingToRefuseWhenNoneAreHeld() throws Exception {
+        Result result = run(Map.of("STUB_FAIL", "instance-groups"), "my-proj", "read-write", "--refresh", "--revoke-legacy-roles");
+
+        assertThat(result.exitCode()).as(result.output()).isZero();
+        assertThat(result.calls("projects", "remove-iam-policy-binding")).isEmpty();
+        assertThat(result.output()).contains("could not be listed").doesNotContain("were not removed");
+    }
+
+    // ------------------------------------------------------------------ 13. service accounts that cannot be checked
+
+    @Test
+    void aServiceAccountThatIsGoneIsSkipped() throws Exception {
+        Result result = run(Map.of("STUB_SA_NOT_FOUND", APP_SA), "my-proj", "read-write");
+
+        assertThat(result.exitCode()).as(result.output()).isZero();
+        assertThat(result.output()).contains(APP_SA + " does not exist (a template or VM still names it); skipped");
+        assertThat(result.calls("iam", "service-accounts", "describe", APP_SA)).as("NOT_FOUND is not retried").hasSize(1);
+        assertThat(result.serviceAccountBindings()).containsExactlyInAnyOrder(DEFAULT_SA, VM_SA);
+        assertKeyFileIsPrivateAndNeverPrinted(result);
+    }
+
+    @Test
+    void aServiceAccountThatCannotBeCheckedStopsTheRunBeforeAnyLegacyRoleIsRemoved() throws Exception {
+        Result result = run(Map.of("STUB_FAIL", APP_SA, "STUB_PROJECT_ROLES", String.join("\n", LEGACY_ROLES)),
+                "my-proj", "read-write", "--revoke-legacy-roles");
+
+        assertThat(result.exitCode()).as(result.output()).isEqualTo(1);
+        assertThat(result.calls("iam", "service-accounts", "describe", APP_SA)).as("tried twice").hasSize(2);
+        assertThat(result.output()).contains("Could not check that this service account exists", "PERMISSION_DENIED")
+                .doesNotContain(APP_SA + " does not exist");
+        assertThat(result.serviceAccountBindings()).containsExactlyInAnyOrder(DEFAULT_SA, VM_SA);
+        assertThat(result.calls("projects", "remove-iam-policy-binding")).isEmpty();
+        assertThat(result.calls("iam", "service-accounts", "keys", "create")).isEmpty();
+    }
+
+    @Test
+    void aServiceAccountCheckThatFailsOnceIsRetried() throws Exception {
+        Result result = run(Map.of("STUB_FAIL_ONCE", APP_SA), "my-proj", "read-write");
+
+        assertThat(result.exitCode()).as(result.output()).isZero();
+        assertThat(result.calls("iam", "service-accounts", "describe", APP_SA)).hasSize(2);
+        assertThat(result.serviceAccountBindings()).containsExactlyInAnyOrder(APP_SA, DEFAULT_SA, VM_SA);
+    }
+
+    // ------------------------------------------------------------------ 14. summary
+
+    @Test
+    void theSummarySaysBillingDataIsLimitedWhenBillingViewerWasNotGranted() throws Exception {
+        Result result = run(Map.of("STUB_UNGRANTABLE_ROLES", BILLING_VIEWER), "my-proj");
+
+        assertThat(result.exitCode()).as(result.output()).isZero();
+        assertThat(result.output()).contains("Billing & cost data: limited (not granted: " + BILLING_VIEWER)
+                .doesNotContain("Billing & cost data (full access)");
+        assertKeyFileIsPrivateAndNeverPrinted(result);
     }
 
     // ------------------------------------------------------------------ helpers

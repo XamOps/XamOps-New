@@ -32,7 +32,7 @@ const GCPForm: React.FC = () => {
   const [billingSource, setBillingSource] = useState<BillingSource>('OWN_EXPORT');
   const usesExportTable = billingSource !== 'XAMMER_CSP_DATASET';
   const [isLoading, setIsLoading] = useState(false);
-  const [commandText, setCommandText] = useState(`sh <(curl -s ${SCRIPT_URL}) YOUR_PROJECT_ID`);
+  const [commandText, setCommandText] = useState(`bash <(curl -s ${SCRIPT_URL}) YOUR_PROJECT_ID`);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [error, setError] = useState('');
@@ -43,7 +43,7 @@ const GCPForm: React.FC = () => {
   useEffect(() => {
     const pid = projectId.trim() || 'YOUR_PROJECT_ID';
     const suffix = accessType === 'read-write' ? ' read-write' : '';
-    setCommandText(`sh <(curl -s ${SCRIPT_URL}) ${pid}${suffix}`);
+    setCommandText(`bash <(curl -s ${SCRIPT_URL}) ${pid}${suffix}`);
   }, [projectId, accessType]);
 
   const handleCopyCmd = useCallback(async () => {
@@ -175,12 +175,14 @@ const GCPForm: React.FC = () => {
           </div>
           <div className="px-4 py-3 bg-[#111] font-mono text-[12px] text-[rgba(255,255,255,0.8)] leading-relaxed overflow-x-auto">
             <span className="text-green-400">$</span>{' '}
-            <span>sh &lt;(curl -s </span>
+            <span>bash &lt;(curl -s </span>
             <span className="text-amber-300">{SCRIPT_URL}</span>
             <span>){' '}</span>
             <span className={projectId.trim() ? 'text-sky-300' : 'text-[rgba(255,255,255,0.35)]'}>
               {projectId.trim() || 'YOUR_PROJECT_ID'}
             </span>
+            {/* Same command the Copy button copies, so it can also be typed by hand. */}
+            {accessType === 'read-write' && <span> read-write</span>}
           </div>
         </div>
         <p className={hintCls}>Fill in GCP Project ID below to auto-update this command.</p>
@@ -214,7 +216,7 @@ const GCPForm: React.FC = () => {
             <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-100 rounded-lg">
               <Icon icon="mdi:shield-alert-outline" width={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
               <p className="text-[11px] text-amber-800 leading-relaxed">
-                <strong>Required:</strong> Run as project Owner or user with Project IAM Admin + Service Account Admin + Service Account Key Admin roles.
+                <strong>Required:</strong> Run as project Owner, or with Project IAM Admin + Service Account Admin + Service Account Key Admin + Service Usage Admin. Read & Write also needs Role Administrator + Compute Viewer.
               </p>
             </div>
           </div>
@@ -333,7 +335,7 @@ const GCPForm: React.FC = () => {
             <div className="flex items-start gap-2 p-3 mt-2 bg-amber-50 border border-amber-100 rounded-lg">
               <Icon icon="mdi:shield-alert-outline" width={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
               <p className="text-[11px] text-amber-800 leading-relaxed">
-                The Cloud Shell command will include <code className="bg-amber-100 px-1 rounded">read-write</code> automatically to grant additional compute and GKE write permissions.
+                The Cloud Shell command will include <code className="bg-amber-100 px-1 rounded">read-write</code> automatically. It adds two custom roles for Spot automation, scheduling and rightsizing, plus Service Account User on individual service accounts, never project-wide. Whoever runs it also needs Role Administrator and Compute Viewer (Owner includes both).
               </p>
             </div>
           )}
@@ -351,7 +353,11 @@ const GCPForm: React.FC = () => {
             required
             className={`${inputCls} resize-none font-mono`}
           />
-          <p className={hintCls}>Paste the complete JSON output from the Cloud Shell script</p>
+          <p className={hintCls}>
+            Paste the full contents of{' '}
+            <code className="bg-[rgba(0,0,0,0.04)] px-1 rounded">xamops-{projectId.trim() || 'YOUR_PROJECT_ID'}-key.json</code>,
+            the key file the script saved. The script prints its path.
+          </p>
         </div>
 
         {/* Billing source */}

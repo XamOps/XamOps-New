@@ -15,7 +15,8 @@
 #                                versions of this script granted: roles/compute.instanceAdmin.v1,
 #                                roles/iam.serviceAccountUser, roles/container.admin,
 #                                roles/storage.objectAdmin, roles/monitoring.alertPolicyEditor.
-#                                Runs only after the replacement grants below succeeded.
+#                                Runs only after the replacement grants below succeeded, and
+#                                only when every instance group, template and VM could be listed.
 #   --service-account-name NAME  Service account to create or update (default: xamops).
 #   -h, --help                   Show usage.
 #
@@ -236,6 +237,31 @@ gcloud_read() {
         return 0
     fi
     return 1
+}
+
+# Checks that a service account exists before anything is granted on it. Returns 0 when it
+# exists, 1 when IAM answers NOT_FOUND, and 2 on any other error, kept in SA_CHECK_ERROR: a
+# permission or transient error says nothing about whether the account exists, so only
+# NOT_FOUND counts as absent. Tried twice, like gcloud_read.
+SA_CHECK_ERROR=""
+check_service_account() {
+    SA_CHECK_ERROR=""
+    SA_CHECK_ATTEMPT=1
+    while [ "$SA_CHECK_ATTEMPT" -le 2 ]; do
+        if SA_CHECK_OUTPUT=$(gcloud iam service-accounts describe "$1" --project="$PROJECT_ID" \
+            2>&1 < /dev/null); then
+            return 0
+        fi
+        if printf '%s\n' "$SA_CHECK_OUTPUT" | grep -q "NOT_FOUND"; then
+            return 1
+        fi
+        SA_CHECK_ERROR="$SA_CHECK_OUTPUT"
+        if [ "$SA_CHECK_ATTEMPT" -eq 1 ]; then
+            pause 10
+        fi
+        SA_CHECK_ATTEMPT=$((SA_CHECK_ATTEMPT + 1))
+    done
+    return 2
 }
 
 echo "================================================"
@@ -566,7 +592,9 @@ ensure_custom_role() {
             --permissions="$CR_PERMISSIONS" \
             --stage=GA \
             --quiet 2>&1); then
-            if echo "$CR_OUTPUT" | grep -qiE "37 days|recently deleted|was deleted|been deleted"; then
+            # A role ID that is still reserved after deletion fails with e.g. "FAILED_PRECONDITION:
+            # You can't create a role_id (ID) which has been marked for deletion."
+            if echo "$CR_OUTPUT" | grep -qiE "37 days|recently deleted|was deleted|been deleted|deleted state|marked for deletion"; then
                 CUSTOM_ROLE_ERROR="The role ID $CR_ID is still being deleted: Google Cloud reserves a deleted custom role ID for 37 days. Wait until then, or undelete it within 7 days of deletion (gcloud iam roles undelete $CR_ID --project=$PROJECT_ID) and re-run this script.
 $CR_OUTPUT"
             else
@@ -935,9 +963,16 @@ $CANDIDATE"
     FAILED_SAS=()
     FAILED_SA_ERRORS=()
     for SA_EMAIL in "${LOCAL_SAS[@]}"; do
-        if ! gcloud iam service-accounts describe "$SA_EMAIL" --project="$PROJECT_ID" \
-            > /dev/null 2>&1 < /dev/null; then
+        check_service_account "$SA_EMAIL"
+        SA_CHECK_STATUS=$?
+        if [ "$SA_CHECK_STATUS" -eq 1 ]; then
             echo "  ℹ️  $SA_EMAIL does not exist (a template or VM still names it); skipped"
+            continue
+        fi
+        if [ "$SA_CHECK_STATUS" -ne 0 ]; then
+            FAILED_SAS+=("$SA_EMAIL")
+            FAILED_SA_ERRORS+=("Could not check that this service account exists (tried twice; only NOT_FOUND means it is gone):
+$SA_CHECK_ERROR")
             continue
         fi
         if bind_sa_role "$SA_EMAIL"; then
@@ -958,7 +993,7 @@ $CANDIDATE"
             echo ""
             FAILED_INDEX=$((FAILED_INDEX + 1))
         done
-        echo "Granting on a service account needs 'roles/iam.serviceAccountAdmin' or Owner."
+        echo "Checking a service account and granting on it needs 'roles/iam.serviceAccountAdmin' or Owner."
         echo ""
         echo "Aborting WITHOUT generating a key — AutoSpotting would fail on these groups."
         exit 1
@@ -994,6 +1029,17 @@ $CANDIDATE"
             echo "❌ ERROR: Could not read the IAM policy of '$PROJECT_ID', so the legacy"
             echo "   project-wide write roles were not checked or removed. The new grants above"
             echo "   are in place. Re-run with --refresh --revoke-legacy-roles."
+            exit 1
+        fi
+        # Project-wide Service Account User may be what lets XamOps act as the service accounts
+        # that could not be listed, so nothing is removed until discovery has worked.
+        if [ "$DISCOVERY_FAILED" -eq 1 ] && [ ${#LEGACY_PRESENT[@]} -gt 0 ]; then
+            echo ""
+            echo "❌ ERROR: The legacy project-wide write roles were not removed: some instance groups,"
+            echo "   templates or VMs could not be listed (see the warning above). Without project-wide"
+            echo "   Service Account User, AutoSpotting would fail on groups whose service accounts were"
+            echo "   not found. The new grants above are in place. Re-run once listing works:"
+            echo "     bash <(curl -s $SCRIPT_URL) $PROJECT_ID read-write --refresh --revoke-legacy-roles"
             exit 1
         fi
         FAILED_REVOKE=()
@@ -1082,7 +1128,11 @@ echo "  IAM Roles Granted: ${#ALL_ROLES[@]}/${#ALL_ROLES[@]}"
 echo ""
 echo "🔐 PERMISSIONS GRANTED:"
 echo "  ✓ Read-only access to ALL GCP services"
+if [ ${#FAILED_OPTIONAL_ROLES[@]} -gt 0 ]; then
+echo "  ⚠️  Billing & cost data: limited (not granted: ${FAILED_OPTIONAL_ROLES[*]}; see the command above)"
+else
 echo "  ✓ Billing & cost data (full access)"
+fi
 echo "  ✓ Security findings & compliance"
 echo "  ✓ Optimization recommendations"
 echo "  ✓ Monitoring & logging data"
@@ -1140,7 +1190,9 @@ echo "  ✓ IAM (users, roles, policies)"
 echo "  ✓ ... and 50+ more services"
 echo ""
 echo "⚠️  SECURITY REMINDERS:"
+if [ -n "$KEY_PATH" ]; then
 echo "  • Store key securely (never in git)"
+fi
 echo "  • Rotate keys every 90 days"
 echo "  • Monitor service account usage"
 echo "  • Enable audit logging"
