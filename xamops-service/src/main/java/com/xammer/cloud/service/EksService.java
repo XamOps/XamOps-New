@@ -3,6 +3,7 @@ package com.xammer.cloud.service;
 import com.xammer.cloud.service.EksTokenGenerator; // Ensure this exists
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.dto.k8s.ContainerInsightsStatusDto;
 import com.xammer.cloud.dto.k8s.K8sClusterInfo;
 import com.xammer.cloud.dto.k8s.K8sNodeInfo;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -17,7 +18,9 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.cloudwatch.CloudWatchClient;
 import software.amazon.awssdk.services.cloudwatch.model.*;
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.services.cloudwatchlogs.CloudWatchLogsClient;
+import software.amazon.awssdk.services.cloudwatchlogs.model.DescribeLogGroupsResponse;
 import software.amazon.awssdk.services.eks.EksClient;
 import software.amazon.awssdk.services.eks.model.Cluster;
 
@@ -110,10 +113,10 @@ public class EksService {
                                     .map(name -> CompletableFuture.supplyAsync(() -> {
                                         try {
                                             Cluster cluster = eks.describeCluster(b -> b.name(name)).cluster();
-                                            boolean isConnected = checkContainerInsightsStatus(account, name,
-                                                    region.getRegionId());
+                                            ContainerInsightsStatusDto insights = checkContainerInsightsStatus(
+                                                    account, name, region.getRegionId());
                                             return new K8sClusterInfo(name, cluster.statusAsString(), cluster.version(),
-                                                    region.getRegionId(), isConnected);
+                                                    region.getRegionId(), insights.isConfigured(), insights);
                                         } catch (Exception e) {
                                             logger.error("DEBUG K8S: Failed to describe EKS cluster {} in region {}",
                                                     name, region.getRegionId(), e);
@@ -199,18 +202,45 @@ public class EksService {
         return CompletableFuture.completedFuture(nodeInfos);
     }
 
-    private boolean checkContainerInsightsStatus(CloudAccount account, String clusterName, String region) {
-        logger.info("Checking Container Insights status for cluster {} in region {}", clusterName, region);
+    /**
+     * Whether Container Insights is set up for the cluster (design D3), from the existing
+     * {@code DescribeLogGroups(logGroupNamePrefix=/aws/containerinsights/<cluster>/performance)} call:
+     * {@code CONFIGURED} only on an exact log-group name match in the first page (the prefix is the
+     * full name, so an exact match sorts first), else {@code NOT_CONFIGURED}. AccessDenied is
+     * {@code UNKNOWN} with {@code MISSING_AWS_PERMISSION} and the denied action; throttling and other
+     * errors are {@code UNKNOWN}. No other AWS call is made; freshness is F19.
+     */
+    ContainerInsightsStatusDto checkContainerInsightsStatus(CloudAccount account, String clusterName, String region) {
+        String checkedAt = Instant.now().toString();
+        String logGroupName = "/aws/containerinsights/" + clusterName + "/performance";
         try {
             CloudWatchLogsClient logsClient = awsClientProvider.getCloudWatchLogsClient(account, region);
-            String logGroupName = "/aws/containerinsights/" + clusterName + "/performance";
-            logsClient.describeLogGroups(req -> req.logGroupNamePrefix(logGroupName));
-            logger.info("Container Insights is CONNECTED for cluster {}", clusterName);
-            return true;
+            DescribeLogGroupsResponse response = logsClient.describeLogGroups(req -> req.logGroupNamePrefix(logGroupName));
+            boolean exact = response != null && response.logGroups() != null
+                    && response.logGroups().stream().anyMatch(g -> logGroupName.equals(g.logGroupName()));
+            logger.debug("Container Insights for cluster {} in {}: {}", clusterName, region,
+                    exact ? "configured" : "not configured");
+            return new ContainerInsightsStatusDto(exact ? ContainerInsightsStatusDto.CONFIGURED
+                    : ContainerInsightsStatusDto.NOT_CONFIGURED, checkedAt, null, null);
+        } catch (AwsServiceException e) {
+            if (isAccessDenied(e)) {
+                logger.info("Container Insights check denied for cluster {} in {} (logs:DescribeLogGroups)", clusterName, region);
+                return new ContainerInsightsStatusDto(ContainerInsightsStatusDto.UNKNOWN, checkedAt,
+                        "MISSING_AWS_PERMISSION", "logs:DescribeLogGroups");
+            }
+            logger.warn("Container Insights check failed for cluster {} in {}: {}", clusterName, region,
+                    e.awsErrorDetails() != null ? e.awsErrorDetails().errorCode() : e.getClass().getSimpleName());
+            return new ContainerInsightsStatusDto(ContainerInsightsStatusDto.UNKNOWN, checkedAt, null, null);
         } catch (Exception e) {
-            logger.info("Container Insights is NOT CONNECTED for cluster {}", clusterName);
-            return false;
+            logger.warn("Container Insights check failed for cluster {} in {}: {}", clusterName, region,
+                    e.getClass().getSimpleName());
+            return new ContainerInsightsStatusDto(ContainerInsightsStatusDto.UNKNOWN, checkedAt, null, null);
         }
+    }
+
+    private static boolean isAccessDenied(AwsServiceException e) {
+        String code = e.awsErrorDetails() != null ? e.awsErrorDetails().errorCode() : null;
+        return "AccessDeniedException".equals(code) || "AccessDenied".equals(code) || e.statusCode() == 403;
     }
 
     private List<String> fetchNodeNames(CloudAccount account, String clusterName, String region) {

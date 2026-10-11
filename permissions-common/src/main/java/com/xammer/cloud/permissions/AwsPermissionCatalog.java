@@ -116,7 +116,10 @@ public final class AwsPermissionCatalog {
         // cloudwatch denial and the CloudK8s page reports no gap while showing no nodes.
         features("cloudwatch", PERFORMANCE, ALERTS, RIGHTSIZING, WASTE, DASHBOARD, DBOPS, OBSERVABILITY,
                 KUBERNETES);
-        features("logs", OBSERVABILITY, ALERTS, SRE);
+        // KUBERNETES belongs here because EksService.checkContainerInsightsStatus calls
+        // logs:DescribeLogGroups for every listed cluster. Without it a query scoped to KUBERNETES
+        // drops the denial and the CloudK8s page shows Container Insights "Unknown" with no gap.
+        features("logs", OBSERVABILITY, ALERTS, SRE, KUBERNETES);
         features("rds", CLOUD_LIST, DBOPS, CLOUDSITTER, WASTE);
         features("dynamodb", CLOUD_LIST, DBOPS);
         features("elasticache", CLOUD_LIST, DBOPS);

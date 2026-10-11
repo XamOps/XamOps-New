@@ -39,6 +39,20 @@ class AwsPermissionCatalogKubernetesTest {
     }
 
     @Test
+    @DisplayName("Losing logs degrades KUBERNETES: the Container Insights check calls logs:DescribeLogGroups")
+    void logsDegradesKubernetes_andKeepsItsOtherFeatures() {
+        assertThat(AwsPermissionCatalog.featuresFor("logs")).contains(
+                XamOpsFeature.KUBERNETES,
+                XamOpsFeature.OBSERVABILITY,
+                XamOpsFeature.ALERTS,
+                XamOpsFeature.SRE);
+        PermissionGap gap = PermissionGaps.denied("123456789012", "logs", "DescribeLogGroups",
+                "us-east-1", "AccessDeniedException", "denied", PermissionGap.Kind.PERMISSION);
+        assertThat(gap.getAction()).isEqualTo("logs:DescribeLogGroups");
+        assertThat(gap.getFeatures()).contains(XamOpsFeature.KUBERNETES.name());
+    }
+
+    @Test
     void eksStillDegradesKubernetes() {
         assertThat(AwsPermissionCatalog.featuresFor("eks"))
                 .contains(XamOpsFeature.KUBERNETES);

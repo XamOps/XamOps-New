@@ -13,5 +13,8 @@ public class K8sClusterInfo {
     private String status;
     private String version;
     private String region;
-    private boolean connected; // ADD THIS LINE
+    /** True only when Container Insights is CONFIGURED (an exact log-group match), kept for old consumers. */
+    private boolean connected;
+    /** Container Insights state with its check time and, when denied, the missing action (design D3). */
+    private ContainerInsightsStatusDto containerInsights;
 }
