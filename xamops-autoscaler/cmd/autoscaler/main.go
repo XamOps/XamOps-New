@@ -19,6 +19,7 @@ import (
 	"github.com/xamops/automation/internal/config"
 	"github.com/xamops/automation/internal/controller"
 	"github.com/xamops/automation/internal/drain"
+	"github.com/xamops/automation/internal/fitsim"
 	"github.com/xamops/automation/internal/gate"
 	"github.com/xamops/automation/internal/policy"
 	"github.com/xamops/automation/internal/pusher"
@@ -271,9 +272,10 @@ func runCycle(
 		inflight = drain.InflightNodes(nodes.Items)
 	}
 	budget := drain.NewBudget(bundle.NodeOptimizerPolicy.MaxParallelDrains, inflight)
-	exec := drain.NewExecutor(k8s, drain.UnavailablePlanner{}, cfg.PodNamespace)
+	planner := drain.NewFitPlanner(k8s, fitsim.Options{Guards: bundle.SafetyGuards, SelfNamespace: cfg.PodNamespace})
+	exec := drain.NewExecutor(k8s, planner, cfg.PodNamespace)
 	ledger := state.New(k8s, cfg.PodNamespace, cfg.StateConfigMap, cfg.DryRun)
-	log.Printf("Drain budget capacity=%d inflight=%v planner=unavailable (live drains refused) selfNamespace=%s",
+	log.Printf("Drain budget capacity=%d inflight=%v planner=fitsim selfNamespace=%s",
 		budget.Capacity(), inflight, cfg.PodNamespace)
 
 	var batches []pusher.Batch
@@ -400,49 +402,49 @@ func runCycle(
 				CollectedAt: time.Now(),
 			})
 			drainTimeout := time.Duration(cfg.DrainTimeoutSeconds) * time.Second
-			drainOne := func(eventType, trigger, nodeName string, mode gate.Mode) {
+			// drainSet: candidates (deterministic order) -> fit-simulator selection within
+			// the shared budget -> one set drain; the others are recorded refused/skipped.
+			drainSet := func(eventType, trigger string, nodes []string, maxNodes int, mode gate.Mode) {
+				if len(nodes) == 0 {
+					return
+				}
 				dctx, cancel := context.WithTimeout(ctx, drainTimeout)
 				defer cancel()
-				var out drain.Outcome
-				if trigger == "spot-interruption" {
-					out = nodeOpt.HandleSpotInterruption(dctx, nodeName, mode, budget, exec)
-				} else {
-					out = nodeOpt.DrainForSpotConversion(dctx, trigger, nodeName, mode, budget, exec)
+				res := nodeOpt.DrainNodes(dctx, trigger, nodes, maxNodes, mode, budget, exec)
+				for _, out := range res.Outcomes() {
+					acts.addOutcome(eventType, out)
 				}
-				acts.addOutcome(eventType, out)
-				drainReports = append(drainReports, out.Reports...)
+				drainReports = append(drainReports, res.Reports()...)
 			}
 
 			// Idle drain (budget order: idle drain, spot-ratio drain, interruption, cordon)
 			if d.IdleDrain.Mode != gate.Off {
-				for _, idle := range report.IdleNodes {
-					if idle.RecommendDrain {
-						drainOne("scale-in", "idle-drain", idle.NodeName, d.IdleDrain.Mode)
+				var idle []string // report.IdleNodes is sorted by name
+				for _, n := range report.IdleNodes {
+					if n.RecommendDrain {
+						idle = append(idle, n.NodeName)
 					}
 				}
+				drainSet("scale-in", "idle-drain", idle, 0, d.IdleDrain.Mode)
 			}
 
 			// Spot ratio management (drain on-demand → let CA/Karpenter provision spot)
 			if d.SpotRatio.Mode != gate.Off {
-				candidates := nodeOpt.SelectOnDemandNodesForDrain(report, bundle.NodeOptimizerPolicy.SpotRatioTargetPct, budget.Capacity())
+				candidates, needed := nodeOpt.SpotRatioDrainCandidates(report, bundle.NodeOptimizerPolicy.SpotRatioTargetPct)
 				if len(candidates) > 0 {
-					log.Printf("NodeOptimizer: spot ratio target=%d%% current=%d/%d — %d on-demand candidate(s) %v (%s)",
+					log.Printf("NodeOptimizer: spot ratio target=%d%% current=%d/%d — need %d, on-demand candidate(s) %v (%s)",
 						bundle.NodeOptimizerPolicy.SpotRatioTargetPct, report.SpotNodes, report.TotalNodes,
-						len(candidates), candidates, d.SpotRatio.Mode)
+						needed, candidates, d.SpotRatio.Mode)
 					if d.Karpenter.Mode != gate.Off {
 						acts.add("node-replace", 0, nodeOpt.PatchKarpenterSpotRatio(ctx, bundle.NodeOptimizerPolicy.SpotRatioTargetPct, d.Karpenter.Mode))
 					}
-					for _, nodeName := range candidates {
-						drainOne("node-replace", "spot-ratio-drain", nodeName, d.SpotRatio.Mode)
-					}
+					drainSet("node-replace", "spot-ratio-drain", candidates, needed, d.SpotRatio.Mode)
 				}
 			}
 
-			// Spot interruption notices (same executor and guards; never "evict anyway")
+			// Spot interruption notices (same simulator, executor and guards; never "evict anyway")
 			if d.Interruption.Mode != gate.Off {
-				for _, nodeName := range report.InterruptedNodes {
-					drainOne("spot-fallback", "spot-interruption", nodeName, d.Interruption.Mode)
-				}
+				drainSet("spot-fallback", "spot-interruption", report.InterruptedNodes, 0, d.Interruption.Mode)
 			}
 
 			// Auto-cordon idle nodes

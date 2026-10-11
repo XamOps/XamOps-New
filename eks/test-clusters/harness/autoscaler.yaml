@@ -25,8 +25,10 @@
 # IMPORTANT: DRY_RUN=true by default — zero cluster changes until explicitly enabled.
 # Every node drain goes through one executor: global budget (maxParallelDrains),
 # a plan that must prove the drain is safe, Eviction API only (never pod delete),
-# replacements verified by new pod UID, abort + uncordon on failure. This build
-# has no fit simulator yet, so every live drain/cordon is refused.
+# replacements verified by new pod UID, abort + uncordon on failure. The plan is
+# the scheduler-fit simulator (internal/fitsim): DaemonSet/mirror pods are excluded,
+# every other pod must fit on another node, and the set is re-planned before every
+# eviction; anything it cannot prove is refused.
 # ═══════════════════════════════════════════════════════════════════════════════
 ---
 # ── Namespace (shared with xamops-agent) ──────────────────────────────────────

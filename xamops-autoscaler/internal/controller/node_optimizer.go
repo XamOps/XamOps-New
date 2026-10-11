@@ -228,16 +228,47 @@ func nodeOpID(action, node string) string {
 	return fmt.Sprintf("node-optimizer-%s-%s-%d", action, node, time.Now().Unix())
 }
 
-// HandleSpotInterruption drains a node that carries an AWS spot interruption notice
-// through the same executor and guards as every other drain: no PDB override and no
-// "evicting anyway". If the plan is not drainable the interruption is reported, not
-// drained — aws-node-termination-handler, when installed, drains on its own.
-func (n *NodeOptimizer) HandleSpotInterruption(ctx context.Context, nodeName string, mode gate.Mode, budget *drain.Budget, exec *drain.Executor) drain.Outcome {
-	out := exec.Drain(ctx, policy.ControllerNodeOptimizer, nodeOpID("interruption", nodeName), []string{nodeName}, mode, budget)
-	for i := range out.Actions {
-		telemetry.SetDetail(&out.Actions[i], "trigger", "spot-interruption")
+// DrainNodes is the node optimizer's one drain path (idle drain, spot-ratio drain,
+// spot interruption): candidates in the caller's deterministic order go through
+// drain.Executor.DrainCandidates — the fit simulator selects the largest set that is
+// drainable as a whole within the shared budget (and maxNodes when > 0), the executor
+// drains it as one set, every other candidate is recorded refused (with the plan's
+// reasons) or skipped. Every record carries the trigger.
+func (n *NodeOptimizer) DrainNodes(ctx context.Context, trigger string, nodes []string, maxNodes int, mode gate.Mode, budget *drain.Budget, exec *drain.Executor) drain.CandidateResult {
+	res := exec.DrainCandidates(ctx, policy.ControllerNodeOptimizer, nodeOpID(trigger, "set"), nodes, maxNodes, mode, budget)
+	tag := func(o *drain.Outcome) {
+		for i := range o.Actions {
+			telemetry.SetDetail(&o.Actions[i], "trigger", trigger)
+		}
 	}
-	return out
+	if res.Set != nil {
+		tag(res.Set)
+	}
+	for i := range res.Others {
+		tag(&res.Others[i])
+	}
+	return res
+}
+
+// HandleSpotInterruptions drains nodes that carry an AWS spot interruption notice
+// through the same simulator, executor, budget and guards as every other drain: no
+// PDB override and no "evicting anyway". A node whose plan is not drainable is
+// reported (refused), not drained — aws-node-termination-handler, when installed,
+// drains on its own.
+func (n *NodeOptimizer) HandleSpotInterruptions(ctx context.Context, nodes []string, mode gate.Mode, budget *drain.Budget, exec *drain.Executor) drain.CandidateResult {
+	return n.DrainNodes(ctx, "spot-interruption", nodes, 0, mode, budget, exec)
+}
+
+// HandleSpotInterruption is HandleSpotInterruptions for one node.
+func (n *NodeOptimizer) HandleSpotInterruption(ctx context.Context, nodeName string, mode gate.Mode, budget *drain.Budget, exec *drain.Executor) drain.Outcome {
+	return firstOutcome(n.HandleSpotInterruptions(ctx, []string{nodeName}, mode, budget, exec))
+}
+
+func firstOutcome(r drain.CandidateResult) drain.Outcome {
+	if o := r.Outcomes(); len(o) > 0 {
+		return o[0]
+	}
+	return drain.Outcome{}
 }
 
 // CordonIdleNode cordons a detected idle node for review, through the executor.
@@ -251,15 +282,33 @@ func (n *NodeOptimizer) CordonIdleNode(ctx context.Context, nodeName string, mod
 
 // ── Drains ────────────────────────────────────────────────────────────────────
 
-// DrainForSpotConversion drains an on-demand node (idle drain or spot-ratio drain).
-// Thin wrapper over drain.Executor: budget -> plan -> cordon -> Eviction API ->
-// new-UID replacement wait -> verification; any failure aborts and uncordons.
+// DrainForSpotConversion drains one on-demand node (idle drain or spot-ratio drain).
+// Thin wrapper over DrainNodes: simulator selection within the budget -> cordon ->
+// Eviction API with a re-plan before every eviction -> new-UID replacement wait ->
+// verification; any failure aborts and uncordons.
 func (n *NodeOptimizer) DrainForSpotConversion(ctx context.Context, trigger, nodeName string, mode gate.Mode, budget *drain.Budget, exec *drain.Executor) drain.Outcome {
-	out := exec.Drain(ctx, policy.ControllerNodeOptimizer, nodeOpID(trigger, nodeName), []string{nodeName}, mode, budget)
-	for i := range out.Actions {
-		telemetry.SetDetail(&out.Actions[i], "trigger", trigger)
+	return firstOutcome(n.DrainNodes(ctx, trigger, []string{nodeName}, 0, mode, budget, exec))
+}
+
+// SpotRatioDrainCandidates returns every on-demand spot candidate in drain order
+// (requests utilisation ascending, then name) and how many on-demand nodes must go
+// to reach targetSpotPct (0 when already there).
+func (n *NodeOptimizer) SpotRatioDrainCandidates(report *NodeOptimizerReport, targetSpotPct int) ([]string, int) {
+	if report == nil || report.TotalNodes == 0 || targetSpotPct <= 0 {
+		return nil, 0
 	}
-	return out
+	needed := int(float64(report.TotalNodes)*float64(targetSpotPct)/100.0) - report.SpotNodes
+	if int(float64(report.SpotNodes)/float64(report.TotalNodes)*100) >= targetSpotPct || needed <= 0 {
+		return nil, 0
+	}
+	cands := make([]SpotCandidateInfo, len(report.SpotCandidates))
+	copy(cands, report.SpotCandidates)
+	sortByRequests(cands)
+	names := make([]string, 0, len(cands))
+	for _, c := range cands {
+		names = append(names, c.NodeName)
+	}
+	return names, needed
 }
 
 // waitForPodRunningElsewhere waits for a replacement of pod: a pod of the same

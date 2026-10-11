@@ -29,7 +29,10 @@ import (
 //     ledger) and a live outcome is terminal: the same operation is never re-run,
 //     across cycles and restarts. A dry run simulates each operation once per process
 //     and writes nothing;
-//   - every drain goes through the shared budget and drain.Executor (Eviction API,
+//   - candidates (on-demand, schedulable, non-control-plane; creationTimestamp asc,
+//     name) go through drain.Executor.DrainCandidates: the fit simulator selects the
+//     largest set drainable as a whole within the shared budget, the executor drains
+//     it as one set (Eviction API, closed-loop re-plan before every eviction,
 //     verified replacements, abort + uncordon). Nothing here deletes pods.
 type Rebalancer struct {
 	k8s    kubernetes.Interface
@@ -143,11 +146,7 @@ func (rb *Rebalancer) Run(
 		return result, nil, nil
 	}
 	if len(candidates) == 0 {
-		return rb.finish(ctx, ledger, result, live, nil, "no rebalance candidates (on-demand, schedulable, non-control-plane)"), nil, nil
-	}
-	// FEAT-001: single-node drain sets, at most the remaining budget per run.
-	if n := budget.Remaining(); len(candidates) > n {
-		candidates = candidates[:n]
+		return rb.finish(ctx, ledger, result, live, drain.CandidateResult{}, "no rebalance candidates (on-demand, schedulable, non-control-plane)"), nil, nil
 	}
 	log.Printf("Rebalancer: operation %s (%s) — candidates %v", opID, d.Mode, nodeNames(candidates))
 
@@ -164,35 +163,30 @@ func (rb *Rebalancer) Run(
 	if drainTimeout <= 0 {
 		drainTimeout = 20 * time.Minute
 	}
-	var outcomes []drain.Outcome
-	for _, node := range candidates {
-		dctx, cancel := context.WithTimeout(ctx, drainTimeout)
-		out := exec.Drain(dctx, policy.ControllerRebalancer, opID, []string{node.Name}, d.Mode, budget)
-		cancel()
-		outcomes = append(outcomes, out)
-	}
-	res := rb.finish(ctx, ledger, result, live, outcomes, "")
-	var records []policy.ActionRecord
-	for _, o := range outcomes {
-		records = append(records, o.Actions...)
-	}
-	return res, records, nil
+	// The fit simulator picks, in candidate order, the largest set drainable as a
+	// whole within the budget; the executor drains it as one set.
+	dctx, cancel := context.WithTimeout(ctx, drainTimeout)
+	cr := exec.DrainCandidates(dctx, policy.ControllerRebalancer, opID, nodeNames(candidates), 0, d.Mode, budget)
+	cancel()
+	return rb.finish(ctx, ledger, result, live, cr, ""), cr.Actions(), nil
 }
 
-// finish derives the status from the drain outcomes and records live outcomes.
-func (rb *Rebalancer) finish(ctx context.Context, ledger *state.Ledger, result *RebalanceResult, live bool, outcomes []drain.Outcome, reason string) *RebalanceResult {
+// finish derives the status from the drain of the selected set and records live
+// outcomes. completed = the selected set was drained and verified; failed = that
+// drain aborted or failed; refused = no set was drainable (reasons from the plans).
+func (rb *Rebalancer) finish(ctx context.Context, ledger *state.Ledger, result *RebalanceResult, live bool, cr drain.CandidateResult, reason string) *RebalanceResult {
 	var reasons []string
 	if reason != "" {
 		reasons = append(reasons, reason)
 	}
-	failed, verified := false, 0
-	for _, o := range outcomes {
+	failed, verified := false, false
+	if o := cr.Set; o != nil {
 		switch o.Status {
 		case policy.ActionSimulated:
 			result.NodesSimulated += len(o.Reports)
 		case policy.ActionSucceeded:
 			if o.Verified() {
-				verified++
+				verified = true
 				for _, rep := range o.Reports {
 					result.NodesDrained = append(result.NodesDrained, rep.NodeName)
 				}
@@ -201,6 +195,8 @@ func (rb *Rebalancer) finish(ctx context.Context, ledger *state.Ledger, result *
 			failed = true
 		}
 		result.PodsEvicted += len(o.Evicted)
+	}
+	for _, o := range cr.Outcomes() {
 		for _, a := range o.Actions {
 			if a.Reason != "" {
 				reasons = append(reasons, a.Target+": "+a.Reason)
@@ -217,7 +213,7 @@ func (rb *Rebalancer) finish(ctx context.Context, ledger *state.Ledger, result *
 	case failed:
 		result.Status = state.StateFailed
 		result.Error = result.Reason
-	case len(outcomes) > 0 && verified == len(outcomes):
+	case verified:
 		result.Status = state.StateCompleted
 		result.Verified = true
 	default:

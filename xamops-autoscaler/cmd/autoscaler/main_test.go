@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/kubernetes/scheme"
 
 	"github.com/xamops/automation/internal/config"
 	"github.com/xamops/automation/internal/controller"
@@ -242,8 +243,8 @@ func TestRunCycleDryRunAllActionsWritesNothing(t *testing.T) {
 			simulatedDrains++
 		}
 	}
-	// The evictor reports no action here: every seeded node hosts a DaemonSet pod,
-	// which still blocks consolidation until FEAT-005 (fit simulator) lands.
+	// The rebalancer takes the only budget slot (node-3, DaemonSet pods only); the
+	// evictor and the node optimizer record refusals/budget skips.
 	for _, want := range []string{policy.ControllerRebalancer, policy.ControllerNodeOptimizer} {
 		if !controllers[want] {
 			t.Errorf("no action record from %s (got %v)", want, controllers)
@@ -463,5 +464,167 @@ func TestAddRightsizerSummarisesVerifiedPatches(t *testing.T) {
 	}
 	if summary.Message != "Rightsizer patched 2 Deployment template(s) — rollout pending" {
 		t.Errorf("summary = %+v", summary)
+	}
+}
+
+type drainRecord struct {
+	Controller, Action, Target, Status, Reason string
+	DryRun                                     bool
+}
+
+func drainRecords(t *testing.T, cap *captured) []drainRecord {
+	t.Helper()
+	var out []drainRecord
+	for _, raw := range cap.items("autoscaling-actions") {
+		var a struct {
+			Controller, Action, Target, Status, Reason string
+			DryRun                                     bool `json:"dryRun"`
+		}
+		if err := json.Unmarshal(raw, &a); err != nil {
+			t.Fatal(err)
+		}
+		if a.Action == "drain" {
+			out = append(out, drainRecord{a.Controller, a.Action, a.Target, a.Status, a.Reason, a.DryRun})
+		}
+	}
+	return out
+}
+
+// 11-dryrun-actions + DRY_RUN=true on the seeded cluster, where the fit simulator
+// finds exactly one drainable node (node-3: DaemonSet pods only; the other nodes'
+// ReplicaSet pods have no ReplicaSet object, so protectSingleReplicas blocks them as
+// replicas-unknown): the cycle reports exactly one simulated drain, of node-3, and
+// every other drain candidate is refused with plan reasons or skipped for budget.
+func TestRunCycleDryRunOneDrainableNodeOneSimulatedDrain(t *testing.T) {
+	srv, cap := backend(t, fixture(t, "11-dryrun-actions.json"))
+	c := seededCluster()
+	cfg := &config.Config{DryRun: true, EnableEvictor: true, EnableRebalancer: true, EnableNodeOptimizer: true}
+	runTestCycle(t, cfg, c, srv.URL)
+	if w := writeVerbs(c); len(w) != 0 {
+		t.Errorf("DRY_RUN cycle issued writes: %v", w)
+	}
+
+	var simulated []drainRecord
+	for _, r := range drainRecords(t, cap) {
+		if !r.DryRun {
+			t.Errorf("drain record without dryRun: %+v", r)
+		}
+		switch r.Status {
+		case policy.ActionSimulated:
+			simulated = append(simulated, r)
+		case policy.ActionRefused:
+			if !strings.Contains(r.Reason, "blocked ") && !strings.Contains(r.Reason, "strand ") {
+				t.Errorf("refusal without plan reasons: %+v", r)
+			}
+		case policy.ActionSkipped:
+			if !strings.Contains(r.Reason, "budget exhausted") {
+				t.Errorf("skip without budget reason: %+v", r)
+			}
+		default:
+			t.Errorf("unexpected drain status: %+v", r)
+		}
+	}
+	if len(simulated) != 1 || simulated[0].Target != "node/node-3" {
+		t.Fatalf("simulated drains = %+v, want exactly one of node/node-3", simulated)
+	}
+
+	cands := cap.items("autoscaling-evictor-candidates")
+	if len(cands) != 4 {
+		t.Fatalf("evictor candidates = %d, want 4 (a plan for every node)", len(cands))
+	}
+	for _, raw := range cands {
+		var c struct {
+			NodeName string `json:"nodeName"`
+			CanEvict bool   `json:"canEvict"`
+			Fit      *struct {
+				Drainable     bool `json:"drainable"`
+				ExcludedCount int  `json:"excludedCount"`
+			} `json:"fit"`
+		}
+		_ = json.Unmarshal(raw, &c)
+		if c.Fit == nil || c.Fit.ExcludedCount != 1 || c.Fit.Drainable != (c.NodeName == "node-3") || c.CanEvict != c.Fit.Drainable {
+			t.Errorf("candidate = %s", raw)
+		}
+	}
+}
+
+// loadSection4 decodes the fitsim section-4 testdata List into runtime objects.
+func loadSection4(t *testing.T) []runtime.Object {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "fitsim", "testdata", "section4.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		t.Fatal(err)
+	}
+	var objs []runtime.Object
+	for _, it := range list.Items {
+		obj, _, err := scheme.Codecs.UniversalDeserializer().Decode(it, nil, nil)
+		if err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		objs = append(objs, obj)
+	}
+	return objs
+}
+
+// 11-dryrun-actions + DRY_RUN=true on the section-4-shaped fixture (PDB-0 node,
+// protected-namespace node, two fragmentation strands): zero writes, zero simulated
+// drains, refusals carry the simulator's reasons.
+func TestRunCycleDryRunSection4FixtureRefusesWithReasons(t *testing.T) {
+	srv, cap := backend(t, fixture(t, "11-dryrun-actions.json"))
+	c := fake.NewSimpleClientset(loadSection4(t)...)
+	cfg := &config.Config{DryRun: true, EnableEvictor: true, EnableRightsizer: true, EnableRightsizerApply: true,
+		EnableRebalancer: true, EnableHPAManager: true, EnableVPAManager: true, EnableNodeOptimizer: true}
+	runTestCycle(t, cfg, c, srv.URL)
+	if w := writeVerbs(c); len(w) != 0 {
+		t.Errorf("DRY_RUN cycle issued writes: %v", w)
+	}
+
+	recs := drainRecords(t, cap)
+	if len(recs) == 0 {
+		t.Fatal("no drain records")
+	}
+	all := ""
+	for _, r := range recs {
+		if r.Status == policy.ActionSimulated {
+			t.Errorf("simulated drain on a fixture with no drainable node: %+v", r)
+		}
+		if r.Status == policy.ActionRefused && r.Reason == "" {
+			t.Errorf("refusal without a reason: %+v", r)
+		}
+		all += r.Reason + "\n"
+	}
+	for _, want := range []string{
+		"blocked team-b/pdb-guarded-web-1: pdb-no-disruptions:team-b/pdb-guarded-web",
+		"blocked xamops-system/xamops-automation-1: critical-namespace; self-namespace; single-replica",
+		"strand team-a/overprovisioned-api-1: no other node fits it",
+		"strand team-a/overprovisioned-api-2: no other node fits it",
+	} {
+		if !strings.Contains(all, want) {
+			t.Errorf("no refusal mentions %q:\n%s", want, all)
+		}
+	}
+
+	rs := cap.items("autoscaling-rebalance-status")
+	if len(rs) != 1 {
+		t.Fatalf("rebalance-status items = %d", len(rs))
+	}
+	var st map[string]interface{}
+	_ = json.Unmarshal(rs[0], &st)
+	if st["status"] != policy.ActionSimulated || st["nodesSimulated"] != float64(0) || !strings.Contains(st["reason"].(string), "strand") {
+		t.Errorf("rebalance status = %s", rs[0])
+	}
+	for _, raw := range cap.items("autoscaling-evictor-candidates") {
+		var c map[string]interface{}
+		_ = json.Unmarshal(raw, &c)
+		fit, _ := c["fit"].(map[string]interface{})
+		if c["canEvict"] != false || fit == nil || fit["drainable"] != false {
+			t.Errorf("candidate = %s", raw)
+		}
 	}
 }

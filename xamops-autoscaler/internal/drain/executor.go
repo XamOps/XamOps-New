@@ -325,11 +325,51 @@ func (e *Executor) liveDrain(ctx context.Context, r *run, operationID string) Ou
 		reportIdx[rep.NodeName] = i
 	}
 
-	// 2. Evict sequentially in plan order; each replacement must be a NEW pod.
+	// 2. Closed loop (plan.md D6/FEAT-005): before EVERY eviction the remaining pods of
+	// the set are re-planned against fresh cluster state; the drain continues only
+	// while the set is still drainable, evicting the largest remaining planned pod.
+	// A transient PDB obstacle is waited for up to PDBRetry. Each replacement must be
+	// a NEW pod.
 	owners := map[string]Move{}
-	for _, m := range plan.Moves {
+	evicted := map[string]bool{}
+	maxEvictions := 2*len(plan.Moves) + 5
+	replans := 0
+	for n := 0; ; n++ {
 		if err := ctx.Err(); err != nil {
 			return abort(fmt.Sprintf("context ended: %v", err))
+		}
+		fresh, waited, err := e.replanUntilSettled(ctx, r.nodes, evicted)
+		replans++
+		telemetry.SetDetail(&r.rec, "replans", replans)
+		if err != nil {
+			return abort(fmt.Sprintf("re-plan before eviction %d: planner error: %v", n+1, err))
+		}
+		if !fresh.Drainable {
+			reason := strings.Join(fresh.Reasons, "; ")
+			if waited > 0 {
+				reason += fmt.Sprintf(" (waited %s for the PDB to allow a disruption)", waited.Round(time.Millisecond))
+			}
+			return abort(fmt.Sprintf("re-plan before eviction %d: set no longer drainable: %s", n+1, reason))
+		}
+		var next *Move
+		for i := range fresh.Moves {
+			if !evicted[moveKey(fresh.Moves[i])] {
+				next = &fresh.Moves[i]
+				break
+			}
+		}
+		if next == nil {
+			break
+		}
+		if n >= maxEvictions {
+			return abort(fmt.Sprintf("drain did not converge after %d evictions", n))
+		}
+		m := *next
+		if m.OwnerUID == "" {
+			return abort(fmt.Sprintf("re-plan: pod %s/%s has no controller owner — its replacement cannot be verified", m.Namespace, m.Name))
+		}
+		if e.selfNamespace != "" && m.Namespace == e.selfNamespace {
+			return abort(fmt.Sprintf("re-plan: move of %s/%s is in the autoscaler's own namespace %s — refused", m.Namespace, m.Name, e.selfNamespace))
 		}
 		known, err := e.ownerPodUIDs(ctx, m.Namespace, m.OwnerUID)
 		if err != nil {
@@ -344,6 +384,7 @@ func (e *Executor) liveDrain(ctx context.Context, r *run, operationID string) Ou
 		if err := e.evict(ctx, m); err != nil {
 			return abort(fmt.Sprintf("eviction of %s/%s: %v", m.Namespace, m.Name, err))
 		}
+		evicted[moveKey(m)] = true
 		r.evicted = append(r.evicted, m.Namespace+"/"+m.Name)
 		if i, ok := reportIdx[m.From]; ok {
 			r.reports[i].PodsEvicted++
@@ -369,9 +410,201 @@ func (e *Executor) liveDrain(ctx context.Context, r *run, operationID string) Ou
 			return abort(fmt.Sprintf("annotate node %s drained: %v", n, err))
 		}
 	}
-	r.rec.Verification = fmt.Sprintf("%d pod(s) replaced by new-UID pods Running+Ready on other nodes; node(s) hold only DaemonSet/mirror pods; no Pending pods for affected owners",
-		len(plan.Moves))
+	r.rec.Verification = fmt.Sprintf("%d pod(s) replaced by new-UID pods Running+Ready on other nodes (%d re-plan(s)); node(s) hold only DaemonSet/mirror pods; no Pending pods for affected owners",
+		len(r.evicted), replans)
 	return r.done(policy.ActionSucceeded, StatusDrained, true, "")
+}
+
+// moveKey identifies an evicted pod across re-plans (UID, else namespace/name).
+func moveKey(m Move) string {
+	if m.UID != "" {
+		return m.UID
+	}
+	return m.Namespace + "/" + m.Name
+}
+
+// replan asks the planner for a fresh plan of nodes without the pods already evicted.
+func (e *Executor) replan(ctx context.Context, nodes []string, evicted map[string]bool) (Plan, error) {
+	if rp, ok := e.planner.(Replanner); ok {
+		uids := map[string]bool{}
+		for k := range evicted {
+			uids[k] = true
+		}
+		return rp.Replan(ctx, nodes, uids)
+	}
+	return e.planner.Plan(ctx, nodes)
+}
+
+// replanUntilSettled re-plans; while the only obstacle is transient PDB state
+// (Plan.Retryable) it polls up to PDBRetry. It returns the last plan and how long it
+// waited.
+func (e *Executor) replanUntilSettled(ctx context.Context, nodes []string, evicted map[string]bool) (Plan, time.Duration, error) {
+	start := time.Now()
+	deadline := start.Add(e.PDBRetry)
+	for {
+		p, err := e.replan(ctx, nodes, evicted)
+		if err != nil || p.Drainable || !p.Retryable || !time.Now().Before(deadline) {
+			return p, time.Since(start), err
+		}
+		if err := sleep(ctx, e.PollInterval); err != nil {
+			return p, time.Since(start), nil
+		}
+	}
+}
+
+// SelectSet chooses, in the caller's order, the drain set of at most capacity nodes
+// the planner proves drainable as a whole (plan.md section 3.8). plans holds the plan
+// of every candidate considered (the set so far plus that candidate).
+func (e *Executor) SelectSet(ctx context.Context, candidates []string, capacity int) ([]string, map[string]Plan, error) {
+	if s, ok := e.planner.(SetSelector); ok {
+		return s.SelectSet(ctx, candidates, capacity)
+	}
+	selected := []string{}
+	plans := map[string]Plan{}
+	for _, c := range dedupe(candidates) {
+		if len(selected) >= capacity {
+			break
+		}
+		p, err := e.planner.Plan(ctx, append(append([]string{}, selected...), c))
+		if err != nil {
+			return nil, nil, err
+		}
+		plans[c] = p
+		if p.Drainable {
+			selected = append(selected, c)
+		}
+	}
+	return selected, plans, nil
+}
+
+func dedupe(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range in {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// CandidateResult is the outcome of DrainCandidates.
+type CandidateResult struct {
+	Selected []string
+	Plans    map[string]Plan
+	// Set is the drain of the selected set (nil when nothing was selected).
+	Set *Outcome
+	// Others has one outcome per candidate not selected: refused with the plan's
+	// reasons, or skipped (budget exhausted / selection limit reached).
+	Others []Outcome
+}
+
+// Outcomes returns Set (if any) followed by Others.
+func (c CandidateResult) Outcomes() []Outcome {
+	var out []Outcome
+	if c.Set != nil {
+		out = append(out, *c.Set)
+	}
+	return append(out, c.Others...)
+}
+
+// Actions returns every action record, Set first.
+func (c CandidateResult) Actions() []policy.ActionRecord {
+	var out []policy.ActionRecord
+	for _, o := range c.Outcomes() {
+		out = append(out, o.Actions...)
+	}
+	return out
+}
+
+// Reports returns every node report, Set first.
+func (c CandidateResult) Reports() []Report {
+	var out []Report
+	for _, o := range c.Outcomes() {
+		out = append(out, o.Reports...)
+	}
+	return out
+}
+
+// DrainCandidates is the shared selection + drain path of the rebalancer, the
+// evictor and the node optimizer: it selects the largest drain set the planner proves
+// drainable as a whole, in the caller's deterministic order, within the remaining
+// budget (and maxNodes when > 0), drains that set as ONE set (cordon all, then evict
+// with the closed loop) and records every other candidate as refused (with the
+// plan's reasons) or skipped.
+func (e *Executor) DrainCandidates(ctx context.Context, controller, operationID string, candidates []string, maxNodes int, mode gate.Mode, budget *Budget) CandidateResult {
+	res := CandidateResult{Plans: map[string]Plan{}}
+	cands := dedupe(candidates)
+	if (mode != gate.Simulate && mode != gate.Live) || budget == nil {
+		for _, c := range cands {
+			res.Others = append(res.Others, e.Drain(ctx, controller, operationID, []string{c}, mode, budget))
+		}
+		return res
+	}
+	capacity := budget.Remaining()
+	limited := false
+	if maxNodes > 0 && maxNodes < capacity {
+		capacity, limited = maxNodes, true
+	}
+	if capacity > 0 && len(cands) > 0 {
+		sel, plans, err := e.SelectSet(ctx, cands, capacity)
+		if err != nil {
+			for _, c := range cands {
+				res.Others = append(res.Others, e.finishedWithout(controller, operationID, c, mode, nil,
+					policy.ActionRefused, StatusRefused, fmt.Sprintf("planner error: %v", err)))
+			}
+			return res
+		}
+		res.Selected, res.Plans = sel, plans
+	}
+	if len(res.Selected) > 0 {
+		o := e.Drain(ctx, controller, operationID, res.Selected, mode, budget)
+		res.Set = &o
+	}
+	inSet := map[string]bool{}
+	for _, n := range res.Selected {
+		inSet[n] = true
+	}
+	for _, c := range cands {
+		if inSet[c] {
+			continue
+		}
+		if p, ok := res.Plans[c]; ok {
+			reason := strings.Join(p.Reasons, "; ")
+			if reason == "" {
+				reason = "plan is not drainable"
+			}
+			if len(p.Nodes) > 1 {
+				reason = fmt.Sprintf("not drainable together with %s: %s", strings.Join(res.Selected, ","), reason)
+			}
+			res.Others = append(res.Others, e.finishedWithout(controller, operationID, c, mode, &p,
+				policy.ActionRefused, StatusRefused, reason))
+			continue
+		}
+		reason := fmt.Sprintf("drain budget exhausted (capacity %d, remaining %d)", budget.Capacity(), budget.Remaining())
+		if limited {
+			reason = fmt.Sprintf("selection limit reached (%d node(s) needed)", maxNodes)
+		}
+		res.Others = append(res.Others, e.finishedWithout(controller, operationID, c, mode, nil,
+			policy.ActionSkipped, StatusSkipped, reason))
+	}
+	return res
+}
+
+// finishedWithout records a candidate that was never handed to Drain (no budget
+// reservation, no API call).
+func (e *Executor) finishedWithout(controller, operationID, node string, mode gate.Mode, plan *Plan, status, reportStatus, reason string) Outcome {
+	r := e.newRun(controller, "drain", operationID, []string{node}, mode, nil)
+	if plan != nil {
+		r.plan = plan
+		telemetry.SetDetail(&r.rec, "fitChecked", plan.FitChecked)
+		telemetry.SetDetail(&r.rec, "drainable", plan.Drainable)
+		if len(plan.Reasons) > 0 {
+			telemetry.SetDetail(&r.rec, "planReasons", plan.Reasons)
+		}
+	}
+	return r.done(status, reportStatus, false, reason)
 }
 
 // CordonOnly cordons one node after the same budget/plan/self-namespace checks as a drain.

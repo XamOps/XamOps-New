@@ -1,0 +1,5664 @@
+{
+ "apiVersion": "v1",
+ "items": [
+  {
+   "apiVersion": "v1",
+   "kind": "Node",
+   "metadata": {
+    "labels": {
+     "alpha.eksctl.io/cluster-name": "xamops-test-1",
+     "alpha.eksctl.io/nodegroup-name": "ng-ondemand-1",
+     "beta.kubernetes.io/arch": "amd64",
+     "beta.kubernetes.io/instance-type": "t3.medium",
+     "beta.kubernetes.io/os": "linux",
+     "capacity-type": "on-demand",
+     "created-on": "2026-10-09",
+     "eks.amazonaws.com/capacityType": "ON_DEMAND",
+     "eks.amazonaws.com/nodegroup": "ng-ondemand-1",
+     "eks.amazonaws.com/nodegroup-image": "ami-067d27d47f88c442a",
+     "eks.amazonaws.com/sourceLaunchTemplateId": "lt-0bf3a7e07c8b92970",
+     "eks.amazonaws.com/sourceLaunchTemplateVersion": "1",
+     "ephemeral": "true",
+     "failure-domain.beta.kubernetes.io/region": "ap-south-1",
+     "failure-domain.beta.kubernetes.io/zone": "ap-south-1c",
+     "k8s.io/cloud-provider-aws": "cbe3ca5673499a56f11aed1de995dac4",
+     "kubernetes.io/arch": "amd64",
+     "kubernetes.io/hostname": "ip-172-31-18-172.ap-south-1.compute.internal",
+     "kubernetes.io/os": "linux",
+     "node.kubernetes.io/instance-type": "t3.medium",
+     "owner": "agent-provisioned",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "role": "worker",
+     "topology.k8s.aws/zone-id": "aps1-az2",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "ip-172-31-18-172.ap-south-1.compute.internal"
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "1930m",
+     "memory": "3372960Ki",
+     "pods": "17"
+    },
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Node",
+   "metadata": {
+    "labels": {
+     "alpha.eksctl.io/cluster-name": "xamops-test-1",
+     "alpha.eksctl.io/nodegroup-name": "ng-ondemand-1",
+     "beta.kubernetes.io/arch": "amd64",
+     "beta.kubernetes.io/instance-type": "t3.medium",
+     "beta.kubernetes.io/os": "linux",
+     "capacity-type": "on-demand",
+     "created-on": "2026-10-09",
+     "eks.amazonaws.com/capacityType": "ON_DEMAND",
+     "eks.amazonaws.com/nodegroup": "ng-ondemand-1",
+     "eks.amazonaws.com/nodegroup-image": "ami-067d27d47f88c442a",
+     "eks.amazonaws.com/sourceLaunchTemplateId": "lt-0bf3a7e07c8b92970",
+     "eks.amazonaws.com/sourceLaunchTemplateVersion": "1",
+     "ephemeral": "true",
+     "failure-domain.beta.kubernetes.io/region": "ap-south-1",
+     "failure-domain.beta.kubernetes.io/zone": "ap-south-1c",
+     "k8s.io/cloud-provider-aws": "cbe3ca5673499a56f11aed1de995dac4",
+     "kubernetes.io/arch": "amd64",
+     "kubernetes.io/hostname": "ip-172-31-26-143.ap-south-1.compute.internal",
+     "kubernetes.io/os": "linux",
+     "node.kubernetes.io/instance-type": "t3.medium",
+     "owner": "agent-provisioned",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "role": "worker",
+     "topology.k8s.aws/zone-id": "aps1-az2",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "ip-172-31-26-143.ap-south-1.compute.internal"
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "1930m",
+     "memory": "3372956Ki",
+     "pods": "17"
+    },
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Node",
+   "metadata": {
+    "labels": {
+     "alpha.eksctl.io/cluster-name": "xamops-test-1",
+     "alpha.eksctl.io/nodegroup-name": "ng-ondemand-1",
+     "beta.kubernetes.io/arch": "amd64",
+     "beta.kubernetes.io/instance-type": "t3.medium",
+     "beta.kubernetes.io/os": "linux",
+     "capacity-type": "on-demand",
+     "created-on": "2026-10-09",
+     "eks.amazonaws.com/capacityType": "ON_DEMAND",
+     "eks.amazonaws.com/nodegroup": "ng-ondemand-1",
+     "eks.amazonaws.com/nodegroup-image": "ami-067d27d47f88c442a",
+     "eks.amazonaws.com/sourceLaunchTemplateId": "lt-0bf3a7e07c8b92970",
+     "eks.amazonaws.com/sourceLaunchTemplateVersion": "1",
+     "ephemeral": "true",
+     "failure-domain.beta.kubernetes.io/region": "ap-south-1",
+     "failure-domain.beta.kubernetes.io/zone": "ap-south-1a",
+     "k8s.io/cloud-provider-aws": "cbe3ca5673499a56f11aed1de995dac4",
+     "kubernetes.io/arch": "amd64",
+     "kubernetes.io/hostname": "ip-172-31-43-198.ap-south-1.compute.internal",
+     "kubernetes.io/os": "linux",
+     "node.kubernetes.io/instance-type": "t3.medium",
+     "owner": "agent-provisioned",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "role": "worker",
+     "topology.k8s.aws/zone-id": "aps1-az1",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    },
+    "name": "ip-172-31-43-198.ap-south-1.compute.internal"
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "1930m",
+     "memory": "3372960Ki",
+     "pods": "17"
+    },
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Node",
+   "metadata": {
+    "labels": {
+     "alpha.eksctl.io/cluster-name": "xamops-test-1",
+     "alpha.eksctl.io/nodegroup-name": "ng-ondemand-1",
+     "beta.kubernetes.io/arch": "amd64",
+     "beta.kubernetes.io/instance-type": "t3.medium",
+     "beta.kubernetes.io/os": "linux",
+     "capacity-type": "on-demand",
+     "created-on": "2026-10-09",
+     "eks.amazonaws.com/capacityType": "ON_DEMAND",
+     "eks.amazonaws.com/nodegroup": "ng-ondemand-1",
+     "eks.amazonaws.com/nodegroup-image": "ami-067d27d47f88c442a",
+     "eks.amazonaws.com/sourceLaunchTemplateId": "lt-0bf3a7e07c8b92970",
+     "eks.amazonaws.com/sourceLaunchTemplateVersion": "1",
+     "ephemeral": "true",
+     "failure-domain.beta.kubernetes.io/region": "ap-south-1",
+     "failure-domain.beta.kubernetes.io/zone": "ap-south-1b",
+     "k8s.io/cloud-provider-aws": "cbe3ca5673499a56f11aed1de995dac4",
+     "kubernetes.io/arch": "amd64",
+     "kubernetes.io/hostname": "ip-172-31-9-125.ap-south-1.compute.internal",
+     "kubernetes.io/os": "linux",
+     "node.kubernetes.io/instance-type": "t3.medium",
+     "owner": "agent-provisioned",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "role": "worker",
+     "topology.k8s.aws/zone-id": "aps1-az3",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1b"
+    },
+    "name": "ip-172-31-9-125.ap-south-1.compute.internal"
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "1930m",
+     "memory": "3372968Ki",
+     "pods": "17"
+    },
+    "conditions": [
+     {
+      "status": "True",
+      "type": "Ready"
+     }
+    ]
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/name": "amazon-cloudwatch-observability",
+     "control-plane": "controller-manager",
+     "pod-template-hash": "67ddff64b8",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1b"
+    },
+    "name": "amazon-cloudwatch-observability-controller-manager-67ddff6trmlh",
+    "namespace": "amazon-cloudwatch",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "amazon-cloudwatch-observability-controller-manager-67ddff64b8",
+      "uid": "b771742c-f757-4d8f-bf33-9f720379444b"
+     }
+    ],
+    "uid": "40c2c664-7193-4df5-8794-38bee126c936"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "manager",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-9-125.ap-south-1.compute.internal",
+    "nodeSelector": {
+     "kubernetes.io/os": "linux"
+    },
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "100m",
+       "memory": "64Mi"
+      },
+      "name": "manager"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "amazon-cloudwatch-agent",
+     "app.kubernetes.io/instance": "amazon-cloudwatch.cloudwatch-agent",
+     "app.kubernetes.io/managed-by": "amazon-cloudwatch-agent-operator",
+     "app.kubernetes.io/name": "cloudwatch-agent",
+     "app.kubernetes.io/part-of": "amazon-cloudwatch-agent",
+     "app.kubernetes.io/version": "1.300073.0b1828",
+     "controller-revision-hash": "7ff9f9df8b",
+     "pod-template-generation": "1"
+    },
+    "name": "cloudwatch-agent-2wt4x",
+    "namespace": "amazon-cloudwatch",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "cloudwatch-agent",
+      "uid": "133aa7b2-b788-4a23-991b-701b0e5c8950"
+     }
+    ],
+    "uid": "51b4ecb6-0675-4ef7-aba7-0edcc374e212"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-18-172.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "otc-container",
+      "ports": [
+       {
+        "containerPort": 4315,
+        "hostPort": 4315,
+        "protocol": "TCP"
+       },
+       {
+        "containerPort": 4316,
+        "hostPort": 4316,
+        "protocol": "TCP"
+       },
+       {
+        "containerPort": 2000,
+        "hostPort": 2000,
+        "protocol": "TCP"
+       },
+       {
+        "containerPort": 4311,
+        "hostPort": 4311,
+        "protocol": "TCP"
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-18-172.ap-south-1.compute.internal",
+    "nodeSelector": {
+     "kubernetes.io/os": "linux"
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "250m",
+       "memory": "128Mi"
+      },
+      "name": "otc-container"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "amazon-cloudwatch-agent",
+     "app.kubernetes.io/instance": "amazon-cloudwatch.cloudwatch-agent",
+     "app.kubernetes.io/managed-by": "amazon-cloudwatch-agent-operator",
+     "app.kubernetes.io/name": "cloudwatch-agent",
+     "app.kubernetes.io/part-of": "amazon-cloudwatch-agent",
+     "app.kubernetes.io/version": "1.300073.0b1828",
+     "controller-revision-hash": "7ff9f9df8b",
+     "pod-template-generation": "1",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1b"
+    },
+    "name": "cloudwatch-agent-frf6p",
+    "namespace": "amazon-cloudwatch",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "cloudwatch-agent",
+      "uid": "133aa7b2-b788-4a23-991b-701b0e5c8950"
+     }
+    ],
+    "uid": "8ce7a0a8-56c8-4f36-8faa-fc93cfb5f09f"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-9-125.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "otc-container",
+      "ports": [
+       {
+        "containerPort": 4315,
+        "hostPort": 4315,
+        "protocol": "TCP"
+       },
+       {
+        "containerPort": 4316,
+        "hostPort": 4316,
+        "protocol": "TCP"
+       },
+       {
+        "containerPort": 2000,
+        "hostPort": 2000,
+        "protocol": "TCP"
+       },
+       {
+        "containerPort": 4311,
+        "hostPort": 4311,
+        "protocol": "TCP"
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-9-125.ap-south-1.compute.internal",
+    "nodeSelector": {
+     "kubernetes.io/os": "linux"
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "250m",
+       "memory": "128Mi"
+      },
+      "name": "otc-container"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "amazon-cloudwatch-agent",
+     "app.kubernetes.io/instance": "amazon-cloudwatch.cloudwatch-agent",
+     "app.kubernetes.io/managed-by": "amazon-cloudwatch-agent-operator",
+     "app.kubernetes.io/name": "cloudwatch-agent",
+     "app.kubernetes.io/part-of": "amazon-cloudwatch-agent",
+     "app.kubernetes.io/version": "1.300073.0b1828",
+     "controller-revision-hash": "7ff9f9df8b",
+     "pod-template-generation": "1",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    },
+    "name": "cloudwatch-agent-k9tkl",
+    "namespace": "amazon-cloudwatch",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "cloudwatch-agent",
+      "uid": "133aa7b2-b788-4a23-991b-701b0e5c8950"
+     }
+    ],
+    "uid": "77fb605f-71a3-453f-a780-987d156c2fe6"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-43-198.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "otc-container",
+      "ports": [
+       {
+        "containerPort": 4315,
+        "hostPort": 4315,
+        "protocol": "TCP"
+       },
+       {
+        "containerPort": 4316,
+        "hostPort": 4316,
+        "protocol": "TCP"
+       },
+       {
+        "containerPort": 2000,
+        "hostPort": 2000,
+        "protocol": "TCP"
+       },
+       {
+        "containerPort": 4311,
+        "hostPort": 4311,
+        "protocol": "TCP"
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-43-198.ap-south-1.compute.internal",
+    "nodeSelector": {
+     "kubernetes.io/os": "linux"
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "250m",
+       "memory": "128Mi"
+      },
+      "name": "otc-container"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "amazon-cloudwatch-agent",
+     "app.kubernetes.io/instance": "amazon-cloudwatch.cloudwatch-agent",
+     "app.kubernetes.io/managed-by": "amazon-cloudwatch-agent-operator",
+     "app.kubernetes.io/name": "cloudwatch-agent",
+     "app.kubernetes.io/part-of": "amazon-cloudwatch-agent",
+     "app.kubernetes.io/version": "1.300073.0b1828",
+     "controller-revision-hash": "7ff9f9df8b",
+     "pod-template-generation": "1"
+    },
+    "name": "cloudwatch-agent-tg7sh",
+    "namespace": "amazon-cloudwatch",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "cloudwatch-agent",
+      "uid": "133aa7b2-b788-4a23-991b-701b0e5c8950"
+     }
+    ],
+    "uid": "a694b242-3da6-4c89-9e0f-3cdda53e6495"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-26-143.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "otc-container",
+      "ports": [
+       {
+        "containerPort": 4315,
+        "hostPort": 4315,
+        "protocol": "TCP"
+       },
+       {
+        "containerPort": 4316,
+        "hostPort": 4316,
+        "protocol": "TCP"
+       },
+       {
+        "containerPort": 2000,
+        "hostPort": 2000,
+        "protocol": "TCP"
+       },
+       {
+        "containerPort": 4311,
+        "hostPort": 4311,
+        "protocol": "TCP"
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "250m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-26-143.ap-south-1.compute.internal",
+    "nodeSelector": {
+     "kubernetes.io/os": "linux"
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "250m",
+       "memory": "128Mi"
+      },
+      "name": "otc-container"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "controller-revision-hash": "7d5c66fd8b",
+     "k8s-app": "fluent-bit",
+     "kubernetes.io/cluster-service": "true",
+     "pod-template-generation": "1",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c",
+     "version": "v1"
+    },
+    "name": "fluent-bit-62tnn",
+    "namespace": "amazon-cloudwatch",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "fluent-bit",
+      "uid": "7e3e974a-5638-4bec-9f39-1b5d38e96b1b"
+     }
+    ],
+    "uid": "88fc5d03-9776-4832-b904-d16d7e5d59a4"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-26-143.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "fluent-bit",
+      "resources": {
+       "requests": {
+        "cpu": "50m",
+        "memory": "25Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-26-143.ap-south-1.compute.internal",
+    "nodeSelector": {
+     "kubernetes.io/os": "linux"
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "50m",
+       "memory": "25Mi"
+      },
+      "name": "fluent-bit"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "controller-revision-hash": "7d5c66fd8b",
+     "k8s-app": "fluent-bit",
+     "kubernetes.io/cluster-service": "true",
+     "pod-template-generation": "1",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1b",
+     "version": "v1"
+    },
+    "name": "fluent-bit-gtb4w",
+    "namespace": "amazon-cloudwatch",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "fluent-bit",
+      "uid": "7e3e974a-5638-4bec-9f39-1b5d38e96b1b"
+     }
+    ],
+    "uid": "5e4ac8c7-52a8-4052-82a6-7401d820c402"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-9-125.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "fluent-bit",
+      "resources": {
+       "requests": {
+        "cpu": "50m",
+        "memory": "25Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-9-125.ap-south-1.compute.internal",
+    "nodeSelector": {
+     "kubernetes.io/os": "linux"
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "50m",
+       "memory": "25Mi"
+      },
+      "name": "fluent-bit"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "controller-revision-hash": "7d5c66fd8b",
+     "k8s-app": "fluent-bit",
+     "kubernetes.io/cluster-service": "true",
+     "pod-template-generation": "1",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c",
+     "version": "v1"
+    },
+    "name": "fluent-bit-k9zn4",
+    "namespace": "amazon-cloudwatch",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "fluent-bit",
+      "uid": "7e3e974a-5638-4bec-9f39-1b5d38e96b1b"
+     }
+    ],
+    "uid": "fbd84ca8-9ba7-40db-b03d-5e0f8dbcdbc3"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-18-172.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "fluent-bit",
+      "resources": {
+       "requests": {
+        "cpu": "50m",
+        "memory": "25Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-18-172.ap-south-1.compute.internal",
+    "nodeSelector": {
+     "kubernetes.io/os": "linux"
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "50m",
+       "memory": "25Mi"
+      },
+      "name": "fluent-bit"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "controller-revision-hash": "7d5c66fd8b",
+     "k8s-app": "fluent-bit",
+     "kubernetes.io/cluster-service": "true",
+     "pod-template-generation": "1",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1a",
+     "version": "v1"
+    },
+    "name": "fluent-bit-xt7rw",
+    "namespace": "amazon-cloudwatch",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "fluent-bit",
+      "uid": "7e3e974a-5638-4bec-9f39-1b5d38e96b1b"
+     }
+    ],
+    "uid": "d05c2599-2bec-4eaf-9ec2-fb188403dd48"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-43-198.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "fluent-bit",
+      "resources": {
+       "requests": {
+        "cpu": "50m",
+        "memory": "25Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-43-198.ap-south-1.compute.internal",
+    "nodeSelector": {
+     "kubernetes.io/os": "linux"
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "50m",
+       "memory": "25Mi"
+      },
+      "name": "fluent-bit"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "idle-batch-listener",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "b6d6898cd",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "idle",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "idle-batch-listener-b6d6898cd-hl9qh",
+    "namespace": "dev-sim",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "idle-batch-listener-b6d6898cd",
+      "uid": "9ac02beb-bf02-45da-91ba-2c70820320af"
+     }
+    ],
+    "uid": "4dfcf4f0-261a-44a2-b66c-cfa8a3ddbbe8"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "sleeper",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-18-172.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "100m",
+       "memory": "128Mi"
+      },
+      "name": "sleeper"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "idle-batch-listener",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "b6d6898cd",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "idle",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1b"
+    },
+    "name": "idle-batch-listener-b6d6898cd-t4vbd",
+    "namespace": "dev-sim",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "idle-batch-listener-b6d6898cd",
+      "uid": "9ac02beb-bf02-45da-91ba-2c70820320af"
+     }
+    ],
+    "uid": "81e66fc3-7a41-4b6d-a6d0-c5861b22870b"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "sleeper",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-9-125.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "100m",
+       "memory": "128Mi"
+      },
+      "name": "sleeper"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "idle-batch-listener",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "b6d6898cd",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "idle",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "idle-batch-listener-b6d6898cd-wf97t",
+    "namespace": "dev-sim",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "idle-batch-listener-b6d6898cd",
+      "uid": "9ac02beb-bf02-45da-91ba-2c70820320af"
+     }
+    ],
+    "uid": "b99b9b77-1924-416f-9a53-45456d8d9bc3"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "sleeper",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-18-172.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "100m",
+       "memory": "128Mi"
+      },
+      "name": "sleeper"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "no-requests-sidecar-app",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "55c8f955d9",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "no-requests",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1b"
+    },
+    "name": "no-requests-sidecar-app-55c8f955d9-4wcq6",
+    "namespace": "dev-sim",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "no-requests-sidecar-app-55c8f955d9",
+      "uid": "3cee82c7-e36d-4c17-a2cf-094896beaf5f"
+     }
+    ],
+    "uid": "ac69d9af-b8f6-4dcf-8479-55309aec49dc"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app"
+     }
+    ],
+    "nodeName": "ip-172-31-9-125.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "name": "app"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "no-requests-sidecar-app",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "55c8f955d9",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "no-requests",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    },
+    "name": "no-requests-sidecar-app-55c8f955d9-9vvmt",
+    "namespace": "dev-sim",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "no-requests-sidecar-app-55c8f955d9",
+      "uid": "3cee82c7-e36d-4c17-a2cf-094896beaf5f"
+     }
+    ],
+    "uid": "376530a7-bde6-4804-8bbb-f51df32563b7"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app"
+     }
+    ],
+    "nodeName": "ip-172-31-43-198.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "name": "app"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/instance": "aws-vpc-cni",
+     "app.kubernetes.io/name": "aws-node",
+     "controller-revision-hash": "7bd69b9cf8",
+     "k8s-app": "aws-node",
+     "pod-template-generation": "1"
+    },
+    "name": "aws-node-7jpj4",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "aws-node",
+      "uid": "88de0637-ee38-46bc-8587-0a15d3414320"
+     }
+    ],
+    "uid": "58266e01-07c6-4c65-b8e6-743e75ac3af1"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-43-198.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "aws-node",
+      "ports": [
+       {
+        "containerPort": 61678,
+        "hostPort": 61678,
+        "protocol": "TCP"
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "25m"
+       }
+      }
+     },
+     {
+      "name": "aws-eks-nodeagent",
+      "ports": [
+       {
+        "containerPort": 8162,
+        "hostPort": 8162,
+        "protocol": "TCP"
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "25m"
+       }
+      }
+     }
+    ],
+    "initContainers": [
+     {
+      "name": "aws-vpc-cni-init",
+      "resources": {
+       "requests": {
+        "cpu": "25m"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-43-198.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "25m"
+      },
+      "name": "aws-eks-nodeagent"
+     },
+     {
+      "allocatedResources": {
+       "cpu": "25m"
+      },
+      "name": "aws-node"
+     }
+    ],
+    "initContainerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "25m"
+      },
+      "name": "aws-vpc-cni-init"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/instance": "aws-vpc-cni",
+     "app.kubernetes.io/name": "aws-node",
+     "controller-revision-hash": "7bd69b9cf8",
+     "k8s-app": "aws-node",
+     "pod-template-generation": "1"
+    },
+    "name": "aws-node-8r8sd",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "aws-node",
+      "uid": "88de0637-ee38-46bc-8587-0a15d3414320"
+     }
+    ],
+    "uid": "7804e052-035c-46d7-8491-f30985b5b28c"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-9-125.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "aws-node",
+      "ports": [
+       {
+        "containerPort": 61678,
+        "hostPort": 61678,
+        "protocol": "TCP"
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "25m"
+       }
+      }
+     },
+     {
+      "name": "aws-eks-nodeagent",
+      "ports": [
+       {
+        "containerPort": 8162,
+        "hostPort": 8162,
+        "protocol": "TCP"
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "25m"
+       }
+      }
+     }
+    ],
+    "initContainers": [
+     {
+      "name": "aws-vpc-cni-init",
+      "resources": {
+       "requests": {
+        "cpu": "25m"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-9-125.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "25m"
+      },
+      "name": "aws-eks-nodeagent"
+     },
+     {
+      "allocatedResources": {
+       "cpu": "25m"
+      },
+      "name": "aws-node"
+     }
+    ],
+    "initContainerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "25m"
+      },
+      "name": "aws-vpc-cni-init"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/instance": "aws-vpc-cni",
+     "app.kubernetes.io/name": "aws-node",
+     "controller-revision-hash": "7bd69b9cf8",
+     "k8s-app": "aws-node",
+     "pod-template-generation": "1"
+    },
+    "name": "aws-node-kghs6",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "aws-node",
+      "uid": "88de0637-ee38-46bc-8587-0a15d3414320"
+     }
+    ],
+    "uid": "41b2fb41-bb53-4dce-8a2e-34579114406c"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-18-172.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "aws-node",
+      "ports": [
+       {
+        "containerPort": 61678,
+        "hostPort": 61678,
+        "protocol": "TCP"
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "25m"
+       }
+      }
+     },
+     {
+      "name": "aws-eks-nodeagent",
+      "ports": [
+       {
+        "containerPort": 8162,
+        "hostPort": 8162,
+        "protocol": "TCP"
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "25m"
+       }
+      }
+     }
+    ],
+    "initContainers": [
+     {
+      "name": "aws-vpc-cni-init",
+      "resources": {
+       "requests": {
+        "cpu": "25m"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-18-172.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "25m"
+      },
+      "name": "aws-eks-nodeagent"
+     },
+     {
+      "allocatedResources": {
+       "cpu": "25m"
+      },
+      "name": "aws-node"
+     }
+    ],
+    "initContainerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "25m"
+      },
+      "name": "aws-vpc-cni-init"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/instance": "aws-vpc-cni",
+     "app.kubernetes.io/name": "aws-node",
+     "controller-revision-hash": "7bd69b9cf8",
+     "k8s-app": "aws-node",
+     "pod-template-generation": "1"
+    },
+    "name": "aws-node-vhzhv",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "aws-node",
+      "uid": "88de0637-ee38-46bc-8587-0a15d3414320"
+     }
+    ],
+    "uid": "d7f43059-b7f7-459b-bfb0-89e92d32186f"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-26-143.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "aws-node",
+      "ports": [
+       {
+        "containerPort": 61678,
+        "hostPort": 61678,
+        "protocol": "TCP"
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "25m"
+       }
+      }
+     },
+     {
+      "name": "aws-eks-nodeagent",
+      "ports": [
+       {
+        "containerPort": 8162,
+        "hostPort": 8162,
+        "protocol": "TCP"
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "25m"
+       }
+      }
+     }
+    ],
+    "initContainers": [
+     {
+      "name": "aws-vpc-cni-init",
+      "resources": {
+       "requests": {
+        "cpu": "25m"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-26-143.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "25m"
+      },
+      "name": "aws-eks-nodeagent"
+     },
+     {
+      "allocatedResources": {
+       "cpu": "25m"
+      },
+      "name": "aws-node"
+     }
+    ],
+    "initContainerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "25m"
+      },
+      "name": "aws-vpc-cni-init"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "eks.amazonaws.com/component": "coredns",
+     "k8s-app": "kube-dns",
+     "pod-template-hash": "67db859b96",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    },
+    "name": "coredns-67db859b96-62chd",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "coredns-67db859b96",
+      "uid": "a4df2fc2-2be4-4aae-b802-2b3ddb56f1c0"
+     }
+    ],
+    "uid": "dc6f2e64-3e15-4ea5-b2f3-c10ad0b29f01"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchExpressions": [
+          {
+           "key": "kubernetes.io/os",
+           "operator": "In",
+           "values": [
+            "linux"
+           ]
+          },
+          {
+           "key": "kubernetes.io/arch",
+           "operator": "In",
+           "values": [
+            "amd64",
+            "arm64"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "coredns",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "70Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-43-198.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoSchedule",
+      "key": "node-role.kubernetes.io/control-plane"
+     },
+     {
+      "key": "CriticalAddonsOnly",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ],
+    "topologySpreadConstraints": [
+     {
+      "maxSkew": 1,
+      "topologyKey": "topology.kubernetes.io/zone",
+      "whenUnsatisfiable": "ScheduleAnyway"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "100m",
+       "memory": "70Mi"
+      },
+      "name": "coredns"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "eks.amazonaws.com/component": "coredns",
+     "k8s-app": "kube-dns",
+     "pod-template-hash": "67db859b96",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    },
+    "name": "coredns-67db859b96-6tzbx",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "coredns-67db859b96",
+      "uid": "a4df2fc2-2be4-4aae-b802-2b3ddb56f1c0"
+     }
+    ],
+    "uid": "af60cd1a-a7ab-488b-8bfb-f978f419df49"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchExpressions": [
+          {
+           "key": "kubernetes.io/os",
+           "operator": "In",
+           "values": [
+            "linux"
+           ]
+          },
+          {
+           "key": "kubernetes.io/arch",
+           "operator": "In",
+           "values": [
+            "amd64",
+            "arm64"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "coredns",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "70Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-43-198.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoSchedule",
+      "key": "node-role.kubernetes.io/control-plane"
+     },
+     {
+      "key": "CriticalAddonsOnly",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ],
+    "topologySpreadConstraints": [
+     {
+      "maxSkew": 1,
+      "topologyKey": "topology.kubernetes.io/zone",
+      "whenUnsatisfiable": "ScheduleAnyway"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "100m",
+       "memory": "70Mi"
+      },
+      "name": "coredns"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "controller-revision-hash": "554f67675f",
+     "k8s-app": "kube-proxy",
+     "pod-template-generation": "1",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "kube-proxy-6bmfb",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "kube-proxy",
+      "uid": "96de0759-9ed6-432a-b0fa-a50626eacc1d"
+     }
+    ],
+    "uid": "5c182131-82e3-4922-9f05-615ac34297a8"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-18-172.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "kube-proxy",
+      "resources": {
+       "requests": {
+        "cpu": "100m"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-18-172.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "100m"
+      },
+      "name": "kube-proxy"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "controller-revision-hash": "554f67675f",
+     "k8s-app": "kube-proxy",
+     "pod-template-generation": "1"
+    },
+    "name": "kube-proxy-6mnch",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "kube-proxy",
+      "uid": "96de0759-9ed6-432a-b0fa-a50626eacc1d"
+     }
+    ],
+    "uid": "fb9cc848-05c8-48f0-a911-d2e9413fe4d5"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-9-125.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "kube-proxy",
+      "resources": {
+       "requests": {
+        "cpu": "100m"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-9-125.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "100m"
+      },
+      "name": "kube-proxy"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "controller-revision-hash": "554f67675f",
+     "k8s-app": "kube-proxy",
+     "pod-template-generation": "1",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "kube-proxy-87vhn",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "kube-proxy",
+      "uid": "96de0759-9ed6-432a-b0fa-a50626eacc1d"
+     }
+    ],
+    "uid": "960e9618-3e56-440c-8751-ae77b7cccde6"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-26-143.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "kube-proxy",
+      "resources": {
+       "requests": {
+        "cpu": "100m"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-26-143.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "100m"
+      },
+      "name": "kube-proxy"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "controller-revision-hash": "554f67675f",
+     "k8s-app": "kube-proxy",
+     "pod-template-generation": "1"
+    },
+    "name": "kube-proxy-l5h85",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "kube-proxy",
+      "uid": "96de0759-9ed6-432a-b0fa-a50626eacc1d"
+     }
+    ],
+    "uid": "de0e9ad7-9a6f-4481-abf8-cdaee4e6b0f6"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-43-198.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "kube-proxy",
+      "resources": {
+       "requests": {
+        "cpu": "100m"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-43-198.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "100m"
+      },
+      "name": "kube-proxy"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/instance": "metrics-server",
+     "app.kubernetes.io/name": "metrics-server",
+     "pod-template-hash": "665685856d",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1b"
+    },
+    "name": "metrics-server-665685856d-nrdz2",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "metrics-server-665685856d",
+      "uid": "9aa79950-1503-4521-bcb7-2a6c6c694f21"
+     }
+    ],
+    "uid": "ac96995f-ac00-4c45-a59a-7e0ead1ef193"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchExpressions": [
+          {
+           "key": "kubernetes.io/os",
+           "operator": "In",
+           "values": [
+            "linux"
+           ]
+          },
+          {
+           "key": "kubernetes.io/arch",
+           "operator": "In",
+           "values": [
+            "amd64",
+            "arm64"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "metrics-server",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "200Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-9-125.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "key": "CriticalAddonsOnly",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ],
+    "topologySpreadConstraints": [
+     {
+      "maxSkew": 1,
+      "topologyKey": "topology.kubernetes.io/zone",
+      "whenUnsatisfiable": "ScheduleAnyway"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "100m",
+       "memory": "200Mi"
+      },
+      "name": "metrics-server"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/instance": "metrics-server",
+     "app.kubernetes.io/name": "metrics-server",
+     "pod-template-hash": "665685856d",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    },
+    "name": "metrics-server-665685856d-wq9mz",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "metrics-server-665685856d",
+      "uid": "9aa79950-1503-4521-bcb7-2a6c6c694f21"
+     }
+    ],
+    "uid": "6363b89e-ae2a-4ecd-88e0-3ab662bdc06b"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchExpressions": [
+          {
+           "key": "kubernetes.io/os",
+           "operator": "In",
+           "values": [
+            "linux"
+           ]
+          },
+          {
+           "key": "kubernetes.io/arch",
+           "operator": "In",
+           "values": [
+            "amd64",
+            "arm64"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "metrics-server",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "200Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-43-198.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "key": "CriticalAddonsOnly",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ],
+    "topologySpreadConstraints": [
+     {
+      "maxSkew": 1,
+      "topologyKey": "topology.kubernetes.io/zone",
+      "whenUnsatisfiable": "ScheduleAnyway"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "100m",
+       "memory": "200Mi"
+      },
+      "name": "metrics-server"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "metrics",
+     "app.kubernetes.io/instance": "prometheus",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "kube-state-metrics",
+     "app.kubernetes.io/part-of": "kube-state-metrics",
+     "app.kubernetes.io/version": "2.20.0",
+     "pod-template-hash": "5979889c8b",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "prometheus-kube-state-metrics-5979889c8b-lfh98",
+    "namespace": "monitoring",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "prometheus-kube-state-metrics-5979889c8b",
+      "uid": "e3cc78da-d03b-4004-b906-aaf6f31a68fe"
+     }
+    ],
+    "uid": "9cf5f6c8-a659-4fdd-b443-3a3aa934f60f"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "kube-state-metrics",
+      "resources": {
+       "requests": {
+        "cpu": "10m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-26-143.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "10m",
+       "memory": "64Mi"
+      },
+      "name": "kube-state-metrics"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "annotations": {
+     "cluster-autoscaler.kubernetes.io/safe-to-evict": "true"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "metrics",
+     "app.kubernetes.io/instance": "prometheus",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "prometheus-node-exporter",
+     "app.kubernetes.io/part-of": "prometheus-node-exporter",
+     "app.kubernetes.io/version": "1.12.1",
+     "controller-revision-hash": "574485b595",
+     "pod-template-generation": "1",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1b"
+    },
+    "name": "prometheus-prometheus-node-exporter-g4td2",
+    "namespace": "monitoring",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "prometheus-prometheus-node-exporter",
+      "uid": "e7f65aef-2de3-4aa8-8e29-a91f2f635d84"
+     }
+    ],
+    "uid": "35019c30-a8d7-444c-a5ab-43b50f7baa84"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-9-125.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "node-exporter",
+      "ports": [
+       {
+        "containerPort": 9100,
+        "hostPort": 9100,
+        "protocol": "TCP"
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "10m",
+        "memory": "32Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-9-125.ap-south-1.compute.internal",
+    "nodeSelector": {
+     "kubernetes.io/os": "linux"
+    },
+    "tolerations": [
+     {
+      "effect": "NoSchedule",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "10m",
+       "memory": "32Mi"
+      },
+      "name": "node-exporter"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "annotations": {
+     "cluster-autoscaler.kubernetes.io/safe-to-evict": "true"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "metrics",
+     "app.kubernetes.io/instance": "prometheus",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "prometheus-node-exporter",
+     "app.kubernetes.io/part-of": "prometheus-node-exporter",
+     "app.kubernetes.io/version": "1.12.1",
+     "controller-revision-hash": "574485b595",
+     "pod-template-generation": "1",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "prometheus-prometheus-node-exporter-l9xx4",
+    "namespace": "monitoring",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "prometheus-prometheus-node-exporter",
+      "uid": "e7f65aef-2de3-4aa8-8e29-a91f2f635d84"
+     }
+    ],
+    "uid": "02ebe1ef-d176-4bff-ad94-d28915a32296"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-18-172.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "node-exporter",
+      "ports": [
+       {
+        "containerPort": 9100,
+        "hostPort": 9100,
+        "protocol": "TCP"
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "10m",
+        "memory": "32Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-18-172.ap-south-1.compute.internal",
+    "nodeSelector": {
+     "kubernetes.io/os": "linux"
+    },
+    "tolerations": [
+     {
+      "effect": "NoSchedule",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "10m",
+       "memory": "32Mi"
+      },
+      "name": "node-exporter"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "annotations": {
+     "cluster-autoscaler.kubernetes.io/safe-to-evict": "true"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "metrics",
+     "app.kubernetes.io/instance": "prometheus",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "prometheus-node-exporter",
+     "app.kubernetes.io/part-of": "prometheus-node-exporter",
+     "app.kubernetes.io/version": "1.12.1",
+     "controller-revision-hash": "574485b595",
+     "pod-template-generation": "1",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "prometheus-prometheus-node-exporter-nzdxc",
+    "namespace": "monitoring",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "prometheus-prometheus-node-exporter",
+      "uid": "e7f65aef-2de3-4aa8-8e29-a91f2f635d84"
+     }
+    ],
+    "uid": "c2130119-3c33-4a88-991d-acd60952ad49"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-26-143.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "node-exporter",
+      "ports": [
+       {
+        "containerPort": 9100,
+        "hostPort": 9100,
+        "protocol": "TCP"
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "10m",
+        "memory": "32Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-26-143.ap-south-1.compute.internal",
+    "nodeSelector": {
+     "kubernetes.io/os": "linux"
+    },
+    "tolerations": [
+     {
+      "effect": "NoSchedule",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "10m",
+       "memory": "32Mi"
+      },
+      "name": "node-exporter"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "annotations": {
+     "cluster-autoscaler.kubernetes.io/safe-to-evict": "true"
+    },
+    "labels": {
+     "app.kubernetes.io/component": "metrics",
+     "app.kubernetes.io/instance": "prometheus",
+     "app.kubernetes.io/managed-by": "Helm",
+     "app.kubernetes.io/name": "prometheus-node-exporter",
+     "app.kubernetes.io/part-of": "prometheus-node-exporter",
+     "app.kubernetes.io/version": "1.12.1",
+     "controller-revision-hash": "574485b595",
+     "pod-template-generation": "1",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    },
+    "name": "prometheus-prometheus-node-exporter-q9wkx",
+    "namespace": "monitoring",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "DaemonSet",
+      "name": "prometheus-prometheus-node-exporter",
+      "uid": "e7f65aef-2de3-4aa8-8e29-a91f2f635d84"
+     }
+    ],
+    "uid": "eae102dc-523b-4161-b33d-e74c9c71f812"
+   },
+   "spec": {
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "ip-172-31-43-198.ap-south-1.compute.internal"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "containers": [
+     {
+      "name": "node-exporter",
+      "ports": [
+       {
+        "containerPort": 9100,
+        "hostPort": 9100,
+        "protocol": "TCP"
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "10m",
+        "memory": "32Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-43-198.ap-south-1.compute.internal",
+    "nodeSelector": {
+     "kubernetes.io/os": "linux"
+    },
+    "tolerations": [
+     {
+      "effect": "NoSchedule",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/disk-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/memory-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/pid-pressure",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/unschedulable",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node.kubernetes.io/network-unavailable",
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "10m",
+       "memory": "32Mi"
+      },
+      "name": "node-exporter"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "server",
+     "app.kubernetes.io/instance": "prometheus",
+     "app.kubernetes.io/name": "prometheus",
+     "app.kubernetes.io/part-of": "prometheus",
+     "app.kubernetes.io/version": "v3.15.0",
+     "ephemeral": "true",
+     "helm.sh/chart": "prometheus-29.36.1",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "d85f86467",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "prometheus-server-d85f86467-4jpf2",
+    "namespace": "monitoring",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "prometheus-server-d85f86467",
+      "uid": "4a5a1c88-48e1-45a3-b0da-72e5d9aa8ec8"
+     }
+    ],
+    "uid": "b1e2db1a-89fa-44ca-94db-8181ead30f1b"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "prometheus-server-configmap-reload",
+      "resources": {
+       "requests": {
+        "cpu": "5m",
+        "memory": "16Mi"
+       }
+      }
+     },
+     {
+      "name": "prometheus-server",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "512Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-26-143.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "100m",
+       "memory": "512Mi"
+      },
+      "name": "prometheus-server"
+     },
+     {
+      "allocatedResources": {
+       "cpu": "5m",
+       "memory": "16Mi"
+      },
+      "name": "prometheus-server-configmap-reload"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "rightsized-worker",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "7cb96c7ddf",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "rightsized",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    },
+    "name": "rightsized-worker-7cb96c7ddf-bmw56",
+    "namespace": "prod-sim",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "rightsized-worker-7cb96c7ddf",
+      "uid": "dd98d421-0f3e-4018-8665-534917cfd68a"
+     }
+    ],
+    "uid": "56dfc070-e16e-419c-be2e-67c1ce541203"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "worker",
+      "resources": {
+       "requests": {
+        "cpu": "80m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-43-198.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "80m",
+       "memory": "64Mi"
+      },
+      "name": "worker"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "rightsized-worker",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "7cb96c7ddf",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "rightsized",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1b"
+    },
+    "name": "rightsized-worker-7cb96c7ddf-vjf5s",
+    "namespace": "prod-sim",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "rightsized-worker-7cb96c7ddf",
+      "uid": "dd98d421-0f3e-4018-8665-534917cfd68a"
+     }
+    ],
+    "uid": "519a1c8a-b93e-4f99-878a-3980e6c8580a"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "worker",
+      "resources": {
+       "requests": {
+        "cpu": "80m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-9-125.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "80m",
+       "memory": "64Mi"
+      },
+      "name": "worker"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "throttled-encoder",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "8b999cc87",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "underprovisioned",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    },
+    "name": "throttled-encoder-8b999cc87-64nmg",
+    "namespace": "prod-sim",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "throttled-encoder-8b999cc87",
+      "uid": "8e0f9ee5-fe7c-4b8c-a041-a39d1c66f2f6"
+     }
+    ],
+    "uid": "26f8b315-9574-4ee5-b381-45b0fdee06e4"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "encoder",
+      "resources": {
+       "requests": {
+        "cpu": "10m",
+        "memory": "32Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-43-198.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "10m",
+       "memory": "32Mi"
+      },
+      "name": "encoder"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "throttled-encoder",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "8b999cc87",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "underprovisioned",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1b"
+    },
+    "name": "throttled-encoder-8b999cc87-h66p7",
+    "namespace": "prod-sim",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "throttled-encoder-8b999cc87",
+      "uid": "8e0f9ee5-fe7c-4b8c-a041-a39d1c66f2f6"
+     }
+    ],
+    "uid": "d82835e4-72a7-45f1-bccb-00d60e5be846"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "encoder",
+      "resources": {
+       "requests": {
+        "cpu": "10m",
+        "memory": "32Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-9-125.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "10m",
+       "memory": "32Mi"
+      },
+      "name": "encoder"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "overprovisioned-api",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "76dd9f98c9",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "overprovisioned",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "overprovisioned-api-76dd9f98c9-fcnhh",
+    "namespace": "team-a",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "overprovisioned-api-76dd9f98c9",
+      "uid": "e8d353a1-1485-438b-8b7a-69cda7a109c2"
+     }
+    ],
+    "uid": "c272873d-6c37-480e-afaf-e01dd82853a4"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "idler",
+      "resources": {
+       "requests": {
+        "cpu": "1",
+        "memory": "1Gi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-26-143.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "1",
+       "memory": "1Gi"
+      },
+      "name": "idler"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "overprovisioned-api",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "76dd9f98c9",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "overprovisioned",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1b"
+    },
+    "name": "overprovisioned-api-76dd9f98c9-gtnh5",
+    "namespace": "team-a",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "overprovisioned-api-76dd9f98c9",
+      "uid": "e8d353a1-1485-438b-8b7a-69cda7a109c2"
+     }
+    ],
+    "uid": "239af339-c490-464a-be92-13db8730cdde"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "idler",
+      "resources": {
+       "requests": {
+        "cpu": "1",
+        "memory": "1Gi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-9-125.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "1",
+       "memory": "1Gi"
+      },
+      "name": "idler"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "unschedulable-giant",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "67cc89dbdc",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "unschedulable"
+    },
+    "name": "unschedulable-giant-67cc89dbdc-psk4c",
+    "namespace": "team-a",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "unschedulable-giant-67cc89dbdc",
+      "uid": "0498a9bd-291c-4c0e-a29b-67617cb8a989"
+     }
+    ],
+    "uid": "660a97cc-d3f3-48ec-b85b-75840582adc4"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "giant",
+      "resources": {
+       "requests": {
+        "cpu": "32",
+        "memory": "64Gi"
+       }
+      }
+     }
+    ],
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "phase": "Pending"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "load-generator",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "5d6ff98784",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "load-generator",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    },
+    "name": "load-generator-5d6ff98784-j4cbv",
+    "namespace": "team-b",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "load-generator-5d6ff98784",
+      "uid": "48dbcc3a-0d33-42ea-9b97-7258dca7333b"
+     }
+    ],
+    "uid": "db90e1c2-c275-4402-99cd-64b961d8929b"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "loadgen",
+      "resources": {
+       "requests": {
+        "cpu": "50m",
+        "memory": "32Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-43-198.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "50m",
+       "memory": "32Mi"
+      },
+      "name": "loadgen"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "pdb-guarded-web",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "867645d8d",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "pdb",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1b"
+    },
+    "name": "pdb-guarded-web-867645d8d-gm95f",
+    "namespace": "team-b",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "pdb-guarded-web-867645d8d",
+      "uid": "45c11199-5580-4971-bf1a-7869143d9cf3"
+     }
+    ],
+    "uid": "a39584a8-5f55-4c63-ab67-7af55dce8191"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "web",
+      "resources": {
+       "requests": {
+        "cpu": "50m",
+        "memory": "48Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-9-125.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "50m",
+       "memory": "48Mi"
+      },
+      "name": "web"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "pdb-guarded-web",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "867645d8d",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "pdb",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "pdb-guarded-web-867645d8d-qvltl",
+    "namespace": "team-b",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "pdb-guarded-web-867645d8d",
+      "uid": "45c11199-5580-4971-bf1a-7869143d9cf3"
+     }
+    ],
+    "uid": "814ce680-92c1-48d6-89be-29df172c854f"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "web",
+      "resources": {
+       "requests": {
+        "cpu": "50m",
+        "memory": "48Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-18-172.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "50m",
+       "memory": "48Mi"
+      },
+      "name": "web"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "pdb-guarded-web",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "867645d8d",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "pdb",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "pdb-guarded-web-867645d8d-rf4p4",
+    "namespace": "team-b",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "pdb-guarded-web-867645d8d",
+      "uid": "45c11199-5580-4971-bf1a-7869143d9cf3"
+     }
+    ],
+    "uid": "fb9cee13-8222-4ddf-bbbf-f7835c56102f"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "web",
+      "resources": {
+       "requests": {
+        "cpu": "50m",
+        "memory": "48Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-18-172.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "50m",
+       "memory": "48Mi"
+      },
+      "name": "web"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "php-apache",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "7cd5b774b6",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "hpa-load",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "php-apache-7cd5b774b6-4s8nf",
+    "namespace": "team-b",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "php-apache-7cd5b774b6",
+      "uid": "634ec980-b79b-4ad7-bd88-a75c35dc6c1a"
+     }
+    ],
+    "uid": "b1b45561-a0c2-4e5e-8caa-bb98972fe126"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "php-apache",
+      "resources": {
+       "requests": {
+        "cpu": "200m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-18-172.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "200m",
+       "memory": "64Mi"
+      },
+      "name": "php-apache"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "php-apache",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "7cd5b774b6",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "hpa-load",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    },
+    "name": "php-apache-7cd5b774b6-987v9",
+    "namespace": "team-b",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "php-apache-7cd5b774b6",
+      "uid": "634ec980-b79b-4ad7-bd88-a75c35dc6c1a"
+     }
+    ],
+    "uid": "b01584b4-509d-4c82-ae7e-255d372fcf6b"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "php-apache",
+      "resources": {
+       "requests": {
+        "cpu": "200m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-43-198.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "200m",
+       "memory": "64Mi"
+      },
+      "name": "php-apache"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "php-apache",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "7cd5b774b6",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "hpa-load",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1a"
+    },
+    "name": "php-apache-7cd5b774b6-dnkjx",
+    "namespace": "team-b",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "php-apache-7cd5b774b6",
+      "uid": "634ec980-b79b-4ad7-bd88-a75c35dc6c1a"
+     }
+    ],
+    "uid": "a866f59a-0ce6-4f8f-89ac-8f8ef4c766bf"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "php-apache",
+      "resources": {
+       "requests": {
+        "cpu": "200m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-43-198.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "200m",
+       "memory": "64Mi"
+      },
+      "name": "php-apache"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "php-apache",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "7cd5b774b6",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "hpa-load",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "php-apache-7cd5b774b6-lmbnh",
+    "namespace": "team-b",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "php-apache-7cd5b774b6",
+      "uid": "634ec980-b79b-4ad7-bd88-a75c35dc6c1a"
+     }
+    ],
+    "uid": "1fc228f9-ecc0-4f94-80cd-380a2d99eb34"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "php-apache",
+      "resources": {
+       "requests": {
+        "cpu": "200m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-18-172.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "200m",
+       "memory": "64Mi"
+      },
+      "name": "php-apache"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "php-apache",
+     "created-on": "2026-10-09",
+     "ephemeral": "true",
+     "owner": "agent-provisioned",
+     "pod-template-hash": "7cd5b774b6",
+     "project": "XamOps",
+     "purpose": "CloudK8sFeatureTesting",
+     "scenario": "hpa-load",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "php-apache-7cd5b774b6-pvkwn",
+    "namespace": "team-b",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "php-apache-7cd5b774b6",
+      "uid": "634ec980-b79b-4ad7-bd88-a75c35dc6c1a"
+     }
+    ],
+    "uid": "b8b488a7-af03-415f-beec-4d88c4361636"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "php-apache",
+      "resources": {
+       "requests": {
+        "cpu": "200m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-26-143.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "200m",
+       "memory": "64Mi"
+      },
+      "name": "php-apache"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app.kubernetes.io/component": "recommender",
+     "app.kubernetes.io/instance": "vpa",
+     "app.kubernetes.io/name": "vpa",
+     "pod-template-hash": "c9f5d5fbb",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "vpa-recommender-c9f5d5fbb-9xjsw",
+    "namespace": "vpa",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "vpa-recommender-c9f5d5fbb",
+      "uid": "cb17d0c9-2617-4049-8698-36dc3a81194b"
+     }
+    ],
+    "uid": "68bfda43-666c-45b8-bbda-813616e2b3fd"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "vpa",
+      "resources": {
+       "requests": {
+        "cpu": "25m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-18-172.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "25m",
+       "memory": "128Mi"
+      },
+      "name": "vpa"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "xamops-agent",
+     "app.kubernetes.io/name": "xamops-agent",
+     "pod-template-hash": "c5994b94b",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "xamops-agent-c5994b94b-6vgt5",
+    "namespace": "xamops-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "xamops-agent-c5994b94b",
+      "uid": "8b0716cd-e188-46db-bb5e-79cbdb3fcb3c"
+     }
+    ],
+    "uid": "7acd3bcf-ecaa-4f19-9ba1-5cc5b5e440db"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "agent",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "256Mi"
+       }
+      }
+     }
+    ],
+    "initContainers": [
+     {
+      "name": "opentelemetry-auto-instrumentation-java",
+      "resources": {
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     },
+     {
+      "name": "opentelemetry-auto-instrumentation-nodejs",
+      "resources": {
+       "requests": {
+        "cpu": "50m",
+        "memory": "128Mi"
+       }
+      }
+     },
+     {
+      "name": "opentelemetry-auto-instrumentation-python",
+      "resources": {
+       "requests": {
+        "cpu": "50m",
+        "memory": "32Mi"
+       }
+      }
+     },
+     {
+      "name": "opentelemetry-auto-instrumentation-dotnet",
+      "resources": {
+       "requests": {
+        "cpu": "50m",
+        "memory": "128Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-26-143.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoSchedule",
+      "key": "node-role.kubernetes.io/control-plane",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "100m",
+       "memory": "256Mi"
+      },
+      "name": "agent"
+     }
+    ],
+    "initContainerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "50m",
+       "memory": "64Mi"
+      },
+      "name": "opentelemetry-auto-instrumentation-java"
+     },
+     {
+      "allocatedResources": {
+       "cpu": "50m",
+       "memory": "128Mi"
+      },
+      "name": "opentelemetry-auto-instrumentation-nodejs"
+     },
+     {
+      "allocatedResources": {
+       "cpu": "50m",
+       "memory": "32Mi"
+      },
+      "name": "opentelemetry-auto-instrumentation-python"
+     },
+     {
+      "allocatedResources": {
+       "cpu": "50m",
+       "memory": "128Mi"
+      },
+      "name": "opentelemetry-auto-instrumentation-dotnet"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "xamops-automation",
+     "app.kubernetes.io/component": "automation",
+     "pod-template-hash": "55dbfb8794",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "xamops-automation-55dbfb8794-qcp27",
+    "namespace": "xamops-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "xamops-automation-55dbfb8794",
+      "uid": "c6b89f52-1719-47d6-94f0-d45f5110e90c"
+     }
+    ],
+    "uid": "eb8c9744-d903-4a3d-93ed-bc3d652c179e"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "automation",
+      "resources": {
+       "requests": {
+        "cpu": "50m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-18-172.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoSchedule",
+      "key": "node-role.kubernetes.io/control-plane",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoSchedule",
+      "key": "node-role.kubernetes.io/master",
+      "operator": "Exists"
+     },
+     {
+      "key": "CriticalAddonsOnly",
+      "operator": "Exists"
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "50m",
+       "memory": "64Mi"
+      },
+      "name": "automation"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "labels": {
+     "app": "xamops-stub",
+     "app.kubernetes.io/part-of": "xamops-automation-harness",
+     "pod-template-hash": "5c9fdcbf86",
+     "topology.kubernetes.io/region": "ap-south-1",
+     "topology.kubernetes.io/zone": "ap-south-1c"
+    },
+    "name": "xamops-stub-5c9fdcbf86-wz88b",
+    "namespace": "xamops-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "controller": true,
+      "kind": "ReplicaSet",
+      "name": "xamops-stub-5c9fdcbf86",
+      "uid": "2fab772d-14c7-46b6-afbf-15f71665da2d"
+     }
+    ],
+    "uid": "43b66856-119b-4b7e-b408-fbea8f953c45"
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "stub",
+      "resources": {
+       "requests": {
+        "cpu": "10m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "ip-172-31-18-172.ap-south-1.compute.internal",
+    "tolerations": [
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/not-ready",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     },
+     {
+      "effect": "NoExecute",
+      "key": "node.kubernetes.io/unreachable",
+      "operator": "Exists",
+      "tolerationSeconds": 300
+     }
+    ]
+   },
+   "status": {
+    "containerStatuses": [
+     {
+      "allocatedResources": {
+       "cpu": "10m",
+       "memory": "64Mi"
+      },
+      "name": "stub"
+     }
+    ],
+    "phase": "Running"
+   }
+  },
+  {
+   "apiVersion": "policy/v1",
+   "kind": "PodDisruptionBudget",
+   "metadata": {
+    "generation": 1,
+    "name": "coredns",
+    "namespace": "kube-system"
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "eks.amazonaws.com/component": "coredns",
+      "k8s-app": "kube-dns"
+     }
+    }
+   },
+   "status": {
+    "disruptionsAllowed": 1,
+    "observedGeneration": 1
+   }
+  },
+  {
+   "apiVersion": "policy/v1",
+   "kind": "PodDisruptionBudget",
+   "metadata": {
+    "generation": 1,
+    "name": "metrics-server",
+    "namespace": "kube-system"
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app.kubernetes.io/instance": "metrics-server",
+      "app.kubernetes.io/name": "metrics-server"
+     }
+    }
+   },
+   "status": {
+    "disruptionsAllowed": 1,
+    "observedGeneration": 1
+   }
+  },
+  {
+   "apiVersion": "policy/v1",
+   "kind": "PodDisruptionBudget",
+   "metadata": {
+    "generation": 1,
+    "name": "pdb-guarded-web",
+    "namespace": "team-b"
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "pdb-guarded-web"
+     }
+    }
+   },
+   "status": {
+    "disruptionsAllowed": 0,
+    "observedGeneration": 1
+   }
+  },
+  {
+   "apiVersion": "policy/v1",
+   "kind": "PodDisruptionBudget",
+   "metadata": {
+    "generation": 1,
+    "name": "xamops-agent-pdb",
+    "namespace": "xamops-system"
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "xamops-agent"
+     }
+    }
+   },
+   "status": {
+    "disruptionsAllowed": 1,
+    "observedGeneration": 1
+   }
+  },
+  {
+   "apiVersion": "policy/v1",
+   "kind": "PodDisruptionBudget",
+   "metadata": {
+    "generation": 1,
+    "name": "xamops-automation-pdb",
+    "namespace": "xamops-system"
+   },
+   "spec": {
+    "selector": {
+     "matchLabels": {
+      "app": "xamops-automation"
+     }
+    }
+   },
+   "status": {
+    "disruptionsAllowed": 0,
+    "observedGeneration": 1
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "amazon-cloudwatch-observability-controller-manager-67ddff64b8",
+    "namespace": "amazon-cloudwatch",
+    "uid": "b771742c-f757-4d8f-bf33-9f720379444b"
+   },
+   "spec": {
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "idle-batch-listener-b6d6898cd",
+    "namespace": "dev-sim",
+    "uid": "9ac02beb-bf02-45da-91ba-2c70820320af"
+   },
+   "spec": {
+    "replicas": 3
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "no-requests-sidecar-app-55c8f955d9",
+    "namespace": "dev-sim",
+    "uid": "3cee82c7-e36d-4c17-a2cf-094896beaf5f"
+   },
+   "spec": {
+    "replicas": 2
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "coredns-67db859b96",
+    "namespace": "kube-system",
+    "uid": "a4df2fc2-2be4-4aae-b802-2b3ddb56f1c0"
+   },
+   "spec": {
+    "replicas": 2
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "metrics-server-665685856d",
+    "namespace": "kube-system",
+    "uid": "9aa79950-1503-4521-bcb7-2a6c6c694f21"
+   },
+   "spec": {
+    "replicas": 2
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "prometheus-kube-state-metrics-5979889c8b",
+    "namespace": "monitoring",
+    "uid": "e3cc78da-d03b-4004-b906-aaf6f31a68fe"
+   },
+   "spec": {
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "prometheus-server-d85f86467",
+    "namespace": "monitoring",
+    "uid": "4a5a1c88-48e1-45a3-b0da-72e5d9aa8ec8"
+   },
+   "spec": {
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "rightsized-worker-7cb96c7ddf",
+    "namespace": "prod-sim",
+    "uid": "dd98d421-0f3e-4018-8665-534917cfd68a"
+   },
+   "spec": {
+    "replicas": 2
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "throttled-encoder-8b999cc87",
+    "namespace": "prod-sim",
+    "uid": "8e0f9ee5-fe7c-4b8c-a041-a39d1c66f2f6"
+   },
+   "spec": {
+    "replicas": 2
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "overprovisioned-api-76dd9f98c9",
+    "namespace": "team-a",
+    "uid": "e8d353a1-1485-438b-8b7a-69cda7a109c2"
+   },
+   "spec": {
+    "replicas": 2
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "unschedulable-giant-67cc89dbdc",
+    "namespace": "team-a",
+    "uid": "0498a9bd-291c-4c0e-a29b-67617cb8a989"
+   },
+   "spec": {
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "load-generator-5d6ff98784",
+    "namespace": "team-b",
+    "uid": "48dbcc3a-0d33-42ea-9b97-7258dca7333b"
+   },
+   "spec": {
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "pdb-guarded-web-867645d8d",
+    "namespace": "team-b",
+    "uid": "45c11199-5580-4971-bf1a-7869143d9cf3"
+   },
+   "spec": {
+    "replicas": 3
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "php-apache-7cd5b774b6",
+    "namespace": "team-b",
+    "uid": "634ec980-b79b-4ad7-bd88-a75c35dc6c1a"
+   },
+   "spec": {
+    "replicas": 5
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "vpa-recommender-c9f5d5fbb",
+    "namespace": "vpa",
+    "uid": "cb17d0c9-2617-4049-8698-36dc3a81194b"
+   },
+   "spec": {
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "xamops-agent-5f55f497b9",
+    "namespace": "xamops-system",
+    "uid": "4bfda4e6-60a5-4947-9dce-4f1c60b0a017"
+   },
+   "spec": {
+    "replicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "xamops-agent-c5994b94b",
+    "namespace": "xamops-system",
+    "uid": "8b0716cd-e188-46db-bb5e-79cbdb3fcb3c"
+   },
+   "spec": {
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "xamops-automation-55dbfb8794",
+    "namespace": "xamops-system",
+    "uid": "c6b89f52-1719-47d6-94f0-d45f5110e90c"
+   },
+   "spec": {
+    "replicas": 1
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "xamops-automation-6859b97559",
+    "namespace": "xamops-system",
+    "uid": "a0310f6e-5c9e-4509-8fba-9d064529cf00"
+   },
+   "spec": {
+    "replicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "xamops-automation-69f8cb9979",
+    "namespace": "xamops-system",
+    "uid": "46003ad1-555f-41af-ab09-f24490d8682a"
+   },
+   "spec": {
+    "replicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "xamops-automation-6c4f74d587",
+    "namespace": "xamops-system",
+    "uid": "b3aa737a-99c4-461d-b0e3-05f28b1e528a"
+   },
+   "spec": {
+    "replicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "xamops-automation-6cbbdb7ff",
+    "namespace": "xamops-system",
+    "uid": "68dd75f0-575c-465d-a6cc-0864e01af3f5"
+   },
+   "spec": {
+    "replicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "xamops-automation-6ccd7f54cb",
+    "namespace": "xamops-system",
+    "uid": "44b4d212-60d1-4251-bbf8-738d504e319a"
+   },
+   "spec": {
+    "replicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "xamops-automation-6ff6dd866f",
+    "namespace": "xamops-system",
+    "uid": "36e8706f-f3fa-486e-ab94-71b67569cd7d"
+   },
+   "spec": {
+    "replicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "xamops-automation-77659bdbb",
+    "namespace": "xamops-system",
+    "uid": "60ec4d75-bc31-4e42-8687-6360e0043706"
+   },
+   "spec": {
+    "replicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "xamops-automation-7fcbf6767d",
+    "namespace": "xamops-system",
+    "uid": "7100bca7-b71f-44fc-8338-939d55efea4e"
+   },
+   "spec": {
+    "replicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "xamops-automation-cfcb984d5",
+    "namespace": "xamops-system",
+    "uid": "ed0740e0-cb78-4bd5-8f31-519e60ceb99b"
+   },
+   "spec": {
+    "replicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "xamops-automation-dfd89f7d",
+    "namespace": "xamops-system",
+    "uid": "8ff11a0f-7af0-424d-81c0-74515550d7c3"
+   },
+   "spec": {
+    "replicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "name": "xamops-stub-5c9fdcbf86",
+    "namespace": "xamops-system",
+    "uid": "2fab772d-14c7-46b6-afbf-15f71665da2d"
+   },
+   "spec": {
+    "replicas": 1
+   }
+  }
+ ],
+ "kind": "List"
+}
