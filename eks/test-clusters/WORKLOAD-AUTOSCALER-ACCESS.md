@@ -167,9 +167,18 @@ kubectl get clusterrole,clusterrolebinding xamops-workload-autoscaler
 ```
 
 The `services/proxy` rule is restricted by `resourceNames` to the Prometheus service, so the role
-can proxy to Prometheus and to nothing else in the cluster. If your Prometheus Service is not
-`prometheus-server:9090` in namespace `monitoring`, change that `resourceNames` entry — RBAC matches
-the name exactly as it appears in the proxy URL.
+can proxy to Prometheus and to nothing else in the cluster. Two names are granted:
+
+- **`prometheus-server:80`** — what the XamOps installer produces. The script served by
+  `GET /api/v1/agent/install/eks.sh` never sets `server.service.servicePort`, so Prometheus gets the
+  chart's default port 80. This is the normal case and the engine's default
+  (`xamops.automation.vertical.metrics.port=80`).
+- **`prometheus-server:9090`** — what the test harness in this directory installs
+  (`harness/prometheus-values.yaml` sets `servicePort=9090`).
+
+If your Prometheus Service is named something else, or sits in another namespace, change the
+`resourceNames` entry and the three `xamops.automation.vertical.metrics.*` properties together —
+RBAC matches the name exactly as it appears in the proxy URL.
 
 The optional last rule (`autoscaling.k8s.io/verticalpodautoscalers`, read-only) is only needed for
 the side-by-side "what upstream VPA would recommend" column in the UI. Delete the rule if upstream
@@ -209,10 +218,13 @@ $K auth can-i patch pods --all-namespaces                 # MUST print: no (resi
 $K auth can-i delete pods --all-namespaces                # MUST print: no
 
 # the proxy check: resource/resourceName positionally, subresource via --subresource
+$K auth can-i get services/prometheus-server:80   --subresource=proxy -n monitoring             # yes
 $K auth can-i get services/prometheus-server:9090 --subresource=proxy -n monitoring             # yes
 $K auth can-i get services/prometheus-kube-state-metrics:8080 --subresource=proxy -n monitoring # no
 
-# the real usage source, proxied through the API server
+# the real usage source, proxied through the API server. :80 is the installer's port and the
+# engine's default; :9090 is the harness's and is granted so this cluster keeps working.
+$K get --raw '/api/v1/namespaces/monitoring/services/prometheus-server:80/proxy/api/v1/query?query=up'
 $K get --raw '/api/v1/namespaces/monitoring/services/prometheus-server:9090/proxy/api/v1/query?query=up'
 ```
 
@@ -224,11 +236,11 @@ Two syntax traps worth knowing, because the wrong form reads as a false failure:
   (`get services/<name> --subresource=proxy`), not a trailing argument.
 
 Only the name form that appears in the proxy URL matters. The URL XamOps builds is
-`/api/v1/namespaces/monitoring/services/prometheus-server:9090/proxy/...`, so
-`prometheus-server:9090` is the one `resourceNames` entry the manifest keeps. The bare
-`prometheus-server` form is not usable (the Service exposes no endpoint on the default port, so the
-proxy answers `ServiceUnavailable`), and `http:prometheus-server:9090` is a shape this backend never
-builds — both were dropped after the live check, and both now return `Forbidden`.
+`/api/v1/namespaces/{ns}/services/{service}:{port}/proxy/...`, so the granted `resourceNames` are
+exactly `prometheus-server:80` (installer) and `prometheus-server:9090` (harness). The bare
+`prometheus-server` form is not usable (the Service exposes no endpoint on the chart's default
+target, so the proxy answers `ServiceUnavailable`), and `http:prometheus-server:9090` is a shape this
+backend never builds — both were dropped after the live check, and both return `Forbidden`.
 
 The ClusterRole deliberately grants `services/proxy` but **not** `get` on the Service object
 itself, so a "does this Service exist" pre-flight read will be `Forbidden` while the proxied query

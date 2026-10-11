@@ -307,7 +307,15 @@ describe('verticalRightsizerApi', () => {
       applyMethod: 'IN_PLACE',
       dryRun: true,
     });
-    expect(result).toEqual({ kind: 'submitted', correlationId: 'c0ffee', state: 'ACCEPTED', dryRun: true });
+    // result is null here because this 202 carried none: the agent path reports its outcome later.
+    // The direct path answers with one, and verticalRightsizerApi.test.ts covers that shape.
+    expect(result).toEqual({
+      kind: 'submitted',
+      correlationId: 'c0ffee',
+      state: 'ACCEPTED',
+      dryRun: true,
+      result: null,
+    });
   });
 
   it('reports a 403 on the apply as a refusal, never as a success', async () => {

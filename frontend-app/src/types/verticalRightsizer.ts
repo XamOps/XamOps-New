@@ -253,13 +253,72 @@ export interface ApplyRequest {
 
 export type ApplyState = 'ACCEPTED' | 'DUPLICATE' | 'REFUSED';
 
+/** One container's result, in the backend's rich vocabulary (`APPLIED`, `DEFERRED`, `DRY_RUN`, …). */
+export interface ApplyContainerOutcomeWire {
+  name: string;
+  state: string | null;
+  detail: string | null;
+  requested: VerticalResourcesWire | null;
+  restartExpected: boolean | null;
+}
+
 /**
- * An apply is a submission, not a result: the outcome arrives later through the actions feed, so the
- * UI must never report success the server did not send.
+ * One container's before/after on one pod — the restart-free proof in raw numbers.
+ *
+ * `observedAfter` is read from the pod's `status.containerStatuses[].resources`, which is what is
+ * actually in place, not what was asked for.
+ */
+export interface ApplyContainerProofWire {
+  name: string;
+  containerIdBefore: string | null;
+  containerIdAfter: string | null;
+  restartCountBefore: number | null;
+  restartCountAfter: number | null;
+  observedBefore: VerticalResourcesWire | null;
+  observedAfter: VerticalResourcesWire | null;
+}
+
+export interface ApplyPodProofWire {
+  podName: string;
+  uidBefore: string | null;
+  uidAfter: string | null;
+  samePod: boolean | null;
+  ready: boolean | null;
+  containers: ApplyContainerProofWire[] | null;
+}
+
+/**
+ * The additive `result` block on a `202`: the real outcome, or absent when it is not known.
+ *
+ * `terminal` is richer than the published five audit states on purpose — `DEFERRED`, `INFEASIBLE`,
+ * `STUCK_IN_PROGRESS`, `RESTART_DETECTED` and `DRY_RUN` are five different things an operator has to
+ * be able to tell apart, and only `APPLIED` may ever be rendered as a success.
+ */
+export interface ApplyOutcomeWire {
+  method: string | null;
+  terminal: string | null;
+  detail: string | null;
+  restartFree: boolean | null;
+  containers: ApplyContainerOutcomeWire[] | null;
+  pods: ApplyPodProofWire[] | null;
+}
+
+/**
+ * An apply is a submission first: the contract's shape is asynchronous because the primary execution
+ * path is a command queue. `result` is the server's real outcome when it has one, and `null` when it
+ * genuinely does not — so the UI never reports success the server did not send.
  */
 export type ApplyResult =
-  | { kind: 'submitted'; correlationId: string | null; state: ApplyState | string; dryRun: boolean | null }
-  /** A 404 means the write path is not deployed in this environment yet. Not an error. */
+  | {
+      kind: 'submitted';
+      correlationId: string | null;
+      state: ApplyState | string;
+      dryRun: boolean | null;
+      result: ApplyOutcomeWire | null;
+    }
+  /** An untyped 404: this environment runs a build where the write path is not mapped. */
   | { kind: 'writes-not-deployed' }
+  /** A typed 404: the endpoint exists, this cluster is not registered here. A setup step. */
+  | { kind: 'cluster-not-registered'; message: string }
   | { kind: 'refused'; code: CodeView; message: string }
   | { kind: 'error'; message: string };

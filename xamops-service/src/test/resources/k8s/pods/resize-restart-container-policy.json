@@ -1,0 +1,47 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "throttled-encoder-7b4c9d-fghij",
+    "namespace": "prod-sim",
+    "uid": "33333333-3333-3333-3333-333333333333",
+    "generation": 2
+  },
+  "spec": {
+    "containers": [
+      {
+        "name": "encoder",
+        "image": "public.ecr.aws/docker/library/busybox:1.36",
+        "resizePolicy": [
+          { "resourceName": "cpu", "restartPolicy": "NotRequired" },
+          { "resourceName": "memory", "restartPolicy": "RestartContainer" }
+        ],
+        "resources": {
+          "requests": { "cpu": "200m", "memory": "250Mi" },
+          "limits": { "cpu": "200m", "memory": "250Mi" }
+        }
+      }
+    ]
+  },
+  "status": {
+    "phase": "Running",
+    "observedGeneration": 2,
+    "conditions": [
+      { "type": "Ready", "status": "True" }
+    ],
+    "containerStatuses": [
+      {
+        "name": "encoder",
+        "containerID": "containerd://dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "ready": true,
+        "started": true,
+        "restartCount": 1,
+        "resources": {
+          "requests": { "cpu": "200m", "memory": "250Mi" },
+          "limits": { "cpu": "200m", "memory": "250Mi" }
+        },
+        "allocatedResources": { "cpu": "200m", "memory": "250Mi" }
+      }
+    ]
+  }
+}

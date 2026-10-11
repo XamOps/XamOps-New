@@ -31,9 +31,26 @@ class VerticalMetricsPropertiesTest {
             "application-prod.properties",
             "application-preprod.properties");
 
-    /** The value every profile is expected to declare, per key. */
+    /**
+     * The value every profile is expected to declare, per key.
+     *
+     * <p>The five metrics keys are the components of a proxied path and are identical everywhere:
+     * they describe where Prometheus sits inside a cluster, which does not vary by environment.
+     */
     private static final List<String> EXPECTED_VALUES = List.of(
-            "monitoring", "prometheus-server", "9090", "20", "120", "24", "OFF");
+            "monitoring", "prometheus-server", "80", "20", "120", "24", "OFF");
+
+    /**
+     * UAT is the one profile where the two <em>no-row defaults</em> differ, and it differs for the
+     * same reason it is the one profile with the safety flags on: it is where this engine is being
+     * run for real. {@code RECOMMEND} because {@code OFF} answers {@code POLICY_OFF} for every
+     * workload and endpoint 2 is not implemented, so there is no other way to get a mode; 72h
+     * because this harness's Prometheus retains 3d, which makes 72h the longest honest window.
+     *
+     * <p>Neither value can apply anything: an apply needs both flags, an executor and a user action.
+     */
+    private static final List<String> UAT_OVERRIDES = List.of(
+            "monitoring", "prometheus-server", "80", "20", "120", "72", "RECOMMEND");
 
     @Test
     @DisplayName("absent properties bind to the safe defaults, so omitting configuration is harmless")
@@ -42,7 +59,10 @@ class VerticalMetricsPropertiesTest {
 
         assertThat(properties.metricsNamespace()).isEqualTo("monitoring");
         assertThat(properties.metricsService()).isEqualTo("prometheus-server");
-        assertThat(properties.metricsPort()).isEqualTo(9090);
+        assertThat(properties.metricsPort())
+                .as("the prometheus chart's default service port, which is what XamOps' own "
+                        + "installer produces; 9090 is only the test harness's")
+                .isEqualTo(80);
         assertThat(properties.queryTimeoutSeconds()).isEqualTo(20);
         assertThat(properties.ignoreContainerStartSeconds()).isEqualTo(120);
         assertThat(properties.defaultWindowHours()).isEqualTo(WorkloadPolicyDefaults.WINDOW_HOURS);
@@ -72,7 +92,7 @@ class VerticalMetricsPropertiesTest {
 
         assertThat(nonsense.metricsNamespace()).isEqualTo("monitoring");
         assertThat(nonsense.metricsService()).isEqualTo("prometheus-server");
-        assertThat(nonsense.metricsPort()).isEqualTo(9090);
+        assertThat(nonsense.metricsPort()).isEqualTo(80);
         assertThat(nonsense.queryTimeoutSeconds()).isEqualTo(20);
         assertThat(nonsense.ignoreContainerStartSeconds()).isEqualTo(120);
         assertThat(nonsense.defaultWindowHours()).isEqualTo(24);
@@ -86,18 +106,34 @@ class VerticalMetricsPropertiesTest {
     }
 
     @Test
-    @DisplayName("every profile declares every key exactly once, with the safe value")
+    @DisplayName("every profile declares every key exactly once, and only uat differs")
     void everyProfileDeclaresEveryKeyOnce() {
         assertThat(VerticalMetricsProperties.KEYS).hasSameSizeAs(EXPECTED_VALUES);
+        assertThat(UAT_OVERRIDES).hasSameSizeAs(EXPECTED_VALUES);
 
         for (String profile : PROFILES) {
             String contents = read(profile);
+            List<String> expected = "application-uat.properties".equals(profile)
+                    ? UAT_OVERRIDES : EXPECTED_VALUES;
             for (int i = 0; i < VerticalMetricsProperties.KEYS.size(); i++) {
                 String key = VerticalMetricsProperties.KEYS.get(i);
                 assertThat(activeValues(contents, key))
                         .as("%s must declare %s exactly once", profile, key)
-                        .containsExactly(EXPECTED_VALUES.get(i));
+                        .containsExactly(expected.get(i));
             }
+        }
+    }
+
+    @Test
+    @DisplayName("no profile other than uat ever gets RECOMMEND or AUTO as its no-row default")
+    void onlyUatHasANonOffDefaultMode() {
+        for (String profile : PROFILES) {
+            if ("application-uat.properties".equals(profile)) {
+                continue;
+            }
+            assertThat(activeValues(read(profile), VerticalMetricsProperties.DEFAULT_MODE_KEY))
+                    .as("%s must leave the engine inert: OFF is the mode that does nothing", profile)
+                    .containsExactly("OFF");
         }
     }
 
@@ -114,7 +150,7 @@ class VerticalMetricsPropertiesTest {
     }
 
     static VerticalMetricsProperties defaults() {
-        return properties("monitoring", "prometheus-server", 9090, 20, 120, 24, "OFF");
+        return properties("monitoring", "prometheus-server", 80, 20, 120, 24, "OFF");
     }
 
     static VerticalMetricsProperties properties(String namespace, String service, int port,

@@ -13,6 +13,7 @@
 import apiClient from '../utils/apiClient';
 import { adaptEngineResponse, parseCode } from './verticalRightsizerAdapter';
 import type {
+  ApplyOutcomeWire,
   ApplyRequest,
   ApplyResult,
   VerticalEngineResponseWire,
@@ -99,11 +100,16 @@ interface ApplyAcceptedWire {
   correlationId?: string | null;
   state?: string | null;
   dryRun?: boolean | null;
+  result?: ApplyOutcomeWire | null;
 }
 
 /**
- * Submits one recommendation. The reply is a **submission**, not an outcome: the result arrives
- * later through the actions feed, so nothing here may be rendered as "applied".
+ * Submits one recommendation.
+ *
+ * The reply is a **submission**. The direct execution path completes inside the request and so
+ * answers with an additive `result` carrying the real outcome and the restart-free proof; the agent
+ * path will not, and then `result` is `null`. Either way the only value that may be rendered as a
+ * success is `result.terminal === 'APPLIED'` — nothing here infers one.
  */
 export const applyVerticalRecommendation = async (
   cluster: string,
@@ -122,9 +128,23 @@ export const applyVerticalRecommendation = async (
     return { kind: 'error', message: e instanceof Error ? e.message : 'The request could not be sent.' };
   }
 
-  // No handler is mapped until the write path ships, so the dispatcher answers 404. That is a
-  // deployment state, not a failure.
-  if (response.status === 404) return { kind: 'writes-not-deployed' };
+  // Two different 404s now that the handler exists:
+  //  - a typed K8S_CLUSTER_NOT_REGISTERED, which is a setup step on this cluster;
+  //  - an untyped one from the dispatcher, which means this environment is running a build where
+  //    the write path is not mapped. Both are deployment states, not failures, and they have
+  //    different remedies.
+  if (response.status === 404) {
+    const notFound = await readJson<VerticalRefusalWire>(response);
+    const code = parseCode(notFound?.code);
+    if (code) {
+      return {
+        kind: 'cluster-not-registered',
+        message: refusalMessage(notFound,
+          'This cluster is not registered with XamOps in this environment.'),
+      };
+    }
+    return { kind: 'writes-not-deployed' };
+  }
 
   if (response.ok) {
     const body = await readJson<ApplyAcceptedWire>(response);
@@ -133,6 +153,7 @@ export const applyVerticalRecommendation = async (
       correlationId: body?.correlationId ?? null,
       state: body?.state ?? 'ACCEPTED',
       dryRun: body?.dryRun ?? null,
+      result: body?.result ?? null,
     };
   }
 

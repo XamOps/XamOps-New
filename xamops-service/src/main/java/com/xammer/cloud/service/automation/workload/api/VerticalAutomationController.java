@@ -5,8 +5,11 @@ import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CloudAccountAccessService;
+import com.xammer.cloud.service.automation.workload.WorkloadRef;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessException;
 import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
+import com.xammer.cloud.service.automation.workload.api.dto.ApplyRequestDto;
+import com.xammer.cloud.service.automation.workload.api.dto.ApplyResponseDto;
 import com.xammer.cloud.service.automation.workload.api.dto.RefusalDto;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalEngineResponse;
 import com.xammer.cloud.service.automation.workload.usage.UsageUnavailableException;
@@ -19,6 +22,8 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -68,17 +73,23 @@ public class VerticalAutomationController {
     private static final Pattern CLUSTER_NAME = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9\\-_]{0,99}$");
     private static final Pattern AWS_ACCOUNT_ID = Pattern.compile("^[0-9]{1,12}$");
     private static final Pattern REGION = Pattern.compile("^[a-z0-9\\-]{3,32}$");
+    /** RFC 1123 label-ish, which is what a namespace and a workload name both are. */
+    private static final Pattern K8S_NAME = Pattern.compile("^[a-z0-9]([a-z0-9.\\-]{0,251}[a-z0-9])?$");
+    private static final Pattern K8S_KIND = Pattern.compile("^[A-Za-z]{1,32}$");
 
     private final CloudAccountAccessService accessService;
     private final KubernetesClusterConfigRepository clusterConfigRepository;
     private final VerticalAutomationReadService readService;
+    private final VerticalApplyService applyService;
 
     public VerticalAutomationController(CloudAccountAccessService accessService,
                                         KubernetesClusterConfigRepository clusterConfigRepository,
-                                        VerticalAutomationReadService readService) {
+                                        VerticalAutomationReadService readService,
+                                        VerticalApplyService applyService) {
         this.accessService = accessService;
         this.clusterConfigRepository = clusterConfigRepository;
         this.readService = readService;
+        this.applyService = applyService;
     }
 
     /**
@@ -105,6 +116,48 @@ public class VerticalAutomationController {
                 config.getId(), account.getAwsAccountId(), cluster, region);
 
         return readService.read(target, config);
+    }
+
+    /**
+     * Endpoint 3 — apply one recommendation to one workload.
+     *
+     * <p>Answers {@code 202} with the contract's {@code {correlationId, state, dryRun}} plus an
+     * additive {@code result} carrying the real outcome and the restart-free proof. {@code 202}
+     * rather than {@code 200} because the published shape is a <em>submission</em>: the primary
+     * execution path is a command queue the in-cluster agent drains, and the direct path only happens
+     * to finish inside the request.
+     *
+     * <p>Every refusal is a typed body with the contract's {@code code}; see
+     * {@link VerticalApplyService} for the gate order and
+     * {@link #onApplyRefused(VerticalApplyService.ApplyRefusedException)} for how it is rendered.
+     */
+    @PostMapping("/{cluster}/workloads/{namespace}/{kind}/{name}/apply")
+    public ResponseEntity<ApplyResponseDto> apply(@AuthenticationPrincipal ClientUserDetails principal,
+                                                  @PathVariable("cluster") String cluster,
+                                                  @PathVariable("namespace") String namespace,
+                                                  @PathVariable("kind") String kind,
+                                                  @PathVariable("name") String name,
+                                                  @RequestParam("accountId") String accountId,
+                                                  @RequestParam("region") String region,
+                                                  @RequestBody(required = false) ApplyRequestDto body) {
+        requireShape(cluster, CLUSTER_NAME, "cluster");
+        requireShape(namespace, K8S_NAME, "namespace");
+        requireShape(kind, K8S_KIND, "kind");
+        requireShape(name, K8S_NAME, "name");
+        requireShape(accountId, AWS_ACCOUNT_ID, "accountId");
+        requireShape(region, REGION, "region");
+
+        // Throws AccessDeniedException -> 403 if the caller is not entitled to this AWS account.
+        CloudAccount account = accessService.requireAwsAccess(principal, accountId);
+        KubernetesClusterConfig config = requireClusterConfig(account, cluster);
+
+        ClusterTarget target = new ClusterTarget(
+                account.getClient() == null ? null : account.getClient().getId(),
+                config.getId(), account.getAwsAccountId(), cluster, region);
+
+        ApplyResponseDto response = applyService.apply(principal, account, target,
+                WorkloadRef.of(namespace, kind, name), body);
+        return ResponseEntity.accepted().body(response);
     }
 
     /**
@@ -213,5 +266,21 @@ public class VerticalAutomationController {
         logger.info("Vertical automation has no usage: {}", e.kind());
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .body(RefusalDto.of("K8S_" + e.reasonCode(), e.getMessage()));
+    }
+
+    /**
+     * Every apply gate and every re-validation refusal, each carrying its own contract {@code code}
+     * and — on a {@code 400} — the offending {@code field}.
+     *
+     * <p>Controller-local, for the same reason the handlers above are: the advice's
+     * {@code @ExceptionHandler(Exception.class)} catch-all would otherwise turn a safety rule
+     * declining into a {@code 500 K8S_INTERNAL}, and the UI would render "something went wrong"
+     * where it should disable a control and name the reason.
+     */
+    @ExceptionHandler(VerticalApplyService.ApplyRefusedException.class)
+    ResponseEntity<RefusalDto> onApplyRefused(VerticalApplyService.ApplyRefusedException e) {
+        logger.info("Vertical apply refused: {}{}", e.code(),
+                e.field() == null ? "" : " (field " + e.field() + ")");
+        return ResponseEntity.status(e.status()).body(e.body());
     }
 }

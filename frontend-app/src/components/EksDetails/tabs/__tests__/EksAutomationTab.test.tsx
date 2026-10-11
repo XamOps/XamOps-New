@@ -230,18 +230,166 @@ describe('EksAutomationTab', () => {
     expect(screen.queryByText(/Applied/)).toBeNull();
   });
 
-  it('reports a submission as submitted, never as applied', async () => {
+  it('reports a submission with no outcome as submitted, never as applied', async () => {
     resolveWith({ engine: engine(), gateReasons: [], workloads: [workload({ autoApplyEligible: true })] });
     mockedApply.mockResolvedValue({
       kind: 'submitted',
       correlationId: 'c0ffee',
       state: 'ACCEPTED',
       dryRun: true,
+      result: null,
     });
     renderTab();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
     expect(await screen.findByText(/Submitted/)).toBeInTheDocument();
     expect(screen.getByText(/dry run/)).toBeInTheDocument();
+    expect(screen.getByText(/The outcome arrives in the actions feed/)).toBeInTheDocument();
+  });
+
+  it('renders the restart-free proof for a confirmed apply', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload({ autoApplyEligible: true })] });
+    mockedApply.mockResolvedValue({
+      kind: 'submitted',
+      correlationId: 'c0ffee',
+      state: 'ACCEPTED',
+      dryRun: false,
+      result: {
+        method: 'IN_PLACE',
+        terminal: 'APPLIED',
+        detail: null,
+        restartFree: true,
+        containers: [
+          {
+            name: 'api',
+            state: 'APPLIED',
+            detail: null,
+            requested: { cpuRequestM: 25, memRequestMi: 250, cpuLimitM: 25, memLimitMi: 250 },
+            restartExpected: false,
+          },
+        ],
+        pods: [
+          {
+            podName: 'overprovisioned-api-5d9f-abcde',
+            uidBefore: 'uid-1',
+            uidAfter: 'uid-1',
+            samePod: true,
+            ready: true,
+            containers: [
+              {
+                name: 'api',
+                containerIdBefore: 'containerd://c1',
+                containerIdAfter: 'containerd://c1',
+                restartCountBefore: 0,
+                restartCountAfter: 0,
+                observedBefore: { cpuRequestM: 1000, memRequestMi: 1024, cpuLimitM: 1000, memLimitMi: 1024 },
+                observedAfter: { cpuRequestM: 25, memRequestMi: 250, cpuLimitM: 25, memLimitMi: 250 },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+
+    expect(await screen.findByText('Applied and confirmed in the pods')).toBeInTheDocument();
+    expect(screen.getByText(/restart-free, proved per pod/)).toBeInTheDocument();
+    expect(screen.getByText(/same pod/)).toBeInTheDocument();
+    expect(screen.getByText(/same container/)).toBeInTheDocument();
+    expect(screen.getByText(/restarts 0/)).toBeInTheDocument();
+  });
+
+  it('renders a Deferred outcome as waiting for capacity, never as a success', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload({ autoApplyEligible: true })] });
+    mockedApply.mockResolvedValue({
+      kind: 'submitted',
+      correlationId: 'c0ffee',
+      state: 'ACCEPTED',
+      dryRun: false,
+      result: {
+        method: 'IN_PLACE',
+        terminal: 'DEFERRED',
+        detail: 'The kubelet deferred the resize and will retry when there is capacity.',
+        restartFree: false,
+        containers: [
+          { name: 'api', state: 'DEFERRED', detail: null, requested: null, restartExpected: false },
+        ],
+        pods: [],
+      },
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+
+    expect(await screen.findByText('Waiting for node capacity — not applied')).toBeInTheDocument();
+    expect(screen.getByText(/restart-free not claimed/)).toBeInTheDocument();
+    expect(screen.queryByText(/Applied and confirmed/)).toBeNull();
+    expect(screen.queryByText(/^Applied$/)).toBeNull();
+  });
+
+  it('renders a dry run as a rehearsal, not as a change', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload({ autoApplyEligible: true })] });
+    mockedApply.mockResolvedValue({
+      kind: 'submitted',
+      correlationId: 'c0ffee',
+      state: 'ACCEPTED',
+      dryRun: true,
+      result: {
+        method: 'IN_PLACE',
+        terminal: 'DRY_RUN',
+        detail: 'Dry run: no patch was sent to the cluster, so nothing was applied.',
+        restartFree: false,
+        containers: [
+          { name: 'api', state: 'DRY_RUN', detail: null, requested: null, restartExpected: false },
+        ],
+        pods: [],
+      },
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+
+    expect(await screen.findByText('Dry run — nothing was sent to the cluster')).toBeInTheDocument();
+    expect(screen.queryByText(/Applied and confirmed/)).toBeNull();
+  });
+
+  it('renders an unknown outcome verbatim instead of guessing', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload({ autoApplyEligible: true })] });
+    mockedApply.mockResolvedValue({
+      kind: 'submitted',
+      correlationId: 'c0ffee',
+      state: 'ACCEPTED',
+      dryRun: false,
+      result: {
+        method: 'IN_PLACE',
+        terminal: 'SOMETHING_NEW',
+        detail: null,
+        restartFree: false,
+        containers: [],
+        pods: [],
+      },
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+
+    expect(await screen.findByText('The engine reported SOMETHING_NEW')).toBeInTheDocument();
+  });
+
+  it('explains a refused apply with the gate code the server sent', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload({ autoApplyEligible: true })] });
+    mockedApply.mockResolvedValue({
+      kind: 'refused',
+      code: { kind: 'known', code: 'READ_ONLY_CONNECTION', label: 'Read-only connection' },
+      message: 'This AWS account is connected read-only.',
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+
+    expect(await screen.findByText(/Refused/)).toBeInTheDocument();
+    expect(screen.getByText(/Read-only connection/)).toBeInTheDocument();
   });
 });

@@ -13,7 +13,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Both flags default to off, and no profile may quietly default them on.
+ * Both flags default to off, auto-apply needs three things rather than two, and
+ * <strong>uat is the only profile where either flag is true</strong>.
  *
  * <p>The parity half reads the five {@code application*.properties} files from disk rather than
  * trusting the binding, because the failure mode being guarded against is somebody adding a profile
@@ -22,10 +23,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class WorkloadAutoscalingPropertiesTest {
 
+    /** The one profile where this feature is switched on. */
+    private static final String ENABLED_PROFILE = "application-uat.properties";
+
     private static final List<String> PROFILES = List.of(
             "application.properties",
             "application-local.properties",
-            "application-uat.properties",
+            ENABLED_PROFILE,
             "application-prod.properties",
             "application-preprod.properties");
 
@@ -39,38 +43,73 @@ class WorkloadAutoscalingPropertiesTest {
     }
 
     @Test
-    @DisplayName("auto-apply is false even with both flags on: there is no executor to apply with")
-    void autoApplyIsFalseByConstruction() {
-        WorkloadAutoscalingProperties bothOn = new WorkloadAutoscalingProperties(true, true);
+    @DisplayName("auto-apply needs both flags AND an executor: any one missing makes it false")
+    void autoApplyNeedsBothFlagsAndAnExecutor() {
+        // This case used to assert auto-apply was false even with both flags on, because no
+        // WorkloadActionExecutor shipped and the guard was the constant false. One ships now, so the
+        // third condition is a real question -- and it is still a real guard, asserted rather than
+        // described: the truth table below is the whole claim.
+        assertThat(new WorkloadAutoscalingProperties(false, false, true).isAutoApplyPermitted())
+                .as("master switch off")
+                .isFalse();
+        assertThat(new WorkloadAutoscalingProperties(true, false, true).isAutoApplyPermitted())
+                .as("readiness off: recommendations are allowed long before an apply is")
+                .isFalse();
+        assertThat(new WorkloadAutoscalingProperties(false, true, true).isAutoApplyPermitted())
+                .as("ready but not enabled")
+                .isFalse();
+        assertThat(new WorkloadAutoscalingProperties(true, true, false).isAutoApplyPermitted())
+                .as("both flags on but no executor: there is nothing that could carry the apply")
+                .isFalse();
 
-        assertThat(bothOn.isEnabled()).isTrue();
-        assertThat(bothOn.isReady()).isTrue();
-        assertThat(bothOn.isAutoApplyPermitted())
-                .as("the absence of a WorkloadActionExecutor, not a flag, is what prevents an apply")
+        WorkloadAutoscalingProperties permitted = new WorkloadAutoscalingProperties(true, true, true);
+        assertThat(permitted.isEnabled()).isTrue();
+        assertThat(permitted.isReady()).isTrue();
+        assertThat(permitted.isExecutorPresent()).isTrue();
+        assertThat(permitted.isAutoApplyPermitted()).isTrue();
+
+        assertThat(new WorkloadAutoscalingProperties(true, true).isExecutorPresent())
+                .as("the two-argument shape means 'no executor', for every test that is not about one")
                 .isFalse();
     }
 
     @Test
-    @DisplayName("both keys are present and literally false in every application*.properties")
-    void everyProfileDeclaresBothFlagsAsFalse() {
+    @DisplayName("uat is the ONLY profile where either flag is true; the other four are literally false")
+    void onlyUatEnablesTheEngine() {
         for (String profile : PROFILES) {
             String contents = read(profile);
+            String expected = ENABLED_PROFILE.equals(profile) ? "true" : "false";
 
-            assertThat(contents)
-                    .as("%s must declare the master switch explicitly", profile)
-                    .contains(WorkloadAutoscalingProperties.ENABLED_KEY + "=false");
-            assertThat(contents)
-                    .as("%s must declare the readiness key explicitly", profile)
-                    .contains(WorkloadAutoscalingProperties.READINESS_KEY + "=false");
-
-            // Guards against a profile declaring the key twice with the second one winning.
+            // containsExactly, not contains: a key declared twice would let the second one win
+            // silently, which is exactly how a profile acquires a value nobody chose.
             assertThat(activeValues(contents, WorkloadAutoscalingProperties.ENABLED_KEY))
-                    .as("%s declares the master switch more than once", profile)
-                    .containsExactly("false");
+                    .as("%s must declare the master switch exactly once, as %s", profile, expected)
+                    .containsExactly(expected);
             assertThat(activeValues(contents, WorkloadAutoscalingProperties.READINESS_KEY))
-                    .as("%s declares the readiness key more than once", profile)
-                    .containsExactly("false");
+                    .as("%s must declare the readiness key exactly once, as %s", profile, expected)
+                    .containsExactly(expected);
         }
+    }
+
+    @Test
+    @DisplayName("no profile other than uat may ever be switched on")
+    void noOtherProfileMayBeTurnedOn() {
+        // The invariant in one assertion, so the failure message names the offending profile rather
+        // than a line number: prod, preprod, local and the default profile stay off until somebody
+        // changes this test on purpose.
+        List<String> enabled = PROFILES.stream()
+                .filter(profile -> {
+                    String contents = read(profile);
+                    return activeValues(contents, WorkloadAutoscalingProperties.ENABLED_KEY)
+                            .contains("true")
+                            || activeValues(contents, WorkloadAutoscalingProperties.READINESS_KEY)
+                            .contains("true");
+                })
+                .toList();
+
+        assertThat(enabled)
+                .as("workload vertical rightsizing may only be on in uat")
+                .containsExactly(ENABLED_PROFILE);
     }
 
     @Test

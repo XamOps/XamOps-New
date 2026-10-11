@@ -10,6 +10,7 @@ import com.xammer.cloud.security.CustomAuthenticationSuccessHandler;
 import com.xammer.cloud.security.CustomLogoutSuccessHandler;
 import com.xammer.cloud.security.TrialEnforcementFilter;
 import com.xammer.cloud.service.auth.TrialService;
+import com.xammer.cloud.service.automation.workload.api.VerticalApplyService;
 import com.xammer.cloud.service.automation.workload.api.VerticalAutomationController;
 import com.xammer.cloud.service.automation.workload.api.VerticalAutomationReadService;
 import org.junit.jupiter.api.BeforeEach;
@@ -75,6 +76,8 @@ class VerticalAutomationUnauthenticatedTest {
     private KubernetesClusterConfigRepository clusterConfigRepository;
     @MockitoBean
     private VerticalAutomationReadService readService;
+    @MockitoBean
+    private VerticalApplyService applyService;
 
     @MockitoBean
     private UserRepository userRepository;
@@ -107,15 +110,16 @@ class VerticalAutomationUnauthenticatedTest {
 
         // A 401 from the entry point rather than from the controller: nothing downstream ran, so
         // no tenancy check was relied on to refuse this.
-        verifyNoInteractions(accessService, clusterConfigRepository, readService);
+        verifyNoInteractions(accessService, clusterConfigRepository, readService, applyService);
     }
 
     @Test
-    @DisplayName("every contract-only path is authenticated too, so none can ship public by accident")
+    @DisplayName("the write paths are authenticated too, mapped or not, so none can ship public")
     void theContractOnlyPathsAreAuthenticatedBeforeTheyExist() throws Exception {
-        // These four have no handler yet (404 once authenticated). The assertion is that the chain
-        // refuses them first: a path that is 401 while unmapped cannot become public by someone
-        // adding a @PostMapping later.
+        // /actions and /policy still have no handler (404 once authenticated); /apply now does.
+        // The assertion is the same either way: the chain refuses them first, so a path that is 401
+        // while unmapped cannot become public by someone adding a @PostMapping later -- and the one
+        // that has since acquired a @PostMapping is still 401 without a session.
         mvc.perform(get(BASE + "/xamops-test-cluster/actions"))
                 .andExpect(status().isUnauthorized());
         mvc.perform(put(BASE + "/xamops-test-cluster/workloads/team-a/Deployment/api/policy")
@@ -124,6 +128,7 @@ class VerticalAutomationUnauthenticatedTest {
         mvc.perform(post(BASE + "/xamops-test-cluster/workloads/team-a/Deployment/api/apply")
                         .contentType("application/json").content("{}"))
                 .andExpect(status().isUnauthorized());
+        verifyNoInteractions(applyService);
     }
 
     @Test
@@ -135,6 +140,6 @@ class VerticalAutomationUnauthenticatedTest {
                         .header("Authorization", "Bearer not-a-real-token"))
                 .andExpect(status().isUnauthorized());
 
-        verifyNoInteractions(accessService, clusterConfigRepository, readService);
+        verifyNoInteractions(accessService, clusterConfigRepository, readService, applyService);
     }
 }

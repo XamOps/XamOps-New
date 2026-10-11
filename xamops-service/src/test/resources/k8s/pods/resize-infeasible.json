@@ -1,0 +1,50 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "overprovisioned-api-5d9f7c-abcde",
+    "namespace": "team-a",
+    "uid": "11111111-1111-1111-1111-111111111111",
+    "generation": 4
+  },
+  "spec": {
+    "containers": [
+      {
+        "name": "api",
+        "image": "public.ecr.aws/nginx/nginx:1.27",
+        "resources": {
+          "requests": { "cpu": "8", "memory": "16Gi" },
+          "limits": { "cpu": "8", "memory": "16Gi" }
+        }
+      }
+    ]
+  },
+  "status": {
+    "phase": "Running",
+    "observedGeneration": 4,
+    "conditions": [
+      { "type": "Ready", "status": "True" },
+      {
+        "type": "PodResizePending",
+        "status": "True",
+        "reason": "Infeasible",
+        "message": "Node didn't have enough capacity: memory, requested: 17179869184, capacity: 3454423040",
+        "lastTransitionTime": "2026-10-11T09:20:11Z"
+      }
+    ],
+    "containerStatuses": [
+      {
+        "name": "api",
+        "containerID": "containerd://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ready": true,
+        "started": true,
+        "restartCount": 0,
+        "resources": {
+          "requests": { "cpu": "1", "memory": "1Gi" },
+          "limits": { "cpu": "1", "memory": "1Gi" }
+        },
+        "allocatedResources": { "cpu": "1", "memory": "1Gi" }
+      }
+    ]
+  }
+}

@@ -8,11 +8,10 @@ import java.util.Optional;
 /**
  * Applies a workload-autoscaling decision to a cluster.
  *
- * <p><strong>Defined only. There is no implementation and no bean in this run</strong>, which is
- * what makes it structurally impossible for any code path here to change a cluster — not a flag
- * check that could be mis-evaluated, but the absence of a collaborator.
- * {@code WorkloadActionExecutorAbsenceTest} asserts that no implementation exists anywhere in the
- * module, so adding one is a deliberate, reviewable act rather than an accident.
+ * <p><strong>Exactly one implementation ships:</strong> {@link DirectInPlaceResizeExecutor}, the
+ * direct {@link ExecutionPath#DIRECT} path. {@code ActionCommandContractTest} asserts that list
+ * exactly — it was an absence assertion while none existed — so adding a second thing that can write
+ * to a cluster stays a deliberate, reviewable act rather than an accident.
  *
  * <h2>Why the interface is asynchronous</h2>
  *
@@ -44,9 +43,9 @@ import java.util.Optional;
  *       {@code /commands} handler is the <em>DB agent's</em> {@code ExplainRequest} queue, addressed
  *       by {@code agentName} and authorised with the <em>global</em> API key; cluster scoping is new
  *       work and needs its own security review.</li>
- *   <li><strong>Direct executor</strong> ({@link ExecutionPath#DIRECT}) — in-place resize through the
- *       {@code pods/resize} subresource, canary, progressive rollout and status checking.</li>
  * </ol>
+ *
+ * <p>The direct executor is no longer deferred: see {@link DirectInPlaceResizeExecutor}.
  */
 public interface WorkloadActionExecutor {
 

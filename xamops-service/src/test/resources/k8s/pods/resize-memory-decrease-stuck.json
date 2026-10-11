@@ -1,0 +1,49 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "rightsized-worker-0",
+    "namespace": "prod-sim",
+    "uid": "22222222-2222-2222-2222-222222222222",
+    "generation": 5
+  },
+  "spec": {
+    "containers": [
+      {
+        "name": "worker",
+        "image": "public.ecr.aws/docker/library/busybox:1.36",
+        "resources": {
+          "requests": { "cpu": "64m", "memory": "250Mi" },
+          "limits": { "cpu": "128m", "memory": "250Mi" }
+        }
+      }
+    ]
+  },
+  "status": {
+    "phase": "Running",
+    "observedGeneration": 5,
+    "resize": "InProgress",
+    "conditions": [
+      { "type": "Ready", "status": "True" },
+      {
+        "type": "PodResizeInProgress",
+        "status": "True",
+        "lastTransitionTime": "2026-10-11T09:31:44Z"
+      }
+    ],
+    "containerStatuses": [
+      {
+        "name": "worker",
+        "containerID": "containerd://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ready": true,
+        "started": true,
+        "restartCount": 0,
+        "resources": {
+          "requests": { "cpu": "64m", "memory": "1Gi" },
+          "limits": { "cpu": "128m", "memory": "1Gi" }
+        },
+        "allocatedResources": { "cpu": "64m", "memory": "250Mi" }
+      }
+    ]
+  }
+}

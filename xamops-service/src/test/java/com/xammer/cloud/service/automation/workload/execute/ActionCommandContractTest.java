@@ -22,9 +22,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * The executor's command type is the queue's schema, so its invariants are enforced at
  * construction: an unsatisfiable or un-replayable command must never become durable.
  *
- * <p>Also asserts the deliberate <strong>absence</strong> of any {@link WorkloadActionExecutor}
- * implementation, which is what makes it impossible for this run to change a cluster — not a flag
- * that could be mis-evaluated, but a missing collaborator.
+ * <p>Also asserts <strong>which</strong> {@link WorkloadActionExecutor} implementations exist. This
+ * assertion was an absence check while none shipped; it is now an exact list, so adding a second
+ * thing that can write to a cluster stays a deliberate, reviewable act rather than an accident.
  */
 class ActionCommandContractTest {
 
@@ -241,17 +241,21 @@ class ActionCommandContractTest {
         assertThat(ActionOutcome.Terminal.values()).contains(ActionOutcome.Terminal.EXPIRED);
     }
 
-    // ------------------------------------------------------------------ absence of an executor
+    // ------------------------------------------------------------------ which executors exist
 
     @Test
-    void noWorkloadActionExecutorIsImplementedInThisModule() {
+    void exactlyOneWorkloadActionExecutorIsImplementedAndItIsTheDirectInPlaceOne() {
         List<String> implementations = ProductionClassScan.implementationsOf(WorkloadActionExecutor.class);
 
+        // This assertion used to require the list to be EMPTY: with no implementation, the absence
+        // of a collaborator -- rather than a flag check that could be mis-evaluated -- was what made
+        // it impossible for this code to change a cluster. One ships now, so the invariant becomes
+        // "exactly this one". Adding another is still a deliberate, reviewable act: it has to come
+        // through this test, and anything that can write to a cluster has to justify itself here.
         assertThat(implementations)
-                .as("No executor may exist in this run: the absence of a collaborator, not a flag "
-                        + "check, is what makes it impossible for this code to change a cluster. "
-                        + "Adding one is a deliberate act that must come with its own review.")
-                .isEmpty();
+                .as("exactly one executor ships, and it is the in-place pod resize one")
+                .containsExactly(
+                        "com.xammer.cloud.service.automation.workload.execute.DirectInPlaceResizeExecutor");
     }
 
     // ------------------------------------------------------------------ helpers

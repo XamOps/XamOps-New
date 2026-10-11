@@ -24,6 +24,8 @@ import {
 } from '../../../api/verticalRightsizerAdapter';
 import useVerticalRightsizer from '../../../hooks/useVerticalRightsizer';
 import type {
+  ApplyOutcomeWire,
+  ApplyPodProofWire,
   ApplyResult,
   CodeView,
   ContainerView,
@@ -84,6 +86,85 @@ const ResourceCell: React.FC<{
   );
 };
 
+/**
+ * What each outcome is called on screen.
+ *
+ * Only `APPLIED` says anything like "applied". `DEFERRED` is a wait, `INFEASIBLE` is a refusal by
+ * the cluster, `DRY_RUN` is a rehearsal and `RESTART_DETECTED` is a broken promise — none of them is
+ * a success, and none of them is allowed to read like one.
+ */
+const OUTCOME_TEXT: Record<string, string> = {
+  APPLIED: 'Applied and confirmed in the pods',
+  PARTIALLY_APPLIED: 'Partly applied — the rollout stopped at the first failure',
+  DRY_RUN: 'Dry run — nothing was sent to the cluster',
+  DEFERRED: 'Waiting for node capacity — not applied',
+  INFEASIBLE: 'The cluster cannot apply this on the current node — not applied',
+  STUCK_IN_PROGRESS: 'Still in progress at the deadline — not confirmed',
+  RESTART_DETECTED: 'A container restarted — this was not a restart-free resize',
+  NOT_READY: 'The new values are in place but the pod is no longer Ready',
+  REFUSED: 'Refused — nothing was sent to the cluster',
+  EXPIRED: 'Expired before it was applied — nothing was sent',
+  FAILED: 'Failed — not applied',
+};
+
+const outcomeText = (terminal: string | null): string =>
+  terminal === null || terminal.trim() === ''
+    ? 'The outcome has not been reported yet'
+    : (OUTCOME_TEXT[terminal] ?? `The engine reported ${terminal}`);
+
+/** The restart-free proof for one pod, in the numbers it was proved from. */
+const PodProof: React.FC<{ pod: ApplyPodProofWire }> = ({ pod }) => (
+  <li className="text-[11px] text-[rgba(0,0,0,0.5)]">
+    {pod.podName} &middot; {pod.samePod === true ? 'same pod' : 'pod replaced'} &middot;{' '}
+    {pod.ready === true ? 'Ready' : 'not Ready'}
+    {(pod.containers ?? []).map((c) => (
+      <span key={c.name}>
+        {' '}
+        &middot; {c.name} restarts {formatCount(c.restartCountBefore)} &rarr;{' '}
+        {formatCount(c.restartCountAfter)}
+        {c.containerIdBefore !== null && c.containerIdAfter !== null
+          ? c.containerIdBefore === c.containerIdAfter
+            ? ' · same container'
+            : ' · container replaced'
+          : ''}
+      </span>
+    ))}
+  </li>
+);
+
+const ApplyOutcome: React.FC<{ outcome: ApplyOutcomeWire }> = ({ outcome }) => (
+  <div className="space-y-1">
+    <p className="text-[12px] font-semibold text-[rgba(0,0,0,0.88)]">
+      {outcomeText(outcome.terminal)}
+    </p>
+    <p className="text-[11px] text-[rgba(0,0,0,0.5)]">
+      Method {formatText(outcome.method)} &middot;{' '}
+      {outcome.terminal === 'APPLIED' && outcome.restartFree === true
+        ? 'restart-free, proved per pod'
+        : 'restart-free not claimed'}
+    </p>
+    {outcome.detail && <p className="text-[11px] text-[rgba(0,0,0,0.6)]">{outcome.detail}</p>}
+    {(outcome.containers ?? []).length > 0 && (
+      <ul className="space-y-0.5">
+        {(outcome.containers ?? []).map((c) => (
+          <li key={c.name} className="text-[11px] text-[rgba(0,0,0,0.5)]">
+            {c.name} &middot; {formatText(c.state)}
+            {c.restartExpected === true ? ' · restarts by its own resizePolicy' : ''}
+            {c.detail ? ` · ${c.detail}` : ''}
+          </li>
+        ))}
+      </ul>
+    )}
+    {(outcome.pods ?? []).length > 0 && (
+      <ul className="space-y-0.5">
+        {(outcome.pods ?? []).map((pod) => (
+          <PodProof key={pod.podName} pod={pod} />
+        ))}
+      </ul>
+    )}
+  </div>
+);
+
 const ApplyReply: React.FC<{ reply: ApplyResult }> = ({ reply }) => {
   if (reply.kind === 'writes-not-deployed') {
     return (
@@ -92,13 +173,19 @@ const ApplyReply: React.FC<{ reply: ApplyResult }> = ({ reply }) => {
       </p>
     );
   }
+  if (reply.kind === 'cluster-not-registered') {
+    return <p className="text-[12px] text-[rgba(0,0,0,0.6)]">{reply.message}</p>;
+  }
   if (reply.kind === 'submitted') {
     return (
-      <p className="text-[12px] text-[rgba(0,0,0,0.6)]">
-        Submitted &middot; {formatText(reply.state)}
-        {reply.dryRun === true ? ' · dry run' : ''} &middot; id {formatText(reply.correlationId)}. The
-        outcome arrives in the actions feed.
-      </p>
+      <div className="space-y-1">
+        <p className="text-[12px] text-[rgba(0,0,0,0.6)]">
+          Submitted &middot; {formatText(reply.state)}
+          {reply.dryRun === true ? ' · dry run' : ''} &middot; id {formatText(reply.correlationId)}
+          {reply.result === null ? '. The outcome arrives in the actions feed.' : ''}
+        </p>
+        {reply.result !== null && <ApplyOutcome outcome={reply.result} />}
+      </div>
     );
   }
   if (reply.kind === 'refused') {

@@ -85,6 +85,26 @@ class VerticalAutomationSecurityCoverageTest {
     }
 
     @Test
+    @DisplayName("the apply path is covered by the catch-all, and SecurityConfig was not edited for it")
+    void theApplyPathIsCoveredWithoutEditingSecurityConfig() {
+        // Endpoint 3 is the one path here that can change a cluster, so it gets its own assertion
+        // rather than relying on being in the list above: no rule of any kind may name it, which is
+        // what leaves it on anyRequest().authenticated() with a 401 entry point.
+        String applyPath = "/api/eks/automation/vertical/c/workloads/team-a/Deployment/api/apply";
+        List<String> naming = rules().stream()
+                .flatMap(rule -> rule.patterns().stream())
+                .filter(pattern -> matcher.match(pattern, applyPath))
+                .toList();
+
+        assertThat(naming)
+                .as("no requestMatchers rule may cover the apply endpoint, permitting or otherwise")
+                .isEmpty();
+        assertThat(read())
+                .as("the apply endpoint must not have been given a rule of its own")
+                .doesNotContain("automation/vertical");
+    }
+
+    @Test
     @DisplayName("the engine does not sit under a prefix another owner already governs")
     void theEngineDoesNotCollideWithAnotherOwnersPrefix() {
         for (String path : ENGINE_PATHS) {

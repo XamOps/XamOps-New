@@ -8,14 +8,19 @@ import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CloudAccountAccessService;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
+import com.xammer.cloud.service.automation.workload.api.VerticalApplyService;
 import com.xammer.cloud.service.automation.workload.api.VerticalAutomationController;
 import com.xammer.cloud.service.automation.workload.api.VerticalAutomationReadService;
 import com.xammer.cloud.service.automation.workload.api.VerticalReadServiceFixtures;
+import com.xammer.cloud.service.automation.workload.api.dto.ApplyResponseDto;
+import com.xammer.cloud.service.automation.workload.api.dto.VerticalWorkloadDto;
 import com.xammer.cloud.service.automation.workload.usage.NoMetricsSourceProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -30,16 +35,23 @@ import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * The read endpoint's contract: the 12-digit account-id rule, tenancy, the legacy cluster-config
- * lookup, and the gated empty payload. Everything is mocked, so nothing reaches AWS or a cluster.
+ * Both endpoints' contracts: the 12-digit account-id rule, tenancy, the legacy cluster-config
+ * lookup, the gated empty payload, and every refusal code the apply endpoint can answer with.
+ * Everything is mocked, so nothing reaches AWS or a cluster.
+ *
+ * <p>The apply cases assert the <strong>body</strong>, not just the status: a 403 with no
+ * {@code code} is indistinguishable from a crash to the UI, which disables a control and explains
+ * why from exactly that field.
  */
 class VerticalAutomationControllerTest {
 
@@ -50,12 +62,14 @@ class VerticalAutomationControllerTest {
 
     private CloudAccountAccessService accessService;
     private KubernetesClusterConfigRepository clusterConfigRepository;
+    private VerticalApplyService applyService;
     private CloudAccount account;
 
     @BeforeEach
     void setUp() {
         accessService = mock(CloudAccountAccessService.class);
         clusterConfigRepository = mock(KubernetesClusterConfigRepository.class);
+        applyService = mock(VerticalApplyService.class);
 
         Client client = new Client();
         client.setId(7L);
@@ -177,6 +191,132 @@ class VerticalAutomationControllerTest {
                 .andExpect(jsonPath("$.code").doesNotExist());
     }
 
+    // ------------------------------------------------------------------ endpoint 3, apply
+
+    private static final String APPLY = "/xamops-test-cluster/workloads/team-a/Deployment/"
+            + "overprovisioned-api/apply";
+    private static final String APPLY_BODY = """
+            {"containers":[{"name":"api","cpuRequestM":25,"memRequestMi":250,\
+            "cpuLimitM":25,"memLimitMi":250}],"applyMethod":"IN_PLACE","dryRun":true}""";
+
+    @Test
+    @DisplayName("an accepted apply is 202 with correlationId, state, dryRun and the real result")
+    void anAcceptedApplyIsA202WithItsOutcome() throws Exception {
+        givenClusterConfigByPrimaryKey();
+        when(applyService.apply(any(), any(), any(), any(), any())).thenReturn(
+                new ApplyResponseDto("c0ffee", "ACCEPTED", true,
+                        new ApplyResponseDto.Result("IN_PLACE", "APPLIED", null, true,
+                                List.of(new ApplyResponseDto.ContainerResultDto("api", "APPLIED", null,
+                                        new VerticalWorkloadDto.ResourcesDto(25, 250L, 25, 250L), false)),
+                                List.of(new ApplyResponseDto.PodProofDto("api-1", "uid-1", "uid-1", true,
+                                        true, List.of())))));
+
+        mvc().perform(post(BASE + APPLY + QUERY)
+                        .contentType(MediaType.APPLICATION_JSON).content(APPLY_BODY))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.correlationId").value("c0ffee"))
+                .andExpect(jsonPath("$.state").value("ACCEPTED"))
+                .andExpect(jsonPath("$.dryRun").value(true))
+                .andExpect(jsonPath("$.result.terminal").value("APPLIED"))
+                .andExpect(jsonPath("$.result.restartFree").value(true))
+                .andExpect(jsonPath("$.result.pods[0].samePod").value(true))
+                .andExpect(jsonPath("$.result.containers[0].state").value("APPLIED"));
+    }
+
+    @Test
+    @DisplayName("every 403 gate answers with its exact contract code in the body, not a bare 403")
+    void everyGateAnswersWithItsContractCode() throws Exception {
+        givenClusterConfigByPrimaryKey();
+        for (String code : List.of("K8S_NO_USER_PERMISSION", "K8S_READ_ONLY_CONNECTION",
+                "K8S_CONTROLLER_NOT_READY", "K8S_CLUSTER_ACCESS_NOT_CONFIGURED",
+                "K8S_CLUSTER_UNREACHABLE", "K8S_GITOPS_MANAGED")) {
+            // doThrow, not when(...).thenThrow: re-stubbing through when() would invoke the
+            // already-stubbed method and throw the previous loop's exception.
+            doThrow(new VerticalApplyService.ApplyRefusedException(HttpStatus.FORBIDDEN, code, null,
+                    "Refused because " + code + "."))
+                    .when(applyService).apply(any(), any(), any(), any(), any());
+
+            mvc().perform(post(BASE + APPLY + QUERY)
+                            .contentType(MediaType.APPLICATION_JSON).content(APPLY_BODY))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value(code))
+                    .andExpect(jsonPath("$.message").value("Refused because " + code + "."))
+                    .andExpect(jsonPath("$.field").doesNotExist());
+        }
+    }
+
+    @Test
+    @DisplayName("a 400 K8S_INVALID_POLICY names the offending field, including a missing dryRun")
+    void aBadBodyIsA400NamingItsField() throws Exception {
+        givenClusterConfigByPrimaryKey();
+        doThrow(new VerticalApplyService.ApplyRefusedException(HttpStatus.BAD_REQUEST,
+                "K8S_INVALID_POLICY", "dryRun", "dryRun is required on every apply."))
+                .when(applyService).apply(any(), any(), any(), any(), any());
+
+        mvc().perform(post(BASE + APPLY + QUERY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"containers\":[{\"name\":\"api\",\"cpuRequestM\":25}],"
+                                + "\"applyMethod\":\"IN_PLACE\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("K8S_INVALID_POLICY"))
+                .andExpect(jsonPath("$.field").value("dryRun"));
+    }
+
+    @Test
+    @DisplayName("a 401 refusal from the gate is a 401 body, not a redirect")
+    void anUnauthenticatedApplyIsA401Body() throws Exception {
+        givenClusterConfigByPrimaryKey();
+        doThrow(new VerticalApplyService.ApplyRefusedException(HttpStatus.UNAUTHORIZED,
+                "K8S_UNAUTHENTICATED", null, "Sign in again to apply automation changes."))
+                .when(applyService).apply(any(), any(), any(), any(), any());
+
+        mvc().perform(post(BASE + APPLY + QUERY)
+                        .contentType(MediaType.APPLICATION_JSON).content(APPLY_BODY))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("K8S_UNAUTHENTICATED"));
+    }
+
+    @Test
+    @DisplayName("applying to an unregistered cluster is 404 K8S_CLUSTER_NOT_REGISTERED")
+    void applyingToAnUnregisteredClusterIsNotFound() throws Exception {
+        when(clusterConfigRepository.findByCloudAccountIdAndClusterName(any(), any()))
+                .thenReturn(Optional.empty());
+
+        mvc().perform(post(BASE + APPLY + QUERY)
+                        .contentType(MediaType.APPLICATION_JSON).content(APPLY_BODY))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("K8S_CLUSTER_NOT_REGISTERED"));
+
+        verifyNoInteractions(applyService);
+    }
+
+    @Test
+    @DisplayName("a malformed namespace, kind or name is 400 before any lookup or cluster contact")
+    void malformedWorkloadIdentifiersAreRejectedFirst() throws Exception {
+        mvc().perform(post(BASE + "/xamops-test-cluster/workloads/Team_A/Deployment/api/apply" + QUERY)
+                        .contentType(MediaType.APPLICATION_JSON).content(APPLY_BODY))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.field").value("namespace"));
+
+        mvc().perform(post(BASE + "/xamops-test-cluster/workloads/team-a/Deploy-ment/api/apply" + QUERY)
+                        .contentType(MediaType.APPLICATION_JSON).content(APPLY_BODY))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.field").value("kind"));
+
+        verifyNoInteractions(clusterConfigRepository, applyService);
+    }
+
+    @Test
+    @DisplayName("another tenant cannot apply, and no cluster lookup happens")
+    void anotherTenantCannotApply() throws Exception {
+        mvc().perform(post(BASE + "/xamops-test-cluster/workloads/team-a/Deployment/api/apply"
+                        + "?accountId=" + FOREIGN_ID + "&region=ap-south-1")
+                        .contentType(MediaType.APPLICATION_JSON).content(APPLY_BODY))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(clusterConfigRepository, applyService);
+    }
+
     private void givenClusterConfigByPrimaryKey() {
         when(clusterConfigRepository.findByCloudAccountIdAndClusterName(3L, "xamops-test-cluster"))
                 .thenReturn(Optional.of(clusterConfig()));
@@ -197,8 +337,8 @@ class VerticalAutomationControllerTest {
     }
 
     private MockMvc mvc(VerticalAutomationReadService readService) {
-        VerticalAutomationController controller =
-                new VerticalAutomationController(accessService, clusterConfigRepository, readService);
+        VerticalAutomationController controller = new VerticalAutomationController(
+                accessService, clusterConfigRepository, readService, applyService);
         return MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())

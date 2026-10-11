@@ -1,5 +1,8 @@
 package com.xammer.cloud.service.automation.workload;
 
+import com.xammer.cloud.service.automation.workload.execute.WorkloadActionExecutor;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -32,12 +35,33 @@ public class WorkloadAutoscalingProperties {
 
     private final boolean enabled;
     private final boolean ready;
+    private final boolean executorPresent;
 
+    /**
+     * The production binding.
+     *
+     * <p>{@code executorPresent} is answered by asking the container whether a
+     * {@link WorkloadActionExecutor} bean exists, which is a real question now that one ships. An
+     * {@link ObjectProvider} rather than a constructor-injected bean so this stays resolvable when
+     * none is registered — and so no executor can depend on this class without a cycle.
+     */
+    @Autowired
     public WorkloadAutoscalingProperties(
             @Value("${" + ENABLED_KEY + ":false}") boolean enabled,
-            @Value("${" + READINESS_KEY + ":false}") boolean ready) {
+            @Value("${" + READINESS_KEY + ":false}") boolean ready,
+            ObjectProvider<WorkloadActionExecutor> executors) {
+        this(enabled, ready, executors.stream().findAny().isPresent());
+    }
+
+    /** No executor: the shape every test that is not about the executor wants. */
+    public WorkloadAutoscalingProperties(boolean enabled, boolean ready) {
+        this(enabled, ready, false);
+    }
+
+    public WorkloadAutoscalingProperties(boolean enabled, boolean ready, boolean executorPresent) {
         this.enabled = enabled;
         this.ready = ready;
+        this.executorPresent = executorPresent;
     }
 
     /** Whether the engine may evaluate at all. */
@@ -56,24 +80,26 @@ public class WorkloadAutoscalingProperties {
     /**
      * Whether an executor exists that could carry an apply at all.
      *
-     * <p>A constant rather than a flag: no {@code WorkloadActionExecutor} implementation ships in
-     * this release, which {@code ProductionClassScan} asserts by scanning the production classpath.
-     * It is written as part of the expression below so that when an executor lands, the one place
-     * that has to change is obvious — and so that no amount of configuration can turn auto-apply on
-     * before then.
+     * <p>This used to be the constant {@code false}, because no {@code WorkloadActionExecutor}
+     * implementation shipped: the absence of a collaborator, rather than a flag that could be
+     * mis-evaluated, was what made an apply impossible. One ships now
+     * ({@code DirectInPlaceResizeExecutor}), so the question is answered by asking the container,
+     * and a build that removes the executor goes back to answering false on its own.
      */
-    private static final boolean EXECUTOR_AVAILABLE = false;
+    public boolean isExecutorPresent() {
+        return executorPresent;
+    }
 
     /**
-     * Whether a decision may be applied automatically. Requires both flags <em>and</em> an executor,
-     * of which there is none in this run — so this is false by construction, not by configuration.
+     * Whether a decision may be applied automatically. Requires both flags <em>and</em> an executor
+     * — three independent conditions, none of which is documentation.
      *
-     * <p><strong>This is a live guard, not documentation.</strong>
-     * {@code VerticalDecisionMapper.toDto} takes this object and publishes
-     * {@code autoApplyEligible} as {@code engine AND this}, so a stored {@code AUTO} policy with a
-     * clean recommendation still reaches the UI as not auto-appliable.
+     * <p><strong>This is a live guard.</strong> {@code VerticalDecisionMapper.toDto} takes this
+     * object and publishes {@code autoApplyEligible} as {@code engine AND this}, so a stored
+     * {@code AUTO} policy with a clean recommendation still reaches the UI as not auto-appliable
+     * whenever any one of the three is missing.
      */
     public boolean isAutoApplyPermitted() {
-        return enabled && ready && EXECUTOR_AVAILABLE;
+        return enabled && ready && executorPresent;
     }
 }

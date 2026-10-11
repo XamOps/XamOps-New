@@ -10,6 +10,7 @@ import com.xammer.cloud.service.automation.workload.WorkloadRef;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -19,6 +20,8 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -145,6 +148,75 @@ class WorkloadPolicyServiceTest {
         assertThat(all).containsOnlyKeys(
                 "team-a/Deployment/overprovisioned-api", "team-b/Deployment/php-apache");
         assertThat(all.get(WorkloadPolicyService.key(REF)).mode()).isEqualTo(WorkloadMode.RECOMMEND);
+    }
+
+    // ---------------------------------------------------------------- recording an apply
+
+    @Test
+    @DisplayName("an apply against an existing row stamps last_applied_at and changes nothing else")
+    void recordingAnApplyUpdatesTheExistingRow() {
+        WorkloadVerticalPolicy row = bareRow();
+        row.setMode("RECOMMEND");
+        row.setHeadroomPct(40);
+        when(repository.findByClusterConfigIdAndNamespaceAndWorkloadKindAndWorkloadName(
+                CLUSTER_CONFIG_ID, "team-a", "Deployment", "overprovisioned-api"))
+                .thenReturn(Optional.of(row));
+
+        service().recordApplied(5L, CLUSTER_CONFIG_ID, REF, WorkloadPolicyDefaults.policy(),
+                Instant.parse("2026-10-11T12:00:00Z"));
+
+        ArgumentCaptor<WorkloadVerticalPolicy> saved =
+                ArgumentCaptor.forClass(WorkloadVerticalPolicy.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getLastAppliedAt()).isEqualTo(Instant.parse("2026-10-11T12:00:00Z"));
+        assertThat(saved.getValue().getMode())
+                .as("recording an apply must not rewrite the policy somebody chose")
+                .isEqualTo("RECOMMEND");
+        assertThat(saved.getValue().getHeadroomPct()).isEqualTo(40);
+    }
+
+    @Test
+    @DisplayName("an apply against a workload with no row creates one, with the mode actually in force")
+    void recordingAnApplyCreatesARowWhenThereIsNone() {
+        // Policy is absent by default, so most workloads have no row at all -- and an apply against
+        // one of them still has to be remembered, or the engine's cooldown guard has nothing to read.
+        when(repository.findByClusterConfigIdAndNamespaceAndWorkloadKindAndWorkloadName(
+                CLUSTER_CONFIG_ID, "team-a", "Deployment", "overprovisioned-api"))
+                .thenReturn(Optional.empty());
+
+        service().recordApplied(5L, CLUSTER_CONFIG_ID, REF,
+                WorkloadPolicyDefaults.policy(WorkloadMode.RECOMMEND),
+                Instant.parse("2026-10-11T12:00:00Z"));
+
+        ArgumentCaptor<WorkloadVerticalPolicy> saved =
+                ArgumentCaptor.forClass(WorkloadVerticalPolicy.class);
+        verify(repository).save(saved.capture());
+        WorkloadVerticalPolicy row = saved.getValue();
+        assertThat(row.getClientId()).as("tenant scoping is denormalised onto the row").isEqualTo(5L);
+        assertThat(row.getClusterConfigId()).isEqualTo(CLUSTER_CONFIG_ID);
+        assertThat(row.getNamespace()).isEqualTo("team-a");
+        assertThat(row.getWorkloadKind()).isEqualTo("Deployment");
+        assertThat(row.getWorkloadName()).isEqualTo("overprovisioned-api");
+        assertThat(row.getMode())
+                .as("the mode that was in force, never AUTO: pressing Apply once must not give a "
+                        + "workload a policy nobody chose")
+                .isEqualTo("RECOMMEND");
+        assertThat(row.getLastAppliedAt()).isEqualTo(Instant.parse("2026-10-11T12:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("recording an apply with no cluster, workload or timestamp is refused")
+    void recordingAnApplyNeedsItsIdentifiers() {
+        WorkloadPolicyService service = new WorkloadPolicyService(repository);
+        WorkloadPolicy defaults = WorkloadPolicyDefaults.policy();
+        Instant now = Instant.parse("2026-10-11T12:00:00Z");
+
+        assertThatThrownBy(() -> service.recordApplied(5L, null, REF, defaults, now))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.recordApplied(5L, CLUSTER_CONFIG_ID, null, defaults, now))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.recordApplied(5L, CLUSTER_CONFIG_ID, REF, defaults, null))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

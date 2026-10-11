@@ -55,6 +55,20 @@ public class VerticalMetricsProperties {
             METRICS_NAMESPACE_KEY, METRICS_SERVICE_KEY, METRICS_PORT_KEY, QUERY_TIMEOUT_KEY,
             IGNORE_CONTAINER_START_KEY, DEFAULT_WINDOW_HOURS_KEY, DEFAULT_MODE_KEY);
 
+    /**
+     * The chart's default Prometheus service port, which is what XamOps' own customer installer
+     * produces: the script served by {@code GET /api/v1/agent/install/eks.sh} never sets
+     * {@code server.service.servicePort}, and it points the agent at
+     * {@code prometheus-server.monitoring.svc.cluster.local:80}.
+     *
+     * <p>This used to default to {@code 9090}, which is only what the test harness installs
+     * ({@code eks/test-clusters/harness/prometheus-values.yaml}). The engine therefore answered
+     * {@code NO_METRICS_SOURCE} on every cluster onboarded the official way, and the bug was
+     * invisible on the harness cluster. The committed ClusterRole grants {@code services/proxy} on
+     * both {@code prometheus-server:80} and {@code prometheus-server:9090}, so either shape works.
+     */
+    static final int DEFAULT_PORT = 80;
+
     private final String metricsNamespace;
     private final String metricsService;
     private final int metricsPort;
@@ -66,14 +80,14 @@ public class VerticalMetricsProperties {
     public VerticalMetricsProperties(
             @Value("${" + METRICS_NAMESPACE_KEY + ":monitoring}") String metricsNamespace,
             @Value("${" + METRICS_SERVICE_KEY + ":prometheus-server}") String metricsService,
-            @Value("${" + METRICS_PORT_KEY + ":9090}") int metricsPort,
+            @Value("${" + METRICS_PORT_KEY + ":80}") int metricsPort,
             @Value("${" + QUERY_TIMEOUT_KEY + ":20}") int queryTimeoutSeconds,
             @Value("${" + IGNORE_CONTAINER_START_KEY + ":120}") int ignoreContainerStartSeconds,
             @Value("${" + DEFAULT_WINDOW_HOURS_KEY + ":24}") int defaultWindowHours,
             @Value("${" + DEFAULT_MODE_KEY + ":OFF}") String defaultMode) {
         this.metricsNamespace = blankTo(metricsNamespace, "monitoring");
         this.metricsService = blankTo(metricsService, "prometheus-server");
-        this.metricsPort = positiveOr(metricsPort, 9090, METRICS_PORT_KEY);
+        this.metricsPort = positiveOr(metricsPort, DEFAULT_PORT, METRICS_PORT_KEY);
         this.queryTimeoutSeconds = positiveOr(queryTimeoutSeconds, 20, QUERY_TIMEOUT_KEY);
         // Zero is meaningful here: it means "do not exclude young containers at all".
         this.ignoreContainerStartSeconds = ignoreContainerStartSeconds < 0 ? 120 : ignoreContainerStartSeconds;

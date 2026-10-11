@@ -113,6 +113,23 @@ class PrometheusProxyTransportTest {
     }
 
     @Test
+    @DisplayName("the shipped default port 80 builds the path an installer-provisioned cluster serves")
+    void theInstallerDefaultPortIsProxyable() throws Exception {
+        // XamOps' own installer never sets server.service.servicePort, so Prometheus lands on the
+        // chart default of 80. That -- not the harness's 9090 -- is the shipped default, and the
+        // committed ClusterRole grants services/proxy on both names.
+        PrometheusProxyTransport transport = new PrometheusProxyTransport(
+                new VerticalMetricsProperties("monitoring", "prometheus-server", 80, 20, 120, 24, "OFF"));
+
+        transport.instantQuery(client, "up");
+
+        assertThat(requestedUris.get(0))
+                .startsWith("/api/v1/namespaces/monitoring/services/prometheus-server:80/proxy"
+                        + "/api/v1/query?query=up");
+        assertThat(transport.describeTarget()).isEqualTo("monitoring/prometheus-server:80");
+    }
+
+    @Test
     @DisplayName("PromQL is URL-encoded, and decodes back to exactly what was asked")
     void promqlIsUrlEncoded() throws Exception {
         String promql = "max by (container) (quantile_over_time(0.95,"
