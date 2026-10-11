@@ -9,11 +9,35 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface AgentDataCacheRepository extends JpaRepository<AgentDataCache, Long> {
+
+    /** What capabilities needs from a cache row, without loading its data_json payload. */
+    interface TypeTimestamp {
+        Long getClusterConfigId();
+
+        String getDataType();
+
+        /** Agent-supplied UTC wall-clock time (ingest falls back to server time when absent). */
+        LocalDateTime getCollectedAt();
+
+        Integer getItemCount();
+
+        String getAgentVersion();
+    }
+
+    /**
+     * Type, freshness, size and agent version of every cached row of these clusters, as a JPQL
+     * projection so the TEXT {@code data_json} column is never read (design §11.3).
+     */
+    @Query("SELECT a.clusterConfigId AS clusterConfigId, a.dataType AS dataType, a.collectedAt AS collectedAt, "
+            + "a.itemCount AS itemCount, a.agentVersion AS agentVersion "
+            + "FROM AgentDataCache a WHERE a.clusterConfigId IN :clusterConfigIds")
+    List<TypeTimestamp> findTypeTimestampsByClusterConfigIdIn(@Param("clusterConfigIds") Collection<Long> clusterConfigIds);
 
     /**
      * Find cached data by cluster and data type

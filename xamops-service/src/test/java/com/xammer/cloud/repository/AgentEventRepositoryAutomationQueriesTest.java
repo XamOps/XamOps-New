@@ -65,4 +65,29 @@ class AgentEventRepositoryAutomationQueriesTest {
         assertThat(changes.get(0).getDetails()).isEqualTo("change 24");
         assertThat(changes).extracting(AgentEvent::getDetails).doesNotContain("not a change");
     }
+
+    @Test
+    void theNewestAutoscalerEventAfterTheCutoffIsFound() {
+        LocalDateTime now = LocalDateTime.of(2026, 10, 10, 9, 30);
+        AgentEvent old = new AgentEvent(10L, "heartbeat", "1.0.0-autoscaler", 0);
+        old.setCreatedAt(now.minusHours(30));
+        repository.save(old);
+        AgentEvent observer = new AgentEvent(10L, "push_success", "v2.1.0", 10);
+        observer.setCreatedAt(now.minusMinutes(1));
+        repository.save(observer);
+        AgentEvent recent = new AgentEvent(10L, "heartbeat", "1.0.0-autoscaler", 0);
+        recent.setCreatedAt(now.minusMinutes(3));
+        repository.save(recent);
+        AgentEvent older = new AgentEvent(10L, "heartbeat", "1.0.0-autoscaler", 0);
+        older.setCreatedAt(now.minusMinutes(9));
+        repository.save(older);
+
+        assertThat(repository.findFirstByClusterConfigIdAndAgentVersionEndingWithAndCreatedAtAfterOrderByCreatedAtDesc(
+                10L, "-autoscaler", now.minusHours(24))).get().extracting(AgentEvent::getCreatedAt)
+                .isEqualTo(now.minusMinutes(3));
+        assertThat(repository.findFirstByClusterConfigIdAndAgentVersionEndingWithAndCreatedAtAfterOrderByCreatedAtDesc(
+                10L, "-autoscaler", now.minusMinutes(2))).isEmpty();
+        assertThat(repository.findFirstByClusterConfigIdAndAgentVersionEndingWithAndCreatedAtAfterOrderByCreatedAtDesc(
+                11L, "-autoscaler", now.minusHours(24))).isEmpty();
+    }
 }

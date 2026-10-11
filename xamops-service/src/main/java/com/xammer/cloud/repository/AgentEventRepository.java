@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface AgentEventRepository extends JpaRepository<AgentEvent, Long> {
@@ -34,6 +35,15 @@ public interface AgentEventRepository extends JpaRepository<AgentEvent, Long> {
      */
     List<AgentEvent> findTop20ByClusterConfigIdAndEventTypeStartingWithOrderByCreatedAtDesc(
             Long clusterConfigId, String prefix);
+
+    /**
+     * The newest event of one cluster whose agent version ends with {@code suffix} and that was
+     * created after {@code since}. Capabilities calls it with {@code "-autoscaler"} and now - 24 h
+     * (server zone, like created_at), so the {@code LIKE '%-autoscaler'} filter only scans one day
+     * of that cluster's rows (design §6.2).
+     */
+    Optional<AgentEvent> findFirstByClusterConfigIdAndAgentVersionEndingWithAndCreatedAtAfterOrderByCreatedAtDesc(
+            Long clusterConfigId, String suffix, LocalDateTime since);
 
     /**
      * Find events by type
