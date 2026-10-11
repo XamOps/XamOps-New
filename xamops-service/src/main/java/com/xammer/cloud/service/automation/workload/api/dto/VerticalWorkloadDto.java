@@ -54,13 +54,31 @@ public record VerticalWorkloadDto(WorkloadRefDto ref,
      * @param recommended the decided resources, or <strong>null when nothing is recommended</strong>
      *                    — never a copy of {@code current}
      * @param reasons     why, including why nothing moved
+     * @param upstreamVpa what upstream VPA independently recommends for this container, or
+     *                    <strong>null</strong> when there is no VPA object, the optional ClusterRole
+     *                    rule was not granted, or VPA has not produced a target. An addition to
+     *                    §11.5; the UI renders {@code —} rather than a number when it is null.
      */
     public record ContainerDto(String name, String qosClass, ResourcesDto current,
-                               ResourcesDto recommended, List<String> reasons) {
+                               ResourcesDto recommended, List<String> reasons,
+                               UpstreamVpaDto upstreamVpa) {
 
         public ContainerDto {
             reasons = reasons == null ? List.of() : List.copyOf(reasons);
         }
+    }
+
+    /**
+     * Upstream VPA's own target for one container, for side-by-side comparison.
+     *
+     * <p>Same units as {@link ResourcesDto}: CPU in millicores, memory in MiB. A null field means VPA
+     * did not target that resource — never {@code 0}.
+     *
+     * @param source     always {@code "vpa"}, so the origin of the number is on the wire with it
+     * @param observedAt when VPA last provided the recommendation, or null when it does not say
+     */
+    public record UpstreamVpaDto(Integer cpuRequestM, Long memRequestMi, String source,
+                                 Instant observedAt) {
     }
 
     /**

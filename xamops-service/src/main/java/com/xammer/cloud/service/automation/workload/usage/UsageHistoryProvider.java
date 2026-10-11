@@ -1,13 +1,16 @@
 package com.xammer.cloud.service.automation.workload.usage;
 
+import com.xammer.cloud.service.automation.workload.access.ClusterAccess;
+
 import java.util.Map;
 
 /**
  * Supplies pre-aggregated per-container usage percentiles over a window.
  *
- * <p><strong>Defined here; no real implementation exists in this run</strong> — only
- * {@link StubUsageHistoryProvider}, which always reports {@code NO_METRICS_SOURCE}. That is what
- * makes the read endpoint honest rather than fabricated.
+ * <p>The implementation is {@link PrometheusUsageHistoryProvider}, which queries the customer
+ * cluster's own Prometheus through the Kubernetes API service proxy. It raises a typed
+ * {@code NO_METRICS_SOURCE} / {@code INSUFFICIENT_HISTORY} rather than returning a guess, which is
+ * what keeps the read endpoint honest.
  *
  * <h2>Why the contract is "pre-aggregated", not "raw time series"</h2>
  *
@@ -33,30 +36,40 @@ import java.util.Map;
  *       computed rather than guessed.</li>
  * </ul>
  *
- * <h2>Deferred implementations</h2>
+ * <h2>Why both methods take a {@link ClusterAccess}</h2>
  *
- * <ol>
- *   <li><strong>Agent-side rolling window</strong> (primary): the agent already collects per-pod,
- *       per-container {@code PodMetrics} from {@code metrics.k8s.io} across all namespaces, and would
- *       maintain the window in memory the way upstream VPA does with decaying histograms. Needs no
- *       Prometheus at all.</li>
- *   <li><strong>PromQL</strong>: {@code quantile_over_time} over
- *       {@code container_cpu_usage_seconds_total} and {@code container_memory_working_set_bytes},
- *       plus the CFS throttling ratio, reached through the Kubernetes API service proxy restricted
- *       by {@code resourceNames} to the Prometheus service. Two deliberate departures from the Go
- *       queries: <strong>p95, not p80</strong> for CPU, and a memory <em>percentile</em> rather than
- *       {@code max_over_time}, which overshoots.</li>
- * </ol>
+ * Usage lives inside the customer's cluster, so measuring it needs the connection the caller already
+ * opened. Passing it in — rather than having the provider open its own — means one cluster
+ * connection serves the whole request: the inventory read, every workload's usage, and the
+ * reachability probe. The parameter is {@code ClusterAccess}, this codebase's own type, so the
+ * interface stays free of fabric8 even though an implementation of it will not be.
+ *
+ * <h2>Deferred implementation</h2>
+ *
+ * <strong>Agent-side rolling window:</strong> the agent already collects per-pod, per-container
+ * {@code PodMetrics} from {@code metrics.k8s.io} across all namespaces, and would maintain the window
+ * in memory the way upstream VPA does with decaying histograms. Needs no Prometheus at all, and is
+ * the path for a private-endpoint cluster the backend cannot dial.
  */
 public interface UsageHistoryProvider {
 
-    /** Stable name, reported as the recommendation's basis. {@code "none"} for the stub. */
+    /** Stable name, reported as the recommendation's basis. */
     String sourceName();
+
+    /**
+     * Whether this source can answer for this cluster <strong>right now</strong>.
+     *
+     * <p>A real probe, not a property read: the read endpoint publishes the answer as
+     * {@code metricsSource.reachable} and gates on it, and "a provider bean exists" is not evidence
+     * that a customer's cluster has Prometheus installed.
+     */
+    boolean reachable(ClusterAccess access);
 
     /**
      * @return one aggregate per requested container name; never one value reused across containers
      * @throws UsageUnavailableException {@code NO_METRICS_SOURCE} or {@code INSUFFICIENT_HISTORY},
      *                                   never anything else
      */
-    Map<String, ContainerUsageAggregate> aggregates(UsageQuery query) throws UsageUnavailableException;
+    Map<String, ContainerUsageAggregate> aggregates(ClusterAccess access, UsageQuery query)
+            throws UsageUnavailableException;
 }

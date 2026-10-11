@@ -11,9 +11,9 @@ public class UsageUnavailableException extends Exception {
          * Nothing can supply usage percentiles for this cluster: no Prometheus reachable through the
          * API service proxy, and no agent maintaining a rolling window.
          *
-         * <p>This is what the stub provider always reports, which is what keeps the read endpoint
-         * honest: an empty {@code workloads} array with a stated reason, rather than a fabricated
-         * recommendation.
+         * <p>Raised when the Prometheus service proxy cannot be reached, is forbidden by RBAC, or
+         * answers with an error body. It is what keeps the read endpoint honest: an empty
+         * {@code workloads} array with a stated reason, rather than a fabricated recommendation.
          */
         NO_METRICS_SOURCE,
 

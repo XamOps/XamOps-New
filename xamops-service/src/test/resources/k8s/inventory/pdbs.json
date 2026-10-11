@@ -1,0 +1,55 @@
+{
+  "apiVersion": "policy/v1",
+  "kind": "PodDisruptionBudgetList",
+  "metadata": {
+    "resourceVersion": "1"
+  },
+  "items": [
+    {
+      "apiVersion": "policy/v1",
+      "kind": "PodDisruptionBudget",
+      "metadata": {
+        "name": "pdb-guarded-web",
+        "namespace": "team-b",
+        "uid": "pdb-1"
+      },
+      "spec": {
+        "minAvailable": 2,
+        "selector": {
+          "matchLabels": {
+            "app": "pdb-guarded-web"
+          }
+        }
+      },
+      "status": {
+        "currentHealthy": 3,
+        "desiredHealthy": 2,
+        "disruptionsAllowed": 1,
+        "expectedPods": 3
+      }
+    },
+    {
+      "apiVersion": "policy/v1",
+      "kind": "PodDisruptionBudget",
+      "metadata": {
+        "name": "rightsized-worker",
+        "namespace": "prod-sim",
+        "uid": "pdb-2"
+      },
+      "spec": {
+        "minAvailable": "50%",
+        "selector": {
+          "matchLabels": {
+            "app": "rightsized-worker"
+          }
+        }
+      },
+      "status": {
+        "currentHealthy": 2,
+        "desiredHealthy": 1,
+        "disruptionsAllowed": 1,
+        "expectedPods": 2
+      }
+    }
+  ]
+}

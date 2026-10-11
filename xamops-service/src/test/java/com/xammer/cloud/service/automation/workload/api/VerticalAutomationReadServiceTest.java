@@ -1,7 +1,15 @@
 package com.xammer.cloud.service.automation.workload.api;
 
 import com.xammer.cloud.domain.KubernetesClusterConfig;
+import com.xammer.cloud.service.automation.workload.ApplyMethod;
+import com.xammer.cloud.service.automation.workload.HysteresisBand;
+import com.xammer.cloud.service.automation.workload.NodeCapacity;
+import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
+import com.xammer.cloud.service.automation.workload.WorkloadMode;
+import com.xammer.cloud.service.automation.workload.WorkloadPolicy;
+import com.xammer.cloud.service.automation.workload.WorkloadPolicyDefaults;
+import com.xammer.cloud.service.automation.workload.WorkloadRef;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccess;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessException;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessProvider;
@@ -9,36 +17,52 @@ import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
 import com.xammer.cloud.service.automation.workload.access.EksClusterAccessProvider;
 import com.xammer.cloud.service.automation.workload.access.KubeconfigClusterAccessProvider;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalEngineResponse;
+import com.xammer.cloud.service.automation.workload.api.dto.VerticalWorkloadDto;
+import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
+import com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader;
+import com.xammer.cloud.service.automation.workload.policy.WorkloadPolicyService;
 import com.xammer.cloud.service.automation.workload.usage.ContainerUsageAggregate;
-import com.xammer.cloud.service.automation.workload.usage.StubUsageHistoryProvider;
+import com.xammer.cloud.service.automation.workload.usage.NoMetricsSourceProvider;
+import com.xammer.cloud.service.automation.workload.usage.PercentileSet;
 import com.xammer.cloud.service.automation.workload.usage.UsageHistoryProvider;
 import com.xammer.cloud.service.automation.workload.usage.UsageQuery;
 import com.xammer.cloud.service.automation.workload.usage.UsageUnavailableException;
+import com.xammer.cloud.service.automation.workload.inventory.WorkloadPods;
+import io.fabric8.kubernetes.client.KubernetesClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.annotation.Order;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
- * The read endpoint's payload: honest when gated, and never fabricated.
+ * The read endpoint's payload: honest when gated, real when it is not, and never fabricated.
  */
 class VerticalAutomationReadServiceTest {
 
     private static final ClusterTarget TARGET =
             new ClusterTarget(7L, 42L, "102227938259", "xamops-test-cluster", "ap-south-1");
 
+    private static final long MI = 1024L * 1024L;
+    private static final WorkloadRef API = new WorkloadRef("team-a", "Deployment", "overprovisioned-api",
+            "dep-uid-1");
+
     @Test
     @DisplayName("with the master switch off: gated, empty, and NO provider is invoked")
     void theDefaultStateTouchesNothing() {
         RecordingProvider provider = new RecordingProvider();
-        VerticalAutomationReadService service = new VerticalAutomationReadService(
+        VerticalAutomationReadService service = VerticalReadServiceFixtures.service(
                 new WorkloadAutoscalingProperties(false, false),
-                new StubUsageHistoryProvider(), List.of(provider));
+                new NoMetricsSourceProvider(), List.of(provider));
 
         VerticalEngineResponse response = service.read(TARGET, config(null));
 
@@ -61,9 +85,9 @@ class VerticalAutomationReadServiceTest {
     @Test
     @DisplayName("with the switch off, the engine makes no claim about cluster access it has not checked")
     void unverifiedAccessIsReportedAsUnknownNotAsMisconfigured() {
-        VerticalAutomationReadService service = new VerticalAutomationReadService(
+        VerticalAutomationReadService service = VerticalReadServiceFixtures.service(
                 new WorkloadAutoscalingProperties(false, false),
-                new StubUsageHistoryProvider(), List.of(new RecordingProvider()));
+                new NoMetricsSourceProvider(), List.of(new RecordingProvider()));
 
         VerticalEngineResponse response = service.read(TARGET, config(null));
 
@@ -75,11 +99,11 @@ class VerticalAutomationReadServiceTest {
     }
 
     @Test
-    @DisplayName("no cycle has ever run, and the payload says so rather than inventing a timestamp")
-    void lastCycleIsEmpty() {
-        VerticalAutomationReadService service = new VerticalAutomationReadService(
+    @DisplayName("while gated, no cycle has run and the payload says so rather than inventing a timestamp")
+    void lastCycleIsEmptyWhileGated() {
+        VerticalAutomationReadService service = VerticalReadServiceFixtures.service(
                 new WorkloadAutoscalingProperties(false, false),
-                new StubUsageHistoryProvider(), List.of());
+                new NoMetricsSourceProvider(), List.of());
 
         VerticalEngineResponse.LastCycle lastCycle = service.read(TARGET, config(null)).engine().lastCycle();
 
@@ -91,9 +115,9 @@ class VerticalAutomationReadServiceTest {
     @Test
     @DisplayName("a live agent makes the execution path AGENT even with no direct access")
     void aLiveAgentIsTheExecutionPath() {
-        VerticalAutomationReadService service = new VerticalAutomationReadService(
+        VerticalAutomationReadService service = VerticalReadServiceFixtures.service(
                 new WorkloadAutoscalingProperties(false, false),
-                new StubUsageHistoryProvider(), List.of());
+                new NoMetricsSourceProvider(), List.of());
 
         VerticalEngineResponse response = service.read(TARGET, config(LocalDateTime.now().minusMinutes(2)));
 
@@ -106,9 +130,9 @@ class VerticalAutomationReadServiceTest {
     @Test
     @DisplayName("a stale agent reuses the UI's existing AGENT_NOT_INSTALLED code")
     void aStaleAgentIsNotAnExecutionPath() {
-        VerticalAutomationReadService service = new VerticalAutomationReadService(
+        VerticalAutomationReadService service = VerticalReadServiceFixtures.service(
                 new WorkloadAutoscalingProperties(false, false),
-                new StubUsageHistoryProvider(), List.of());
+                new NoMetricsSourceProvider(), List.of());
 
         VerticalEngineResponse response = service.read(TARGET, config(LocalDateTime.now().minusHours(3)));
 
@@ -123,9 +147,9 @@ class VerticalAutomationReadServiceTest {
     @DisplayName("with the switch on, a CLUSTER_UNREACHABLE provider maps to UNREACHABLE and a gate")
     void unreachableIsReportedAsSuch() {
         ClusterAccessProvider failing = failing(ClusterAccessException.Kind.CLUSTER_UNREACHABLE);
-        VerticalAutomationReadService service = new VerticalAutomationReadService(
+        VerticalAutomationReadService service = VerticalReadServiceFixtures.service(
                 new WorkloadAutoscalingProperties(true, true),
-                new StubUsageHistoryProvider(), List.of(failing));
+                new NoMetricsSourceProvider(), List.of(failing));
 
         VerticalEngineResponse response = service.read(TARGET, config(null));
 
@@ -147,9 +171,9 @@ class VerticalAutomationReadServiceTest {
         PrecedenceProvider kubeconfigPath = new KubeconfigPrecedenceProvider();
 
         // Injected in the wrong order on purpose.
-        VerticalAutomationReadService service = new VerticalAutomationReadService(
+        VerticalAutomationReadService service = VerticalReadServiceFixtures.service(
                 new WorkloadAutoscalingProperties(true, true),
-                new StubUsageHistoryProvider(), List.of(kubeconfigPath, eksPath));
+                new NoMetricsSourceProvider(), List.of(kubeconfigPath, eksPath));
 
         service.read(TARGET, config(null));
 
@@ -181,9 +205,9 @@ class VerticalAutomationReadServiceTest {
     @DisplayName("with the switch on, CLUSTER_ACCESS_NOT_CONFIGURED maps to NOT_CONFIGURED and a gate")
     void misconfiguredAccessIsReportedAsSuch() {
         ClusterAccessProvider failing = failing(ClusterAccessException.Kind.CLUSTER_ACCESS_NOT_CONFIGURED);
-        VerticalAutomationReadService service = new VerticalAutomationReadService(
+        VerticalAutomationReadService service = VerticalReadServiceFixtures.service(
                 new WorkloadAutoscalingProperties(true, true),
-                new StubUsageHistoryProvider(), List.of(failing));
+                new NoMetricsSourceProvider(), List.of(failing));
 
         VerticalEngineResponse response = service.read(TARGET, config(null));
 
@@ -192,12 +216,11 @@ class VerticalAutomationReadServiceTest {
     }
 
     @Test
-    @DisplayName("workloads stay empty even with the switch on, because nothing can supply usage")
+    @DisplayName("no reachable usage source means no workloads, whatever the switches say")
     void noUsageSourceMeansNoWorkloads() {
-        VerticalAutomationReadService service = new VerticalAutomationReadService(
+        VerticalAutomationReadService service = VerticalReadServiceFixtures.service(
                 new WorkloadAutoscalingProperties(true, true),
-                new StubUsageHistoryProvider(),
-                List.of(failing(ClusterAccessException.Kind.CLUSTER_UNREACHABLE)));
+                new NoMetricsSourceProvider(), List.of(opening()));
 
         VerticalEngineResponse response = service.read(TARGET, config(null));
 
@@ -208,24 +231,22 @@ class VerticalAutomationReadServiceTest {
     }
 
     @Test
-    @DisplayName("the direct-path probe is cached: a poll loop does not re-dial the cluster")
-    void theProbeIsNotRepeatedOnEveryRequest() {
+    @DisplayName("the direct-path probe is cached for a BROKEN cluster: a poll loop does not re-dial it")
+    void aBrokenClusterIsNotReDialled() {
         // Opening the EKS provider means describeCluster, a token mint, a TLS handshake and a
-        // namespaces GET. This endpoint is a UI poll target, so one probe per poll would put an AWS
-        // call on the latency path of every refresh.
+        // namespaces GET. This endpoint is a UI poll target, so re-dialling an unroutable cluster
+        // every poll would put an AWS call on the latency path of every refresh.
         RecordingProvider provider = new RecordingProvider();
         long[] now = {0L};
-        VerticalAutomationReadService service = new VerticalAutomationReadService(
+        VerticalAutomationReadService service = VerticalReadServiceFixtures.service(
                 new WorkloadAutoscalingProperties(true, true),
-                new StubUsageHistoryProvider(), List.of(provider), () -> now[0]);
+                new NoMetricsSourceProvider(), List.of(provider), () -> now[0]);
 
         VerticalEngineResponse first = service.read(TARGET, config(null));
         now[0] += VerticalAutomationReadService.PROBE_TTL.toNanos() / 2;
         VerticalEngineResponse second = service.read(TARGET, config(null));
 
         assertThat(provider.opened).isEqualTo(1);
-        // This provider fails, so the cached entry is a failure — deliberately cached on the same
-        // terms, which is what stops a broken cluster being re-dialled on every poll.
         assertThat(second.engine().clusterAccess())
                 .as("the cached answer is the same answer, not a weaker one")
                 .isEqualTo(first.engine().clusterAccess())
@@ -239,9 +260,9 @@ class VerticalAutomationReadServiceTest {
         // A customer who fixes an access entry must see it on their next refresh, not on a restart.
         RecordingProvider provider = new RecordingProvider();
         long[] now = {0L};
-        VerticalAutomationReadService service = new VerticalAutomationReadService(
+        VerticalAutomationReadService service = VerticalReadServiceFixtures.service(
                 new WorkloadAutoscalingProperties(true, true),
-                new StubUsageHistoryProvider(), List.of(provider), () -> now[0]);
+                new NoMetricsSourceProvider(), List.of(provider), () -> now[0]);
 
         service.read(TARGET, config(null));
         now[0] += VerticalAutomationReadService.PROBE_TTL.toNanos();
@@ -255,9 +276,9 @@ class VerticalAutomationReadServiceTest {
     void theCacheIsPerCluster() {
         RecordingProvider provider = new RecordingProvider();
         long[] now = {0L};
-        VerticalAutomationReadService service = new VerticalAutomationReadService(
+        VerticalAutomationReadService service = VerticalReadServiceFixtures.service(
                 new WorkloadAutoscalingProperties(true, true),
-                new StubUsageHistoryProvider(), List.of(provider), () -> now[0]);
+                new NoMetricsSourceProvider(), List.of(provider), () -> now[0]);
 
         service.read(TARGET, config(null));
         service.read(new ClusterTarget(7L, 43L, "102227938259", "another-cluster", "ap-south-1"),
@@ -270,19 +291,290 @@ class VerticalAutomationReadServiceTest {
     }
 
     @Test
-    @DisplayName("a real usage source would be named in the payload rather than hidden")
-    void aNamedSourceIsReported() {
-        VerticalAutomationReadService service = new VerticalAutomationReadService(
-                new WorkloadAutoscalingProperties(true, true), new NamedProvider(), List.of());
+    @DisplayName("the metrics-source probe is cached on the same TTL, not re-run on every poll")
+    void theMetricsProbeIsCached() {
+        CountingProvider usage = new CountingProvider();
+        long[] now = {0L};
+        VerticalAutomationReadService service = service(usage, emptyInventory(), VerticalReadServiceFixtures
+                .noStoredPolicies(), "RECOMMEND", 24, () -> now[0]);
+
+        service.read(TARGET, config(null));
+        now[0] += VerticalAutomationReadService.PROBE_TTL.toNanos() / 2;
+        service.read(TARGET, config(null));
+
+        assertThat(usage.reachabilityProbes)
+                .as("the probe is a real Prometheus query, so it is cached like the access probe")
+                .isEqualTo(1);
+    }
+
+    // ---------------------------------------------------------------- the real read path
+
+    @Test
+    @DisplayName("a reachable source is named, and the cycle that ran is reported as the real one")
+    void aNamedSourceAndARealCycleAreReported() {
+        VerticalAutomationReadService service = service(new FakeUsage(), inventory(overprovisionedApi()),
+                VerticalReadServiceFixtures.noStoredPolicies(), "RECOMMEND", 24);
 
         VerticalEngineResponse response = service.read(TARGET, config(null));
 
         assertThat(response.engine().metricsSource().reachable()).isTrue();
-        assertThat(response.engine().metricsSource().name()).isEqualTo("prometheus");
+        assertThat(response.engine().metricsSource().name()).isEqualTo("fake-prometheus");
         assertThat(response.gateReasons()).doesNotContain(ReasonCode.NO_METRICS_SOURCE.name());
+        assertThat(response.engine().lastCycle().at())
+                .as("a real cycle just ran, so lastCycle stops being all-null")
+                .isEqualTo(VerticalReadServiceFixtures.CYCLE_AT);
+        assertThat(response.engine().lastCycle().evaluated()).isEqualTo(1);
+        assertThat(response.engine().lastCycle().error()).isNull();
     }
 
-    // ---------------------------------------------------------------- fakes
+    @Test
+    @DisplayName("a real workload maps to a real DTO, and no recommended field is ever 0")
+    void aRealWorkloadIsEvaluated() {
+        VerticalAutomationReadService service = service(new FakeUsage(), inventory(overprovisionedApi()),
+                VerticalReadServiceFixtures.noStoredPolicies(), "RECOMMEND", 24);
+
+        VerticalWorkloadDto dto = service.read(TARGET, config(null)).workloads().get(0);
+
+        assertThat(dto.ref().namespace()).isEqualTo("team-a");
+        assertThat(dto.ref().name()).isEqualTo("overprovisioned-api");
+        assertThat(dto.replicas()).isEqualTo(2);
+        assertThat(dto.skipReason()).isNull();
+        assertThat(dto.provenance().usageSource()).isEqualTo("fake-prometheus");
+        assertThat(dto.provenance().sampleCoverage()).isEqualTo(1.0);
+
+        VerticalWorkloadDto.ContainerDto container = dto.containers().get(0);
+        assertThat(container.name()).isEqualTo("idler");
+        assertThat(container.current().cpuRequestM()).isEqualTo(200);
+        assertThat(container.recommended()).isNotNull();
+        assertThat(container.recommended().cpuRequestM())
+                .as("the floor clamps the decrease; a 0m or 1m request is the measured failure this "
+                        + "engine exists to prevent")
+                .isEqualTo(WorkloadPolicyDefaults.CPU_FLOOR_MILLIS);
+        assertThat(List.of(container.recommended().cpuRequestM(), container.recommended().memRequestMi()))
+                .allSatisfy(value -> assertThat(value.longValue()).isPositive());
+    }
+
+    @Test
+    @DisplayName("a DEFAULTS policy picks up the configured window and mode; a stored row does not")
+    void theConfiguredDefaultsApplyOnlyToTheNoRowCase() {
+        FakeUsage usage = new FakeUsage();
+        VerticalAutomationReadService withDefaults = service(usage, inventory(overprovisionedApi()),
+                VerticalReadServiceFixtures.noStoredPolicies(), "RECOMMEND", 72);
+
+        VerticalWorkloadDto fromDefaults = withDefaults.read(TARGET, config(null)).workloads().get(0);
+
+        assertThat(fromDefaults.provenance().policySource()).isEqualTo("DEFAULTS");
+        assertThat(fromDefaults.provenance().windowHours()).isEqualTo(72);
+        assertThat(fromDefaults.policy().window()).isEqualTo("72h");
+        assertThat(fromDefaults.policy().mode()).isEqualTo("RECOMMEND");
+        assertThat(usage.lastQuery.windowHours())
+                .as("the window the provider was asked for is the window that was reported")
+                .isEqualTo(72);
+
+        FakeUsage storedUsage = new FakeUsage();
+        WorkloadPolicy row = storedRow(WorkloadMode.RECOMMEND, 24);
+        VerticalAutomationReadService withRow = service(storedUsage, inventory(overprovisionedApi()),
+                VerticalReadServiceFixtures.storedPolicies(
+                        Map.of(WorkloadPolicyService.key(API), row)), "RECOMMEND", 72);
+
+        VerticalWorkloadDto fromRow = withRow.read(TARGET, config(null)).workloads().get(0);
+
+        assertThat(fromRow.provenance().policySource())
+                .as("a stored row is never overridden, or the reported provenance would be a lie")
+                .isEqualTo("WORKLOAD_ROW");
+        assertThat(fromRow.provenance().windowHours()).isEqualTo(24);
+        assertThat(storedUsage.lastQuery.windowHours()).isEqualTo(24);
+    }
+
+    @Test
+    @DisplayName("the usage query carries the owner-resolved pods, never a name prefix")
+    void theUsageQueryIsOwnerScoped() {
+        FakeUsage usage = new FakeUsage();
+        service(usage, inventory(overprovisionedApi()), VerticalReadServiceFixtures.noStoredPolicies(),
+                "RECOMMEND", 24).read(TARGET, config(null));
+
+        UsageQuery query = usage.lastQuery;
+        assertThat(query.ref().namespace()).isEqualTo("team-a");
+        assertThat(query.podNames())
+                .containsExactly("overprovisioned-api-aaa-1", "overprovisioned-api-aaa-2");
+        assertThat(query.containerNames()).containsExactly("idler");
+        assertThat(query.percentile()).isEqualTo(WorkloadPolicyDefaults.PERCENTILE);
+    }
+
+    @Test
+    @DisplayName("INSUFFICIENT_HISTORY publishes the workload with a skip reason and NO numbers")
+    void insufficientHistoryIsAWaitingState() {
+        VerticalAutomationReadService service = service(
+                new FailingUsage(UsageUnavailableException.Kind.INSUFFICIENT_HISTORY),
+                inventory(overprovisionedApi()), VerticalReadServiceFixtures.noStoredPolicies(),
+                "RECOMMEND", 24);
+
+        VerticalEngineResponse response = service.read(TARGET, config(null));
+
+        assertThat(response.workloads()).hasSize(1);
+        VerticalWorkloadDto dto = response.workloads().get(0);
+        assertThat(dto.skipReason()).isEqualTo(ReasonCode.INSUFFICIENT_HISTORY.name());
+        assertThat(dto.containers())
+                .as("a waiting workload carries no numbers at all, not zeros and not blanks")
+                .isEmpty();
+        assertThat(dto.autoApplyEligible()).isFalse();
+        assertThat(dto.provenance().windowStart()).isNull();
+        assertThat(dto.provenance().windowEnd()).isNull();
+        assertThat(dto.provenance().sampleCoverage()).isNull();
+        assertThat(dto.provenance().windowHours())
+                .as("the policy's window is a fact about configuration, not a measurement")
+                .isEqualTo(24);
+        assertThat(response.gateReasons())
+                .as("one workload's history is not a cluster-wide gate")
+                .doesNotContain(ReasonCode.INSUFFICIENT_HISTORY.name());
+    }
+
+    @Test
+    @DisplayName("a cluster-wide usage failure leaves workloads empty and names the gate")
+    void aClusterWideUsageFailureIsAGate() {
+        VerticalAutomationReadService service = service(
+                new FailingUsage(UsageUnavailableException.Kind.NO_METRICS_SOURCE),
+                inventory(overprovisionedApi()), VerticalReadServiceFixtures.noStoredPolicies(),
+                "RECOMMEND", 24);
+
+        VerticalEngineResponse response = service.read(TARGET, config(null));
+
+        assertThat(response.workloads())
+                .as("a partial list the reader cannot tell is partial is worse than none")
+                .isEmpty();
+        assertThat(response.gateReasons()).contains(ReasonCode.NO_METRICS_SOURCE.name());
+        assertThat(response.engine().lastCycle().at()).isEqualTo(VerticalReadServiceFixtures.CYCLE_AT);
+        assertThat(response.engine().lastCycle().error()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("an unreadable node capacity is a cluster-wide failure, not a capacity of zero")
+    void withoutNodeCapacityNothingIsPublished() {
+        ClusterWorkloadInventory inventory = mock(ClusterWorkloadInventory.class);
+        when(inventory.read(any())).thenReturn(
+                new ClusterWorkloadInventory.Inventory(List.of(overprovisionedApi()), null));
+        VerticalAutomationReadService service = service(new FakeUsage(), inventory,
+                VerticalReadServiceFixtures.noStoredPolicies(), "RECOMMEND", 24);
+
+        VerticalEngineResponse response = service.read(TARGET, config(null));
+
+        assertThat(response.workloads()).isEmpty();
+        assertThat(response.engine().lastCycle().error()).contains("allocatable");
+    }
+
+    @Test
+    @DisplayName("a workload with no pods is a waiting state, not a measurement of nothing")
+    void aWorkloadWithNoPodsIsNotMeasured() {
+        ClusterWorkloadInventory.Workload noPods = new ClusterWorkloadInventory.Workload(API, 2, false,
+                false, null, null,
+                List.of(new ClusterWorkloadInventory.ContainerSpec("idler", burstable(), Map.of())),
+                new WorkloadPods(API, List.of()));
+        VerticalAutomationReadService service = service(new FakeUsage(), inventory(noPods),
+                VerticalReadServiceFixtures.noStoredPolicies(), "RECOMMEND", 24);
+
+        VerticalWorkloadDto dto = service.read(TARGET, config(null)).workloads().get(0);
+
+        assertThat(dto.skipReason()).isEqualTo(ReasonCode.INSUFFICIENT_HISTORY.name());
+        assertThat(dto.containers()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an unreadable upstream VPA is a finding, never a fabricated comparison")
+    void anUnreadableVpaIsAFinding() {
+        UpstreamVpaReader vpaReader = mock(UpstreamVpaReader.class);
+        when(vpaReader.read(any())).thenReturn(UpstreamVpaReader.View.notReadable());
+        VerticalAutomationReadService service = VerticalReadServiceFixtures.service(
+                new WorkloadAutoscalingProperties(true, true),
+                VerticalReadServiceFixtures.metricsProperties("RECOMMEND", 24),
+                new FakeUsage(), List.of(opening()), inventory(overprovisionedApi()), vpaReader,
+                VerticalReadServiceFixtures.noStoredPolicies(), () -> 0L);
+
+        VerticalWorkloadDto dto = service.read(TARGET, config(null)).workloads().get(0);
+
+        assertThat(dto.findings()).contains(UpstreamVpaReader.FINDING_NOT_READABLE);
+        assertThat(dto.containers().get(0).upstreamVpa()).isNull();
+    }
+
+    @Test
+    @DisplayName("a readable upstream VPA target is published beside ours, with its own source")
+    void aReadableVpaTargetIsPublished() {
+        UpstreamVpaReader vpaReader = mock(UpstreamVpaReader.class);
+        when(vpaReader.read(any())).thenReturn(new UpstreamVpaReader.View(
+                Map.of(UpstreamVpaReader.key(API),
+                        Map.of("idler", new UpstreamVpaReader.ContainerTarget(26, 262144000L, null))),
+                true));
+        VerticalAutomationReadService service = VerticalReadServiceFixtures.service(
+                new WorkloadAutoscalingProperties(true, true),
+                VerticalReadServiceFixtures.metricsProperties("RECOMMEND", 24),
+                new FakeUsage(), List.of(opening()), inventory(overprovisionedApi()), vpaReader,
+                VerticalReadServiceFixtures.noStoredPolicies(), () -> 0L);
+
+        VerticalWorkloadDto dto = service.read(TARGET, config(null)).workloads().get(0);
+        VerticalWorkloadDto.ContainerDto container = dto.containers().get(0);
+
+        assertThat(container.upstreamVpa()).isNotNull();
+        assertThat(container.upstreamVpa().cpuRequestM()).isEqualTo(26);
+        assertThat(container.upstreamVpa().memRequestMi()).isEqualTo(250);
+        assertThat(container.upstreamVpa().source()).isEqualTo("vpa");
+        assertThat(dto.findings()).doesNotContain(UpstreamVpaReader.FINDING_NOT_READABLE);
+    }
+
+    // ---------------------------------------------------------------- fixtures
+
+    private VerticalAutomationReadService service(UsageHistoryProvider usage,
+                                                  ClusterWorkloadInventory inventory,
+                                                  WorkloadPolicyService policies,
+                                                  String defaultMode, int defaultWindowHours) {
+        return service(usage, inventory, policies, defaultMode, defaultWindowHours, () -> 0L);
+    }
+
+    private VerticalAutomationReadService service(UsageHistoryProvider usage,
+                                                  ClusterWorkloadInventory inventory,
+                                                  WorkloadPolicyService policies,
+                                                  String defaultMode, int defaultWindowHours,
+                                                  java.util.function.LongSupplier nanoClock) {
+        UpstreamVpaReader vpaReader = mock(UpstreamVpaReader.class);
+        when(vpaReader.read(any())).thenReturn(UpstreamVpaReader.View.none());
+        return VerticalReadServiceFixtures.service(new WorkloadAutoscalingProperties(true, true),
+                VerticalReadServiceFixtures.metricsProperties(defaultMode, defaultWindowHours),
+                usage, List.of(opening()), inventory, vpaReader, policies, nanoClock);
+    }
+
+    private static ClusterWorkloadInventory inventory(ClusterWorkloadInventory.Workload... workloads) {
+        ClusterWorkloadInventory inventory = mock(ClusterWorkloadInventory.class);
+        when(inventory.read(any())).thenReturn(new ClusterWorkloadInventory.Inventory(
+                List.of(workloads), NodeCapacity.t3Medium()));
+        return inventory;
+    }
+
+    private static ClusterWorkloadInventory emptyInventory() {
+        return inventory();
+    }
+
+    /** The measured reference workload: 200m/256Mi requested, almost nothing used. */
+    private static ClusterWorkloadInventory.Workload overprovisionedApi() {
+        return new ClusterWorkloadInventory.Workload(API, 2, false, false, null, null,
+                List.of(new ClusterWorkloadInventory.ContainerSpec("idler", burstable(), Map.of())),
+                new WorkloadPods(API, List.of(
+                        new WorkloadPods.Pod("overprovisioned-api-aaa-1", "pod-uid-1"),
+                        new WorkloadPods.Pod("overprovisioned-api-aaa-2", "pod-uid-2"))));
+    }
+
+    private static ResourceEnvelope burstable() {
+        return new ResourceEnvelope(200, 500, 256 * MI, 512 * MI);
+    }
+
+    private static WorkloadPolicy storedRow(WorkloadMode mode, int windowHours) {
+        return new WorkloadPolicy(mode, WorkloadPolicyDefaults.HEADROOM_PCT,
+                WorkloadPolicyDefaults.PERCENTILE, windowHours, WorkloadPolicyDefaults.CPU_FLOOR_MILLIS,
+                WorkloadPolicyDefaults.MEM_FLOOR_BYTES,
+                new HysteresisBand(15, 25), new HysteresisBand(30, 100),
+                new HysteresisBand(15, 32 * MI), new HysteresisBand(30, 128 * MI),
+                ApplyMethod.IN_PLACE, WorkloadPolicyDefaults.COOLDOWN_MINUTES,
+                WorkloadPolicyDefaults.MAX_LIMIT_INCREASE_FACTOR, true,
+                WorkloadPolicyDefaults.NODE_CAPACITY_FRACTION, null,
+                WorkloadPolicy.Source.WORKLOAD_ROW);
+    }
 
     private static KubernetesClusterConfig config(LocalDateTime lastCheckin) {
         KubernetesClusterConfig config = new KubernetesClusterConfig();
@@ -308,6 +600,27 @@ class VerticalAutomationReadServiceTest {
             @Override
             public ClusterAccess open(ClusterTarget target) throws ClusterAccessException {
                 throw new ClusterAccessException(kind, "fake failure");
+            }
+        };
+    }
+
+    /** A provider that opens successfully, handing out a client nothing in the test actually calls. */
+    private static ClusterAccessProvider opening() {
+        return new ClusterAccessProvider() {
+            @Override
+            public String providerName() {
+                return "fake-open";
+            }
+
+            @Override
+            public boolean supports(ClusterTarget target) {
+                return true;
+            }
+
+            @Override
+            public ClusterAccess open(ClusterTarget target) {
+                return new ClusterAccess(mock(KubernetesClient.class), "https://127.0.0.1",
+                        target.clusterName(), target.region(), "fake-open");
             }
         };
     }
@@ -371,18 +684,82 @@ class VerticalAutomationReadServiceTest {
         }
     }
 
-    /** A provider with a real name, to prove the metrics-source branch is not hard-coded. */
-    private static final class NamedProvider implements UsageHistoryProvider {
+    /** Measures whatever it is asked for, with full coverage over the policy window. */
+    private static final class FakeUsage implements UsageHistoryProvider {
+
+        private UsageQuery lastQuery;
 
         @Override
         public String sourceName() {
-            return "prometheus";
+            return "fake-prometheus";
         }
 
         @Override
-        public Map<String, ContainerUsageAggregate> aggregates(UsageQuery query)
+        public boolean reachable(ClusterAccess access) {
+            return true;
+        }
+
+        @Override
+        public Map<String, ContainerUsageAggregate> aggregates(ClusterAccess access, UsageQuery query) {
+            lastQuery = query;
+            Map<String, ContainerUsageAggregate> byContainer = new java.util.LinkedHashMap<>();
+            for (String container : query.containerNames()) {
+                byContainer.put(container, new ContainerUsageAggregate(container,
+                        PercentileSet.single(query.percentile(), 10),
+                        PercentileSet.single(query.percentile(), 20 * MI),
+                        0.0, 0,
+                        VerticalReadServiceFixtures.CYCLE_AT.minus(Duration.ofHours(24)),
+                        VerticalReadServiceFixtures.CYCLE_AT, 1.0, sourceName()));
+            }
+            return byContainer;
+        }
+    }
+
+    /** Reachable, but every measurement fails with one typed kind. */
+    private static final class FailingUsage implements UsageHistoryProvider {
+
+        private final UsageUnavailableException.Kind kind;
+
+        private FailingUsage(UsageUnavailableException.Kind kind) {
+            this.kind = kind;
+        }
+
+        @Override
+        public String sourceName() {
+            return "fake-prometheus";
+        }
+
+        @Override
+        public boolean reachable(ClusterAccess access) {
+            return true;
+        }
+
+        @Override
+        public Map<String, ContainerUsageAggregate> aggregates(ClusterAccess access, UsageQuery query)
                 throws UsageUnavailableException {
-            throw new UsageUnavailableException(UsageUnavailableException.Kind.INSUFFICIENT_HISTORY, "no");
+            throw new UsageUnavailableException(kind, "fake " + kind);
+        }
+    }
+
+    /** Counts reachability probes, to prove they are cached. */
+    private static final class CountingProvider implements UsageHistoryProvider {
+
+        private int reachabilityProbes;
+
+        @Override
+        public String sourceName() {
+            return "counting";
+        }
+
+        @Override
+        public boolean reachable(ClusterAccess access) {
+            reachabilityProbes++;
+            return true;
+        }
+
+        @Override
+        public Map<String, ContainerUsageAggregate> aggregates(ClusterAccess access, UsageQuery query) {
+            return Map.of();
         }
     }
 }

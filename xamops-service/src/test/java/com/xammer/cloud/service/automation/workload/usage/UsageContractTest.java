@@ -104,9 +104,22 @@ class UsageContractTest {
         ClusterTarget target = new ClusterTarget(7L, 42L, "102227938259", "c", "ap-south-1");
         WorkloadRef ref = WorkloadRef.of("team-a", "Deployment", "api");
 
-        assertThatThrownBy(() -> new UsageQuery(target, ref, List.of(), 95, 24))
+        assertThatThrownBy(() -> new UsageQuery(target, ref, List.of(), List.of("api-1"), 95, 24))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("applied to every container");
+    }
+
+    @Test
+    @DisplayName("a query without owner-resolved pod names is rejected")
+    void aQueryMustNameItsPods() {
+        ClusterTarget target = new ClusterTarget(7L, 42L, "102227938259", "c", "ap-south-1");
+        WorkloadRef ref = WorkloadRef.of("team-a", "Deployment", "api");
+
+        // The Go rightsizer's pod=~"api-.*" is the failure this makes unrepresentable: a provider
+        // cannot be handed a workload without also being handed the pods that belong to it.
+        assertThatThrownBy(() -> new UsageQuery(target, ref, List.of("api"), List.of(), 95, 24))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("pod=~");
     }
 
     @Test
@@ -117,20 +130,21 @@ class UsageContractTest {
                 .hasMessageContaining("namespace is mandatory");
     }
 
-    // ---------------------------------------------------------------- the stub
+    // ---------------------------------------------------------------- a source that has nothing
 
     @Test
-    @DisplayName("the stub always reports NO_METRICS_SOURCE and never returns data")
-    void theStubNeverFabricates() {
-        StubUsageHistoryProvider stub = new StubUsageHistoryProvider();
+    @DisplayName("a provider with no source reports NO_METRICS_SOURCE and never returns data")
+    void aSourcelessProviderNeverFabricates() {
+        NoMetricsSourceProvider none = new NoMetricsSourceProvider();
         ClusterTarget target = new ClusterTarget(7L, 42L, "102227938259", "c", "ap-south-1");
         UsageQuery query = new UsageQuery(target, WorkloadRef.of("team-a", "Deployment", "api"),
-                List.of("api"), 95, 24);
+                List.of("api"), List.of("api-7f9c-xyz"), 95, 24);
 
-        assertThat(stub.sourceName()).isEqualTo("none");
+        assertThat(none.sourceName()).isEqualTo("none");
+        assertThat(none.reachable(null)).isFalse();
 
         UsageUnavailableException failure =
-                assertThrows(UsageUnavailableException.class, () -> stub.aggregates(query));
+                assertThrows(UsageUnavailableException.class, () -> none.aggregates(null, query));
 
         assertThat(failure.kind()).isEqualTo(UsageUnavailableException.Kind.NO_METRICS_SOURCE);
         assertThat(failure.reasonCode()).isEqualTo("NO_METRICS_SOURCE");
@@ -146,15 +160,22 @@ class UsageContractTest {
     }
 
     @Test
-    @DisplayName("no real UsageHistoryProvider is implemented in this run")
-    void onlyTheStubExists() {
+    @DisplayName("the Prometheus provider is the ONLY usage source on the production classpath")
+    void thePrometheusProviderIsTheOnlyProductionImplementation() {
         List<String> implementations = com.xammer.cloud.service.automation.workload.ProductionClassScan
                 .implementationsOf(UsageHistoryProvider.class);
 
         assertThat(implementations)
-                .as("A provider that returned plausible-looking numbers would be worse than no "
-                        + "feature at all: they would be indistinguishable from real ones in the UI, "
-                        + "and somebody would act on them.")
-                .containsExactly(StubUsageHistoryProvider.class.getName());
+                .as("A second production provider would make 'where did this number come from' a"
+                        + " question the payload could not answer, and a provider that returned"
+                        + " plausible-looking numbers would be worse than no feature at all. The"
+                        + " never-fabricate fake now lives in test scope (NoMetricsSourceProvider).")
+                .containsExactly(PrometheusUsageHistoryProvider.class.getName());
+    }
+
+    @Test
+    @DisplayName("the production provider names its source, so a number always says where it came from")
+    void theProductionProviderNamesItsSource() {
+        assertThat(PrometheusUsageHistoryProvider.SOURCE_NAME).isEqualTo("prometheus-proxy");
     }
 }

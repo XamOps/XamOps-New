@@ -19,11 +19,15 @@ import java.util.List;
  * @param ref            which workload, namespace mandatory
  * @param containerNames the containers to measure; at least one, and the result must be keyed by
  *                       these names
+ * @param podNames       the pods that <strong>actually belong</strong> to this workload, resolved
+ *                       through {@code ownerReferences} by the cluster inventory. Mandatory and
+ *                       non-empty: it is what a provider selects on instead of a name regex, so the
+ *                       Go rightsizer's {@code pod=~"<name>-.*"} has nowhere to come back from.
  * @param percentile     the percentile the policy asks for; the result must contain exactly it
  * @param windowHours    the policy window
  */
 public record UsageQuery(ClusterTarget target, WorkloadRef ref, List<String> containerNames,
-                         int percentile, int windowHours) {
+                         List<String> podNames, int percentile, int windowHours) {
 
     public UsageQuery {
         if (target == null) {
@@ -38,6 +42,12 @@ public record UsageQuery(ClusterTarget target, WorkloadRef ref, List<String> con
                             + " applied to every container");
         }
         containerNames = List.copyOf(containerNames);
+        if (podNames == null || podNames.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "podNames is mandatory: a query that does not name the pods it measures is how"
+                            + " pod=~\"<name>-.*\" ends up selecting another workload's pods");
+        }
+        podNames = List.copyOf(podNames);
         if (percentile < 1 || percentile > 100) {
             throw new IllegalArgumentException("percentile out of range: " + percentile);
         }

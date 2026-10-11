@@ -82,6 +82,20 @@ public record WorkloadPolicy(WorkloadMode mode,
         }
     }
 
+    /**
+     * The same policy over a different window.
+     *
+     * <p>Used by the read path to apply {@code xamops.automation.vertical.default-window-hours}
+     * <strong>only</strong> to a {@link Source#DEFAULTS}-sourced policy. A stored row's window is
+     * never replaced, so {@code provenance.windowHours} stays truthful about what was used.
+     */
+    public WorkloadPolicy withWindowHours(int newWindowHours) {
+        return new WorkloadPolicy(mode, headroomPct, percentile, newWindowHours, cpuFloorMillis,
+                memFloorBytes, cpuIncrease, cpuDecrease, memIncrease, memDecrease, applyMethod,
+                cooldownMinutes, maxLimitIncreaseFactor, protectSingleReplica, nodeCapacityFraction,
+                lastAppliedAt, source);
+    }
+
     public WorkloadPolicy withMode(WorkloadMode newMode) {
         return new WorkloadPolicy(newMode, headroomPct, percentile, windowHours, cpuFloorMillis, memFloorBytes,
                 cpuIncrease, cpuDecrease, memIncrease, memDecrease, applyMethod, cooldownMinutes,

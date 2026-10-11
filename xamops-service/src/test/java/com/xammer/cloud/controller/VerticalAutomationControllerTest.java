@@ -10,7 +10,8 @@ import com.xammer.cloud.security.CloudAccountAccessService;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.api.VerticalAutomationController;
 import com.xammer.cloud.service.automation.workload.api.VerticalAutomationReadService;
-import com.xammer.cloud.service.automation.workload.usage.StubUsageHistoryProvider;
+import com.xammer.cloud.service.automation.workload.api.VerticalReadServiceFixtures;
+import com.xammer.cloud.service.automation.workload.usage.NoMetricsSourceProvider;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -190,9 +191,9 @@ class VerticalAutomationControllerTest {
     }
 
     private MockMvc mvc() {
-        return mvc(new VerticalAutomationReadService(
+        return mvc(VerticalReadServiceFixtures.service(
                 new WorkloadAutoscalingProperties(false, false),
-                new StubUsageHistoryProvider(), List.of()));
+                new NoMetricsSourceProvider(), List.of()));
     }
 
     private MockMvc mvc(VerticalAutomationReadService readService) {
