@@ -1,0 +1,89 @@
+# Kubernetes RBAC for the XamOps workload (vertical) autoscaler — xamops-test-1.
+#
+# The EKS access entry for arn:aws:iam::102227938259:role/XamOpsWorkloadAutoscalerRole-102227938259
+# maps that IAM role to the Kubernetes group `xamops-workload-autoscaler`; this file is what that
+# group is actually allowed to do. The IAM role itself holds only eks:DescribeCluster +
+# eks:ListClusters — the authority to mutate anything in the cluster comes from the rules below and
+# nowhere else. See WORKLOAD-AUTOSCALER-ACCESS.md.
+#
+# Deliberately absent, and must stay absent:
+#   - any rule on the core Secret resource (no credential read of any kind)
+#   - any `patch`/`update` on apps/deployments (the in-place resize path touches pods/resize only,
+#     so the engine can never rewrite a Deployment's pod template)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: xamops-workload-autoscaler
+  labels:
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-11"
+    ephemeral: "true"
+rules:
+  # --- inventory: the workload snapshot the engine decides from ---
+  - apiGroups: [""]
+    resources: ["pods", "namespaces", "nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  # HPA awareness: the engine must not fight a horizontal autoscaler on the same workload.
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+  # PDB awareness: a disruption budget with zero allowed disruptions blocks a restart-based apply.
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch"]
+
+  # --- the only mutation: in-place pod resource resize (K8s 1.33+ resize subresource) ---
+  - apiGroups: [""]
+    resources: ["pods/resize"]
+    verbs: ["patch"]
+
+  # --- usage history: Prometheus is reached through the API server's service proxy ---
+  # RBAC matches services/proxy on the name AS IT APPEARS IN THE URL, so the port/scheme-qualified
+  # forms are distinct resourceNames from the bare service name. Trimmed on 2026-10-11 to the one
+  # form that was proven live: the backend builds `.../services/{svc}:{port}/proxy{path}`
+  # (OpenCostService.java), i.e. `prometheus-server:9090`. The bare `prometheus-server` form is not
+  # usable here (the Service has no endpoint on the default port, so the proxy returns
+  # ServiceUnavailable) and `http:prometheus-server:9090` is a URL shape this backend never builds.
+  # Add either name back only if you proxy with that exact URL shape.
+  - apiGroups: [""]
+    resources: ["services/proxy"]
+    resourceNames:
+      - "prometheus-server:9090"
+    verbs: ["get"]
+
+  # --- audit trail: every applied resize emits an Event on the target pod ---
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create"]
+
+  # OPTIONAL (decision D13) — read upstream VPA recommendations so the UI can show the XamOps
+  # recommendation side by side with what the VPA recommender would have said. Read-only, and not
+  # required for any decision or apply; drop this single rule if upstream VPA is not installed.
+  - apiGroups: ["autoscaling.k8s.io"]
+    resources: ["verticalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: xamops-workload-autoscaler
+  labels:
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-11"
+    ephemeral: "true"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: xamops-workload-autoscaler
+subjects:
+  # The group the EKS access entry maps the IAM role to (--kubernetes-groups).
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: xamops-workload-autoscaler
