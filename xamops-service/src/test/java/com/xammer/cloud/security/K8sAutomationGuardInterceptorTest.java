@@ -19,6 +19,9 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.servlet.HandlerMapping;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.handler.MappedInterceptor;
+import org.springframework.web.util.ServletRequestPathUtils;
 
 import java.util.HashMap;
 import java.util.List;
@@ -116,9 +119,35 @@ class K8sAutomationGuardInterceptorTest {
 
     // ── Registration ──────────────────────────────────────────────────────
 
+    /** A request with its path parsed, as the DispatcherServlet does before matching interceptors. */
+    private static MockHttpServletRequest parsed(String method, String path) {
+        MockHttpServletRequest r = new MockHttpServletRequest(method, path);
+        ServletRequestPathUtils.parseAndCache(r);
+        return r;
+    }
+
+    /** Exposes the registered interceptors (the getter is protected). */
+    private static final class ExposedRegistry extends InterceptorRegistry {
+        List<Object> registered() {
+            return getInterceptors();
+        }
+    }
+
     @Test
-    void guardsEveryAutomationPath() {
+    void theWebConfigRegistersTheGuardOnEveryAutomationPath() {
         assertThat(K8sAutomationWebConfig.GUARDED_PATHS).containsExactly("/api/eks/autoscaling/**");
+        ExposedRegistry registry = new ExposedRegistry();
+        new K8sAutomationWebConfig(interceptor).addInterceptors(registry);
+
+        assertThat(registry.registered()).singleElement().isInstanceOfSatisfying(MappedInterceptor.class, mapped -> {
+            assertThat(mapped.getInterceptor()).isSameAs(interceptor);
+            assertThat(mapped.getIncludePathPatterns()).containsExactly("/api/eks/autoscaling/**");
+            for (String method : List.of("GET", "PUT", "POST", "DELETE", "PATCH")) {
+                assertThat(mapped.matches(parsed(method, "/api/eks/autoscaling/prod-eks/node-templates/t1")))
+                        .as(method).isTrue();
+            }
+            assertThat(mapped.matches(parsed("GET", "/api/xamops/k8s/clusters"))).isFalse();
+        });
     }
 
     // ── Reads ─────────────────────────────────────────────────────────────

@@ -11,8 +11,10 @@ import java.util.List;
  *   - kubernetes_cluster_config (agentStatus, autoscalingEnabled, agentVersion, lastAgentCheckin)
  *   - agent_events (for the activity feed)
  *
- * When autoscalingEnabled = false on the cluster config, the controller returns a
- * lightweight disabled-state response so the frontend can show the "not enabled" banner.
+ * Every policy section is present whether or not node automation is enabled, with the
+ * effective (normalized) values: {@code policySource} says whether a bundle was saved, and
+ * {@code agentPolicyBlockedBy} says when the owning account keeps the agent's policy disabled
+ * (design §6.6, §11.4, NIT 11).
  */
 public class AutoscalerDashboardDto {
 
@@ -27,7 +29,16 @@ public class AutoscalerDashboardDto {
     private RebalancerConfigDto rebalancer;
     private SafetyGuardsDto safetyGuards;
     private NodeOptimizerPolicyDto nodeOptimizerPolicy;
+    private HpaManagerPolicyDto hpaManagerPolicy;
+    private VpaManagerPolicyDto vpaManagerPolicy;
+    /** "stored" when a policy bundle was saved, "default" when the values shown are defaults. */
+    private String policySource;
+    /** READ_ONLY_CONNECTION or CONNECTION_NOT_VERIFIED when the agent is served a disabled policy, else null. */
+    private String agentPolicyBlockedBy;
+    /** Events the automation agent reported (its autoscaling-events row only). */
     private List<AutoscalingEventDto> recentEvents;
+    /** Configuration changes XamOps recorded (agent_events rows whose type starts with autoscaling_). */
+    private List<AutomationChangeDto> recentChanges;
 
     // ─── Getters / Setters ────────────────────────────────────────────────────
 
@@ -61,8 +72,23 @@ public class AutoscalerDashboardDto {
     public NodeOptimizerPolicyDto getNodeOptimizerPolicy() { return nodeOptimizerPolicy; }
     public void setNodeOptimizerPolicy(NodeOptimizerPolicyDto nodeOptimizerPolicy) { this.nodeOptimizerPolicy = nodeOptimizerPolicy; }
 
+    public HpaManagerPolicyDto getHpaManagerPolicy() { return hpaManagerPolicy; }
+    public void setHpaManagerPolicy(HpaManagerPolicyDto hpaManagerPolicy) { this.hpaManagerPolicy = hpaManagerPolicy; }
+
+    public VpaManagerPolicyDto getVpaManagerPolicy() { return vpaManagerPolicy; }
+    public void setVpaManagerPolicy(VpaManagerPolicyDto vpaManagerPolicy) { this.vpaManagerPolicy = vpaManagerPolicy; }
+
+    public String getPolicySource() { return policySource; }
+    public void setPolicySource(String policySource) { this.policySource = policySource; }
+
+    public String getAgentPolicyBlockedBy() { return agentPolicyBlockedBy; }
+    public void setAgentPolicyBlockedBy(String agentPolicyBlockedBy) { this.agentPolicyBlockedBy = agentPolicyBlockedBy; }
+
     public List<AutoscalingEventDto> getRecentEvents() { return recentEvents; }
     public void setRecentEvents(List<AutoscalingEventDto> recentEvents) { this.recentEvents = recentEvents; }
+
+    public List<AutomationChangeDto> getRecentChanges() { return recentChanges; }
+    public void setRecentChanges(List<AutomationChangeDto> recentChanges) { this.recentChanges = recentChanges; }
 
     // ─── Nested DTOs ─────────────────────────────────────────────────────────
 
@@ -418,5 +444,32 @@ public class AutoscalerDashboardDto {
         public void setNodeCount(Integer nodeCount) { this.nodeCount = nodeCount; }
         public Double getSavingsDelta() { return savingsDelta; }
         public void setSavingsDelta(Double savingsDelta) { this.savingsDelta = savingsDelta; }
+    }
+
+    /** One configuration change XamOps recorded, with an ISO-8601 UTC timestamp. */
+    public static class AutomationChangeDto {
+        private String id;
+        private String timestamp;
+        private String eventType;
+        private String message;
+
+        public AutomationChangeDto() {
+        }
+
+        public AutomationChangeDto(String id, String timestamp, String eventType, String message) {
+            this.id = id;
+            this.timestamp = timestamp;
+            this.eventType = eventType;
+            this.message = message;
+        }
+
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
+        public String getTimestamp() { return timestamp; }
+        public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
+        public String getEventType() { return eventType; }
+        public void setEventType(String eventType) { this.eventType = eventType; }
+        public String getMessage() { return message; }
+        public void setMessage(String message) { this.message = message; }
     }
 }

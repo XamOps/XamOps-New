@@ -1,7 +1,7 @@
 package com.xammer.cloud.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.xammer.cloud.domain.AgentDataCache;
@@ -16,47 +16,50 @@ import com.xammer.cloud.dto.autoscaling.NodeOptimizerPolicyDto;
 import com.xammer.cloud.dto.autoscaling.WorkloadRightsizingDto;
 import com.xammer.cloud.dto.autoscaling.WorkloadRightsizingDto.WorkloadRecommendation;
 import com.xammer.cloud.dto.k8s.EksCompleteDashboardDto;
+import com.xammer.cloud.exception.K8sAutomationReason;
 import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.AgentEventRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.EksDashboardCacheRepository;
 import com.xammer.cloud.repository.KubernetesClusterConfigRepository;
+import com.xammer.cloud.security.K8sAutomationAccessService;
+import com.xammer.cloud.service.K8sAutomationPolicyNormalizer.Section;
+import com.xammer.cloud.service.K8sAutomationPolicyNormalizer.UiPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
  * EksAutoscalingService — core backend for XamOps Autoscaling Agent.
  *
+ * <p>
+ * Every method takes the {@link KubernetesClusterConfig} the request guard already resolved
+ * ({@code K8sAutomationGuardInterceptor}); nothing here looks a config up by a caller-supplied
+ * account id. Policy reads and writes go through {@link K8sAutomationPolicyNormalizer}, so every
+ * stored bundle is complete and every served value is safe for the current readiness.
+ *
  * Data sources (NO new tables — everything reuses existing infrastructure):
  *
  *   1. kubernetes_cluster_config
- *        - autoscalingEnabled  → guard: only serve data when true
+ *        - autoscalingEnabled  → node automation on/off
  *        - agent_status        → maps to AgentStatusDto.agentHealthy
  *        - agent_version       → maps to AgentStatusDto.agentVersion
  *        - last_agent_checkin  → maps to AgentStatusDto.lastSyncAt
  *
  *   2. agent_data_cache (existing table, new data_type values)
- *        - dataType = "autoscaling-policy"   → ScaleOutPolicy + EvictorPolicy +
- *                                              WorkloadRightsizerPolicy + NodeTemplates +
- *                                              RebalancerConfig + SafetyGuards + mode
- *                                              (saved by XamOps backend when user edits in UI)
- *        - dataType = "autoscaling-metrics"  → AutoscalingKpisDto
- *                                              (pushed by XamOps agent from cluster Prometheus)
- *        - dataType = "autoscaling-events"   → List<AutoscalingEventDto>
- *                                              (pushed by XamOps agent when actions happen)
+ *        - dataType = "autoscaling-policy"   → the AutomationPolicyBundle (written by XamOps only;
+ *                                              ingest refuses it from agents)
+ *        - dataType = "autoscaling-metrics"  → AutoscalingKpisDto (pushed by the agent)
+ *        - dataType = "autoscaling-events"   → List<AutoscalingEventDto> (pushed by the agent)
  *
- *   3. agent_events (existing table, filtered by event_type prefix "autoscaling_*")
- *        - Used as fallback activity feed when no autoscaling-events cache exists
- *
- * Defaults: all sub-policies have sensible CAST.ai-aligned defaults so the UI
- * works out of the box even before the agent pushes anything.
+ *   3. agent_events (existing table, event types starting "autoscaling_")
+ *        - configuration changes XamOps recorded, served as recentChanges
  */
 @Service
 public class EksAutoscalingService {
@@ -64,8 +67,9 @@ public class EksAutoscalingService {
     private static final Logger logger = LoggerFactory.getLogger(EksAutoscalingService.class);
 
     // ── Data types stored in agent_data_cache ──────────────────────────────
-    // Pushed by xamops-agent (read-only observer):
+    // Written by XamOps (never by agents):
     public static final String DT_POLICY             = "autoscaling-policy";
+    // Pushed by xamops-agent (read-only observer):
     public static final String DT_METRICS            = "autoscaling-metrics";
     public static final String DT_EVENTS             = "autoscaling-events";
     // Pushed by xamops-automation (read-write controller):
@@ -73,11 +77,34 @@ public class EksAutoscalingService {
     public static final String DT_REBALANCE_STATUS   = "autoscaling-rebalance-status";
     public static final String DT_EVICTOR_CANDIDATES = "autoscaling-evictor-candidates";
 
+    /** Event-type prefix of configuration changes XamOps records. */
+    public static final String CHANGE_EVENT_PREFIX = "autoscaling_";
+
+    private static final Map<Section, String> SECTION_LABELS = Map.of(
+            Section.SCALE_OUT, "Scale-out policy",
+            Section.EVICTOR, "Evictor policy",
+            Section.WORKLOAD_RIGHTSIZER, "Workload rightsizer policy",
+            Section.SAFETY_GUARDS, "Safety guards",
+            Section.NODE_OPTIMIZER, "Node optimizer policy",
+            Section.REBALANCER, "Rebalancer config",
+            Section.MODE, "Node automation scope");
+
+    /**
+     * What capabilities reports per cluster about node automation (design D5).
+     *
+     * @param derivedState {@code OFF}, {@code ANALYSIS} or {@code AUTOMATED}; capabilities replaces
+     *                     it with {@code NOT_INSTALLED} when the automation agent was never seen
+     */
+    public record NodeAutomationSummary(boolean enabled, String mode, Boolean evictorAnalyseOnly, String derivedState) {
+    }
+
     private final KubernetesClusterConfigRepository clusterConfigRepository;
     private final AgentDataCacheRepository agentDataCacheRepository;
     private final AgentEventRepository agentEventRepository;
     private final EksDashboardCacheRepository eksDashboardCacheRepository;
     private final CloudAccountRepository cloudAccountRepository;
+    private final K8sAutomationPolicyNormalizer normalizer;
+    private final K8sAutomationAccessService accessService;
     private final ObjectMapper objectMapper;
 
     public EksAutoscalingService(
@@ -85,14 +112,20 @@ public class EksAutoscalingService {
             AgentDataCacheRepository agentDataCacheRepository,
             AgentEventRepository agentEventRepository,
             EksDashboardCacheRepository eksDashboardCacheRepository,
-            CloudAccountRepository cloudAccountRepository) {
+            CloudAccountRepository cloudAccountRepository,
+            K8sAutomationPolicyNormalizer normalizer,
+            K8sAutomationAccessService accessService) {
         this.clusterConfigRepository = clusterConfigRepository;
         this.agentDataCacheRepository = agentDataCacheRepository;
         this.agentEventRepository = agentEventRepository;
         this.eksDashboardCacheRepository = eksDashboardCacheRepository;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.normalizer = normalizer;
+        this.accessService = accessService;
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
+        // An added key in an agent payload must not blank the feed or the KPI tiles (E21, R6).
+        this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -100,177 +133,149 @@ public class EksAutoscalingService {
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * Build the full AutoscalerDashboardDto for a cluster.
-     * Returns null if autoscaling is not enabled on this cluster.
+     * The full dashboard for a cluster, whether or not node automation is enabled (E19): every
+     * policy section with its effective values, {@code policySource}, {@code agentPolicyBlockedBy},
+     * the agent's own events and the configuration changes XamOps recorded.
      */
-    public AutoscalerDashboardDto getDashboard(String clusterName, Long cloudAccountId, String region) {
-        KubernetesClusterConfig config = findConfig(clusterName, cloudAccountId);
-        if (config == null) return null;
-
-        // Guard: autoscaling must be enabled on this cluster
-        if (!Boolean.TRUE.equals(config.getAutoscalingEnabled())) {
-            // Return a minimal "disabled" response so frontend can show the banner
-            AutoscalerDashboardDto disabled = new AutoscalerDashboardDto();
-            AgentStatusDto status = new AgentStatusDto();
-            status.setMode("disabled");
-            status.setAgentHealthy(false);
-            status.setClusterControllerHealthy(false);
-            status.setEvictorHealthy(false);
-            status.setWorkloadAutoscalerHealthy(false);
-            status.setAgentVersion(config.getAgentVersion() != null ? config.getAgentVersion() : "not-installed");
-            disabled.setAgentStatus(status);
-            disabled.setRecentEvents(Collections.emptyList());
-            disabled.setNodeTemplates(Collections.emptyList());
-            return disabled;
-        }
+    public AutoscalerDashboardDto getDashboard(KubernetesClusterConfig config) {
+        boolean enabled = Boolean.TRUE.equals(config.getAutoscalingEnabled());
+        K8sAutomationReason block = accessService.agentPolicyBlock(config);
+        UiPolicy policy = normalizer.forUi(storedPolicyJson(config.getId()), config.getId(), block);
+        AutomationPolicyBundle bundle = policy.bundle();
 
         AutoscalerDashboardDto dto = new AutoscalerDashboardDto();
-        dto.setAutoscalingEnabled(true);
-
-        // 1. Agent status — from kubernetes_cluster_config
-        dto.setAgentStatus(buildAgentStatus(config));
-
-        // 2. Policies — from agent_data_cache (dataType="autoscaling-policy")
-        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
+        dto.setAutoscalingEnabled(enabled);
+        dto.setPolicySource(policy.policySource());
+        dto.setAgentPolicyBlockedBy(block != null ? block.name() : null);
+        dto.setAgentStatus(enabled ? buildAgentStatus(config, bundle) : disabledAgentStatus(config));
         dto.setScaleOutPolicy(bundle.getScaleOutPolicy());
         dto.setEvictorPolicy(bundle.getEvictorPolicy());
         dto.setWorkloadRightsizerPolicy(bundle.getWorkloadRightsizerPolicy());
+        dto.setHpaManagerPolicy(bundle.getHpaManagerPolicy());
+        dto.setVpaManagerPolicy(bundle.getVpaManagerPolicy());
         dto.setNodeTemplates(bundle.getNodeTemplates());
         dto.setRebalancer(bundle.getRebalancer());
         dto.setSafetyGuards(bundle.getSafetyGuards());
         dto.setNodeOptimizerPolicy(bundle.getNodeOptimizerPolicy());
-
-        // 3. Runtime metrics — from agent_data_cache (dataType="autoscaling-metrics")
-        //    Enriched with live data from Prometheus/existing EksDashboardCache where available
         dto.setKpis(readMetrics(config.getId()));
-
-        // 4. Activity feed — from agent_data_cache (dataType="autoscaling-events")
         dto.setRecentEvents(readEvents(config.getId()));
-
+        dto.setRecentChanges(readChanges(config.getId()));
         return dto;
+    }
+
+    /** Node automation state for capabilities (design D5). */
+    public NodeAutomationSummary summarize(KubernetesClusterConfig config) {
+        boolean enabled = Boolean.TRUE.equals(config.getAutoscalingEnabled());
+        UiPolicy policy = normalizer.forUi(storedPolicyJson(config.getId()), config.getId(), null);
+        AutomationPolicyBundle b = policy.bundle();
+        boolean stored = "stored".equals(policy.policySource());
+        String derived;
+        if (!enabled || "disabled".equals(b.getAutoscalerMode())) {
+            derived = "OFF";
+        } else if (!b.getEvictorPolicy().isAnalyseOnly()
+                || b.getNodeOptimizerPolicy().isAutoCordonIdleNodes()
+                || b.getNodeOptimizerPolicy().isAutoDrainIdleNodes()
+                || b.getNodeOptimizerPolicy().getSpotRatioTargetPct() != 0
+                || b.getRebalancer().isEnabled()
+                || b.getRebalancer().isScheduleEnabled()) {
+            derived = "AUTOMATED";
+        } else {
+            derived = "ANALYSIS";
+        }
+        return new NodeAutomationSummary(enabled,
+                stored || enabled ? b.getAutoscalerMode() : null,
+                stored || enabled ? b.getEvictorPolicy().isAnalyseOnly() : null,
+                derived);
     }
 
     // ── Policy saves ──────────────────────────────────────────────────────
 
     @Transactional
-    public void saveScaleOutPolicy(String clusterName, Long cloudAccountId, ScaleOutPolicyDto policy) {
-        KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
-        bundle.setScaleOutPolicy(policy);
-        writePolicyBundle(config.getId(), bundle);
-        logEvent(config.getId(), "autoscaling_config_change", "Scale-Out policy updated");
+    public void saveScaleOutPolicy(KubernetesClusterConfig config, ScaleOutPolicyDto policy, String username) {
+        saveSection(config, Section.SCALE_OUT, policy, username);
     }
 
     @Transactional
-    public void saveEvictorPolicy(String clusterName, Long cloudAccountId, EvictorPolicyDto policy) {
-        KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
-        bundle.setEvictorPolicy(policy);
-        writePolicyBundle(config.getId(), bundle);
-        logEvent(config.getId(), "autoscaling_config_change", "Evictor policy updated");
+    public void saveEvictorPolicy(KubernetesClusterConfig config, EvictorPolicyDto policy, String username) {
+        saveSection(config, Section.EVICTOR, policy, username);
     }
 
     @Transactional
-    public void saveWorkloadRightsizerPolicy(String clusterName, Long cloudAccountId,
-                                             WorkloadRightsizerPolicyDto policy) {
-        KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
-        bundle.setWorkloadRightsizerPolicy(policy);
-        writePolicyBundle(config.getId(), bundle);
-        logEvent(config.getId(), "autoscaling_config_change", "Workload Rightsizer policy updated");
+    public void saveWorkloadRightsizerPolicy(KubernetesClusterConfig config, WorkloadRightsizerPolicyDto policy,
+                                             String username) {
+        // Always refused: the Go rightsizer is retired (design §6.6).
+        saveSection(config, Section.WORKLOAD_RIGHTSIZER, policy, username);
     }
 
     @Transactional
-    public void saveSafetyGuards(String clusterName, Long cloudAccountId, SafetyGuardsDto guards) {
-        KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
-        bundle.setSafetyGuards(guards);
-        writePolicyBundle(config.getId(), bundle);
-        logEvent(config.getId(), "autoscaling_config_change", "Safety Guards updated");
+    public void saveSafetyGuards(KubernetesClusterConfig config, SafetyGuardsDto guards, String username) {
+        saveSection(config, Section.SAFETY_GUARDS, guards, username);
     }
 
     @Transactional
-    public void saveNodeOptimizerPolicy(String clusterName, Long cloudAccountId, NodeOptimizerPolicyDto policy) {
-        KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
-        bundle.setNodeOptimizerPolicy(policy);
-        writePolicyBundle(config.getId(), bundle);
-        logEvent(config.getId(), "autoscaling_config_change", "Node Optimizer policy updated");
+    public void saveNodeOptimizerPolicy(KubernetesClusterConfig config, NodeOptimizerPolicyDto policy, String username) {
+        saveSection(config, Section.NODE_OPTIMIZER, policy, username);
     }
 
     @Transactional
-    public void saveNodeTemplate(String clusterName, Long cloudAccountId, String templateId,
-                                 NodeTemplateDto template) {
-        KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
-        if (bundle.getNodeTemplates() == null) bundle.setNodeTemplates(new ArrayList<>());
-        bundle.getNodeTemplates().removeIf(t -> templateId.equals(t.getId()));
-        template.setId(templateId);
-        bundle.getNodeTemplates().add(template);
-        writePolicyBundle(config.getId(), bundle);
-        logEvent(config.getId(), "autoscaling_config_change", "Node template '" + template.getName() + "' saved");
+    public void saveRebalancerConfig(KubernetesClusterConfig config, RebalancerConfigDto rebalancer, String username) {
+        saveSection(config, Section.REBALANCER, rebalancer, username);
     }
 
     @Transactional
-    public void deleteNodeTemplate(String clusterName, Long cloudAccountId, String templateId) {
-        KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
-        if (bundle.getNodeTemplates() != null) {
-            bundle.getNodeTemplates().removeIf(t -> templateId.equals(t.getId()));
-        }
-        writePolicyBundle(config.getId(), bundle);
-        logEvent(config.getId(), "autoscaling_config_change", "Node template deleted: " + templateId);
+    public void setMode(KubernetesClusterConfig config, String mode, String username) {
+        normalizer.validate(Section.MODE, mode);
+        AutomationPolicyBundle next = normalizer.replaceSection(readForWrite(config), Section.MODE, mode);
+        writePolicyBundle(config.getId(), next);
+        logEvent(config.getId(), "autoscaling_config_change",
+                "Node automation scope changed to " + mode + " by " + username);
     }
 
     @Transactional
-    public void saveRebalancerConfig(String clusterName, Long cloudAccountId, RebalancerConfigDto rebalancer) {
-        KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
-        bundle.setRebalancer(rebalancer);
-        writePolicyBundle(config.getId(), bundle);
-        logEvent(config.getId(), "autoscaling_config_change", "Rebalancer config updated");
+    public void saveNodeTemplate(KubernetesClusterConfig config, String templateId, NodeTemplateDto template,
+                                 String username) {
+        normalizer.validateNodeTemplate(templateId);
+        writePolicyBundle(config.getId(), normalizer.upsertNodeTemplate(readForWrite(config), templateId, template));
+        logEvent(config.getId(), "autoscaling_config_change", "Node template " + templateId + " saved by " + username);
     }
 
     @Transactional
-    public void setMode(String clusterName, Long cloudAccountId, String mode) {
-        KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
-        bundle.setAutoscalerMode(mode);
-        writePolicyBundle(config.getId(), bundle);
-        logEvent(config.getId(), "autoscaling_config_change", "Autoscaler mode changed to: " + mode);
+    public void deleteNodeTemplate(KubernetesClusterConfig config, String templateId, String username) {
+        normalizer.validateNodeTemplate(templateId);
+        writePolicyBundle(config.getId(), normalizer.deleteNodeTemplate(readForWrite(config), templateId));
+        logEvent(config.getId(), "autoscaling_config_change", "Node template " + templateId + " deleted by " + username);
     }
 
     /**
-     * Trigger a manual rebalance.
-     * Stores a "rebalancing" status in agent_data_cache so the agent picks it up
-     * on next heartbeat and executes the rebalance. The agent then pushes an
-     * "autoscaling-events" batch with the result.
+     * Trigger a manual rebalance. Refused while the rebalancer isn't ready (D7); once it is, the
+     * stored rebalancer status becomes "running" and the agent picks it up on its next poll.
      */
     @Transactional
-    public void triggerRebalance(String clusterName, Long cloudAccountId) {
-        KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
-        if (bundle.getRebalancer() == null) bundle.setRebalancer(defaultRebalancer());
+    public void triggerRebalance(KubernetesClusterConfig config, String username) {
+        normalizer.validateRebalanceTrigger();
+        AutomationPolicyBundle bundle = readForWrite(config);
         bundle.getRebalancer().setStatus("running");
         writePolicyBundle(config.getId(), bundle);
-        logEvent(config.getId(), "autoscaling_rebalance_triggered",
-                "Manual rebalance triggered from XamOps UI");
-        logger.info("Rebalance triggered for cluster: {} (configId: {})",
-                clusterName, config.getId());
+        logEvent(config.getId(), "autoscaling_rebalance_triggered", "Manual rebalance triggered by " + username);
+        logger.info("Rebalance triggered for cluster: {} (configId: {})", config.getClusterName(), config.getId());
     }
 
     /**
-     * Enable or disable autoscaling for a cluster.
-     * Called from ClusterIntegrationController or agent setup flow.
+     * Turn node automation on or off. The first enable persists the complete, analysis-only default
+     * bundle so the agent's first fetch is complete (design §6.6). Both directions are recorded in
+     * Activity (NIT 7).
      */
     @Transactional
-    public void setAutoscalingEnabled(Long clusterConfigId, boolean enabled) {
-        clusterConfigRepository.findById(clusterConfigId).ifPresent(config -> {
-            config.setAutoscalingEnabled(enabled);
-            clusterConfigRepository.save(config);
-            logger.info("Autoscaling {} for cluster: {} (configId: {})",
-                    enabled ? "ENABLED" : "DISABLED", config.getClusterName(), clusterConfigId);
-        });
+    public void setAutoscalingEnabled(KubernetesClusterConfig config, boolean enabled, String username) {
+        config.setAutoscalingEnabled(enabled);
+        clusterConfigRepository.save(config);
+        if (enabled && storedPolicyJson(config.getId()) == null) {
+            writePolicyBundle(config.getId(), normalizer.defaults());
+        }
+        logEvent(config.getId(), "autoscaling_config_change",
+                "Node automation turned " + (enabled ? "on" : "off") + " by " + username);
+        logger.info("Autoscaling {} for cluster: {} (configId: {})",
+                enabled ? "ENABLED" : "DISABLED", config.getClusterName(), config.getId());
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -304,42 +309,31 @@ public class EksAutoscalingService {
     // PRIVATE HELPERS
     // ═══════════════════════════════════════════════════════════════════════
 
-    private KubernetesClusterConfig findConfig(String clusterName, Long cloudAccountId) {
-        // 1. Direct lookup — works when cloud_account_id stores the value as-is
-        Optional<KubernetesClusterConfig> configOpt =
-                clusterConfigRepository.findByCloudAccountIdAndClusterName(cloudAccountId, clusterName);
-        if (configOpt.isPresent()) return configOpt.get();
-
-        // 2. Fallback: the URL passes the AWS account number (e.g. 80310056620) but
-        //    cloud_account_id may store the cloud_account DB primary key.
-        //    Look up the CloudAccount by awsAccountId and retry with its DB id.
-        // AWS account IDs are always 12 digits — Long.parseLong strips the leading zero,
-        // so String.valueOf(80310056620L) = "80310056620" != "080310056620" stored in DB.
-        String awsAccountIdPadded = String.format("%012d", cloudAccountId);
-        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(awsAccountIdPadded);
-        for (CloudAccount account : accounts) {
-            configOpt = clusterConfigRepository.findByCloudAccountIdAndClusterName(account.getId(), clusterName);
-            if (configOpt.isPresent()) {
-                logger.debug("findConfig: found via DB-id fallback — awsAccountId={} dbId={} cluster={}",
-                        cloudAccountId, account.getId(), clusterName);
-                return configOpt.get();
-            }
-        }
-        return null;
-    }
-
-    private KubernetesClusterConfig requireAutoscalingEnabled(String clusterName, Long cloudAccountId) {
-        KubernetesClusterConfig config = findConfig(clusterName, cloudAccountId);
-        if (config == null) {
-            throw new RuntimeException("Cluster config not found: " + clusterName);
-        }
-        // Allow saving policies even if autoscaling is not yet fully enabled (setup flow)
-        return config;
+    /**
+     * One section save: read the stored bundle (complete and safe), validate, replace the whole
+     * section (server-owned fields kept), normalize and persist a complete bundle.
+     */
+    private void saveSection(KubernetesClusterConfig config, Section section, Object body, String username) {
+        normalizer.validate(section, body);
+        AutomationPolicyBundle next = normalizer.replaceSection(readForWrite(config), section, body);
+        writePolicyBundle(config.getId(), next);
+        logEvent(config.getId(), "autoscaling_config_change", SECTION_LABELS.get(section) + " updated by " + username);
     }
 
     // ── Agent status mapping ───────────────────────────────────────────────
 
-    private AgentStatusDto buildAgentStatus(KubernetesClusterConfig config) {
+    private AgentStatusDto disabledAgentStatus(KubernetesClusterConfig config) {
+        AgentStatusDto status = new AgentStatusDto();
+        status.setMode("disabled");
+        status.setAgentHealthy(false);
+        status.setClusterControllerHealthy(false);
+        status.setEvictorHealthy(false);
+        status.setWorkloadAutoscalerHealthy(false);
+        status.setAgentVersion(config.getAgentVersion() != null ? config.getAgentVersion() : "not-installed");
+        return status;
+    }
+
+    private AgentStatusDto buildAgentStatus(KubernetesClusterConfig config, AutomationPolicyBundle bundle) {
         AgentStatusDto dto = new AgentStatusDto();
 
         boolean agentActive = config.isAgentActive();
@@ -372,97 +366,28 @@ public class EksAutoscalingService {
                     config.getClusterName());
         }
 
-        // Read mode from policy bundle
-        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
-        dto.setMode(bundle.getAutoscalerMode() != null ? bundle.getAutoscalerMode() : "full");
+        // Mode from the effective policy bundle
+        dto.setMode(bundle.getAutoscalerMode());
 
         return dto;
     }
 
     // ── Policy bundle (all policies stored as a single JSON object) ────────
 
-    private AutomationPolicyBundle readPolicyBundle(Long clusterConfigId) {
-        Optional<AgentDataCache> cacheOpt =
-                agentDataCacheRepository.findByClusterConfigIdAndDataType(clusterConfigId, DT_POLICY);
-
-        if (cacheOpt.isPresent()) {
-            try {
-                return objectMapper.readValue(cacheOpt.get().getDataJson(), AutomationPolicyBundle.class);
-            } catch (Exception e) {
-                logger.warn("Failed to parse autoscaling policy for configId={}: {}", clusterConfigId, e.getMessage());
-            }
-        }
-
-        return buildDefaultBundle();
+    private String storedPolicyJson(Long clusterConfigId) {
+        return agentDataCacheRepository.findByClusterConfigIdAndDataType(clusterConfigId, DT_POLICY)
+                .map(AgentDataCache::getDataJson)
+                .orElse(null);
     }
 
+    private AutomationPolicyBundle readForWrite(KubernetesClusterConfig config) {
+        return normalizer.readForWrite(storedPolicyJson(config.getId()), config.getId());
+    }
+
+    /** Persists the bundle normalized: every stored bundle is complete and safe. */
     private void writePolicyBundle(Long clusterConfigId, AutomationPolicyBundle bundle) {
-        try {
-            String json = objectMapper.writeValueAsString(bundle);
-            upsertAgentDataCache(clusterConfigId, DT_POLICY, json, 1, null);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize autoscaling policy", e);
-        }
-    }
-
-    private AutomationPolicyBundle buildDefaultBundle() {
-        AutomationPolicyBundle b = new AutomationPolicyBundle();
-        b.setAutoscalerMode("full");
-        b.setScaleOutPolicy(new ScaleOutPolicyDto());
-        b.setEvictorPolicy(new EvictorPolicyDto());
-        b.setWorkloadRightsizerPolicy(new WorkloadRightsizerPolicyDto());
-        b.setNodeTemplates(buildDefaultNodeTemplates());
-        b.setRebalancer(defaultRebalancer());
-        b.setSafetyGuards(buildDefaultSafetyGuards());
-        b.setNodeOptimizerPolicy(new NodeOptimizerPolicyDto());
-        return b;
-    }
-
-    private RebalancerConfigDto defaultRebalancer() {
-        return new RebalancerConfigDto();
-    }
-
-    private List<NodeTemplateDto> buildDefaultNodeTemplates() {
-        List<NodeTemplateDto> templates = new ArrayList<>();
-
-        NodeTemplateDto onDemand = new NodeTemplateDto();
-        onDemand.setId("tpl-default");
-        onDemand.setName("Default On-Demand");
-        onDemand.setDefault(true);
-        onDemand.setCapacityType("on-demand");
-        onDemand.setMinCpuCores(2);
-        onDemand.setMaxCpuCores(16);
-        onDemand.setMinRamMib(4096);
-        onDemand.setMaxRamMib(32768);
-        onDemand.setArchitectures(List.of("amd64"));
-        onDemand.setCustomLabels(new HashMap<>());
-        onDemand.setCustomTaints(new ArrayList<>());
-        templates.add(onDemand);
-
-        NodeTemplateDto spot = new NodeTemplateDto();
-        spot.setId("tpl-spot");
-        spot.setName("XamOps Spot Pool");
-        spot.setDefault(false);
-        spot.setCapacityType("spot");
-        spot.setUseSpotFallback(true);
-        spot.setFallbackRestoreRateSeconds(1800);
-        spot.setMinCpuCores(4);
-        spot.setMaxCpuCores(32);
-        spot.setMinRamMib(8192);
-        spot.setMaxRamMib(65536);
-        spot.setArchitectures(List.of("amd64", "arm64"));
-        spot.setSpotAutomationEnabled(true);
-        spot.setCustomLabels(Map.of("workload-type", "batch"));
-        spot.setCustomTaints(List.of(Map.of("key", "spot", "effect", "NoSchedule")));
-        templates.add(spot);
-
-        return templates;
-    }
-
-    private SafetyGuardsDto buildDefaultSafetyGuards() {
-        SafetyGuardsDto guards = new SafetyGuardsDto();
-        guards.setCriticalNamespaces(List.of("kube-system", "monitoring", "ingress-nginx"));
-        return guards;
+        String json = normalizer.toJson(normalizer.normalize(bundle, clusterConfigId));
+        upsertAgentDataCache(clusterConfigId, DT_POLICY, json, 1, null);
     }
 
     // ── Runtime metrics ────────────────────────────────────────────────────
@@ -485,63 +410,44 @@ public class EksAutoscalingService {
 
     // ── Events (activity feed) ─────────────────────────────────────────────
 
-    @SuppressWarnings("unchecked")
+    /** The automation agent's own events: its autoscaling-events row only, newest 20. */
     private List<AutoscalingEventDto> readEvents(Long clusterConfigId) {
-        // Primary: agent-pushed events cache
         Optional<AgentDataCache> cacheOpt =
                 agentDataCacheRepository.findByClusterConfigIdAndDataType(clusterConfigId, DT_EVENTS);
-
-        if (cacheOpt.isPresent()) {
-            try {
-                List<AutoscalingEventDto> events = objectMapper.readValue(
-                        cacheOpt.get().getDataJson(),
-                        new TypeReference<List<AutoscalingEventDto>>() {});
-                // Return most recent 20
-                if (events.size() > 20) events = events.subList(0, 20);
-                return events;
-            } catch (Exception e) {
-                logger.warn("Failed to parse autoscaling events for configId={}: {}", clusterConfigId, e.getMessage());
-            }
+        if (cacheOpt.isEmpty() || cacheOpt.get().getDataJson() == null) {
+            return Collections.emptyList();
         }
-
-        // Fallback: build events from agent_events table (autoscaling_* event types)
-        return buildEventsFromAgentLog(clusterConfigId);
-    }
-
-    private List<AutoscalingEventDto> buildEventsFromAgentLog(Long clusterConfigId) {
         try {
-            List<AgentEvent> agentEvents = agentEventRepository
-                    .findByClusterConfigIdOrderByCreatedAtDesc(
-                            clusterConfigId, PageRequest.of(0, 20))
-                    .getContent();
-
-            List<AutoscalingEventDto> events = new ArrayList<>();
-            for (AgentEvent ae : agentEvents) {
-                if (!ae.getEventType().startsWith("autoscaling_")) continue;
-                AutoscalingEventDto evt = new AutoscalingEventDto();
-                evt.setId(String.valueOf(ae.getId()));
-                evt.setTimestamp(ae.getCreatedAt().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-                evt.setType(mapAgentEventType(ae.getEventType()));
-                evt.setSeverity("info");
-                evt.setMessage(ae.getDetails() != null ? ae.getDetails() : ae.getEventType());
-                events.add(evt);
-            }
-            return events;
+            List<AutoscalingEventDto> events = objectMapper.readValue(
+                    cacheOpt.get().getDataJson(),
+                    new TypeReference<List<AutoscalingEventDto>>() {});
+            if (events == null) return Collections.emptyList();
+            return events.size() > 20 ? events.subList(0, 20) : events;
         } catch (Exception e) {
-            logger.warn("Failed to build events from agent log: {}", e.getMessage());
+            logger.warn("Failed to parse autoscaling events for configId={}: {}", clusterConfigId, e.getMessage());
             return Collections.emptyList();
         }
     }
 
-    private String mapAgentEventType(String agentEventType) {
-        if (agentEventType == null) return "info";
-        if (agentEventType.contains("scale_out")) return "scale-out";
-        if (agentEventType.contains("scale_in") || agentEventType.contains("evictor")) return "scale-in";
-        if (agentEventType.contains("rebalance")) return "rebalance";
-        if (agentEventType.contains("workload") || agentEventType.contains("rightsiz")) return "workload-resize";
-        if (agentEventType.contains("spot")) return "spot-fallback";
-        if (agentEventType.contains("node_replace")) return "node-replace";
-        return "info";
+    /** Configuration changes XamOps recorded, newest 20, with ISO-8601 UTC timestamps. */
+    private List<AutomationChangeDto> readChanges(Long clusterConfigId) {
+        try {
+            return agentEventRepository
+                    .findTop20ByClusterConfigIdAndEventTypeStartingWithOrderByCreatedAtDesc(clusterConfigId,
+                            CHANGE_EVENT_PREFIX)
+                    .stream()
+                    .map(e -> new AutomationChangeDto(String.valueOf(e.getId()), toUtc(e.getCreatedAt()),
+                            e.getEventType(), e.getDetails() != null ? e.getDetails() : e.getEventType()))
+                    .toList();
+        } catch (Exception e) {
+            logger.warn("Failed to read automation changes for configId={}: {}", clusterConfigId, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /** agent_events.created_at is written with LocalDateTime.now(), so it is in the JVM's zone. */
+    static String toUtc(LocalDateTime serverTime) {
+        return serverTime == null ? null : serverTime.atZone(ZoneId.systemDefault()).toInstant().toString();
     }
 
     // ── Upsert agent_data_cache ────────────────────────────────────────────
@@ -573,8 +479,7 @@ public class EksAutoscalingService {
      * Fallback:       compute snapshot-based recommendations from EksDashboardCache (already in DB).
      */
     @SuppressWarnings("unchecked")
-    public WorkloadRightsizingDto getRightsizingData(String clusterName, Long cloudAccountId) {
-        KubernetesClusterConfig config = findConfig(clusterName, cloudAccountId);
+    public WorkloadRightsizingDto getRightsizingData(KubernetesClusterConfig config) {
         if (config == null) return emptyRightsizingDto();
 
         Optional<AgentDataCache> cacheOpt =
@@ -606,7 +511,7 @@ public class EksAutoscalingService {
         }
 
         // Fallback: derive recommendations from the EksDashboardCache (snapshot already in DB)
-        logger.info("No autoscaler rightsizing data for cluster {} — falling back to snapshot analysis from EksDashboardCache", clusterName);
+        logger.info("No autoscaler rightsizing data for cluster {} — falling back to snapshot analysis from EksDashboardCache", config.getClusterName());
         return computeRightsizingFromDashboardCache(config);
     }
 
@@ -756,10 +661,11 @@ public class EksAutoscalingService {
 
     /**
      * Read rebalance status pushed by xamops-automation.
-     * Returns empty map if no rebalance has occurred.
+     * Returns {"status": "idle"} with a message if no rebalance has run, and {"status": "unknown"}
+     * when the stored status can't be parsed (the parse message is logged, never returned: it can
+     * quote the stored JSON).
      */
-    public Map<String, Object> getRebalanceStatus(String clusterName, Long cloudAccountId) {
-        KubernetesClusterConfig config = findConfig(clusterName, cloudAccountId);
+    public Map<String, Object> getRebalanceStatus(KubernetesClusterConfig config) {
         if (config == null) return Map.of("status", "idle");
 
         Optional<AgentDataCache> cacheOpt =
@@ -770,10 +676,12 @@ public class EksAutoscalingService {
         }
 
         try {
-            return objectMapper.readValue(cacheOpt.get().getDataJson(),
+            Map<String, Object> status = objectMapper.readValue(cacheOpt.get().getDataJson(),
                     new TypeReference<Map<String, Object>>() {});
+            return status != null ? status : Map.of("status", "unknown");
         } catch (Exception e) {
-            return Map.of("status", "unknown", "error", e.getMessage());
+            logger.warn("Rebalance status for cluster config {} couldn't be parsed: {}", config.getId(), e.getMessage());
+            return Map.of("status", "unknown");
         }
     }
 
@@ -781,8 +689,7 @@ public class EksAutoscalingService {
      * Read evictor candidates pushed by xamops-automation.
      */
     @SuppressWarnings("unchecked")
-    public List<Map<String, Object>> getEvictorCandidates(String clusterName, Long cloudAccountId) {
-        KubernetesClusterConfig config = findConfig(clusterName, cloudAccountId);
+    public List<Map<String, Object>> getEvictorCandidates(KubernetesClusterConfig config) {
         if (config == null) return Collections.emptyList();
 
         Optional<AgentDataCache> cacheOpt =
@@ -812,8 +719,7 @@ public class EksAutoscalingService {
      * gets a useful response even before the automation agent is running.
      */
     @SuppressWarnings("unchecked")
-    public Map<String, Object> getNodeFleetReport(String clusterName, Long cloudAccountId) {
-        KubernetesClusterConfig config = findConfig(clusterName, cloudAccountId);
+    public Map<String, Object> getNodeFleetReport(KubernetesClusterConfig config) {
         if (config == null) return buildEmptyFleet();
 
         // 1. Prefer dedicated push from xamops-automation

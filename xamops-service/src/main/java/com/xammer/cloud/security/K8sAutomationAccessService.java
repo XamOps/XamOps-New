@@ -334,6 +334,20 @@ public class K8sAutomationAccessService {
         return reasons;
     }
 
+    /**
+     * Why the automation agent of this config is served a disabled policy (NIT 11), or {@code null}
+     * when its owning account is read-write and {@code CONNECTED}. An owner that can't be found
+     * blocks with {@code CONNECTION_NOT_VERIFIED}. The agent serve path and the dashboard both use
+     * this, so they can't disagree.
+     */
+    public K8sAutomationReason agentPolicyBlock(KubernetesClusterConfig config) {
+        Optional<CloudAccount> owner = findOwningAccount(config);
+        if (owner.isEmpty()) {
+            return K8sAutomationReason.CONNECTION_NOT_VERIFIED;
+        }
+        return accountBlock(owner.get());
+    }
+
     /** The first account gate that blocks this row, or {@code null} when it allows automation. */
     public static K8sAutomationReason accountBlock(CloudAccount account) {
         List<K8sAutomationReason> reasons = accountReasons(account == null ? List.of() : List.of(account));

@@ -27,6 +27,15 @@ public interface AgentEventRepository extends JpaRepository<AgentEvent, Long> {
     Page<AgentEvent> findByClusterConfigIdOrderByCreatedAtDesc(Long clusterConfigId, Pageable pageable);
 
     /**
+     * The 20 newest events of one cluster whose type starts with {@code prefix}, newest first.
+     * Used with {@code "autoscaling_"} for the automation Activity feed, so heartbeat rows can't
+     * push configuration changes out of a fixed-size page. Spring Data escapes {@code %} and
+     * {@code _} in {@code StartingWith} values, so the prefix matches literally.
+     */
+    List<AgentEvent> findTop20ByClusterConfigIdAndEventTypeStartingWithOrderByCreatedAtDesc(
+            Long clusterConfigId, String prefix);
+
+    /**
      * Find events by type
      */
     List<AgentEvent> findByEventType(String eventType);

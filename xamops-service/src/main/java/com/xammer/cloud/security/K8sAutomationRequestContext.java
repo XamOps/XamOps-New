@@ -20,8 +20,8 @@ import java.util.Optional;
 public record K8sAutomationRequestContext(ClientUserDetails user, List<CloudAccount> accounts,
                                           KubernetesClusterConfig config) {
 
-    /** Request attribute the interceptor stores the context under. */
-    public static final String ATTRIBUTE = K8sAutomationRequestContext.class.getName();
+    /** Request attribute the interceptor stores the context under (a literal, so annotations can name it). */
+    public static final String ATTRIBUTE = "com.xammer.cloud.security.K8sAutomationRequestContext";
 
     public K8sAutomationRequestContext {
         accounts = List.copyOf(accounts);
