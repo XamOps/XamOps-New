@@ -20,6 +20,9 @@ const SRC = fileURLToPath(new URL('..', import.meta.url));
 /** Files or folders (trailing slash) under src/, relative, POSIX separators. */
 export const GUARDED_PATHS: readonly string[] = [
   'components/CloudK8s/shared/',
+  'hooks/useK8sCapabilities.tsx',
+  'hooks/useK8sCacheIdentity.ts',
+  'utils/k8sCache.ts',
 ];
 
 const TAILWIND_PREFIX = '(?:text|bg|border|from|via|to|ring|fill|stroke|divide|outline|shadow|accent|decoration|placeholder|caret)';
