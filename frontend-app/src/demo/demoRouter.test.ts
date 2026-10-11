@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resolveDemoResponse } from './demoRouter';
 import { DEMO_MODE_KEY, DEMO_ROLE_KEY } from './demoConfig';
+import { demoCapabilities } from './k8sAutomationMockData';
+import { demoAccounts, demoK8sClusters } from './xamopsMockData';
+import { READINESS_KEYS } from '../types/k8sAutomation';
 
 /**
  * The generic `/api/xamops/*` fallback answers `{}`, which is wrong for any
@@ -230,6 +233,91 @@ describe('demo router — ComplianceOps Prowler (ROLE_XAMOPS)', () => {
     // the page reads unmapped.compliance to build its framework columns
     body.forEach((f: { unmapped: { compliance: Record<string, string[]> } }) =>
       expect(Object.keys(f.unmapped.compliance).length).toBeGreaterThan(0));
+  });
+});
+
+describe('demo router — CloudK8s capabilities (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+
+  const capabilitiesUrl = (accountId: string) =>
+    `/api/xamops/k8s/capabilities?accountId=${encodeURIComponent(accountId)}`;
+
+  it('serves a read-write account with every readiness key not ready', async () => {
+    const body = await readDemoBody(capabilitiesUrl('demo-aws-001'));
+    // The catch-all below it answers the cluster list; capabilities must be its own object
+    expect(Array.isArray(body)).toBe(false);
+    expect(body.accountId).toBe('demo-aws-001');
+    expect(body.connection).toEqual({ accessLevel: 'READ_WRITE', status: 'CONNECTED' });
+    expect(body.writeGate).toEqual({ allowed: true, reasons: [] });
+    expect(body.user.canChangeAutomation).toBe(true);
+    expect(body.verticalEngine).toEqual({ enabled: true });
+    expect(Object.keys(body.readiness).sort()).toEqual([...READINESS_KEYS].sort());
+    Object.values(body.readiness).forEach((entry) => {
+      const { ready, reason, message } = entry as { ready: boolean; reason: string; message: string };
+      expect(ready).toBe(false);
+      expect(reason).toMatch(/^(CONTROLLER_NOT_READY|ANALYSE_ONLY)$/);
+      expect(message.length).toBeGreaterThan(0);
+    });
+  });
+
+  it('serves the demo clusters, leaving staging unregistered', async () => {
+    const before = Date.now();
+    const body = await readDemoBody(capabilitiesUrl('demo-aws-001'));
+    type Cluster = {
+      clusterName: string;
+      writeGate: { allowed: boolean };
+      automationAgent: { lastSeenAt: string };
+      nodeAutomation: { enabled: boolean; derivedState: string };
+    };
+    const byName = new Map<string, Cluster>(body.clusters.map((c: Cluster) => [c.clusterName, c]));
+    expect([...byName.keys()].sort()).toEqual(['eu-eks-cluster', 'prod-eks-cluster']);
+    expect(byName.has('staging-eks-cluster')).toBe(false);
+
+    const prod = byName.get('prod-eks-cluster')!;
+    expect(prod.writeGate.allowed).toBe(true);
+    expect(prod.nodeAutomation).toMatchObject({ enabled: true, derivedState: 'ANALYSIS' });
+    const seenSecondsAgo = (before - Date.parse(prod.automationAgent.lastSeenAt)) / 1000;
+    expect(seenSecondsAgo).toBeGreaterThanOrEqual(35);
+    expect(seenSecondsAgo).toBeLessThanOrEqual(45);
+
+    expect(byName.get('eu-eks-cluster')!.nodeAutomation).toMatchObject({ enabled: false, derivedState: 'OFF' });
+  });
+
+  it('serves a read-only account whose writes are refused for the connection', async () => {
+    const body = await readDemoBody(capabilitiesUrl('demo-aws-002'));
+    expect(body.connection.accessLevel).toBe('READ_ONLY');
+    expect(body.writeGate).toEqual({ allowed: false, reasons: ['READ_ONLY_CONNECTION'] });
+    body.clusters.forEach((c: { connection: { accessLevel: string }; writeGate: { allowed: boolean; reasons: string[] } }) => {
+      expect(c.connection.accessLevel).toBe('READ_ONLY');
+      expect(c.writeGate).toEqual({ allowed: false, reasons: ['READ_ONLY_CONNECTION'] });
+    });
+  });
+
+  it.each(['demo-gcp-001', 'someone-elses-account', ''])(
+    'refuses %j like an account that is not the caller\'s',
+    async (accountId) => {
+      const response = resolveDemoResponse(capabilitiesUrl(accountId));
+      expect(response).not.toBeNull();
+      expect(response!.status).toBe(403);
+      expect(JSON.parse(await response!.text())).toMatchObject({ success: false, code: 'K8S_NO_ACCOUNT_ACCESS' });
+    },
+  );
+
+  it('still answers the cluster list from the k8s catch-all', async () => {
+    expect(await readDemoBody('/api/xamops/k8s/clusters?accountId=demo-aws-001')).toEqual(demoK8sClusters);
+  });
+
+  it('labels the demo AWS accounts with the access level their capabilities report', () => {
+    const access = Object.fromEntries(demoAccounts.map((a) => [a.id, a.access]));
+    expect(access['demo-aws-001']).toBe('read-write');
+    expect(access['demo-aws-002']).toBe('read-only');
+  });
+
+  it('builds no capabilities for an account outside the demo', () => {
+    expect(demoCapabilities('demo-azure-001')).toBeNull();
   });
 });
 

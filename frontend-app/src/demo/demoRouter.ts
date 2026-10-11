@@ -13,6 +13,7 @@
 import { getDemoRole } from './demoConfig';
 import { buildDemoComplianceReport } from './complianceReportDemo';
 import * as xamops from './xamopsMockData';
+import * as k8sAutomation from './k8sAutomationMockData';
 import * as identity from './xamopsIdentityMockData';
 import * as billops from './billopsAdminMockData';
 import * as xamsecure from './xamsecureMockData';
@@ -484,6 +485,13 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // Generic AIOps catch-all — 404 is safe (hooks use try/catch and initialize to null/[])
   if (url.includes('/api/xamops/aiops/'))
     return makeNotFound();
+
+  // CloudK8s capabilities, per account — must come before the /api/xamops/k8s/ catch-all below,
+  // which would otherwise answer it with the cluster list.
+  if (/\/api\/xamops\/k8s\/capabilities(\?|$)/.test(url)) {
+    const capabilities = k8sAutomation.demoCapabilities(param(url, 'accountId'));
+    return capabilities ? makeResponse(capabilities) : makeResponse(k8sAutomation.DEMO_NO_ACCOUNT_ACCESS, 403);
+  }
 
   // K8s clusters (CloudK8s page)
   if (url.includes('/api/xamops/k8s/'))
