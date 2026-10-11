@@ -1,0 +1,35 @@
+{
+  "description": "CloudK8s automation reason codes shared by the backend (K8sAutomationReason, NoUserPermissionDetail) and the frontend (types/k8sAutomation.ts). Wire code = codePrefix + name. gates follow design section 6.1 table order; errors never disable a control. Checked by K8sAutomationReasonContractTest (JUnit) and src/test/reasonCodes.contract.test.ts (vitest).",
+  "codePrefix": "K8S_",
+  "gates": [
+    "DEMO",
+    "PROVIDER_UNSUPPORTED",
+    "CONTROLLER_NOT_READY",
+    "ANALYSE_ONLY",
+    "NO_USER_PERMISSION",
+    "READ_ONLY_CONNECTION",
+    "CONNECTION_NOT_VERIFIED",
+    "AGENT_NOT_INSTALLED",
+    "CLUSTER_ACCESS_NOT_CONFIGURED",
+    "CLUSTER_UNREACHABLE",
+    "NO_METRICS_SOURCE",
+    "INSUFFICIENT_HISTORY",
+    "GITOPS_MANAGED",
+    "MISSING_AWS_PERMISSION",
+    "UNKNOWN",
+    "GUARDRAIL_LOCKED"
+  ],
+  "errors": [
+    "UNAUTHENTICATED",
+    "INVALID_REQUEST",
+    "INVALID_POLICY",
+    "NO_ACCOUNT_ACCESS",
+    "CLUSTER_NOT_REGISTERED",
+    "INTERNAL"
+  ],
+  "noUserPermissionDetails": [
+    "TAB_GRANT",
+    "ROLE",
+    "IMPERSONATION"
+  ]
+}
