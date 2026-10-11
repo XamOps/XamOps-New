@@ -42,13 +42,16 @@ interface OptionMeta {
 }
 
 const OPTIONS: OptionMeta[] = [
-  {
-    key: 'XAMMER_MPA_CUR',
-    title: 'Under a XamOps payer account',
-    blurb:
-      'This account is billed through us. Its costs are already in that payer account’s report — nothing to deploy.',
-    icon: 'mdi:office-building-outline',
-  },
+  // TEMPORARILY HIDDEN — only "Create a report in this account" (OWN_CUR) is offered for now.
+  // The three options below are commented out at the UI level so they no longer render;
+  // re-enable them here (and revert the default in useAddAccount.ts) to bring them back.
+  // {
+  //   key: 'XAMMER_MPA_CUR',
+  //   title: 'Under a XamOps payer account',
+  //   blurb:
+  //     'This account is billed through us. Its costs are already in that payer account’s report — nothing to deploy.',
+  //   icon: 'mdi:office-building-outline',
+  // },
   {
     key: 'OWN_CUR',
     title: 'Create a report in this account',
@@ -56,20 +59,20 @@ const OPTIONS: OptionMeta[] = [
       'A standalone account, or one whose payer we don’t manage. Deploys a small stack that creates the report and its bucket.',
     icon: 'mdi:cloud-plus-outline',
   },
-  {
-    key: 'EXISTING_CUR',
-    title: 'Use a report they already have',
-    blurb:
-      'Point us at an existing report instead of paying to store a second copy. We read what it contains rather than assuming.',
-    icon: 'mdi:link-variant',
-  },
-  {
-    key: 'COST_EXPLORER_ONLY',
-    title: 'No report available',
-    blurb:
-      'Use the Cost Explorer API. Choose this when the payer never enabled linked-account billing access, so no report is possible.',
-    icon: 'mdi:api',
-  },
+  // {
+  //   key: 'EXISTING_CUR',
+  //   title: 'Use a report they already have',
+  //   blurb:
+  //     'Point us at an existing report instead of paying to store a second copy. We read what it contains rather than assuming.',
+  //   icon: 'mdi:link-variant',
+  // },
+  // {
+  //   key: 'COST_EXPLORER_ONLY',
+  //   title: 'No report available',
+  //   blurb:
+  //     'Use the Cost Explorer API. Choose this when the payer never enabled linked-account billing access, so no report is possible.',
+  //   icon: 'mdi:api',
+  // },
 ];
 
 const CurSourceSelector: React.FC<CurSourceSelectorProps> = ({ value, onChange }) => {
@@ -313,14 +316,17 @@ const CurSourceSelector: React.FC<CurSourceSelectorProps> = ({ value, onChange }
         })}
       </div>
 
-      {loadError && (
+      {/* Hidden while only OWN_CUR is offered: this error pertains to loading payer
+          reports for the (currently commented-out) "Under a XamOps payer account" option,
+          so surfacing it here would be a spurious error. Re-enable with that option. */}
+      {/* {loadError && (
         <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-100 rounded-lg">
           <Icon icon="mdi:alert-circle-outline" width={16} className="text-red-500 flex-shrink-0" />
           <span className="text-[12px] text-red-700">
             Could not load connected reports — {loadError}
           </span>
         </div>
-      )}
+      )} */}
     </div>
   );
 };

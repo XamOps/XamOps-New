@@ -6,6 +6,9 @@
     { "key": "MEDIAOPS_URL", "value": "http://localhost:8084", "enabled": true, "description": "mediaops service base URL" },
     { "key": "AUTH_EMAIL", "value": "", "enabled": true, "description": "Login email for OTP flow" },
     { "key": "AUTH_PASSWORD", "value": "", "enabled": true, "type": "secret", "description": "Login password" },
-    { "key": "AUTH_OTP", "value": "", "enabled": true, "description": "One-time code from initiate-login" }
+    { "key": "AUTH_OTP", "value": "", "enabled": true, "description": "One-time code from initiate-login" },
+    { "key": "AWS_ACCOUNT_ID", "value": "000000000000", "enabled": true, "description": "AWS account id for CUR insights drill-down" },
+    { "key": "CUR_RESOURCE_ID", "value": "i-0123456789abcdef0", "enabled": true, "description": "Resource id for the CUR resource-change drill-down" },
+    { "key": "CUR_PERIOD", "value": "", "enabled": true, "description": "Optional YYYY-MM period; blank means current month" }
   ]
 }

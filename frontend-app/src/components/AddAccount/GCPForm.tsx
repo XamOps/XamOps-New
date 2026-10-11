@@ -9,12 +9,19 @@ const labelCls = 'block text-[13px] font-medium text-[rgba(0,0,0,0.7)] mb-1.5';
 const hintCls = 'text-[11px] text-[rgba(0,0,0,0.4)] mt-1';
 
 /**
- * Where XamOps reads this project's cost data from. Kept distinct from who pays the bill:
- * a Xammer-billed project may still publish costs to an ordinary BigQuery export, and
- * onboarding it as XAMMER_CSP_DATASET sends the backend to the reseller dataset, finds no
- * rows for the project, and shows zero spend on every cost widget.
+ * Where XamOps reads this project's cost data from. Two choices are offered: a BigQuery
+ * billing export table, or the managed reseller dataset.
+ *
+ * The export-table choice always maps to OWN_EXPORT. The backend also has XAMMER_EXPORT
+ * ("Xammer pays the bill, costs still come from an export table"), but it reads costs
+ * through the exact same path as OWN_EXPORT, so there is no reason to make the operator
+ * pick between them here — one export option is enough. XAMMER_EXPORT still exists
+ * server-side for accounts created that way and is preserved on display.
+ *
+ * XAMMER_CSP_DATASET must stay separate: it sends the backend to the reseller dataset, and
+ * picking it for an export-backed project shows zero spend on every cost widget.
  */
-type BillingSource = 'OWN_EXPORT' | 'XAMMER_CSP_DATASET' | 'XAMMER_EXPORT';
+type BillingSource = 'OWN_EXPORT' | 'XAMMER_CSP_DATASET';
 
 const GCPForm: React.FC = () => {
   const [accountName, setAccountName] = useState('');
@@ -24,7 +31,6 @@ const GCPForm: React.FC = () => {
   const [billingTable, setBillingTable] = useState('');
   const [billingSource, setBillingSource] = useState<BillingSource>('OWN_EXPORT');
   const usesExportTable = billingSource !== 'XAMMER_CSP_DATASET';
-  const tableRequired = billingSource === 'XAMMER_EXPORT';
   const [isLoading, setIsLoading] = useState(false);
   const [commandText, setCommandText] = useState(`sh <(curl -s ${SCRIPT_URL}) YOUR_PROJECT_ID`);
   const [copiedCmd, setCopiedCmd] = useState(false);
@@ -67,11 +73,6 @@ const GCPForm: React.FC = () => {
       return;
     }
 
-    if (tableRequired && !billingTable.trim()) {
-      setError('A BigQuery billing export table is required when Xammer manages billing via an export table.');
-      return;
-    }
-
     if (usesExportTable && billingTable.trim()) {
       const parts = billingTable.trim().split('.');
       if (parts.length !== 3 || parts.some(p => !p.trim())) {
@@ -110,7 +111,7 @@ const GCPForm: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [accountName, projectId, accessType, serviceAccountKey, billingTable, billingSource, usesExportTable, tableRequired]);
+  }, [accountName, projectId, accessType, serviceAccountKey, billingTable, billingSource, usesExportTable]);
 
   // ── Success screen ──
   if (success) {
@@ -360,18 +361,13 @@ const GCPForm: React.FC = () => {
             {([
               {
                 value: 'OWN_EXPORT',
-                label: 'I manage my own billing export',
+                label: 'Data from billing export',
                 hint: 'Costs are read from your BigQuery billing export table.',
               },
               {
-                value: 'XAMMER_EXPORT',
-                label: 'Xammer manages billing — read from a billing export table',
-                hint: 'Xammer pays the bill, but costs are read from a BigQuery export table.',
-              },
-              {
                 value: 'XAMMER_CSP_DATASET',
-                label: 'Xammer manages billing — reseller billing dataset',
-                hint: 'Costs are pulled from the managed reseller dataset. No table needed.',
+                label: 'Xammer manages billing — billing dataset',
+                hint: 'Costs are pulled from the managed dataset. No table needed.',
               },
             ] as const).map(opt => (
               <label key={opt.value} className="flex items-start gap-2 cursor-pointer">
@@ -398,21 +394,19 @@ const GCPForm: React.FC = () => {
               <Icon icon="mdi:information-outline" width={16} className="text-[#4285F4] flex-shrink-0 mt-0.5" />
               <p className="text-[11px] text-[rgba(0,0,0,0.6)] leading-relaxed">
                 Cost data is pulled automatically from the managed billing dataset — no further setup needed.
-                Pick this only if your project is billed through Xammer's reseller account; if your costs come
+                Pick this only if your project is billed through Xammer's account; if your costs come
                 from a BigQuery export, choose the option above instead or cost widgets will show zero.
               </p>
             </div>
           )}
         </div>
 
-        {/* BigQuery Billing Table — required for XAMMER_EXPORT, optional for OWN_EXPORT */}
+        {/* BigQuery Billing Table — optional; costs are read from it when provided. */}
         {usesExportTable && (
           <div>
             <label htmlFor="gcpBillingTable" className={labelCls}>
               BigQuery Billing Export Table{' '}
-              <span className="text-[11px] font-normal text-[rgba(0,0,0,0.35)]">
-                {tableRequired ? '(Required)' : '(Optional)'}
-              </span>
+              <span className="text-[11px] font-normal text-[rgba(0,0,0,0.35)]">(Optional)</span>
             </label>
             <input
               id="gcpBillingTable"
@@ -420,13 +414,10 @@ const GCPForm: React.FC = () => {
               placeholder="project_id.billing_export.gcp_billing_export_v1_XXXXXX"
               value={billingTable}
               onChange={(e) => setBillingTable(e.target.value)}
-              required={tableRequired}
               className={`${inputCls} font-mono text-[12px]`}
             />
             <p className={hintCls}>
-              {tableRequired
-                ? 'Format: project.dataset.table — required, since cost data is read from this table.'
-                : 'Format: project.dataset.table — May take up to 24h to appear. Add later from Account Manager.'}
+              Format: project.dataset.table — May take up to 24h to appear. Add later from Account Manager.
             </p>
           </div>
         )}

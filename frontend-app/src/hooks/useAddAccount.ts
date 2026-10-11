@@ -115,12 +115,13 @@ export function useAddAccount(): UseAddAccountReturn {
   /**
    * Where this account's cost data will come from.
    *
-   * Defaults to COST_EXPLORER_ONLY, which is what every account did before CUR support
-   * existed — so someone who ignores the section entirely gets the previous behaviour
-   * rather than an account pointed at a report that does not contain it.
+   * Only the OWN_CUR option ("Create a report in this account") is currently offered in
+   * the UI — see CurSourceSelector's OPTIONS list — so this defaults to it to keep the
+   * single visible choice pre-selected. When the other options are re-enabled there,
+   * revert this default to COST_EXPLORER_ONLY (the pre-CUR behaviour).
    */
   const [curSource, setCurSource] = useState<CurSourceSelection>({
-    billingSource: 'COST_EXPLORER_ONLY',
+    billingSource: 'OWN_CUR',
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
