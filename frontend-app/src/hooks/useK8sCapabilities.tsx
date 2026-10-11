@@ -306,6 +306,11 @@ export function K8sCapabilitiesProvider({ accountId, provider, demo, children }:
   return <K8sCapabilitiesContext.Provider value={value}>{children}</K8sCapabilitiesContext.Provider>;
 }
 
+/** The surrounding provider's value, or null outside one (shared components that only need Retry). */
+export function useOptionalK8sCapabilities(): K8sCapabilitiesValue | null {
+  return useContext(K8sCapabilitiesContext);
+}
+
 /** The capability model of the surrounding {@link K8sCapabilitiesProvider}. */
 export function useK8sCapabilities(): K8sCapabilitiesValue {
   const value = useContext(K8sCapabilitiesContext);
