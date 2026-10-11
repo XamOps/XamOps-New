@@ -9,6 +9,7 @@ import com.xammer.cloud.domain.AgentEvent;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.EksDashboardCache;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
+import com.xammer.cloud.dto.autoscaling.AutomationPolicyBundle;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto;
 import com.xammer.cloud.dto.autoscaling.AutoscalerDashboardDto.*;
 import com.xammer.cloud.dto.autoscaling.NodeOptimizerPolicyDto;
@@ -130,14 +131,14 @@ public class EksAutoscalingService {
         dto.setAgentStatus(buildAgentStatus(config));
 
         // 2. Policies — from agent_data_cache (dataType="autoscaling-policy")
-        PolicyBundle bundle = readPolicyBundle(config.getId());
-        dto.setScaleOutPolicy(bundle.scaleOutPolicy);
-        dto.setEvictorPolicy(bundle.evictorPolicy);
-        dto.setWorkloadRightsizerPolicy(bundle.workloadRightsizerPolicy);
-        dto.setNodeTemplates(bundle.nodeTemplates);
-        dto.setRebalancer(bundle.rebalancer);
-        dto.setSafetyGuards(bundle.safetyGuards);
-        dto.setNodeOptimizerPolicy(bundle.nodeOptimizerPolicy);
+        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
+        dto.setScaleOutPolicy(bundle.getScaleOutPolicy());
+        dto.setEvictorPolicy(bundle.getEvictorPolicy());
+        dto.setWorkloadRightsizerPolicy(bundle.getWorkloadRightsizerPolicy());
+        dto.setNodeTemplates(bundle.getNodeTemplates());
+        dto.setRebalancer(bundle.getRebalancer());
+        dto.setSafetyGuards(bundle.getSafetyGuards());
+        dto.setNodeOptimizerPolicy(bundle.getNodeOptimizerPolicy());
 
         // 3. Runtime metrics — from agent_data_cache (dataType="autoscaling-metrics")
         //    Enriched with live data from Prometheus/existing EksDashboardCache where available
@@ -154,8 +155,8 @@ public class EksAutoscalingService {
     @Transactional
     public void saveScaleOutPolicy(String clusterName, Long cloudAccountId, ScaleOutPolicyDto policy) {
         KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        PolicyBundle bundle = readPolicyBundle(config.getId());
-        bundle.scaleOutPolicy = policy;
+        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
+        bundle.setScaleOutPolicy(policy);
         writePolicyBundle(config.getId(), bundle);
         logEvent(config.getId(), "autoscaling_config_change", "Scale-Out policy updated");
     }
@@ -163,8 +164,8 @@ public class EksAutoscalingService {
     @Transactional
     public void saveEvictorPolicy(String clusterName, Long cloudAccountId, EvictorPolicyDto policy) {
         KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        PolicyBundle bundle = readPolicyBundle(config.getId());
-        bundle.evictorPolicy = policy;
+        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
+        bundle.setEvictorPolicy(policy);
         writePolicyBundle(config.getId(), bundle);
         logEvent(config.getId(), "autoscaling_config_change", "Evictor policy updated");
     }
@@ -173,8 +174,8 @@ public class EksAutoscalingService {
     public void saveWorkloadRightsizerPolicy(String clusterName, Long cloudAccountId,
                                              WorkloadRightsizerPolicyDto policy) {
         KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        PolicyBundle bundle = readPolicyBundle(config.getId());
-        bundle.workloadRightsizerPolicy = policy;
+        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
+        bundle.setWorkloadRightsizerPolicy(policy);
         writePolicyBundle(config.getId(), bundle);
         logEvent(config.getId(), "autoscaling_config_change", "Workload Rightsizer policy updated");
     }
@@ -182,8 +183,8 @@ public class EksAutoscalingService {
     @Transactional
     public void saveSafetyGuards(String clusterName, Long cloudAccountId, SafetyGuardsDto guards) {
         KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        PolicyBundle bundle = readPolicyBundle(config.getId());
-        bundle.safetyGuards = guards;
+        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
+        bundle.setSafetyGuards(guards);
         writePolicyBundle(config.getId(), bundle);
         logEvent(config.getId(), "autoscaling_config_change", "Safety Guards updated");
     }
@@ -191,8 +192,8 @@ public class EksAutoscalingService {
     @Transactional
     public void saveNodeOptimizerPolicy(String clusterName, Long cloudAccountId, NodeOptimizerPolicyDto policy) {
         KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        PolicyBundle bundle = readPolicyBundle(config.getId());
-        bundle.nodeOptimizerPolicy = policy;
+        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
+        bundle.setNodeOptimizerPolicy(policy);
         writePolicyBundle(config.getId(), bundle);
         logEvent(config.getId(), "autoscaling_config_change", "Node Optimizer policy updated");
     }
@@ -201,11 +202,11 @@ public class EksAutoscalingService {
     public void saveNodeTemplate(String clusterName, Long cloudAccountId, String templateId,
                                  NodeTemplateDto template) {
         KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        PolicyBundle bundle = readPolicyBundle(config.getId());
-        if (bundle.nodeTemplates == null) bundle.nodeTemplates = new ArrayList<>();
-        bundle.nodeTemplates.removeIf(t -> templateId.equals(t.getId()));
+        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
+        if (bundle.getNodeTemplates() == null) bundle.setNodeTemplates(new ArrayList<>());
+        bundle.getNodeTemplates().removeIf(t -> templateId.equals(t.getId()));
         template.setId(templateId);
-        bundle.nodeTemplates.add(template);
+        bundle.getNodeTemplates().add(template);
         writePolicyBundle(config.getId(), bundle);
         logEvent(config.getId(), "autoscaling_config_change", "Node template '" + template.getName() + "' saved");
     }
@@ -213,9 +214,9 @@ public class EksAutoscalingService {
     @Transactional
     public void deleteNodeTemplate(String clusterName, Long cloudAccountId, String templateId) {
         KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        PolicyBundle bundle = readPolicyBundle(config.getId());
-        if (bundle.nodeTemplates != null) {
-            bundle.nodeTemplates.removeIf(t -> templateId.equals(t.getId()));
+        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
+        if (bundle.getNodeTemplates() != null) {
+            bundle.getNodeTemplates().removeIf(t -> templateId.equals(t.getId()));
         }
         writePolicyBundle(config.getId(), bundle);
         logEvent(config.getId(), "autoscaling_config_change", "Node template deleted: " + templateId);
@@ -224,8 +225,8 @@ public class EksAutoscalingService {
     @Transactional
     public void saveRebalancerConfig(String clusterName, Long cloudAccountId, RebalancerConfigDto rebalancer) {
         KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        PolicyBundle bundle = readPolicyBundle(config.getId());
-        bundle.rebalancer = rebalancer;
+        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
+        bundle.setRebalancer(rebalancer);
         writePolicyBundle(config.getId(), bundle);
         logEvent(config.getId(), "autoscaling_config_change", "Rebalancer config updated");
     }
@@ -233,8 +234,8 @@ public class EksAutoscalingService {
     @Transactional
     public void setMode(String clusterName, Long cloudAccountId, String mode) {
         KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        PolicyBundle bundle = readPolicyBundle(config.getId());
-        bundle.autoscalerMode = mode;
+        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
+        bundle.setAutoscalerMode(mode);
         writePolicyBundle(config.getId(), bundle);
         logEvent(config.getId(), "autoscaling_config_change", "Autoscaler mode changed to: " + mode);
     }
@@ -248,9 +249,9 @@ public class EksAutoscalingService {
     @Transactional
     public void triggerRebalance(String clusterName, Long cloudAccountId) {
         KubernetesClusterConfig config = requireAutoscalingEnabled(clusterName, cloudAccountId);
-        PolicyBundle bundle = readPolicyBundle(config.getId());
-        if (bundle.rebalancer == null) bundle.rebalancer = defaultRebalancer();
-        bundle.rebalancer.setStatus("running");
+        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
+        if (bundle.getRebalancer() == null) bundle.setRebalancer(defaultRebalancer());
+        bundle.getRebalancer().setStatus("running");
         writePolicyBundle(config.getId(), bundle);
         logEvent(config.getId(), "autoscaling_rebalance_triggered",
                 "Manual rebalance triggered from XamOps UI");
@@ -372,37 +373,21 @@ public class EksAutoscalingService {
         }
 
         // Read mode from policy bundle
-        PolicyBundle bundle = readPolicyBundle(config.getId());
-        dto.setMode(bundle.autoscalerMode != null ? bundle.autoscalerMode : "full");
+        AutomationPolicyBundle bundle = readPolicyBundle(config.getId());
+        dto.setMode(bundle.getAutoscalerMode() != null ? bundle.getAutoscalerMode() : "full");
 
         return dto;
     }
 
     // ── Policy bundle (all policies stored as a single JSON object) ────────
 
-    /**
-     * Internal POJO that holds all configurable policy sections together.
-     * Stored as a single JSON blob in agent_data_cache.dataJson for simplicity
-     * and atomic reads/writes without extra columns.
-     */
-    static class PolicyBundle {
-        public String autoscalerMode = "full";
-        public ScaleOutPolicyDto scaleOutPolicy;
-        public EvictorPolicyDto evictorPolicy;
-        public WorkloadRightsizerPolicyDto workloadRightsizerPolicy;
-        public List<NodeTemplateDto> nodeTemplates;
-        public RebalancerConfigDto rebalancer;
-        public SafetyGuardsDto safetyGuards;
-        public NodeOptimizerPolicyDto nodeOptimizerPolicy;
-    }
-
-    private PolicyBundle readPolicyBundle(Long clusterConfigId) {
+    private AutomationPolicyBundle readPolicyBundle(Long clusterConfigId) {
         Optional<AgentDataCache> cacheOpt =
                 agentDataCacheRepository.findByClusterConfigIdAndDataType(clusterConfigId, DT_POLICY);
 
         if (cacheOpt.isPresent()) {
             try {
-                return objectMapper.readValue(cacheOpt.get().getDataJson(), PolicyBundle.class);
+                return objectMapper.readValue(cacheOpt.get().getDataJson(), AutomationPolicyBundle.class);
             } catch (Exception e) {
                 logger.warn("Failed to parse autoscaling policy for configId={}: {}", clusterConfigId, e.getMessage());
             }
@@ -411,7 +396,7 @@ public class EksAutoscalingService {
         return buildDefaultBundle();
     }
 
-    private void writePolicyBundle(Long clusterConfigId, PolicyBundle bundle) {
+    private void writePolicyBundle(Long clusterConfigId, AutomationPolicyBundle bundle) {
         try {
             String json = objectMapper.writeValueAsString(bundle);
             upsertAgentDataCache(clusterConfigId, DT_POLICY, json, 1, null);
@@ -420,16 +405,16 @@ public class EksAutoscalingService {
         }
     }
 
-    private PolicyBundle buildDefaultBundle() {
-        PolicyBundle b = new PolicyBundle();
-        b.autoscalerMode = "full";
-        b.scaleOutPolicy = new ScaleOutPolicyDto();
-        b.evictorPolicy = new EvictorPolicyDto();
-        b.workloadRightsizerPolicy = new WorkloadRightsizerPolicyDto();
-        b.nodeTemplates = buildDefaultNodeTemplates();
-        b.rebalancer = defaultRebalancer();
-        b.safetyGuards = buildDefaultSafetyGuards();
-        b.nodeOptimizerPolicy = new NodeOptimizerPolicyDto();
+    private AutomationPolicyBundle buildDefaultBundle() {
+        AutomationPolicyBundle b = new AutomationPolicyBundle();
+        b.setAutoscalerMode("full");
+        b.setScaleOutPolicy(new ScaleOutPolicyDto());
+        b.setEvictorPolicy(new EvictorPolicyDto());
+        b.setWorkloadRightsizerPolicy(new WorkloadRightsizerPolicyDto());
+        b.setNodeTemplates(buildDefaultNodeTemplates());
+        b.setRebalancer(defaultRebalancer());
+        b.setSafetyGuards(buildDefaultSafetyGuards());
+        b.setNodeOptimizerPolicy(new NodeOptimizerPolicyDto());
         return b;
     }
 
