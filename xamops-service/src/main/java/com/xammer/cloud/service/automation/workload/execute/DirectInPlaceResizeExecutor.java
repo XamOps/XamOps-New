@@ -13,6 +13,7 @@ import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClientException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.AnnotationAwareOrderComparator;
 import org.springframework.stereotype.Service;
 
@@ -107,6 +108,17 @@ public class DirectInPlaceResizeExecutor implements WorkloadActionExecutor {
                 }
             });
 
+    /**
+     * The constructor Spring must use.
+     *
+     * <p>{@code @Autowired} is not decoration here. This class has two constructors, and with neither
+     * annotated Spring cannot choose: it falls back to the no-arg path, finds none, and the
+     * <strong>whole application fails to start</strong> — in every profile, because
+     * {@code WorkloadAutoscalingProperties} asks the container for this bean while it is being built.
+     * That is how it was found: the context would not come up at all. Asserted by
+     * {@code ActionCommandContractTest.theExecutorTellsSpringWhichConstructorToUse}.
+     */
+    @Autowired
     public DirectInPlaceResizeExecutor(PodResizeClient resizeClient,
                                        ClusterWorkloadInventory inventory,
                                        List<ClusterAccessProvider> accessProviders) {

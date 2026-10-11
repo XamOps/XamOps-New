@@ -9,8 +9,11 @@ import com.xammer.cloud.service.automation.workload.QosClass;
 import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
 import com.xammer.cloud.service.automation.workload.WorkloadRef;
 import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
+import java.lang.reflect.Constructor;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -256,6 +259,32 @@ class ActionCommandContractTest {
                 .as("exactly one executor ships, and it is the in-place pod resize one")
                 .containsExactly(
                         "com.xammer.cloud.service.automation.workload.execute.DirectInPlaceResizeExecutor");
+    }
+
+    @Test
+    @DisplayName("every shipping executor tells Spring which constructor to use, or nothing starts")
+    void theExecutorTellsSpringWhichConstructorToUse() throws Exception {
+        // Found by booting the application, not by reading it: DirectInPlaceResizeExecutor had two
+        // constructors -- the wiring one and a package-private one for tests -- and neither was
+        // annotated. Spring cannot choose between two unannotated constructors, so it took the no-arg
+        // path, found none, and the ENTIRE context failed to start:
+        //   BeanInstantiationException: ... DirectInPlaceResizeExecutor: No default constructor found
+        // It surfaced in every profile, because WorkloadAutoscalingProperties asks the container for
+        // this bean while it is being built. A unit test that calls the constructor directly cannot
+        // see it, which is why the invariant is asserted here instead.
+        for (String name : ProductionClassScan.implementationsOf(WorkloadActionExecutor.class)) {
+            Class<?> executor = Class.forName(name);
+            Constructor<?>[] constructors = executor.getDeclaredConstructors();
+            if (constructors.length <= 1) {
+                continue;
+            }
+            assertThat(constructors)
+                    .as("%s has %d constructors, so exactly one must carry @Autowired or Spring"
+                            + " falls back to a no-arg constructor that does not exist",
+                            name, constructors.length)
+                    .filteredOn(c -> c.isAnnotationPresent(Autowired.class))
+                    .hasSize(1);
+        }
     }
 
     // ------------------------------------------------------------------ helpers
