@@ -15,7 +15,8 @@ import { useEksSectionRoute } from '../hooks/useEksSectionRoute';
 import { useK8sCacheIdentity } from '../hooks/useK8sCacheIdentity';
 import { K8sCapabilitiesProvider } from '../hooks/useK8sCapabilities';
 import { isDemoMode } from '../demo/demoConfig';
-import { parseVersionParam, resolveClusterVersion } from '../utils/k8sVersion';
+import { resolveClusterVersion } from '../utils/k8sVersion';
+import { parseClusterLink, type ClusterLink } from '../utils/k8sClusterLink';
 import ErrorBoundary from '../components/Shared/ErrorBoundary';
 import { SectionTabs } from '../components/CloudK8s/shared/SectionTabs';
 import { ClusterHeader } from '../components/EksDetails/ClusterHeader';
@@ -41,32 +42,9 @@ const SECTIONS: Partial<Record<EksSectionId, SectionComponent>> = {
 
 export const INVALID_LINK_NOTICE = 'That cluster link is invalid.';
 
-/** §13 rules for the link's parameters. */
-const CLUSTER_NAME = /^[0-9A-Za-z][A-Za-z0-9_-]{0,99}$/;
-const ACCOUNT_ID = /^[0-9]{1,12}$/;
-const DEMO_ACCOUNT_ID = /^demo-aws-[0-9A-Za-z-]+$/;
-const REGION = /^[a-z]{2}(-gov)?-[a-z]+-\d$/;
-const DEFAULT_REGION = 'us-east-1';
-
-export interface ClusterLink {
-  clusterName: string;
-  accountId: string;
-  region: string;
-  /** describeCluster's version, which the fleet puts in the link; null when the link has none. */
-  version: string | null;
-}
-
-/** The link's cluster, account and region (§13), or null when one is missing or malformed. */
-export function parseClusterLink(params: URLSearchParams, demo: boolean): ClusterLink | null {
-  const clusterName = params.get('name');
-  const accountId = params.get('accountIds');
-  const region = params.get('region') || DEFAULT_REGION;
-  if (!clusterName || !CLUSTER_NAME.test(clusterName)) return null;
-  if (!accountId || !(ACCOUNT_ID.test(accountId) || (demo && DEMO_ACCOUNT_ID.test(accountId)))) return null;
-  if (!REGION.test(region)) return null;
-  // A version isn't required: without one the page shows it as not reported rather than guess.
-  return { clusterName, accountId, region, version: parseVersionParam(params.get('version')) };
-}
+// The parser lives in utils/k8sClusterLink so the sidebar reads the same link without this chunk.
+export { parseClusterLink };
+export type { ClusterLink };
 
 const actionClass =
   'inline-flex items-center gap-1.5 rounded-md border border-[rgba(0,0,0,0.2)] bg-white px-3 py-1.5 text-[12px] font-semibold '

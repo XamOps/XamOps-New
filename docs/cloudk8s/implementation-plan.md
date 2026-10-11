@@ -367,3 +367,52 @@ Every control renders through the four wrappers with the capability of its §6.3
 ## Out of scope (unchanged by this plan)
 
 AutoSpotting and Spot Automation code, `cloudformation/`, `xamops-agent/`, `xamops-autoscaler/`, `components/Login/`, the vertical engine's packages and worktree, any new AWS API call, new npm or Maven dependencies, and the unrelated uncommitted files in the main checkout. The design's follow-ups F1-F23 stay follow-ups.
+
+# Addendum 1 (owner, 2026-10-11 20:30 IST): sidebar section navigation, and the demo cut
+
+Owner, verbatim: "data is coming but ui is old and no automation feature try make it liek cast.ai if needed. also instead of horizonatl sub tabs we can have substabs like xansecure and xamelens too"
+
+Context: the owner demos CloudK8s on UAT on Mon 2026-10-12, and UAT deploys on every push to `main`, so every commit stays shippable. Folded from `RUN/addendum-1-sidebar-navigation.md` with FEAT-003's first J commit; later FEATs inherit it. Part A is carried by FEAT-003 after item 22; Part B waits for the orchestrator's "do the demo cut now".
+
+## Part A: sidebar section navigation (replaces the horizontal `SectionTabs`)
+
+The cluster page's sections and subtabs move out of the horizontal strips into the left Sidebar, nested under the existing CloudK8s entry, the way XamSecure and XamLens render their tabs and the way cast.ai lists cluster sections. No horizontal section or subtab strip remains on `/eks-details`.
+
+Unchanged: `EKS_SECTIONS`, `resolveSectionRoute`, `useEksSectionRoute`, the `?tab=&sub=` scheme, the legacy `?tab=` map and its tests, lazy per-section chunks, module caches, the gated controls, the page header, `?debug=true` diagnostics. Only the navigation surface changes.
+
+Pattern: `components/Sidebar/Sidebar.tsx` (XamSecure, XamLens and SOC 2 Program: a `NavItem` plus `<SubNav isOpen=…>`), `components/Sidebar/SubNav.tsx`, `constants/xamsecureTabs.ts`, `constants/xamlensTabs.ts`.
+
+- J-1. Under the CloudK8s `NavItem`, a `SubNav` open when a cluster is in context on `/eks-details`; the CloudK8s entry and the CloudOps group are active and open there too. On `/cloudk8s` no cluster sections and no placeholders (FEAT-006 may add fleet entries only if they render real content). GKE/AKS keep today's behaviour until the optional slice 5, which reuses the same component with their registries.
+- J-2. On a cluster, in order: a compact context row (cluster name and region from the URL the page uses, no fetch, no invented value, and an "All clusters" link to `/cloudk8s`); one entry per section in `EKS_SECTIONS`, in registry order, whatever the registry holds at that commit; under the active section only, its registered subtabs.
+- J-3. Every entry is a real link: `/eks-details?` + every existing cluster parameter + `tab=<section>[&sub=<sub>]`, built with the page's serializer and resolver. Open in new tab works; Back and Forward move between sections; switching keeps EksDetailsPage mounted and doesn't refetch the dashboard.
+- J-4. One source of truth: entries derive from `EKS_SECTIONS` through an adapter exported next to it.
+- J-5. Nothing is hidden beyond the `cloudops-cloudk8s` gate; Automation is visible to everyone who sees CloudK8s. When `can()` allows no change, the Automation entry carries a muted "View only" marker with the existing reason copy as its accessible description. The section keeps its greyed gated controls.
+- J-6. `SectionTabs` leaves the cluster page; delete it and its tests if nothing else needs them.
+- J-7. Navigation semantics, not a tablist: a `nav` landmark "Cluster sections", `aria-current="page"` on the active section and sub, visible focus, keyboard reachable in DOM order. Tablist tests become navigation tests; the resolver and legacy-map tests stay unchanged. The content area keeps a heading naming the active section and sub, announced on change.
+- J-8. `SubNav` is extended only backward-compatibly; XamSecure, XamLens and SOC 2 render exactly as before.
+- J-9. Collapsed sidebar, mobile, light and dark theme behave as XamSecure does.
+- J-10. Greyscale ladder, no emoji, `mdi:*` ids if icons are used; the guard covers the new files.
+- J-11. The `Sidebar.tsx` diff stays inside the CloudK8s block and the route list (the AutoSpotting session also edits the CloudOps group).
+- J-12. Later FEATs inherit this: item 30's sidebar change, item 35's five Automation subtabs and FEAT-006's fleet entries render as sidebar entries, and item 44 uses the sidebar component with the GKE/AKS registries instead of `SectionTabs`. No FEAT adds a horizontal tab strip.
+
+Verification: the verification contract, the existing Sidebar, XamSecure and XamLens tests green, and a headless pass (P14, demo mode) of `/eks-details` on Overview and Automation, light and dark, sidebar expanded and collapsed, saved under `RUN/screenshots/addendum-1/`, asserting in the DOM: no `role="tablist"` on the cluster page, the active link has `aria-current="page"`, and each sidebar `href` resolves through `resolveSectionRoute` to the section it names.
+
+### Decisions taken while implementing Part A (FEAT-003)
+
+- **A1. The adapter.** `sectionNavEntries(registry, legacyMap, pathname, search)` in `hooks/useEksSectionRoute.ts` returns the sections, the current one's subtabs and their hrefs from `resolveSectionRoute` and `withSection`, the page's own resolver and serializer. A section link carries its default sub, so every href resolves to itself with no correction.
+- **A2. History.** Sidebar links push entries, so Back and Forward step through sections (J-3); this supersedes design §5.1's "Back leaves the page" for sidebar clicks. Each link carries `inPageState(location)`, so the layout keeps the page mounted. The page's own URL corrections keep `replace`.
+- **A3. The cluster in context.** The sidebar parses the link with `parseClusterLink`, moved to `utils/k8sClusterLink.ts` so the sidebar doesn't pull in the page chunk, and shows cluster sections only for a link the page accepts. The context row shows the link's own `name` and `region` parameters; a link without a region shows the name alone (no fallback value).
+- **A4. "View only".** The page, inside its `K8sCapabilitiesProvider`, publishes the Automation access for its cluster through a small module store; the sidebar reads it with `useSyncExternalStore`. One capabilities request, and the sidebar can't disagree with the page. "View only" means no §6.3 action is allowed on the cluster; the description is the reason copy of the primary gate on `automation.enable`. Nothing is shown while capabilities load.
+- **A5. `aria-current`.** `page` on the active section entry and on the active subtab entry, each the current item of its own list (J-7).
+- **A6. Icons and focus.** Section entries use the registry's `mdi:*` ids through `@iconify/react` (the sidebar's `NavIcon` resolves Font Awesome tokens only), greyscale when active; the focus ring is inset because `SubNav` clips overflow.
+- **A7. Dark theme.** The app has no control that sets the dark theme (`ThemeProvider` starts light and nothing calls `setTheme`); the dark styling follows `NavItem`'s and is covered by a unit test and by the headless pass switching the theme context.
+
+## Part B: the demo cut (only when the orchestrator says "do the demo cut now")
+
+The realtime branch `feat/cloudk8s-realtime-autoscaling` (worktree `/Users/apple/Desktop/XamOps-New/.worktrees/cloudk8s-realtime`) delivers the vertical engine (Prometheus usage provider, endpoints 1 and 3, the EksTokenGenerator fix, UAT flags) and an Automation tab on the old page ("feat: honest Automation tab for workload vertical rightsizing"). The orchestrator merges it into `main` first; then the running step does this and resumes its own items:
+
+- B-1. Finish and commit the in-flight item, then `git -C /Users/apple/Desktop/XamOps-New/.worktrees/cloudk8s-ui-revamp rebase main`.
+- B-2. Expected conflict in `EksDetailsPage.tsx`: keep the shell and register the realtime branch's rightsizing component as an Automation subtab (P3 allows it because it renders real content), gating and copy intact, reachable from the sidebar; FEAT-005 replaces it. Properties files keep both sides, with `xamops.k8s.automation.readiness.vertical-rightsizing` once per file.
+- B-3. No refactors in the cut. Two clients or type sets for the vertical endpoints stay side by side; unifying them becomes FEAT-005's first item.
+- B-4. Verify: the full frontend build and suite, the full backend suite, and a boot check of xamops-service against a throwaway Postgres (`/actuator/health` UP, no startup errors; then stop it and drop the database). Screenshots (demo mode) of Overview, Workloads and Automation, light and dark, under `RUN/screenshots/demo-cut/`.
+- B-5. Send the parent an `info` message with the demo-cut SHA, test counts, boot-check result and screenshot paths. No push, no merge. Then continue on top.

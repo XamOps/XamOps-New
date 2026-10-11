@@ -129,6 +129,56 @@ export function resolveSectionRoute<T extends string, S extends string>(
   return { tab: first.id, sub: first.defaultSub, corrected: withSection(search, first.id, first.defaultSub) };
 }
 
+// ── Sidebar entries (implementation plan, Addendum 1, J-2..J-4) ──────────────
+
+export interface SectionNavSub<S extends string = string> {
+  id: S;
+  label: string;
+  /** `pathname?…&tab=<section>&sub=<sub>`, every other parameter kept. */
+  href: string;
+  current: boolean;
+}
+
+export interface SectionNavEntry<T extends string = string, S extends string = string> {
+  id: T;
+  label: string;
+  /** Bundled Iconify id from the registry. */
+  icon: string;
+  /** The section with its default sub, so the link resolves to itself without a correction. */
+  href: string;
+  current: boolean;
+  /** The current section's registered subtabs; empty for every other section. */
+  subs: Array<SectionNavSub<S>>;
+}
+
+/**
+ * The sidebar's cluster sections: one entry per registered section, in registry order, and the
+ * current section's registered subtabs. Pure, and built from the same registry, resolver and
+ * serializer ({@link withSection}) as the page, so the sidebar and the page can never disagree.
+ */
+export function sectionNavEntries<T extends string, S extends string>(
+  registry: SectionRegistry<T, S>,
+  legacyMap: Readonly<Record<string, { tab: string; sub: string }>>,
+  pathname: string,
+  search: string,
+): Array<SectionNavEntry<T, S>> {
+  const resolved = resolveSectionRoute(registry, legacyMap, search);
+  const href = (tab: string, sub: string) => `${pathname}?${withSection(search, tab, sub)}`;
+  return registry.map((section) => {
+    const current = section.id === resolved.tab;
+    return {
+      id: section.id,
+      label: section.label,
+      icon: section.icon,
+      href: href(section.id, section.defaultSub),
+      current,
+      subs: current
+        ? section.subs.map((sub) => ({ id: sub.id, label: sub.label, href: href(section.id, sub.id), current: sub.id === resolved.sub }))
+        : [],
+    };
+  });
+}
+
 export interface SectionRoute<T extends string = string, S extends string = string> {
   tab: T;
   sub: S;

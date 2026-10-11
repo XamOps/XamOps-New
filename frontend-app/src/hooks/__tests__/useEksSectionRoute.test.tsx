@@ -5,6 +5,7 @@ import {
   EKS_SECTIONS,
   LEGACY_TAB_MAP,
   resolveSectionRoute,
+  sectionNavEntries,
   useEksSectionRoute,
   withSection,
 } from '../useEksSectionRoute';
@@ -101,6 +102,68 @@ describe('resolveSectionRoute', () => {
 
   it('withSection sets tab and sub only', () => {
     expect(withSection('a=1&tab=x', 'nodes', 'nodes')).toBe('a=1&tab=nodes&sub=nodes');
+  });
+});
+
+describe('sectionNavEntries (Addendum 1, J-2..J-4)', () => {
+  const nav = (search: string) => sectionNavEntries(EKS_SECTIONS, LEGACY_TAB_MAP, '/eks-details', search);
+  const searchOf = (href: string) => {
+    const url = new URL(href, 'http://x');
+    expect(url.pathname).toBe('/eks-details');
+    return url.search.slice(1);
+  };
+
+  it('lists every registered section, in registry order', () => {
+    expect(nav(BASE).map((e) => [e.id, e.label, e.icon])).toEqual(EKS_SECTIONS.map((s) => [s.id, s.label, s.icon]));
+  });
+
+  it('builds every href with the page serializer, so it resolves to the section it names without a correction', () => {
+    for (const search of [BASE, `${BASE}&tab=workloads&sub=pods`, `${BASE}&tab=pods`]) {
+      for (const entry of nav(search)) {
+        const section = EKS_SECTIONS.find((s) => s.id === entry.id)!;
+        expect(resolve(searchOf(entry.href))).toEqual({ tab: entry.id, sub: section.defaultSub, corrected: null });
+        for (const sub of entry.subs) {
+          expect(resolve(searchOf(sub.href))).toEqual({ tab: entry.id, sub: sub.id, corrected: null });
+        }
+      }
+    }
+  });
+
+  it('keeps every other cluster parameter, in place', () => {
+    const search = 'name=prod-eks&region=eu-west-1&accountIds=111111111111&version=1.36&debug=true';
+    for (const entry of nav(search)) {
+      const p = params(searchOf(entry.href));
+      expect([...p.keys()]).toEqual(['name', 'region', 'accountIds', 'version', 'debug', 'tab', 'sub']);
+      expect([p.get('name'), p.get('region'), p.get('accountIds'), p.get('version'), p.get('debug')])
+        .toEqual(['prod-eks', 'eu-west-1', '111111111111', '1.36', 'true']);
+    }
+  });
+
+  it('marks the current section and sub, and lists subtabs under the current section only', () => {
+    const entries = nav(`${BASE}&tab=workloads&sub=pods`);
+    expect(entries.filter((e) => e.current).map((e) => e.id)).toEqual(['workloads']);
+    for (const e of entries.filter((x) => !x.current)) expect(e.subs).toEqual([]);
+    const workloads = entries.find((e) => e.id === 'workloads')!;
+    expect(workloads.subs.map((s) => [s.id, s.label, s.current])).toEqual([
+      ['workloads', 'Workloads', false],
+      ['pods', 'Pods', true],
+      ['containers', 'Containers', false],
+      ['resources', 'Resources', false],
+    ]);
+    // A section with one registered subtab lists it too: whatever the registry holds, no placeholder.
+    expect(nav(`${BASE}&tab=cost&sub=cluster`).find((e) => e.id === 'cost')!.subs.map((s) => s.id)).toEqual(['cluster']);
+  });
+
+  it('marks what the page shows for plain, legacy and unknown links', () => {
+    const currentOf = (search: string) => {
+      const entry = nav(search).find((e) => e.current)!;
+      return `${entry.id}/${entry.subs.find((s) => s.current)?.id}`;
+    };
+    expect(currentOf(BASE)).toBe('overview/summary');
+    expect(currentOf(`${BASE}&tab=pods`)).toBe('workloads/pods');
+    expect(currentOf(`${BASE}&tab=performance`)).toBe('nodes/utilization');
+    expect(currentOf(`${BASE}&tab=bogus`)).toBe('overview/summary');
+    expect(currentOf(`${BASE}&tab=nodes&sub=bogus`)).toBe('nodes/nodes');
   });
 });
 
