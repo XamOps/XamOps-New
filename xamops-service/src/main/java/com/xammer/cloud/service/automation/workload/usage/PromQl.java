@@ -1,5 +1,8 @@
 package com.xammer.cloud.service.automation.workload.usage;
 
+import com.xammer.cloud.service.automation.workload.PodNameRule;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
@@ -14,8 +17,18 @@ import java.util.regex.Pattern;
  * {@code pod=~"overprovisioned-api-.*"} with no namespace, so one metric was collected per Deployment
  * <em>name</em> and applied identically to every container, sidecars included — and a workload in
  * another namespace with the same name prefix contributed to it. There is no method in this class
- * that can build a name-prefix selector: {@link #selector} takes an explicit pod list, and
+ * that can build a name-prefix selector: {@link Selector} takes an explicit pod list, and
  * {@link #podMatcher} regex-escapes every name, so {@code .*} cannot appear in a built query.
+ *
+ * <h2>History reaches past the current pods (orchestrator addendum A)</h2>
+ *
+ * The explicit pod list fixed the prefix-collision bug but introduced another: a workload's history
+ * became only as old as its <em>current</em> pods, so one rollout or one eviction erased it. A
+ * {@link Selector} therefore also carries {@link PodNameRule}s — the pod-name <em>shapes</em> the
+ * workload's controllers produce, rendered here by {@link #ruleMatcher}. Each rule contributes
+ * {@code <escaped literal>-[a-z0-9]{5}} or {@code <escaped literal>-[0-9]+} and nothing else, so the
+ * selector reaches every pod the workload owned during the window while remaining exact: no
+ * unbounded quantifier and no caller-supplied regex ever reaches a query.
  *
  * <h2>Results are grouped {@code by (container)}</h2>
  *
@@ -126,9 +139,13 @@ public final class PromQl {
      *
      * @param namespace      the workload's namespace; mandatory
      * @param podNames       the owner-resolved pod names; mandatory and non-empty
+     * @param podNameRules   the pod-name shapes the workload's controllers produce, so pods that
+     *                       lived earlier in the window are measured too; may be empty, in which case
+     *                       only the current pods are selected
      * @param containerNames the containers to measure; mandatory and non-empty
      */
-    public record Selector(String namespace, List<String> podNames, List<String> containerNames) {
+    public record Selector(String namespace, List<String> podNames, List<PodNameRule> podNameRules,
+                           List<String> containerNames) {
 
         public Selector {
             if (namespace == null || namespace.isBlank()) {
@@ -147,14 +164,54 @@ public final class PromQl {
                                 + " distinct");
             }
             podNames = List.copyOf(podNames);
+            podNameRules = podNameRules == null ? List.of() : List.copyOf(podNameRules);
             containerNames = List.copyOf(containerNames);
+        }
+
+        /** The current pods only — the shape every caller used before addendum A. */
+        public Selector(String namespace, List<String> podNames, List<String> containerNames) {
+            this(namespace, podNames, List.of(), containerNames);
         }
 
         /** {@code namespace="…",pod=~"…",container=~"…"} — the three mandatory dimensions. */
         public String labels() {
-            return "namespace=\"" + namespace + "\",pod=~\"" + podMatcher(podNames)
+            return "namespace=\"" + namespace + "\",pod=~\"" + podSelector()
                     + "\",container=~\"" + podMatcher(containerNames) + "\"";
         }
+
+        /**
+         * The current pod names and the historical shapes, as one alternation.
+         *
+         * <p>Prometheus anchors {@code =~} by compiling {@code ^(?:…)$}, so a top-level alternation of
+         * exact names and exactly-shaped patterns matches those and nothing else. The current names
+         * are kept even though a live pod's ReplicaSet is necessarily still present: they cost
+         * nothing, and they keep the selector correct for a pod whose owner the inventory could not
+         * resolve to a rule.
+         */
+        private String podSelector() {
+            List<String> alternatives = new ArrayList<>(podNames.stream().map(PromQl::escape).toList());
+            for (PodNameRule rule : podNameRules) {
+                String rendered = ruleMatcher(rule);
+                if (!alternatives.contains(rendered)) {
+                    alternatives.add(rendered);
+                }
+            }
+            return String.join("|", alternatives);
+        }
+    }
+
+    /**
+     * One {@link PodNameRule} as a bounded regex.
+     *
+     * <p>The literal part is escaped and the suffix comes from a closed set of two: five characters of
+     * the ReplicaSet controller's random suffix, or a StatefulSet ordinal. Neither can match a longer
+     * name, which is what keeps {@code php-apache} from claiming {@code php-apache-canary}'s pods.
+     */
+    static String ruleMatcher(PodNameRule rule) {
+        return switch (rule.kind()) {
+            case REPLICA_SET_POD -> escape(rule.prefix()) + "-[a-z0-9]{5}";
+            case STATEFUL_SET_POD -> escape(rule.prefix()) + "-[0-9]+";
+        };
     }
 
     /**

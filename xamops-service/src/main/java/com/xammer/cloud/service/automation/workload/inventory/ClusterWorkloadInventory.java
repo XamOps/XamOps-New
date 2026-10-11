@@ -2,6 +2,7 @@ package com.xammer.cloud.service.automation.workload.inventory;
 
 import com.xammer.cloud.service.automation.workload.HpaView;
 import com.xammer.cloud.service.automation.workload.NodeCapacity;
+import com.xammer.cloud.service.automation.workload.PodNameRule;
 import com.xammer.cloud.service.automation.workload.Quantities;
 import com.xammer.cloud.service.automation.workload.QuantityParseException;
 import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
@@ -90,7 +91,7 @@ public class ClusterWorkloadInventory {
         List<Node> nodes = client.nodes().list().getItems();
 
         Map<String, List<Pod>> podsByOwnerUid = podsByOwnerUid(pods);
-        Map<String, List<String>> replicaSetUidsByOwnerUid = replicaSetUidsByOwnerUid(replicaSets);
+        Map<String, List<ReplicaSet>> replicaSetsByOwnerUid = replicaSetsByOwnerUid(replicaSets);
 
         List<Workload> workloads = new ArrayList<>();
         for (Deployment deployment : deployments) {
@@ -99,7 +100,8 @@ public class ClusterWorkloadInventory {
                     replicas(deployment.getSpec() == null ? null : deployment.getSpec().getReplicas()),
                     observedGeneration(deployment.getStatus() == null
                             ? null : deployment.getStatus().getObservedGeneration()),
-                    deploymentPods(deployment, replicaSetUidsByOwnerUid, podsByOwnerUid),
+                    deploymentPods(deployment, replicaSetsByOwnerUid, podsByOwnerUid),
+                    deploymentPodNameRules(deployment, replicaSetsByOwnerUid),
                     hpas, pdbs);
             if (workload != null) {
                 workloads.add(workload);
@@ -112,6 +114,7 @@ public class ClusterWorkloadInventory {
                     observedGeneration(statefulSet.getStatus() == null
                             ? null : statefulSet.getStatus().getObservedGeneration()),
                     ownedPods(uid(statefulSet), podsByOwnerUid),
+                    statefulSetPodNameRules(statefulSet),
                     hpas, pdbs);
             if (workload != null) {
                 workloads.add(workload);
@@ -125,6 +128,7 @@ public class ClusterWorkloadInventory {
     /** @return the workload, or null when it is protected, template-less or unreadable */
     private Workload workload(HasMetadata object, String kind, PodTemplateSpec template, int replicas,
                               Long observedGeneration, List<Pod> ownedPods,
+                              List<PodNameRule> podNameRules,
                               List<HorizontalPodAutoscaler> hpas, List<PodDisruptionBudget> pdbs) {
         ObjectMeta metadata = object.getMetadata();
         if (metadata == null || metadata.getNamespace() == null || metadata.getName() == null) {
@@ -166,7 +170,8 @@ public class ClusterWorkloadInventory {
                 new WorkloadPods(ref, ownedPods.stream()
                         .map(pod -> new WorkloadPods.Pod(pod.getMetadata().getName(),
                                 pod.getMetadata().getUid()))
-                        .toList()));
+                        .toList(),
+                        podNameRules));
     }
 
     /**
@@ -253,16 +258,15 @@ public class ClusterWorkloadInventory {
         return byOwner;
     }
 
-    private static Map<String, List<String>> replicaSetUidsByOwnerUid(List<ReplicaSet> replicaSets) {
-        Map<String, List<String>> byOwner = new LinkedHashMap<>();
+    private static Map<String, List<ReplicaSet>> replicaSetsByOwnerUid(List<ReplicaSet> replicaSets) {
+        Map<String, List<ReplicaSet>> byOwner = new LinkedHashMap<>();
         for (ReplicaSet replicaSet : replicaSets) {
-            String replicaSetUid = uid(replicaSet);
-            if (replicaSetUid == null || replicaSet.getMetadata() == null) {
+            if (uid(replicaSet) == null || replicaSet.getMetadata() == null) {
                 continue;
             }
             for (OwnerReference owner : owners(replicaSet.getMetadata())) {
                 if (owner.getUid() != null) {
-                    byOwner.computeIfAbsent(owner.getUid(), key -> new ArrayList<>()).add(replicaSetUid);
+                    byOwner.computeIfAbsent(owner.getUid(), key -> new ArrayList<>()).add(replicaSet);
                 }
             }
         }
@@ -271,7 +275,7 @@ public class ClusterWorkloadInventory {
 
     /** Deployment → every ReplicaSet it owns → every Pod those own. Old ReplicaSets included. */
     private static List<Pod> deploymentPods(Deployment deployment,
-                                            Map<String, List<String>> replicaSetUidsByOwnerUid,
+                                            Map<String, List<ReplicaSet>> replicaSetsByOwnerUid,
                                             Map<String, List<Pod>> podsByOwnerUid) {
         String deploymentUid = uid(deployment);
         if (deploymentUid == null) {
@@ -279,8 +283,8 @@ public class ClusterWorkloadInventory {
         }
         List<Pod> resolved = new ArrayList<>();
         Set<String> seen = new HashSet<>();
-        for (String replicaSetUid : replicaSetUidsByOwnerUid.getOrDefault(deploymentUid, List.of())) {
-            for (Pod pod : podsByOwnerUid.getOrDefault(replicaSetUid, List.of())) {
+        for (ReplicaSet replicaSet : replicaSetsByOwnerUid.getOrDefault(deploymentUid, List.of())) {
+            for (Pod pod : podsByOwnerUid.getOrDefault(uid(replicaSet), List.of())) {
                 if (seen.add(pod.getMetadata().getUid() == null
                         ? pod.getMetadata().getName() : pod.getMetadata().getUid())) {
                     resolved.add(pod);
@@ -288,6 +292,45 @@ public class ClusterWorkloadInventory {
             }
         }
         return resolved;
+    }
+
+    /**
+     * One rule per <strong>retained</strong> ReplicaSet of this Deployment — the pod-name shapes it
+     * has produced over the revisions Kubernetes still keeps.
+     *
+     * <p>This is what makes a workload's measured history outlive its current pods (orchestrator
+     * addendum A). The ReplicaSet objects themselves are the record: the Deployment controller keeps
+     * them up to {@code spec.revisionHistoryLimit} (10 by default) even at zero replicas, long after
+     * the pods they created are gone. A revision pruned past that limit is history this engine can no
+     * longer select — it under-counts, never over-counts.
+     */
+    private static List<PodNameRule> deploymentPodNameRules(
+            Deployment deployment, Map<String, List<ReplicaSet>> replicaSetsByOwnerUid) {
+        String deploymentUid = uid(deployment);
+        if (deploymentUid == null) {
+            return List.of();
+        }
+        List<PodNameRule> rules = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (ReplicaSet replicaSet : replicaSetsByOwnerUid.getOrDefault(deploymentUid, List.of())) {
+            String name = replicaSet.getMetadata() == null ? null : replicaSet.getMetadata().getName();
+            if (name != null && !name.isBlank() && seen.add(name)) {
+                rules.add(PodNameRule.replicaSetPods(name));
+            }
+        }
+        return List.copyOf(rules);
+    }
+
+    /**
+     * A StatefulSet's pods are {@code <name>-<ordinal>} for every ordinal it has ever had, so one
+     * rule covers its whole history — including the ordinals it has since scaled away from.
+     */
+    private static List<PodNameRule> statefulSetPodNameRules(StatefulSet statefulSet) {
+        String name = statefulSet.getMetadata() == null ? null : statefulSet.getMetadata().getName();
+        if (name == null || name.isBlank()) {
+            return List.of();
+        }
+        return List.of(PodNameRule.statefulSetPods(name));
     }
 
     private static List<Pod> ownedPods(String ownerUid, Map<String, List<Pod>> podsByOwnerUid) {

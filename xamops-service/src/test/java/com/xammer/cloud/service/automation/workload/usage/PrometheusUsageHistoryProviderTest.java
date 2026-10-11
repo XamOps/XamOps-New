@@ -1,5 +1,6 @@
 package com.xammer.cloud.service.automation.workload.usage;
 
+import com.xammer.cloud.service.automation.workload.PodNameRule;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicyDefaults;
 import com.xammer.cloud.service.automation.workload.WorkloadRef;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccess;
@@ -194,6 +195,47 @@ class PrometheusUsageHistoryProviderTest {
 
         assertThat(transport.queryContaining("count_over_time"))
                 .contains("pod=~\"api\\.prod|api-2\"");
+    }
+
+    // ------------------------------------------- history outlives the current pods (addendum A)
+
+    @Test
+    @DisplayName("the pods the workload owned EARLIER in the window are measured too (addendum A)")
+    void historicalPodsAreMeasured() throws Exception {
+        FakeTransport transport = healthy();
+
+        // Two retained ReplicaSets: the one serving traffic now and the revision it replaced. The
+        // pods of the old revision are long gone, but their samples are still in Prometheus -- and
+        // before this they were unreachable, so one rollout reset the workload's history to zero.
+        provider(transport).aggregates(access(), new UsageQuery(TARGET, REF, CONTAINERS,
+                List.of("no-requests-sidecar-app-9f3c-aaaaa"),
+                List.of(PodNameRule.replicaSetPods("no-requests-sidecar-app-9f3c"),
+                        PodNameRule.replicaSetPods("no-requests-sidecar-app-5b8c")),
+                95, 24));
+
+        for (String promql : transport.queries) {
+            assertThat(promql).contains("pod=~\"no-requests-sidecar-app-9f3c-aaaaa"
+                    + "|no-requests-sidecar-app-9f3c-[a-z0-9]{5}"
+                    + "|no-requests-sidecar-app-5b8c-[a-z0-9]{5}\"");
+            assertThat(promql)
+                    .as("reaching back must not reintroduce the prefix match: the bound is five"
+                            + " characters of ReplicaSet suffix, never an unbounded quantifier")
+                    .doesNotContain(".*")
+                    .doesNotContain(".+");
+        }
+    }
+
+    @Test
+    @DisplayName("a StatefulSet's historical ordinals are measured, a sibling's are not")
+    void statefulSetOrdinalsAreMeasured() throws Exception {
+        FakeTransport transport = healthy();
+
+        provider(transport).aggregates(access(), new UsageQuery(TARGET, REF, CONTAINERS,
+                List.of("stateful-queue-0"),
+                List.of(PodNameRule.statefulSetPods("stateful-queue")), 95, 24));
+
+        assertThat(transport.queryContaining("count_over_time"))
+                .contains("pod=~\"stateful-queue-0|stateful-queue-[0-9]+\"");
     }
 
     // ---------------------------------------------------------------- the two typed failures

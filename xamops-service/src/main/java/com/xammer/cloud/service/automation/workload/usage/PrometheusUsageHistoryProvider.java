@@ -89,8 +89,8 @@ public class PrometheusUsageHistoryProvider implements UsageHistoryProvider {
                     "No cluster connection is open, so Prometheus cannot be queried for usage.");
         }
         KubernetesClient client = access.client();
-        PromQl.Selector selector =
-                new PromQl.Selector(query.ref().namespace(), query.podNames(), query.containerNames());
+        PromQl.Selector selector = new PromQl.Selector(query.ref().namespace(), query.podNames(),
+                query.podNameRules(), query.containerNames());
         int window = query.windowHours();
         int offset = properties.ignoreContainerStartSeconds();
 

@@ -3,6 +3,7 @@ package com.xammer.cloud.service.automation.workload.inventory;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.xammer.cloud.service.automation.workload.NodeCapacity;
+import com.xammer.cloud.service.automation.workload.PodNameRule;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicyDefaults;
 import io.fabric8.kubernetes.client.ConfigBuilder;
 import io.fabric8.kubernetes.client.KubernetesClient;
@@ -23,6 +24,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -127,6 +129,31 @@ class ClusterWorkloadInventoryTest {
     @DisplayName("a superseded ReplicaSet with no pods does not break resolution")
     void anEmptyOldReplicaSetIsHarmless() {
         assertThat(workload("team-a", "overprovisioned-api").pods().pods()).hasSize(2);
+    }
+
+    // ---------------------------------------------------------------- history (addendum A)
+
+    @Test
+    @DisplayName("every retained ReplicaSet yields a pod-name rule, including the empty old one")
+    void historicalPodNameRulesCoverEveryRetainedRevision() {
+        // The pods of overprovisioned-api-5b8c are gone, but Prometheus still holds their samples
+        // and the ReplicaSet object is still there to name them. Selecting on the CURRENT pod names
+        // alone made a workload's history only as old as its newest pod (orchestrator addendum A).
+        List<PodNameRule> rules = workload("team-a", "overprovisioned-api").pods().nameRules();
+
+        assertThat(rules).containsExactlyInAnyOrder(
+                PodNameRule.replicaSetPods("overprovisioned-api-7d9f"),
+                PodNameRule.replicaSetPods("overprovisioned-api-5b8c"));
+        assertThat(rules)
+                .as("the canary's ReplicaSet belongs to a different Deployment uid")
+                .doesNotContain(PodNameRule.replicaSetPods("overprovisioned-api-canary-6f2a"));
+    }
+
+    @Test
+    @DisplayName("a StatefulSet needs one rule: its pod names are stable across its whole history")
+    void aStatefulSetYieldsOneOrdinalRule() {
+        assertThat(workload("prod-sim", "stateful-queue").pods().nameRules())
+                .containsExactly(PodNameRule.statefulSetPods("stateful-queue"));
     }
 
     // ---------------------------------------------------------------- protected namespaces

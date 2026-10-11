@@ -4,6 +4,7 @@ import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.service.automation.workload.ApplyMethod;
 import com.xammer.cloud.service.automation.workload.HysteresisBand;
 import com.xammer.cloud.service.automation.workload.NodeCapacity;
+import com.xammer.cloud.service.automation.workload.PodNameRule;
 import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadMode;
@@ -402,6 +403,21 @@ class VerticalAutomationReadServiceTest {
     }
 
     @Test
+    @DisplayName("the usage query also carries the pod-name shapes, so history survives a rollout")
+    void theUsageQueryCarriesTheHistoricalPodShapes() {
+        // Orchestrator addendum A: with the current pod names alone, a rollout, eviction or drain
+        // resets a workload's observed history to zero, and at MIN_SAMPLE_COVERAGE 0.5 over a 72h
+        // window that means 36h of uninterrupted pod life before anything can be recommended.
+        FakeUsage usage = new FakeUsage();
+        service(usage, inventory(overprovisionedApi()), VerticalReadServiceFixtures.noStoredPolicies(),
+                "RECOMMEND", 24).read(TARGET, config(null));
+
+        assertThat(usage.lastQuery.podNameRules())
+                .containsExactly(PodNameRule.replicaSetPods("overprovisioned-api-aaa"),
+                        PodNameRule.replicaSetPods("overprovisioned-api-old"));
+    }
+
+    @Test
     @DisplayName("INSUFFICIENT_HISTORY publishes the workload with a skip reason and NO numbers")
     void insufficientHistoryIsAWaitingState() {
         VerticalAutomationReadService service = service(
@@ -557,7 +573,9 @@ class VerticalAutomationReadServiceTest {
                 List.of(new ClusterWorkloadInventory.ContainerSpec("idler", burstable(), Map.of())),
                 new WorkloadPods(API, List.of(
                         new WorkloadPods.Pod("overprovisioned-api-aaa-1", "pod-uid-1"),
-                        new WorkloadPods.Pod("overprovisioned-api-aaa-2", "pod-uid-2"))));
+                        new WorkloadPods.Pod("overprovisioned-api-aaa-2", "pod-uid-2")),
+                        List.of(PodNameRule.replicaSetPods("overprovisioned-api-aaa"),
+                                PodNameRule.replicaSetPods("overprovisioned-api-old"))));
     }
 
     private static ResourceEnvelope burstable() {

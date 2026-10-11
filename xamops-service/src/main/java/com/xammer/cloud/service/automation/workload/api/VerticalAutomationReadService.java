@@ -341,7 +341,8 @@ public class VerticalAutomationReadService {
                             + " for it.");
         }
         UsageQuery query = new UsageQuery(target, workload.ref(), workload.containerNames(),
-                workload.pods().names(), policy.percentile(), policy.windowHours());
+                workload.pods().names(), workload.pods().nameRules(), policy.percentile(),
+                policy.windowHours());
         return usageProvider.aggregates(access, query);
     }
 

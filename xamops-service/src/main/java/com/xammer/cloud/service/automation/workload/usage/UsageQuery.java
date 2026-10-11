@@ -1,5 +1,6 @@
 package com.xammer.cloud.service.automation.workload.usage;
 
+import com.xammer.cloud.service.automation.workload.PodNameRule;
 import com.xammer.cloud.service.automation.workload.WorkloadRef;
 import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
 
@@ -23,11 +24,22 @@ import java.util.List;
  *                       through {@code ownerReferences} by the cluster inventory. Mandatory and
  *                       non-empty: it is what a provider selects on instead of a name regex, so the
  *                       Go rightsizer's {@code pod=~"<name>-.*"} has nowhere to come back from.
+ * @param podNameRules   the pod-name shapes this workload's controllers produce, so a provider can
+ *                       measure the pods it owned <strong>during the window</strong> and not only the
+ *                       ones alive right now (orchestrator addendum A). May be empty: a provider then
+ *                       measures the current pods only, which is correct but short-sighted.
  * @param percentile     the percentile the policy asks for; the result must contain exactly it
  * @param windowHours    the policy window
  */
 public record UsageQuery(ClusterTarget target, WorkloadRef ref, List<String> containerNames,
-                         List<String> podNames, int percentile, int windowHours) {
+                         List<String> podNames, List<PodNameRule> podNameRules, int percentile,
+                         int windowHours) {
+
+    /** The current pods only — the shape every caller used before addendum A. */
+    public UsageQuery(ClusterTarget target, WorkloadRef ref, List<String> containerNames,
+                      List<String> podNames, int percentile, int windowHours) {
+        this(target, ref, containerNames, podNames, List.of(), percentile, windowHours);
+    }
 
     public UsageQuery {
         if (target == null) {
@@ -48,6 +60,7 @@ public record UsageQuery(ClusterTarget target, WorkloadRef ref, List<String> con
                             + " pod=~\"<name>-.*\" ends up selecting another workload's pods");
         }
         podNames = List.copyOf(podNames);
+        podNameRules = podNameRules == null ? List.of() : List.copyOf(podNameRules);
         if (percentile < 1 || percentile > 100) {
             throw new IllegalArgumentException("percentile out of range: " + percentile);
         }
