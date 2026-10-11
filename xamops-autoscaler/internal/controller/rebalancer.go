@@ -238,7 +238,11 @@ func (rb *Rebalancer) finish(ctx context.Context, ledger *state.Ledger, result *
 		FinishedAt: result.CompletedAt.UTC().Format(time.RFC3339),
 		Nodes:      result.NodesDrained, Reason: result.Reason,
 	}
-	if err := ledger.Record(ctx, result.OperationID, op); err != nil {
+	// Detached from ctx so a drain cut short by SIGTERM still records its terminal
+	// outcome instead of leaving the operation "running".
+	lctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), drain.DefaultRestoreTimeout)
+	defer cancel()
+	if err := ledger.Record(lctx, result.OperationID, op); err != nil {
 		log.Printf("ERROR: rebalancer: record operation %s: %v", result.OperationID, err)
 		result.Error = strings.TrimPrefix(result.Error+"; ledger: "+err.Error(), "; ")
 	}

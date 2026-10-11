@@ -91,7 +91,11 @@ func main() {
 	go startHealthServer()
 
 	// ── Main control loop ────────────────────────────────────────────────
-	go runControlLoop(ctx, cfg, k8s, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
+	loopDone := make(chan struct{})
+	go func() {
+		defer close(loopDone)
+		runControlLoop(ctx, cfg, k8s, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
+	}()
 
 	// ── Heartbeat loop ────────────────────────────────────────────────────
 	go runHeartbeatLoop(ctx, cfg, push)
@@ -103,9 +107,19 @@ func main() {
 
 	log.Println("Shutdown signal received — stopping automation agent...")
 	cancel()
-	time.Sleep(3 * time.Second)
-	log.Println("Automation agent stopped")
+	// Wait for the in-flight cycle: an interrupted drain aborts, restores its nodes on
+	// a detached context, records the ledger outcome and pushes its telemetry. The
+	// bound stays inside the pod's 60s terminationGracePeriodSeconds.
+	select {
+	case <-loopDone:
+		log.Println("Automation agent stopped")
+	case <-time.After(shutdownWait):
+		log.Printf("WARN: in-flight cycle did not finish within %s — exiting; orphan recovery handles any node left draining", shutdownWait)
+	}
 }
+
+// shutdownWait bounds the wait for the in-flight cycle after SIGTERM (grace period 60s).
+const shutdownWait = 50 * time.Second
 
 // runControlLoop polls for policy and runs all enabled controllers on each cycle.
 func runControlLoop(
@@ -121,8 +135,12 @@ func runControlLoop(
 	vpaMgr *controller.VPAManager,
 	nodeOpt *controller.NodeOptimizer,
 ) {
-	// Short initial delay so the k8s API server is ready
-	time.Sleep(15 * time.Second)
+	// Short initial delay so the k8s API server is ready (cut short by shutdown)
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(15 * time.Second):
+	}
 
 	ticker := time.NewTicker(time.Duration(cfg.PolicyPollInterval) * time.Second)
 	defer ticker.Stop()

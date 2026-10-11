@@ -230,7 +230,9 @@ data:
   # ── Tier 2 feature flags (all off by default — enable per-cluster in XamOps UI)
   # Node scale-in: candidates are nodes whose summed pod requests are under target.
   # Analyse-only unless the policy sets analyseOnly=false; any drain goes through the
-  # shared executor (budget, plan, Eviction API) and is refused in this build.
+  # shared executor: a global drain budget, a scheduler-fit plan that must prove the
+  # set drainable, Eviction API only, new-UID replacements verified Running+Ready,
+  # and on abort the node is restored (uncordoned if this autoscaler cordoned it).
   ENABLE_EVICTOR: "false"
   # Workload rightsizing: P80/P100 recommendations (patching also needs ENABLE_RIGHTSIZER_APPLY)
   ENABLE_RIGHTSIZER: "false"

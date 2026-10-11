@@ -83,7 +83,14 @@ type Executor struct {
 	ReplacementTimeout time.Duration
 	PDBRetry           time.Duration
 	PollInterval       time.Duration
+	// RestoreTimeout bounds the node writes that end a live drain (abort restore,
+	// drained annotation). They run on a context detached from the drain's own,
+	// which is often the reason the drain ended (SIGTERM, drain timeout).
+	RestoreTimeout time.Duration
 }
+
+// DefaultRestoreTimeout is the bound on the detached writes that end a live drain.
+const DefaultRestoreTimeout = 15 * time.Second
 
 // NewExecutor returns an executor with the plan.md D6 timings (180s / 60s / 5s).
 func NewExecutor(k8s kubernetes.Interface, planner Planner, selfNamespace string) *Executor {
@@ -97,7 +104,22 @@ func NewExecutor(k8s kubernetes.Interface, planner Planner, selfNamespace string
 		ReplacementTimeout: 180 * time.Second,
 		PDBRetry:           60 * time.Second,
 		PollInterval:       5 * time.Second,
+		RestoreTimeout:     DefaultRestoreTimeout,
 	}
+}
+
+// restoreContext returns a context for the writes that end a live drain. Several
+// abort paths fire precisely because the drain's context was cancelled (SIGTERM) or
+// expired (drain timeout); a request built from that context fails before it is
+// sent and would leave the node cordoned and annotated draining. The returned
+// context keeps ctx's values, ignores its cancellation, and is bounded by
+// RestoreTimeout.
+func (e *Executor) restoreContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	d := e.RestoreTimeout
+	if d <= 0 {
+		d = DefaultRestoreTimeout
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), d)
 }
 
 // SelfNamespace returns the always-protected namespace.
@@ -290,10 +312,17 @@ func (e *Executor) Drain(ctx context.Context, controller, operationID string, no
 
 func (e *Executor) liveDrain(ctx context.Context, r *run, operationID string) Outcome {
 	plan := *r.plan
-	cordoned := map[string]bool{}
+	cordoned := map[string]bool{} // nodes this call cordoned (uncordoned on abort)
+	touched := map[string]bool{}  // nodes this call annotated draining (marked aborted on abort)
 	abort := func(reason string) Outcome {
+		// Detached from ctx: the abort is often caused by ctx ending (SIGTERM, drain timeout).
+		rctx, cancel := e.restoreContext(ctx)
+		defer cancel()
 		for _, n := range r.nodes {
-			if err := e.markAborted(ctx, n, cordoned[n]); err != nil {
+			if !touched[n] {
+				continue
+			}
+			if err := e.markAborted(rctx, n, cordoned[n]); err != nil {
 				log.Printf("ERROR: drain abort: restore node %s: %v", n, err)
 				reason += fmt.Sprintf("; restoring node %s failed: %v", n, err)
 			}
@@ -317,6 +346,7 @@ func (e *Executor) liveDrain(ctx context.Context, r *run, operationID string) Ou
 		if err := e.patchNode(ctx, n, patch); err != nil {
 			return abort(fmt.Sprintf("cordon node %s: %v", n, err))
 		}
+		touched[n] = true
 		if !node.Spec.Unschedulable {
 			cordoned[n] = true
 		}
@@ -411,9 +441,12 @@ func (e *Executor) liveDrain(ctx context.Context, r *run, operationID string) Ou
 	}
 
 	// 4. Mark drained (the nodes stay cordoned for the node autoscaler to remove).
+	// Verification passed, so this write is detached from ctx like the abort restore.
+	mctx, cancel := e.restoreContext(ctx)
+	defer cancel()
 	for _, n := range r.nodes {
 		patch := map[string]interface{}{"metadata": map[string]interface{}{"annotations": map[string]interface{}{AnnotationState: StateDrained}}}
-		if err := e.patchNode(ctx, n, patch); err != nil {
+		if err := e.patchNode(mctx, n, patch); err != nil {
 			return abort(fmt.Sprintf("annotate node %s drained: %v", n, err))
 		}
 	}
