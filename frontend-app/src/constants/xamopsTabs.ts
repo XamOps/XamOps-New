@@ -145,6 +145,47 @@ export const XAMOPS_MODULES: XamOpsModule[] = [
 export const ALL_XAMOPS_TAB_KEYS: string[] = XAMOPS_MODULES.flatMap(m => m.tabs.map(t => t.key));
 
 /**
+ * A permission stored in `user_tab_access` like a tab key, but not a sidebar tab
+ * (docs/cloudk8s/ui-revamp-design.md D2). It is deliberately absent from XAMOPS_MODULES, so
+ * ALL_XAMOPS_TAB_KEYS, "Select all", module toggles and makeXamTabGate never grant it: an admin
+ * restricting a member's sidebar must not hand out a write permission without seeing it. The pickers
+ * show it nested under its parent tab (components/Shared/XamTabPermissionToggle.tsx).
+ */
+export interface XamOpsTabPermission {
+  key: string;
+  /** The tab the permission belongs to; it only counts while that tab is granted. */
+  parent: string;
+  label: string;
+}
+
+export const XAMOPS_TAB_PERMISSIONS: XamOpsTabPermission[] = [
+  { key: 'cloudops-cloudk8s-automation', parent: 'cloudops-cloudk8s', label: 'Allow automation changes' },
+];
+
+const permissionOf = (key: string) => XAMOPS_TAB_PERMISSIONS.find(p => p.key === key);
+
+/**
+ * Drops a permission whose parent tab isn't in the list. Applied on every change, so unchecking a
+ * tab, its module or everything also removes the permission, and no member is left whose only row is
+ * a permission (which makeXamTabGate would read as "restricted to nothing").
+ */
+export const normalizeAllowedTabs = (keys: readonly string[]): string[] => {
+  const present = new Set(keys);
+  return keys.filter(key => {
+    const permission = permissionOf(key);
+    return !permission || present.has(permission.parent);
+  });
+};
+
+/** The list with one key checked or unchecked, normalized. */
+export const toggleAllowedTab = (keys: readonly string[], key: string): string[] =>
+  normalizeAllowedTabs(keys.includes(key) ? keys.filter(k => k !== key) : [...keys, key]);
+
+/** "Select all": every sidebar tab, keeping permissions already granted but never adding one. */
+export const selectAllXamTabs = (keys: readonly string[]): string[] =>
+  normalizeAllowedTabs([...ALL_XAMOPS_TAB_KEYS, ...keys.filter(key => permissionOf(key) !== undefined)]);
+
+/**
  * Given a user's assigned tab keys, return a gate function.
  * If the list is empty/undefined there is NO restriction (everything is allowed).
  */

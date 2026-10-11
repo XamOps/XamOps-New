@@ -30,6 +30,7 @@ export const GUARDED_PATHS: readonly string[] = [
   'components/EksDetails/sections/',
   'utils/inPageNavigation.ts',
   'utils/k8sVersion.ts',
+  'components/Shared/XamTabPermissionToggle.tsx',
 ];
 
 const TAILWIND_PREFIX = '(?:text|bg|border|from|via|to|ring|fill|stroke|divide|outline|shadow|accent|decoration|placeholder|caret)';

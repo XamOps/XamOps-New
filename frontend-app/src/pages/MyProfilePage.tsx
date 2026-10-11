@@ -8,7 +8,8 @@ import { Icon } from '@iconify/react';
 import { useMyProfile } from '../hooks/useMyProfile';
 import { DialogRoot, DialogPanel } from '../components/ui';
 import { TeamUser, CloudAccount } from '../types/myProfile';
-import { XAMOPS_MODULES, ALL_XAMOPS_TAB_KEYS } from '../constants/xamopsTabs';
+import { XAMOPS_MODULES, normalizeAllowedTabs, selectAllXamTabs, toggleAllowedTab } from '../constants/xamopsTabs';
+import XamTabPermissionToggle from '../components/Shared/XamTabPermissionToggle';
 
 const PROVIDER_DOT: Record<string, string> = {
   AWS:   'bg-amber-400',
@@ -432,7 +433,7 @@ const MyProfilePage: React.FC = () => {
                             Sidebar Module &amp; Tab Access
                           </p>
                           <div className="flex items-center gap-2">
-                            <button type="button" onClick={() => updateSelectedUser('allowedTabs', [...ALL_XAMOPS_TAB_KEYS])} className="text-[10px] font-semibold text-[rgba(0,0,0,0.6)] hover:text-black">Select all</button>
+                            <button type="button" onClick={() => updateSelectedUser('allowedTabs', selectAllXamTabs(selectedUser.allowedTabs))} className="text-[10px] font-semibold text-[rgba(0,0,0,0.6)] hover:text-black">Select all</button>
                             <span className="text-[rgba(0,0,0,0.15)]">|</span>
                             <button type="button" onClick={() => updateSelectedUser('allowedTabs', [])} className="text-[10px] font-semibold text-rose-500 hover:text-rose-700">Clear</button>
                           </div>
@@ -444,11 +445,13 @@ const MyProfilePage: React.FC = () => {
                           {XAMOPS_MODULES.map(mod => {
                             const moduleTabKeys = mod.tabs.map(t => t.key);
                             const allChecked = moduleTabKeys.every(k => selectedUser.allowedTabs.includes(k));
+                            // Every change goes through normalizeAllowedTabs, so unchecking a tab or its
+                            // module also removes a permission nested under it (D2).
                             const toggleModule = () => {
                               if (allChecked) {
-                                updateSelectedUser('allowedTabs', selectedUser.allowedTabs.filter(k => !moduleTabKeys.includes(k)));
+                                updateSelectedUser('allowedTabs', normalizeAllowedTabs(selectedUser.allowedTabs.filter(k => !moduleTabKeys.includes(k))));
                               } else {
-                                updateSelectedUser('allowedTabs', Array.from(new Set([...selectedUser.allowedTabs, ...moduleTabKeys])));
+                                updateSelectedUser('allowedTabs', normalizeAllowedTabs(Array.from(new Set([...selectedUser.allowedTabs, ...moduleTabKeys]))));
                               }
                             };
                             return (
@@ -460,11 +463,18 @@ const MyProfilePage: React.FC = () => {
                                 </label>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 p-2.5">
                                   {mod.tabs.map(tab => (
-                                    <label key={tab.key} className="flex items-center gap-2 px-2.5 py-2 border border-[rgba(0,0,0,0.06)] rounded-lg cursor-pointer hover:bg-[rgba(0,0,0,0.02)] transition-colors">
-                                      <input type="checkbox" checked={selectedUser.allowedTabs.includes(tab.key)} onChange={() => toggleTab(tab.key)} className="w-3.5 h-3.5 rounded accent-[rgba(0,0,0,0.88)] cursor-pointer flex-shrink-0" />
-                                      <Icon icon={tab.icon} width={13} color="rgba(0,0,0,0.45)" />
-                                      <span className="text-[11px] font-medium text-[rgba(0,0,0,0.7)]">{tab.label}</span>
-                                    </label>
+                                    <div key={tab.key} className="flex flex-col gap-1">
+                                      <label className="flex items-center gap-2 px-2.5 py-2 border border-[rgba(0,0,0,0.06)] rounded-lg cursor-pointer hover:bg-[rgba(0,0,0,0.02)] transition-colors">
+                                        <input type="checkbox" checked={selectedUser.allowedTabs.includes(tab.key)} onChange={() => updateSelectedUser('allowedTabs', toggleAllowedTab(selectedUser.allowedTabs, tab.key))} className="w-3.5 h-3.5 rounded accent-[rgba(0,0,0,0.88)] cursor-pointer flex-shrink-0" />
+                                        <Icon icon={tab.icon} width={13} color="rgba(0,0,0,0.45)" />
+                                        <span className="text-[11px] font-medium text-[rgba(0,0,0,0.7)]">{tab.label}</span>
+                                      </label>
+                                      <XamTabPermissionToggle
+                                        parentKey={tab.key}
+                                        allowedTabs={selectedUser.allowedTabs}
+                                        onChange={next => updateSelectedUser('allowedTabs', next)}
+                                      />
+                                    </div>
                                   ))}
                                 </div>
                               </div>
