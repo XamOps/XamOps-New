@@ -6,6 +6,8 @@
  */
 
 import React, { useState, useMemo } from 'react';
+// The two reference rates live only in utils/k8sPricing (design D9); this tab is replaced in FEAT-004.
+import { CPU_RATE_PER_VCPU_HOUR, MEMORY_RATE_PER_GIB_HOUR } from '../../../utils/k8sPricing';
 
 interface EksCostTabProps {
   eksData: any;
@@ -65,8 +67,8 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
       nsData.podCount++;
       nsData.cpuUsageMillicores += pod.cpuUsage || 0;
       nsData.memoryUsageMb += (pod.memoryUsage || 0) / (1024 * 1024);
-      const podCpuCost = ((pod.cpuUsage || 0) / 1000) * 0.0416;
-      const podMemCost = ((pod.memoryUsage || 0) / (1024 * 1024 * 1024)) * 0.00456;
+      const podCpuCost = ((pod.cpuUsage || 0) / 1000) * CPU_RATE_PER_VCPU_HOUR;
+      const podMemCost = ((pod.memoryUsage || 0) / (1024 * 1024 * 1024)) * MEMORY_RATE_PER_GIB_HOUR;
       nsData.dailyCost += (podCpuCost + podMemCost) * 24;
     });
     const result = Array.from(namespaceMap.values());
@@ -99,7 +101,7 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
       );
       let cpu = 0, mem = 0;
       pods.forEach((pod: any) => { cpu += pod.cpuUsage || 0; mem += (pod.memoryUsage || 0) / (1024 * 1024); });
-      const daily = (cpu / 1000) * 0.0416 * 24 + (mem / 1024) * 0.00456 * 24;
+      const daily = (cpu / 1000) * CPU_RATE_PER_VCPU_HOUR * 24 + (mem / 1024) * MEMORY_RATE_PER_GIB_HOUR * 24;
       workloads.push({ name: deployment.name, namespace: deployment.namespace, kind: 'Deployment', cpuUsageMillicores: cpu, memoryUsageMb: mem, podCount: pods.length || deployment.readyReplicas || deployment.replicas || 0, dailyCost: daily, monthlyCost: daily * 30 });
     });
 
@@ -111,7 +113,7 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
       );
       let cpu = 0, mem = 0;
       pods.forEach((pod: any) => { cpu += pod.cpuUsage || 0; mem += (pod.memoryUsage || 0) / (1024 * 1024); });
-      const daily = (cpu / 1000) * 0.0416 * 24 + (mem / 1024) * 0.00456 * 24;
+      const daily = (cpu / 1000) * CPU_RATE_PER_VCPU_HOUR * 24 + (mem / 1024) * MEMORY_RATE_PER_GIB_HOUR * 24;
       workloads.push({ name: ds.name, namespace: ds.namespace, kind: 'DaemonSet', cpuUsageMillicores: cpu, memoryUsageMb: mem, podCount: pods.length || ds.numberReady || ds.ready || 0, dailyCost: daily, monthlyCost: daily * 30 });
     });
 
@@ -123,7 +125,7 @@ const EksCostTab: React.FC<EksCostTabProps> = ({ eksData }) => {
       );
       let cpu = 0, mem = 0;
       pods.forEach((pod: any) => { cpu += pod.cpuUsage || 0; mem += (pod.memoryUsage || 0) / (1024 * 1024); });
-      const daily = (cpu / 1000) * 0.0416 * 24 + (mem / 1024) * 0.00456 * 24;
+      const daily = (cpu / 1000) * CPU_RATE_PER_VCPU_HOUR * 24 + (mem / 1024) * MEMORY_RATE_PER_GIB_HOUR * 24;
       workloads.push({ name: ss.name, namespace: ss.namespace, kind: 'StatefulSet', cpuUsageMillicores: cpu, memoryUsageMb: mem, podCount: pods.length || ss.readyReplicas || ss.replicas || 0, dailyCost: daily, monthlyCost: daily * 30 });
     });
 

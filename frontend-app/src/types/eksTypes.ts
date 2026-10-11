@@ -35,8 +35,16 @@ export interface EksDashboard {
   topMemoryPods?: any[];
   networkMetrics?: any[];
   agentCostMetrics?: any;
+  /** OpenCost allocations, when the agent reports them (design D9). */
+  openCost?: OpenCostSummary | null;
   // Caching metadata
   lastSyncedAt?: string; // ISO timestamp from server
+}
+
+/** The part of the backend's OpenCostDashboard the cost source rule reads (design D9). */
+export interface OpenCostSummary {
+  enabled?: boolean;
+  summary?: { totalDailyCost?: number | null; totalMonthlyCost?: number | null } | null;
 }
 
 export interface ClusterOverview {

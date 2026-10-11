@@ -7,32 +7,9 @@
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import apiClient from '../utils/apiClient';
-
-// Parse Kubernetes CPU quantity strings → millicores
-// Examples: "10m" → 10, "100m" → 100, "1" → 1000, "1.5" → 1500
-function parseCpuMillicores(v: any): number {
-  if (v === null || v === undefined || v === '') return 0;
-  const s = String(v).trim();
-  if (s.endsWith('m')) return parseFloat(s) || 0;
-  const n = parseFloat(s);
-  return isNaN(n) ? 0 : Math.round(n * 1000);
-}
-
-// Parse Kubernetes memory quantity strings → MiB (mebibytes)
-// Examples: "32Mi" → 32, "3400576Ki" → ~3321, "1Gi" → 1024, "134217728" → ~128
-function parseMemoryMiB(v: any): number {
-  if (v === null || v === undefined || v === '') return 0;
-  const s = String(v).trim();
-  if (s.endsWith('Ki')) return parseFloat(s) / 1024;
-  if (s.endsWith('Mi')) return parseFloat(s);
-  if (s.endsWith('Gi')) return parseFloat(s) * 1024;
-  if (s.endsWith('Ti')) return parseFloat(s) * 1024 * 1024;
-  if (s.endsWith('K') || s.endsWith('k')) return parseFloat(s) / 1024;
-  if (s.endsWith('M')) return parseFloat(s);
-  if (s.endsWith('G')) return parseFloat(s) * 1024;
-  const bytes = parseFloat(s);
-  return isNaN(bytes) ? 0 : bytes / (1024 * 1024);
-}
+// The parsers return null for a missing or unparseable quantity (D10). The request sums below add
+// an unset request as 0 on purpose, since it reserves nothing, and count those containers.
+import { parseCpuMillicores, parseMemoryMiB } from '../utils/k8sQuantities';
 import {
   EksDashboard,
   ContainerWithMetrics,
@@ -118,6 +95,8 @@ export interface UseEksDashboardReturn {
     totalMemoryUsage: number;
     podsWithoutRequests: number;
     podsWithoutLimits: number;
+    /** Containers with no CPU or no memory request; derived totals only. */
+    containersWithoutRequests?: number;
     _derived: boolean;
   } | null;
   // Helper functions
@@ -672,18 +651,18 @@ export const useEksDashboard = ({
       : (dashboard?.workloadHealth?.pods || []);
     return rawPods.map((pod: any) => {
       const containers: any[] = pod.containers || pod.containerStatuses || [];
-      const cpuReq  = containers.reduce((s: number, c: any) => s + parseCpuMillicores(c.cpuRequest),  0);
-      const memReq  = containers.reduce((s: number, c: any) => s + parseMemoryMiB(c.memoryRequest),   0);
-      const cpuLim  = containers.reduce((s: number, c: any) => s + parseCpuMillicores(c.cpuLimit),    0);
-      const memLim  = containers.reduce((s: number, c: any) => s + parseMemoryMiB(c.memoryLimit),     0);
+      const cpuReq  = containers.reduce((s: number, c: any) => s + (parseCpuMillicores(c.cpuRequest) ?? 0),  0);
+      const memReq  = containers.reduce((s: number, c: any) => s + (parseMemoryMiB(c.memoryRequest) ?? 0),   0);
+      const cpuLim  = containers.reduce((s: number, c: any) => s + (parseCpuMillicores(c.cpuLimit) ?? 0),    0);
+      const memLim  = containers.reduce((s: number, c: any) => s + (parseMemoryMiB(c.memoryLimit) ?? 0),     0);
       const restarts = containers.reduce((s: number, c: any) => s + (c.restartCount || 0), 0);
       return {
         ...pod,
         restarts:       pod.restarts != null ? pod.restarts : restarts,
         cpuRequest:     cpuReq,
         memoryRequest:  memReq,
-        cpuLimit:       parseCpuMillicores(pod.cpuLimit)  || cpuLim,
-        memoryLimit:    parseMemoryMiB(pod.memoryLimit)   || memLim,
+        cpuLimit:       (parseCpuMillicores(pod.cpuLimit) ?? 0)  || cpuLim,
+        memoryLimit:    (parseMemoryMiB(pod.memoryLimit) ?? 0)   || memLim,
       };
     });
   }, [dashboard]);
@@ -705,8 +684,8 @@ export const useEksDashboard = ({
     sortedNodesByPressure.forEach((node: any) => {
       const name = node.nodeName || node.name;
       const reqs = perNode[name] || { cpu: 0, mem: 0 };
-      const allocCpu = parseCpuMillicores(node.allocatableCpu ?? node.cpuAllocatable);
-      const allocMem = parseMemoryMiB(node.allocatableMemory ?? node.memoryAllocatable);
+      const allocCpu = parseCpuMillicores(node.allocatableCpu ?? node.cpuAllocatable) ?? 0;
+      const allocMem = parseMemoryMiB(node.allocatableMemory ?? node.memoryAllocatable) ?? 0;
       result[name] = {
         cpuRequestsMillicores: Math.round(reqs.cpu),
         memoryRequestsMiB:     Math.round(reqs.mem),
@@ -738,6 +717,7 @@ export const useEksDashboard = ({
     let totalMemoryLimits = 0;
     let podsWithoutRequests = 0;
     let podsWithoutLimits = 0;
+    let containersWithoutRequests = 0;
 
     pods.forEach((pod: any) => {
       const containers: any[] = pod.containers || pod.containerStatuses || [];
@@ -745,17 +725,19 @@ export const useEksDashboard = ({
       let podHasLimits = false;
 
       containers.forEach((c: any) => {
+        // An unset request reserves nothing: it adds 0 and the container is counted.
         const cpuReq = parseCpuMillicores(c.cpuRequest);
-        const cpuLim = parseCpuMillicores(c.cpuLimit);
+        const cpuLim = parseCpuMillicores(c.cpuLimit) ?? 0;
         const memReq = parseMemoryMiB(c.memoryRequest);
-        const memLim = parseMemoryMiB(c.memoryLimit);
+        const memLim = parseMemoryMiB(c.memoryLimit) ?? 0;
+        if (cpuReq === null || memReq === null) containersWithoutRequests++;
 
-        totalCpuRequests += cpuReq;
+        totalCpuRequests += cpuReq ?? 0;
         totalCpuLimits += cpuLim;
-        totalMemoryRequests += memReq;
+        totalMemoryRequests += memReq ?? 0;
         totalMemoryLimits += memLim;
 
-        if (cpuReq > 0 || memReq > 0) podHasRequests = true;
+        if ((cpuReq ?? 0) > 0 || (memReq ?? 0) > 0) podHasRequests = true;
         if (cpuLim > 0 || memLim > 0) podHasLimits = true;
       });
 
@@ -771,8 +753,8 @@ export const useEksDashboard = ({
     let totalCpuCapacity = 0;
     let totalMemoryCapacity = 0;
     nodes.forEach((n: any) => {
-      totalCpuCapacity += parseCpuMillicores(n.allocatableCpu ?? n.cpuAllocatable ?? n.cpuCapacity ?? n.totalCpu);
-      totalMemoryCapacity += parseMemoryMiB(n.allocatableMemory ?? n.memoryAllocatable ?? n.memoryCapacity ?? n.totalMemory);
+      totalCpuCapacity += parseCpuMillicores(n.allocatableCpu ?? n.cpuAllocatable ?? n.cpuCapacity ?? n.totalCpu) ?? 0;
+      totalMemoryCapacity += parseMemoryMiB(n.allocatableMemory ?? n.memoryAllocatable ?? n.memoryCapacity ?? n.totalMemory) ?? 0;
     });
 
     // When node capacity is unavailable, estimate from requests (so chart still renders)
@@ -792,6 +774,7 @@ export const useEksDashboard = ({
       totalMemoryUsage: 0,    // Prometheus not available — usage unknown
       podsWithoutRequests,
       podsWithoutLimits,
+      containersWithoutRequests,
       _derived: true,
     };
   }, [dashboard]);
