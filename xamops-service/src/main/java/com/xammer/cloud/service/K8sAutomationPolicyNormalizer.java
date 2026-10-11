@@ -170,7 +170,7 @@ public class K8sAutomationPolicyNormalizer {
         if (!accountAllowsAutomation) {
             logOnce("owner|" + configId, () -> log.warn(
                     "Serving a disabled automation policy for cluster config {}: the owning account isn't "
-                            + "read-write and connected", configId));
+                            + "read-write and connected, or can't be found", configId));
             return disabledDefault();
         }
         return read(storedJson, configId).bundle();

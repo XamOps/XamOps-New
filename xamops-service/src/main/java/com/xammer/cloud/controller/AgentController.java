@@ -9,8 +9,10 @@ import com.xammer.cloud.domain.SreInvestigation;
 import com.xammer.cloud.dto.agent.AgentIngestPayload;
 import com.xammer.cloud.dto.agent.AgentIngestResponse;
 import com.xammer.cloud.dto.agent.AgentPrincipal;
+import com.xammer.cloud.dto.autoscaling.AutomationPolicyBundle;
 import com.xammer.cloud.dto.sre.TriggerInvestigationRequest;
 import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.security.K8sAutomationAccessService;
 import com.xammer.cloud.repository.AgentDataCacheRepository;
 import com.xammer.cloud.repository.AgentEventRepository;
 import com.xammer.cloud.repository.CloudAccountRepository;
@@ -21,6 +23,7 @@ import com.xammer.cloud.service.AgentIngestService;
 import com.xammer.cloud.service.DbAgentService;
 import com.xammer.cloud.service.DiskAgentPeaks;
 import com.xammer.cloud.service.EksAutoscalingService;
+import com.xammer.cloud.service.K8sAutomationPolicyNormalizer;
 import com.xammer.cloud.service.OpenObserveService;
 import com.xammer.cloud.service.RedisCacheService;
 import com.xammer.cloud.service.sre.SreInvestigationService;
@@ -28,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -85,6 +89,8 @@ public class AgentController {
     private final OpenObserveService openObserveService;
     private final ExplainRequestRepository explainRequestRepository;
     private final AgentApiKeyService agentApiKeyService;
+    private final K8sAutomationPolicyNormalizer policyNormalizer;
+    private final K8sAutomationAccessService automationAccessService;
 
     public AgentController(
             AgentIngestService agentIngestService,
@@ -97,8 +103,12 @@ public class AgentController {
             SreInvestigationService sreInvestigationService,
             OpenObserveService openObserveService,
             ExplainRequestRepository explainRequestRepository,
-            AgentApiKeyService agentApiKeyService) {
+            AgentApiKeyService agentApiKeyService,
+            K8sAutomationPolicyNormalizer policyNormalizer,
+            K8sAutomationAccessService automationAccessService) {
         this.agentApiKeyService = agentApiKeyService;
+        this.policyNormalizer = policyNormalizer;
+        this.automationAccessService = automationAccessService;
         this.agentIngestService = agentIngestService;
         this.dbAgentService = dbAgentService;
         this.clusterConfigRepository = clusterConfigRepository;
@@ -728,11 +738,11 @@ public class AgentController {
      * GET /api/v1/agent/autoscaling-policy?clusterName=xxx&cloudAccountId=xxx
      *
      * Called by xamops-automation on every policy poll cycle.
-     * Returns the PolicyBundle JSON (from agent_data_cache dataType="autoscaling-policy")
-     * so the controller knows the current user-configured autoscaling settings.
+     * Returns the complete, normalized AutomationPolicyBundle (K8sAutomationPolicyNormalizer.forAgent):
+     * every section present, not-ready controllers served their safe values, and the disabled
+     * default when the owning account isn't read-write and connected.
      *
      * Returns 404 if autoscaling is not enabled for this cluster.
-     * Returns 200 with PolicyBundle JSON if enabled.
      */
     @GetMapping("/autoscaling-policy")
     public ResponseEntity<?> getAutoscalingPolicy(
@@ -790,19 +800,20 @@ public class AgentController {
                     .body(Map.of("error", "Autoscaling not enabled for this cluster"));
         }
 
-        // Read policy bundle from agent_data_cache
-        Optional<AgentDataCache> policyCache = agentDataCacheRepository
-                .findByClusterConfigIdAndDataType(config.getId(), EksAutoscalingService.DT_POLICY);
-
-        if (policyCache.isEmpty()) {
-            // No policy saved yet — return empty 200 so autoscaler uses its own defaults
-            return ResponseEntity.ok(Map.of("autoscalerMode", "full"));
-        }
-
-        // Return raw JSON string (autoscaler parses it as PolicyBundle)
+        // Serve a complete, normalized bundle (design §6.6): never the raw stored JSON and never a
+        // partial fallback, because older agent images zero any guard a bundle leaves out (E5).
+        // Controllers that aren't ready are served their safe values whatever is stored, and an
+        // owning account that isn't read-write and CONNECTED (or can't be found) gets the
+        // complete default with autoscalerMode "disabled", so the agent idles (NIT 11).
+        String storedPolicy = agentDataCacheRepository
+                .findByClusterConfigIdAndDataType(config.getId(), EksAutoscalingService.DT_POLICY)
+                .map(AgentDataCache::getDataJson)
+                .orElse(null);
+        boolean ownerAllows = automationAccessService.agentPolicyBlock(config) == null;
+        AutomationPolicyBundle bundle = policyNormalizer.forAgent(storedPolicy, config.getId(), ownerAllows);
         return ResponseEntity.ok()
-                .header("Content-Type", "application/json")
-                .body(policyCache.get().getDataJson());
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(policyNormalizer.toJson(bundle));
     }
 
     // =========================================================================

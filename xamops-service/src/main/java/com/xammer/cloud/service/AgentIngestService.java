@@ -57,6 +57,12 @@ public class AgentIngestService {
      * All other collectors (trivy, kubescape, autoscaling-events, autoscaling-rightsizing,
      * hpa-recommendations, vpa-recommendations, autoscaling-evictor-candidates) push a list → stored as JSON array.
      */
+    /**
+     * Data types only XamOps writes. An agent key must not be able to replace the automation
+     * policy the UI shows and the automation agent receives (design §6.6, E21).
+     */
+    static final Set<String> SERVER_OWNED_COLLECTORS = Set.of("autoscaling-policy");
+
     private static final Set<String> SINGLE_OBJECT_COLLECTORS = Set.of(
             "autoscaling-metrics",
             "autoscaling-rebalance-status",
@@ -426,6 +432,12 @@ public class AgentIngestService {
 
         if (batch.getCollector() == null || batch.getCollector().isEmpty()) {
             return BatchResult.error("Collector type not specified");
+        }
+
+        if (SERVER_OWNED_COLLECTORS.contains(batch.getCollector())) {
+            logger.warn("Refused agent batch for server-owned collector {} (cluster config {})",
+                    batch.getCollector(), clusterConfigId);
+            return BatchResult.error("autoscaling-policy is written by XamOps, not by agents");
         }
 
         if (batch.getItems() == null || batch.getItems().isEmpty()) {
