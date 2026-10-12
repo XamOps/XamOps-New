@@ -946,10 +946,12 @@ export const demoGenericEmpty = {};
 export const demoEmptyList: never[] = [];
 
 // ─── /api/xamops/k8s/clusters ─────────────────────────────────────────────────
+// `connected` is the backend's Container Insights check (K8sClusterInfo); `containerInsights` its detail.
+const demoContainerInsights = (status: 'CONFIGURED' | 'NOT_CONFIGURED') => ({ status, checkedAt: '2026-10-12T08:00:00Z', reason: null, action: null });
 export const demoK8sClusters = [
-  { name: 'prod-eks-cluster',    region: 'us-east-1', version: '1.29', connected: true  },
-  { name: 'staging-eks-cluster', region: 'us-east-1', version: '1.28', connected: false },
-  { name: 'eu-eks-cluster',      region: 'eu-west-1', version: '1.29', connected: true  },
+  { name: 'prod-eks-cluster',    region: 'us-east-1', version: '1.29', connected: true,  containerInsights: demoContainerInsights('CONFIGURED') },
+  { name: 'staging-eks-cluster', region: 'us-east-1', version: '1.28', connected: false, containerInsights: demoContainerInsights('NOT_CONFIGURED') },
+  { name: 'eu-eks-cluster',      region: 'eu-west-1', version: '1.29', connected: true,  containerInsights: demoContainerInsights('CONFIGURED') },
 ];
 
 // ─── /api/cicd/github/runs ────────────────────────────────────────────────────

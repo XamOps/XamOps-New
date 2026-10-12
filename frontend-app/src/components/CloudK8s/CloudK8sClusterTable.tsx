@@ -11,6 +11,29 @@ interface CloudK8sClusterTableProps {
 const HEAD = 'px-5 py-3 font-semibold text-[11px] uppercase tracking-[0.07em] text-[rgba(0,0,0,0.45)]';
 const COL  = 'px-5 py-4 text-[13px]';
 
+/**
+ * The column shows what the backend checks: whether the cluster's Container Insights performance
+ * log group exists. It used to read "Connection: Connected / Not Connected", which no longer
+ * matched once the check became an exact log-group match (demo-cut review S3). FEAT-006 rebuilds
+ * the fleet with the agent's own connection state.
+ */
+export const CONTAINER_INSIGHTS_TOOLTIP =
+  'Whether the Container Insights performance log group exists for the cluster. It says nothing about the XamOps agent.';
+
+/** CONFIGURED, NOT_CONFIGURED or UNKNOWN; a list cached before the detail existed is UNKNOWN. */
+export function containerInsightsState(cluster: EKSCluster): 'CONFIGURED' | 'NOT_CONFIGURED' | 'UNKNOWN' {
+  const status = cluster.containerInsights?.status;
+  return status === 'CONFIGURED' || status === 'NOT_CONFIGURED' ? status : 'UNKNOWN';
+}
+
+function unknownInsightsTitle(cluster: EKSCluster): string {
+  const detail = cluster.containerInsights;
+  if (detail?.reason === 'MISSING_AWS_PERMISSION') {
+    return `XamOps couldn't check: the role is denied ${detail.action ?? 'logs:DescribeLogGroups'}.`;
+  }
+  return detail ? "XamOps couldn't check Container Insights for this cluster." : 'Not checked yet. Refresh the cluster list.';
+}
+
 const CloudK8sClusterTable: React.FC<CloudK8sClusterTableProps> = ({ clusters, isLoading, onViewDetails }) => {
   return (
     <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl shadow-sm overflow-hidden">
@@ -50,7 +73,7 @@ const CloudK8sClusterTable: React.FC<CloudK8sClusterTableProps> = ({ clusters, i
                 <th className={HEAD}>Cluster Name</th>
                 <th className={`${HEAD} hidden md:table-cell`}>Region</th>
                 <th className={`${HEAD} hidden md:table-cell`}>Version</th>
-                <th className={HEAD}>Connection</th>
+                <th className={HEAD} title={CONTAINER_INSIGHTS_TOOLTIP}>Container Insights</th>
                 <th className={`${HEAD} text-center`}>Action</th>
               </tr>
             </thead>
@@ -79,16 +102,24 @@ const CloudK8sClusterTable: React.FC<CloudK8sClusterTableProps> = ({ clusters, i
                       v{cluster.version}
                     </span>
                   </td>
-                  <td className={COL}>
-                    {cluster.connected ? (
+                  <td className={COL} data-container-insights={containerInsightsState(cluster)}>
+                    {containerInsightsState(cluster) === 'CONFIGURED' ? (
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full text-[11px] font-semibold">
                         <Icon icon="mdi:check-circle-outline" width={12} />
-                        Connected
+                        Configured
                       </span>
-                    ) : (
+                    ) : containerInsightsState(cluster) === 'NOT_CONFIGURED' ? (
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.45)] border border-[rgba(0,0,0,0.08)] rounded-full text-[11px] font-semibold">
                         <Icon icon="mdi:close-circle-outline" width={12} />
-                        Not Connected
+                        Not configured
+                      </span>
+                    ) : (
+                      <span
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.45)] border border-[rgba(0,0,0,0.08)] rounded-full text-[11px] font-semibold"
+                        title={unknownInsightsTitle(cluster)}
+                      >
+                        <Icon icon="mdi:help-circle-outline" width={12} />
+                        Unknown
                       </span>
                     )}
                   </td>

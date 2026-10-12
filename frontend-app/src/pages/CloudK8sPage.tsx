@@ -27,7 +27,10 @@ export interface EKSCluster {
   name: string;
   region: string;
   version: string;
+  /** Whether the Container Insights performance log group exists (the backend's exact-match check). */
   connected: boolean;
+  /** The same check in detail; absent from lists cached before it existed. */
+  containerInsights?: { status: string; checkedAt?: string | null; reason?: string | null; action?: string | null } | null;
   isEnabling?: boolean;
 }
 
