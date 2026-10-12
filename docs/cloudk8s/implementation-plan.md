@@ -424,3 +424,24 @@ The realtime branch `feat/cloudk8s-realtime-autoscaling` (worktree `/Users/apple
 - **B7. Two vertical type sets, side by side, at different paths.** The realtime branch had created its own `api/verticalRightsizerApi.ts`, `api/verticalRightsizerAdapter.ts`, `types/verticalRightsizer.ts` and `hooks/useVerticalRightsizer.ts` at the same paths as this branch's contract-based ones, with different APIs. The realtime files move unchanged to `api/workloadRightsizingApi.ts`, `api/workloadRightsizingAdapter.ts`, `types/workloadRightsizing.ts` and `hooks/useWorkloadRightsizing.ts` (with their tests), imported by `EksAutomationTab`; the contract-based files keep the original paths. Unifying them is FEAT-005's first item.
 - **B8. "Workload autoscaler".** The owner renamed the feature: `EksAutomationTab` is registered as Automation › Workload autoscaler (`automation/workload-autoscaling`) and its page title reads "Workload autoscaler". The old page's `?tab=automation` resolves to Automation › Overview, since `automation` is also a section id.
 - **B9. Demo writes.** The subtab can send the engine's endpoint 3 from a demo session, so `…/workloads/…/(policy|apply)` now answers `403 K8S_DEMO` in demo mode (planned for FEAT-005 item 32, brought forward).
+
+### Decisions taken after the demo cut (2026-10-12)
+
+- **B10. Semantic colour tokens (owner direction).** Every status, KPI-delta and chart-series colour goes through a named token: `status-good`, `status-warn`, `status-bad`, `status-info`, `status-off`, and `series-requested`, `series-used`, `series-suggested`, `series-limit`, `series-allocatable`, `series-overhead`.
+  - `tailwind.config.js` maps the names to CSS variables.
+  - `src/styles/k8sSemanticTokens.css` sets them. That file holds today's greys and sits outside the design-rule guard, so the palette is a one-file change.
+  - `StatusMark` and `RequestBar` use the tokens.
+  - The chrome keeps its own greys.
+- **B11. Overview like the cast.ai Dashboard (item 23b), with three omissions until their sources exist:**
+  - no time-series charts (no history endpoint);
+  - no list-price dollars (no pricing source); the Workload autoscaler card shows the capacity it could free;
+  - the Cost card shows what the cost source reports.
+- **B12. One-shot view filters.** "View pending pods" adds `phase=Pending`. Workloads › Pods reads it once on mount, and `withSection` drops every `VIEW_FILTER_PARAMS` entry, so the filter doesn't follow the user.
+- **B13. Created policy sections start off (demo-cut review S1).**
+  - When `fillMissing` creates the scale-out, evictor or VPA manager section, it sets `enabled=false`, as the Go `DefaultBundle` does. `defaults()` goes through it.
+  - Stored sections keep their value.
+  - An automation-agent image older than `03481bb4f` gates the evictor on `enabled` alone, so the default must not switch it on.
+- **B14. The hosted Workload autoscaler decides its own Apply (demo-cut review S2), until FEAT-005 unifies the vertical clients.**
+  - The sidebar leaves `vertical.*` out of its "any change allowed" test. The section isn't "View only" while the hosted tab may apply: the engine serves the cluster, `vertical-rightsizing` is ready, and no write gate applies.
+  - The Overview's Workload rightsizing Apply cell links to Automation › Workload autoscaler.
+- **B15. The fleet column says what it checks (demo-cut review S3).** "Connection" is now "Container Insights": Configured, Not configured or Unknown. FEAT-006 rebuilds the fleet on the agent's connection state.
