@@ -72,6 +72,18 @@ class DirectInPlaceResizeExecutorTest {
     private static final Map<String, String> patchBodies = new ConcurrentHashMap<>();
     private static final Map<String, Integer> patchStatus = new ConcurrentHashMap<>();
     private static final List<String> patchedPods = new CopyOnWriteArrayList<>();
+    /**
+     * {@code podName -> answers to the 2nd, 3rd … PATCH} (the first comes from {@link #patchBodies}).
+     * Each answer also becomes what a GET of that pod serves from then on, the way the API server
+     * would. The last one repeats.
+     */
+    private static final Map<String, List<Scripted>> laterPatches = new ConcurrentHashMap<>();
+    /** {@code podName -> the request bodies of every PATCH it received}, in order. */
+    private static final Map<String, List<String>> patchRequests = new ConcurrentHashMap<>();
+
+    /** One scripted answer: an HTTP status and a body. */
+    private record Scripted(int status, String body) {
+    }
 
     private KubernetesClient client;
     private DirectInPlaceResizeExecutor executor;
@@ -97,6 +109,8 @@ class DirectInPlaceResizeExecutorTest {
         patchBodies.clear();
         patchStatus.clear();
         patchedPods.clear();
+        laterPatches.clear();
+        patchRequests.clear();
         client = new KubernetesClientBuilder()
                 .withConfig(new ConfigBuilder().withMasterUrl(baseUrl)
                         .withRequestRetryBackoffLimit(0).build())
@@ -203,7 +217,10 @@ class DirectInPlaceResizeExecutorTest {
         executor().submit(command(false), access(), workload("api-1"));
 
         assertThat(proof().outcome()).isEqualTo(ResizeProof.Outcome.INFEASIBLE);
-        assertThat(proof().detail()).contains("never be applied on this node");
+        assertThat(proof().detail()).contains("never fit on this node");
+        assertThat(proof().detail())
+                .as("a patch was sent, so 'nothing was changed' would be false (review-1 S7)")
+                .doesNotContain("Nothing was changed");
         assertThat(proof().containers()).singleElement()
                 .extracting(ResizeProof.ContainerResult::applied)
                 .isEqualTo(false);
@@ -270,8 +287,154 @@ class DirectInPlaceResizeExecutorTest {
 
         assertThat(proof().outcome()).isEqualTo(ResizeProof.Outcome.INFEASIBLE);
         assertThat(patchedPods)
-                .as("one pod is the whole blast radius of a bad number")
-                .containsExactly("api-1");
+                .as("one pod is the whole blast radius of a bad number: the resize, then putting it back")
+                .containsExactly("api-1", "api-1");
+    }
+
+    // ---------------------------------------------------------------- putting a declined pod back (S7)
+
+    /**
+     * UAT, 2026-10-12: prod-sim/throttled-encoder's canary came back {@code Deferred} ("OutOfcpu …
+     * requested: 63, used: 1900, capacity: 1930"). The rollout stopped, but the pod kept 63m in its
+     * spec with {@code PodResizePending=True}, unrecorded, for the kubelet to apply whenever the node
+     * freed up. It had to be reverted by hand.
+     */
+    @Test
+    @DisplayName("a Deferred canary is put back to its old size and proved back (fixture resize-deferred.json)")
+    void aDeferredCanaryIsPutBack() {
+        Pod deferred = PodResizeStatusTest.pod("resize-deferred.json");
+        String name = deferred.getMetadata().getName();
+        String asBefore = asItWas(deferred);
+        getBodies.put(name, asBefore);
+        whenPatched(name, Serialization.asJson(deferred));
+        laterPatches.put(name, List.of(new Scripted(200, asBefore)));
+
+        ActionCommand raise = commandFor(new ContainerApplyTarget("api", 1500, 1500, 2L * GI, 2L * GI));
+        executor().submit(raise, access(), fixtureWorkload(deferred));
+
+        ResizeProof proof = proofOf(raise.correlationId());
+        assertThat(proof.outcome()).isEqualTo(ResizeProof.Outcome.DEFERRED);
+        assertThat(patchedPods).as("the resize, then the revert").containsExactly(name, name);
+        assertThat(patchRequests.get(name).get(1))
+                .as("the revert sends the pod's own size from before the apply, request and limit together")
+                .isEqualTo("{\"spec\":{\"containers\":[{\"name\":\"api\",\"resources\":{\"requests\":"
+                        + "{\"cpu\":\"1000m\",\"memory\":\"1Gi\"},\"limits\":{\"cpu\":\"1000m\",\"memory\":\"1Gi\"}}}]}}");
+        ResizeProof.PodProof pod = proof.pods().get(0);
+        assertThat(pod.revert().state()).isEqualTo(ResizeProof.RevertState.REVERTED);
+        assertThat(pod.insufficientResource()).isEqualTo("cpu");
+        assertThat(pod.changed()).as("back where it was").isFalse();
+        assertThat(proof.reverted()).isTrue();
+        assertThat(proof.anyPodChanged()).as("so no cooldown starts, and the user can retry").isFalse();
+        assertThat(proof.insufficientResource()).isEqualTo("cpu");
+        assertThat(proof.detail()).contains("deferred").contains("back to its previous size")
+                .doesNotContain("Nothing was changed");
+        assertThat(proof.restartFree()).isFalse();
+    }
+
+    @Test
+    @DisplayName("an Infeasible canary is put back to its old size and proved back (fixture resize-infeasible.json)")
+    void anInfeasibleCanaryIsPutBack() {
+        Pod infeasible = PodResizeStatusTest.pod("resize-infeasible.json");
+        String name = infeasible.getMetadata().getName();
+        String asBefore = asItWas(infeasible);
+        getBodies.put(name, asBefore);
+        whenPatched(name, Serialization.asJson(infeasible));
+        laterPatches.put(name, List.of(new Scripted(200, asBefore)));
+
+        ActionCommand raise = commandFor(new ContainerApplyTarget("api", 8000, 8000, 16L * GI, 16L * GI));
+        executor().submit(raise, access(), fixtureWorkload(infeasible));
+
+        ResizeProof proof = proofOf(raise.correlationId());
+        assertThat(proof.outcome()).isEqualTo(ResizeProof.Outcome.INFEASIBLE);
+        assertThat(patchedPods).containsExactly(name, name);
+        assertThat(proof.pods().get(0).revert().state()).isEqualTo(ResizeProof.RevertState.REVERTED);
+        assertThat(proof.insufficientResource()).isEqualTo("memory");
+        assertThat(proof.reverted()).isTrue();
+        assertThat(proof.anyPodChanged()).isFalse();
+        assertThat(proof.detail()).contains("never fit on this node").contains("back to its previous size")
+                .doesNotContain("Nothing was changed");
+    }
+
+    @Test
+    @DisplayName("a revert the pod never confirms is reported as not confirmed, and counts as a change")
+    void aRevertThatIsNotConfirmedSaysSo() {
+        Pod deferred = PodResizeStatusTest.pod("resize-deferred.json");
+        String name = deferred.getMetadata().getName();
+        getBodies.put(name, asItWas(deferred));
+        whenPatched(name, Serialization.asJson(deferred));
+        // The API server accepts the revert, and the pod keeps reporting the pending resize.
+        laterPatches.put(name, List.of(new Scripted(200, Serialization.asJson(deferred))));
+
+        ActionCommand raise = commandFor(new ContainerApplyTarget("api", 1500, 1500, 2L * GI, 2L * GI));
+        executor().submit(raise, access(), fixtureWorkload(deferred));
+
+        ResizeProof proof = proofOf(raise.correlationId());
+        assertThat(proof.outcome()).isEqualTo(ResizeProof.Outcome.DEFERRED);
+        assertThat(proof.pods().get(0).revert().state()).isEqualTo(ResizeProof.RevertState.NOT_CONFIRMED);
+        assertThat(proof.reverted()).isFalse();
+        assertThat(proof.anyPodChanged())
+                .as("the new size may still be applied later, so the cooldown must start")
+                .isTrue();
+        assertThat(proof.detail()).contains("did not confirm it").contains("may still be applied later");
+    }
+
+    @Test
+    @DisplayName("a revert the API server refuses is reported as failed, never as put back")
+    void aRefusedRevertSaysSo() {
+        Pod deferred = PodResizeStatusTest.pod("resize-deferred.json");
+        String name = deferred.getMetadata().getName();
+        getBodies.put(name, asItWas(deferred));
+        whenPatched(name, Serialization.asJson(deferred));
+        laterPatches.put(name, List.of(new Scripted(500,
+                "{\"kind\":\"Status\",\"code\":500,\"message\":\"etcdserver: request timed out\"}")));
+
+        ActionCommand raise = commandFor(new ContainerApplyTarget("api", 1500, 1500, 2L * GI, 2L * GI));
+        executor().submit(raise, access(), fixtureWorkload(deferred));
+
+        ResizeProof proof = proofOf(raise.correlationId());
+        assertThat(proof.pods().get(0).revert().state()).isEqualTo(ResizeProof.RevertState.FAILED);
+        assertThat(proof.reverted()).isFalse();
+        assertThat(proof.anyPodChanged()).isTrue();
+        assertThat(proof.detail()).contains("could not").contains("may still be applied later");
+    }
+
+    @Test
+    @DisplayName("a sibling declined after a confirmed canary is put back; the canary keeps its new size")
+    void aDeclinedSiblingIsPutBackAndTheCanaryIsKept() {
+        givenPod("api-1", "uid-api-1", "containerd://c1", 0, true, "1", "1Gi");
+        whenPatched("api-1", pod("api-1", "uid-api-1", "containerd://c1", 0, true, "25m", "250Mi"));
+        givenPod("api-2", "uid-api-2", "containerd://c2", 0, true, "1", "1Gi");
+        whenPatched("api-2", withCondition(pod("api-2", "uid-api-2", "containerd://c2", 0, true, "1", "1Gi"),
+                condition("PodResizePending", "True", "Deferred", "Node didn't have enough resource: memory")));
+        laterPatches.put("api-2", List.of(new Scripted(200,
+                pod("api-2", "uid-api-2", "containerd://c2", 0, true, "1", "1Gi"))));
+
+        executor().submit(command(false), access(), workload("api-1", "api-2"));
+
+        ResizeProof proof = proof();
+        assertThat(proof.outcome()).isEqualTo(ResizeProof.Outcome.PARTIALLY_APPLIED);
+        assertThat(patchedPods).containsExactly("api-1", "api-2", "api-2");
+        assertThat(proof.pods()).extracting(ResizeProof.PodProof::podName).containsExactly("api-1", "api-2");
+        assertThat(proof.pods().get(0).changed()).isTrue();
+        assertThat(proof.pods().get(0).revert()).isNull();
+        assertThat(proof.pods().get(1).revert().state()).isEqualTo(ResizeProof.RevertState.REVERTED);
+        assertThat(proof.anyPodChanged()).as("the canary runs the new size").isTrue();
+    }
+
+    @Test
+    @DisplayName("the pending reason names the resource the node lacked, in either kubelet wording")
+    void theInsufficientResourceIsReadFromTheReason() {
+        assertThat(DirectInPlaceResizeExecutor.insufficientResource(PodResizeStatus.of(
+                PodResizeStatusTest.pod("resize-deferred.json")))).isEqualTo("cpu");
+        assertThat(DirectInPlaceResizeExecutor.insufficientResource(PodResizeStatus.of(
+                PodResizeStatusTest.pod("resize-infeasible.json")))).isEqualTo("memory");
+        Pod uat = Serialization.unmarshal(withCondition(pod("p", "u", "c", 0, true, "10m", "64Mi"),
+                condition("PodResizePending", "True", "Deferred",
+                        "OutOfcpu: Node didn't have enough resource: cpu, requested: 63, used: 1900, capacity: 1930")),
+                Pod.class);
+        assertThat(DirectInPlaceResizeExecutor.insufficientResource(PodResizeStatus.of(uat))).isEqualTo("cpu");
+        assertThat(DirectInPlaceResizeExecutor.insufficientResource(PodResizeStatus.of(
+                Serialization.unmarshal(pod("p", "u", "c", 0, true, "10m", "64Mi"), Pod.class)))).isNull();
     }
 
     @Test
@@ -493,6 +656,39 @@ class DirectInPlaceResizeExecutorTest {
                 null, Instant.now().plusSeconds(300));
     }
 
+    private static final long GI = 1_073_741_824L;
+
+    private static ActionCommand commandFor(ContainerApplyTarget target) {
+        return new ActionCommand("corr-fixture", TARGET, REF, List.of(target), ApplyMethod.IN_PLACE, false,
+                null, Instant.now().plusSeconds(300));
+    }
+
+    /** The one-pod workload a recorded fixture belongs to: 1 CPU / 1 GiB, Guaranteed, today. */
+    private static ClusterWorkloadInventory.Workload fixtureWorkload(Pod fixture) {
+        return new ClusterWorkloadInventory.Workload(REF, 1, false, false, null, null,
+                List.of(new ClusterWorkloadInventory.ContainerSpec("api", GUARANTEED_1CPU_1GI, Map.of())),
+                new WorkloadPods(REF, List.of(new WorkloadPods.Pod(fixture.getMetadata().getName(),
+                        fixture.getMetadata().getUid()))));
+    }
+
+    /**
+     * The recorded pod as it was before the patch: its spec back at what its status reports, and no
+     * resize pending. Also exactly what it looks like once it has been put back.
+     */
+    private static String asItWas(Pod recorded) {
+        Pod pod = Serialization.unmarshal(Serialization.asJson(recorded), Pod.class);
+        pod.getStatus().setConditions(new ArrayList<>(pod.getStatus().getConditions().stream()
+                .filter(c -> !PodResizeStatus.PENDING_CONDITION.equals(c.getType()))
+                .toList()));
+        for (Container container : pod.getSpec().getContainers()) {
+            pod.getStatus().getContainerStatuses().stream()
+                    .filter(status -> status.getName().equals(container.getName()))
+                    .findFirst()
+                    .ifPresent(status -> container.setResources(status.getResources()));
+        }
+        return Serialization.asJson(pod);
+    }
+
     private ClusterAccess access() {
         return new ClusterAccess(client, baseUrl, "xamops-test-1", "ap-south-1", "test");
     }
@@ -577,15 +773,27 @@ class DirectInPlaceResizeExecutorTest {
     private static void respond(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
         String method = exchange.getRequestMethod();
-        exchange.getRequestBody().readAllBytes();
+        String request = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
 
         String body;
         int status = 200;
         if ("PATCH".equals(method) && path.endsWith("/resize")) {
             String podName = podNameOf(path.substring(0, path.length() - "/resize".length()));
             patchedPods.add(podName);
-            body = patchBodies.getOrDefault(podName, "");
-            status = patchStatus.getOrDefault(podName, 404);
+            List<String> received = patchRequests.computeIfAbsent(podName, name -> new CopyOnWriteArrayList<>());
+            received.add(request);
+            List<Scripted> later = laterPatches.get(podName);
+            if (received.size() > 1 && later != null && !later.isEmpty()) {
+                Scripted answer = later.get(Math.min(received.size() - 2, later.size() - 1));
+                body = answer.body();
+                status = answer.status();
+                if (status == 200) {
+                    getBodies.put(podName, answer.body());
+                }
+            } else {
+                body = patchBodies.getOrDefault(podName, "");
+                status = patchStatus.getOrDefault(podName, 404);
+            }
         } else if ("GET".equals(method) && path.contains("/pods/")) {
             String podName = podNameOf(path);
             body = getBodies.getOrDefault(podName, "");

@@ -562,6 +562,61 @@ class VerticalApplyServiceTest {
     }
 
     @Test
+    @DisplayName("PARTIALLY_APPLIED, RESTART_DETECTED and NOT_READY changed pods, so each starts the cooldown")
+    void everyOutcomeThatChangedAPodStartsTheCooldown() {
+        // Review-2 SF4: the confirmation promises 60 minutes, and these three leave pods at the new size.
+        for (ResizeProof.Outcome outcome : List.of(ResizeProof.Outcome.PARTIALLY_APPLIED,
+                ResizeProof.Outcome.RESTART_DETECTED, ResizeProof.Outcome.NOT_READY)) {
+            org.mockito.Mockito.clearInvocations(policyService);
+            when(executor.submit(any(), any(), any())).thenReturn(ActionSubmission.accepted("ignored"));
+            when(executor.proof(anyString())).thenReturn(Optional.of(new ResizeProof(outcome,
+                    outcome + " on the canary.", false, List.of(),
+                    List.of(podProof(SMALL_ENVELOPE, null)))));
+
+            service().apply(principal(), readWriteAccount(), TARGET, REF, body(false));
+
+            verify(policyService).recordApplied(any(), any(), any(), any(), any());
+        }
+    }
+
+    @Test
+    @DisplayName("a declined pod proved back where it was starts no cooldown; one not proved back does")
+    void aRevertedPodStartsNoCooldownButAnUnprovedOneDoes() {
+        when(executor.submit(any(), any(), any())).thenReturn(ActionSubmission.accepted("ignored"));
+        when(executor.proof(anyString())).thenReturn(Optional.of(new ResizeProof(
+                ResizeProof.Outcome.DEFERRED, "Deferred, and put back.", false, List.of(),
+                List.of(podProof(GUARANTEED_1CPU_1GI, new ResizeProof.Revert(
+                        ResizeProof.RevertState.REVERTED, "Put back."))))));
+
+        ApplyResponseDto putBack = service().apply(principal(), readWriteAccount(), TARGET, REF, body(false));
+
+        assertThat(putBack.result().reverted()).isTrue();
+        assertThat(putBack.result().pods().get(0).changed()).isFalse();
+        assertThat(putBack.result().pods().get(0).revert().state()).isEqualTo("REVERTED");
+        verify(policyService, never()).recordApplied(any(), any(), any(), any(), any());
+
+        when(executor.proof(anyString())).thenReturn(Optional.of(new ResizeProof(
+                ResizeProof.Outcome.DEFERRED, "Deferred, and not proved back.", false, List.of(),
+                List.of(podProof(GUARANTEED_1CPU_1GI, new ResizeProof.Revert(
+                        ResizeProof.RevertState.NOT_CONFIRMED, "Sent back, not confirmed."))))));
+
+        ApplyResponseDto notProved = service().apply(principal(), readWriteAccount(), TARGET, REF, body(false));
+
+        assertThat(notProved.result().reverted()).isFalse();
+        // The spec may still hold the new size, so the kubelet can still apply it: start the cooldown.
+        verify(policyService).recordApplied(any(), any(), any(), any(), any());
+    }
+
+    private static final ResourceEnvelope SMALL_ENVELOPE = new ResourceEnvelope(25, 25, 262_144_000L, 262_144_000L);
+
+    /** One pod that went from 1 CPU / 1 GiB to {@code after}, with the given revert. */
+    private static ResizeProof.PodProof podProof(ResourceEnvelope after, ResizeProof.Revert revert) {
+        return new ResizeProof.PodProof("api-1", "uid-1", "uid-1", true,
+                List.of(new ResizeProof.ContainerProof("api", "containerd://c1", "containerd://c1", 0, 0,
+                        GUARANTEED_1CPU_1GI, after)), revert, null);
+    }
+
+    @Test
     @DisplayName("an outcome the executor did not record publishes result: null, never a guess")
     void anUnknownOutcomeIsNull() {
         when(executor.submit(any(), any(), any())).thenReturn(ActionSubmission.accepted("ignored"));

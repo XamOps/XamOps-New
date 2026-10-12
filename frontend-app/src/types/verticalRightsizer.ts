@@ -323,6 +323,10 @@ export interface ApplyPodProofWire {
   samePod: boolean | null;
   ready: boolean | null;
   containers: ApplyContainerProofWire[] | null;
+  /** Whether the observed resources differ between before and the final state. */
+  changed?: boolean | null;
+  /** For a pod whose new size was not put in place: what putting it back achieved. */
+  revert?: { state: string | null; detail: string | null } | null;
 }
 
 /**
@@ -339,6 +343,14 @@ export interface ApplyOutcomeWire {
   restartFree: boolean | null;
   containers: ApplyContainerOutcomeWire[] | null;
   pods: ApplyPodProofWire[] | null;
+  /**
+   * Absent or null when no pod needed putting back. True when every pod whose new size was not put
+   * in place was put back and proved back; false when at least one was not, so its new size may
+   * still be applied later.
+   */
+  reverted?: boolean | null;
+  /** `cpu` or `memory` when the kubelet declined a pod for lack of that resource on its node. */
+  insufficient?: string | null;
 }
 
 /**

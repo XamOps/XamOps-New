@@ -137,9 +137,56 @@ const OUTCOME_TEXT: Record<string, string> = {
 /** There is no Activity page on this branch, so "It will appear in Activity." is left out. */
 const NO_RESULT = 'No result reported yet.';
 
+const resourceWord = (insufficient: string | null | undefined): string | null =>
+  insufficient === 'cpu' ? 'CPU' : insufficient === 'memory' ? 'memory' : null;
+
+/**
+ * A declined resize that XamOps put back and proved back (review-1 S7). A patch was sent, so these
+ * never say "Nothing was changed"; they say what was done about it and what would let it through.
+ */
+const putBackText = (outcome: ApplyOutcomeWire): string | null => {
+  const resource = resourceWord(outcome.insufficient);
+  switch (outcome.terminal) {
+    case 'DEFERRED':
+      return `The node has no free ${resource ?? 'room'} for this increase, so XamOps put the pod back as it was. Free room on that node, for example by applying an over-provisioned workload there, or add a node.`;
+    case 'INFEASIBLE':
+      return `This size can never fit on the node${
+        resource ? `: it has less ${resource} in total than the pod would ask for` : ''
+      }, so XamOps put the pod back as it was. Choose a smaller size, or run the workload on a larger node.`;
+    case 'STUCK_IN_PROGRESS':
+      return 'The pod was still resizing when XamOps stopped waiting, so XamOps put it back as it was.';
+    case 'FAILED':
+      return "The new size wasn't confirmed, so XamOps put the pod back as it was.";
+    case 'PARTIALLY_APPLIED':
+      return 'Partly applied: it stopped at the first pod that failed, and put that pod back as it was. The pods below show what each one runs now.';
+    default:
+      return null;
+  }
+};
+
+/** A declined resize XamOps tried to put back and could not prove back. */
+const NOT_PUT_BACK =
+  "XamOps tried to put the pod back as it was and couldn't confirm it, so the new size may still be applied later. Check the pod before trying again.";
+
+/** What happened, said once, ahead of {@link NOT_PUT_BACK}. */
+const NOT_PUT_BACK_HEAD: Record<string, string> = {
+  DEFERRED: "Not applied: the node doesn't have room right now.",
+  INFEASIBLE: 'Not applied: the node can never fit this size.',
+  STUCK_IN_PROGRESS: 'Not confirmed: the pod was still resizing when XamOps stopped waiting.',
+  FAILED: 'Not applied.',
+  PARTIALLY_APPLIED: 'Partly applied: it stopped at the first pod that failed.',
+};
+
 const outcomeText = (outcome: ApplyOutcomeWire): string => {
   const terminal = outcome.terminal;
   if (terminal === null || terminal.trim() === '') return NO_RESULT;
+  if (outcome.reverted === true) {
+    const putBack = putBackText(outcome);
+    if (putBack) return putBack;
+  }
+  if (outcome.reverted === false && NOT_PUT_BACK_HEAD[terminal]) {
+    return `${NOT_PUT_BACK_HEAD[terminal]} ${NOT_PUT_BACK}`;
+  }
   const text = OUTCOME_TEXT[terminal];
   if (!text) return `Other: ${terminal}`;
   return terminal === 'APPLIED' && outcome.restartFree === true ? `${text} No restart.` : text;
@@ -157,8 +204,20 @@ const CONTAINER_STATE_TEXT: Record<string, string> = {
   FAILED: 'Failed',
 };
 
-const containerStateText = (state: string | null): string =>
-  state === null || state.trim() === '' ? DASH : (CONTAINER_STATE_TEXT[state] ?? `Other: ${state}`);
+const containerStateText = (state: string | null, reverted: boolean | null | undefined = null): string => {
+  if (state === null || state.trim() === '') return DASH;
+  // Once the pod is back as it was, it is no longer waiting or resizing.
+  if (reverted === true && ['DEFERRED', 'INFEASIBLE', 'STUCK_IN_PROGRESS', 'FAILED'].includes(state)) {
+    return 'Not applied: put back as it was';
+  }
+  return CONTAINER_STATE_TEXT[state] ?? `Other: ${state}`;
+};
+
+const POD_REVERT_TEXT: Record<string, string> = {
+  REVERTED: ' · put back as it was',
+  NOT_CONFIRMED: " · sent back, but it didn't confirm",
+  FAILED: " · couldn't be put back",
+};
 
 const SUBMISSION_TEXT: Record<string, string> = {
   ACCEPTED: 'Submitted',
@@ -186,6 +245,9 @@ const PodProof: React.FC<{ pod: ApplyPodProofWire }> = ({ pod }) => (
       </span>
     ))}
     {pod.ready === true ? ' · ready' : ' · not ready'}
+    {pod.revert?.state ? (
+      <span title={pod.revert.detail ?? undefined}>{POD_REVERT_TEXT[pod.revert.state] ?? ` · ${pod.revert.state}`}</span>
+    ) : null}
   </li>
 );
 
@@ -208,7 +270,7 @@ const ApplyOutcome: React.FC<{ outcome: ApplyOutcomeWire }> = ({ outcome }) => {
         <ul className="space-y-0.5">
           {(outcome.containers ?? []).map((c) => (
             <li key={c.name} className="text-[11px] text-[rgba(0,0,0,0.5)]" title={c.detail ?? undefined}>
-              {c.name}: {containerStateText(c.state)}
+              {c.name}: {containerStateText(c.state, outcome.reverted)}
               {c.restartExpected === true ? ' · restarts by its own setting' : ''}
             </li>
           ))}

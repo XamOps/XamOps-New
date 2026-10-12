@@ -363,32 +363,39 @@ public class DirectInPlaceResizeExecutor implements WorkloadActionExecutor {
             patched = PodResizeStatus.of(
                     resizeClient.patchResize(client, namespace, pod.name(), preflight.targets()));
         } catch (PodResizeClient.ResizeRejected rejected) {
-            return PodAttempt.failed(pod.name(), ResizeProof.Outcome.FAILED, rejected.getMessage(),
-                    proofOf(before, before));
+            if (rejected.answered()) {
+                // The API server said no, so the spec was never changed and there is nothing to undo.
+                return PodAttempt.failed(pod.name(), ResizeProof.Outcome.FAILED, rejected.getMessage(),
+                        proofOf(before, before));
+            }
+            // No answer at all: the patch may have landed. Put the pod back rather than leave a size
+            // nobody recorded pending on it; a revert of a patch that never landed changes nothing.
+            return declined(client, namespace, pod, before, before, preflight,
+                    ResizeProof.Outcome.FAILED, rejected.getMessage());
         }
 
         Instant deadline = pollDeadline(command);
         PodResizeStatus latest = patched;
         while (true) {
             if (latest.isInfeasible()) {
-                return PodAttempt.failed(pod.name(), ResizeProof.Outcome.INFEASIBLE,
+                return declined(client, namespace, pod, before, latest, preflight,
+                        ResizeProof.Outcome.INFEASIBLE,
                         "The kubelet reported the resize of pod " + namespace + "/" + pod.name()
-                                + " as Infeasible, so it will never be applied on this node ("
-                                + latest.describePending() + "). Nothing was changed.",
-                        proofOf(before, latest));
+                                + " as Infeasible: it will never fit on this node ("
+                                + latest.describePending() + ").");
             }
             if (latest.isDeferred()) {
-                return PodAttempt.failed(pod.name(), ResizeProof.Outcome.DEFERRED,
+                return declined(client, namespace, pod, before, latest, preflight,
+                        ResizeProof.Outcome.DEFERRED,
                         "The kubelet deferred the resize of pod " + namespace + "/" + pod.name()
-                                + " and will retry when there is capacity (" + latest.describePending()
-                                + "). It is not applied.",
-                        proofOf(before, latest));
+                                + " because its node has no room for it right now ("
+                                + latest.describePending() + ").");
             }
             if (latest.isResizeError()) {
-                return PodAttempt.failed(pod.name(), ResizeProof.Outcome.FAILED,
+                return declined(client, namespace, pod, before, latest, preflight,
+                        ResizeProof.Outcome.FAILED,
                         "The kubelet reported an error while resizing pod " + namespace + "/"
-                                + pod.name() + " (" + latest.describePending() + ").",
-                        proofOf(before, latest));
+                                + pod.name() + " (" + latest.describePending() + ").");
             }
             if (latest.appliedAll(preflight.targets())) {
                 return verify(namespace, pod, before, latest, preflight);
@@ -409,15 +416,186 @@ public class DirectInPlaceResizeExecutor implements WorkloadActionExecutor {
         if (latest.isResizeInProgress()) {
             // The memory-decrease case: the kubelet will not shrink below live usage, so the resize
             // stays in progress indefinitely. Waiting longer would not change the answer.
-            return PodAttempt.failed(pod.name(), ResizeProof.Outcome.STUCK_IN_PROGRESS,
+            return declined(client, namespace, pod, before, latest, preflight,
+                    ResizeProof.Outcome.STUCK_IN_PROGRESS,
                     "The resize of pod " + namespace + "/" + pod.name() + " was still in progress at"
                             + " the deadline and was not confirmed. A memory decrease the kubelet"
-                            + " cannot complete stays in this state.", proofOf(before, latest));
+                            + " cannot complete stays in this state.");
         }
-        return PodAttempt.failed(pod.name(), ResizeProof.Outcome.FAILED,
+        return declined(client, namespace, pod, before, latest, preflight, ResizeProof.Outcome.FAILED,
                 "The resize of pod " + namespace + "/" + pod.name() + " was not visible in the pod's"
-                        + " status before the deadline, so it is not confirmed.",
-                proofOf(before, latest));
+                        + " status before the deadline, so it is not confirmed.");
+    }
+
+    // ---------------------------------------------------------------- putting a pod back (S7)
+
+    /**
+     * A PATCH was accepted and the new size is not in place: put the pod back to the resources it
+     * declared before the apply, prove it, and report both.
+     *
+     * <p>Without this, a {@code Deferred} pod keeps the new size in its spec with
+     * {@code PodResizePending=True}, and the kubelet can apply it whenever the node frees up —
+     * minutes later, after XamOps has reported "not applied", outside the command's validity, with no
+     * cooldown stamped. That happened on UAT on 2026-10-12 (prod-sim/throttled-encoder, CPU 10m to
+     * 63m, "OutOfcpu … requested: 63, used: 1900, capacity: 1930").
+     */
+    private PodAttempt declined(KubernetesClient client, String namespace, WorkloadPods.Pod pod,
+                                PodResizeStatus before, PodResizeStatus latest, Preflight preflight,
+                                ResizeProof.Outcome outcome, String why) {
+        String shortOf = insufficientResource(latest);
+        RevertResult revert = revert(client, namespace, pod.name(), before, preflight.targets());
+        PodResizeStatus last = revert.status() != null ? revert.status() : latest;
+        String detail = why + " " + revert.revert().detail();
+        logger.info("Resize of pod {}/{} ended {}; revert {}", namespace, pod.name(), outcome,
+                revert.revert().state());
+        return PodAttempt.failed(pod.name(), outcome, detail,
+                proofOf(before, last, revert.revert(), shortOf));
+    }
+
+    private RevertResult revert(KubernetesClient client, String namespace, String podName,
+                                PodResizeStatus before, List<ContainerApplyTarget> targets) {
+        String pod = namespace + "/" + podName;
+        List<ContainerApplyTarget> restore = new ArrayList<>();
+        for (ContainerApplyTarget target : targets) {
+            PodResizeStatus.ContainerState was = before.container(target.containerName());
+            ContainerApplyTarget back = restoreTarget(target, was == null ? null : was.declared());
+            if (back == null) {
+                return new RevertResult(new ResizeProof.Revert(ResizeProof.RevertState.FAILED,
+                        "XamOps could not put pod " + pod + " back: its size before the apply was not"
+                                + " recorded for container " + target.containerName() + ", so the new"
+                                + " size may still be applied later."), null);
+            }
+            restore.add(back);
+        }
+
+        PodResizeStatus latest;
+        try {
+            latest = PodResizeStatus.of(resizeClient.patchResize(client, namespace, podName, restore));
+        } catch (PodResizeClient.ResizeRejected rejected) {
+            logger.warn("Revert of pod {} was not accepted: {}", pod, rejected.getMessage());
+            return new RevertResult(new ResizeProof.Revert(ResizeProof.RevertState.FAILED,
+                    "XamOps tried to put pod " + pod + " back to its previous size and could not: "
+                            + rejected.getMessage() + " The new size may still be applied later."), null);
+        }
+
+        // Not bounded by the command's validity: undoing a change must not stop because the request
+        // that made it is old.
+        Instant deadline = clock.instant().plus(resizeDeadline);
+        while (true) {
+            if (restored(latest, before, restore)) {
+                return new RevertResult(new ResizeProof.Revert(ResizeProof.RevertState.REVERTED,
+                        "XamOps put pod " + pod + " back to its previous size, and the pod confirmed"
+                                + " it: nothing is pending."), latest);
+            }
+            if (!clock.instant().isBefore(deadline)) {
+                return new RevertResult(new ResizeProof.Revert(ResizeProof.RevertState.NOT_CONFIRMED,
+                        "XamOps sent pod " + pod + " back to its previous size, but the pod did not"
+                                + " confirm it before the deadline (" + describe(latest) + "). The new"
+                                + " size may still be applied later."), latest);
+            }
+            sleep();
+            PodResizeStatus next = readStatus(client, namespace, podName);
+            if (next == null) {
+                return new RevertResult(new ResizeProof.Revert(ResizeProof.RevertState.NOT_CONFIRMED,
+                        "XamOps sent pod " + pod + " back to its previous size, but the pod could not"
+                                + " be read afterwards."), latest);
+            }
+            latest = next;
+        }
+    }
+
+    /**
+     * The pre-apply value of every field {@code target} moved, request and limit together as the
+     * resize subresource requires. Null when one of them was not set before, which the resize
+     * subresource cannot express (it cannot remove a resource).
+     */
+    static ContainerApplyTarget restoreTarget(ContainerApplyTarget target, ResourceEnvelope declared) {
+        if (declared == null) {
+            return null;
+        }
+        Integer cpuRequest = target.cpuRequestMillis() == null ? null : declared.cpuRequestMillis();
+        Integer cpuLimit = target.cpuLimitMillis() == null ? null : declared.cpuLimitMillis();
+        Long memRequest = target.memRequestBytes() == null ? null : declared.memRequestBytes();
+        Long memLimit = target.memLimitBytes() == null ? null : declared.memLimitBytes();
+        if ((target.cpuRequestMillis() != null && cpuRequest == null)
+                || (target.cpuLimitMillis() != null && cpuLimit == null)
+                || (target.memRequestBytes() != null && memRequest == null)
+                || (target.memLimitBytes() != null && memLimit == null)) {
+            return null;
+        }
+        try {
+            return new ContainerApplyTarget(target.containerName(), cpuRequest, cpuLimit, memRequest, memLimit);
+        } catch (IllegalArgumentException unsatisfiable) {
+            return null;
+        }
+    }
+
+    /**
+     * Back where it was: the spec holds the pre-apply values again, the status reports the pre-apply
+     * values, and the kubelet has nothing pending or in progress.
+     */
+    private static boolean restored(PodResizeStatus now, PodResizeStatus before,
+                                    List<ContainerApplyTarget> restore) {
+        if ((now.pending() != null && now.pending().isTrue()) || now.isResizeInProgress()) {
+            return false;
+        }
+        for (ContainerApplyTarget target : restore) {
+            PodResizeStatus.ContainerState was = before.container(target.containerName());
+            PodResizeStatus.ContainerState is = now.container(target.containerName());
+            if (was == null || is == null || is.declared() == null || is.observed() == null) {
+                return false;
+            }
+            if (!sameFields(target, is.declared(), was.declared())
+                    || !sameFields(target, is.observed(), was.observed())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** {@code a} and {@code b} agree on every field {@code target} moves. */
+    private static boolean sameFields(ContainerApplyTarget target, ResourceEnvelope a, ResourceEnvelope b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        return (target.cpuRequestMillis() == null || java.util.Objects.equals(a.cpuRequestMillis(), b.cpuRequestMillis()))
+                && (target.cpuLimitMillis() == null || java.util.Objects.equals(a.cpuLimitMillis(), b.cpuLimitMillis()))
+                && (target.memRequestBytes() == null || java.util.Objects.equals(a.memRequestBytes(), b.memRequestBytes()))
+                && (target.memLimitBytes() == null || java.util.Objects.equals(a.memLimitBytes(), b.memLimitBytes()));
+    }
+
+    private static String describe(PodResizeStatus status) {
+        String pending = status.describePending();
+        if (pending != null) {
+            return pending;
+        }
+        return status.isResizeInProgress() ? "resize still in progress" : "values not back yet";
+    }
+
+    private static final java.util.regex.Pattern SHORT_OF = java.util.regex.Pattern.compile(
+            "(?i)(?:OutOf(cpu|memory)\\b|enough (?:resource|capacity)s?: ?(cpu|memory)\\b)");
+
+    /**
+     * {@code cpu} or {@code memory} when the kubelet's pending reason says the node lacks it —
+     * "OutOfcpu: Node didn't have enough resource: cpu, …" — so the UI can say which, without
+     * parsing the kubelet's prose itself.
+     */
+    static String insufficientResource(PodResizeStatus status) {
+        if (status == null || status.pending() == null || !status.pending().isTrue()) {
+            return null;
+        }
+        String text = (status.pending().reason() == null ? "" : status.pending().reason()) + " "
+                + (status.pending().message() == null ? "" : status.pending().message());
+        java.util.regex.Matcher matcher = SHORT_OF.matcher(text);
+        if (!matcher.find()) {
+            return null;
+        }
+        String resource = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
+        return resource.toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /** @param status the last status read after the revert, or null when none was */
+    private record RevertResult(ResizeProof.Revert revert, PodResizeStatus status) {
     }
 
     /**
@@ -638,6 +816,15 @@ public class DirectInPlaceResizeExecutor implements WorkloadActionExecutor {
     }
 
     private static ResizeProof.PodProof proofOf(PodResizeStatus before, PodResizeStatus after) {
+        return proofOf(before, after, null, null);
+    }
+
+    /**
+     * @param after  the final state: for a pod that was put back, the state after the revert
+     * @param revert what putting it back achieved, or null when nothing needed undoing
+     */
+    private static ResizeProof.PodProof proofOf(PodResizeStatus before, PodResizeStatus after,
+                                                ResizeProof.Revert revert, String insufficientResource) {
         List<ResizeProof.ContainerProof> containers = new ArrayList<>();
         for (Map.Entry<String, PodResizeStatus.ContainerState> entry : after.containers().entrySet()) {
             PodResizeStatus.ContainerState was = before.container(entry.getKey());
@@ -648,7 +835,7 @@ public class DirectInPlaceResizeExecutor implements WorkloadActionExecutor {
                     was == null ? null : was.observed(), is.observed()));
         }
         return new ResizeProof.PodProof(after.podName(), before.uid(), after.uid(), after.ready(),
-                containers);
+                containers, revert, insufficientResource);
     }
 
     private static boolean provesRestartFree(ResizeProof.PodProof proof) {

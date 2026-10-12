@@ -858,6 +858,97 @@ describe('EksAutomationTab', () => {
     expect(screen.queryByText(/Applied\. Confirmed/)).toBeNull();
   });
 
+  describe('a declined resize that XamOps put back (review-1 S7)', () => {
+    const declined = (terminal: string, reverted: boolean, insufficient: string | null, revertState: string) => ({
+      kind: 'submitted',
+      correlationId: 'c0ffee',
+      state: 'ACCEPTED',
+      dryRun: false,
+      result: {
+        method: 'IN_PLACE',
+        terminal,
+        detail: `The kubelet declined it (${terminal}). XamOps put pod prod-sim/throttled-encoder-8b999cc87-mcw8q back.`,
+        restartFree: false,
+        containers: [{ name: 'api', state: terminal, detail: null, requested: null, restartExpected: false }],
+        pods: [
+          {
+            podName: 'throttled-encoder-8b999cc87-mcw8q',
+            uidBefore: 'u1',
+            uidAfter: 'u1',
+            samePod: true,
+            ready: true,
+            changed: false,
+            revert: { state: revertState, detail: 'XamOps put the pod back.' },
+            containers: [
+              {
+                name: 'api',
+                containerIdBefore: 'c1',
+                containerIdAfter: 'c1',
+                restartCountBefore: 0,
+                restartCountAfter: 0,
+                observedBefore: { cpuRequestM: 10, memRequestMi: 64, cpuLimitM: 50, memLimitMi: 128 },
+                observedAfter: { cpuRequestM: 10, memRequestMi: 64, cpuLimitM: 50, memLimitMi: 128 },
+              },
+            ],
+          },
+        ],
+        reverted,
+        insufficient,
+      },
+    });
+
+    const applyAndRead = async () => {
+      fireEvent.click(await screen.findByRole('checkbox', { name: /Test run only/ }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Resize pods' }));
+    };
+
+    it('DEFERRED for CPU says the pod was put back and what would let it through', async () => {
+      resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+      mockedApply.mockResolvedValue(declined('DEFERRED', true, 'cpu', 'REVERTED'));
+      renderTab();
+      await applyAndRead();
+
+      expect(
+        await screen.findByText(
+          'The node has no free CPU for this increase, so XamOps put the pod back as it was. Free room on that node, for example by applying an over-provisioned workload there, or add a node.',
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByText('api: Not applied: put back as it was')).toBeInTheDocument();
+      expect(screen.getByText(/put back as it was$/, { selector: 'span' })).toBeInTheDocument();
+      expect(screen.queryByText(/Nothing was changed/)).toBeNull();
+      expect(screen.queryByText(/Kubernetes may apply it later/)).toBeNull();
+    });
+
+    it('INFEASIBLE for memory says it can never fit, and that the pod was put back', async () => {
+      resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+      mockedApply.mockResolvedValue(declined('INFEASIBLE', true, 'memory', 'REVERTED'));
+      renderTab();
+      await applyAndRead();
+
+      expect(
+        await screen.findByText(
+          'This size can never fit on the node: it has less memory in total than the pod would ask for, so XamOps put the pod back as it was. Choose a smaller size, or run the workload on a larger node.',
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/Nothing was changed/)).toBeNull();
+    });
+
+    it('a pod that could not be proved back says the new size may still be applied', async () => {
+      resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+      mockedApply.mockResolvedValue(declined('DEFERRED', false, 'cpu', 'NOT_CONFIRMED'));
+      renderTab();
+      await applyAndRead();
+
+      expect(
+        await screen.findByText(
+          "Not applied: the node doesn't have room right now. XamOps tried to put the pod back as it was and couldn't confirm it, so the new size may still be applied later. Check the pod before trying again.",
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/sent back, but it didn't confirm$/, { selector: 'span' })).toBeInTheDocument();
+    });
+  });
+
   it('renders a test run as a rehearsal, not as a change', async () => {
     resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
     mockedApply.mockResolvedValue({

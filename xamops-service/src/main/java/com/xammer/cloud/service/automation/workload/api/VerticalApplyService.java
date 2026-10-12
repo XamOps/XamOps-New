@@ -79,7 +79,8 @@ import java.util.UUID;
  *
  * <h2>What makes the cooldown real</h2>
  *
- * A confirmed, non-dry-run apply upserts {@code vertical_workload_policy.last_applied_at}. Until
+ * A non-dry-run apply that changed any pod, or left one that may still change, upserts
+ * {@code vertical_workload_policy.last_applied_at} ({@link ResizeProof#anyPodChanged()}). Until
  * this existed, the engine's cooldown guard had nothing to read and so never fired. An apply inside
  * that cooldown is now refused here as well, as are the engine's other holds (single replica,
  * rollout, lock, HPA-managed resource), so none of them depends on the UI.
@@ -200,8 +201,12 @@ public class VerticalApplyService {
             ActionSubmission submission = executor.submit(command, access, workload);
             ResizeProof proof = executor.proof(command.correlationId()).orElse(null);
 
-            if (!command.dryRun() && proof != null
-                    && proof.outcome() == ResizeProof.Outcome.APPLIED) {
+            // The cooldown starts whenever a pod changed or may still change (review-2 SF4): a
+            // partial rollout, a restart or a lost readiness all leave pods at the new size, and a
+            // declined pod XamOps could not prove back where it was may still be resized by the
+            // kubelet. A declined pod that was put back and proved back changed nothing, so it
+            // starts no cooldown and the user can try again once there is room.
+            if (!command.dryRun() && proof != null && proof.anyPodChanged()) {
                 policyService.recordApplied(target.clientId(), target.clusterConfigId(),
                         workload.ref(), policy, clock.instant());
             }
