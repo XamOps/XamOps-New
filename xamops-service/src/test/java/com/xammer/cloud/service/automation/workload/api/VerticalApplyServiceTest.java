@@ -467,6 +467,50 @@ class VerticalApplyServiceTest {
     }
 
     @Test
+    @DisplayName("a second real apply on a workload whose rollout is still running is refused 409, and sends nothing")
+    void oneRealApplyPerWorkloadAtATime() throws Exception {
+        // Review-2 SF5: the cooldown is stamped only after the rollout, so without a lock a second
+        // request read last_applied_at while the first was still polling its canary.
+        java.util.concurrent.CountDownLatch inRollout = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        when(executor.submit(any(), any(), any())).thenAnswer(invocation -> {
+            ActionCommand command = invocation.getArgument(0);
+            if (!command.dryRun()) {
+                inRollout.countDown();
+                release.await(10, java.util.concurrent.TimeUnit.SECONDS);
+            }
+            return ActionSubmission.accepted(command.correlationId());
+        });
+        when(executor.proof(anyString())).thenReturn(Optional.empty());
+        VerticalApplyService service = service();
+
+        java.util.concurrent.ExecutorService first = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            java.util.concurrent.Future<ApplyResponseDto> running =
+                    first.submit(() -> service.apply(principal(), readWriteAccount(), TARGET, REF, body(false)));
+            assertThat(inRollout.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+            VerticalApplyService.ApplyRefusedException second = catchRefusal(
+                    () -> service.apply(principal(), readWriteAccount(), TARGET, REF, body(false)));
+            assertThat(second.status()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(second.code()).isEqualTo("K8S_APPLY_IN_PROGRESS");
+            assertThat(service.apply(principal(), readWriteAccount(), TARGET, REF, body(true)).dryRun())
+                    .as("a dry run sends nothing, so it is not held by the lock")
+                    .isTrue();
+
+            release.countDown();
+            assertThat(running.get(10, java.util.concurrent.TimeUnit.SECONDS).state()).isEqualTo("ACCEPTED");
+        } finally {
+            release.countDown();
+            first.shutdownNow();
+        }
+        assertThat(service.apply(principal(), readWriteAccount(), TARGET, REF, body(false)).state())
+                .as("the lock is released when the rollout returns")
+                .isEqualTo("ACCEPTED");
+        verify(executor, org.mockito.Mockito.times(3)).submit(any(), any(), any());
+    }
+
+    @Test
     @DisplayName("inside the cooldown, a body with any CPU field or any memory decrease is still refused")
     void onlyAMemoryRaiseIsExempt() {
         when(policyService.resolve(any(), any(), any())).thenReturn(METRICS.defaultsPolicy()

@@ -25,8 +25,12 @@ export interface UseVerticalRightsizerState {
   loading: boolean;
   result: VerticalReadResult | null;
   reload: () => void;
-  /** Which workload id currently has an apply in flight, or null. */
-  applyingId: string | null;
+  /**
+   * The workload ids with an apply in flight. One per workload, not one for the page: a single slot
+   * let whichever apply finished first re-enable a card whose own rollout was still running
+   * (review-2 SF5).
+   */
+  applyingIds: ReadonlySet<string>;
   /** The last reply per workload id. Never a fabricated success. */
   applyResults: Record<string, ApplyResult>;
   /** A caller-level refusal endpoint 3 answered since the last read, or null. */
@@ -41,7 +45,7 @@ export const useVerticalRightsizer = ({
 }: UseVerticalRightsizerArgs): UseVerticalRightsizerState => {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<VerticalReadResult | null>(null);
-  const [applyingId, setApplyingId] = useState<string | null>(null);
+  const [applyingIds, setApplyingIds] = useState<ReadonlySet<string>>(() => new Set());
   const [applyResults, setApplyResults] = useState<Record<string, ApplyResult>>({});
   const [callerRefusal, setCallerRefusal] = useState<CallerRefusal | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -101,7 +105,7 @@ export const useVerticalRightsizer = ({
       const containers = toApplyContainers(workload);
       if (containers.length === 0) return null;
 
-      setApplyingId(workload.id);
+      setApplyingIds((prev) => new Set(prev).add(workload.id));
       try {
         const reply = await applyVerticalRecommendation(clusterName, workload.ref, accountId, region, {
           containers,
@@ -117,13 +121,19 @@ export const useVerticalRightsizer = ({
         }
         return reply;
       } finally {
-        if (mounted.current) setApplyingId(null);
+        if (mounted.current) {
+          setApplyingIds((prev) => {
+            const next = new Set(prev);
+            next.delete(workload.id);
+            return next;
+          });
+        }
       }
     },
     [clusterName, accountId, region],
   );
 
-  return { loading, result, reload, applyingId, applyResults, callerRefusal, apply };
+  return { loading, result, reload, applyingIds, applyResults, callerRefusal, apply };
 };
 
 export default useVerticalRightsizer;

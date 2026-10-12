@@ -29,6 +29,8 @@ public record RefusalDto(String code, String message, String field, String detai
     public static final String NO_ACCOUNT_ACCESS = "K8S_NO_ACCOUNT_ACCESS";
     public static final String CLUSTER_NOT_REGISTERED = "K8S_CLUSTER_NOT_REGISTERED";
     public static final String INTERNAL = "K8S_INTERNAL";
+    /** {@code 409}: another real apply to the same workload is still running. */
+    public static final String APPLY_IN_PROGRESS = "K8S_APPLY_IN_PROGRESS";
 
     /** A refusal with no finer rule name than its code. */
     public RefusalDto(String code, String message, String field) {

@@ -115,6 +115,11 @@ public class VerticalApplyService {
     private final WorkloadPolicyService policyService;
     private final VerticalMetricsProperties metricsProperties;
     private final Clock clock;
+    /**
+     * The workloads a real apply is running on right now. In memory, so it holds per backend
+     * instance; with more than one instance behind a balancer this would need a shared lock.
+     */
+    private final Set<String> inFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     @Autowired
     public VerticalApplyService(WorkloadAutoscalingProperties properties,
@@ -183,43 +188,72 @@ public class VerticalApplyService {
                             "This cluster has no " + ref.kind() + " " + ref.describe()
                                     + " that XamOps can rightsize, so there is nothing to apply."));
 
-            // The no-row case resolves to the environment's configured defaults -- the policy the
-            // read endpoint reported -- so the row recordApplied creates carries that policy and
-            // not the bare Java defaults, whose mode is OFF.
-            WorkloadPolicy policy = policyService.resolve(target.clusterConfigId(), workload.ref(),
-                    metricsProperties.defaultsPolicy());
             boolean dryRun = Boolean.TRUE.equals(request.dryRun());
-            List<ContainerApplyTarget> targets = revalidate(submitted, workload, policy);
-            // The engine's holds, dry runs included, so a dry run predicts the real apply.
-            requireEngineHoldsClear(workload, policy, submitted);
-            if (!isMemoryOnlyIncrease(submitted, workload)) {
-                requireCooldownElapsed(policy, workload.ref());
+            // One real apply per workload at a time (review-2 SF5), held from the cooldown check to
+            // the cooldown stamp: a second request that read last_applied_at while the first was
+            // still rolling out would otherwise start a second rollout on the same pods. A dry run
+            // sends nothing, so it takes no lock.
+            String lock = lockKey(target, workload.ref());
+            if (!dryRun && !inFlight.add(lock)) {
+                throw new ApplyRefusedException(HttpStatus.CONFLICT, RefusalDto.APPLY_IN_PROGRESS, null,
+                        "Another change to " + workload.ref().describe() + " is still being applied."
+                                + " Nothing was sent; wait for it to finish, then refresh.");
             }
-
-            ActionCommand command = new ActionCommand(UUID.randomUUID().toString(), target,
-                    workload.ref(), targets, method, dryRun, null,
-                    clock.instant().plus(COMMAND_VALIDITY));
-
-            ActionSubmission submission = executor.submit(command, access, workload);
-            ResizeProof proof = executor.proof(command.correlationId()).orElse(null);
-
-            // The cooldown starts whenever a pod changed or may still change (review-2 SF4): a
-            // partial rollout, a restart or a lost readiness all leave pods at the new size, and a
-            // declined pod XamOps could not prove back where it was may still be resized by the
-            // kubelet. A declined pod that was put back and proved back changed nothing, so it
-            // starts no cooldown and the user can try again once there is room.
-            if (!command.dryRun() && proof != null && proof.anyPodChanged()) {
-                policyService.recordApplied(target.clientId(), target.clusterConfigId(),
-                        workload.ref(), policy, clock.instant());
+            try {
+                return applyLocked(target, workload, submitted, method, dryRun, access);
+            } finally {
+                if (!dryRun) {
+                    inFlight.remove(lock);
+                }
             }
-
-            logger.info("Vertical apply {} for {} on {}: state {} outcome {}",
-                    command.correlationId(), workload.ref().describe(), target.describe(),
-                    submission.state(), proof == null ? "unknown" : proof.outcome());
-
-            return ApplyResponseDto.of(command.correlationId(), submission.state().name(),
-                    command.dryRun(), method.name(), proof);
         }
+    }
+
+    private ApplyResponseDto applyLocked(ClusterTarget target,
+                                         ClusterWorkloadInventory.Workload workload,
+                                         List<ApplyRequestDto.Container> submitted, ApplyMethod method,
+                                         boolean dryRun, ClusterAccess access) {
+        // The no-row case resolves to the environment's configured defaults -- the policy the
+        // read endpoint reported -- so the row recordApplied creates carries that policy and
+        // not the bare Java defaults, whose mode is OFF.
+        WorkloadPolicy policy = policyService.resolve(target.clusterConfigId(), workload.ref(),
+                metricsProperties.defaultsPolicy());
+        List<ContainerApplyTarget> targets = revalidate(submitted, workload, policy);
+        // The engine's holds, dry runs included, so a dry run predicts the real apply.
+        requireEngineHoldsClear(workload, policy, submitted);
+        if (!isMemoryOnlyIncrease(submitted, workload)) {
+            requireCooldownElapsed(policy, workload.ref());
+        }
+
+        ActionCommand command = new ActionCommand(UUID.randomUUID().toString(), target,
+                workload.ref(), targets, method, dryRun, null,
+                clock.instant().plus(COMMAND_VALIDITY));
+
+        ActionSubmission submission = executor.submit(command, access, workload);
+        ResizeProof proof = executor.proof(command.correlationId()).orElse(null);
+
+        // The cooldown starts whenever a pod changed or may still change (review-2 SF4): a
+        // partial rollout, a restart or a lost readiness all leave pods at the new size, and a
+        // declined pod XamOps could not prove back where it was may still be resized by the
+        // kubelet. A declined pod that was put back and proved back changed nothing, so it
+        // starts no cooldown and the user can try again once there is room.
+        if (!command.dryRun() && proof != null && proof.anyPodChanged()) {
+            policyService.recordApplied(target.clientId(), target.clusterConfigId(),
+                    workload.ref(), policy, clock.instant());
+        }
+
+        logger.info("Vertical apply {} for {} on {}: state {} outcome {}",
+                command.correlationId(), workload.ref().describe(), target.describe(),
+                submission.state(), proof == null ? "unknown" : proof.outcome());
+
+        return ApplyResponseDto.of(command.correlationId(), submission.state().name(),
+                command.dryRun(), method.name(), proof);
+    }
+
+    /** The registered cluster and the workload's identity: what two applies must not share at once. */
+    private static String lockKey(ClusterTarget target, WorkloadRef ref) {
+        return target.clusterConfigId() + "|" + ref.namespace() + "|"
+                + ref.kind().toLowerCase(Locale.ROOT) + "|" + ref.name();
     }
 
     /**

@@ -902,6 +902,47 @@ describe('EksAutomationTab', () => {
     expect(screen.queryByText(/Applied\. Confirmed/)).toBeNull();
   });
 
+  it('keeps a card greyed while its own apply runs, even when another card finishes first (review-2 SF5)', async () => {
+    const second = workload({ ref: { namespace: 'team-a', kind: 'Deployment', name: 'idle-batch-listener' } });
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload(), second] });
+    let finishFirst: (value: unknown) => void = () => undefined;
+    const testRun = { kind: 'submitted', correlationId: 'c', state: 'ACCEPTED', dryRun: true, result: null };
+    mockedApply
+      .mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }))
+      .mockResolvedValueOnce(testRun);
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply overprovisioned-api' })).toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Apply idle-batch-listener' }));
+    await waitFor(() => expect(mockedApply).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply idle-batch-listener' })).toBeEnabled());
+
+    expect(screen.getByRole('button', { name: 'Apply overprovisioned-api' }))
+      .toBeDisabled();
+    finishFirst(testRun);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply overprovisioned-api' })).toBeEnabled());
+  });
+
+  it('explains a 409 from endpoint 3: another change to the workload is still running', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+    mockedApply.mockResolvedValue({
+      kind: 'refused',
+      code: { kind: 'known', code: 'APPLY_IN_PROGRESS', label: 'Another change is running' },
+      message: 'Another change to team-a/overprovisioned-api is still being applied.',
+      detail: null,
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Not applied: another change to this workload is still running. Wait for it to finish, then refresh.',
+    );
+    // Not a caller-level refusal: the other cards are not greyed by it.
+    expect(screen.getByRole('button', { name: 'Apply overprovisioned-api' })).toBeEnabled();
+  });
+
   describe('a declined resize that XamOps put back (review-1 S7)', () => {
     const declined = (terminal: string, reverted: boolean, insufficient: string | null, revertState: string) => ({
       kind: 'submitted',

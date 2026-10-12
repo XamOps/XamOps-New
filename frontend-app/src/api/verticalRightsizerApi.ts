@@ -160,7 +160,8 @@ export const applyVerticalRecommendation = async (
 
   const refusal = await readJson<VerticalRefusalWire>(response);
   const code = parseCode(refusal?.code);
-  if (code && (response.status === 403 || response.status === 400)) {
+  // 409 is another real apply to the same workload still running (review-2 SF5).
+  if (code && (response.status === 403 || response.status === 400 || response.status === 409)) {
     const detail = typeof refusal?.detail === 'string' && refusal.detail.trim() !== '' ? refusal.detail.trim() : null;
     return { kind: 'refused', code, message: refusalMessage(refusal, 'The apply was refused.'), detail };
   }

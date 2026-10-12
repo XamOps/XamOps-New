@@ -51,6 +51,7 @@ const CODE_LABELS: Record<string, string> = {
   INSUFFICIENT_HISTORY: 'Not enough data yet',
   GITOPS_MANAGED: 'Managed by Argo CD or Flux',
   // non-gate codes the UI may still be handed
+  APPLY_IN_PROGRESS: 'Another change is running',
   CLUSTER_NOT_REGISTERED: 'Cluster not connected to XamOps',
   NO_ACCOUNT_ACCESS: 'No access to this account',
   AGENT_NOT_INSTALLED: 'XamOps agent not connected',

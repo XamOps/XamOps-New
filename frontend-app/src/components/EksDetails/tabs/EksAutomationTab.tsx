@@ -298,6 +298,8 @@ const GATE_REFUSAL_TEXT: Record<string, string> = {
     "XamOps can't reach this cluster's API server. Access is set up, but the endpoint didn't answer (for example, a private endpoint).",
   GITOPS_MANAGED:
     "Saving the change to the workload itself isn't available. Use in-place resize, which doesn't restart pods.",
+  APPLY_IN_PROGRESS:
+    'Not applied: another change to this workload is still running. Wait for it to finish, then refresh.',
   UNAUTHENTICATED: 'Your session has expired. Sign in again.',
   NO_ACCOUNT_ACCESS: "You don't have access to this AWS account.",
   INTERNAL: 'Something went wrong on our side. Nothing was changed. Try again in a minute.',
@@ -864,7 +866,7 @@ const WorkloadCard: React.FC<{
 
 const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accountId, region }) => {
   const [dryRun, setDryRun] = useState(true);
-  const { loading, result, reload, applyingId, applyResults, callerRefusal, apply } = useVerticalRightsizer({
+  const { loading, result, reload, applyingIds, applyResults, callerRefusal, apply } = useVerticalRightsizer({
     clusterName,
     accountId,
     region,
@@ -1032,7 +1034,7 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
             workload={w}
             gate={manualApplyGate(result.view, w, callerRefusal)}
             dryRun={dryRun}
-            applying={applyingId === w.id}
+            applying={applyingIds.has(w.id)}
             reply={applyResults[w.id]}
             onApply={() => {
               void apply(w, dryRun);
