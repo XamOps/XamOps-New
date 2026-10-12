@@ -151,7 +151,8 @@ export const applyVerticalRecommendation = async (
     return {
       kind: 'submitted',
       correlationId: body?.correlationId ?? null,
-      state: body?.state ?? 'ACCEPTED',
+      // Never invent a state the server did not send (review F6); the tab renders null as a dash.
+      state: body?.state ?? null,
       dryRun: body?.dryRun ?? null,
       result: body?.result ?? null,
     };

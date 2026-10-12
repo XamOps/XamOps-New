@@ -332,7 +332,8 @@ export type ApplyResult =
   | {
       kind: 'submitted';
       correlationId: string | null;
-      state: ApplyState | string;
+      /** null when the server sent none; never defaulted to ACCEPTED. */
+      state: ApplyState | string | null;
       dryRun: boolean | null;
       result: ApplyOutcomeWire | null;
     }
