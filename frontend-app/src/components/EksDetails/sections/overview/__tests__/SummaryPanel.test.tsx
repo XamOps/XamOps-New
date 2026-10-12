@@ -96,10 +96,10 @@ describe('Overview › Summary (§10.1, D10)', () => {
     expect(tile('Nodes ready')).toHaveTextContent('6/ 6');
     expect(tile('Pods running')).toHaveTextContent('16/ 18');
     expect(tile('Pods running')).toHaveTextContent('2 pending · 0 failed');
-    // 16 scheduled pods request 2193m; the six nodes report 25.52 cores allocatable.
+    // 16 scheduled pods request 2143m (worker-staging sets none); the six nodes report 25.52 cores allocatable.
     const cpu = tile('CPU requested');
-    expect(cpu.querySelector('[title]')).toHaveAttribute('title', '2.19 cores requested of 25.52 cores allocatable');
-    expect(cpu).toHaveTextContent('9%');
+    expect(cpu.querySelector('[title]')).toHaveAttribute('title', '2.14 cores requested of 25.52 cores allocatable');
+    expect(cpu).toHaveTextContent('8%');
     expect(cpu).toHaveTextContent('Used 52% · Prometheus (agent)');
     // (62.5).toFixed(0) is "63".
     expect(tile('Memory requested')).toHaveTextContent('Used 63% · Prometheus (agent)');

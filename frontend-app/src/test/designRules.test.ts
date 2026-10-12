@@ -45,6 +45,8 @@ export const GUARDED_PATHS: readonly string[] = [
   // SummaryPanel is under components/EksDetails/sections/.
   'components/EksDetails/ClusterStatusStrip.tsx',
   'hooks/useEksDashboard.ts',
+  // Item 24a: the engine's read hook; WorkloadsPanel and verticalCopy are under sections/.
+  'hooks/useVerticalRightsizer.ts',
 ];
 
 const TAILWIND_PREFIX = '(?:text|bg|border|from|via|to|ring|fill|stroke|divide|outline|shadow|accent|decoration|placeholder|caret)';

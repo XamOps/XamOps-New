@@ -30,7 +30,7 @@ vi.mock('../../components/EksDetails/sections/overview/SummaryPanel', () => ({ d
 vi.mock('../../components/EksDetails/tabs/EksCostTab', () => ({ default: () => <div>Cost tab content</div> }));
 vi.mock('../../components/EksDetails/tabs/EksPerformanceTab', () => ({ default: () => <div>Performance tab content</div> }));
 vi.mock('../../components/EksDetails/tabs/EksSecurityTab', () => ({ default: () => <div>Security tab content</div> }));
-vi.mock('../../components/EksDetails/tabs/EksWorkloadsTab', () => ({ default: () => <div>Workloads tab content</div> }));
+vi.mock('../../components/EksDetails/sections/workloads/WorkloadsPanel', () => ({ default: () => <div>Workloads tab content</div> }));
 vi.mock('../../components/EksDetails/tabs/EksPodsTab', () => ({
   default: () => {
     if (flags.podsThrows) throw new Error('pods tab failed');

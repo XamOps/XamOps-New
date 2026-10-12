@@ -19,6 +19,7 @@ import type {
   K8sRefusal,
   ReadinessKey,
 } from '../types/k8sAutomation';
+import type { VerticalStatusWire, VerticalWorkloadWire } from '../types/verticalRightsizer';
 import { READINESS_KEYS } from '../types/k8sAutomation';
 
 /** The §6.7 messages, as the server sends them while a key is not ready. */
@@ -112,3 +113,119 @@ export const DEMO_NO_ACCOUNT_ACCESS: K8sRefusal = {
   field: null,
   detail: null,
 };
+
+// ── Vertical engine, endpoint 1 (§16; published contract §2.1) ──────────────
+
+/** What the engine answers for a cluster XamOps doesn't have a config for. */
+export const DEMO_CLUSTER_NOT_REGISTERED: K8sRefusal = {
+  success: false,
+  code: 'K8S_CLUSTER_NOT_REGISTERED',
+  message: "This cluster isn't registered with XamOps.",
+  field: null,
+  detail: null,
+};
+
+type Res = { cpuRequestM: number | null; memRequestMi: number | null; cpuLimitM: number | null; memLimitMi: number | null };
+const res = (cpuRequestM: number | null, memRequestMi: number | null, cpuLimitM: number | null, memLimitMi: number | null): Res =>
+  ({ cpuRequestM, memRequestMi, cpuLimitM, memLimitMi });
+
+function verticalWorkload(
+  now: number,
+  ref: { namespace: string; kind: string; name: string },
+  over: Partial<Omit<VerticalWorkloadWire, 'ref'>> & { mode?: string },
+): VerticalWorkloadWire {
+  const { mode = 'RECOMMEND', ...rest } = over;
+  return {
+    ref,
+    policy: { mode, headroomPct: 25, percentile: 95, window: '24h', applyMethod: 'IN_PLACE' },
+    replicas: 1,
+    hpa: { present: false, name: null },
+    gitopsManaged: false,
+    skipReason: null,
+    findings: [],
+    containers: [],
+    lastAction: null,
+    autoApplyEligible: false,
+    provenance: {
+      percentile: 95, windowHours: 24, windowStart: ago(now, 24 * 3600), windowEnd: ago(now, 300),
+      sampleCoverage: 0.94, usageSource: 'prometheus', policySource: mode === 'OFF' ? 'DEFAULTS' : 'STORED',
+    },
+    horizontal: { state: 'NOT_EVALUATED' },
+    ...rest,
+  };
+}
+
+/**
+ * Endpoint 1 for the demo clusters, in the contract's shapes. prod is V4 with nine workloads that
+ * between them show each case the table renders; eu is V2 (no usage metrics, no workloads); any
+ * other cluster isn't registered, so the router answers 404 with {@link DEMO_CLUSTER_NOT_REGISTERED}.
+ */
+export function demoVerticalStatus(cluster: string, now: number = Date.now()): VerticalStatusWire | null {
+  const engine = (metrics: boolean): VerticalStatusWire['engine'] => ({
+    enabled: true,
+    ready: false,
+    clusterAccess: 'CLUSTER_ACCESS_NOT_CONFIGURED',
+    executionPath: 'AGENT',
+    executionPathDetail: {
+      direct: { available: false, reason: 'CLUSTER_ACCESS_NOT_CONFIGURED' },
+      agent: { available: true, reason: null, lastSeenAt: ago(now, 40) },
+    },
+    metricsSource: metrics ? { reachable: true, name: 'prometheus' } : { reachable: false, name: null },
+    lastCycle: { at: ago(now, 6 * 60), evaluated: metrics ? 9 : 0, error: null },
+  });
+  if (cluster === 'eu-eks-cluster') {
+    return { engine: engine(false), gateReasons: ['CONTROLLER_NOT_READY', 'NO_METRICS_SOURCE'], workloads: [] };
+  }
+  if (cluster !== 'prod-eks-cluster') return null;
+  const w = (namespace: string, kind: string, name: string, over: Parameters<typeof verticalWorkload>[2]) =>
+    verticalWorkload(now, { namespace, kind, name }, over);
+  return {
+    engine: engine(true),
+    gateReasons: ['CONTROLLER_NOT_READY'],
+    workloads: [
+      // Throttled: the request goes up and the limit moves with it.
+      w('production', 'Deployment', 'api-server', {
+        replicas: 3, findings: ['THROTTLED'],
+        containers: [{ name: 'api-server', qosClass: 'Burstable', current: res(256, 512, 512, 1024), recommended: res(400, 512, 800, 1024), reasons: ['LIMIT_MOVED'] }],
+      }),
+      // An HPA scales on CPU, so the CPU request is held.
+      w('production', 'Deployment', 'worker', {
+        replicas: 2, hpa: { present: true, name: 'worker-hpa' }, findings: ['HPA_COEXISTENCE'],
+        containers: [{ name: 'worker', qosClass: 'Burstable', current: res(100, 256, 400, 512), recommended: res(100, 320, 400, 512), reasons: ['HPA_CPU_MANAGED'] }],
+      }),
+      // Managed by GitOps: a persisted apply would be reverted.
+      w('production', 'Deployment', 'frontend', {
+        replicas: 2, gitopsManaged: true,
+        containers: [{ name: 'frontend', qosClass: 'Burstable', current: res(50, 128, 200, 256), recommended: res(110, 250, 200, 256), reasons: [] }],
+      }),
+      // Every container within hysteresis: no change recommended.
+      w('monitoring', 'Deployment', 'grafana', {
+        containers: [{ name: 'grafana', qosClass: 'Burstable', current: res(100, 256, 300, 512), recommended: null, reasons: ['WITHIN_HYSTERESIS'] }],
+      }),
+      // Idle: decreased to the safe floors.
+      w('staging', 'Deployment', 'api-staging', {
+        findings: ['IDLE'],
+        containers: [{ name: 'api-server', qosClass: 'Burstable', current: res(100, 256, 300, 512), recommended: res(25, 250, 300, 512), reasons: ['FLOOR_CLAMPED'] }],
+      }),
+      // Requests unset: an advisory recommendation only.
+      w('staging', 'Deployment', 'worker-staging', {
+        findings: ['REQUESTS_UNSET'],
+        containers: [{ name: 'worker', qosClass: 'BestEffort', current: res(null, null, 200, 256), recommended: res(60, 250, 200, 256), reasons: ['REQUESTS_UNSET'] }],
+      }),
+      // Locked by annotation.
+      w('kube-system', 'Deployment', 'coredns', {
+        replicas: 2, skipReason: 'LOCKED',
+        containers: [{ name: 'coredns', qosClass: 'Burstable', current: res(100, 70, null, 170), recommended: null, reasons: [] }],
+      }),
+      // Off: the engine's default, so it isn't evaluated.
+      w('monitoring', 'StatefulSet', 'prometheus', {
+        mode: 'OFF', skipReason: 'POLICY_OFF',
+        containers: [{ name: 'prometheus', qosClass: 'Guaranteed', current: res(500, 2048, 1000, 4096), recommended: null, reasons: [] }],
+      }),
+      // A CPU decrease; memory is already under the floor and isn't raised without demand.
+      w('monitoring', 'StatefulSet', 'alertmanager', {
+        containers: [{ name: 'alertmanager', qosClass: 'Burstable', current: res(50, 128, 200, 256), recommended: res(30, 128, 200, 256), reasons: ['BELOW_FLOOR_NO_RAISE'] }],
+      }),
+    ],
+  };
+}

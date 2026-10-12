@@ -497,6 +497,16 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return capabilities ? makeResponse(capabilities) : makeResponse(k8sAutomation.DEMO_NO_ACCOUNT_ACCESS, 403);
   }
 
+  // Vertical engine, endpoint 1 only (plan P7): nothing else under /api/eks/automation/vertical/ is
+  // called yet, and an unrouted path would reach the real backend.
+  {
+    const vertical = /\/api\/eks\/automation\/vertical\/([^/?]+)(\?|$)/.exec(url);
+    if (vertical) {
+      const status = k8sAutomation.demoVerticalStatus(decodeURIComponent(vertical[1]));
+      return status ? makeResponse(status) : makeResponse(k8sAutomation.DEMO_CLUSTER_NOT_REGISTERED, 404);
+    }
+  }
+
   // K8s clusters (CloudK8s page)
   if (url.includes('/api/xamops/k8s/'))
     return makeResponse(xamops.demoK8sClusters);

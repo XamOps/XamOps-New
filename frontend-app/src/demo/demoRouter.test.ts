@@ -5,6 +5,7 @@ import { demoCapabilities } from './k8sAutomationMockData';
 import { demoAccounts, demoK8sClusters } from './xamopsMockData';
 import { READINESS_KEYS } from '../types/k8sAutomation';
 import { isEmptyDashboard, nodeGroups, podCounts } from '../utils/k8sDerivations';
+import { toVerticalEngineView } from '../api/verticalRightsizerAdapter';
 
 /**
  * The generic `/api/xamops/*` fallback answers `{}`, which is wrong for any
@@ -399,5 +400,39 @@ describe('demo router — EKS cluster dashboards (ROLE_XAMOPS)', () => {
     ]));
     // Running and total agree with the pod list.
     expect(podCounts(body)).toMatchObject({ running: body.clusterOverview.runningPods, total: body.clusterOverview.totalPods });
+  });
+});
+
+describe('demo router — vertical engine, endpoint 1 (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+
+  const statusUrl = (cluster: string) => `/api/eks/automation/vertical/${cluster}?accountId=demo-aws-001&region=us-east-1`;
+
+  it('answers prod as V4 with nine workloads in the contract shape', async () => {
+    const body = await readDemoBody(statusUrl('prod-eks-cluster'));
+    const view = toVerticalEngineView(body);
+    expect(view.state).toBe('V4');
+    expect(body.workloads).toHaveLength(9);
+    expect(body.gateReasons).toContain('CONTROLLER_NOT_READY');
+    // NIT 1: the throttled row moves its limit; LIMIT_RAISED no longer exists.
+    const throttled = body.workloads.find((w: any) => w.findings.includes('THROTTLED'));
+    expect(throttled.containers[0].reasons).toEqual(['LIMIT_MOVED']);
+    expect(JSON.stringify(body)).not.toContain('LIMIT_RAISED');
+    expect(body.workloads.filter((w: any) => w.skipReason === 'POLICY_OFF')).toHaveLength(1);
+  });
+
+  it('answers eu as V2 with no workloads', async () => {
+    const view = toVerticalEngineView(await readDemoBody(statusUrl('eu-eks-cluster')));
+    expect(view.state).toBe('V2');
+    expect(view.workloads).toEqual([]);
+  });
+
+  it('answers any other cluster 404 K8S_CLUSTER_NOT_REGISTERED, so nothing reaches the backend', async () => {
+    const response = resolveDemoResponse(statusUrl('staging-eks-cluster'));
+    expect(response?.status).toBe(404);
+    expect((await response!.json()).code).toBe('K8S_CLUSTER_NOT_REGISTERED');
   });
 });
