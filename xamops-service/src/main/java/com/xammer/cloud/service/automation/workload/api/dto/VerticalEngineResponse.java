@@ -25,6 +25,23 @@ public record VerticalEngineResponse(EngineStatus engine, List<String> gateReaso
     }
 
     /**
+     * The same response with {@code more} gate reasons appended after the engine's own, skipping
+     * any already present. Used for the caller's write gates, which only the controller can know.
+     */
+    public VerticalEngineResponse withGateReasons(List<String> more) {
+        if (more == null || more.isEmpty()) {
+            return this;
+        }
+        List<String> merged = new java.util.ArrayList<>(gateReasons);
+        for (String reason : more) {
+            if (reason != null && !merged.contains(reason)) {
+                merged.add(reason);
+            }
+        }
+        return new VerticalEngineResponse(engine, merged, workloads);
+    }
+
+    /**
      * @param enabled             {@code xamops.automation.vertical.enabled}
      * @param ready               {@code xamops.k8s.automation.readiness.vertical-rightsizing}
      * @param clusterAccess       {@code CONFIGURED | NOT_CONFIGURED | UNREACHABLE}, or

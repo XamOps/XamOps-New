@@ -112,6 +112,20 @@ class VerticalAutomationControllerTest {
     }
 
     @Test
+    @DisplayName("the caller's write gates are reported after the engine's own, from endpoint 3's predicates")
+    void theCallersWriteGatesAreReported() throws Exception {
+        givenClusterConfigByPrimaryKey();
+        when(applyService.writeGates(any(), eq(account)))
+                .thenReturn(List.of("READ_ONLY_CONNECTION"));
+
+        mvc().perform(get(BASE + "/xamops-test-cluster" + QUERY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.gateReasons[0]").value("CONTROLLER_NOT_READY"))
+                .andExpect(jsonPath("$.gateReasons")
+                        .value(org.hamcrest.Matchers.hasItem("READ_ONLY_CONNECTION")));
+    }
+
+    @Test
     @DisplayName("another tenant's account is refused, and no cluster lookup happens")
     void anotherTenantIsRefused() throws Exception {
         mvc().perform(get(BASE + "/xamops-test-cluster?accountId=" + FOREIGN_ID + "&region=ap-south-1"))

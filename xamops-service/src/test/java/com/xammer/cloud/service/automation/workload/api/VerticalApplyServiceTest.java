@@ -518,6 +518,57 @@ class VerticalApplyServiceTest {
         assertThat(command.getValue().dryRun()).isFalse();
     }
 
+    // ---------------------------------------------------------------- write gates for endpoint 1
+
+    @Test
+    @DisplayName("a permitted caller on a read-write connection has no write gates")
+    void aPermittedReadWriteCallerHasNoWriteGates() {
+        assertThat(service().writeGates(principal(), readWriteAccount())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a read-only connection reports READ_ONLY_CONNECTION, the code apply refuses with")
+    void aReadOnlyConnectionIsAWriteGate() {
+        CloudAccount readOnly = readWriteAccount();
+        readOnly.setAccessType("read-only");
+
+        assertThat(service().writeGates(principal(), readOnly)).containsExactly("READ_ONLY_CONNECTION");
+        assertThat(refuse(principal(), readOnly, body(true)).code())
+                .isEqualTo("K8S_READ_ONLY_CONNECTION");
+    }
+
+    @Test
+    @DisplayName("a demo or unpermitted caller reports the permission refusal's own gate, first")
+    void thePermissionRefusalIsAWriteGate() {
+        CloudAccount readOnly = readWriteAccount();
+        readOnly.setAccessType("read-only");
+        when(writePermission.decide(any(), any())).thenReturn(new AutomationWritePermission.Decision(
+                false, ReasonCode.DEMO, AutomationWritePermission.Detail.DEMO,
+                "Automation is disabled for the shared demo identity.", "K8S_DEMO"));
+        assertThat(service().writeGates(principal(), readOnly))
+                .containsExactly("DEMO", "READ_ONLY_CONNECTION");
+
+        when(writePermission.decide(any(), any())).thenReturn(new AutomationWritePermission.Decision(
+                false, ReasonCode.NO_USER_PERMISSION, AutomationWritePermission.Detail.IMPERSONATION,
+                "Automation cannot be changed from a Login As session.", "K8S_NO_USER_PERMISSION"));
+        assertThat(service().writeGates(principal(), readWriteAccount()))
+                .as("a Login-As session is NO_USER_PERMISSION, as on endpoint 3")
+                .containsExactly("NO_USER_PERMISSION");
+    }
+
+    @Test
+    @DisplayName("an apply under RECOMMEND is accepted: endpoint 3 never requires AUTO")
+    void anApplyDoesNotRequireAuto() {
+        givenExecutorApplies();
+
+        ApplyResponseDto response = service().apply(principal(), readWriteAccount(), TARGET, REF,
+                body(false));
+
+        assertThat(METRICS.defaultsPolicy().mode()).isEqualTo(WorkloadMode.RECOMMEND);
+        assertThat(response.state()).isEqualTo("ACCEPTED");
+        assertThat(response.result().terminal()).isEqualTo("APPLIED");
+    }
+
     @Test
     @DisplayName("the permission gate is asked before anything else, and with this account")
     void thePermissionGateIsAskedFirst() {

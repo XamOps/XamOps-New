@@ -6,12 +6,15 @@
  *
  *  - Nothing is fabricated. A value the engine did not measure renders `—`, never `0`, and a `0`
  *    arriving in a resources field is reported as a payload defect rather than drawn as a number.
- *  - Apply is enabled only when the backend says `autoApplyEligible`, and the blocking reason is
- *    shown rather than the control silently doing nothing.
+ *  - Apply is a one-time, user-initiated action. It is enabled when the engine recommends a real
+ *    change and every gate the server re-checks passes (`manualApplyGate`); otherwise it is greyed
+ *    with the blocking reason shown. `autoApplyEligible` ("the engine would apply this on its
+ *    own", which needs policy AUTO) is displayed for what it is and never gates the button.
+ *  - A real apply is confirmed first, with the before and after per container. A dry run is not.
  *  - An apply is a submission. The reply is rendered as submitted, never as applied.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   DASH,
   codeText,
@@ -19,16 +22,19 @@ import {
   formatCount,
   formatMib,
   formatMillis,
+  formatInstant,
   formatText,
-  toApplyContainers,
+  manualApplyGate,
 } from '../../../api/verticalRightsizerAdapter';
 import useVerticalRightsizer from '../../../hooks/useVerticalRightsizer';
 import type {
+  ApplyContainerRequest,
   ApplyOutcomeWire,
   ApplyPodProofWire,
   ApplyResult,
   CodeView,
   ContainerView,
+  ManualApplyGate,
   MetricValue,
   WorkloadView,
 } from '../../../types/verticalRightsizer';
@@ -57,11 +63,18 @@ const EmptyState: React.FC<{ icon: string; title: string; subtitle: string }> = 
   </div>
 );
 
-const StatusItem: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+const StatusItem: React.FC<{ label: string; value: string; title?: string }> = ({ label, value, title }) => (
   <div className="flex flex-col gap-0.5">
     <span className="text-[10px] uppercase tracking-wide text-[rgba(0,0,0,0.4)] font-bold">{label}</span>
-    <span className="text-[12px] text-[rgba(0,0,0,0.88)] font-semibold">{value}</span>
+    <span className="text-[12px] text-[rgba(0,0,0,0.88)] font-semibold" title={title}>
+      {value}
+    </span>
   </div>
+);
+
+/** An engine timestamp shown in IST, with the raw UTC value kept in the tooltip. */
+const IstTime: React.FC<{ value: string | null }> = ({ value }) => (
+  <span title={value ?? undefined}>{formatInstant(value)}</span>
 );
 
 /** `current` on top, the recommendation under it only when the engine actually moved the value. */
@@ -368,26 +381,110 @@ const ContainerTable: React.FC<{ containers: ContainerView[]; skipReason: CodeVi
   );
 };
 
+// ─── Apply confirmation ──────────────────────────────────────────────────────
+
+const CHANGE_FIELDS: {
+  key: keyof Omit<ApplyContainerRequest, 'name'>;
+  label: string;
+  current: (c: ContainerView) => MetricValue;
+  format: (v: MetricValue) => string;
+}[] = [
+  { key: 'cpuRequestM', label: 'CPU request', current: (c) => c.current.cpuRequestM, format: formatMillis },
+  { key: 'memRequestMi', label: 'Memory request', current: (c) => c.current.memRequestMi, format: formatMib },
+  { key: 'cpuLimitM', label: 'CPU limit', current: (c) => c.current.cpuLimitM, format: formatMillis },
+  { key: 'memLimitMi', label: 'Memory limit', current: (c) => c.current.memLimitMi, format: formatMib },
+];
+
+/**
+ * The last step before a real resize: what changes, per container, and what that does and does
+ * not mean. Greyscale and inline, in the card it confirms.
+ */
+const ApplyConfirmation: React.FC<{
+  workload: WorkloadView;
+  changes: ApplyContainerRequest[];
+  onConfirm: () => void;
+  onCancel: () => void;
+}> = ({ workload, changes, onConfirm, onCancel }) => {
+  const titleId = `apply-confirm-${workload.id}`;
+  return (
+    <div
+      role="alertdialog"
+      aria-labelledby={titleId}
+      className="px-6 py-4 border-t border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)] space-y-3"
+    >
+      <p id={titleId} className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">
+        Resize {workload.ref.name} now?
+      </p>
+      <ul className="space-y-1">
+        {changes.map((change) => {
+          const container = workload.containers.find((c) => c.name === change.name);
+          return (
+            <li key={change.name} className="text-[12px] text-[rgba(0,0,0,0.6)] tabular-nums">
+              <span className="font-semibold text-[rgba(0,0,0,0.88)]">{change.name}</span>
+              {CHANGE_FIELDS.filter((f) => change[f.key] !== undefined).map((f) => (
+                <span key={f.key}>
+                  {' '}
+                  &middot; {f.label} {container ? f.format(f.current(container)) : DASH} &rarr;{' '}
+                  {f.format({ kind: 'value', value: change[f.key] as number })}
+                </span>
+              ))}
+            </li>
+          );
+        })}
+      </ul>
+      <ul className="list-disc pl-5 space-y-0.5 text-[11px] text-[rgba(0,0,0,0.6)]">
+        <li>The running pods are resized in place. No restart is expected.</li>
+        <li>
+          The {workload.ref.kind} spec is not changed, so a rollout or a rescheduled pod returns to the
+          spec values.
+        </li>
+        <li>A cooldown starts. XamOps will not apply another change to this workload until it ends.</li>
+      </ul>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="px-4 py-2 text-xs font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.88)] text-white hover:bg-black transition-all"
+        >
+          Resize pods
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-4 py-2 text-xs font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] transition-all"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // ─── Workload card ───────────────────────────────────────────────────────────
 
 const WorkloadCard: React.FC<{
   workload: WorkloadView;
+  gate: ManualApplyGate;
   dryRun: boolean;
   applying: boolean;
   reply: ApplyResult | undefined;
   onApply: () => void;
-}> = ({ workload, dryRun, applying, reply, onApply }) => {
-  const changes = useMemo(() => toApplyContainers(workload), [workload]);
-  const nothingToApply = changes.length === 0;
-  const disabled = !workload.autoApplyEligible || nothingToApply || applying;
+}> = ({ workload, gate, dryRun, applying, reply, onApply }) => {
+  const [confirming, setConfirming] = useState(false);
+  // A confirmation describes a real resize; it closes if the gate closes or this becomes a dry run.
+  useEffect(() => {
+    if (dryRun || !gate.enabled) setConfirming(false);
+  }, [dryRun, gate.enabled]);
+  const disabled = !gate.enabled || applying;
+  const blockedReason = gate.reason;
 
-  const blockedReason = !workload.autoApplyEligible
-    ? workload.applyBlockedBy
-      ? codeText(workload.applyBlockedBy)
-      : 'The engine has not marked this workload as auto-appliable.'
-    : nothingToApply
-      ? 'No change is recommended.'
-      : null;
+  const onClickApply = () => {
+    if (dryRun) {
+      onApply();
+    } else {
+      setConfirming(true);
+    }
+  };
 
   const p = workload.provenance;
 
@@ -402,6 +499,7 @@ const WorkloadCard: React.FC<{
           </div>
           <div className="flex items-center gap-3 flex-wrap mt-2 text-[11px] text-[rgba(0,0,0,0.5)]">
             <span>Mode {formatText(workload.policy?.mode)}</span>
+            <span>Automatic apply {workload.autoApplyEligible ? 'eligible' : 'off'}</span>
             <span>Replicas {formatCount(workload.replicas)}</span>
             <span>HPA {workload.hpaPresent ? formatText(workload.hpaName) : DASH}</span>
             <span>
@@ -426,9 +524,9 @@ const WorkloadCard: React.FC<{
         <div className="flex flex-col items-end gap-1">
           <button
             type="button"
-            onClick={onApply}
-            disabled={disabled}
-            title={blockedReason ?? (dryRun ? 'Submit as a dry run' : 'Submit this change')}
+            onClick={onClickApply}
+            disabled={disabled || confirming}
+            title={blockedReason ?? (dryRun ? 'Submit as a dry run' : 'Review and resize the running pods')}
             aria-label={`Apply ${workload.ref.name}`}
             className="px-4 py-2 text-xs font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.88)] text-white hover:bg-black transition-all disabled:bg-white disabled:text-[rgba(0,0,0,0.35)] disabled:cursor-not-allowed"
           >
@@ -446,11 +544,23 @@ const WorkloadCard: React.FC<{
           <span>{p.windowHours === null ? DASH : `${p.windowHours}h window`}</span>
           <span>Coverage {formatCoverage(p.sampleCoverage)}</span>
           <span>
-            {formatText(p.windowStart)} &rarr; {formatText(p.windowEnd)}
+            <IstTime value={p.windowStart} /> &rarr; <IstTime value={p.windowEnd} />
           </span>
           <span>Source {formatText(p.usageSource)}</span>
           <span>Policy {formatText(p.policySource)}</span>
         </div>
+      )}
+
+      {confirming && !dryRun && gate.enabled && !applying && (
+        <ApplyConfirmation
+          workload={workload}
+          changes={gate.changes}
+          onConfirm={() => {
+            setConfirming(false);
+            onApply();
+          }}
+          onCancel={() => setConfirming(false)}
+        />
       )}
 
       <ContainerTable containers={workload.containers} skipReason={workload.skipReason} />
@@ -556,8 +666,9 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
               value={
                 engine.lastCycleAt === null
                   ? DASH
-                  : `${engine.lastCycleAt} · ${formatCount(engine.lastCycleEvaluated)}`
+                  : `${formatInstant(engine.lastCycleAt)} · ${formatCount(engine.lastCycleEvaluated)}`
               }
+              title={engine.lastCycleAt ?? undefined}
             />
           </div>
           <div className="flex items-center gap-3">
@@ -622,6 +733,7 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
           <WorkloadCard
             key={w.id}
             workload={w}
+            gate={manualApplyGate(result.view, w)}
             dryRun={dryRun}
             applying={applyingId === w.id}
             reply={applyResults[w.id]}

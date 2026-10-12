@@ -16,6 +16,7 @@ import type {
   CodeView,
   ContainerView,
   EngineView,
+  ManualApplyGate,
   MetricValue,
   ProvenanceView,
   ResourcesView,
@@ -27,6 +28,7 @@ import type {
   VerticalWorkloadWire,
   WorkloadView,
 } from '../types/verticalRightsizer';
+import { formatIST } from '../utils/timeUtils';
 
 /** Rendered for anything the engine did not measure. Never `0`, never a guess. */
 export const DASH = '—';
@@ -239,6 +241,18 @@ export const formatCount = (value: number | null | undefined): string =>
 export const formatText = (value: string | null | undefined): string =>
   value === null || value === undefined || value.trim() === '' ? DASH : value;
 
+/**
+ * An engine timestamp (a UTC ISO-8601 instant, nanoseconds and all) in IST, the way the rest of the
+ * product shows time. Fractional seconds are cut to milliseconds first, the precision a JS Date
+ * holds and the only one every engine parses. A value that will not parse is shown verbatim, never
+ * guessed at; a missing one is a dash.
+ */
+export const formatInstant = (value: string | null | undefined): string => {
+  if (value === null || value === undefined || value.trim() === '') return DASH;
+  const shown = formatIST(value.trim().replace(/(\.\d{3})\d+/, '$1'));
+  return shown === '' ? value : shown;
+};
+
 // ─── Apply body ──────────────────────────────────────────────────────────────
 
 const changedField = (current: MetricValue, recommended: MetricValue): number | undefined => {
@@ -274,3 +288,58 @@ export const toApplyContainers = (workload: WorkloadView): ApplyContainerRequest
   workload.containers
     .map(toApplyContainer)
     .filter((c): c is ApplyContainerRequest => c !== null);
+
+// ─── Manual apply gate ───────────────────────────────────────────────────────
+
+/** The caller-level write gates, in the server's published refusal order. */
+const WRITE_GATES = ['DEMO', 'NO_USER_PERMISSION', 'READ_ONLY_CONNECTION'] as const;
+const PATH_GATES = ['CLUSTER_ACCESS_NOT_CONFIGURED', 'CLUSTER_UNREACHABLE'] as const;
+
+const findGate = (gateReasons: CodeView[], code: string): CodeView | undefined =>
+  gateReasons.find((g) => g.kind === 'known' && g.code === code);
+
+const label = (code: string): string => codeText(parseCode(code) ?? { kind: 'unknown', raw: code });
+
+/**
+ * Whether a user may submit a **one-time** apply for this workload.
+ *
+ * `autoApplyEligible` is deliberately not consulted: it answers "would the engine apply this on its
+ * own", which needs policy `AUTO`. A user-initiated apply needs a real change and every gate the
+ * server re-checks on endpoint 3, in its order: the write gates (demo, permission — which also
+ * covers a Login-As session — and a read-write connection), a ready controller, an execution path,
+ * then the workload's own refusals (a skip reason, GitOps-managed persistence, the cooldown, and
+ * requests the engine would be inventing). The first that fails is the reason shown.
+ */
+export const manualApplyGate = (view: VerticalEngineView, workload: WorkloadView): ManualApplyGate => {
+  const changes = toApplyContainers(workload);
+  const blocked = (reason: string): ManualApplyGate => ({ enabled: false, reason, changes });
+  const { engine, gateReasons } = view;
+
+  for (const code of WRITE_GATES) {
+    const gate = findGate(gateReasons, code);
+    if (gate) return blocked(codeText(gate));
+  }
+  if (!engine.enabled || !engine.ready || findGate(gateReasons, 'CONTROLLER_NOT_READY')) {
+    return blocked(label('CONTROLLER_NOT_READY'));
+  }
+  if (engine.executionPath === null || engine.executionPath === 'NONE') {
+    const pathGate = PATH_GATES.map((code) => findGate(gateReasons, code)).find((g) => g !== undefined);
+    const reason = engine.directReason ?? pathGate;
+    return blocked(reason ? codeText(reason) : 'No execution path into this cluster.');
+  }
+  if (workload.skipReason) return blocked(codeText(workload.skipReason));
+  if (workload.gitopsManaged === true || workload.policy?.applyMethod === 'IN_PLACE_AND_PERSIST') {
+    return blocked(label('GITOPS_MANAGED'));
+  }
+  const reasons = workload.containers.flatMap((c) => c.reasons);
+  if (reasons.some((r) => r.kind === 'known' && r.code === 'COOLDOWN')) {
+    return blocked(label('COOLDOWN'));
+  }
+  const changing = new Set(changes.map((c) => c.name));
+  const invented = workload.containers.some(
+    (c) => changing.has(c.name) && c.reasons.some((r) => r.kind === 'known' && r.code === 'REQUESTS_UNSET'),
+  );
+  if (invented) return blocked(label('REQUESTS_UNSET'));
+  if (changes.length === 0) return blocked('No change is recommended.');
+  return { enabled: true, reason: null, changes };
+};

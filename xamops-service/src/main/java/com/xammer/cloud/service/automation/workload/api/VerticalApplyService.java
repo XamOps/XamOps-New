@@ -210,6 +210,33 @@ public class VerticalApplyService {
         }
     }
 
+    /**
+     * The caller-level write gates this endpoint would refuse with, as shared gate codes without the
+     * {@code K8S_} prefix, in the published order: {@code DEMO} or {@code NO_USER_PERMISSION}
+     * (which covers a Login-As session), then {@code READ_ONLY_CONNECTION}.
+     *
+     * <p>Endpoint 1 reports these in {@code gateReasons} so the UI can grey Apply and say why
+     * before anybody clicks. They are computed by the same two predicates {@link #apply} enforces,
+     * so the read cannot promise an apply the write would refuse. Entitlement is not repeated here:
+     * the controller has already refused an unentitled caller, and {@code K8S_NO_ACCOUNT_ACCESS} is
+     * not a gate code.
+     */
+    public List<String> writeGates(ClientUserDetails principal, CloudAccount account) {
+        List<String> gates = new ArrayList<>();
+        if (principal == null) {
+            gates.add(ReasonCode.NO_USER_PERMISSION.name());
+        } else {
+            AutomationWritePermission.Decision decision = writePermission.decide(principal, account);
+            if (!decision.permitted() && decision.reason() != null) {
+                gates.add(decision.reason().name());
+            }
+        }
+        if (account == null || !"read-write".equalsIgnoreCase(account.getAccessType())) {
+            gates.add(ReasonCode.READ_ONLY_CONNECTION.name());
+        }
+        return List.copyOf(gates);
+    }
+
     // ---------------------------------------------------------------- gates
 
     /**

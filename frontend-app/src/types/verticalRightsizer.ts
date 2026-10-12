@@ -189,11 +189,31 @@ export interface WorkloadView {
   findings: CodeView[];
   containers: ContainerView[];
   lastAction: { at: string | null; dryRun: boolean | null; outcome: string | null } | null;
+  /**
+   * Whether the engine would apply this on its own (policy `AUTO` and every gate). Display only:
+   * it is not the condition for a user-initiated apply — see `manualApplyGate`.
+   */
   autoApplyEligible: boolean;
-  /** Why Apply is disabled, already resolved to the single most useful reason. */
+  /**
+   * Why the engine would not apply this automatically, resolved to the single most useful reason.
+   * Not the manual Apply gate.
+   */
   applyBlockedBy: CodeView | null;
   provenance: ProvenanceView | null;
   horizontal: VerticalHorizontalWire | null;
+}
+
+/**
+ * Whether a user may submit a one-time apply for one workload, and if not, why.
+ *
+ * `reason` is the text shown beside the greyed control; it is null exactly when `enabled` is true.
+ * `changes` is the apply body: `recommended` diffed against `current`, so it is empty when nothing
+ * would move.
+ */
+export interface ManualApplyGate {
+  enabled: boolean;
+  reason: string | null;
+  changes: ApplyContainerRequest[];
 }
 
 export interface EngineView {
