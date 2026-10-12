@@ -7,6 +7,8 @@
  * capabilities; the panel makes no automation-agent or vertical-engine request.
  */
 import { useId, type ReactNode } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { inPageState } from '../../../../utils/inPageNavigation';
 import {
   LOADING_CAPABILITY,
   findCluster,
@@ -22,6 +24,8 @@ import { formatAgo } from '../../../CloudK8s/shared/SourceLabel';
 
 /** The workload row while the vertical engine is switched off (V7). */
 export const NOT_TURNED_ON_TEXT = 'Not turned on in this environment';
+/** The Workload rightsizing row's Apply link (demo-cut review S2). */
+export const WORKLOAD_AUTOSCALER_LINK = 'Automation › Workload autoscaler';
 
 export interface TodayRow {
   id: string;
@@ -198,8 +202,9 @@ function analysisCell(caps: K8sCapabilitiesValue, row: TodayRow): ReactNode {
   return row.analysis;
 }
 
-function TodayTable({ caps, clusterName }: { caps: K8sCapabilitiesValue; clusterName: string }) {
+function TodayTable({ caps, clusterName, workloadAutoscalerHref }: { caps: K8sCapabilitiesValue; clusterName: string; workloadAutoscalerHref?: string }) {
   const headingId = useId();
+  const location = useLocation();
   const engineOff = caps.status === 'ready' && !caps.verticalEngineEnabled;
   return (
     <section aria-labelledby={headingId} className="rounded-lg border border-[rgba(0,0,0,0.12)] bg-white pt-4">
@@ -227,7 +232,22 @@ function TodayTable({ caps, clusterName }: { caps: K8sCapabilitiesValue; cluster
                 ) : (
                   <>
                     <td className="px-4 py-2.5 text-[rgba(0,0,0,0.6)]">{analysisCell(caps, row)}</td>
-                    <td className="px-4 py-2.5"><ApplyCell capability={applyCapability(caps, row, clusterName)} /></td>
+                    <td className="px-4 py-2.5">
+                      {row.vertical && workloadAutoscalerHref ? (
+                        <span className="text-[rgba(0,0,0,0.88)]" data-apply="workload-autoscaler">
+                          <span>{'Decided per workload in '}</span>
+                          <Link
+                            to={workloadAutoscalerHref}
+                            state={inPageState(location)}
+                            className="font-semibold underline-offset-2 hover:underline outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] focus-visible:ring-offset-2"
+                          >
+                            {WORKLOAD_AUTOSCALER_LINK}
+                          </Link>
+                        </span>
+                      ) : (
+                        <ApplyCell capability={applyCapability(caps, row, clusterName)} />
+                      )}
+                    </td>
                   </>
                 )}
               </tr>
@@ -241,15 +261,21 @@ function TodayTable({ caps, clusterName }: { caps: K8sCapabilitiesValue; cluster
 
 export interface OverviewPanelProps {
   clusterName: string;
+  /**
+   * Automation › Workload autoscaler on this page. The Workload rightsizing row's Apply cell links
+   * there instead of showing the D16 contract block: until FEAT-005 unifies the two vertical
+   * clients, that tab applies with the engine's own gates (demo-cut review S2).
+   */
+  workloadAutoscalerHref?: string;
 }
 
-export function OverviewPanel({ clusterName }: OverviewPanelProps) {
+export function OverviewPanel({ clusterName, workloadAutoscalerHref }: OverviewPanelProps) {
   const caps = useK8sCapabilities();
   return (
     <div className="space-y-4">
       <AccessBanner capabilities={caps} cluster={clusterName} />
       <AccessBlock caps={caps} clusterName={clusterName} />
-      <TodayTable caps={caps} clusterName={clusterName} />
+      <TodayTable caps={caps} clusterName={clusterName} workloadAutoscalerHref={workloadAutoscalerHref} />
     </div>
   );
 }

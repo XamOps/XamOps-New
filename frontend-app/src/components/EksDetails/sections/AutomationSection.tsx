@@ -14,7 +14,7 @@ export default function AutomationSection({ clusterName, accountId, region, rout
       sectionId="automation"
       route={route}
       renderPanel={(sub) => {
-        if (sub === 'overview') return <OverviewPanel clusterName={clusterName} />;
+        if (sub === 'overview') return <OverviewPanel clusterName={clusterName} workloadAutoscalerHref={route.hrefFor('automation', 'workload-autoscaling')} />;
         if (sub === 'workload-autoscaling') return <EksAutomationTab clusterName={clusterName} accountId={accountId} region={region} />;
         return null;
       }}

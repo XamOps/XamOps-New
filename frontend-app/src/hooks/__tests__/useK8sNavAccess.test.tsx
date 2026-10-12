@@ -65,6 +65,30 @@ describe('usePublishClusterNavAccess (Addendum 1, J-5, A4)', () => {
     await waitFor(() => expect(access()).toBe(JSON.stringify({ viewOnly: false, reason: null })));
   });
 
+  /** Read-write and permitted, but no automation agent, so every node action is gated (review S2). */
+  const noAutomationAgent = (verticalReady: boolean) => {
+    const dto = demoCapabilities('demo-aws-001')!;
+    const prod = dto.clusters.find((c) => c.clusterName === 'prod-eks-cluster')!;
+    prod.automationAgent = { status: 'NOT_INSTALLED', lastSeenAt: null, version: null };
+    dto.readiness['vertical-rightsizing'] = { ...dto.readiness['vertical-rightsizing'], ready: verticalReady };
+    return dto;
+  };
+
+  it('is not view-only while the hosted Workload autoscaler may apply, even with every node action gated', async () => {
+    getCapabilities.mockResolvedValue(noAutomationAgent(true));
+    renderWith('demo-aws-001', 'prod-eks-cluster', false);
+    await waitFor(() => expect(access()).toBe(JSON.stringify({ viewOnly: false, reason: null })));
+  });
+
+  it('stays view-only when vertical-rightsizing is not ready either, explained by the node gate', async () => {
+    getCapabilities.mockResolvedValue(noAutomationAgent(false));
+    renderWith('demo-aws-001', 'prod-eks-cluster', false);
+    await waitFor(() => expect(access()).not.toBe('none'));
+    const value = JSON.parse(access()!);
+    expect(value.viewOnly).toBe(true);
+    expect(value.reason).toMatch(/automation agent/i);
+  });
+
   it('explains a cluster capabilities do not list', async () => {
     getCapabilities.mockResolvedValue(demoCapabilities('demo-aws-001'));
     renderWith('demo-aws-001', 'staging-eks-cluster', false);

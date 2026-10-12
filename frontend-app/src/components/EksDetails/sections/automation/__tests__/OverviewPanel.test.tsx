@@ -14,7 +14,7 @@ import { CONTRACT_BLOCK_MESSAGE } from '../../../../../api/verticalRightsizerAda
 import { DEMO_READINESS_MESSAGES, demoCapabilities } from '../../../../../demo/k8sAutomationMockData';
 import type { CapabilitiesDto } from '../../../../../types/k8sAutomation';
 import { OVERLAY_TEXT } from '../../../../CloudK8s/shared/AccessBanner';
-import { NOT_TURNED_ON_TEXT, OverviewPanel, TODAY_ROWS } from '../OverviewPanel';
+import { NOT_TURNED_ON_TEXT, OverviewPanel, TODAY_ROWS, WORKLOAD_AUTOSCALER_LINK } from '../OverviewPanel';
 
 const READ_ONLY_TEXT = 'Read-only connection. Automation changes need read-write access.';
 const DEMO_TEXT = "Demo workspace. Changes aren't saved.";
@@ -25,12 +25,12 @@ function fixture(accountId: 'demo-aws-001' | 'demo-aws-002', edit?: (dto: Capabi
   return dto;
 }
 
-async function renderPanel(dto: CapabilitiesDto, cluster = 'prod-eks-cluster') {
+async function renderPanel(dto: CapabilitiesDto, cluster = 'prod-eks-cluster', workloadAutoscalerHref?: string) {
   getCapabilities.mockResolvedValue(dto);
   render(
     <MemoryRouter initialEntries={[`/eks-details?name=${cluster}&tab=automation&sub=overview`]}>
       <K8sCapabilitiesProvider accountId={dto.accountId} demo>
-        <OverviewPanel clusterName={cluster} />
+        <OverviewPanel clusterName={cluster} workloadAutoscalerHref={workloadAutoscalerHref} />
       </K8sCapabilitiesProvider>
     </MemoryRouter>,
   );
@@ -131,6 +131,17 @@ describe('Automation › Overview (§9.1)', () => {
     expect(workload).toHaveTextContent(NOT_TURNED_ON_TEXT);
     expect(workload).not.toHaveTextContent('Recommendations');
     expect(workload).not.toHaveTextContent(CONTRACT_BLOCK_MESSAGE);
+  });
+
+  it('points the workloads row at the hosted Workload autoscaler, not the contract block (review S2)', async () => {
+    const href = '/eks-details?name=prod-eks-cluster&tab=automation&sub=workload-autoscaling';
+    const table = await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', href);
+    const workload = rowOf(table, 'workload-rightsizing');
+    expect(workload).not.toHaveTextContent(CONTRACT_BLOCK_MESSAGE);
+    expect(workload).toHaveTextContent('Decided per workload in Automation › Workload autoscaler');
+    expect(within(workload).getByRole('link', { name: WORKLOAD_AUTOSCALER_LINK })).toHaveAttribute('href', href);
+    // The node rows keep their own capability.
+    expect(rowOf(table, 'node-consolidation').querySelector('a')).toBeNull();
   });
 
   it.each([

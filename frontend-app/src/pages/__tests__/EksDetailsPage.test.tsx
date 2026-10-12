@@ -402,8 +402,10 @@ describe('cluster page shell', () => {
     const table = screen.getByRole('table', { name: AUTOMATION_HEADING });
     expect(within(table).queryByText('Available')).toBeNull();
     expect(table.querySelector('[data-row="spot-interruption"]')).toHaveTextContent("Couldn't check automation access.");
-    expect(table.querySelector('[data-row="workload-rightsizing"]')).toHaveTextContent(CONTRACT_BLOCK_MESSAGE);
-    await waitFor(() => expect(table.querySelectorAll('[data-gated-lock]').length).toBe(9));
+    // The workloads row points at the hosted Workload autoscaler, which keeps its own gates (review S2).
+    expect(table.querySelector('[data-row="workload-rightsizing"]')).not.toHaveTextContent(CONTRACT_BLOCK_MESSAGE);
+    expect(table.querySelector('[data-row="workload-rightsizing"]')).toHaveTextContent('Decided per workload in Automation › Workload autoscaler');
+    await waitFor(() => expect(table.querySelectorAll('[data-gated-lock]').length).toBe(8));
 
     expect(screen.getByRole('group', { name: 'Data freshness' })).toHaveTextContent('unknown');
   });
