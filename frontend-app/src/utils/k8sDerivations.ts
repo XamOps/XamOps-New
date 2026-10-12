@@ -490,6 +490,19 @@ export function namespaceDeploymentCounts(dashboard: EksDashboard | null | undef
   return counts;
 }
 
+// ── Cluster usage (D10) ──────────────────────────────────────────────────────
+
+/**
+ * The cluster's used CPU or memory %, only when the agent's Prometheus metrics reported usage: the
+ * backend leaves 0 in place when nothing did, and an unreported value isn't a measured 0 (D10).
+ */
+export function clusterUsagePct(dashboard: EksDashboard | null | undefined, resource: 'cpu' | 'memory'): number | null {
+  const overview = dashboard?.clusterOverview as AnyRecord | undefined;
+  const pct = toNumber(resource === 'cpu' ? overview?.cpuUsagePercent : overview?.memoryUsagePercent);
+  const reported = list(dashboard?.nodeUtilization).length > 0 || (pct ?? 0) > 0;
+  return reported ? pct : null;
+}
+
 // ── Cluster request totals ───────────────────────────────────────────────────
 
 export interface ClusterRequestTotals extends RequestSum {

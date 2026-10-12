@@ -18,7 +18,7 @@ import { EKS_SECTIONS, LEGACY_TAB_MAP } from '../../../../hooks/useEksSectionRou
 import { extractAlerts, SEV_ORDER, type EksAlertItem, type EksAlertSeverity } from '../../../../hooks/useEksAlertsData';
 import type { EksDashboard, EksSectionId, EksSubtabId } from '../../../../types/eksTypes';
 import {
-  clusterCostSource, clusterNodes, clusterRequestTotals, healthSignals, monitoringState, podCounts,
+  clusterCostSource, clusterNodes, clusterRequestTotals, clusterUsagePct, healthSignals, monitoringState, podCounts,
   MONTHLY_FROM_DAILY, type HealthSignal,
 } from '../../../../utils/k8sDerivations';
 import { DASH, formatCpu, formatMemoryMiB, formatPercent, formatUsd, toNumber } from '../../../../utils/k8sQuantities';
@@ -60,16 +60,6 @@ const linkClass = 'inline-flex items-center gap-1 rounded text-[12px] font-semib
 type AnyRecord = Record<string, any>;
 const records = (value: unknown): AnyRecord[] =>
   Array.isArray(value) ? value.filter((v): v is AnyRecord => typeof v === 'object' && v !== null) : [];
-
-/**
- * The cluster's used CPU or memory %, only when the agent's Prometheus metrics reported usage: the
- * backend leaves 0 in place when nothing did, and an unreported value isn't a measured 0 (D10).
- */
-export function clusterUsagePct(dashboard: EksDashboard | null | undefined, resource: 'cpu' | 'memory'): number | null {
-  const pct = toNumber(resource === 'cpu' ? dashboard?.clusterOverview?.cpuUsagePercent : dashboard?.clusterOverview?.memoryUsagePercent);
-  const reported = records(dashboard?.nodeUtilization).length > 0 || (pct ?? 0) > 0;
-  return reported ? pct : null;
-}
 
 /** Trivy's critical and high counts, or null when the dashboard carries no Trivy data. */
 export function trivyCounts(dashboard: EksDashboard | null | undefined): { critical: number; high: number } | null {

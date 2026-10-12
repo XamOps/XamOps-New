@@ -1,339 +1,109 @@
 /**
- * EKS Performance Tab — Cast.ai Premium Level
+ * Nodes › Utilization (docs/cloudk8s/ui-revamp-design.md §10.5, D10, §14.1; plan item 25).
  *
- * Dark gradient hero, SVG donut gauges, node performance cards,
- * and actionable performance insights.
+ * How busy the cluster and each node are, where the agent's Prometheus metrics report it. The old
+ * Performance tab averaged CPU and memory usage into an "efficiency score" even when neither was
+ * reported, turned a missing per-node value into 0 (`|| 0`), and coloured a 40-75% "optimal" ring.
+ * Now: the average shows only when both cluster usages are reported; a node without usage stays "—"
+ * and is left out of the averages, which say how many nodes they cover; and the band is a labelled
+ * status mark, not a colour. Requested % (pod requests of allocatable) sits beside usage.
  */
+import { useMemo } from 'react';
+import type { UseEksDashboardReturn } from '../../../hooks/useEksDashboard';
+import { clusterUsagePct, nodeRows, nodeUsageByName } from '../../../utils/k8sDerivations';
+import { DASH, formatPercent } from '../../../utils/k8sQuantities';
+import { K8sDataTable, type ColumnDef } from '../../CloudK8s/shared/K8sDataTable';
+import { MetricTile } from '../../CloudK8s/shared/MetricTile';
+import { RequestBar } from '../../CloudK8s/shared/RequestBar';
+import { StatusMark, type StatusState } from '../../CloudK8s/shared/StatusMark';
 
-import React from 'react';
+export const UTILIZATION_CAPTION = 'Node utilisation';
+export const USAGE_SOURCE = 'Prometheus (agent)';
+const secondary = 'text-[12px] text-[rgba(0,0,0,0.6)]';
 
-interface EksPerformanceTabProps {
-  eksData: any;
+/** The 40-75% band as a labelled mark (D10). */
+export function bandMark(pct: number): { state: StatusState; label: string } {
+  if (pct < 40) return { state: 'attention', label: 'Below 40%: room to consolidate' };
+  if (pct > 75) return { state: 'attention', label: 'Above 75%: little headroom' };
+  return { state: 'healthy', label: 'In the 40-75% band' };
 }
 
-const DonutGauge: React.FC<{
-  pct: number;
-  color: string;
-  trackColor?: string;
-  size?: number;
-  strokeWidth?: number;
-  children: React.ReactNode;
-}> = ({ pct, color, trackColor = '#e5e7eb', size = 140, strokeWidth = 10, children }) => {
-  const r = (size - strokeWidth * 2) / 2;
-  const circ = 2 * Math.PI * r;
-  const filled = Math.max(0, Math.min(100, pct)) / 100 * circ;
+interface UsageRow {
+  name: string;
+  cpuUsedPct: number | null;
+  memUsedPct: number | null;
+  cpuRequestedPct: number | null;
+  memRequestedPct: number | null;
+}
+
+const average = (values: Array<number | null>): { value: number | null; n: number } => {
+  const known = values.filter((v): v is number => v !== null);
+  return { value: known.length ? known.reduce((s, v) => s + v, 0) / known.length : null, n: known.length };
+};
+
+const pctBar = (pct: number | null) => (pct === null ? <span>{DASH}</span> : <RequestBar requested={formatPercent(pct)} allocatable={null} pct={pct} />);
+
+const COLUMNS: ReadonlyArray<ColumnDef<UsageRow>> = [
+  { id: 'name', header: 'Node', priority: 'essential', cell: (r) => <span className="font-mono text-[12px] font-semibold">{r.name}</span>, sortValue: (r) => r.name },
+  { id: 'cpuUsed', header: 'CPU used', cell: (r) => pctBar(r.cpuUsedPct), sortValue: (r) => r.cpuUsedPct },
+  { id: 'memUsed', header: 'Memory used', cell: (r) => pctBar(r.memUsedPct), sortValue: (r) => r.memUsedPct },
+  { id: 'cpuReq', header: 'CPU requested', cell: (r) => pctBar(r.cpuRequestedPct), sortValue: (r) => r.cpuRequestedPct },
+  { id: 'memReq', header: 'Memory requested', cell: (r) => pctBar(r.memRequestedPct), sortValue: (r) => r.memRequestedPct },
+];
+
+export default function EksPerformanceTab({ eksData }: { eksData: UseEksDashboardReturn }) {
+  const dashboard = eksData.dashboard;
+  const { rows, cpu, mem } = useMemo(() => {
+    const usage = nodeUsageByName(dashboard);
+    const list: UsageRow[] = nodeRows(dashboard).map((n) => ({
+      name: n.name,
+      cpuUsedPct: usage.get(n.name)?.cpuPct ?? null,
+      memUsedPct: usage.get(n.name)?.memPct ?? null,
+      cpuRequestedPct: n.cpuRequestedPct,
+      memRequestedPct: n.memRequestedPct,
+    }));
+    return { rows: list, cpu: clusterUsagePct(dashboard, 'cpu'), mem: clusterUsagePct(dashboard, 'memory') };
+  }, [dashboard]);
+
+  const both = cpu !== null && mem !== null ? (cpu + mem) / 2 : null;
+  const nodeCpu = average(rows.map((r) => r.cpuUsedPct));
+  const nodeMem = average(rows.map((r) => r.memUsedPct));
+  const band = both === null ? null : bandMark(both);
+
   return (
-    <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={trackColor} strokeWidth={strokeWidth} />
-        <circle
-          cx={size / 2} cy={size / 2} r={r}
-          fill="none" stroke={color} strokeWidth={strokeWidth}
-          strokeLinecap="round"
-          strokeDasharray={`${filled} ${circ}`}
-          className="transition-all duration-1000"
+    <div className="space-y-4" data-panel="utilization">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <MetricTile label="Cluster CPU used" value={cpu} format={(v) => formatPercent(v, 1)} source={USAGE_SOURCE} />
+        <MetricTile label="Cluster memory used" value={mem} format={(v) => formatPercent(v, 1)} source={USAGE_SOURCE} />
+        <MetricTile
+          label="Average utilisation"
+          value={both}
+          format={(v) => formatPercent(v)}
+          detail={band ? <StatusMark state={band.state} label={band.label} /> : undefined}
+          source="CPU and memory used, averaged"
+          missingText="Needs both CPU and memory usage"
         />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        {children}
+        <MetricTile
+          label="Average node CPU used"
+          value={nodeCpu.value}
+          format={(v) => formatPercent(v)}
+          detail={`${nodeCpu.n} of ${rows.length} nodes report usage`}
+          source={USAGE_SOURCE}
+          missingText="No node reports usage"
+        />
       </div>
+      {nodeMem.value !== null && (
+        <p className={secondary}>{`Average node memory used: ${formatPercent(nodeMem.value)} over ${nodeMem.n} of ${rows.length} nodes.`}</p>
+      )}
+      <K8sDataTable
+        rows={rows}
+        columns={COLUMNS}
+        rowKey={(r) => r.name}
+        caption={UTILIZATION_CAPTION}
+        initialSort={{ columnId: 'cpuUsed', direction: 'desc' }}
+        emptyState={<p className={`px-4 py-8 text-center ${secondary}`}>The agent reported no nodes.</p>}
+        source={<span className={secondary}>{`Used: ${USAGE_SOURCE}, "—" where a node reports none · Requested: pod requests ÷ node allocatable`}</span>}
+      />
     </div>
   );
-};
-
-const EksPerformanceTab: React.FC<EksPerformanceTabProps> = ({ eksData }) => {
-  const { dashboard } = eksData;
-  if (!dashboard) return null;
-
-  const cpuUsagePercent = dashboard.clusterOverview?.cpuUsagePercent || 0;
-  const memoryUsagePercent = dashboard.clusterOverview?.memoryUsagePercent || 0;
-  const cpuUsageMillicores = dashboard.clusterOverview?.cpuUsageMillicores || 0;
-  const cpuCapacityMillicores = dashboard.clusterOverview?.cpuCapacityMillicores || 0;
-  const memoryUsageBytes = dashboard.clusterOverview?.memoryUsageBytes || 0;
-  const memoryCapacityBytes = dashboard.clusterOverview?.memoryCapacityBytes || 0;
-  const totalNodes = dashboard.clusterOverview?.totalNodes || 0;
-  const totalPods = dashboard.workloadHealth?.pods?.length || 0;
-
-  const allUtilizationNodes = dashboard.resourceUtilization?.nodes || [];
-  const nodeMetrics = dashboard.nodeMetrics?.nodes || [];
-
-  const readyNodes = allUtilizationNodes.filter((utilNode: any) => {
-    const nodeInfo = nodeMetrics.find((n: any) => n.name === utilNode.nodeName);
-    // nodeMetrics may be empty in agent-only mode; fall back to condition string from resourceUtilization
-    return nodeInfo?.ready === true ||
-           utilNode.condition === 'Ready' ||
-           utilNode.condition === 'ready';
-  });
-
-  const getCpuColor = () => {
-    if (cpuUsagePercent >= 80) return '#ef4444';
-    if (cpuUsagePercent >= 60) return '#f59e0b';
-    return '#10b981';
-  };
-
-  const getMemoryColor = () => {
-    if (memoryUsagePercent >= 80) return '#ef4444';
-    if (memoryUsagePercent >= 60) return '#f59e0b';
-    return '#6366f1';
-  };
-
-  const formatBytes = (bytes: number) => `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-  const totalCpuCores = (cpuCapacityMillicores / 1000).toFixed(1);
-  const usedCpuCores = (cpuUsageMillicores / 1000).toFixed(1);
-  const totalMemoryGB = (memoryCapacityBytes / (1024 * 1024 * 1024)).toFixed(1);
-  const usedMemoryGB = (memoryUsageBytes / (1024 * 1024 * 1024)).toFixed(1);
-  const podDensity = totalNodes > 0 ? (totalPods / totalNodes).toFixed(1) : '0';
-  const efficiencyScore = ((cpuUsagePercent + memoryUsagePercent) / 2).toFixed(0);
-  const isOptimal = cpuUsagePercent >= 40 && cpuUsagePercent <= 75 && memoryUsagePercent >= 40 && memoryUsagePercent <= 75;
-  const runningPods = dashboard.workloadHealth?.pods?.filter((p: any) => p.phase === 'Running').length || 0;
-  const avgNodeCpuUsage = readyNodes.length > 0
-    ? (readyNodes.reduce((s: number, n: any) => s + (n.cpuUsagePercent || 0), 0) / readyNodes.length).toFixed(1) : '0';
-  const avgNodeMemUsage = readyNodes.length > 0
-    ? (readyNodes.reduce((s: number, n: any) => s + (n.memoryUsagePercent || 0), 0) / readyNodes.length).toFixed(1) : '0';
-
-
-  return (
-    <div className="space-y-5">
-
-      {/* ── KPI Strip ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg px-5 py-4">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1">ACTIVE NODES</div>
-          <div className="text-[26px] font-semibold leading-none text-[rgba(0,0,0,0.88)]">{readyNodes.length}</div>
-          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">{podDensity} pods/node avg</div>
-        </div>
-        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg px-5 py-4">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1">RUNNING PODS</div>
-          <div className="text-[26px] font-semibold leading-none text-[rgba(0,0,0,0.88)]">{runningPods}</div>
-          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">of {totalPods} total</div>
-        </div>
-        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg px-5 py-4">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1">CPU USAGE</div>
-          <div className={`text-[26px] font-semibold leading-none ${cpuUsagePercent >= 80 ? 'text-[#cf222e]' : cpuUsagePercent >= 60 ? 'text-[#9a6700]' : 'text-[rgba(0,0,0,0.88)]'}`}>{cpuUsagePercent.toFixed(0)}%</div>
-          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">{usedCpuCores} / {totalCpuCores} cores</div>
-        </div>
-        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg px-5 py-4">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] mb-1">MEMORY USAGE</div>
-          <div className={`text-[26px] font-semibold leading-none ${memoryUsagePercent >= 80 ? 'text-[#cf222e]' : memoryUsagePercent >= 60 ? 'text-[#9a6700]' : 'text-[rgba(0,0,0,0.88)]'}`}>{memoryUsagePercent.toFixed(0)}%</div>
-          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">{usedMemoryGB} / {totalMemoryGB} GB</div>
-        </div>
-      </div>
-
-      {/* ── Resource Utilization Gauges ── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg p-5">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">CPU Utilization</span>
-            <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
-              style={cpuUsagePercent >= 80 ? { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }
-                : cpuUsagePercent >= 60 ? { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }
-                : { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }}>
-              {cpuUsagePercent >= 80 ? 'High Load' : cpuUsagePercent >= 60 ? 'Moderate' : 'Healthy'}
-            </span>
-          </div>
-          <div className="flex items-center gap-6">
-            <DonutGauge pct={cpuUsagePercent} color={getCpuColor()} size={140} strokeWidth={12}>
-              <span className="text-[26px] font-semibold" style={{ color: getCpuColor() }}>{cpuUsagePercent.toFixed(0)}</span>
-              <span className="text-[11px] text-[rgba(0,0,0,0.4)]">%</span>
-            </DonutGauge>
-            <div className="flex-1 space-y-3">
-              <div>
-                <div className="flex justify-between text-[11px] text-[rgba(0,0,0,0.4)] mb-1">
-                  <span>Used</span><span className="font-semibold text-[rgba(0,0,0,0.88)]">{Math.round(cpuUsageMillicores)}m / {Math.round(cpuCapacityMillicores)}m</span>
-                </div>
-                <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
-                  <div className="h-full bg-[rgba(0,0,0,0.88)] rounded-full transition-all duration-700" style={{ width: `${cpuUsagePercent}%` }} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-3">
-                  <div className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1">Cores Used</div>
-                  <div className="text-[20px] font-semibold text-[rgba(0,0,0,0.88)]">{usedCpuCores}</div>
-                  <div className="text-[11px] text-[rgba(0,0,0,0.4)]">of {totalCpuCores}</div>
-                </div>
-                <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-3">
-                  <div className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1">Avg / Node</div>
-                  <div className="text-[20px] font-semibold text-[rgba(0,0,0,0.88)]">{avgNodeCpuUsage}%</div>
-                  <div className="text-[11px] text-[rgba(0,0,0,0.4)]">average</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg p-5">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Memory Utilization</span>
-            <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
-              style={memoryUsagePercent >= 80 ? { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }
-                : memoryUsagePercent >= 60 ? { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }
-                : { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }}>
-              {memoryUsagePercent >= 80 ? 'High Load' : memoryUsagePercent >= 60 ? 'Moderate' : 'Healthy'}
-            </span>
-          </div>
-          <div className="flex items-center gap-6">
-            <DonutGauge pct={memoryUsagePercent} color={getMemoryColor()} size={140} strokeWidth={12}>
-              <span className="text-[26px] font-semibold" style={{ color: getMemoryColor() }}>{memoryUsagePercent.toFixed(0)}</span>
-              <span className="text-[11px] text-[rgba(0,0,0,0.4)]">%</span>
-            </DonutGauge>
-            <div className="flex-1 space-y-3">
-              <div>
-                <div className="flex justify-between text-[11px] text-[rgba(0,0,0,0.4)] mb-1">
-                  <span>Used</span><span className="font-semibold text-[rgba(0,0,0,0.88)]">{formatBytes(memoryUsageBytes)} / {formatBytes(memoryCapacityBytes)}</span>
-                </div>
-                <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
-                  <div className="h-full bg-[rgba(0,0,0,0.88)] rounded-full transition-all duration-700" style={{ width: `${memoryUsagePercent}%` }} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-3">
-                  <div className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1">Used</div>
-                  <div className="text-[20px] font-semibold text-[rgba(0,0,0,0.88)]">{usedMemoryGB} GB</div>
-                  <div className="text-[11px] text-[rgba(0,0,0,0.4)]">consumed</div>
-                </div>
-                <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-3">
-                  <div className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1">Avg / Node</div>
-                  <div className="text-[20px] font-semibold text-[rgba(0,0,0,0.88)]">{avgNodeMemUsage}%</div>
-                  <div className="text-[11px] text-[rgba(0,0,0,0.4)]">average</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Node Resource Breakdown ── */}
-      <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-[rgba(0,0,0,0.06)]">
-          <span className="text-sm font-semibold text-[rgba(0,0,0,0.88)]">Node Resource Breakdown</span>
-          <span className="ml-2 text-[11px] text-[rgba(0,0,0,0.4)]">{readyNodes.length} active nodes</span>
-        </div>
-
-        <div className="divide-y divide-[rgba(0,0,0,0.06)]">
-          {readyNodes.map((node: any, index: number) => {
-            const cpuReqPercent = node.cpuRequestsPercent != null ? node.cpuRequestsPercent
-              : (node.cpuCapacity ? (node.cpuRequests / (node.cpuCapacity * 1000)) * 100 : 0);
-            const memReqPercent = node.memoryRequestsPercent != null ? node.memoryRequestsPercent
-              : (node.memoryCapacity ? (node.memoryRequests / (node.memoryCapacity * 1024)) * 100 : 0);
-            const cpu = node.cpuUsagePercent || 0;
-            const mem = node.memoryUsagePercent || 0;
-            const cpuMillicoresNode = Math.round(node.cpuUsageMillicores || 0);
-            const cpuColor = cpu >= 80 ? '#cf222e' : cpu >= 60 ? '#9a6700' : 'rgba(0,0,0,0.88)';
-            const memColor = mem >= 80 ? '#cf222e' : mem >= 60 ? '#9a6700' : 'rgba(0,0,0,0.88)';
-
-            return (
-              <div key={index} className="px-5 py-4 hover:bg-[rgba(0,0,0,0.02)] transition-colors">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="font-mono text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{node.nodeName}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
-                      style={cpu >= 80 ? { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }
-                        : cpu >= 60 ? { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }
-                        : { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }}>
-                      CPU {cpu.toFixed(0)}%
-                    </span>
-                    <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
-                      style={mem >= 80 ? { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }
-                        : mem >= 60 ? { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }
-                        : { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }}>
-                      MEM {mem.toFixed(0)}%
-                    </span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {[
-                    { label: 'CPU Usage', pct: cpu, val: `${cpuMillicoresNode}m`, color: cpuColor },
-                    { label: 'Mem Usage', pct: mem, val: `${Math.round(node.memoryUsageGb || 0)} GB`, color: memColor },
-                    { label: 'CPU Requests', pct: cpuReqPercent, val: node.cpuRequests > 0 ? `${Math.round(node.cpuRequests)}m` : null, color: 'rgba(0,0,0,0.88)' },
-                    { label: 'Mem Requests', pct: memReqPercent, val: node.memoryRequests > 0 ? `${Math.round(node.memoryRequests)} MB` : null, color: 'rgba(0,0,0,0.88)' },
-                  ].map((bar, bi) => (
-                    <div key={bi}>
-                      <div className="flex items-center justify-between text-[11px] mb-1">
-                        <span className="text-[rgba(0,0,0,0.4)]">{bar.label}</span>
-                        <span className="font-semibold" style={{ color: bar.color }}>{(bar.pct || 0).toFixed(1)}%</span>
-                      </div>
-                      <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
-                        <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, bar.pct)}%`, background: bar.color }} />
-                      </div>
-                      {bar.val && <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">{bar.val}</div>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-
-          {readyNodes.length === 0 && (
-            <div className="py-14 text-center">
-              <p className="text-[13px] text-[rgba(0,0,0,0.5)]">No active node metrics available</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Performance Insights ── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg p-5 flex flex-col items-center text-center">
-          <DonutGauge
-            pct={Number(efficiencyScore)}
-            color={Number(efficiencyScore) >= 60 ? '#1a7f37' : Number(efficiencyScore) >= 40 ? '#9a6700' : '#cf222e'}
-            size={120} strokeWidth={10}
-          >
-            <span className="text-[26px] font-semibold" style={{ color: Number(efficiencyScore) >= 60 ? '#1a7f37' : Number(efficiencyScore) >= 40 ? '#9a6700' : '#cf222e' }}>
-              {efficiencyScore}%
-            </span>
-          </DonutGauge>
-          <div className="text-sm font-semibold text-[rgba(0,0,0,0.88)] mt-3">Resource Efficiency</div>
-          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5">Avg CPU + memory utilization</div>
-          <span className="mt-3 rounded-full px-2.5 py-0.5 text-[11px] font-semibold border"
-            style={Number(efficiencyScore) >= 60 ? { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }
-              : Number(efficiencyScore) >= 40 ? { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }
-              : { color: '#cf222e', background: '#ffebe9', borderColor: 'rgba(255,129,130,0.4)' }}>
-            {Number(efficiencyScore) >= 60 ? 'Good utilization' : Number(efficiencyScore) >= 40 ? 'Acceptable' : 'Under-utilized'}
-          </span>
-        </div>
-
-        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg p-5 flex flex-col items-center text-center">
-          <div className="text-[26px] font-semibold text-[rgba(0,0,0,0.88)] mt-4">{podDensity}</div>
-          <div className="text-[11px] text-[rgba(0,0,0,0.4)]">pods/node avg</div>
-          <div className="text-sm font-semibold text-[rgba(0,0,0,0.88)] mt-2">Pod Density</div>
-          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5 mb-3">Workload distribution</div>
-          <div className="grid grid-cols-2 gap-2 w-full">
-            <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-3">
-              <div className="text-[11px] text-[rgba(0,0,0,0.4)]">Total</div>
-              <div className="text-[20px] font-semibold text-[rgba(0,0,0,0.88)]">{totalPods}</div>
-            </div>
-            <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-3">
-              <div className="text-[11px] text-[rgba(0,0,0,0.4)]">Running</div>
-              <div className="text-[20px] font-semibold text-[#1a7f37]">{runningPods}</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-lg p-5 flex flex-col items-center text-center">
-          <div className="text-sm font-semibold text-[rgba(0,0,0,0.88)] mt-2">Allocation Status</div>
-          <div className="text-[11px] text-[rgba(0,0,0,0.4)] mt-0.5 mb-3">{isOptimal ? 'Resources in optimal 40–75% band' : 'Resources outside optimal range'}</div>
-          <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold border mb-4"
-            style={isOptimal ? { color: '#1a7f37', background: '#dafbe1', borderColor: 'rgba(74,194,107,0.4)' }
-              : { color: '#9a6700', background: '#fff8c5', borderColor: 'rgba(212,167,44,0.4)' }}>
-            {isOptimal ? 'Optimized' : 'Needs Tuning'}
-          </span>
-          <div className="grid grid-cols-2 gap-2 w-full">
-            <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-3">
-              <div className="text-[11px] font-medium uppercase text-[rgba(0,0,0,0.4)]">CPU</div>
-              <div className="text-[20px] font-semibold" style={{ color: cpuUsagePercent >= 80 ? '#cf222e' : 'rgba(0,0,0,0.88)' }}>{cpuUsagePercent.toFixed(0)}%</div>
-            </div>
-            <div className="border border-[rgba(0,0,0,0.12)] rounded-lg p-3">
-              <div className="text-[11px] font-medium uppercase text-[rgba(0,0,0,0.4)]">Memory</div>
-              <div className="text-[20px] font-semibold" style={{ color: memoryUsagePercent >= 80 ? '#cf222e' : 'rgba(0,0,0,0.88)' }}>{memoryUsagePercent.toFixed(0)}%</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-    </div>
-  );
-};
-
-export default EksPerformanceTab;
+}
