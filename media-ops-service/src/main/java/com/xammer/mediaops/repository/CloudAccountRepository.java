@@ -12,4 +12,10 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
      * client so one tenant can never target another tenant's account.
      */
     Optional<CloudAccount> findByAwsAccountIdAndClientId(String awsAccountId, Long clientId);
+
+    /**
+     * Every AWS account a client has connected. Used to work out which account owns a
+     * source bucket for jobs created before the source location was recorded on the row.
+     */
+    java.util.List<CloudAccount> findByClientIdAndProvider(Long clientId, String provider);
 }

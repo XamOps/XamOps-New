@@ -32,6 +32,7 @@ public class TranscodeJobService {
     private final S3StorageService s3Storage;
     private final UserS3Service userS3Service;
     private final AccountS3Service accountS3Service;
+    private final SourceUrlResolver sourceUrlResolver;
     private final SimpMessagingTemplate messaging;
     private final NotificationService notificationService;
 
@@ -41,6 +42,7 @@ public class TranscodeJobService {
                                S3StorageService s3Storage,
                                UserS3Service userS3Service,
                                AccountS3Service accountS3Service,
+                               SourceUrlResolver sourceUrlResolver,
                                SimpMessagingTemplate messaging,
                                NotificationService notificationService) {
         this.jobRepo = jobRepo;
@@ -49,6 +51,7 @@ public class TranscodeJobService {
         this.s3Storage = s3Storage;
         this.userS3Service = userS3Service;
         this.accountS3Service = accountS3Service;
+        this.sourceUrlResolver = sourceUrlResolver;
         this.messaging = messaging;
         this.notificationService = notificationService;
     }
@@ -71,6 +74,15 @@ public class TranscodeJobService {
         job.setClientId(clientId);
         job.setSourceUrl(req.getSourceUrl());
         job.setSourceKey(req.getSourceKey());
+
+        // Where the source lives, so the presigned sourceUrl above can be regenerated
+        // when the job actually runs. Without this the job is stuck with a link that
+        // expires long before a queued, scheduled or retried run gets to it.
+        job.setSourceBucket(req.getSourceBucket());
+        job.setSourceRegion(req.getSourceRegion());
+        job.setSourceAccountId(req.getSourceAccountId());
+        job.setSourceS3ConfigId(req.getSourceS3ConfigId());
+
         job.setResolution(req.getResolution());
         job.setBitrate(req.getBitrate());
         job.setFps(req.getFps());
@@ -165,6 +177,27 @@ public class TranscodeJobService {
     public void processJobAsync(Long jobId) {
         TranscodeJob job = jobRepo.findById(jobId).orElse(null);
         if (job == null) return;
+
+        // Renew the source link before touching it. The URL stored at submit time is a
+        // presigned link that has very likely expired by now — this job may have spent
+        // hours in the queue, been scheduled for later, or been retried days afterwards.
+        // Signing again here is what makes a retry able to succeed; replaying the stored
+        // URL could only ever reproduce the original 403.
+        try {
+            // resolve() may also fill in a source location it had to discover, so save
+            // unconditionally rather than only when the URL text changed.
+            job.setSourceUrl(sourceUrlResolver.resolve(job));
+            jobRepo.save(job);
+        } catch (SourceUrlResolver.SourceUnavailableException e) {
+            log.warn("[MediaOps] Job {} cannot start: {}", jobId, e.getMessage());
+            job.setStatus(TranscodeJob.JobStatus.FAILED);
+            job.setErrorMessage(e.getMessage());
+            job.setCompletedAt(Instant.now());
+            jobRepo.save(job);
+            broadcast(job);
+            notificationService.notifyJobFailed(job);
+            return;
+        }
 
         int duration = ffmpegService.probeDurationSeconds(job.getSourceUrl());
         if (duration > 0) job.setDurationSeconds(duration);

@@ -364,7 +364,19 @@ export function S3ImportTab({ onCreateJob }: S3ImportTabProps) {
     sourceUrl: string,
     opts: { outputFormat: string; resolution: string; enableAdaptive: boolean }
   ) => {
-    await onCreateJob({ sourceUrl, ...opts });
+    // Send where the object lives alongside the presigned URL. The URL expires, so the
+    // backend re-signs from these when the job actually starts — otherwise a job that
+    // queues behind others or gets retried later fails with a 403 it can never recover from.
+    await onCreateJob({
+      sourceUrl,
+      ...(transcodeFile ? {
+        sourceKey: transcodeFile.key,
+        sourceBucket: transcodeFile.bucket,
+        sourceRegion: transcodeFile.region,
+        sourceAccountId: activeAccountId ?? undefined,
+      } : {}),
+      ...opts,
+    });
     setSuccessMsg('Job queued! Check the Transcode tab for progress.');
     setTimeout(() => setSuccessMsg(null), 5000);
   };

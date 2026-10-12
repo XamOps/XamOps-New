@@ -142,6 +142,7 @@ public class S3BrowserController {
                     // The zero-byte marker S3 creates for a "folder" is returned as an
                     // object at this level; it is not a file the user can pick.
                     if (key.endsWith("/")) continue;
+                    if (isSidecar(key)) continue;
                     String ext = extension(key);
                     if (!VIDEO_EXTENSIONS.contains(ext)) continue;
                     files.add(fileItem(obj, ext, bucket, region));
@@ -196,6 +197,7 @@ public class S3BrowserController {
                 for (S3Object obj : resp.contents()) {
                     String key = obj.key();
                     if (key.endsWith("/")) continue;
+                    if (isSidecar(key)) continue;
                     String ext = extension(key);
                     if (!VIDEO_EXTENSIONS.contains(ext)) continue;
                     items.add(fileItem(obj, ext, bucket, region));
@@ -241,6 +243,15 @@ public class S3BrowserController {
             }
 
             AwsCredentialsProvider creds = buildCredentialsProvider(account);
+
+            // A presigned URL cannot outlive the credentials that signed it: when those are
+            // STS session credentials, the link starts returning 403 the moment the session
+            // ends, regardless of X-Amz-Expires. Signing for longer than the session lasts
+            // therefore produces a URL that advertises validity it does not have — which is
+            // how MediaOps ended up with stored links stamped X-Amz-Expires=43200 that were
+            // dead within the hour. Cap the request to what the session can actually back.
+            int effectiveExpiry = capToCredentialLifetime(creds, expiry);
+
             S3Presigner presigner = S3Presigner.builder()
                     .region(Region.of(region))
                     .credentialsProvider(creds)
@@ -249,12 +260,12 @@ public class S3BrowserController {
             String url;
             try (presigner) {
                 url = presigner.presignGetObject(GetObjectPresignRequest.builder()
-                        .signatureDuration(Duration.ofMinutes(expiry))
+                        .signatureDuration(Duration.ofMinutes(effectiveExpiry))
                         .getObjectRequest(r -> r.bucket(bucket).key(key))
                         .build()).url().toString();
             }
 
-            return ResponseEntity.ok(Map.of("url", url, "expiresInMinutes", expiry));
+            return ResponseEntity.ok(Map.of("url", url, "expiresInMinutes", effectiveExpiry));
         } catch (Exception e) {
             log.error("[S3Browser] presign failed for {}/{}: {}", bucket, key, e.getMessage());
             return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
@@ -345,6 +356,34 @@ public class S3BrowserController {
         return name.endsWith("/") ? name.substring(0, name.length() - 1) : name;
     }
 
+    /**
+     * Shrink a requested presign window to the signing credentials' remaining lifetime,
+     * less a small margin so a link does not expire on its last byte.
+     *
+     * <p>Long-lived credentials report no expiry, in which case the request stands.
+     */
+    private static int capToCredentialLifetime(AwsCredentialsProvider provider, int requestedMinutes) {
+        try {
+            var credentials = provider.resolveCredentials();
+            if (!(credentials instanceof software.amazon.awssdk.auth.credentials.AwsSessionCredentials session)) {
+                return requestedMinutes;
+            }
+            java.time.Instant expiry = session.expirationTime().orElse(null);
+            if (expiry == null) return requestedMinutes;
+
+            long usable = Duration.between(java.time.Instant.now(), expiry).toMinutes() - 5;
+            if (usable < 1) usable = 1;
+            if (usable >= requestedMinutes) return requestedMinutes;
+            log.debug("[S3Browser] Presign window trimmed from {} to {} min by the signing session",
+                    requestedMinutes, usable);
+            return (int) usable;
+        } catch (Exception e) {
+            // Never block a presign over this; the uncapped window is the old behaviour.
+            log.debug("[S3Browser] Could not read credential expiry: {}", e.getMessage());
+            return requestedMinutes;
+        }
+    }
+
     private AwsCredentialsProvider buildCredentialsProvider(CloudAccount account) {
         if (account.getRoleArn() != null && !account.getRoleArn().isBlank()) {
             return StsAssumeRoleCredentialsProvider.builder()
@@ -368,6 +407,22 @@ public class S3BrowserController {
     private static String fileName(String key) {
         int slash = key.lastIndexOf('/');
         return slash >= 0 ? key.substring(slash + 1) : key;
+    }
+
+    /**
+     * True for the bookkeeping files macOS writes alongside real ones when copying to a
+     * non-Apple filesystem — {@code ._Movie.mp4}, {@code __MACOSX/…}, {@code .DS_Store}.
+     *
+     * <p>An AppleDouble sidecar carries the original's name and extension but holds
+     * resource-fork metadata, not video, so extension matching alone lists it as a
+     * selectable source. Picking one produces a job that cannot succeed: FFmpeg reads a
+     * few hundred bytes of nothing and exits. Keeping them out of the listing is the only
+     * point where the distinction is still obvious.
+     */
+    private static boolean isSidecar(String key) {
+        String name = fileName(key);
+        return name.startsWith("._") || name.equals(".DS_Store") || key.startsWith("__MACOSX/")
+                || key.contains("/__MACOSX/");
     }
 
     private static String formatBytes(long bytes) {

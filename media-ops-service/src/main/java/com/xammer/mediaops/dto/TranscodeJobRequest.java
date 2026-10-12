@@ -12,6 +12,17 @@ public class TranscodeJobRequest {
     // Output is written under a mirror of this path so results are identifiable.
     private String sourceKey;
 
+    // Also set by the S3 browser: where the source object lives. Recorded on the job so
+    // the presigned sourceUrl can be regenerated right before FFmpeg runs — a presigned
+    // URL minted at submit time is already stale by the time a queued, scheduled or
+    // retried job actually starts.
+    private String sourceBucket;
+    private String sourceRegion;
+    /** AWS account number whose onboarding IAM role can read the source bucket. */
+    private String sourceAccountId;
+    /** Alternatively, the id of a key-based connected bucket (user_s3_configs). */
+    private Long sourceS3ConfigId;
+
     private String outputFormat = "HLS";
     private String resolution = "1080p";
     private String bitrate;

@@ -56,8 +56,15 @@ export interface S3PickedFile {
   bucket: string;
   /** Full key, e.g. "DRSAKSHI/1.mp4" — mirrored into the output path so results are identifiable. */
   key: string;
-  /** Presigned URL the transcoder reads the source from. */
+  /**
+   * Presigned URL the transcoder reads the source from. Short-lived by nature, which is
+   * why bucket/region/accountId travel with it: the backend re-signs from those when the
+   * job actually runs, so a job that waits in the queue or gets retried later still works.
+   */
   url: string;
+  region: string;
+  /** AWS account the bucket belongs to — needed to re-sign the URL later. */
+  accountId: string;
 }
 
 interface S3PickerModalProps {
@@ -172,6 +179,8 @@ export function S3PickerModal({ onSelect, onClose }: S3PickerModalProps) {
         formattedSize: file.formattedSize,
         bucket: file.bucket,
         key: file.key,
+        region: file.region,
+        accountId: activeAccountId,
         url: await apiPresign(activeAccountId, file.bucket, file.key, file.region, 720),
       })));
       onSelect(picked);

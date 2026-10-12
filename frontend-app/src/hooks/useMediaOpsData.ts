@@ -69,6 +69,12 @@ export interface CreateJobRequest {
   // Key the source was picked from in S3, e.g. "DRSAKSHI/1.mp4". Sent only for
   // browser-picked sources; the backend mirrors it into the output path.
   sourceKey?: string;
+  // Where the source object lives. sourceUrl is a presigned link that expires, so the
+  // backend re-signs it from these at the moment the job runs — without them a job that
+  // waits in the queue, runs on a schedule, or is retried later fails with a 403.
+  sourceBucket?: string;
+  sourceRegion?: string;
+  sourceAccountId?: string;
   outputFormat: string;
   resolution: string;
   bitrate?: string;

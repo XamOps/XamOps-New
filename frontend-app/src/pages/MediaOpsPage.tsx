@@ -637,13 +637,20 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
       };
 
       // One entry per source. Files picked from S3 carry their key so output mirrors the
-      // input path; a pasted URL or upload has no key and keeps the jobs/<id> layout.
-      const sources: Array<{ url: string; key?: string }> = s3PickedFiles.length > 0
-        ? s3PickedFiles.map(f => ({ url: f.url, key: f.key }))
+      // input path, plus the bucket/region/account the object lives in so the backend can
+      // re-sign the presigned URL when the job runs. A pasted URL or upload has neither and
+      // keeps the jobs/<id> layout.
+      type Source = {
+        url: string; key?: string; bucket?: string; region?: string; accountId?: string;
+      };
+      const sources: Source[] = s3PickedFiles.length > 0
+        ? s3PickedFiles.map(f => ({
+            url: f.url, key: f.key, bucket: f.bucket, region: f.region, accountId: f.accountId,
+          }))
         : [{ url: finalSourceUrl }];
 
       const buildRequest = (
-        source: { url: string; key?: string },
+        source: Source,
         fmt: string, res: string, jobPriority: 'HIGH' | 'NORMAL' | 'LOW',
       ): CreateJobRequest => {
         const req: CreateJobRequest = {
@@ -653,6 +660,9 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
           enableAdaptive: enableHLS && (fmt === 'HLS' || fmt === 'DASH'),
         };
         if (source.key) req.sourceKey = source.key;
+        if (source.bucket) req.sourceBucket = source.bucket;
+        if (source.region) req.sourceRegion = source.region;
+        if (source.accountId) req.sourceAccountId = source.accountId;
         if (bitrate.trim()) req.bitrate = bitrate.trim();
         req.encodingSpeed = encodingSpeed;
         if (jobPriority !== 'NORMAL') req.priority = jobPriority;
@@ -731,6 +741,9 @@ function TranscodeTab({ jobs, loading, onCreateJob, onUploadFile, onRetryJob, on
               enableAdaptive: true,
             };
             if (source.key) bundleReq.sourceKey = source.key;
+            if (source.bucket) bundleReq.sourceBucket = source.bucket;
+            if (source.region) bundleReq.sourceRegion = source.region;
+            if (source.accountId) bundleReq.sourceAccountId = source.accountId;
             if (bitrate.trim()) bundleReq.bitrate = bitrate.trim();
             bundleReq.encodingSpeed = encodingSpeed;
             applyOutputDest(bundleReq);

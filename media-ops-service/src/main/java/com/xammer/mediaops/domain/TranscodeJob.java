@@ -33,6 +33,28 @@ public class TranscodeJob {
     @Column(name = "source_key", columnDefinition = "TEXT")
     private String sourceKey;
 
+    // Where the source object lives, so sourceUrl can be presigned again at the moment
+    // FFmpeg starts. sourceUrl on its own is not enough: it expires (X-Amz-Expires) and,
+    // when signed with STS session credentials, dies with that session — which is why a
+    // job that waited in the queue, ran on a schedule, or was retried the next day used
+    // to fail "HTTP error 403 Forbidden" permanently, however often it was retried.
+    //
+    // sourceAccountId + sourceBucket means "a bucket in the customer's connected AWS
+    // account, read through that account's onboarding IAM role"; sourceS3ConfigId means
+    // "a key-based connected bucket (user_s3_configs)". Both are null for pasted URLs and
+    // local uploads, which have nothing to re-sign.
+    @Column(name = "source_bucket", length = 255)
+    private String sourceBucket;
+
+    @Column(name = "source_region", length = 64)
+    private String sourceRegion;
+
+    @Column(name = "source_account_id", length = 64)
+    private String sourceAccountId;
+
+    @Column(name = "source_s3_config_id")
+    private Long sourceS3ConfigId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "output_format", nullable = false, length = 20)
     private OutputFormat outputFormat;

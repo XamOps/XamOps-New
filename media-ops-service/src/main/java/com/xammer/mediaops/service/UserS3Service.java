@@ -113,6 +113,7 @@ public class UserS3Service {
                 for (S3Object obj : resp.contents()) {
                     String key = obj.key();
                     if (key.endsWith("/")) continue; // skip folder markers
+                    if (isSidecar(key)) continue;
 
                     String ext = extension(key);
                     if (!VIDEO_EXTENSIONS.contains(ext)) continue;
@@ -355,6 +356,20 @@ public class UserS3Service {
     private static String fileName(String key) {
         int slash = key.lastIndexOf('/');
         return slash >= 0 ? key.substring(slash + 1) : key;
+    }
+
+    /**
+     * True for the bookkeeping files macOS writes alongside real ones when copying to a
+     * non-Apple filesystem — {@code ._Movie.mp4}, {@code __MACOSX/…}, {@code .DS_Store}.
+     *
+     * <p>An AppleDouble sidecar carries the original's name and extension but holds
+     * resource-fork metadata, not video, so extension matching alone lists it as a
+     * selectable source and the resulting job cannot succeed.
+     */
+    private static boolean isSidecar(String key) {
+        String name = fileName(key);
+        return name.startsWith("._") || name.equals(".DS_Store") || key.startsWith("__MACOSX/")
+                || key.contains("/__MACOSX/");
     }
 
     private static String formatBytes(long bytes) {
