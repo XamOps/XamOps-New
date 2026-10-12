@@ -153,6 +153,23 @@ describe('ClusterSectionsNav (Addendum 1)', () => {
     expect(sectionLink('automation')).not.toHaveAttribute('aria-describedby');
   });
 
+  it('is reachable with the keyboard in DOM order, each link with a visible focus ring', async () => {
+    const user = userEvent.setup();
+    renderAt(`${BASE}&tab=workloads&sub=pods`);
+    const reached: string[] = [];
+    for (let i = 0; i < 11; i += 1) {
+      await user.tab();
+      const el = document.activeElement as HTMLElement;
+      expect(el.tagName).toBe('A');
+      expect(el.className).toContain('focus-visible:ring-2');
+      reached.push(el.dataset.section ?? el.dataset.sub ?? el.textContent ?? '');
+    }
+    expect(reached).toEqual([ALL_CLUSTERS_LABEL, 'overview', 'cost', 'workloads', 'workloads', 'pods', 'containers', 'resources', 'nodes', 'automation', 'security']);
+    // Navigation semantics, not a tablist.
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(screen.queryByRole('tab')).toBeNull();
+  });
+
   it('follows the sidebar theme, in greyscale', () => {
     renderAt(`${BASE}&tab=nodes&sub=nodes`, true);
     expect(sectionLink('nodes').className).toContain('text-white');

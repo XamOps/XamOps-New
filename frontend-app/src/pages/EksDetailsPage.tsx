@@ -3,9 +3,11 @@
  *
  * Validates the link (a bad one goes back to /cloudk8s with a notice), loads capabilities for the
  * account, and renders the header, the dashboard's loading and error states, the diagnostics panel
- * with `?debug=true`, the summary cards, and the primary sections as WAI-ARIA tabs. `?tab=&sub=`
- * belongs to useEksSectionRoute. Each section is its own lazy chunk inside Suspense and an
- * ErrorBoundary, so a section that fails leaves the rest of the page working.
+ * with `?debug=true`, the summary cards, and the section the URL names under a heading. `?tab=&sub=`
+ * belongs to useEksSectionRoute; the sections and subtabs are links in the left sidebar
+ * (ClusterSectionsNav, implementation plan Addendum 1), not a tab strip. Each section is its own lazy
+ * chunk inside Suspense and an ErrorBoundary, so a section that fails leaves the rest of the page
+ * working.
  */
 import React, { Suspense, lazy, useCallback, useState } from 'react';
 import { Icon } from '@iconify/react';
@@ -19,7 +21,6 @@ import { isDemoMode } from '../demo/demoConfig';
 import { resolveClusterVersion } from '../utils/k8sVersion';
 import { parseClusterLink, type ClusterLink } from '../utils/k8sClusterLink';
 import ErrorBoundary from '../components/Shared/ErrorBoundary';
-import { SectionTabs } from '../components/CloudK8s/shared/SectionTabs';
 import { ClusterHeader } from '../components/EksDetails/ClusterHeader';
 import EksSummaryCards from '../components/EksDetails/EksSummaryCards';
 import EksDiagnosticsPanel from '../components/EksDetails/EksDiagnosticsPanel';
@@ -65,12 +66,11 @@ function PageSkeleton() {
   );
 }
 
-/** Section-shaped: a subtab bar, a row of tiles and a table (§15). */
+/** Section-shaped: a row of tiles and a table (§15). */
 function SectionSkeleton() {
   return (
     <div className="space-y-3" aria-busy="true">
       <span className="sr-only">Loading section…</span>
-      <div className={`h-8 w-72 ${block}`} />
       <div className="grid grid-cols-3 gap-3">
         {[0, 1, 2].map((i) => <div key={i} className={`h-24 ${block}`} />)}
       </div>
@@ -107,6 +107,29 @@ function LoadError({ message, onRetry }: { message: string; onRetry: () => void 
           Retry
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Names the section and subtab on screen (Addendum 1, J-7). The sidebar lists them as links
+ * (ClusterSectionsNav), so this is what tells a screen reader the content changed: the heading sits
+ * in a polite live region and is announced as "Workloads, Pods" when the URL moves on.
+ */
+function SectionHeading({ route }: { route: EksSectionProps['route'] }) {
+  const sub = route.section.subs.find((s) => s.id === route.sub) ?? route.section.subs[0];
+  return (
+    <div aria-live="polite" aria-atomic="true">
+      <h2 className="text-[16px] font-semibold text-[rgba(0,0,0,0.88)]" data-section-heading="">
+        {route.section.label}
+        {sub && (
+          <>
+            {/* The space is a text node of its own: names trim the inside of a span. */}
+            <span aria-hidden="true" className="ml-1.5 font-normal text-[rgba(0,0,0,0.4)]">›</span>
+            <span className="sr-only">,</span> {sub.label}
+          </>
+        )}
+      </h2>
     </div>
   );
 }
@@ -171,19 +194,13 @@ function ClusterPage({ link, debug }: { link: ClusterLink; debug: boolean }) {
 
             <EksSummaryCards eksData={eksData} clusterVersion={clusterVersion} />
 
-            <SectionTabs
-              variant="primary"
-              label="Cluster sections"
-              items={route.registry}
-              selectedKey={route.tab}
-              onSelectionChange={(tab) => route.select(tab)}
-              // Today's tabs still read eks-details.css through this class (removed in item 31); the
-              // overrides drop the page-level min-height and tinted background it also sets.
-              panelClassName="eks-details-page !min-h-0 !bg-transparent"
-              renderPanel={(tab) => (
-                <SectionPanel tab={tab} clusterName={clusterName} eksData={eksData} route={route} />
-              )}
-            />
+            <SectionHeading route={route} />
+
+            {/* Today's tabs still read eks-details.css through this class (removed in item 31); the
+                overrides drop the page-level min-height and tinted background it also sets. */}
+            <div className="eks-details-page !min-h-0 !bg-transparent">
+              <SectionPanel tab={route.tab} clusterName={clusterName} eksData={eksData} route={route} />
+            </div>
           </>
         )}
       </div>

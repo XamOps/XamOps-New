@@ -406,6 +406,7 @@ Verification: the verification contract, the existing Sidebar, XamSecure and Xam
 - **A5. `aria-current`.** `page` on the active section entry and on the active subtab entry, each the current item of its own list (J-7).
 - **A6. Icons and focus.** Section entries use the registry's `mdi:*` ids through `@iconify/react` (the sidebar's `NavIcon` resolves Font Awesome tokens only), greyscale when active; the focus ring is inset because `SubNav` clips overflow.
 - **A7. Dark theme.** The app has no control that sets the dark theme (`ThemeProvider` starts light and nothing calls `setTheme`); the dark styling follows `NavItem`'s and is covered by a unit test and by the headless pass switching the theme context.
+- **A8. The content heading, and `SectionTabs` deleted (J-6, J-7).** Nothing else used `SectionTabs`, so it and its tests are deleted. `SectionSubtabs` becomes `SectionSubPanel`, which renders only the panel the URL names. The content area names the section and subtab in an `h2` ("Workloads › Pods", read as "Workloads, Pods") inside a polite, atomic live region: a sidebar click leaves focus in the sidebar, so the change is announced rather than focused. The page tests assert the heading, the sidebar's `aria-current` and the absence of any tablist; the resolver and legacy-map tests are unchanged. The context row uses `mdi:kubernetes` in grey, not the coloured AWS service image.
 
 ## Part B: the demo cut (only when the orchestrator says "do the demo cut now")
 

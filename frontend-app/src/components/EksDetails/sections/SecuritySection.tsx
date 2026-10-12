@@ -3,14 +3,13 @@
  * tab (P2); Compliance and Runtime split out of it in slice 2.
  */
 import EksSecurityTab from '../tabs/EksSecurityTab';
-import { SectionSubtabs } from './SectionSubtabs';
+import { SectionSubPanel } from './SectionSubPanel';
 import type { EksSectionProps } from './sectionTypes';
 
 export default function SecuritySection({ eksData, route }: EksSectionProps) {
   return (
-    <SectionSubtabs
+    <SectionSubPanel
       sectionId="security"
-      label="Security views"
       route={route}
       renderPanel={(sub) => (sub === 'vulnerabilities' ? <EksSecurityTab eksData={eksData} /> : null)}
     />

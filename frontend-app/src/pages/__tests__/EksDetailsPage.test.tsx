@@ -71,6 +71,8 @@ import { CONTRACT_BLOCK_MESSAGE } from '../../api/verticalRightsizerAdapter';
 import { DEMO_MODE_KEY } from '../../demo/demoConfig';
 import { demoCapabilities } from '../../demo/k8sAutomationMockData';
 import { SYNC_TIMEOUT_TEXT, VERSION_NOT_REPORTED } from '../../components/EksDetails/ClusterHeader';
+import { CLUSTER_SECTIONS_LABEL, ClusterSectionsNav } from '../../components/CloudK8s/shared/ClusterSectionsNav';
+import { EKS_SECTIONS } from '../../hooks/useEksSectionRoute';
 import type { CapabilitiesDto } from '../../types/k8sAutomation';
 
 const ACCOUNT = '123456789012';
@@ -118,11 +120,13 @@ function LocationProbe() {
   );
 }
 
-function renderAt(url: string) {
+/** `withNav` adds the sidebar's cluster sections, as the layout renders them beside the page. */
+function renderAt(url: string, { withNav = false }: { withNav?: boolean } = {}) {
   return render(
     <TopbarProvider>
       <MemoryRouter initialEntries={[url]}>
         <TopbarOutlet />
+        {withNav && <ClusterSectionsNav dark={false} />}
         <Routes>
           <Route path="/eks-details" element={<EksDetailsPage />} />
           <Route path="/cloudk8s" element={<CloudK8sPage />} />
@@ -135,7 +139,9 @@ function renderAt(url: string) {
 
 const currentUrl = () => new URL(screen.getByTestId('location').textContent ?? '', 'http://test');
 const find = (text: string | RegExp) => screen.findByText(text, undefined, { timeout: 4000 });
-const primaryTabs = () => screen.getByRole('tablist', { name: 'Cluster sections' });
+/** The content area's heading, "Section, Subtab" to assistive tech (shown as "Section › Subtab"). */
+const sectionHeading = (name: string) => screen.getByRole('heading', { level: 2, name });
+const anySectionHeading = () => document.querySelector('[data-section-heading]');
 const topbar = () => screen.getByTestId('topbar');
 
 beforeEach(() => {
@@ -153,17 +159,17 @@ afterEach(() => {
 
 describe('legacy ?tab= links (§5.2)', () => {
   it.each([
-    ['overview', 'overview', 'summary', 'Overview', null, 'Overview tab content'],
+    ['overview', 'overview', 'summary', 'Overview', 'Summary', 'Overview tab content'],
     ['performance', 'nodes', 'utilization', 'Nodes', 'Utilization', 'Performance tab content'],
     ['workloads', 'workloads', 'workloads', 'Workloads', 'Workloads', 'Workloads tab content'],
     ['pods', 'workloads', 'pods', 'Workloads', 'Pods', 'Pods tab content'],
     ['containers', 'workloads', 'containers', 'Workloads', 'Containers', 'Containers tab content'],
     ['nodes', 'nodes', 'nodes', 'Nodes', 'Nodes', 'Nodes tab content'],
     ['resources', 'workloads', 'resources', 'Workloads', 'Resources', 'Resources tab content'],
-    ['security', 'security', 'vulnerabilities', 'Security', null, 'Security tab content'],
-    ['cost', 'cost', 'cluster', 'Cost', null, 'Cost tab content'],
+    ['security', 'security', 'vulnerabilities', 'Security', 'Vulnerabilities', 'Security tab content'],
+    ['cost', 'cost', 'cluster', 'Cost', 'Cluster', 'Cost tab content'],
     ['karpenter', 'nodes', 'karpenter', 'Nodes', 'Karpenter', 'Karpenter tab content'],
-    ['autoscaling', 'automation', 'overview', 'Automation', null, AUTOMATION_HEADING],
+    ['autoscaling', 'automation', 'overview', 'Automation', 'Overview', AUTOMATION_HEADING],
   ])('?tab=%s lands on %s › %s with today\'s content', async (legacy, tab, sub, primaryLabel, subLabel, content) => {
     renderAt(`${BASE}&tab=${legacy}`);
     expect(await find(content)).toBeInTheDocument();
@@ -176,32 +182,64 @@ describe('legacy ?tab= links (§5.2)', () => {
     expect(params.get('region')).toBe('us-east-1');
     expect(params.get('accountIds')).toBe(ACCOUNT);
 
-    expect(within(primaryTabs()).getByRole('tab', { selected: true })).toHaveTextContent(primaryLabel);
-    if (subLabel) {
-      const subTabs = screen.getByRole('tablist', { name: `${primaryLabel} views` });
-      expect(within(subTabs).getByRole('tab', { selected: true })).toHaveTextContent(subLabel);
-    }
+    // The content area names what it shows; there is no tab strip (Addendum 1, J-6, J-7).
+    expect(sectionHeading(`${primaryLabel}, ${subLabel}`)).toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(screen.queryByRole('tab')).toBeNull();
   });
 
   it('opens Overview › Summary for a plain link without rewriting it', async () => {
     renderAt(BASE);
     expect(await find('Overview tab content')).toBeInTheDocument();
     expect(currentUrl().searchParams.has('tab')).toBe(false);
+    expect(sectionHeading('Overview, Summary')).toBeInTheDocument();
+  });
+});
+
+describe('sidebar section navigation (Addendum 1)', () => {
+  it.each(
+    EKS_SECTIONS.flatMap((section) => section.subs.map((sub) => [section.id, sub.id, section.label, sub.label] as const)),
+  )('?tab=%s&sub=%s shows "%s, %s" with no tablist', async (tab, sub, sectionLabel, subLabel) => {
+    renderAt(`${BASE}&tab=${tab}&sub=${sub}`, { withNav: true });
+    expect(await screen.findByRole('heading', { level: 2, name: `${sectionLabel}, ${subLabel}` }, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).toBeNull();
+    // The sidebar marks the same section and subtab as current.
+    const nav = screen.getByRole('navigation', { name: CLUSTER_SECTIONS_LABEL });
+    expect(nav.querySelector(`a[data-section="${tab}"]`)).toHaveAttribute('aria-current', 'page');
+    expect(nav.querySelector(`a[data-sub="${sub}"]`)).toHaveAttribute('aria-current', 'page');
+    // The URL was already right, so nothing rewrote it.
+    expect(currentUrl().searchParams.get('tab')).toBe(tab);
+    expect(currentUrl().searchParams.get('sub')).toBe(sub);
   });
 
-  it('switches sections and subtabs through the URL', async () => {
+  it('switches sections and subtabs through the sidebar links, without refetching', async () => {
     const user = userEvent.setup();
-    renderAt(BASE);
+    renderAt(BASE, { withNav: true });
     await find('Overview tab content');
+    const nav = screen.getByRole('navigation', { name: CLUSTER_SECTIONS_LABEL });
 
-    await user.click(within(primaryTabs()).getByRole('tab', { name: 'Workloads' }));
+    await user.click(within(nav).getByRole('link', { name: 'Workloads' }));
     expect(await find('Workloads tab content')).toBeInTheDocument();
     expect(currentUrl().searchParams.get('tab')).toBe('workloads');
     expect(currentUrl().searchParams.get('sub')).toBe('workloads');
 
-    await user.click(within(screen.getByRole('tablist', { name: 'Workloads views' })).getByRole('tab', { name: 'Pods' }));
+    await user.click(within(nav).getByRole('link', { name: 'Pods' }));
     expect(await find('Pods tab content')).toBeInTheDocument();
     expect(currentUrl().searchParams.get('sub')).toBe('pods');
+    // Every cluster parameter is kept.
+    expect(currentUrl().searchParams.get('name')).toBe('prod-eks-cluster');
+    expect(currentUrl().searchParams.get('accountIds')).toBe(ACCOUNT);
+
+    // The heading changed in a polite live region, so the switch is announced.
+    const heading = sectionHeading('Workloads, Pods');
+    expect(heading.closest('[aria-live="polite"]')).not.toBeNull();
+    expect(heading.closest('[aria-live="polite"]')).toHaveAttribute('aria-atomic', 'true');
+
+    // The page stayed mounted: one capabilities request, the dashboard hook always on the same link.
+    expect(getCapabilities).toHaveBeenCalledTimes(1);
+    for (const [args] of useEksDashboard.mock.calls) {
+      expect(args).toEqual({ clusterName: 'prod-eks-cluster', accountId: ACCOUNT, region: 'us-east-1', version: null });
+    }
   });
 });
 
@@ -385,7 +423,7 @@ describe('cluster page shell', () => {
     renderAt(BASE);
     expect(await find("Couldn't load this cluster")).toBeInTheDocument();
     expect(screen.getByText('HTTP 500: upstream failed')).toBeInTheDocument();
-    expect(screen.queryByRole('tablist', { name: 'Cluster sections' })).toBeNull();
+    expect(anySectionHeading()).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(fetchDashboard).toHaveBeenCalledWith(false);
   });
@@ -394,7 +432,7 @@ describe('cluster page shell', () => {
     useEksDashboard.mockReturnValue(dashboardState({ dashboard: null, loading: true }));
     renderAt(BASE);
     expect(screen.getByText('Loading cluster…')).toBeInTheDocument();
-    expect(screen.queryByRole('tablist', { name: 'Cluster sections' })).toBeNull();
+    expect(anySectionHeading()).toBeNull();
   });
 
   it('keeps a failing section to itself, and Try again recovers it', async () => {
@@ -404,7 +442,7 @@ describe('cluster page shell', () => {
     renderAt(`${BASE}&tab=workloads&sub=pods`);
 
     expect(await find("This section couldn't be shown.")).toBeInTheDocument();
-    expect(primaryTabs()).toBeInTheDocument();
+    expect(sectionHeading('Workloads, Pods')).toBeInTheDocument();
     expect(screen.getByText('Summary cards')).toBeInTheDocument();
 
     flags.podsThrows = false;

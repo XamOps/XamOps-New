@@ -6,7 +6,7 @@ import EksNodesTab from '../tabs/EksNodesTab';
 import EksKarpenterTab from '../tabs/EksKarpenterTab';
 import EksPerformanceTab from '../tabs/EksPerformanceTab';
 import type { EksSubtabId } from '../../../types/eksTypes';
-import { SectionSubtabs } from './SectionSubtabs';
+import { SectionSubPanel } from './SectionSubPanel';
 import type { EksSectionProps } from './sectionTypes';
 
 export default function NodesSection({ eksData, route }: EksSectionProps) {
@@ -22,5 +22,5 @@ export default function NodesSection({ eksData, route }: EksSectionProps) {
         return null;
     }
   };
-  return <SectionSubtabs sectionId="nodes" label="Nodes views" route={route} renderPanel={renderPanel} />;
+  return <SectionSubPanel sectionId="nodes" route={route} renderPanel={renderPanel} />;
 }

@@ -7,7 +7,7 @@ import EksPodsTab from '../tabs/EksPodsTab';
 import EksContainersTab from '../tabs/EksContainersTab';
 import EksResourcesTab from '../tabs/EksResourcesTab';
 import type { EksSubtabId } from '../../../types/eksTypes';
-import { SectionSubtabs } from './SectionSubtabs';
+import { SectionSubPanel } from './SectionSubPanel';
 import type { EksSectionProps } from './sectionTypes';
 
 export default function WorkloadsSection({ eksData, route }: EksSectionProps) {
@@ -25,5 +25,5 @@ export default function WorkloadsSection({ eksData, route }: EksSectionProps) {
         return null;
     }
   };
-  return <SectionSubtabs sectionId="workloads" label="Workloads views" route={route} renderPanel={renderPanel} />;
+  return <SectionSubPanel sectionId="workloads" route={route} renderPanel={renderPanel} />;
 }
