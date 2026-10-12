@@ -12,6 +12,8 @@ export interface Account {
   provider: CloudProvider;
   status: 'CONNECTED' | 'DISCONNECTED' | 'ERROR';
   access?: string;
+  /** The connection role ARN, already in the account response (CloudK8s setup cards, D13). */
+  roleArn?: string;
   azureSubscriptionId?: string;
   // Grafana monitoring configuration
   grafanaIp?: string;

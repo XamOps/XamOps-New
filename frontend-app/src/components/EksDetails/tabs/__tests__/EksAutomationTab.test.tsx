@@ -8,16 +8,16 @@ import {
   manualApplyGate,
   reasonSentence,
   workloadStatus,
-} from '../../../../api/verticalRightsizerAdapter';
-import { applyVerticalRecommendation, fetchVerticalEngine } from '../../../../api/verticalRightsizerApi';
+} from '../../../../api/workloadRightsizingAdapter';
+import { applyVerticalRecommendation, fetchVerticalEngine } from '../../../../api/workloadRightsizingApi';
 import { formatIST } from '../../../../utils/timeUtils';
 import type {
   VerticalEngineResponseWire,
   VerticalResourcesWire,
   VerticalWorkloadWire,
-} from '../../../../types/verticalRightsizer';
+} from '../../../../types/workloadRightsizing';
 
-vi.mock('../../../../api/verticalRightsizerApi', () => ({
+vi.mock('../../../../api/workloadRightsizingApi', () => ({
   fetchVerticalEngine: vi.fn(),
   applyVerticalRecommendation: vi.fn(),
   verticalReadUrl: vi.fn(),
