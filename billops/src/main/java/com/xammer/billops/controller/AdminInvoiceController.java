@@ -4,6 +4,7 @@ import com.xammer.cloud.domain.Invoice;
 import com.xammer.billops.dto.DiscountRequestDto;
 import com.xammer.billops.dto.InvoiceDto;
 import com.xammer.billops.dto.InvoiceUpdateDto;
+import com.xammer.billops.dto.PrivatePricingRequestDto;
 import com.xammer.billops.service.InvoiceManagementService;
 import com.xammer.billops.service.cur.CurUnavailable;
 import com.xammer.billops.service.cur.CurUnavailableException;
@@ -11,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.LinkedHashMap;
@@ -18,6 +20,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * Admin invoice management: generate drafts, edit them, discount them, finalize them.
+ *
+ * <p><b>Authorization note.</b> This class carries no role restriction, so every endpoint
+ * without its own {@code @PreAuthorize} is reachable by any authenticated BillOps user.
+ * That predates the private pricing endpoints below, which do restrict themselves; closing
+ * the gap for the rest means deciding what each existing caller is entitled to, and is
+ * left as its own change rather than folded into this one.
+ */
 @RestController
 @RequestMapping("/api/admin/invoices")
 public class AdminInvoiceController {
@@ -147,6 +158,77 @@ public class AdminInvoiceController {
     public ResponseEntity<InvoiceDto> applyDiscount(@PathVariable Long id, @RequestBody DiscountRequestDto discountRequest) {
         Invoice updatedInvoice = invoiceManagementService.applyDiscountToInvoice(id, discountRequest.getServiceName(), discountRequest.getPercentage());
         return ResponseEntity.ok(InvoiceDto.fromEntity(updatedInvoice));
+    }
+
+    // ─── Manual private pricing ──────────────────────────────────────────────
+    //
+    // Bills part of a draft at a rate the admin sets instead of at provider cost, and
+    // optionally shields those charges from the invoice's overall discount.
+    //
+    // Restricted to full BillOps admins and super admins, the same scope as
+    // AdminCloudFrontController, which manages the automatic CloudFront equivalent.
+    // Setting what a customer is charged is not something the rest of this controller's
+    // audience should be able to do, and these are new endpoints, so nothing that works
+    // today is narrowed by saying so. (The endpoints above carry no authorization
+    // annotation at all -- see the note on the class.)
+
+    /**
+     * Applies a rate to a service, a service in one region, or a single usage type.
+     *
+     * <p>400 when the request cannot be honoured at all — no such service on the invoice,
+     * no rate given. 409 when the invoice's own state is what conflicts: already finalized,
+     * a rate already covers these charges, the scope spans several units, or nothing in it
+     * carries usage a per-unit rate can price. The message is written to be shown as-is.
+     */
+    @PostMapping("/{id}/private-pricing")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_SUPER_ADMIN')")
+    public ResponseEntity<?> applyPrivatePricing(@PathVariable Long id,
+                                                 @RequestBody PrivatePricingRequestDto request) {
+        try {
+            Invoice updated = invoiceManagementService.applyPrivatePricing(id, request);
+            return ResponseEntity.ok(InvoiceDto.fromEntity(updated));
+        } catch (IllegalArgumentException e) {
+            logger.info("[PrivatePricing] Rejected for invoice {}: {}", id, e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        } catch (IllegalStateException e) {
+            logger.info("[PrivatePricing] Conflict for invoice {}: {}", id, e.getMessage());
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    /** Turns the overall-discount shield on or off for one applied rate. */
+    @PatchMapping("/{invoiceId}/private-pricing/{pricingId}")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_SUPER_ADMIN')")
+    public ResponseEntity<?> setPrivatePricingExclusion(@PathVariable Long invoiceId,
+                                                        @PathVariable Long pricingId,
+                                                        @RequestBody Map<String, Object> payload) {
+        Object value = payload.get("excludeFromOverallDiscount");
+        if (value == null) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("message", "excludeFromOverallDiscount is required."));
+        }
+        try {
+            Invoice updated = invoiceManagementService.setPrivatePricingDiscountExclusion(
+                    invoiceId, pricingId, Boolean.parseBoolean(String.valueOf(value)));
+            return ResponseEntity.ok(InvoiceDto.fromEntity(updated));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    /** Removes an applied rate, putting its charges back to provider cost. */
+    @DeleteMapping("/{invoiceId}/private-pricing/{pricingId}")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_SUPER_ADMIN')")
+    public ResponseEntity<?> removePrivatePricing(@PathVariable Long invoiceId,
+                                                  @PathVariable Long pricingId) {
+        try {
+            Invoice updated = invoiceManagementService.removePrivatePricing(invoiceId, pricingId);
+            return ResponseEntity.ok(InvoiceDto.fromEntity(updated));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", e.getMessage()));
+        }
     }
 
     @PostMapping("/{id}/finalize")

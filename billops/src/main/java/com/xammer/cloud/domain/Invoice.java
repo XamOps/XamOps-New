@@ -55,6 +55,27 @@ public class Invoice {
     @Column(name = "marketplace_charge", precision = 19, scale = 4)
     private BigDecimal marketplaceCharge;
 
+    /**
+     * How much of {@link #preDiscountTotal} is billed at a rate an admin set rather than
+     * at provider cost.
+     *
+     * <p>Stored alongside the other totals, by the same method that derives them, so a
+     * finalized invoice keeps the figures it was finalized with. Nullable on every invoice
+     * priced entirely at provider cost, which is almost all of them.
+     */
+    @Column(name = "private_priced_total", precision = 19, scale = 4)
+    private BigDecimal privatePricedTotal;
+
+    /**
+     * The part of {@link #privatePricedTotal} that an invoice-wide or consumption-wide
+     * discount may not reduce, because the rate's own shield is on.
+     *
+     * <p>Always less than or equal to {@code privatePricedTotal}: an admin can price
+     * charges and still leave the overall discount free to reach them.
+     */
+    @Column(name = "discount_shielded_total", precision = 19, scale = 4)
+    private BigDecimal discountShieldedTotal;
+
     // Whether this invoice includes IRN (Tax Invoice) or is a Performa Invoice
     @Column(name = "include_irn", nullable = false)
     private boolean includeIrn = false;
@@ -99,6 +120,17 @@ public class Invoice {
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<Discount> discounts = new ArrayList<>();
 
+    /**
+     * Rates an admin set by hand for parts of this invoice, replacing provider cost with
+     * {@code quantity x rate}.
+     *
+     * <p>Cascaded and orphan-removed like discounts, so deleting a draft takes its pricing
+     * with it. The amounts themselves live on the line items; these records are the scope,
+     * the rate, and whether the charges are shielded from the invoice's overall discount.
+     */
+    @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private List<InvoicePrivatePricing> privatePricings = new ArrayList<>();
+
     public enum InvoiceStatus {
         DRAFT,
         FINALIZED,
@@ -138,6 +170,10 @@ public class Invoice {
     public void setAmount(BigDecimal amount) { this.amount = amount; }
     public BigDecimal getMarketplaceCharge() { return marketplaceCharge; }
     public void setMarketplaceCharge(BigDecimal marketplaceCharge) { this.marketplaceCharge = marketplaceCharge; }
+    public BigDecimal getPrivatePricedTotal() { return privatePricedTotal; }
+    public void setPrivatePricedTotal(BigDecimal privatePricedTotal) { this.privatePricedTotal = privatePricedTotal; }
+    public BigDecimal getDiscountShieldedTotal() { return discountShieldedTotal; }
+    public void setDiscountShieldedTotal(BigDecimal discountShieldedTotal) { this.discountShieldedTotal = discountShieldedTotal; }
     public boolean isIncludeIrn() { return includeIrn; }
     public void setIncludeIrn(boolean includeIrn) { this.includeIrn = includeIrn; }
     public DataSource getDataSource() { return dataSource; }
@@ -150,6 +186,8 @@ public class Invoice {
     public void setLineItems(List<InvoiceLineItem> lineItems) { this.lineItems = lineItems; }
     public List<Discount> getDiscounts() { return discounts; }
     public void setDiscounts(List<Discount> discounts) { this.discounts = discounts; }
+    public List<InvoicePrivatePricing> getPrivatePricings() { return privatePricings; }
+    public void setPrivatePricings(List<InvoicePrivatePricing> privatePricings) { this.privatePricings = privatePricings; }
     public Client getClient() { return client; }
     public void setClient(Client client) { this.client = client; }
 }

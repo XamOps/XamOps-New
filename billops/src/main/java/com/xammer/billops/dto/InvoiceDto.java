@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 import com.xammer.cloud.domain.Discount;
 import com.xammer.cloud.domain.Invoice;
 import com.xammer.cloud.domain.InvoiceLineItem;
+import com.xammer.cloud.domain.InvoicePrivatePricing;
 
 public class InvoiceDto {
 
@@ -32,6 +33,10 @@ public class InvoiceDto {
     private BigDecimal taxAmount;
     private BigDecimal amount;
     private BigDecimal marketplaceCharge;
+    /** How much of {@link #preDiscountTotal} is billed at a rate an admin set by hand. */
+    private BigDecimal privatePricedTotal;
+    /** The part of that which an invoice-wide or consumption-wide discount may not reduce. */
+    private BigDecimal discountShieldedTotal;
     private boolean includeIrn;
     /** "CUR" or "COST_EXPLORER"; null for invoices generated before the source was recorded. */
     private String dataSource;
@@ -40,6 +45,8 @@ public class InvoiceDto {
     private long lastUpdated;
     private List<LineItemDto> lineItems;
     private List<DiscountDto> discounts;
+    /** Rates an admin applied by hand to parts of this invoice. */
+    private List<PrivatePricingDto> privatePricing;
 
     // Static factory method
     public static InvoiceDto fromEntity(Invoice invoice) {
@@ -78,6 +85,8 @@ public class InvoiceDto {
         dto.setTaxAmount(invoice.getTaxAmount());
         dto.setAmount(invoice.getAmount());
         dto.setMarketplaceCharge(invoice.getMarketplaceCharge());
+        dto.setPrivatePricedTotal(invoice.getPrivatePricedTotal());
+        dto.setDiscountShieldedTotal(invoice.getDiscountShieldedTotal());
         dto.setIncludeIrn(invoice.isIncludeIrn());
         dto.setDataSource(invoice.getDataSource() != null ? invoice.getDataSource().name() : null);
         dto.setProvisional(invoice.isProvisional());
@@ -98,6 +107,28 @@ public class InvoiceDto {
                 .map(DiscountDto::fromEntity)
                 .collect(Collectors.toList());
         dto.setDiscounts(discountDtos);
+
+        // Manual private pricing
+        List<InvoicePrivatePricing> pricings = Optional.ofNullable(invoice.getPrivatePricings())
+                .orElse(Collections.emptyList());
+        dto.setPrivatePricing(pricings.stream()
+                .map(PrivatePricingDto::fromEntity)
+                .collect(Collectors.toList()));
+
+        // Which lines an overall discount must skip, resolved here so the invoice PDF and
+        // the admin page both read one answer instead of each re-deriving it from the
+        // scope records. A line qualifies only if a rate actually priced it: the credits
+        // and unpriceable lines inside a scope are still at provider cost, so there is no
+        // negotiated margin for a discount to erode.
+        List<InvoicePrivatePricing> shields = pricings.stream()
+                .filter(InvoicePrivatePricing::isExcludeFromOverallDiscount)
+                .collect(Collectors.toList());
+        if (!shields.isEmpty()) {
+            for (LineItemDto item : items) {
+                item.setDiscountShielded(item.isPrivatelyPriced() && shields.stream()
+                        .anyMatch(p -> p.matches(item.getServiceName(), item.getRegionName(), item.getUsageType())));
+            }
+        }
 
         return dto;
     }
@@ -247,6 +278,30 @@ public class InvoiceDto {
         this.marketplaceCharge = marketplaceCharge;
     }
 
+    public BigDecimal getPrivatePricedTotal() {
+        return privatePricedTotal;
+    }
+
+    public void setPrivatePricedTotal(BigDecimal privatePricedTotal) {
+        this.privatePricedTotal = privatePricedTotal;
+    }
+
+    public BigDecimal getDiscountShieldedTotal() {
+        return discountShieldedTotal;
+    }
+
+    public void setDiscountShieldedTotal(BigDecimal discountShieldedTotal) {
+        this.discountShieldedTotal = discountShieldedTotal;
+    }
+
+    public List<PrivatePricingDto> getPrivatePricing() {
+        return privatePricing;
+    }
+
+    public void setPrivatePricing(List<PrivatePricingDto> privatePricing) {
+        this.privatePricing = privatePricing;
+    }
+
     public boolean isIncludeIrn() {
         return includeIrn;
     }
@@ -310,6 +365,33 @@ public class InvoiceDto {
         private BigDecimal quantity;
         private BigDecimal unitRate;
 
+        /**
+         * The rate an admin set for this line, when manual private pricing produced
+         * {@link #cost}. Null on every line billed at provider cost.
+         *
+         * <p>Not to be confused with {@link #unitRate}, which is derived the other way
+         * round -- cost divided by quantity -- and is set on every line.
+         */
+        private BigDecimal privateUnitRate;
+
+        /**
+         * The unit {@link #privateUnitRate} was quoted in, so the detail bill can print the
+         * rate it actually billed at rather than inferring one from {@link #unit}.
+         */
+        private String privateRateUnit;
+
+        /** What this line cost at provider rates, kept only once a private rate replaced it. */
+        private BigDecimal originalCost;
+
+        /**
+         * Whether an invoice-wide or consumption-wide discount must skip this line.
+         *
+         * <p>Decided once, in {@link InvoiceDto#fromEntity}, from the applied rate's own
+         * shield setting. The invoice PDF and the detail page both read it from here, so
+         * neither re-derives a rule the saved totals were already computed from.
+         */
+        private boolean discountShielded;
+
         public static LineItemDto fromEntity(InvoiceLineItem item) {
             LineItemDto dto = new LineItemDto();
             dto.setId(item.getId());
@@ -321,6 +403,9 @@ public class InvoiceDto {
             dto.setUsageType(item.getUsageType());
             dto.setCost(item.getCost());
             dto.setHidden(item.isHidden());
+            dto.setPrivateUnitRate(item.getPrivateUnitRate());
+            dto.setPrivateRateUnit(item.getPrivateRateUnit());
+            dto.setOriginalCost(item.getOriginalCost());
 
             try {
                 String[] parts = item.getUsageQuantity().split(" ");
@@ -424,6 +509,139 @@ public class InvoiceDto {
         public void setUnitRate(BigDecimal unitRate) {
             this.unitRate = unitRate;
         }
+
+        public BigDecimal getPrivateUnitRate() {
+            return privateUnitRate;
+        }
+
+        public void setPrivateUnitRate(BigDecimal privateUnitRate) {
+            this.privateUnitRate = privateUnitRate;
+        }
+
+        public String getPrivateRateUnit() {
+            return privateRateUnit;
+        }
+
+        public void setPrivateRateUnit(String privateRateUnit) {
+            this.privateRateUnit = privateRateUnit;
+        }
+
+        public BigDecimal getOriginalCost() {
+            return originalCost;
+        }
+
+        public void setOriginalCost(BigDecimal originalCost) {
+            this.originalCost = originalCost;
+        }
+
+        /**
+         * Whether this line's amount came from a rate an admin set.
+         *
+         * <p>Not serialized. The detail bill is rendered from this DTO after a round trip
+         * through JSON — the page re-reads the invoice and posts it back — and a property
+         * with a getter but no setter cannot survive that: it goes out and comes back
+         * unrecognised. Boot happens to ignore unknown properties, so it fails quietly
+         * rather than loudly, which is worse. Callers that need this derive it from
+         * {@link #privateUnitRate}, which does round-trip.
+         */
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        public boolean isPrivatelyPriced() {
+            return privateUnitRate != null;
+        }
+
+        public boolean isDiscountShielded() {
+            return discountShielded;
+        }
+
+        public void setDiscountShielded(boolean discountShielded) {
+            this.discountShielded = discountShielded;
+        }
+    }
+
+    /**
+     * A rate an admin applied by hand to part of this invoice.
+     *
+     * <p>Carries both the provider's figure and the billed one for the scope, so the page
+     * can show what the rate changed rather than only the rate itself.
+     */
+    public static class PrivatePricingDto {
+        private Long id;
+        private String serviceName;
+        private String regionName;
+        private String usageType;
+        private String scopeLabel;
+        private BigDecimal unitRate;
+        private String rateUnit;
+        private boolean excludeFromOverallDiscount;
+        private Integer lineCount;
+        private Integer skippedLineCount;
+        /** What the repriced lines cost at provider rates. */
+        private BigDecimal originalAmount;
+        /** What those lines bill at this rate. */
+        private BigDecimal pricedAmount;
+        private String description;
+
+        public static PrivatePricingDto fromEntity(InvoicePrivatePricing pricing) {
+            PrivatePricingDto dto = new PrivatePricingDto();
+            dto.setId(pricing.getId());
+            dto.setServiceName(pricing.getServiceName());
+            dto.setRegionName(pricing.getRegionName());
+            dto.setUsageType(pricing.getUsageType());
+            dto.setScopeLabel(pricing.scopeLabel());
+            dto.setUnitRate(pricing.getUnitRate());
+            dto.setRateUnit(pricing.getRateUnit());
+            dto.setExcludeFromOverallDiscount(pricing.isExcludeFromOverallDiscount());
+            dto.setLineCount(pricing.getLineCount());
+            dto.setSkippedLineCount(pricing.getSkippedLineCount());
+            dto.setOriginalAmount(pricing.getOriginalAmount());
+            dto.setPricedAmount(pricing.getPricedAmount());
+            dto.setDescription(pricing.getDescription());
+            return dto;
+        }
+
+        /**
+         * Billed less provider cost: positive is margin, negative is a concession.
+         *
+         * <p>Not serialized, for the same reason as {@code LineItemDto.privatelyPriced}:
+         * it has no setter, so it cannot come back through the detail bill's round trip.
+         * The page computes it from {@code pricedAmount} and {@code originalAmount}.
+         */
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        public BigDecimal getMargin() {
+            if (pricedAmount == null || originalAmount == null) {
+                return null;
+            }
+            return pricedAmount.subtract(originalAmount);
+        }
+
+        public Long getId() { return id; }
+        public void setId(Long id) { this.id = id; }
+        public String getServiceName() { return serviceName; }
+        public void setServiceName(String serviceName) { this.serviceName = serviceName; }
+        public String getRegionName() { return regionName; }
+        public void setRegionName(String regionName) { this.regionName = regionName; }
+        public String getUsageType() { return usageType; }
+        public void setUsageType(String usageType) { this.usageType = usageType; }
+        public String getScopeLabel() { return scopeLabel; }
+        public void setScopeLabel(String scopeLabel) { this.scopeLabel = scopeLabel; }
+        public BigDecimal getUnitRate() { return unitRate; }
+        public void setUnitRate(BigDecimal unitRate) { this.unitRate = unitRate; }
+        public String getRateUnit() { return rateUnit; }
+        public void setRateUnit(String rateUnit) { this.rateUnit = rateUnit; }
+        public boolean isExcludeFromOverallDiscount() { return excludeFromOverallDiscount; }
+        public void setExcludeFromOverallDiscount(boolean excludeFromOverallDiscount) {
+            this.excludeFromOverallDiscount = excludeFromOverallDiscount;
+        }
+        public Integer getLineCount() { return lineCount; }
+        public void setLineCount(Integer lineCount) { this.lineCount = lineCount; }
+        public Integer getSkippedLineCount() { return skippedLineCount; }
+        public void setSkippedLineCount(Integer skippedLineCount) { this.skippedLineCount = skippedLineCount; }
+        public BigDecimal getOriginalAmount() { return originalAmount; }
+        public void setOriginalAmount(BigDecimal originalAmount) { this.originalAmount = originalAmount; }
+        public BigDecimal getPricedAmount() { return pricedAmount; }
+        public void setPricedAmount(BigDecimal pricedAmount) { this.pricedAmount = pricedAmount; }
+        public String getDescription() { return description; }
+        public void setDescription(String description) { this.description = description; }
     }
 
     // Inner class for Discounts

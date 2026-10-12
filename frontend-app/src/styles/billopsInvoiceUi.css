@@ -205,6 +205,8 @@ html.dark {
 }
 .inv-icon-btn:hover:not(:disabled) { background: var(--inv-row-hover); color: var(--inv-ink); }
 .inv-icon-btn--danger:hover:not(:disabled) { color: #dc2626; }
+/* For use inside a table row, where the full 30px square overwhelms the line. */
+.inv-icon-btn--sm { width: 22px; height: 22px; border-radius: 5px; font-size: 11px; }
 .inv-icon-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--inv-focus); }
 .inv-icon-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
@@ -433,6 +435,12 @@ button.inv-kpi[aria-pressed='true'] { background: var(--inv-row-selected); }
 .inv-pill--ce          { background: #f4f5f7; color: #475569; border-color: #d8dde5; }
 .inv-pill--provisional { background: #fffbeb; color: #92400e; border-color: #fde68a; }
 .inv-pill--type        { background: transparent; color: var(--inv-ink-3); border-color: var(--inv-border); }
+/* A charge billed at a rate an admin set, rather than at the provider's cost. Violet,
+   because indigo already means "built from the Cost and Usage Report" two pills over. */
+.inv-pill--priced      { background: #f5f3ff; color: #6d28d9; border-color: #ddd6fe; }
+
+/* The provider's own figure, carried alongside the rate so the two can be compared. */
+.inv-pill__was { font-weight: 500; opacity: 0.75; }
 
 html.dark .inv-pill--draft       { background: rgba(245, 158, 11, 0.12); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
 html.dark .inv-pill--finalized   { background: rgba(34, 197, 94, 0.12); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
@@ -440,6 +448,7 @@ html.dark .inv-pill--void        { background: rgba(148, 163, 184, 0.1); color: 
 html.dark .inv-pill--cur         { background: rgba(129, 140, 248, 0.14); color: #a5b4fc; border-color: rgba(129, 140, 248, 0.3); }
 html.dark .inv-pill--ce          { background: rgba(148, 163, 184, 0.1); color: #cbd5e1; border-color: rgba(148, 163, 184, 0.25); }
 html.dark .inv-pill--provisional { background: rgba(245, 158, 11, 0.12); color: #fcd34d; border-color: rgba(245, 158, 11, 0.3); }
+html.dark .inv-pill--priced      { background: rgba(139, 92, 246, 0.14); color: #c4b5fd; border-color: rgba(139, 92, 246, 0.3); }
 
 /* ── Alerts ─────────────────────────────────────────────────────────────── */
 
@@ -578,6 +587,9 @@ html.dark .inv-type-tag--cf { color: #fdba74; border-color: rgba(253, 186, 116, 
 .inv-tree .inv-col-share { width: 170px; }
 .inv-tree .inv-col-qty { width: 160px; }
 .inv-tree .inv-col-amt { width: 130px; }
+/* Private rate: wide enough for the applied rate, its discount checkbox and a remove
+   button on one line, since wrapping those apart makes them read as unrelated. */
+.inv-tree .inv-col-rate { width: 210px; }
 .inv-tree td { padding-top: 9px; padding-bottom: 9px; overflow-wrap: break-word; }
 /* Quantity shown under the description on a phone, where it has no column of its own. */
 .inv-inline-qty { display: none; margin-top: 2px; font-size: 11.5px; color: var(--inv-ink-3); }
@@ -589,8 +601,10 @@ html.dark .inv-inline-qty:not(#inv-dark) { color: var(--inv-ink-3) !important; }
 @media (max-width: 640px) {
   .inv-tree { table-layout: auto; }
   .inv-tree .inv-col-amt { width: auto; }
+  .inv-tree .inv-col-rate { width: auto; }
   .inv-tree .inv-col-qty,
   .inv-tree .inv-qty-cell { display: none; }
+  .inv-rate-editor__fields { grid-template-columns: 1fr; }
   .inv-inline-qty { display: block; }
   .inv-tree th,
   .inv-tree td { padding-left: 10px; padding-right: 10px; }
@@ -633,6 +647,136 @@ html.dark .inv-inline-qty:not(#inv-dark) { color: var(--inv-ink-3) !important; }
 .inv-tree-row--line .inv-tree-cell { padding-left: 72px; }
 .inv-tree-row--line.is-flat .inv-tree-cell { padding-left: 52px; }
 .inv-tree-row--line td.is-num { color: var(--inv-ink); }
+
+/* ── Private pricing, in the charges tree ───────────────────────────────── */
+/*
+   Every tree row a rate can be scoped to — service, region, usage type — carries its own
+   control, so a charge is priced where it is being read. The controls stay quiet until
+   hovered or used: the column exists on every row, and three visible buttons per service
+   would compete with the figures the table is actually for.
+*/
+
+/* No nowrap: this cell holds a rate, a remove button and a checkbox, and forcing them
+   onto one line pushed the button out of the column and into the wrapper's horizontal
+   overflow, where it could not be reached. */
+.inv-rate-col { text-align: right; font-weight: 400; }
+
+/* Revealed on hover or focus, and kept visible once a row has a rate. */
+.inv-rate-btn { opacity: 0; transition: opacity 0.12s ease; }
+.inv-tree tr:hover .inv-rate-btn,
+.inv-rate-btn:focus-visible,
+.inv-rate-btn.is-open { opacity: 1; }
+/* Touch has no hover, so there is nothing to reveal them with. */
+@media (hover: none) {
+  .inv-rate-btn { opacity: 1; }
+}
+
+.inv-rate-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+/* The rate and the button that removes it, kept together on their own line. */
+.inv-rate-cell__rate {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+/* The remove button keeps its size; the rate gives way instead. Reversed, a long rate
+   unit would squeeze the button to nothing — the failure this layout exists to prevent. */
+.inv-rate-cell__rate > .inv-icon-btn { flex: 0 0 auto; }
+/* A long rate unit ("Per 10000 Requests") is truncated rather than widening the column;
+   the pill's tooltip carries the full description either way. min-width on the flex item
+   is what lets it shrink far enough for the ellipsis to appear at all. */
+.inv-rate-cell__rate .inv-pill { overflow: hidden; min-width: 0; }
+.inv-pill__unit {
+  font-weight: 500;
+  opacity: 0.75;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inv-rate-cell__shield {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--inv-ink-3);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.inv-rate-cell__shield input { cursor: pointer; }
+.inv-rate-cell__shield input:disabled { cursor: default; }
+
+.inv-rate-cell__covered {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--inv-ink-3);
+}
+.inv-rate-cell__covered i { font-size: 9px; }
+
+/* ── The editor, beneath the row it prices ──────────────────────────────── */
+
+.inv-rate-editor-row > td { padding: 0 !important; background: var(--inv-surface-sunken); }
+
+.inv-rate-editor {
+  padding: 14px 16px;
+  border-top: 1px solid var(--inv-border);
+  border-bottom: 1px solid var(--inv-border);
+  border-left: 3px solid var(--inv-accent);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.inv-rate-editor__scope { font-size: 13px; color: var(--inv-ink-2); }
+.inv-rate-editor__scope strong { color: var(--inv-ink); }
+.inv-rate-editor__scope small { display: block; margin-top: 2px; font-size: 11.5px; color: var(--inv-ink-3); }
+
+.inv-rate-editor__fields {
+  display: grid;
+  grid-template-columns: 170px minmax(160px, 1fr) auto auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.inv-rate-editor__shield {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--inv-ink-2);
+  cursor: pointer;
+  padding-bottom: 7px;
+}
+.inv-rate-editor__shield input { margin-top: 3px; cursor: pointer; }
+.inv-rate-editor__shield small { display: block; font-size: 11px; color: var(--inv-ink-3); }
+
+.inv-rate-editor__actions { display: flex; align-items: center; gap: 8px; padding-bottom: 3px; }
+
+.inv-rate-editor__note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--inv-ink-2);
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--inv-surface);
+  border: 1px solid var(--inv-divider);
+}
+.inv-rate-editor__note i { margin-top: 2px; font-size: 11px; color: var(--inv-ink-3); }
+.inv-rate-editor__note strong { color: var(--inv-ink); }
+.inv-rate-editor__note.is-warning { background: #fffaeb; border-color: #fde68a; color: #92400e; }
+.inv-rate-editor__note.is-warning i { color: #b45309; }
 
 .inv-share {
   display: inline-flex;
@@ -716,6 +860,11 @@ html.dark .inv-share:not(#inv-dark),
 html.dark .inv-share span:not(#inv-dark),
 html.dark .inv-pager:not(#inv-dark),
 html.dark .inv-pager span:not(#inv-dark),
+html.dark .inv-rate-cell__shield:not(#inv-dark),
+html.dark .inv-rate-cell__shield span:not(#inv-dark),
+html.dark .inv-rate-cell__covered:not(#inv-dark),
+html.dark .inv-rate-editor__scope small:not(#inv-dark),
+html.dark .inv-rate-editor__shield small:not(#inv-dark),
 html.dark .inv-empty:not(#inv-dark) { color: var(--inv-ink-3) !important; }
 
 html.dark .inv-ink-2:not(#inv-dark),
@@ -725,7 +874,29 @@ html.dark .inv-selection span:not(#inv-dark),
 html.dark .inv-summary-line > span:first-child:not(#inv-dark),
 html.dark .inv-tree-row--region td:not(#inv-dark),
 html.dark .inv-tree-row--usage td:not(#inv-dark),
+html.dark .inv-rate-editor__scope:not(#inv-dark),
+html.dark .inv-rate-editor__shield:not(#inv-dark),
+html.dark .inv-rate-editor__shield > span:not(#inv-dark),
+html.dark .inv-rate-editor__note:not(#inv-dark),
+html.dark .inv-rate-editor__note > span:not(#inv-dark),
 html.dark .inv-tree-row--line td:not(#inv-dark) { color: var(--inv-ink-2) !important; }
+
+/* The editor sits on the sunken row background, so its own panels need the dark
+   surface rather than the light ones declared above. */
+html.dark .inv-rate-editor__note:not(#inv-dark) {
+  background-color: var(--inv-surface) !important;
+  border-color: var(--inv-divider) !important;
+}
+html.dark .inv-rate-editor__note.is-warning:not(#inv-dark) {
+  background-color: rgba(245, 158, 11, 0.12) !important;
+  border-color: rgba(245, 158, 11, 0.3) !important;
+  color: #fcd34d !important;
+}
+html.dark .inv-rate-editor__note.is-warning > span:not(#inv-dark),
+html.dark .inv-rate-editor__note.is-warning i:not(#inv-dark) { color: #fcd34d !important; }
+html.dark .inv-rate-editor__scope strong:not(#inv-dark),
+html.dark .inv-rate-editor__note strong:not(#inv-dark) { color: var(--inv-ink) !important; }
+html.dark .inv-rate-editor-row > td:not(#inv-dark) { background-color: var(--inv-surface-sunken) !important; }
 
 html.dark .inv-kv dd:not(#inv-dark),
 html.dark .inv-empty strong:not(#inv-dark),
@@ -796,6 +967,8 @@ html.dark .inv-pill--cur:not(#inv-dark)         { color: #a5b4fc !important; }
 html.dark .inv-pill--ce:not(#inv-dark)          { color: #cbd5e1 !important; }
 html.dark .inv-pill--provisional:not(#inv-dark) { color: #fcd34d !important; }
 html.dark .inv-pill--type:not(#inv-dark)        { color: var(--inv-ink-3) !important; }
+html.dark .inv-pill--priced:not(#inv-dark)      { color: #c4b5fd !important; }
+html.dark .inv-pill--priced span:not(#inv-dark) { color: #c4b5fd !important; }
 html.dark .inv-type-tag:not(#inv-dark)          { color: var(--inv-ink-3) !important; }
 html.dark .inv-type-tag--cf:not(#inv-dark)      { color: #fdba74 !important; }
 
