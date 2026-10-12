@@ -30,13 +30,13 @@ export interface SectionDef<T extends string = string, S extends string = string
 export type SectionRegistry<T extends string = string, S extends string = string> = ReadonlyArray<SectionDef<T, S>>;
 
 /**
- * The cluster page's sections in slice 1 (P3): the targets of the 11 legacy tabs plus
- * Automation › Overview. Later slices add Overview › Events, the cost subtabs, Nodes › Node groups,
+ * The cluster page's sections (P3): the targets of the 11 legacy tabs, Automation › Overview and,
+ * from FEAT-003, Overview › Events. Later slices add the cost subtabs, Nodes › Node groups,
  * Security › Compliance and Runtime, Data sources and the other Automation subtabs.
  */
 export const EKS_SECTIONS: SectionRegistry<EksSectionId, EksSubtabId> = [
   { id: 'overview', label: 'Overview', icon: 'mdi:view-dashboard-outline', defaultSub: 'summary',
-    subs: [{ id: 'summary', label: 'Summary' }] },
+    subs: [{ id: 'summary', label: 'Summary' }, { id: 'events', label: 'Events' }] },
   { id: 'cost', label: 'Cost', icon: 'mdi:currency-usd', defaultSub: 'cluster',
     subs: [{ id: 'cluster', label: 'Cluster' }] },
   { id: 'workloads', label: 'Workloads', icon: 'mdi:cube-outline', defaultSub: 'workloads',

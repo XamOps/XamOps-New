@@ -39,7 +39,7 @@ vi.mock('../../components/EksDetails/tabs/EksPodsTab', () => ({
 }));
 vi.mock('../../components/EksDetails/tabs/EksContainersTab', () => ({ default: () => <div>Containers tab content</div> }));
 vi.mock('../../components/EksDetails/tabs/EksNodesTab', () => ({ default: () => <div>Nodes tab content</div> }));
-vi.mock('../../components/EksDetails/tabs/EksResourcesTab', () => ({ default: () => <div>Resources tab content</div> }));
+vi.mock('../../components/EksDetails/sections/workloads/ResourcesPanel', () => ({ default: () => <div>Resources tab content</div> }));
 vi.mock('../../components/EksDetails/tabs/EksKarpenterTab', () => ({ default: () => <div>Karpenter tab content</div> }));
 vi.mock('../../components/EksDetails/EksDiagnosticsPanel', () => ({ default: () => <div>Diagnostics panel</div> }));
 vi.mock('../../components/EksDetails/EksIntegrationModal', () => ({

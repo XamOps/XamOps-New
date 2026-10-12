@@ -88,9 +88,10 @@ describe('resolveSectionRoute', () => {
     expect(resolve(BASE)).toEqual({ tab: 'overview', sub: 'summary', corrected: null });
   });
 
-  it('registers only slice 1 subtabs, each section default among its subs (P3)', () => {
+  it('registers only the subtabs that render content so far, each section default among its subs (P3)', () => {
+    // Slice 1's targets, plus Overview › Events (FEAT-003 item 24).
     expect(EKS_SECTIONS.map((s) => `${s.id}:${s.subs.map((x) => x.id).join(',')}`)).toEqual([
-      'overview:summary',
+      'overview:summary,events',
       'cost:cluster',
       'workloads:workloads,pods,containers,resources',
       'nodes:nodes,karpenter,utilization',
