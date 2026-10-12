@@ -422,6 +422,47 @@ class DirectInPlaceResizeExecutorTest {
     }
 
     @Test
+    @DisplayName("a Ready pod is the canary, ahead of one that is not Ready (review-2 item 14)")
+    void aReadyPodIsTheCanary() {
+        for (String name : List.of("api-1", "api-2")) {
+            givenPod(name, "uid-" + name, "containerd://" + name, 0, true, "1", "1Gi");
+            whenPatched(name, pod(name, "uid-" + name, "containerd://" + name, 0, true, "25m", "250Mi"));
+        }
+        ClusterWorkloadInventory.Workload notReadyFirst = new ClusterWorkloadInventory.Workload(REF, 2,
+                false, false, null, null,
+                List.of(new ClusterWorkloadInventory.ContainerSpec("api", GUARANTEED_1CPU_1GI, Map.of())),
+                new WorkloadPods(REF, List.of(new WorkloadPods.Pod("api-1", "uid-api-1", false),
+                        new WorkloadPods.Pod("api-2", "uid-api-2", true))));
+
+        executor().submit(command(false), access(), notReadyFirst);
+
+        assertThat(patchedPods.get(0))
+                .as("a canary that was never Ready would fail as 'stopped being ready'")
+                .isEqualTo("api-2");
+        assertThat(DirectInPlaceResizeExecutor.canaryFirst(notReadyFirst.pods().pods()))
+                .extracting(WorkloadPods.Pod::name)
+                .containsExactly("api-2", "api-1");
+    }
+
+    @Test
+    @DisplayName("a dry run on a workload with no live pods is refused, as the real apply is (review-2 item 14)")
+    void aDryRunWithNoPodsIsRefused() {
+        ClusterWorkloadInventory.Workload noPods = new ClusterWorkloadInventory.Workload(REF, 1,
+                false, false, null, null,
+                List.of(new ClusterWorkloadInventory.ContainerSpec("api", GUARANTEED_1CPU_1GI, Map.of())),
+                new WorkloadPods(REF, List.of()));
+
+        ActionSubmission submission = executor().submit(command(true), access(), noPods);
+
+        assertThat(submission.state()).isEqualTo(SubmitState.REFUSED);
+        assertThat(proof().outcome())
+                .as("a rehearsal that passed would promise an apply the real one refuses")
+                .isEqualTo(ResizeProof.Outcome.REFUSED);
+        assertThat(proof().detail()).contains("no pods");
+        assertThat(patchedPods).isEmpty();
+    }
+
+    @Test
     @DisplayName("the proof names the pods that were left out, so 'every pod' is never claimed (review-2 SF3)")
     void skippedPodsAreInTheProof() {
         givenPod("api-1", "uid-api-1", "containerd://c1", 0, true, "1", "1Gi");

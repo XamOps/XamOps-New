@@ -221,19 +221,33 @@ public class DirectInPlaceResizeExecutor implements WorkloadActionExecutor {
                 .map(pod -> new ResizeProof.SkippedPod(pod.name(), pod.phase(), pod.reason()))
                 .toList();
 
-        if (command.dryRun()) {
-            return record(command, dryRun(preflight).withSkippedPods(skipped), SubmitState.ACCEPTED);
-        }
-
-        List<WorkloadPods.Pod> pods = workload.pods().pods();
+        // Before the dry-run return (review-2 item 14), so a dry run predicts the real apply: with no
+        // live pods the real one is refused, and a rehearsal that passed would promise otherwise.
+        List<WorkloadPods.Pod> pods = canaryFirst(workload.pods().pods());
         if (pods.isEmpty()) {
             return record(command, ResizeProof.refused("The workload " + command.ref().describe()
                     + " currently has no pods, so there is nothing to resize in place."),
                     SubmitState.REFUSED);
         }
 
+        if (command.dryRun()) {
+            return record(command, dryRun(preflight).withSkippedPods(skipped), SubmitState.ACCEPTED);
+        }
+
         return record(command, rollout(access.client(), command, preflight, pods).withSkippedPods(skipped),
                 SubmitState.ACCEPTED);
+    }
+
+    /**
+     * The pods in the order they are resized: a Ready pod first, so the canary is one whose
+     * readiness afterwards proves something (review-2 item 14). A canary that was not Ready before
+     * the patch fails the restart-free proof as "stopped being ready" for a pod that never was.
+     * Stable otherwise, so the read order still decides among equals.
+     */
+    static List<WorkloadPods.Pod> canaryFirst(List<WorkloadPods.Pod> pods) {
+        List<WorkloadPods.Pod> ordered = new ArrayList<>(pods);
+        ordered.sort(java.util.Comparator.comparingInt(pod -> Boolean.TRUE.equals(pod.ready()) ? 0 : 1));
+        return List.copyOf(ordered);
     }
 
     @Override

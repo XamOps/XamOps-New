@@ -178,7 +178,7 @@ public class ClusterWorkloadInventory {
                 List.copyOf(containers),
                 new WorkloadPods(ref, livePods.stream()
                         .map(pod -> new WorkloadPods.Pod(pod.getMetadata().getName(),
-                                pod.getMetadata().getUid()))
+                                pod.getMetadata().getUid(), isReady(pod)))
                         .toList(),
                         podNameRules,
                         skipped(ownedPods, otherRevisionPods)));
@@ -204,6 +204,18 @@ public class ClusterWorkloadInventory {
             }
         }
         return skipped;
+    }
+
+    /** The pod's {@code Ready} condition, or null when it reports none. */
+    private static Boolean isReady(Pod pod) {
+        if (pod.getStatus() == null || pod.getStatus().getConditions() == null) {
+            return null;
+        }
+        return pod.getStatus().getConditions().stream()
+                .filter(condition -> "Ready".equals(condition.getType()))
+                .map(condition -> "True".equalsIgnoreCase(condition.getStatus()))
+                .findFirst()
+                .orElse(null);
     }
 
     private static String phaseOf(Pod pod) {

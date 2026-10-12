@@ -206,6 +206,21 @@ class ClusterWorkloadInventoryTest {
     }
 
     @Test
+    @DisplayName("a StatefulSet mid-update resizes only its update revision's pods, and reads readiness (review-2 item 14)")
+    void aStatefulSetMidUpdateKeepsOnlyItsUpdateRevision() {
+        // StatefulSets update in reverse ordinal order: pod 1 is on the new revision, pod 0 is not.
+        overrides.put("/apis/apps/v1/statefulsets", "statefulsets-revisions.json");
+        overrides.put("/api/v1/pods", "pods-statefulset-revisions.json");
+
+        WorkloadPods pods = workload("prod-sim", "stateful-queue").pods();
+
+        assertThat(pods.names()).containsExactly("stateful-queue-1");
+        assertThat(pods.pods().get(0).ready()).isTrue();
+        assertThat(pods.skipped()).containsExactly(
+                new WorkloadPods.Skipped("stateful-queue-0", "Running", WorkloadPods.SKIPPED_OLD_REVISION));
+    }
+
+    @Test
     @DisplayName("with no revision to tell them apart, no pod is called an older revision")
     void withoutRevisionsNothingIsAnOldRevision() {
         overrides.put("/api/v1/pods", "pods-live-state.json");

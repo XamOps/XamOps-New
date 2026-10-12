@@ -70,15 +70,22 @@ public record WorkloadPods(WorkloadRef ref, List<Pod> pods, List<PodNameRule> na
     }
 
     /**
-     * @param name {@code metadata.name}
-     * @param uid  {@code metadata.uid} — identity that survives a name being reused
+     * @param name  {@code metadata.name}
+     * @param uid   {@code metadata.uid} — identity that survives a name being reused
+     * @param ready whether its {@code Ready} condition was True at the read, or null when not known.
+     *              The executor prefers a Ready pod as the canary (review-2 item 14)
      */
-    public record Pod(String name, String uid) {
+    public record Pod(String name, String uid, Boolean ready) {
 
         public Pod {
             if (name == null || name.isBlank()) {
                 throw new IllegalArgumentException("pod name is mandatory");
             }
+        }
+
+        /** A pod whose readiness was not read. */
+        public Pod(String name, String uid) {
+            this(name, uid, null);
         }
     }
 
