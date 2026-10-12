@@ -128,7 +128,9 @@ class K8sAutomationPolicyNormalizerTest {
     void defaultsAreCompleteAndAnalysisOnly() throws Exception {
         AutomationPolicyBundle d = normalizer.defaults();
         assertThat(d.getAutoscalerMode()).isEqualTo("full");
-        assertThat(d.getScaleOutPolicy()).isNotNull();
+        // Every controller starts off, as the automation agent's own DefaultBundle does (review S1).
+        assertThat(d.getScaleOutPolicy().isEnabled()).isFalse();
+        assertThat(d.getEvictorPolicy().isEnabled()).isFalse();
         assertThat(d.getEvictorPolicy().isAnalyseOnly()).isTrue();
         assertThat(d.getWorkloadRightsizerPolicy().isEnabled()).isFalse();
         assertThat(d.getWorkloadRightsizerPolicy().getApplyMode()).isEqualTo("deferred");
@@ -137,7 +139,7 @@ class K8sAutomationPolicyNormalizerTest {
         assertThat(d.getHpaManagerPolicy().getDefaultMinReplicas()).isEqualTo(1);
         assertThat(d.getHpaManagerPolicy().getDefaultMaxReplicas()).isEqualTo(10);
         assertThat(d.getHpaManagerPolicy().getDefaultTargetCpuPct()).isEqualTo(80);
-        assertThat(d.getVpaManagerPolicy().isEnabled()).isTrue();
+        assertThat(d.getVpaManagerPolicy().isEnabled()).isFalse();
         assertThat(d.getVpaManagerPolicy().isAnalyseOnly()).isTrue();
         assertThat(d.getVpaManagerPolicy().getUpdateMode()).isEqualTo("Off");
         assertThat(d.getNodeOptimizerPolicy().isAutoCordonIdleNodes()).isFalse();
@@ -173,6 +175,24 @@ class K8sAutomationPolicyNormalizerTest {
         String nullNamespaces = "{\"safetyGuards\":{\"criticalNamespaces\":null}}";
         assertThat(normalizer.forAgent(nullNamespaces, CONFIG, true).getSafetyGuards().getCriticalNamespaces())
                 .containsExactly("kube-system", "monitoring", "ingress-nginx", "xamops-system");
+    }
+
+    @Test
+    void aCreatedSectionStartsOff_aStoredOneKeepsItsValue() {
+        // Review S1: an agent image older than 03481bb4f gates the evictor on enabled alone, so a
+        // section the normalizer adds must not switch a controller on.
+        String storedEvictorOnly = "{\"autoscalerMode\":\"full\",\"evictorPolicy\":{\"enabled\":true,\"analyseOnly\":true},"
+                + "\"vpaManagerPolicy\":{\"enabled\":true,\"analyseOnly\":true,\"updateMode\":\"Off\"}}";
+        for (AutomationPolicyBundle b : bothPaths(storedEvictorOnly)) {
+            assertThat(b.getEvictorPolicy().isEnabled()).as("stored evictor").isTrue();
+            assertThat(b.getVpaManagerPolicy().isEnabled()).as("stored VPA manager").isTrue();
+            assertThat(b.getScaleOutPolicy().isEnabled()).as("created scale-out").isFalse();
+        }
+        for (AutomationPolicyBundle b : bothPaths("{\"autoscalerMode\":\"full\"}")) {
+            assertThat(b.getEvictorPolicy().isEnabled()).as("created evictor").isFalse();
+            assertThat(b.getVpaManagerPolicy().isEnabled()).as("created VPA manager").isFalse();
+            assertThat(b.getScaleOutPolicy().isEnabled()).as("created scale-out").isFalse();
+        }
     }
 
     @Test

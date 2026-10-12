@@ -187,7 +187,11 @@ public class K8sAutomationPolicyNormalizer {
         return read(storedJson, configId).bundle();
     }
 
-    /** The complete default bundle: mode {@code full}, analysis only, rebalancer idle and off. */
+    /**
+     * The complete default bundle: mode {@code full}, every controller off (scale-out, evictor, VPA
+     * manager, HPA manager, node optimizer, the retired Go rightsizer), analysis-only flags set, and
+     * the rebalancer idle and off.
+     */
     public AutomationPolicyBundle defaults() {
         AutomationPolicyBundle b = new AutomationPolicyBundle();
         b.setAutoscalerMode("full");
@@ -444,16 +448,28 @@ public class K8sAutomationPolicyNormalizer {
         return b;
     }
 
-    /** Every section non-null; defaults are already safe, so they need no coercion. */
+    /**
+     * Every section non-null; defaults are already safe, so they need no coercion.
+     *
+     * <p>A section created here starts with its controller off, as the automation agent's own
+     * {@code DefaultBundle} does (xamops-autoscaler/internal/policy/types.go): the scale-out, evictor
+     * and VPA manager DTOs default {@code enabled} to true for the write path, and an agent image
+     * older than 03481bb4f gates the evictor on {@code enabled} alone, ignoring {@code analyseOnly}.
+     * A section the stored bundle carries keeps its value.
+     */
     private static void fillMissing(AutomationPolicyBundle b) {
         if (b.getAutoscalerMode() == null) {
             b.setAutoscalerMode("full");
         }
         if (b.getScaleOutPolicy() == null) {
-            b.setScaleOutPolicy(new ScaleOutPolicyDto());
+            ScaleOutPolicyDto off = new ScaleOutPolicyDto();
+            off.setEnabled(false);
+            b.setScaleOutPolicy(off);
         }
         if (b.getEvictorPolicy() == null) {
-            b.setEvictorPolicy(new EvictorPolicyDto());
+            EvictorPolicyDto off = new EvictorPolicyDto();
+            off.setEnabled(false);
+            b.setEvictorPolicy(off);
         }
         if (b.getWorkloadRightsizerPolicy() == null) {
             WorkloadRightsizerPolicyDto retired = new WorkloadRightsizerPolicyDto();
@@ -465,7 +481,9 @@ public class K8sAutomationPolicyNormalizer {
             b.setHpaManagerPolicy(new HpaManagerPolicyDto());
         }
         if (b.getVpaManagerPolicy() == null) {
-            b.setVpaManagerPolicy(new VpaManagerPolicyDto());
+            VpaManagerPolicyDto off = new VpaManagerPolicyDto();
+            off.setEnabled(false);
+            b.setVpaManagerPolicy(off);
         }
         if (b.getNodeOptimizerPolicy() == null) {
             b.setNodeOptimizerPolicy(new NodeOptimizerPolicyDto());

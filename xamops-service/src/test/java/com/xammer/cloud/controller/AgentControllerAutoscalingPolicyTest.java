@@ -123,6 +123,11 @@ class AgentControllerAutoscalingPolicyTest {
         assertComplete(bundle);
         assertThat(bundle.get("autoscalerMode").asText()).isEqualTo("full");
         assertThat(bundle.get("evictorPolicy").get("analyseOnly").asBoolean()).isTrue();
+        // Every controller off, as main's partial fallback left it on every image (review S1).
+        for (String section : List.of("scaleOutPolicy", "evictorPolicy", "vpaManagerPolicy", "hpaManagerPolicy",
+                "nodeOptimizerPolicy", "workloadRightsizerPolicy", "rebalancer")) {
+            assertThat(bundle.get(section).get("enabled").asBoolean()).as(section).isFalse();
+        }
         assertThat(bundle.size()).isGreaterThan(1);
     }
 
