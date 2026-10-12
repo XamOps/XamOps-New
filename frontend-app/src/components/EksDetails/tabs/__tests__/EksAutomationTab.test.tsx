@@ -1284,6 +1284,21 @@ describe('EksAutomationTab', () => {
     expect(screen.getByRole('button', { name: 'Apply overprovisioned-api' })).toBeDisabled();
   });
 
+  it('explains a POLICY_OFF refusal from endpoint 3 in plain words (review-2 item 15)', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+    mockedApply.mockResolvedValue({
+      kind: 'refused',
+      code: { kind: 'unknown', raw: 'K8S_INVALID_POLICY' },
+      message: 'POLICY_OFF: rightsizing is off for team-a/overprovisioned-api, so XamOps does not change it.',
+      detail: null,
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Not applied: rightsizing is off for this workload.');
+  });
+
   it('explains a cooldown refusal from endpoint 3 in plain words', async () => {
     resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
     mockedApply.mockResolvedValue({

@@ -449,6 +449,25 @@ class VerticalApplyServiceTest {
     }
 
     @Test
+    @DisplayName("a workload whose policy is OFF is refused with POLICY_OFF, dry runs too, and nothing is sent (item 15)")
+    void aPolicyOffWorkloadIsRefused() {
+        // The engine skips it and publishes nothing, so only a direct call could reach this.
+        when(policyService.resolve(any(), any(), any()))
+                .thenReturn(WorkloadPolicyDefaults.policy(WorkloadMode.OFF));
+
+        for (boolean dryRun : List.of(true, false)) {
+            VerticalApplyService.ApplyRefusedException refusal =
+                    refuse(principal(), readWriteAccount(), body(dryRun));
+            assertThat(refusal.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(refusal.code()).isEqualTo("K8S_INVALID_POLICY");
+            assertThat(refusal.field()).isEqualTo("name");
+            assertThat(refusal.getMessage()).startsWith("POLICY_OFF:");
+        }
+        verify(executor, never()).submit(any(), any(), any());
+        verify(policyService, never()).recordApplied(any(), any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("an OOM-driven memory-only raise inside the cooldown goes through, as the engine publishes it")
     void aMemoryOnlyRaiseIsExemptFromTheCooldown() {
         // Review-2 SF1: 1 GiB -> 250Mi is applied, the container is OOM-killed twenty minutes later,

@@ -9,6 +9,7 @@ import com.xammer.cloud.service.automation.workload.Quantities;
 import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicy;
+import com.xammer.cloud.service.automation.workload.WorkloadMode;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicyDefaults;
 import com.xammer.cloud.service.automation.workload.WorkloadRef;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccess;
@@ -218,6 +219,12 @@ public class VerticalApplyService {
         // not the bare Java defaults, whose mode is OFF.
         WorkloadPolicy policy = policyService.resolve(target.clusterConfigId(), workload.ref(),
                 metricsProperties.defaultsPolicy());
+        // Review-2 item 15: the engine skips a workload whose policy is OFF and publishes nothing for
+        // it, so a direct call must not resize it either. Dry runs too, so they predict the apply.
+        if (policy.mode() == WorkloadMode.OFF) {
+            throw invalid("name", "POLICY_OFF: rightsizing is off for " + workload.ref().describe()
+                    + ", so XamOps does not change it. Nothing was sent to the cluster.");
+        }
         List<ContainerApplyTarget> targets = revalidate(submitted, workload, policy);
         // The engine's holds, dry runs included, so a dry run predicts the real apply.
         requireEngineHoldsClear(workload, policy, submitted);

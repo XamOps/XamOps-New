@@ -395,6 +395,7 @@ const refusalText = (code: CodeView, message: string, hpaName: string | null, de
     const m = message ?? '';
     const hpa = hpaName ? `the HPA ${hpaName}` : 'an HPA';
     if (m.startsWith('PROTECTED_NAMESPACE:')) return 'XamOps never resizes workloads in this namespace.';
+    if (m.startsWith('POLICY_OFF:')) return 'Not applied: rightsizing is off for this workload.';
     if (m.startsWith('SINGLE_REPLICA:'))
       return 'Not applied: it runs a single replica, so a problem during a resize would take it down.';
     if (m.startsWith('ROLLOUT_IN_PROGRESS:')) return 'Not applied: a rollout is in progress. Try again when it ends.';
