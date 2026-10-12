@@ -1,0 +1,328 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "ReplicaSetList",
+  "metadata": {
+    "resourceVersion": "1"
+  },
+  "items": [
+    {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "metadata": {
+        "name": "overprovisioned-api-7d9f",
+        "namespace": "team-a",
+        "uid": "rs-1",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "overprovisioned-api",
+            "uid": "dep-1",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "overprovisioned-api"
+          }
+        }
+      },
+      "status": {
+        "replicas": 1
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "metadata": {
+        "name": "rightsized-worker-5c4b",
+        "namespace": "prod-sim",
+        "uid": "rs-2",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "rightsized-worker",
+            "uid": "dep-2",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "rightsized-worker"
+          }
+        }
+      },
+      "status": {
+        "replicas": 1
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "metadata": {
+        "name": "throttled-encoder-8a1e",
+        "namespace": "prod-sim",
+        "uid": "rs-3",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "throttled-encoder",
+            "uid": "dep-3",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "throttled-encoder"
+          }
+        }
+      },
+      "status": {
+        "replicas": 1
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "metadata": {
+        "name": "idle-batch-listener-6b2d",
+        "namespace": "dev-sim",
+        "uid": "rs-4",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "idle-batch-listener",
+            "uid": "dep-4",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "idle-batch-listener"
+          }
+        }
+      },
+      "status": {
+        "replicas": 1
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "metadata": {
+        "name": "no-requests-sidecar-app-9f3c",
+        "namespace": "dev-sim",
+        "uid": "rs-5",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "no-requests-sidecar-app",
+            "uid": "dep-5",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "no-requests-sidecar-app"
+          }
+        }
+      },
+      "status": {
+        "replicas": 1
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "metadata": {
+        "name": "php-apache-4e7a",
+        "namespace": "team-b",
+        "uid": "rs-6",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "php-apache",
+            "uid": "dep-6",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "php-apache"
+          }
+        }
+      },
+      "status": {
+        "replicas": 1
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "metadata": {
+        "name": "load-generator-2c9b",
+        "namespace": "team-b",
+        "uid": "rs-7",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "load-generator",
+            "uid": "dep-7",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "load-generator"
+          }
+        }
+      },
+      "status": {
+        "replicas": 1
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "metadata": {
+        "name": "pdb-guarded-web-1a5f",
+        "namespace": "team-b",
+        "uid": "rs-8",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "pdb-guarded-web",
+            "uid": "dep-8",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "pdb-guarded-web"
+          }
+        }
+      },
+      "status": {
+        "replicas": 1
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "metadata": {
+        "name": "unschedulable-giant-3d8c",
+        "namespace": "team-a",
+        "uid": "rs-9",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "unschedulable-giant",
+            "uid": "dep-9",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "unschedulable-giant"
+          }
+        }
+      },
+      "status": {
+        "replicas": 1
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "metadata": {
+        "name": "overprovisioned-api-canary-6f2a",
+        "namespace": "team-a",
+        "uid": "rs-decoy",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "overprovisioned-api-canary",
+            "uid": "dep-decoy",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "overprovisioned-api-canary"
+          }
+        }
+      },
+      "status": {
+        "replicas": 1
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "metadata": {
+        "name": "overprovisioned-api-5b8c",
+        "namespace": "team-a",
+        "uid": "rs-1-old",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "name": "overprovisioned-api",
+            "uid": "dep-1",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "overprovisioned-api"
+          }
+        }
+      },
+      "status": {
+        "replicas": 1
+      }
+    }
+  ]
+}

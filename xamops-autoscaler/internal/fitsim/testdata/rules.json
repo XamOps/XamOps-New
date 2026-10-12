@@ -1,0 +1,6514 @@
+{
+ "apiVersion": "v1",
+ "items": [
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "t1-tainted",
+    "creationTimestamp": null,
+    "labels": {
+     "disk": "ssd",
+     "tier": "5",
+     "zone": "z1"
+    }
+   },
+   "spec": {
+    "taints": [
+     {
+      "key": "dedicated",
+      "value": "batch",
+      "effect": "NoSchedule"
+     }
+    ]
+   },
+   "status": {
+    "allocatable": {
+     "cpu": "1",
+     "memory": "2Gi",
+     "pods": "10"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "t2-plain",
+    "creationTimestamp": null,
+    "labels": {
+     "rank": "abc",
+     "tier": "2",
+     "zone": "z2"
+    }
+   },
+   "spec": {
+    "taints": [
+     {
+      "key": "soft",
+      "value": "yes",
+      "effect": "PreferNoSchedule"
+     }
+    ]
+   },
+   "status": {
+    "allocatable": {
+     "cpu": "1",
+     "memory": "2Gi",
+     "pods": "10"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "t3-cordoned",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "t3-cordoned"
+    }
+   },
+   "spec": {
+    "unschedulable": true
+   },
+   "status": {
+    "allocatable": {
+     "cpu": "8",
+     "memory": "16Gi",
+     "pods": "50"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "t4-notready",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "t4-notready"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "8",
+     "memory": "16Gi",
+     "pods": "50"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "False",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-plain",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-plain"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-tolerates",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-tolerates"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-tol-exists",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-tol-exists"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-tol-wrong-value",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-tol-wrong-value"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-sel-z1",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-sel-z1"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-sel-z1-tol",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-sel-z1-tol"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-sel-missing",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-sel-missing"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-aff-in",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-aff-in"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-aff-notin",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-aff-notin"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-aff-notin-absent",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-aff-notin-absent"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-aff-exists",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-aff-exists"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-aff-dne",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-aff-dne"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-aff-gt",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-aff-gt"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-aff-lt",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-aff-lt"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-aff-gt-none",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-aff-gt-none"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-aff-gt-nonint",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-aff-gt-nonint"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-aff-field-in",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-aff-field-in"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-aff-field-notin",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-aff-field-notin"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-aff-or",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-aff-or"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-aff-empty-term",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-aff-empty-term"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-aff-and",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-aff-and"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-too-big",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-too-big"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-mem-big",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-mem-big"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-sidecar",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-sidecar"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-init-big",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-init-big"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-init-ok",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-init-ok"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-overhead",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-overhead"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-alloc",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-alloc"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-pvc",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-pvc"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-ephemeral",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-ephemeral"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-hostport",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-hostport"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-podaff",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-podaff"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-antiaff",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-antiaff"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-antiaff-preferred",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-antiaff-preferred"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-spread-dns",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-spread-dns"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-spread-anyway",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-spread-anyway"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-extended",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-extended"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-multi-refuse",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-multi-refuse"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-refused-in-kube-system",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-refused-in-kube-system"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-critical",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-critical"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-self",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-self"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-sts",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-sts"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-single",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-single"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-replicas-unknown",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-replicas-unknown"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-rc",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-rc"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-ownerless",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-ownerless"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-job",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-job"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-custom",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-custom"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-safe-false",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-safe-false"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-safe-true",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-safe-true"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-multi-pdb",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-multi-pdb"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-pdb-zero",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-pdb-zero"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-pdb-stale",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-pdb-stale"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-pdb-ok",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-pdb-ok"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-pdb-everything",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-pdb-everything"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-blocked-and-strand",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-blocked-and-strand"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-ds-only",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-ds-only"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-mirror",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-mirror"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "1"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Node",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "s-empty",
+    "creationTimestamp": null,
+    "labels": {
+     "kubernetes.io/hostname": "s-empty"
+    }
+   },
+   "spec": {},
+   "status": {
+    "allocatable": {
+     "cpu": "4",
+     "memory": "8Gi",
+     "pods": "0"
+    },
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastHeartbeatTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "daemonEndpoints": {
+     "kubeletEndpoint": {
+      "Port": 0
+     }
+    },
+    "nodeInfo": {
+     "machineID": "",
+     "systemUUID": "",
+     "bootID": "",
+     "kernelVersion": "",
+     "osImage": "",
+     "containerRuntimeVersion": "",
+     "kubeletVersion": "",
+     "kubeProxyVersion": "",
+     "operatingSystem": "",
+     "architecture": ""
+    }
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "terminating",
+    "namespace": "apps",
+    "uid": "uid-apps-terminating",
+    "creationTimestamp": null,
+    "deletionTimestamp": "2026-10-10T00:00:00Z",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "t2-plain"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "succeeded",
+    "namespace": "apps",
+    "uid": "uid-apps-succeeded",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "900m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "t2-plain"
+   },
+   "status": {
+    "phase": "Succeeded",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "unbound",
+    "namespace": "apps",
+    "uid": "uid-apps-unbound",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "900m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ]
+   },
+   "status": {
+    "phase": "Pending",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "plain",
+    "namespace": "apps",
+    "uid": "uid-apps-plain",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "plain"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-plain"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "tolerates",
+    "namespace": "apps",
+    "uid": "uid-apps-tolerates",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "tolerates"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-tolerates",
+    "tolerations": [
+     {
+      "key": "dedicated",
+      "operator": "Equal",
+      "value": "batch",
+      "effect": "NoSchedule"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "tol-exists",
+    "namespace": "apps",
+    "uid": "uid-apps-tol-exists",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "tol-exists"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-tol-exists",
+    "tolerations": [
+     {
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "tol-wrong-value",
+    "namespace": "apps",
+    "uid": "uid-apps-tol-wrong-value",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "tol-wrong-value"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-tol-wrong-value",
+    "tolerations": [
+     {
+      "key": "dedicated",
+      "value": "other",
+      "effect": "NoSchedule"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "sel-z1",
+    "namespace": "apps",
+    "uid": "uid-apps-sel-z1",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "sel-z1"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeSelector": {
+     "zone": "z1"
+    },
+    "nodeName": "s-sel-z1"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "sel-z1-tol",
+    "namespace": "apps",
+    "uid": "uid-apps-sel-z1-tol",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "sel-z1-tol"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeSelector": {
+     "zone": "z1"
+    },
+    "nodeName": "s-sel-z1-tol",
+    "tolerations": [
+     {
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "sel-missing",
+    "namespace": "apps",
+    "uid": "uid-apps-sel-missing",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "sel-missing"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeSelector": {
+     "gpu": "yes"
+    },
+    "nodeName": "s-sel-missing"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aff-in",
+    "namespace": "apps",
+    "uid": "uid-apps-aff-in",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "aff-in"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-aff-in",
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchExpressions": [
+          {
+           "key": "zone",
+           "operator": "In",
+           "values": [
+            "z2"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aff-notin",
+    "namespace": "apps",
+    "uid": "uid-apps-aff-notin",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "aff-notin"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-aff-notin",
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchExpressions": [
+          {
+           "key": "zone",
+           "operator": "NotIn",
+           "values": [
+            "z1"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aff-notin-absent",
+    "namespace": "apps",
+    "uid": "uid-apps-aff-notin-absent",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "aff-notin-absent"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-aff-notin-absent",
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchExpressions": [
+          {
+           "key": "gpu",
+           "operator": "NotIn",
+           "values": [
+            "yes"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aff-exists",
+    "namespace": "apps",
+    "uid": "uid-apps-aff-exists",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "aff-exists"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-aff-exists",
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchExpressions": [
+          {
+           "key": "disk",
+           "operator": "Exists"
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aff-dne",
+    "namespace": "apps",
+    "uid": "uid-apps-aff-dne",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "aff-dne"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-aff-dne",
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchExpressions": [
+          {
+           "key": "disk",
+           "operator": "DoesNotExist"
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aff-gt",
+    "namespace": "apps",
+    "uid": "uid-apps-aff-gt",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "aff-gt"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-aff-gt",
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchExpressions": [
+          {
+           "key": "tier",
+           "operator": "Gt",
+           "values": [
+            "3"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aff-lt",
+    "namespace": "apps",
+    "uid": "uid-apps-aff-lt",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "aff-lt"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-aff-lt",
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchExpressions": [
+          {
+           "key": "tier",
+           "operator": "Lt",
+           "values": [
+            "3"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aff-gt-none",
+    "namespace": "apps",
+    "uid": "uid-apps-aff-gt-none",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "aff-gt-none"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-aff-gt-none",
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchExpressions": [
+          {
+           "key": "tier",
+           "operator": "Gt",
+           "values": [
+            "9"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aff-gt-nonint",
+    "namespace": "apps",
+    "uid": "uid-apps-aff-gt-nonint",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "aff-gt-nonint"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-aff-gt-nonint",
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchExpressions": [
+          {
+           "key": "rank",
+           "operator": "Gt",
+           "values": [
+            "1"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aff-field-in",
+    "namespace": "apps",
+    "uid": "uid-apps-aff-field-in",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "aff-field-in"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-aff-field-in",
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "In",
+           "values": [
+            "t2-plain"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aff-field-notin",
+    "namespace": "apps",
+    "uid": "uid-apps-aff-field-notin",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "aff-field-notin"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-aff-field-notin",
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchFields": [
+          {
+           "key": "metadata.name",
+           "operator": "NotIn",
+           "values": [
+            "t1-tainted"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aff-or",
+    "namespace": "apps",
+    "uid": "uid-apps-aff-or",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "aff-or"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-aff-or",
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchExpressions": [
+          {
+           "key": "zone",
+           "operator": "In",
+           "values": [
+            "nope"
+           ]
+          }
+         ]
+        },
+        {
+         "matchExpressions": [
+          {
+           "key": "zone",
+           "operator": "In",
+           "values": [
+            "z2"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aff-empty-term",
+    "namespace": "apps",
+    "uid": "uid-apps-aff-empty-term",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "aff-empty-term"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-aff-empty-term",
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {}
+       ]
+      }
+     }
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "aff-and",
+    "namespace": "apps",
+    "uid": "uid-apps-aff-and",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "aff-and"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-aff-and",
+    "affinity": {
+     "nodeAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": {
+       "nodeSelectorTerms": [
+        {
+         "matchExpressions": [
+          {
+           "key": "zone",
+           "operator": "In",
+           "values": [
+            "z1"
+           ]
+          },
+          {
+           "key": "tier",
+           "operator": "Lt",
+           "values": [
+            "3"
+           ]
+          }
+         ]
+        }
+       ]
+      }
+     }
+    },
+    "tolerations": [
+     {
+      "operator": "Exists"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "too-big",
+    "namespace": "apps",
+    "uid": "uid-apps-too-big",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "too-big"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "1500m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-too-big"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "mem-big",
+    "namespace": "apps",
+    "uid": "uid-apps-mem-big",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "mem-big"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "3Gi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-mem-big"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "sidecar",
+    "namespace": "apps",
+    "uid": "uid-apps-sidecar",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "sidecar"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "initContainers": [
+     {
+      "name": "proxy",
+      "resources": {
+       "requests": {
+        "cpu": "500m",
+        "memory": "16Mi"
+       }
+      },
+      "restartPolicy": "Always"
+     }
+    ],
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "600m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-sidecar"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "init-big",
+    "namespace": "apps",
+    "uid": "uid-apps-init-big",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "init-big"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "initContainers": [
+     {
+      "name": "migrate",
+      "resources": {
+       "requests": {
+        "cpu": "1200m",
+        "memory": "16Mi"
+       }
+      }
+     }
+    ],
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-init-big"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "init-ok",
+    "namespace": "apps",
+    "uid": "uid-apps-init-ok",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "init-ok"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "initContainers": [
+     {
+      "name": "proxy",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "16Mi"
+       }
+      },
+      "restartPolicy": "Always"
+     },
+     {
+      "name": "migrate",
+      "resources": {
+       "requests": {
+        "cpu": "300m",
+        "memory": "16Mi"
+       }
+      }
+     }
+    ],
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "600m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-init-ok"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "overhead",
+    "namespace": "apps",
+    "uid": "uid-apps-overhead",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "overhead"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "900m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-overhead",
+    "overhead": {
+     "cpu": "200m"
+    }
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "alloc",
+    "namespace": "apps",
+    "uid": "uid-apps-alloc",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "alloc"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-alloc"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ],
+    "containerStatuses": [
+     {
+      "name": "app",
+      "state": {},
+      "lastState": {},
+      "ready": false,
+      "restartCount": 0,
+      "image": "",
+      "imageID": "",
+      "allocatedResources": {
+       "cpu": "1200m"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "pvc",
+    "namespace": "apps",
+    "uid": "uid-apps-pvc",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "pvc"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "volumes": [
+     {
+      "name": "data",
+      "persistentVolumeClaim": {
+       "claimName": "data"
+      }
+     }
+    ],
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-pvc"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "ephemeral",
+    "namespace": "apps",
+    "uid": "uid-apps-ephemeral",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "ephemeral"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "volumes": [
+     {
+      "name": "scratch",
+      "ephemeral": {}
+     }
+    ],
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-ephemeral"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "hostport",
+    "namespace": "apps",
+    "uid": "uid-apps-hostport",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "hostport"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "ports": [
+       {
+        "hostPort": 8080,
+        "containerPort": 80
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-hostport"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "podaff",
+    "namespace": "apps",
+    "uid": "uid-apps-podaff",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "podaff"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-podaff",
+    "affinity": {
+     "podAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": [
+       {
+        "labelSelector": {
+         "matchLabels": {
+          "rule": "x"
+         }
+        },
+        "topologyKey": "kubernetes.io/hostname"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "antiaff",
+    "namespace": "apps",
+    "uid": "uid-apps-antiaff",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "antiaff"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-antiaff",
+    "affinity": {
+     "podAntiAffinity": {
+      "requiredDuringSchedulingIgnoredDuringExecution": [
+       {
+        "labelSelector": {
+         "matchLabels": {
+          "rule": "x"
+         }
+        },
+        "topologyKey": "kubernetes.io/hostname"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "antiaff-preferred",
+    "namespace": "apps",
+    "uid": "uid-apps-antiaff-preferred",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "antiaff-preferred"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-antiaff-preferred",
+    "affinity": {
+     "podAntiAffinity": {
+      "preferredDuringSchedulingIgnoredDuringExecution": [
+       {
+        "weight": 100,
+        "podAffinityTerm": {
+         "labelSelector": {
+          "matchLabels": {
+           "rule": "x"
+          }
+         },
+         "topologyKey": "kubernetes.io/hostname"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "spread-dns",
+    "namespace": "apps",
+    "uid": "uid-apps-spread-dns",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "spread-dns"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-spread-dns",
+    "topologySpreadConstraints": [
+     {
+      "maxSkew": 1,
+      "topologyKey": "zone",
+      "whenUnsatisfiable": "DoNotSchedule"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "spread-anyway",
+    "namespace": "apps",
+    "uid": "uid-apps-spread-anyway",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "spread-anyway"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-spread-anyway",
+    "topologySpreadConstraints": [
+     {
+      "maxSkew": 1,
+      "topologyKey": "zone",
+      "whenUnsatisfiable": "ScheduleAnyway"
+     }
+    ]
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "extended",
+    "namespace": "apps",
+    "uid": "uid-apps-extended",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "extended"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "initContainers": [
+     {
+      "name": "i",
+      "resources": {
+       "requests": {
+        "ephemeral-storage": "1Gi"
+       }
+      }
+     }
+    ],
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi",
+        "nvidia.com/gpu": "1"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-extended"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "multi-refuse",
+    "namespace": "apps",
+    "uid": "uid-apps-multi-refuse",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "multi-refuse"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "volumes": [
+     {
+      "name": "d",
+      "persistentVolumeClaim": {
+       "claimName": "d"
+      }
+     }
+    ],
+    "containers": [
+     {
+      "name": "app",
+      "ports": [
+       {
+        "hostPort": 80,
+        "containerPort": 80
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-multi-refuse"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "refused-in-kube-system",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-refused-in-kube-system",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "refused-in-kube-system"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "sys-rs",
+      "uid": "uid-kube-system-sys-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "ports": [
+       {
+        "hostPort": 53,
+        "containerPort": 53
+       }
+      ],
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-refused-in-kube-system"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "critical",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-critical",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "critical"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "sys-rs",
+      "uid": "uid-kube-system-sys-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-critical"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "self",
+    "namespace": "xamops-system",
+    "uid": "uid-xamops-system-self",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "self"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "self-rs",
+      "uid": "uid-xamops-system-self-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-self"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "sts",
+    "namespace": "apps",
+    "uid": "uid-apps-sts",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "sts"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "StatefulSet",
+      "name": "db",
+      "uid": "uid-apps-db",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-sts"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "single",
+    "namespace": "apps",
+    "uid": "uid-apps-single",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "single"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "single-rs",
+      "uid": "uid-apps-single-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-single"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "replicas-unknown",
+    "namespace": "apps",
+    "uid": "uid-apps-replicas-unknown",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "replicas-unknown"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "gone-rs",
+      "uid": "uid-apps-gone-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-replicas-unknown"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "rc",
+    "namespace": "apps",
+    "uid": "uid-apps-rc",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "rc"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicationController",
+      "name": "legacy-rc",
+      "uid": "uid-apps-legacy-rc",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-rc"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "ownerless",
+    "namespace": "apps",
+    "uid": "uid-apps-ownerless",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "ownerless"
+    }
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-ownerless"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "job",
+    "namespace": "apps",
+    "uid": "uid-apps-job",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "job"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "Job",
+      "name": "batch-job",
+      "uid": "uid-apps-batch-job",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-job"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "custom",
+    "namespace": "apps",
+    "uid": "uid-apps-custom",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "custom"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "Rollout",
+      "name": "canary",
+      "uid": "uid-apps-canary",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-custom"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "safe-false",
+    "namespace": "apps",
+    "uid": "uid-apps-safe-false",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "safe-false"
+    },
+    "annotations": {
+     "cluster-autoscaler.kubernetes.io/safe-to-evict": "false"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-safe-false"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "safe-true",
+    "namespace": "apps",
+    "uid": "uid-apps-safe-true",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "safe-true"
+    },
+    "annotations": {
+     "cluster-autoscaler.kubernetes.io/safe-to-evict": "true"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-safe-true"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "multi-pdb",
+    "namespace": "apps",
+    "uid": "uid-apps-multi-pdb",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "multi-pdb"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-multi-pdb"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "pdb-zero",
+    "namespace": "apps",
+    "uid": "uid-apps-pdb-zero",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "pdb-zero"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-pdb-zero"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "pdb-stale",
+    "namespace": "apps",
+    "uid": "uid-apps-pdb-stale",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "pdb-stale"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-pdb-stale"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "pdb-ok",
+    "namespace": "apps",
+    "uid": "uid-apps-pdb-ok",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "pdb-ok"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "rules-rs",
+      "uid": "uid-apps-rules-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-pdb-ok"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "pdb-everything",
+    "namespace": "allns",
+    "uid": "uid-allns-pdb-everything",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "pdb-everything"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "all-rs",
+      "uid": "uid-allns-all-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-pdb-everything"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "blocked-and-strand",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-blocked-and-strand",
+    "creationTimestamp": null,
+    "labels": {
+     "rule": "blocked-and-strand"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "ReplicaSet",
+      "name": "sys-rs",
+      "uid": "uid-kube-system-sys-rs",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "1500m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-blocked-and-strand"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "ds-pod",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-ds-pod",
+    "creationTimestamp": null,
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "name": "aws-node",
+      "uid": "uid-kube-system-aws-node",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-ds-only"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "Pod",
+   "apiVersion": "v1",
+   "metadata": {
+    "name": "mirror-pod",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-mirror-pod",
+    "creationTimestamp": null,
+    "annotations": {
+     "kubernetes.io/config.mirror": "x"
+    },
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "kind": "Node",
+      "name": "s-mirror",
+      "uid": "uid-kube-system-s-mirror",
+      "controller": true
+     }
+    ]
+   },
+   "spec": {
+    "containers": [
+     {
+      "name": "app",
+      "resources": {
+       "requests": {
+        "cpu": "100m",
+        "memory": "64Mi"
+       }
+      }
+     }
+    ],
+    "nodeName": "s-mirror"
+   },
+   "status": {
+    "phase": "Running",
+    "conditions": [
+     {
+      "type": "Ready",
+      "status": "True",
+      "lastProbeTime": null,
+      "lastTransitionTime": null
+     }
+    ]
+   }
+  },
+  {
+   "kind": "PodDisruptionBudget",
+   "apiVersion": "policy/v1",
+   "metadata": {
+    "name": "pdb-m1",
+    "namespace": "apps",
+    "generation": 1,
+    "creationTimestamp": null
+   },
+   "spec": {
+    "minAvailable": 1,
+    "selector": {
+     "matchLabels": {
+      "rule": "multi-pdb"
+     }
+    }
+   },
+   "status": {
+    "observedGeneration": 1,
+    "disruptionsAllowed": 1,
+    "currentHealthy": 0,
+    "desiredHealthy": 0,
+    "expectedPods": 0
+   }
+  },
+  {
+   "kind": "PodDisruptionBudget",
+   "apiVersion": "policy/v1",
+   "metadata": {
+    "name": "pdb-m2",
+    "namespace": "apps",
+    "generation": 1,
+    "creationTimestamp": null
+   },
+   "spec": {
+    "minAvailable": 1,
+    "selector": {
+     "matchLabels": {
+      "rule": "multi-pdb"
+     }
+    }
+   },
+   "status": {
+    "observedGeneration": 1,
+    "disruptionsAllowed": 1,
+    "currentHealthy": 0,
+    "desiredHealthy": 0,
+    "expectedPods": 0
+   }
+  },
+  {
+   "kind": "PodDisruptionBudget",
+   "apiVersion": "policy/v1",
+   "metadata": {
+    "name": "pdb-zero",
+    "namespace": "apps",
+    "generation": 1,
+    "creationTimestamp": null
+   },
+   "spec": {
+    "minAvailable": 1,
+    "selector": {
+     "matchLabels": {
+      "rule": "pdb-zero"
+     }
+    }
+   },
+   "status": {
+    "observedGeneration": 1,
+    "disruptionsAllowed": 0,
+    "currentHealthy": 0,
+    "desiredHealthy": 0,
+    "expectedPods": 0
+   }
+  },
+  {
+   "kind": "PodDisruptionBudget",
+   "apiVersion": "policy/v1",
+   "metadata": {
+    "name": "pdb-stale",
+    "namespace": "apps",
+    "generation": 2,
+    "creationTimestamp": null
+   },
+   "spec": {
+    "minAvailable": 1,
+    "selector": {
+     "matchLabels": {
+      "rule": "pdb-stale"
+     }
+    }
+   },
+   "status": {
+    "observedGeneration": 1,
+    "disruptionsAllowed": 1,
+    "currentHealthy": 0,
+    "desiredHealthy": 0,
+    "expectedPods": 0
+   }
+  },
+  {
+   "kind": "PodDisruptionBudget",
+   "apiVersion": "policy/v1",
+   "metadata": {
+    "name": "pdb-ok",
+    "namespace": "apps",
+    "generation": 1,
+    "creationTimestamp": null
+   },
+   "spec": {
+    "minAvailable": 1,
+    "selector": {
+     "matchLabels": {
+      "rule": "pdb-ok"
+     }
+    }
+   },
+   "status": {
+    "observedGeneration": 1,
+    "disruptionsAllowed": 1,
+    "currentHealthy": 0,
+    "desiredHealthy": 0,
+    "expectedPods": 0
+   }
+  },
+  {
+   "kind": "PodDisruptionBudget",
+   "apiVersion": "policy/v1",
+   "metadata": {
+    "name": "pdb-all",
+    "namespace": "allns",
+    "generation": 1,
+    "creationTimestamp": null
+   },
+   "spec": {
+    "minAvailable": 1,
+    "selector": {}
+   },
+   "status": {
+    "observedGeneration": 1,
+    "disruptionsAllowed": 1,
+    "currentHealthy": 0,
+    "desiredHealthy": 0,
+    "expectedPods": 0
+   }
+  },
+  {
+   "kind": "PodDisruptionBudget",
+   "apiVersion": "policy/v1",
+   "metadata": {
+    "name": "pdb-nil",
+    "namespace": "allns",
+    "generation": 1,
+    "creationTimestamp": null
+   },
+   "spec": {
+    "minAvailable": 1
+   },
+   "status": {
+    "observedGeneration": 1,
+    "disruptionsAllowed": 0,
+    "currentHealthy": 0,
+    "desiredHealthy": 0,
+    "expectedPods": 0
+   }
+  },
+  {
+   "kind": "ReplicaSet",
+   "apiVersion": "apps/v1",
+   "metadata": {
+    "name": "rules-rs",
+    "namespace": "apps",
+    "uid": "uid-apps-rules-rs",
+    "creationTimestamp": null
+   },
+   "spec": {
+    "replicas": 3,
+    "selector": null,
+    "template": {
+     "metadata": {
+      "creationTimestamp": null
+     },
+     "spec": {
+      "containers": null
+     }
+    }
+   },
+   "status": {
+    "replicas": 0
+   }
+  },
+  {
+   "kind": "ReplicaSet",
+   "apiVersion": "apps/v1",
+   "metadata": {
+    "name": "single-rs",
+    "namespace": "apps",
+    "uid": "uid-apps-single-rs",
+    "creationTimestamp": null
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": null,
+    "template": {
+     "metadata": {
+      "creationTimestamp": null
+     },
+     "spec": {
+      "containers": null
+     }
+    }
+   },
+   "status": {
+    "replicas": 0
+   }
+  },
+  {
+   "kind": "ReplicaSet",
+   "apiVersion": "apps/v1",
+   "metadata": {
+    "name": "sys-rs",
+    "namespace": "kube-system",
+    "uid": "uid-kube-system-sys-rs",
+    "creationTimestamp": null
+   },
+   "spec": {
+    "replicas": 2,
+    "selector": null,
+    "template": {
+     "metadata": {
+      "creationTimestamp": null
+     },
+     "spec": {
+      "containers": null
+     }
+    }
+   },
+   "status": {
+    "replicas": 0
+   }
+  },
+  {
+   "kind": "ReplicaSet",
+   "apiVersion": "apps/v1",
+   "metadata": {
+    "name": "self-rs",
+    "namespace": "xamops-system",
+    "uid": "uid-xamops-system-self-rs",
+    "creationTimestamp": null
+   },
+   "spec": {
+    "replicas": 2,
+    "selector": null,
+    "template": {
+     "metadata": {
+      "creationTimestamp": null
+     },
+     "spec": {
+      "containers": null
+     }
+    }
+   },
+   "status": {
+    "replicas": 0
+   }
+  },
+  {
+   "kind": "ReplicaSet",
+   "apiVersion": "apps/v1",
+   "metadata": {
+    "name": "all-rs",
+    "namespace": "allns",
+    "uid": "uid-allns-all-rs",
+    "creationTimestamp": null
+   },
+   "spec": {
+    "replicas": 2,
+    "selector": null,
+    "template": {
+     "metadata": {
+      "creationTimestamp": null
+     },
+     "spec": {
+      "containers": null
+     }
+    }
+   },
+   "status": {
+    "replicas": 0
+   }
+  },
+  {
+   "kind": "StatefulSet",
+   "apiVersion": "apps/v1",
+   "metadata": {
+    "name": "db",
+    "namespace": "apps",
+    "uid": "uid-apps-db",
+    "creationTimestamp": null
+   },
+   "spec": {
+    "replicas": 3,
+    "selector": null,
+    "template": {
+     "metadata": {
+      "creationTimestamp": null
+     },
+     "spec": {
+      "containers": null
+     }
+    },
+    "serviceName": "",
+    "updateStrategy": {}
+   },
+   "status": {
+    "replicas": 0,
+    "availableReplicas": 0
+   }
+  }
+ ],
+ "kind": "List"
+}

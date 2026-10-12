@@ -20,14 +20,20 @@ import (
 // AutoscalingKpis matches the backend AutoscalingKpisDto exactly.
 // Stored as a single JSON object (SINGLE_OBJECT_COLLECTORS on backend).
 type AutoscalingKpis struct {
-	NodesSavedToday          int     `json:"nodesSavedToday"`
-	CostSavedThisWeek        float64 `json:"costSavedThisWeek"`
-	PendingPodsResolved      int     `json:"pendingPodsResolved"`
-	ActiveRebalances         int     `json:"activeRebalances"`
-	SpotRatio                int     `json:"spotRatio"`
-	AvgNodeUtilizationCpu    int     `json:"avgNodeUtilizationCpu"`
-	AvgNodeUtilizationMemory int     `json:"avgNodeUtilizationMemory"`
-	TotalManagedNodes        int     `json:"totalManagedNodes"`
+	NodesSavedToday   int     `json:"nodesSavedToday"`
+	CostSavedThisWeek float64 `json:"costSavedThisWeek"`
+	// PendingPodsResolved is a deprecated misnomer kept for contract compatibility:
+	// this has always been the number of currently Pending pods with
+	// PodScheduled=False/Unschedulable, not pods resolved. The backend parses this
+	// object strictly (EksAutoscalingService.readMetrics, plain ObjectMapper), so no
+	// key may be added here; the correctly named value is k8s-resources
+	// summary.unscheduledPods.
+	PendingPodsResolved      int `json:"pendingPodsResolved"`
+	ActiveRebalances         int `json:"activeRebalances"`
+	SpotRatio                int `json:"spotRatio"`
+	AvgNodeUtilizationCpu    int `json:"avgNodeUtilizationCpu"`
+	AvgNodeUtilizationMemory int `json:"avgNodeUtilizationMemory"`
+	TotalManagedNodes        int `json:"totalManagedNodes"`
 }
 
 // AutoscalingEvent matches the backend AutoscalingEventDto.
@@ -93,6 +99,11 @@ func (c *autoscalingMetricsCollector) collectMetrics(ctx context.Context) (DataB
 				}
 			}
 		}
+		// Deprecated misnomer kept for contract compatibility: this is the number of
+		// currently Pending pods with PodScheduled=False/Unschedulable, not pods
+		// resolved. The backend parses this object strictly
+		// (EksAutoscalingService.readMetrics, plain ObjectMapper), so no key may be
+		// added here; the correctly named value is k8s-resources summary.unscheduledPods.
 		kpis.PendingPodsResolved = unschedulable
 	}
 

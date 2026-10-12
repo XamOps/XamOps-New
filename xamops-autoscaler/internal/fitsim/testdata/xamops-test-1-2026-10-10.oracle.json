@@ -1,0 +1,377 @@
+{
+  "nodes": {
+    "ip-172-31-18-172.ap-south-1.compute.internal": {
+      "blocked": [
+        {
+          "pod": "team-b/pdb-guarded-web-867645d8d-qvltl",
+          "reason": "pdb-no-disruptions:team-b/pdb-guarded-web"
+        },
+        {
+          "pod": "team-b/pdb-guarded-web-867645d8d-rf4p4",
+          "reason": "pdb-no-disruptions:team-b/pdb-guarded-web"
+        },
+        {
+          "pod": "vpa/vpa-recommender-c9f5d5fbb-9xjsw",
+          "reason": "single-replica"
+        },
+        {
+          "pod": "xamops-system/xamops-automation-55dbfb8794-qcp27",
+          "reason": "critical-namespace; self-namespace; single-replica; pdb-no-disruptions:xamops-system/xamops-automation-pdb"
+        },
+        {
+          "pod": "xamops-system/xamops-stub-5c9fdcbf86-wz88b",
+          "reason": "critical-namespace; self-namespace; single-replica"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [
+        "amazon-cloudwatch/cloudwatch-agent-2wt4x",
+        "amazon-cloudwatch/fluent-bit-k9zn4",
+        "kube-system/aws-node-kghs6",
+        "kube-system/kube-proxy-6bmfb",
+        "monitoring/prometheus-prometheus-node-exporter-l9xx4"
+      ],
+      "excludedCount": 5,
+      "moves": [
+        {
+          "cpuMillis": 200,
+          "from": "ip-172-31-18-172.ap-south-1.compute.internal",
+          "memBytes": 67108864,
+          "pod": "team-b/php-apache-7cd5b774b6-4s8nf",
+          "to": "ip-172-31-43-198.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 200,
+          "from": "ip-172-31-18-172.ap-south-1.compute.internal",
+          "memBytes": 67108864,
+          "pod": "team-b/php-apache-7cd5b774b6-lmbnh",
+          "to": "ip-172-31-43-198.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 100,
+          "from": "ip-172-31-18-172.ap-south-1.compute.internal",
+          "memBytes": 134217728,
+          "pod": "dev-sim/idle-batch-listener-b6d6898cd-hl9qh",
+          "to": "ip-172-31-43-198.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 50,
+          "from": "ip-172-31-18-172.ap-south-1.compute.internal",
+          "memBytes": 67108864,
+          "pod": "xamops-system/xamops-automation-55dbfb8794-qcp27",
+          "to": "ip-172-31-26-143.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 25,
+          "from": "ip-172-31-18-172.ap-south-1.compute.internal",
+          "memBytes": 134217728,
+          "pod": "vpa/vpa-recommender-c9f5d5fbb-9xjsw",
+          "to": "ip-172-31-9-125.ap-south-1.compute.internal"
+        }
+      ],
+      "nodes": [
+        "ip-172-31-18-172.ap-south-1.compute.internal"
+      ],
+      "pdbChecks": [
+        {
+          "disruptionsAllowed": 0,
+          "matchedInSet": 2,
+          "pdb": "team-b/pdb-guarded-web",
+          "stale": false
+        },
+        {
+          "disruptionsAllowed": 0,
+          "matchedInSet": 1,
+          "pdb": "xamops-system/xamops-automation-pdb",
+          "stale": false
+        }
+      ],
+      "refused": [],
+      "strands": [
+        "dev-sim/idle-batch-listener-b6d6898cd-wf97t",
+        "team-b/pdb-guarded-web-867645d8d-qvltl",
+        "team-b/pdb-guarded-web-867645d8d-rf4p4",
+        "xamops-system/xamops-stub-5c9fdcbf86-wz88b"
+      ]
+    },
+    "ip-172-31-26-143.ap-south-1.compute.internal": {
+      "blocked": [
+        {
+          "pod": "monitoring/prometheus-kube-state-metrics-5979889c8b-lfh98",
+          "reason": "critical-namespace; single-replica"
+        },
+        {
+          "pod": "monitoring/prometheus-server-d85f86467-4jpf2",
+          "reason": "critical-namespace; single-replica"
+        },
+        {
+          "pod": "xamops-system/xamops-agent-c5994b94b-6vgt5",
+          "reason": "critical-namespace; self-namespace; single-replica"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [
+        "amazon-cloudwatch/cloudwatch-agent-tg7sh",
+        "amazon-cloudwatch/fluent-bit-62tnn",
+        "kube-system/aws-node-vhzhv",
+        "kube-system/kube-proxy-87vhn",
+        "monitoring/prometheus-prometheus-node-exporter-nzdxc"
+      ],
+      "excludedCount": 5,
+      "moves": [
+        {
+          "cpuMillis": 200,
+          "from": "ip-172-31-26-143.ap-south-1.compute.internal",
+          "memBytes": 67108864,
+          "pod": "team-b/php-apache-7cd5b774b6-pvkwn",
+          "to": "ip-172-31-18-172.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 105,
+          "from": "ip-172-31-26-143.ap-south-1.compute.internal",
+          "memBytes": 553648128,
+          "pod": "monitoring/prometheus-server-d85f86467-4jpf2",
+          "to": "ip-172-31-18-172.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 100,
+          "from": "ip-172-31-26-143.ap-south-1.compute.internal",
+          "memBytes": 268435456,
+          "pod": "xamops-system/xamops-agent-c5994b94b-6vgt5",
+          "to": "ip-172-31-18-172.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 10,
+          "from": "ip-172-31-26-143.ap-south-1.compute.internal",
+          "memBytes": 67108864,
+          "pod": "monitoring/prometheus-kube-state-metrics-5979889c8b-lfh98",
+          "to": "ip-172-31-43-198.ap-south-1.compute.internal"
+        }
+      ],
+      "nodes": [
+        "ip-172-31-26-143.ap-south-1.compute.internal"
+      ],
+      "pdbChecks": [
+        {
+          "disruptionsAllowed": 1,
+          "matchedInSet": 1,
+          "pdb": "xamops-system/xamops-agent-pdb",
+          "stale": false
+        }
+      ],
+      "refused": [],
+      "strands": [
+        "team-a/overprovisioned-api-76dd9f98c9-fcnhh"
+      ]
+    },
+    "ip-172-31-43-198.ap-south-1.compute.internal": {
+      "blocked": [
+        {
+          "pod": "kube-system/coredns-67db859b96-62chd",
+          "reason": "critical-namespace"
+        },
+        {
+          "pod": "kube-system/coredns-67db859b96-6tzbx",
+          "reason": "critical-namespace"
+        },
+        {
+          "pod": "kube-system/metrics-server-665685856d-wq9mz",
+          "reason": "critical-namespace"
+        },
+        {
+          "pod": "team-b/load-generator-5d6ff98784-j4cbv",
+          "reason": "single-replica"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [
+        "amazon-cloudwatch/cloudwatch-agent-k9tkl",
+        "amazon-cloudwatch/fluent-bit-xt7rw",
+        "kube-system/aws-node-7jpj4",
+        "kube-system/kube-proxy-l5h85",
+        "monitoring/prometheus-prometheus-node-exporter-q9wkx"
+      ],
+      "excludedCount": 5,
+      "moves": [
+        {
+          "cpuMillis": 200,
+          "from": "ip-172-31-43-198.ap-south-1.compute.internal",
+          "memBytes": 67108864,
+          "pod": "team-b/php-apache-7cd5b774b6-987v9",
+          "to": "ip-172-31-18-172.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 200,
+          "from": "ip-172-31-43-198.ap-south-1.compute.internal",
+          "memBytes": 67108864,
+          "pod": "team-b/php-apache-7cd5b774b6-dnkjx",
+          "to": "ip-172-31-18-172.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 100,
+          "from": "ip-172-31-43-198.ap-south-1.compute.internal",
+          "memBytes": 209715200,
+          "pod": "kube-system/metrics-server-665685856d-wq9mz",
+          "to": "ip-172-31-18-172.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 50,
+          "from": "ip-172-31-43-198.ap-south-1.compute.internal",
+          "memBytes": 33554432,
+          "pod": "team-b/load-generator-5d6ff98784-j4cbv",
+          "to": "ip-172-31-26-143.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 10,
+          "from": "ip-172-31-43-198.ap-south-1.compute.internal",
+          "memBytes": 33554432,
+          "pod": "prod-sim/throttled-encoder-8b999cc87-64nmg",
+          "to": "ip-172-31-9-125.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 0,
+          "from": "ip-172-31-43-198.ap-south-1.compute.internal",
+          "memBytes": 0,
+          "pod": "dev-sim/no-requests-sidecar-app-55c8f955d9-9vvmt",
+          "to": "ip-172-31-26-143.ap-south-1.compute.internal"
+        }
+      ],
+      "nodes": [
+        "ip-172-31-43-198.ap-south-1.compute.internal"
+      ],
+      "pdbChecks": [
+        {
+          "disruptionsAllowed": 1,
+          "matchedInSet": 2,
+          "pdb": "kube-system/coredns",
+          "stale": false
+        },
+        {
+          "disruptionsAllowed": 1,
+          "matchedInSet": 1,
+          "pdb": "kube-system/metrics-server",
+          "stale": false
+        }
+      ],
+      "refused": [],
+      "strands": [
+        "kube-system/coredns-67db859b96-62chd",
+        "kube-system/coredns-67db859b96-6tzbx",
+        "prod-sim/rightsized-worker-7cb96c7ddf-bmw56"
+      ]
+    },
+    "ip-172-31-9-125.ap-south-1.compute.internal": {
+      "blocked": [
+        {
+          "pod": "amazon-cloudwatch/amazon-cloudwatch-observability-controller-manager-67ddff6trmlh",
+          "reason": "single-replica"
+        },
+        {
+          "pod": "kube-system/metrics-server-665685856d-nrdz2",
+          "reason": "critical-namespace"
+        },
+        {
+          "pod": "team-b/pdb-guarded-web-867645d8d-gm95f",
+          "reason": "pdb-no-disruptions:team-b/pdb-guarded-web"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [
+        "amazon-cloudwatch/cloudwatch-agent-frf6p",
+        "amazon-cloudwatch/fluent-bit-gtb4w",
+        "kube-system/aws-node-8r8sd",
+        "kube-system/kube-proxy-6mnch",
+        "monitoring/prometheus-prometheus-node-exporter-g4td2"
+      ],
+      "excludedCount": 5,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "ip-172-31-9-125.ap-south-1.compute.internal",
+          "memBytes": 209715200,
+          "pod": "kube-system/metrics-server-665685856d-nrdz2",
+          "to": "ip-172-31-18-172.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 100,
+          "from": "ip-172-31-9-125.ap-south-1.compute.internal",
+          "memBytes": 134217728,
+          "pod": "dev-sim/idle-batch-listener-b6d6898cd-t4vbd",
+          "to": "ip-172-31-18-172.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 100,
+          "from": "ip-172-31-9-125.ap-south-1.compute.internal",
+          "memBytes": 67108864,
+          "pod": "amazon-cloudwatch/amazon-cloudwatch-observability-controller-manager-67ddff6trmlh",
+          "to": "ip-172-31-18-172.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 80,
+          "from": "ip-172-31-9-125.ap-south-1.compute.internal",
+          "memBytes": 67108864,
+          "pod": "prod-sim/rightsized-worker-7cb96c7ddf-vjf5s",
+          "to": "ip-172-31-43-198.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 50,
+          "from": "ip-172-31-9-125.ap-south-1.compute.internal",
+          "memBytes": 50331648,
+          "pod": "team-b/pdb-guarded-web-867645d8d-gm95f",
+          "to": "ip-172-31-26-143.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 10,
+          "from": "ip-172-31-9-125.ap-south-1.compute.internal",
+          "memBytes": 33554432,
+          "pod": "prod-sim/throttled-encoder-8b999cc87-h66p7",
+          "to": "ip-172-31-43-198.ap-south-1.compute.internal"
+        },
+        {
+          "cpuMillis": 0,
+          "from": "ip-172-31-9-125.ap-south-1.compute.internal",
+          "memBytes": 0,
+          "pod": "dev-sim/no-requests-sidecar-app-55c8f955d9-4wcq6",
+          "to": "ip-172-31-26-143.ap-south-1.compute.internal"
+        }
+      ],
+      "nodes": [
+        "ip-172-31-9-125.ap-south-1.compute.internal"
+      ],
+      "pdbChecks": [
+        {
+          "disruptionsAllowed": 1,
+          "matchedInSet": 1,
+          "pdb": "kube-system/metrics-server",
+          "stale": false
+        },
+        {
+          "disruptionsAllowed": 0,
+          "matchedInSet": 1,
+          "pdb": "team-b/pdb-guarded-web",
+          "stale": false
+        }
+      ],
+      "refused": [],
+      "strands": [
+        "team-a/overprovisioned-api-76dd9f98c9-gtnh5"
+      ]
+    }
+  },
+  "options": {
+    "criticalNamespaces": [
+      "kube-system",
+      "monitoring",
+      "ingress-nginx",
+      "xamops-system"
+    ],
+    "protectCriticalNamespaces": true,
+    "protectSingleReplicas": true,
+    "protectStatefulSets": true,
+    "selfNamespace": "xamops-system"
+  }
+}

@@ -1,0 +1,213 @@
+{
+  "nodes": {
+    "node-a": {
+      "blocked": [
+        {
+          "pod": "team-b/pdb-guarded-web-1",
+          "reason": "pdb-no-disruptions:team-b/pdb-guarded-web"
+        },
+        {
+          "pod": "team-b/pdb-guarded-web-2",
+          "reason": "pdb-no-disruptions:team-b/pdb-guarded-web"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [
+        "kube-system/aws-node-node-a",
+        "kube-system/ebs-csi-node-node-a",
+        "kube-system/fluent-bit-node-a",
+        "kube-system/kube-proxy-node-a",
+        "kube-system/node-exporter-node-a"
+      ],
+      "excludedCount": 5,
+      "moves": [
+        {
+          "cpuMillis": 300,
+          "from": "node-a",
+          "memBytes": 268435456,
+          "pod": "team-c/app-1",
+          "to": "node-b"
+        },
+        {
+          "cpuMillis": 300,
+          "from": "node-a",
+          "memBytes": 268435456,
+          "pod": "team-c/app-2",
+          "to": "node-b"
+        },
+        {
+          "cpuMillis": 50,
+          "from": "node-a",
+          "memBytes": 50331648,
+          "pod": "team-b/pdb-guarded-web-1",
+          "to": "node-b"
+        },
+        {
+          "cpuMillis": 50,
+          "from": "node-a",
+          "memBytes": 50331648,
+          "pod": "team-b/pdb-guarded-web-2",
+          "to": "node-c"
+        }
+      ],
+      "nodes": [
+        "node-a"
+      ],
+      "pdbChecks": [
+        {
+          "disruptionsAllowed": 0,
+          "matchedInSet": 2,
+          "pdb": "team-b/pdb-guarded-web",
+          "stale": false
+        }
+      ],
+      "refused": [],
+      "strands": []
+    },
+    "node-b": {
+      "blocked": [
+        {
+          "pod": "monitoring/prometheus-server-1",
+          "reason": "critical-namespace; single-replica"
+        },
+        {
+          "pod": "xamops-system/xamops-automation-1",
+          "reason": "critical-namespace; self-namespace; single-replica"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [
+        "kube-system/aws-node-node-b",
+        "kube-system/ebs-csi-node-node-b",
+        "kube-system/fluent-bit-node-b",
+        "kube-system/kube-proxy-node-b",
+        "kube-system/node-exporter-node-b"
+      ],
+      "excludedCount": 5,
+      "moves": [
+        {
+          "cpuMillis": 270,
+          "from": "node-b",
+          "memBytes": 134217728,
+          "pod": "team-d/worker-1",
+          "to": "node-a"
+        },
+        {
+          "cpuMillis": 270,
+          "from": "node-b",
+          "memBytes": 134217728,
+          "pod": "team-d/worker-2",
+          "to": "node-a"
+        },
+        {
+          "cpuMillis": 105,
+          "from": "node-b",
+          "memBytes": 553648128,
+          "pod": "monitoring/prometheus-server-1",
+          "to": "node-a"
+        },
+        {
+          "cpuMillis": 50,
+          "from": "node-b",
+          "memBytes": 67108864,
+          "pod": "xamops-system/xamops-automation-1",
+          "to": "node-c"
+        }
+      ],
+      "nodes": [
+        "node-b"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "node-c": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [
+        "kube-system/aws-node-node-c",
+        "kube-system/ebs-csi-node-node-c",
+        "kube-system/fluent-bit-node-c",
+        "kube-system/kube-proxy-node-c",
+        "kube-system/node-exporter-node-c"
+      ],
+      "excludedCount": 5,
+      "moves": [
+        {
+          "cpuMillis": 200,
+          "from": "node-c",
+          "memBytes": 268435456,
+          "pod": "team-e/cache-1",
+          "to": "node-a"
+        },
+        {
+          "cpuMillis": 130,
+          "from": "node-c",
+          "memBytes": 134217728,
+          "pod": "team-e/cache-2",
+          "to": "node-a"
+        }
+      ],
+      "nodes": [
+        "node-c"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": [
+        "team-a/overprovisioned-api-1"
+      ]
+    },
+    "node-d": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [
+        "kube-system/aws-node-node-d",
+        "kube-system/ebs-csi-node-node-d",
+        "kube-system/fluent-bit-node-d",
+        "kube-system/kube-proxy-node-d",
+        "kube-system/node-exporter-node-d"
+      ],
+      "excludedCount": 5,
+      "moves": [
+        {
+          "cpuMillis": 200,
+          "from": "node-d",
+          "memBytes": 268435456,
+          "pod": "team-e/cache-3",
+          "to": "node-a"
+        },
+        {
+          "cpuMillis": 130,
+          "from": "node-d",
+          "memBytes": 134217728,
+          "pod": "team-e/cache-4",
+          "to": "node-a"
+        }
+      ],
+      "nodes": [
+        "node-d"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": [
+        "team-a/overprovisioned-api-2"
+      ]
+    }
+  },
+  "options": {
+    "criticalNamespaces": [
+      "kube-system",
+      "monitoring",
+      "ingress-nginx",
+      "xamops-system"
+    ],
+    "protectCriticalNamespaces": true,
+    "protectSingleReplicas": true,
+    "protectStatefulSets": true,
+    "selfNamespace": "xamops-system"
+  }
+}

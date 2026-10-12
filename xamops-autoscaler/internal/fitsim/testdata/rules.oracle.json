@@ -1,0 +1,1356 @@
+{
+  "nodes": {
+    "s-aff-and": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-aff-and"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": [
+        "apps/aff-and"
+      ]
+    },
+    "s-aff-dne": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-aff-dne",
+          "memBytes": 67108864,
+          "pod": "apps/aff-dne",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-aff-dne"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-aff-empty-term": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-aff-empty-term"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": [
+        "apps/aff-empty-term"
+      ]
+    },
+    "s-aff-exists": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-aff-exists",
+          "memBytes": 67108864,
+          "pod": "apps/aff-exists",
+          "to": "t1-tainted"
+        }
+      ],
+      "nodes": [
+        "s-aff-exists"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-aff-field-in": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-aff-field-in",
+          "memBytes": 67108864,
+          "pod": "apps/aff-field-in",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-aff-field-in"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-aff-field-notin": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-aff-field-notin",
+          "memBytes": 67108864,
+          "pod": "apps/aff-field-notin",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-aff-field-notin"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-aff-gt": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-aff-gt",
+          "memBytes": 67108864,
+          "pod": "apps/aff-gt",
+          "to": "t1-tainted"
+        }
+      ],
+      "nodes": [
+        "s-aff-gt"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-aff-gt-none": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-aff-gt-none"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": [
+        "apps/aff-gt-none"
+      ]
+    },
+    "s-aff-gt-nonint": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-aff-gt-nonint"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": [
+        "apps/aff-gt-nonint"
+      ]
+    },
+    "s-aff-in": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-aff-in",
+          "memBytes": 67108864,
+          "pod": "apps/aff-in",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-aff-in"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-aff-lt": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-aff-lt",
+          "memBytes": 67108864,
+          "pod": "apps/aff-lt",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-aff-lt"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-aff-notin": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-aff-notin",
+          "memBytes": 67108864,
+          "pod": "apps/aff-notin",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-aff-notin"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-aff-notin-absent": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-aff-notin-absent",
+          "memBytes": 67108864,
+          "pod": "apps/aff-notin-absent",
+          "to": "t1-tainted"
+        }
+      ],
+      "nodes": [
+        "s-aff-notin-absent"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-aff-or": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-aff-or",
+          "memBytes": 67108864,
+          "pod": "apps/aff-or",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-aff-or"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-alloc": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-alloc"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": [
+        "apps/alloc"
+      ]
+    },
+    "s-antiaff": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-antiaff"
+      ],
+      "pdbChecks": [],
+      "refused": [
+        {
+          "pod": "apps/antiaff",
+          "reason": "pod-anti-affinity"
+        }
+      ],
+      "strands": []
+    },
+    "s-antiaff-preferred": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-antiaff-preferred",
+          "memBytes": 67108864,
+          "pod": "apps/antiaff-preferred",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-antiaff-preferred"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-blocked-and-strand": {
+      "blocked": [
+        {
+          "pod": "kube-system/blocked-and-strand",
+          "reason": "critical-namespace"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-blocked-and-strand"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": [
+        "kube-system/blocked-and-strand"
+      ]
+    },
+    "s-critical": {
+      "blocked": [
+        {
+          "pod": "kube-system/critical",
+          "reason": "critical-namespace"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-critical",
+          "memBytes": 67108864,
+          "pod": "kube-system/critical",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-critical"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-custom": {
+      "blocked": [
+        {
+          "pod": "apps/custom",
+          "reason": "unknown-owner-kind:Rollout"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-custom",
+          "memBytes": 67108864,
+          "pod": "apps/custom",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-custom"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-ds-only": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [
+        "kube-system/ds-pod"
+      ],
+      "excludedCount": 1,
+      "moves": [],
+      "nodes": [
+        "s-ds-only"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-empty": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-empty"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-ephemeral": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-ephemeral"
+      ],
+      "pdbChecks": [],
+      "refused": [
+        {
+          "pod": "apps/ephemeral",
+          "reason": "ephemeral-volume"
+        }
+      ],
+      "strands": []
+    },
+    "s-extended": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-extended"
+      ],
+      "pdbChecks": [],
+      "refused": [
+        {
+          "pod": "apps/extended",
+          "reason": "extended-resource:ephemeral-storage,nvidia.com/gpu"
+        }
+      ],
+      "strands": []
+    },
+    "s-hostport": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-hostport"
+      ],
+      "pdbChecks": [],
+      "refused": [
+        {
+          "pod": "apps/hostport",
+          "reason": "host-port"
+        }
+      ],
+      "strands": []
+    },
+    "s-init-big": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-init-big"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": [
+        "apps/init-big"
+      ]
+    },
+    "s-init-ok": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 700,
+          "from": "s-init-ok",
+          "memBytes": 83886080,
+          "pod": "apps/init-ok",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-init-ok"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-job": {
+      "blocked": [
+        {
+          "pod": "apps/job",
+          "reason": "job-owner"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-job",
+          "memBytes": 67108864,
+          "pod": "apps/job",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-job"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-mem-big": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-mem-big"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": [
+        "apps/mem-big"
+      ]
+    },
+    "s-mirror": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [
+        "kube-system/mirror-pod"
+      ],
+      "excludedCount": 1,
+      "moves": [],
+      "nodes": [
+        "s-mirror"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-multi-pdb": {
+      "blocked": [
+        {
+          "pod": "apps/multi-pdb",
+          "reason": "multiple-pdbs:apps/pdb-m1,apps/pdb-m2"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-multi-pdb",
+          "memBytes": 67108864,
+          "pod": "apps/multi-pdb",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-multi-pdb"
+      ],
+      "pdbChecks": [
+        {
+          "disruptionsAllowed": 1,
+          "matchedInSet": 1,
+          "pdb": "apps/pdb-m1",
+          "stale": false
+        },
+        {
+          "disruptionsAllowed": 1,
+          "matchedInSet": 1,
+          "pdb": "apps/pdb-m2",
+          "stale": false
+        }
+      ],
+      "refused": [],
+      "strands": []
+    },
+    "s-multi-refuse": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-multi-refuse"
+      ],
+      "pdbChecks": [],
+      "refused": [
+        {
+          "pod": "apps/multi-refuse",
+          "reason": "pvc-volume; host-port"
+        }
+      ],
+      "strands": []
+    },
+    "s-overhead": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-overhead"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": [
+        "apps/overhead"
+      ]
+    },
+    "s-ownerless": {
+      "blocked": [
+        {
+          "pod": "apps/ownerless",
+          "reason": "no-controller"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-ownerless",
+          "memBytes": 67108864,
+          "pod": "apps/ownerless",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-ownerless"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-pdb-everything": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-pdb-everything",
+          "memBytes": 67108864,
+          "pod": "allns/pdb-everything",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-pdb-everything"
+      ],
+      "pdbChecks": [
+        {
+          "disruptionsAllowed": 1,
+          "matchedInSet": 1,
+          "pdb": "allns/pdb-all",
+          "stale": false
+        }
+      ],
+      "refused": [],
+      "strands": []
+    },
+    "s-pdb-ok": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-pdb-ok",
+          "memBytes": 67108864,
+          "pod": "apps/pdb-ok",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-pdb-ok"
+      ],
+      "pdbChecks": [
+        {
+          "disruptionsAllowed": 1,
+          "matchedInSet": 1,
+          "pdb": "apps/pdb-ok",
+          "stale": false
+        }
+      ],
+      "refused": [],
+      "strands": []
+    },
+    "s-pdb-stale": {
+      "blocked": [
+        {
+          "pod": "apps/pdb-stale",
+          "reason": "pdb-stale:apps/pdb-stale"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-pdb-stale",
+          "memBytes": 67108864,
+          "pod": "apps/pdb-stale",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-pdb-stale"
+      ],
+      "pdbChecks": [
+        {
+          "disruptionsAllowed": 1,
+          "matchedInSet": 1,
+          "pdb": "apps/pdb-stale",
+          "stale": true
+        }
+      ],
+      "refused": [],
+      "strands": []
+    },
+    "s-pdb-zero": {
+      "blocked": [
+        {
+          "pod": "apps/pdb-zero",
+          "reason": "pdb-no-disruptions:apps/pdb-zero"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-pdb-zero",
+          "memBytes": 67108864,
+          "pod": "apps/pdb-zero",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-pdb-zero"
+      ],
+      "pdbChecks": [
+        {
+          "disruptionsAllowed": 0,
+          "matchedInSet": 1,
+          "pdb": "apps/pdb-zero",
+          "stale": false
+        }
+      ],
+      "refused": [],
+      "strands": []
+    },
+    "s-plain": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-plain",
+          "memBytes": 67108864,
+          "pod": "apps/plain",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-plain"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-podaff": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-podaff"
+      ],
+      "pdbChecks": [],
+      "refused": [
+        {
+          "pod": "apps/podaff",
+          "reason": "pod-affinity"
+        }
+      ],
+      "strands": []
+    },
+    "s-pvc": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-pvc"
+      ],
+      "pdbChecks": [],
+      "refused": [
+        {
+          "pod": "apps/pvc",
+          "reason": "pvc-volume"
+        }
+      ],
+      "strands": []
+    },
+    "s-rc": {
+      "blocked": [
+        {
+          "pod": "apps/rc",
+          "reason": "replicas-unknown"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-rc",
+          "memBytes": 67108864,
+          "pod": "apps/rc",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-rc"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-refused-in-kube-system": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-refused-in-kube-system"
+      ],
+      "pdbChecks": [],
+      "refused": [
+        {
+          "pod": "kube-system/refused-in-kube-system",
+          "reason": "host-port"
+        }
+      ],
+      "strands": []
+    },
+    "s-replicas-unknown": {
+      "blocked": [
+        {
+          "pod": "apps/replicas-unknown",
+          "reason": "replicas-unknown"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-replicas-unknown",
+          "memBytes": 67108864,
+          "pod": "apps/replicas-unknown",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-replicas-unknown"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-safe-false": {
+      "blocked": [
+        {
+          "pod": "apps/safe-false",
+          "reason": "safe-to-evict-false"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-safe-false",
+          "memBytes": 67108864,
+          "pod": "apps/safe-false",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-safe-false"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-safe-true": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-safe-true",
+          "memBytes": 67108864,
+          "pod": "apps/safe-true",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-safe-true"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-sel-missing": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-sel-missing"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": [
+        "apps/sel-missing"
+      ]
+    },
+    "s-sel-z1": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-sel-z1"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": [
+        "apps/sel-z1"
+      ]
+    },
+    "s-sel-z1-tol": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-sel-z1-tol",
+          "memBytes": 67108864,
+          "pod": "apps/sel-z1-tol",
+          "to": "t1-tainted"
+        }
+      ],
+      "nodes": [
+        "s-sel-z1-tol"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-self": {
+      "blocked": [
+        {
+          "pod": "xamops-system/self",
+          "reason": "self-namespace"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-self",
+          "memBytes": 67108864,
+          "pod": "xamops-system/self",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-self"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-sidecar": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-sidecar"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": [
+        "apps/sidecar"
+      ]
+    },
+    "s-single": {
+      "blocked": [
+        {
+          "pod": "apps/single",
+          "reason": "single-replica"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-single",
+          "memBytes": 67108864,
+          "pod": "apps/single",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-single"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-spread-anyway": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-spread-anyway",
+          "memBytes": 67108864,
+          "pod": "apps/spread-anyway",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-spread-anyway"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-spread-dns": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-spread-dns"
+      ],
+      "pdbChecks": [],
+      "refused": [
+        {
+          "pod": "apps/spread-dns",
+          "reason": "topology-spread"
+        }
+      ],
+      "strands": []
+    },
+    "s-sts": {
+      "blocked": [
+        {
+          "pod": "apps/sts",
+          "reason": "statefulset"
+        }
+      ],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-sts",
+          "memBytes": 67108864,
+          "pod": "apps/sts",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-sts"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-tol-exists": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-tol-exists",
+          "memBytes": 67108864,
+          "pod": "apps/tol-exists",
+          "to": "t1-tainted"
+        }
+      ],
+      "nodes": [
+        "s-tol-exists"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-tol-wrong-value": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-tol-wrong-value",
+          "memBytes": 67108864,
+          "pod": "apps/tol-wrong-value",
+          "to": "t2-plain"
+        }
+      ],
+      "nodes": [
+        "s-tol-wrong-value"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-tolerates": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [
+        {
+          "cpuMillis": 100,
+          "from": "s-tolerates",
+          "memBytes": 67108864,
+          "pod": "apps/tolerates",
+          "to": "t1-tainted"
+        }
+      ],
+      "nodes": [
+        "s-tolerates"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "s-too-big": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "s-too-big"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": [
+        "apps/too-big"
+      ]
+    },
+    "t1-tainted": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "t1-tainted"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "t2-plain": {
+      "blocked": [],
+      "drainable": false,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "t2-plain"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": [
+        "apps/terminating"
+      ]
+    },
+    "t3-cordoned": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "t3-cordoned"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    },
+    "t4-notready": {
+      "blocked": [],
+      "drainable": true,
+      "errors": [],
+      "excluded": [],
+      "excludedCount": 0,
+      "moves": [],
+      "nodes": [
+        "t4-notready"
+      ],
+      "pdbChecks": [],
+      "refused": [],
+      "strands": []
+    }
+  },
+  "options": {
+    "criticalNamespaces": [
+      "kube-system",
+      "monitoring"
+    ],
+    "protectCriticalNamespaces": true,
+    "protectSingleReplicas": true,
+    "protectStatefulSets": true,
+    "selfNamespace": "xamops-system"
+  }
+}

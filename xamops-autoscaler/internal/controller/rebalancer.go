@@ -4,224 +4,290 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/xamops/automation/internal/drain"
+	"github.com/xamops/automation/internal/gate"
 	"github.com/xamops/automation/internal/policy"
+	"github.com/xamops/automation/internal/state"
 )
 
-// Rebalancer handles the full node-rebalancing workflow:
-//  1. Detect that a rebalance is triggered (rebalancer.status == "running")
-//  2. Identify nodes to drain (most expensive / least efficient)
-//  3. Cordon + drain them gracefully
-//  4. Report completion (autoscaler pushes event back to XamOps)
+// Rebalancer drains on-demand nodes when the backend triggers a rebalance
+// (rebalancer.status == "running"), so that Karpenter / Cluster Autoscaler can
+// replace them. It never provisions nodes itself.
 //
-// NOTE: The actual new-node provisioning relies on Karpenter or Cluster Autoscaler
-// already running in the cluster. The rebalancer drains old nodes; Karpenter
-// schedules new ones automatically based on pending pods from the drain.
+// Safety (plan.md D3-D7):
+//   - it runs only when gate.Rebalancer is open (ENABLE_REBALANCER ∧ mode=full ∧
+//     rebalancer.enabled ∧ status=running); DRY_RUN turns it into a simulation;
+//   - each run has an operation ID (rebalancer.operationId or "gen-<N>" from the
+//     ledger) and a live outcome is terminal: the same operation is never re-run,
+//     across cycles and restarts. A dry run simulates each operation once per process
+//     and writes nothing;
+//   - candidates (on-demand, schedulable, non-control-plane; creationTimestamp asc,
+//     name) go through drain.Executor.DrainCandidates: the fit simulator selects the
+//     largest set drainable as a whole within the shared budget, the executor drains
+//     it as one set (Eviction API, closed-loop re-plan before every eviction,
+//     verified replacements, abort + uncordon). Nothing here deletes pods.
 type Rebalancer struct {
 	k8s    kubernetes.Interface
 	dryRun bool
+
+	// simulated remembers the first simulation of each operation in this process.
+	simulated map[string]*RebalanceResult
 }
 
 func NewRebalancer(k8s kubernetes.Interface, dryRun bool) *Rebalancer {
-	return &Rebalancer{k8s: k8s, dryRun: dryRun}
+	return &Rebalancer{k8s: k8s, dryRun: dryRun, simulated: map[string]*RebalanceResult{}}
 }
 
 // RebalanceResult captures what happened during a rebalance cycle.
 type RebalanceResult struct {
-	Status          string    `json:"status"`           // running | completed | failed | idle
+	Status          string    `json:"status"` // simulated | refused | completed | failed
 	StartedAt       time.Time `json:"startedAt"`
 	CompletedAt     time.Time `json:"completedAt,omitempty"`
-	NodesDrained    []string  `json:"nodesDrained"`
+	NodesDrained    []string  `json:"nodesDrained"` // verified live drains only
 	PodsEvicted     int       `json:"podsEvicted"`
 	DurationMinutes int       `json:"durationMinutes"`
 	Error           string    `json:"error,omitempty"`
 	DryRun          bool      `json:"dryRun"`
+	OperationID     string    `json:"operationId"`
+	NodesSimulated  int       `json:"nodesSimulated"`
+	Verified        bool      `json:"verified"`
+	Reason          string    `json:"reason,omitempty"`
+	// DrainReports are the executor's node reports of the drain attempted in THIS
+	// call (collector "node-drain-progress"); empty when the operation was not
+	// (re-)run.
+	DrainReports []drain.Report `json:"-"`
 }
 
-// Run checks whether a rebalance is pending and executes it if so.
-// It returns nil if no rebalance is needed.
-func (rb *Rebalancer) Run(ctx context.Context, rebalancerCfg policy.RebalancerConfig, guards policy.SafetyGuards) (*RebalanceResult, error) {
-	if !rebalancerCfg.Enabled {
-		return nil, nil
+// Run executes (or simulates) the current rebalance operation. It returns nil when
+// the gate is Off. Observe the status on the ledger every cycle the rebalancer is
+// armed (see ObserveRebalancerStatus) so running edges are counted.
+func (rb *Rebalancer) Run(
+	ctx context.Context,
+	cfg policy.RebalancerConfig,
+	guards policy.SafetyGuards,
+	d gate.Decision,
+	budget *drain.Budget,
+	exec *drain.Executor,
+	ledger *state.Ledger,
+) (*RebalanceResult, []policy.ActionRecord, error) {
+	if d.Mode != gate.Simulate && d.Mode != gate.Live {
+		return nil, nil, nil
+	}
+	if ledger == nil || exec == nil {
+		return nil, nil, fmt.Errorf("rebalancer needs a ledger and an executor")
+	}
+	if err := ledger.Observe(ctx, cfg.Status); err != nil {
+		return nil, nil, fmt.Errorf("observe rebalancer status: %w", err)
+	}
+	opID, err := ledger.OperationID(ctx, cfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve operation id: %w", err)
 	}
 
-	// Only act when status == "running" (set by XamOps UI trigger or scheduled)
-	if rebalancerCfg.Status != "running" {
-		return nil, nil
+	live := d.Mode == gate.Live
+	result := &RebalanceResult{StartedAt: time.Now(), DryRun: !live, OperationID: opID}
+
+	// ── Idempotency ───────────────────────────────────────────────────────────
+	if live {
+		op, ok, err := ledger.Get(ctx, opID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("read ledger: %w", err)
+		}
+		if ok && op.Mode == "live" && state.IsTerminal(op.State) {
+			result.Status = op.State
+			result.Reason = fmt.Sprintf("operation %s already %s; not re-run", opID, op.State)
+			if op.State == state.StateCompleted {
+				result.NodesDrained = op.Nodes
+				result.Verified = true
+			}
+			log.Printf("Rebalancer: %s", result.Reason)
+			return result, nil, nil
+		}
+		if ok && op.Mode == "live" && op.State == state.StateRunning {
+			// A "running" record at the start of a cycle belongs to a process that
+			// died mid-operation (cycles are sequential). Never resume it blindly:
+			// orphan recovery has already restored its nodes; close it as aborted.
+			op.State = state.StateAborted
+			op.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+			op.Reason = "interrupted by an autoscaler restart; nodes restored by orphan recovery"
+			if err := ledger.Record(ctx, opID, op); err != nil {
+				return nil, nil, fmt.Errorf("record interrupted operation: %w", err)
+			}
+			result.Status = state.StateAborted
+			result.Reason = fmt.Sprintf("operation %s %s; not re-run", opID, op.Reason)
+			return result, nil, nil
+		}
+	} else if prev, ok := rb.simulated[opID]; ok {
+		again := *prev
+		again.DrainReports = nil // nothing was simulated again
+		again.Reason = fmt.Sprintf("operation %s already simulated in this process; not re-run", opID)
+		return &again, nil, nil
 	}
 
-	log.Println("Rebalancer: rebalance triggered — starting drain cycle")
-	result := &RebalanceResult{
-		Status:    "running",
-		StartedAt: time.Now(),
-		DryRun:    rb.dryRun,
-	}
-
-	drainTimeout := time.Duration(rebalancerCfg.DrainTimeoutMinutes) * time.Minute
-	if drainTimeout == 0 {
-		drainTimeout = 20 * time.Minute
-	}
-
-	// 1. Find candidate nodes for rebalancing (spot nodes with low utilisation
-	//    or any node the user wants rotated — future: support node selectors via UI)
+	// ── Candidates ────────────────────────────────────────────────────────────
 	nodes, err := rb.k8s.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		result.Status = "failed"
+		result.Status = policy.ActionFailed
 		result.Error = err.Error()
-		return result, err
+		return result, nil, err
 	}
+	candidates := selectRebalanceCandidates(nodes.Items)
 
-	candidates := rb.selectRebalanceCandidates(nodes.Items, guards)
+	if budget.Remaining() == 0 {
+		// Nothing was attempted: not terminal, the operation is retried next cycle.
+		result.Status = policy.ActionRefused
+		if !live {
+			result.Status = policy.ActionSimulated
+		}
+		result.Reason = "drain budget exhausted before the rebalancer ran; retried next cycle"
+		return result, nil, nil
+	}
 	if len(candidates) == 0 {
-		log.Println("Rebalancer: no rebalance candidates found")
-		result.Status = "completed"
-		result.CompletedAt = time.Now()
-		return result, nil
+		return rb.finish(ctx, ledger, result, live, drain.CandidateResult{}, "no rebalance candidates (on-demand, schedulable, non-control-plane)"), nil, nil
 	}
+	log.Printf("Rebalancer: operation %s (%s) — candidates %v", opID, d.Mode, nodeNames(candidates))
 
-	log.Printf("Rebalancer: will drain %d node(s): %v", len(candidates), nodeNames(candidates))
-
-	// 2. Drain each candidate
-	for _, node := range candidates {
-		if rb.dryRun {
-			log.Printf("DRY-RUN: would drain node %s", node.Name)
-			result.NodesDrained = append(result.NodesDrained, node.Name+" (dry-run)")
-			continue
-		}
-
-		// Cordon first
-		if err := rb.cordonNode(ctx, node.Name); err != nil {
-			log.Printf("Rebalancer: cordon %s failed: %v — skipping", node.Name, err)
-			continue
-		}
-
-		// Drain with timeout
-		drainCtx, cancel := context.WithTimeout(ctx, drainTimeout)
-		podsEvicted, err := rb.drainNode(drainCtx, node.Name, guards, rebalancerCfg.GracefulDraining)
-		cancel()
-
-		result.PodsEvicted += podsEvicted
-		if err != nil {
-			log.Printf("Rebalancer: drain %s had errors: %v", node.Name, err)
-			if !rebalancerCfg.GracefulDraining {
-				result.Error = fmt.Sprintf("drain %s: %v", node.Name, err)
-			}
-		} else {
-			result.NodesDrained = append(result.NodesDrained, node.Name)
-			log.Printf("Rebalancer: drained node %s (%d pods evicted)", node.Name, podsEvicted)
+	if live {
+		if err := ledger.Record(ctx, opID, state.Operation{
+			State: state.StateRunning, Mode: "live", StartedAt: result.StartedAt.UTC().Format(time.RFC3339),
+			Nodes: nodeNames(candidates),
+		}); err != nil {
+			return nil, nil, fmt.Errorf("record operation start: %w", err)
 		}
 	}
 
-	elapsed := time.Since(result.StartedAt)
-	result.Status = "completed"
-	result.CompletedAt = time.Now()
-	result.DurationMinutes = int(elapsed.Minutes())
-
-	log.Printf("Rebalancer: completed in %.1f min — %d nodes drained, %d pods evicted",
-		elapsed.Minutes(), len(result.NodesDrained), result.PodsEvicted)
-
-	return result, nil
+	drainTimeout := time.Duration(cfg.DrainTimeoutMinutes) * time.Minute
+	if drainTimeout <= 0 {
+		drainTimeout = 20 * time.Minute
+	}
+	// The fit simulator picks, in candidate order, the largest set drainable as a
+	// whole within the budget; the executor drains it as one set.
+	dctx, cancel := context.WithTimeout(ctx, drainTimeout)
+	cr := exec.DrainCandidates(dctx, policy.ControllerRebalancer, opID, nodeNames(candidates), 0, d.Mode, budget)
+	cancel()
+	return rb.finish(ctx, ledger, result, live, cr, ""), cr.Actions(), nil
 }
 
-// selectRebalanceCandidates picks nodes to drain during rebalancing.
-// Strategy: prefer older nodes and on-demand nodes (spot nodes are often already optimal).
-// Future: support node selectors from UI node templates.
-func (rb *Rebalancer) selectRebalanceCandidates(nodes []corev1.Node, guards policy.SafetyGuards) []corev1.Node {
-	candidates := make([]corev1.Node, 0)
+// finish derives the status from the drain of the selected set and records live
+// outcomes. completed = the selected set was drained and verified; failed = that
+// drain aborted or failed; refused = no set was drainable (reasons from the plans).
+func (rb *Rebalancer) finish(ctx context.Context, ledger *state.Ledger, result *RebalanceResult, live bool, cr drain.CandidateResult, reason string) *RebalanceResult {
+	var reasons []string
+	if reason != "" {
+		reasons = append(reasons, reason)
+	}
+	failed, verified := false, false
+	if o := cr.Set; o != nil {
+		switch o.Status {
+		case policy.ActionSimulated:
+			result.NodesSimulated += len(o.Reports)
+		case policy.ActionSucceeded:
+			if o.Verified() {
+				verified = true
+				for _, rep := range o.Reports {
+					result.NodesDrained = append(result.NodesDrained, rep.NodeName)
+				}
+			}
+		case policy.ActionAborted, policy.ActionFailed:
+			failed = true
+		}
+		result.PodsEvicted += len(o.Evicted)
+	}
+	for _, o := range cr.Outcomes() {
+		for _, a := range o.Actions {
+			if a.Reason != "" {
+				reasons = append(reasons, a.Target+": "+a.Reason)
+			}
+		}
+	}
+	result.Reason = strings.Join(reasons, "; ")
+	result.DrainReports = cr.Reports()
+	result.CompletedAt = time.Now()
+	result.DurationMinutes = int(result.CompletedAt.Sub(result.StartedAt).Minutes())
 
+	switch {
+	case !live:
+		result.Status = policy.ActionSimulated
+	case failed:
+		result.Status = state.StateFailed
+		result.Error = result.Reason
+	case verified:
+		result.Status = state.StateCompleted
+		result.Verified = true
+	default:
+		result.Status = state.StateRefused
+	}
+
+	if !live {
+		cp := *result
+		rb.simulated[result.OperationID] = &cp
+		log.Printf("Rebalancer: operation %s simulated — %d node(s) simulated; %s", result.OperationID, result.NodesSimulated, result.Reason)
+		return result
+	}
+	op := state.Operation{
+		State: result.Status, Mode: "live",
+		StartedAt:  result.StartedAt.UTC().Format(time.RFC3339),
+		FinishedAt: result.CompletedAt.UTC().Format(time.RFC3339),
+		Nodes:      result.NodesDrained, Reason: result.Reason,
+	}
+	// Detached from ctx so a drain cut short by SIGTERM still records its terminal
+	// outcome instead of leaving the operation "running".
+	lctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), drain.DefaultRestoreTimeout)
+	defer cancel()
+	if err := ledger.Record(lctx, result.OperationID, op); err != nil {
+		log.Printf("ERROR: rebalancer: record operation %s: %v", result.OperationID, err)
+		result.Error = strings.TrimPrefix(result.Error+"; ledger: "+err.Error(), "; ")
+	}
+	log.Printf("Rebalancer: operation %s %s — %d node(s) drained (verified); %s", result.OperationID, result.Status, len(result.NodesDrained), result.Reason)
+	return result
+}
+
+// ObserveRebalancerStatus feeds the ledger the status seen this cycle when the
+// rebalancer is armed (ENABLE_REBALANCER ∧ mode=full ∧ rebalancer.enabled), so a
+// non-running -> running edge starts a new generation. When not armed nothing is
+// observed (and nothing is written).
+func ObserveRebalancerStatus(ctx context.Context, ledger *state.Ledger, armed bool, status string) error {
+	if !armed || ledger == nil {
+		return nil
+	}
+	return ledger.Observe(ctx, status)
+}
+
+// selectRebalanceCandidates: not control-plane/master, not cordoned, not SPOT;
+// ordered by creationTimestamp ascending (oldest first), then name.
+func selectRebalanceCandidates(nodes []corev1.Node) []corev1.Node {
+	candidates := make([]corev1.Node, 0)
 	for _, node := range nodes {
-		// Skip control-plane
 		if _, ok := node.Labels["node-role.kubernetes.io/control-plane"]; ok {
 			continue
 		}
 		if _, ok := node.Labels["node-role.kubernetes.io/master"]; ok {
 			continue
 		}
-
-		// Skip already cordoned
 		if node.Spec.Unschedulable {
 			continue
 		}
-
-		// Prefer on-demand nodes for rebalancing (spot nodes stay)
-		capacityType := node.Labels["eks.amazonaws.com/capacityType"]
-		if capacityType == "SPOT" {
+		if node.Labels["eks.amazonaws.com/capacityType"] == "SPOT" {
 			continue
 		}
-
 		candidates = append(candidates, node)
 	}
-
-	// Limit to 2 nodes per rebalance cycle to avoid service disruption
-	if len(candidates) > 2 {
-		candidates = candidates[:2]
-	}
-
-	return candidates
-}
-
-func (rb *Rebalancer) cordonNode(ctx context.Context, nodeName string) error {
-	node, err := rb.k8s.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-	node.Spec.Unschedulable = true
-	_, err = rb.k8s.CoreV1().Nodes().Update(ctx, node, metav1.UpdateOptions{})
-	return err
-}
-
-func (rb *Rebalancer) drainNode(ctx context.Context, nodeName string, guards policy.SafetyGuards, graceful bool) (int, error) {
-	pods, err := rb.k8s.CoreV1().Pods("").List(ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
+	sort.SliceStable(candidates, func(i, j int) bool {
+		ti, tj := candidates[i].CreationTimestamp.Time, candidates[j].CreationTimestamp.Time
+		if !ti.Equal(tj) {
+			return ti.Before(tj)
+		}
+		return candidates[i].Name < candidates[j].Name
 	})
-	if err != nil {
-		return 0, err
-	}
-
-	evicted := 0
-	for _, pod := range pods.Items {
-		if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
-			continue
-		}
-
-		// Skip DaemonSet pods
-		isDaemonSet := false
-		for _, ref := range pod.OwnerReferences {
-			if ref.Kind == "DaemonSet" {
-				isDaemonSet = true
-				break
-			}
-		}
-		if isDaemonSet {
-			continue
-		}
-
-		// Skip critical namespaces
-		if guards.ProtectCriticalNamespaces && isCriticalNS(pod.Namespace, guards.CriticalNamespaces) {
-			continue
-		}
-
-		// Delete/Evict the pod
-		deletePolicy := metav1.DeletePropagationForeground
-		err := rb.k8s.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{
-			PropagationPolicy: &deletePolicy,
-		})
-		if err != nil {
-			log.Printf("Rebalancer: failed to delete pod %s/%s: %v", pod.Namespace, pod.Name, err)
-			if !graceful {
-				return evicted, err
-			}
-		} else {
-			evicted++
-		}
-	}
-
-	return evicted, nil
+	return candidates
 }
 
 func nodeNames(nodes []corev1.Node) []string {

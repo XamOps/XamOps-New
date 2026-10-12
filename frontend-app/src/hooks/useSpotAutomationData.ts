@@ -43,14 +43,20 @@ export interface SpotSavings {
 
 export interface HistoryDataPoint {
   timestamp: string;
-  total_actual_savings: number;
-  total_potential_savings: number;
+  /** null when nothing was recorded; never read as $0. */
+  total_actual_savings: number | null;
+  total_potential_savings: number | null;
+  /** The amount comes from a legacy source: shown only as "Legacy (unverified)". */
+  legacy?: boolean;
 }
 
 export interface HistorySummary {
+  /** Non-legacy points only (the backend leaves legacy amounts out of these three). */
   total_savings: number;
   average_hourly_savings: number;
   peak_savings: number;
+  /** Legacy amounts in the range, reported apart. */
+  legacy_total_savings?: number;
 }
 
 export interface SecurityGroupInfo {
@@ -294,15 +300,16 @@ export const useSpotAutomationData = ({ selectedAccountId }: UseSpotAutomationDa
       }
 
       const summary = data.summary || {};
-      const maxSavings = (data.data_points || []).reduce(
-        (max: number, d: HistoryDataPoint) => Math.max(max, d.total_actual_savings || 0),
-        0
-      );
+      // Legacy points never set the peak: it is a figure of the same kind as the total.
+      const maxSavings = (data.data_points || [])
+        .filter((d: HistoryDataPoint) => !d.legacy)
+        .reduce((max: number, d: HistoryDataPoint) => Math.max(max, d.total_actual_savings || 0), 0);
 
       const newSummary = {
         total_savings: summary.total_savings || 0,
         average_hourly_savings: summary.average_hourly_savings || 0,
         peak_savings: maxSavings,
+        legacy_total_savings: summary.legacy_total_savings || 0,
       };
       setHistorySummary(newSummary);
 

@@ -65,19 +65,34 @@ func (c *Client) FetchPolicy(ctx context.Context) (PolicyBundle, error) {
 		return DefaultBundle(), fmt.Errorf("read policy response: %w", err)
 	}
 
-	var bundle PolicyBundle
+	// Unmarshal into the safe defaults, not a zero PolicyBundle: any field the backend
+	// omits would otherwise silently become false, so an older backend that does not yet
+	// serve e.g. evictorPolicy.analyseOnly would un-gate the evictor on a new autoscaler.
+	// Fields the backend does send still win, so there is no behaviour change against a
+	// correctly-serving backend.
+	bundle := DefaultBundle()
 	if err := json.Unmarshal(body, &bundle); err != nil {
 		return DefaultBundle(), fmt.Errorf("parse policy: %w", err)
 	}
+	for _, w := range bundle.Normalize() {
+		log.Printf("WARN: policy normalized — %s", w)
+	}
 
-	log.Printf("INFO: policy fetched — mode=%s evictor=%v rightsizer=%v rebalancer_status=%s hpa=%v vpa=%v nodeopt=%v",
+	// The effective guards are logged so a partial bundle (one that omits
+	// safetyGuards) can be proven to keep the defaults from the log alone.
+	g := bundle.SafetyGuards
+	log.Printf("INFO: policy fetched — mode=%s evictor=%v rightsizer=%v rebalancer_status=%s hpa=%v vpa=%v nodeopt=%v "+
+		"guards(pdb=%v single=%v sts=%v critical=%v) criticalNamespaces=%v maxParallelDrains=%d",
 		bundle.AutoscalerMode,
 		bundle.EvictorPolicy.Enabled,
 		bundle.WorkloadRightsizerPolicy.Enabled,
 		bundle.Rebalancer.Status,
 		bundle.HPAManagerPolicy.Enabled,
 		bundle.VPAManagerPolicy.Enabled,
-		bundle.NodeOptimizerPolicy.Enabled)
+		bundle.NodeOptimizerPolicy.Enabled,
+		g.RespectPodDisruptionBudgets, g.ProtectSingleReplicas, g.ProtectStatefulSets, g.ProtectCriticalNamespaces,
+		g.CriticalNamespaces,
+		bundle.NodeOptimizerPolicy.MaxParallelDrains)
 
 	return bundle, nil
 }

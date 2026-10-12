@@ -22,6 +22,10 @@
         <bucket4j.version>0.14.0</bucket4j.version>
         <!-- must match the bucket4j core version the 0.14.0 starter is built against -->
         <bucket4j-core.version>8.15.0</bucket4j-core.version>
+        <!-- @Tag("containers") tests need Docker (Testcontainers), so the default run leaves them
+             out. Run them with: -Dgroups=containers -Dsurefire.excludedGroups=
+             (CI job xamops-containers-test). -->
+        <surefire.excludedGroups>containers</surefire.excludedGroups>
     </properties>
 
     <dependencyManagement>
@@ -777,6 +781,20 @@
             <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Real PostgreSQL for the AutoSpotting migration tests (@Tag("containers"), see
+             surefire.excludedGroups). Versions come from spring-boot-dependencies 4.0.8, which
+             imports testcontainers-bom 2.0.5; Testcontainers 2 renamed the modules with a
+             testcontainers- prefix. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- Strips scripts/handlers from user-authored ticket HTML before it is stored -->
         <dependency>
             <groupId>com.googlecode.owasp-java-html-sanitizer</groupId>
@@ -844,6 +862,22 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludedGroups>${surefire.excludedGroups}</excludedGroups>
+                    <!-- Surefire's defaults plus *IT, so containers ITs such as
+                         LegacySavingsFlagMigrationIT run when the tag is included. -->
+                    <includes>
+                        <include>**/Test*.java</include>
+                        <include>**/*Test.java</include>
+                        <include>**/*Tests.java</include>
+                        <include>**/*TestCase.java</include>
+                        <include>**/*IT.java</include>
+                    </includes>
                 </configuration>
             </plugin>
         </plugins>

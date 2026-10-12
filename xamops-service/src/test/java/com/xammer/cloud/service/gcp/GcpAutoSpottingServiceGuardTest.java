@@ -18,6 +18,7 @@ import com.xammer.cloud.repository.DailySpotSavingsRepository;
 import com.xammer.cloud.repository.SpotOptimizationEventRepository;
 import com.xammer.cloud.service.RedisCacheService;
 import com.xammer.cloud.service.autospotting.AutoSpottingBlockedException;
+import com.xammer.cloud.service.autospotting.AutoSpottingFeatureFlags;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -81,7 +82,7 @@ class GcpAutoSpottingServiceGuardTest {
 
         service = new GcpAutoSpottingService(gcpClientProvider, cloudAccountRepository, eventRepository,
                 mock(DailySpotSavingsRepository.class), pricingService, restTemplateService,
-                mock(RedisCacheService.class));
+                mock(RedisCacheService.class), new AutoSpottingFeatureFlags(false, false, false, false));
     }
 
     private void givenMig(String name, String template) {

@@ -1,0 +1,513 @@
+# HARNESS COPY of xamops-autoscaler/manifests/xamops-autoscaler-complete.yaml (original untouched).
+# Changes: B3 Secret uses stringData; image rendered by deploy.sh (AUTOSCALER_IMAGE); real cluster identity;
+# server URL -> in-cluster stub; DRY_RUN / ENABLE_* rendered per test by deploy.sh.
+# Role/RoleBinding carry the harness labels (project/purpose/owner/created-on/ephemeral).
+# NetworkPolicy kept as shipped — inert here (VPC CNI --enable-network-policy=false).
+# ═══════════════════════════════════════════════════════════════════════════════
+# XamOps Automation Agent — Complete Kubernetes Manifest
+#
+# Tier 2: Write-Permission Automation Agent (optional — deploy alongside agent)
+# Deploys into the xamops-system namespace (same as xamops-agent).
+#
+# Controllers (all off by default, enable via XamOps UI or env vars):
+#   ENABLE_EVICTOR        — utilisation-threshold node scale-in (analyse-only by default;
+#                           drains only through the shared drain executor)
+#   ENABLE_RIGHTSIZER     — rightsizing analysis (P80/P100 recommendations)
+#   ENABLE_RIGHTSIZER_APPLY — let the rightsizer patch requests (also needs
+#                           applyMode=immediate AND DRY_RUN=false)
+#   ENABLE_REBALANCER     — drain on-demand nodes when XamOps triggers a rebalance
+#                           (needs this AND rebalancer.enabled AND status=running;
+#                           each operation runs at most once)
+#   ENABLE_HPA_MANAGER    — create/update/delete HPAs from UI recommendations
+#   ENABLE_VPA_MANAGER    — create VPA objects + collect recommendations
+#   ENABLE_NODE_OPTIMIZER — idle node detection, spot analysis, interruption handling
+#
+# IMPORTANT: DRY_RUN=true by default — zero cluster changes until explicitly enabled.
+# Every node drain goes through one executor: global budget (maxParallelDrains),
+# a plan that must prove the drain is safe, Eviction API only (never pod delete),
+# replacements verified by new pod UID, abort + uncordon on failure. The plan is
+# the scheduler-fit simulator (internal/fitsim): DaemonSet/mirror pods are excluded,
+# every other pod must fit on another node, and the set is re-planned before every
+# eviction; anything it cannot prove is refused.
+# ═══════════════════════════════════════════════════════════════════════════════
+---
+# ── Namespace (shared with xamops-agent) ──────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: xamops-system
+  labels:
+    app.kubernetes.io/managed-by: xamops
+
+---
+# ── ServiceAccount ────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: xamops-automation
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+    app.kubernetes.io/component: automation
+
+---
+# ── ClusterRole — Write RBAC ──────────────────────────────────────────────────
+# Separate from xamops-agent's read-only ClusterRole.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: xamops-automation
+  labels:
+    app: xamops-automation
+rules:
+  # ── Read access (needed to make safe decisions) ──────────────────────────
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - pods
+      - namespaces
+      - replicationcontrollers
+      - services
+      - persistentvolumeclaims
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - replicasets
+      - statefulsets
+      - daemonsets
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+    verbs: ["get", "list", "watch"]
+
+  - apiGroups: ["metrics.k8s.io"]
+    resources:
+      - nodes
+      - pods
+    verbs: ["get", "list"]
+
+  # ── Write access (core autoscaling actions) ────────────────────────────────
+  # Cordon / uncordon nodes
+  - apiGroups: [""]
+    resources:
+      - nodes
+    verbs: ["patch", "update"]
+
+  # Evict pods — the only way pods leave a node (Eviction API honours PDBs).
+  # There is deliberately no pods "delete" grant.
+  - apiGroups: [""]
+    resources:
+      - pods/eviction
+    verbs: ["create"]
+
+  # Patch Deployment resource requests (rightsizer)
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+    verbs: ["patch", "update"]
+
+  # Patch StatefulSet resource requests (rightsizer, when protectStatefulSets=false)
+  - apiGroups: ["apps"]
+    resources:
+      - statefulsets
+    verbs: ["patch", "update"]
+
+  # Events — write autoscaler events into the cluster
+  - apiGroups: [""]
+    resources:
+      - events
+    verbs: ["create", "patch", "update"]
+
+  # ── HPA Manager: create/update/delete HorizontalPodAutoscalers ─────────────
+  - apiGroups: ["autoscaling"]
+    resources:
+      - horizontalpodautoscalers
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # ── VPA Manager: create/update/delete VerticalPodAutoscalers ───────────────
+  # Only needed when ENABLE_VPA_MANAGER=true and VPA CRD is installed.
+  - apiGroups: ["autoscaling.k8s.io"]
+    resources:
+      - verticalpodautoscalers
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # ── Node Optimizer: read node metrics, read PDB ────────────────────────────
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+    verbs: ["get", "list", "watch"]
+
+---
+# ── ClusterRoleBinding ────────────────────────────────────────────────────────
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: xamops-automation
+  labels:
+    app: xamops-automation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: xamops-automation
+subjects:
+  - kind: ServiceAccount
+    name: xamops-automation
+    namespace: xamops-system
+---
+# ── Role + RoleBinding — operation ledger (namespaced) ────────────────────────
+# The rebalancer records each operation's live outcome in ConfigMap
+# xamops-automation-state so an operation never runs twice (across cycles and
+# restarts). DRY_RUN=true never writes it. get/update/patch are limited to that one
+# ConfigMap; create cannot be restricted by resourceNames, so it is namespace-wide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: xamops-automation-state
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-09"
+    ephemeral: "true"
+rules:
+  - apiGroups: [""]
+    resources:
+      - configmaps
+    resourceNames: ["xamops-automation-state"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: [""]
+    resources:
+      - configmaps
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: xamops-automation-state
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-09"
+    ephemeral: "true"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: xamops-automation-state
+subjects:
+  - kind: ServiceAccount
+    name: xamops-automation
+    namespace: xamops-system
+---
+# ── Secret — API credentials (edit before applying) ───────────────────────────
+# Replace <BASE64_API_KEY> and <BASE64_SERVER_URL> with base64-encoded values:
+#   echo -n 'your-api-key' | base64
+#   echo -n 'https://your-xamops-backend.example.com' | base64
+apiVersion: v1
+kind: Secret
+metadata:
+  name: xamops-automation-secret
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+type: Opaque
+# B3 fix: stringData (plain text) instead of data: with non-base64 placeholders
+stringData:
+  XAMOPS_API_KEY: "__HARNESS_TEST_KEY__"     # harness-only key, rendered by deploy.sh
+  XAMOPS_SERVER_URL: "http://xamops-stub.xamops-system.svc.cluster.local:8080"
+
+---
+# ── ConfigMap — runtime tuning ────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xamops-automation-config
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+data:
+  # ── Safety: DRY_RUN=true means no cluster changes (just logs + pushes data)
+  DRY_RUN: "__DRY_RUN__"
+
+  # ── Tier 2 feature flags (all off by default — enable per-cluster in XamOps UI)
+  # Node scale-in: candidates are nodes whose summed pod requests are under target.
+  # Analyse-only unless the policy sets analyseOnly=false; any drain goes through the
+  # shared executor: a global drain budget, a scheduler-fit plan that must prove the
+  # set drainable, Eviction API only, new-UID replacements verified Running+Ready,
+  # and on abort the node is restored (uncordoned if this autoscaler cordoned it).
+  ENABLE_EVICTOR: "__ENABLE_EVICTOR__"
+  # Workload rightsizing: P80/P100 recommendations (patching also needs ENABLE_RIGHTSIZER_APPLY)
+  ENABLE_RIGHTSIZER: "__ENABLE_RIGHTSIZER__"
+  # Rightsizer apply: patches requests ONLY when this is "true" AND
+  # workloadRightsizerPolicy.applyMode=immediate AND DRY_RUN=false.
+  ENABLE_RIGHTSIZER_APPLY: "__ENABLE_RIGHTSIZER_APPLY__"
+  # Node rebalance: when XamOps sets rebalancer.status=running (and enabled), drain
+  # on-demand nodes oldest-first through the shared executor; one run per operation
+  # (rebalancer.operationId or a generation counter), recorded in the ledger ConfigMap.
+  ENABLE_REBALANCER: "__ENABLE_REBALANCER__"
+  # HPA management: create/update/delete HPAs from XamOps UI recommendations
+  ENABLE_HPA_MANAGER: "__ENABLE_HPA_MANAGER__"
+  # VPA management: create VPA objects and collect VPA recommendations
+  # Requires VPA CRD installed: helm install vpa fairwinds-stable/vpa
+  ENABLE_VPA_MANAGER: "__ENABLE_VPA_MANAGER__"
+  # Node optimizer: idle node detection, spot candidate analysis, spot interruption handling
+  ENABLE_NODE_OPTIMIZER: "__ENABLE_NODE_OPTIMIZER__"
+
+  # ── Polling & push intervals (seconds)
+  POLICY_POLL_INTERVAL: "60"
+  METRICS_PUSH_INTERVAL: "120"
+  HEARTBEAT_INTERVAL: "60"
+
+  # ── Prometheus endpoint (same cluster, monitoring namespace by default)
+  PROMETHEUS_URL: "http://prometheus-server.monitoring.svc.cluster.local:9090"
+
+  # ── Node drain timeout (seconds). 1200 = 20 minutes.
+  DRAIN_TIMEOUT_SECONDS: "1200"
+
+  # ── Cluster identity (must match values in XamOps backend)
+  # Set CLUSTER_NAME and CLOUD_ACCOUNT_ID to match your registered cluster.
+  # These are passed via env vars in the Deployment below.
+  # CLUSTER_NAME: set in Deployment env
+  # CLOUD_ACCOUNT_ID: set in Deployment env
+
+---
+# ── Deployment ────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xamops-automation
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+    app.kubernetes.io/component: automation
+  annotations:
+    # Rolling update — always drain old pod before replacing so both agents
+    # are never in a split-brain write state simultaneously.
+    deployment.kubernetes.io/revision: "1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: xamops-automation
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: xamops-automation
+        app.kubernetes.io/component: automation
+      annotations:
+        # Restart when ConfigMap changes (requires Reloader or manual rollout)
+        checksum/config: "placeholder-update-on-deploy"
+    spec:
+      serviceAccountName: xamops-automation
+      terminationGracePeriodSeconds: 60
+
+      # ── Security context ───────────────────────────────────────────────────
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+
+      containers:
+        - name: automation
+          # Replace with your actual image once built:
+          #   docker build -t <registry>/xamops-automation:latest ./xamops-automation
+          #   docker push <registry>/xamops-automation:latest
+          image: __AUTOSCALER_IMAGE__   # rendered by deploy.sh (AUTOSCALER_IMAGE=...)
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+
+          # ── Liveness & readiness ─────────────────────────────────────────
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 15
+
+          # ── Environment — ConfigMap values ───────────────────────────────
+          envFrom:
+            - configMapRef:
+                name: xamops-automation-config
+
+          # ── Environment — Secrets + cluster identity ─────────────────────
+          env:
+            - name: XAMOPS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: xamops-automation-secret
+                  key: XAMOPS_API_KEY
+
+            - name: XAMOPS_SERVER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: xamops-automation-secret
+                  key: XAMOPS_SERVER_URL
+
+            # ── Set these to match your cluster registration in XamOps ─────
+            - name: CLUSTER_NAME
+              value: "__CLUSTER_NAME__"
+
+            - name: CLOUD_ACCOUNT_ID
+              value: "102227938259"
+            # Own namespace: never drained, and home of the ledger ConfigMap
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+
+          # ── Resource limits ───────────────────────────────────────────────
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+
+          # ── Security ──────────────────────────────────────────────────────
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+      # ── Topology: prefer a different node from xamops-agent ───────────────
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: xamops-agent
+                topologyKey: kubernetes.io/hostname
+
+      # ── Tolerations: run on any node, including tainted system nodes ──────
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: CriticalAddonsOnly
+          operator: Exists
+
+---
+# ── NetworkPolicy ─────────────────────────────────────────────────────────────
+# The autoscaler only needs:
+#   EGRESS: XamOps backend (HTTPS), Prometheus (9090), k8s API server (443/6443)
+# No INGRESS required (push-only architecture).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: xamops-automation-netpol
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+spec:
+  podSelector:
+    matchLabels:
+      app: xamops-automation
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Health probe from kubelet (node-local)
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 8081
+
+  egress:
+    # XamOps backend — HTTPS
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+
+    # Kubernetes API server — in-cluster (varies by provider)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 6443
+        - protocol: TCP
+          port: 443
+
+    # Prometheus — monitoring namespace
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 9090
+
+    # DNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# ── PodDisruptionBudget — protect the autoscaler itself ──────────────────────
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: xamops-automation-pdb
+  namespace: xamops-system
+  labels:
+    app: xamops-automation
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: xamops-automation

@@ -1,0 +1,41 @@
+# WILL NEVER SCHEDULE: requests exceed any t3.medium (2 vCPU / 4Gi) node and
+# exceed the node group's max size, so the pod stays Pending with
+# FailedScheduling "Insufficient cpu". Use it to test pending-pod detection,
+# scale-up recommendations and "no instance type fits" reporting.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unschedulable-giant
+  namespace: team-a
+  labels:
+    app: unschedulable-giant
+    scenario: unschedulable
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-09"
+    ephemeral: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: unschedulable-giant
+  template:
+    metadata:
+      labels:
+        app: unschedulable-giant
+        scenario: unschedulable
+        project: XamOps
+        purpose: CloudK8sFeatureTesting
+        owner: agent-provisioned
+        created-on: "2026-10-09"
+        ephemeral: "true"
+    spec:
+      containers:
+        - name: giant
+          image: public.ecr.aws/docker/library/busybox:1.36
+          command: ["/bin/sh", "-c", "sleep infinity"]
+          resources:
+            requests:
+              cpu: "32"
+              memory: 64Gi

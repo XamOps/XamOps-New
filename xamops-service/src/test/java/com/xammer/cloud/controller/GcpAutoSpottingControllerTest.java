@@ -75,7 +75,7 @@ class GcpAutoSpottingControllerTest {
 
     private MockMvc mvc(boolean gcpConversionsEnabled) {
         GcpAutoSpottingController controller = new GcpAutoSpottingController(gcpService, accessService,
-                new AutoSpottingFeatureFlags(false, gcpConversionsEnabled, false));
+                new AutoSpottingFeatureFlags(false, gcpConversionsEnabled, false, false));
         return MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())

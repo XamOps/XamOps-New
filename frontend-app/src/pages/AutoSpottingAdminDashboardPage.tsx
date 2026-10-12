@@ -9,6 +9,11 @@ import {
   HistoricalSavings,
   AccountSavings,
 } from '../types/autospotting';
+import LegacyUnverifiedTag, { LEGACY_UNVERIFIED_LABEL } from '../components/SpotAutomation/LegacyUnverifiedTag';
+
+// xamops-service serves these under /api/xamops/, which the gateway and the Vite proxy route to it.
+// /api/admin/ goes to billops, so the old /api/admin/autospotting paths never reached them (NO-02).
+const ADMIN_API = '/api/xamops/autospotting-admin';
 
 const NUM_STYLE: React.CSSProperties = {
   fontFamily: "'Bebas Neue', 'Barlow Condensed', sans-serif",
@@ -59,10 +64,10 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
 
       const days = dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : 90;
       const [metricsRes, activityRes, historicalRes, breakdownRes] = await Promise.all([
-        fetch('/api/admin/autospotting/total-savings'),
-        fetch('/api/admin/autospotting/recent-activity?limit=50'),
-        fetch(`/api/admin/autospotting/historical-savings?days=${days}`),
-        fetch('/api/admin/autospotting/account-breakdown'),
+        fetch(`${ADMIN_API}/total-savings`),
+        fetch(`${ADMIN_API}/recent-activity?limit=50`),
+        fetch(`${ADMIN_API}/historical-savings?days=${days}`),
+        fetch(`${ADMIN_API}/account-breakdown`),
       ]);
 
       if (!metricsRes.ok || !activityRes.ok || !historicalRes.ok || !breakdownRes.ok) throw new Error('Failed to fetch dashboard data');
@@ -115,12 +120,20 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
       type: 'line',
       data: {
         labels: historicalData.map((d) => new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
-        datasets: [{ label: 'Daily Savings', data: historicalData.map((d) => d.savings), borderColor: '#F59E0B', backgroundColor: 'rgba(245,158,11,0.08)', fill: true, tension: 0.4, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: '#F59E0B', pointBorderColor: '#fff', pointBorderWidth: 2 }],
+        datasets: [
+          // A day without a figure is null, drawn as a gap, never as $0.
+          { label: 'Daily Savings', data: historicalData.map((d) => d.savings ?? null), borderColor: '#F59E0B', backgroundColor: 'rgba(245,158,11,0.08)', fill: true, tension: 0.4, pointRadius: 4, pointHoverRadius: 6, pointBackgroundColor: '#F59E0B', pointBorderColor: '#fff', pointBorderWidth: 2 },
+          // Legacy amounts: their own grey series, never added to the one above.
+          { label: LEGACY_UNVERIFIED_LABEL, data: historicalData.map((d) => d.legacySavings ?? null), borderColor: '#9CA3AF', backgroundColor: 'transparent', borderDash: [4, 4], fill: false, tension: 0.4, pointRadius: 3, pointHoverRadius: 5, pointBackgroundColor: '#9CA3AF', pointBorderColor: '#fff', pointBorderWidth: 1 },
+        ],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { padding: 12, callbacks: { label: (c) => `Savings: $${c.parsed.y.toFixed(2)}` } } },
+        plugins: {
+          legend: { display: true, position: 'top', align: 'end', labels: { color: '#374151', font: { size: 11 }, usePointStyle: true, boxWidth: 8 } },
+          tooltip: { padding: 12, callbacks: { label: (c) => `${c.dataset.label}: $${(c.parsed.y ?? 0).toFixed(2)}` } },
+        },
         scales: {
           x: { grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280', font: { size: 11 } } },
           y: { grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280', font: { size: 11 }, callback: (v) => `$${v}` } },
@@ -130,8 +143,11 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
     return () => { if (savingsChartInstance.current) savingsChartInstance.current.destroy(); };
   }, [historicalData]);
 
+  // The doughnut shows verified savings only; legacy per-account figures are not charted.
+  const hasVerifiedByAccount = accountBreakdown.some((a) => (a.totalSavings || 0) > 0);
+
   useEffect(() => {
-    if (!accountChartRef.current || !accountBreakdown.length) return;
+    if (!accountChartRef.current || !accountBreakdown.length || !hasVerifiedByAccount) return;
     if (accountChartInstance.current) accountChartInstance.current.destroy();
     const ctx = accountChartRef.current.getContext('2d');
     if (!ctx) return;
@@ -152,7 +168,7 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
       },
     });
     return () => { if (accountChartInstance.current) accountChartInstance.current.destroy(); };
-  }, [accountBreakdown]);
+  }, [accountBreakdown, hasVerifiedByAccount]);
 
   if (loading && !metrics) {
     return (
@@ -215,12 +231,10 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {[
           { label: 'Total Savings',         value: fmt(metrics?.totalSavings || 0),                          sub: 'All-time cost reduction',  icon: 'mdi:piggy-bank-outline', iconColor: '#D97706', iconBg: '#D9770614' },
-          { label: 'Monthly Savings',       value: fmt(metrics?.monthlySavings || 0),                        sub: 'Current month',            icon: 'mdi:trending-up',        iconColor: '#16A34A', iconBg: '#16A34A14' },
           { label: 'Active Spot Instances', value: String(metrics?.activeSpotInstances || 0),                sub: 'Currently running',        icon: 'mdi:server-outline',     iconColor: '#8B5CF6', iconBg: '#8B5CF614' },
-          { label: 'Conversion Rate',       value: `${(metrics?.conversionRate || 0).toFixed(1)}%`,          sub: 'On-demand → Spot',         icon: 'mdi:chart-bar',          iconColor: '#3B82F6', iconBg: '#3B82F614' },
         ].map((kpi) => (
           <div key={kpi.label} className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-full h-full pointer-events-none opacity-[0.07]">
@@ -240,6 +254,20 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
             </div>
           </div>
         ))}
+        {/* Legacy savings: beside their label, never part of Total Savings */}
+        <div data-testid="legacy-total-card" className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-5">
+          <div className="flex items-start justify-between mb-2">
+            <p className="text-[12px] font-semibold uppercase tracking-[0.09em] text-[rgba(0,0,0,0.88)]">Legacy Savings</p>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-[rgba(0,0,0,0.04)]">
+              <Icon icon="mdi:history" width={18} color="rgba(0,0,0,0.45)" />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <p style={NUM_STYLE}>{fmt(metrics?.legacyUnverifiedTotal || 0)}</p>
+            <LegacyUnverifiedTag />
+          </div>
+          <p className="text-[11px] text-[rgba(0,0,0,0.4)] mt-1">Not in totals</p>
+        </div>
       </div>
 
       {/* Charts */}
@@ -250,7 +278,11 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
         </div>
         <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
           <h3 className="text-[14px] font-bold text-[rgba(0,0,0,0.88)] mb-4">Savings by Account</h3>
-          <div className="h-72"><canvas ref={accountChartRef} /></div>
+          {hasVerifiedByAccount ? (
+            <div className="h-72"><canvas ref={accountChartRef} /></div>
+          ) : (
+            <div className="h-72 flex items-center justify-center text-[13px] text-[rgba(0,0,0,0.4)]">No verified savings yet</div>
+          )}
         </div>
       </div>
 
@@ -288,7 +320,12 @@ const AutoSpottingAdminDashboardPage: React.FC = () => {
                       {activity.eventType}
                     </span>
                   </td>
-                  <td className={`${COL} font-bold text-amber-600`}>${activity.hourlySavings.toFixed(4)}/hr</td>
+                  {/* Config saves record events without hourly savings; those show a dash. */}
+                  <td className={`${COL} font-bold text-amber-600`}>
+                    {activity.hourlySavings == null
+                      ? <span className="font-normal text-[rgba(0,0,0,0.2)]">—</span>
+                      : `$${activity.hourlySavings.toFixed(4)}/hr`}
+                  </td>
                   <td className={`${COL} text-[rgba(0,0,0,0.45)]`}>{activity.region}</td>
                 </tr>
               ))}

@@ -1,0 +1,82 @@
+{
+  "autoscalerMode": "full",
+  "scaleOutPolicy": {
+    "enabled": false,
+    "headroomCpuPercent": 0,
+    "headroomMemoryPercent": 0,
+    "minCpuCores": 0,
+    "maxCpuCores": 0,
+    "minRamMib": 0,
+    "maxRamMib": 0,
+    "nodeReadinessTimeoutMinutes": 0
+  },
+  "evictorPolicy": {
+    "enabled": false,
+    "aggressiveMode": false,
+    "nodeCycleIntervalSeconds": 60,
+    "nodeGracePeriodMinutes": 5,
+    "targetUtilizationCpu": 80,
+    "targetUtilizationMemory": 80
+  },
+  "workloadRightsizerPolicy": {
+    "enabled": false,
+    "cpuPercentile": 80,
+    "memoryPercentile": 100,
+    "cpuOverheadPercent": 10,
+    "memoryOverheadPercent": 10,
+    "applyThresholdPercent": 5,
+    "lookbackHours": 72,
+    "applyMode": "deferred",
+    "surgeDetection": true
+  },
+  "hpaManagerPolicy": {
+    "enabled": false,
+    "analyseOnly": true,
+    "defaultMinReplicas": 1,
+    "defaultMaxReplicas": 10,
+    "defaultTargetCpuPct": 80
+  },
+  "vpaManagerPolicy": {
+    "enabled": false,
+    "updateMode": "Off",
+    "analyseOnly": true
+  },
+  "nodeOptimizerPolicy": {
+    "enabled": false,
+    "idleCpuThresholdPct": 10,
+    "idleMemThresholdPct": 20,
+    "autoCordonIdleNodes": false,
+    "autoDrainIdleNodes": false,
+    "handleSpotInterruptions": false,
+    "spotRatioTargetPct": 0,
+    "karpenterEnabled": false,
+    "maxParallelDrains": 1
+  },
+  "nodeTemplates": null,
+  "rebalancer": {
+    "enabled": true,
+    "gracefulDraining": true,
+    "drainTimeoutMinutes": 0,
+    "scheduleEnabled": false,
+    "scheduleCron": "",
+    "lastRebalanceAt": "",
+    "lastRebalanceSavingsPercent": 0,
+    "lastRebalanceDuration": 0,
+    "status": "running",
+    "operationId": "pass2-reb-1"
+  },
+  "safetyGuards": {
+    "respectPodDisruptionBudgets": true,
+    "protectSingleReplicas": true,
+    "protectStatefulSets": true,
+    "protectCriticalNamespaces": true,
+    "criticalNamespaces": [
+      "kube-system",
+      "monitoring",
+      "ingress-nginx",
+      "xamops-system"
+    ]
+  },
+  "_label": "retest-rebalancer-running-opid",
+  "_note": "13 + rebalancer.operationId pass2-reb-1. P2-3: ENABLE_REBALANCER=true, DRY_RUN=false; refused by the fit simulator, terminal, not re-run."
+}

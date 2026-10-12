@@ -1,0 +1,86 @@
+# ─────────────────────────────────────────────────────────
+# xamops-test-1 — ON-DEMAND baseline cluster
+#   Kubernetes 1.36 (current EKS default as of 2026-10)
+#   Reuses the ap-south-1 default VPC + its three public subnets.
+#   Create with:  eksctl create cluster -f xamops-test-1.yaml
+# ─────────────────────────────────────────────────────────
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: xamops-test-1
+  region: ap-south-1
+  version: "1.36"
+  tags:
+    Project: XamOps
+    Purpose: CloudK8sFeatureTesting
+    Owner: agent-provisioned
+    CreatedOn: "2026-10-09"
+    Ephemeral: "true"
+
+vpc:
+  id: vpc-0622ed442aa8c1f3c
+  subnets:
+    public:
+      ap-south-1a:
+        id: subnet-0361a77391315b8cc
+      ap-south-1b:
+        id: subnet-02c92250ae6941e59
+      ap-south-1c:
+        id: subnet-0f039ed6a736d0e0a
+  clusterEndpoints:
+    publicAccess: true
+    privateAccess: true
+
+iam:
+  withOIDC: true
+
+managedNodeGroups:
+  - name: ng-ondemand-1
+    instanceType: t3.medium
+    amiFamily: AmazonLinux2023
+    spot: false   # ON-DEMAND capacity (eksctl default)
+    # 4, not 2. A t3.medium reports 1930m allocatable CPU, and the seeded
+    # workload mix in 10-*.yaml … 17-*.yaml requests ~2880m once the
+    # system DaemonSets (aws-node, kube-proxy, cloudwatch-agent, fluent-bit)
+    # are accounted for — plus up to 1000m more when the team-b HPA rides to
+    # maxReplicas: 5. On 2 nodes the scheduler hit 97% CPU requested and left
+    # php-apache, pdb-guarded-web and idle-batch-listener replicas Pending,
+    # which hides the one pod (17-unschedulable.yaml) that is *meant* to be
+    # Pending. The 1-CPU request in 10-overprovisioned.yaml is the rightsizing
+    # test case, so the node count moves rather than the workload.
+    desiredCapacity: 4
+    minSize: 1
+    maxSize: 4
+    volumeSize: 20
+    volumeType: gp3
+    privateNetworking: false
+    ssh:
+      allow: false
+    labels:
+      role: worker
+      capacity-type: on-demand
+      project: XamOps
+      purpose: CloudK8sFeatureTesting
+      owner: agent-provisioned
+      created-on: "2026-10-09"
+      ephemeral: "true"
+    tags:
+      Project: XamOps
+      Purpose: CloudK8sFeatureTesting
+      Owner: agent-provisioned
+      CreatedOn: "2026-10-09"
+      Ephemeral: "true"
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/xamops-test-1: "owned"
+    propagateASGTags: true
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        cloudWatch: true
+        ebs: true
+
+cloudWatch:
+  clusterLogging:
+    enableTypes: ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+    logRetentionInDays: 7

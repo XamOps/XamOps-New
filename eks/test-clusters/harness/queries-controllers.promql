@@ -1,0 +1,26 @@
+# The exact PromQL each XamOps component sends (copied from source, with the
+# per-workload placeholders filled for one seeded workload), plus the
+# throttling / request signals the harness scores against.
+#   ./promq.py -f queries-controllers.promql
+
+# rightsizer.go analyzeContainer — CPU p80 (millicores) and memory max (bytes)
+quantile_over_time(0.8, rate(container_cpu_usage_seconds_total{namespace="team-a",pod=~"overprovisioned-api-.*",container="idler"}[5m])[72h:])*1000
+max_over_time(container_memory_working_set_bytes{namespace="team-a",pod=~"overprovisioned-api-.*",container="idler"}[72h:])
+quantile_over_time(0.8, rate(container_cpu_usage_seconds_total{namespace="prod-sim",pod=~"throttled-encoder-.*",container="encoder"}[5m])[72h:])*1000
+
+# hpa_manager.go queryP90CPU — note: namespace-wide, not per workload
+quantile(0.9, sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="team-b",container!="",container!="POD"}[5m])))
+
+# node_optimizer.go gatherNodeUtilization Prometheus fallback
+100 * (1 - avg by (node) (rate(node_cpu_seconds_total{mode="idle"}[5m])))
+100 * (1 - avg by (node) (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))
+
+# xamops-agent prometheus_metrics.go / autoscaling_metrics.go cluster KPIs
+round(100 * (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))), 0.01)
+round(100 * (1 - avg(node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)), 0.01)
+
+# ground-truth signals no XamOps controller queries
+rate(container_cpu_cfs_throttled_periods_total{namespace="prod-sim",container="encoder"}[5m]) / rate(container_cpu_cfs_periods_total{namespace="prod-sim",container="encoder"}[5m])
+rate(container_cpu_cfs_throttled_seconds_total{namespace="prod-sim",container="encoder"}[5m])
+kube_pod_container_resource_requests{namespace="team-a"}
+kube_pod_container_resource_limits{namespace="prod-sim",container="encoder"}

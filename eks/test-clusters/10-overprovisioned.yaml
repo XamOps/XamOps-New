@@ -1,0 +1,46 @@
+# OVER-PROVISIONED: requests 1 CPU / 1Gi but the process is near-idle.
+# Expected signal: rightsizing should recommend a very large reduction
+# (actual usage ~1-5m CPU, ~5Mi memory against a 1000m / 1Gi request).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: overprovisioned-api
+  namespace: team-a
+  labels:
+    app: overprovisioned-api
+    scenario: overprovisioned
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-09"
+    ephemeral: "true"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: overprovisioned-api
+  template:
+    metadata:
+      labels:
+        app: overprovisioned-api
+        scenario: overprovisioned
+        project: XamOps
+        purpose: CloudK8sFeatureTesting
+        owner: agent-provisioned
+        created-on: "2026-10-09"
+        ephemeral: "true"
+    spec:
+      containers:
+        - name: idler
+          image: public.ecr.aws/docker/library/busybox:1.36
+          command: ["/bin/sh", "-c"]
+          # Wakes up once a second, does nothing meaningful.
+          args:
+            - while true; do sleep 1; done
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 1Gi

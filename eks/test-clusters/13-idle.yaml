@@ -1,0 +1,42 @@
+# GENUINELY IDLE: replicas running, no Service, no traffic, no work.
+# Expected signal: idle-workload / zombie-deployment detection should flag it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: idle-batch-listener
+  namespace: dev-sim
+  labels:
+    app: idle-batch-listener
+    scenario: idle
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-09"
+    ephemeral: "true"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: idle-batch-listener
+  template:
+    metadata:
+      labels:
+        app: idle-batch-listener
+        scenario: idle
+        project: XamOps
+        purpose: CloudK8sFeatureTesting
+        owner: agent-provisioned
+        created-on: "2026-10-09"
+        ephemeral: "true"
+    spec:
+      containers:
+        - name: sleeper
+          image: public.ecr.aws/docker/library/busybox:1.36
+          command: ["/bin/sh", "-c", "sleep infinity"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi

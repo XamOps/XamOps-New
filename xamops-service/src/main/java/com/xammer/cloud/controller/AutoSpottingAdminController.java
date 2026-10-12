@@ -21,11 +21,21 @@ import lombok.RequiredArgsConstructor;
  *
  * Provides administrative insights and global metrics for the AutoSpotting
  * feature. Matches requirements for the BillOps Admin Dashboard.
+ *
+ * <p>Mapped under {@code /api/xamops/}, which the prod gateway and the Vite dev proxy both send to
+ * xamops-service. The previous {@code /api/admin/autospotting} mapping was unreachable: both
+ * route {@code /api/admin/} to billops, which has no such controller (NO-02, core §6.6).
+ * {@code RoutingContractTest} pins the route.
+ *
+ * <p>Every read returns cross-customer aggregates. Beyond the three admin roles,
+ * {@link com.xammer.cloud.security.AutoSpottingAdminAccess} denies Login-As sessions that don't
+ * hold ROLE_SUPER_ADMIN and the OTP-exempt demo accounts.
  */
 @RestController
-@RequestMapping("/api/admin/autospotting")
+@RequestMapping("/api/xamops/autospotting-admin")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN') or hasAuthority('ROLE_SUPER_ADMIN')")
+@PreAuthorize("hasAnyAuthority('ROLE_SUPER_ADMIN', 'ROLE_XAMOPS_ADMIN', 'ROLE_BILLOPS_ADMIN')"
+        + " and @autoSpottingAdminAccess.permits(authentication)")
 public class AutoSpottingAdminController {
 
     private static final Logger log = LoggerFactory.getLogger(AutoSpottingAdminController.class);
@@ -33,7 +43,7 @@ public class AutoSpottingAdminController {
 
     /**
      * Get global KPI metrics for AutoSpotting GET
-     * /api/admin/autospotting/total-savings
+     * /api/xamops/autospotting-admin/total-savings
      */
     @GetMapping("/total-savings")
     public ResponseEntity<Map<String, Object>> getTotalSavings() {
@@ -43,7 +53,7 @@ public class AutoSpottingAdminController {
 
     /**
      * Get recent spot activity across all accounts GET
-     * /api/admin/autospotting/recent-activity
+     * /api/xamops/autospotting-admin/recent-activity
      */
     @GetMapping("/recent-activity")
     public ResponseEntity<List<Map<String, Object>>> getRecentActivity(@RequestParam(defaultValue = "50") int limit) {
@@ -53,7 +63,7 @@ public class AutoSpottingAdminController {
 
     /**
      * Get aggregated historical savings for the trend chart GET
-     * /api/admin/autospotting/historical-savings
+     * /api/xamops/autospotting-admin/historical-savings
      */
     @GetMapping("/historical-savings")
     public ResponseEntity<List<Map<String, Object>>> getHistoricalSavings(@RequestParam(defaultValue = "30") int days) {
@@ -63,7 +73,7 @@ public class AutoSpottingAdminController {
 
     /**
      * Get breakdown of savings per account GET
-     * /api/admin/autospotting/account-breakdown
+     * /api/xamops/autospotting-admin/account-breakdown
      */
     @GetMapping("/account-breakdown")
     public ResponseEntity<List<Map<String, Object>>> getAccountBreakdown() {
@@ -74,7 +84,7 @@ public class AutoSpottingAdminController {
     /**
      * Get per-customer AutoSpotting savings broken down by provider (AWS/GCP).
      * Only includes customers with AutoSpotting enabled on at least one account.
-     * GET /api/admin/autospotting/customer-savings
+     * GET /api/xamops/autospotting-admin/customer-savings
      */
     @GetMapping("/customer-savings")
     public ResponseEntity<List<Map<String, Object>>> getCustomerSavings() {

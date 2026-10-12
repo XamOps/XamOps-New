@@ -89,6 +89,8 @@ public class AutoSpottingService {
     private static final String CACHE_KEY_CUSTOMER_SAVINGS   = "autospotting-admin-customer-savings";
     private static final int    CACHE_TTL_MINUTES            = 240; // 4 hours
     private static final int    CACHE_TTL_ADMIN_MINUTES      = 30;  // 30 min for admin aggregates
+    // Lower bound of the admin "all-time" savings reads (the value they have always used).
+    private static final LocalDate ALL_TIME_START            = LocalDate.of(2000, 1, 1);
 
     // Cache for region discovery
     private final Map<String, CachedRegionInfo> regionCache = new ConcurrentHashMap<>();
@@ -369,8 +371,11 @@ public class AutoSpottingService {
                         dp.setSpotInstanceCount(savings.getSwapCount());
                         dp.setCurrentHourlyCost(0.0);
                         dp.setOndemandHourlyCost(0.0);
-                        dp.setPotentialHourlySavings(0.0);
+                        // Potential is not recorded for past days.
+                        dp.setPotentialHourlySavings(null);
                         dp.setOndemandInstanceCount(0);
+                        // Every daily_spot_savings row is legacy (D-12).
+                        dp.setLegacy(Boolean.TRUE);
                         return dp;
                     })
                     .collect(Collectors.toList()));
@@ -399,11 +404,13 @@ public class AutoSpottingService {
                                 HistoryResponse.DataPoint dp = new HistoryResponse.DataPoint();
                                 dp.setTimestamp(entry.getKey().toString());
                                 dp.setActualHourlySavings(entry.getValue());
-                                dp.setPotentialHourlySavings(0.0);
+                                dp.setPotentialHourlySavings(null);
                                 dp.setCurrentHourlyCost(0.0);
                                 dp.setOndemandHourlyCost(0.0);
                                 dp.setSpotInstanceCount(0);
                                 dp.setOndemandInstanceCount(0);
+                                // spot_optimization_event is legacy history (core §8).
+                                dp.setLegacy(Boolean.TRUE);
                                 dataPoints.add(dp);
                             });
 
@@ -415,8 +422,7 @@ public class AutoSpottingService {
                 }
             }
 
-            // Fetch real-time savings rate once — used for today AND to fill historical gaps
-            // where the scheduler didn't run (e.g. dev server was down at 11:59 PM).
+            // Fetch the real-time savings rate once, for today's point only.
             double activeSavingsRate = 0.0;
             double activePotentialRate = 0.0;
             int spotCount = 0;
@@ -438,36 +444,13 @@ public class AutoSpottingService {
             // Each data point represents DAILY savings (hourlyRate × 24) so the chart
             // shows meaningful dollar amounts instead of tiny per-hour fractions.
             // The scheduler already writes hourlyRate×24 to DailySpotSavings.amountSaved,
-            // so we apply the same conversion to real-time gap-fills for consistency.
+            // so we apply the same conversion to today's live point for consistency.
             double activeDailySavings = activeSavingsRate * 24;
             double activeDailyPotential = activePotentialRate * 24;
 
-            // Gap-fill: for days with no DB record, use the current live daily savings if the
-            // ASG is actively saving (scheduler may not have run those days, e.g. dev server down).
+            // A past day without a stored row gets no point. It used to be back-filled with
+            // today's live rate, which reported savings that were never measured (FR-LED-29).
             LocalDate today = LocalDate.now();
-            long rangeDays = startDate.until(endDate, java.time.temporal.ChronoUnit.DAYS) + 1;
-            if (rangeDays <= 90) {
-                java.util.Set<LocalDate> covered = dataPoints.stream()
-                        .map(dp -> LocalDate.parse(dp.getTimestamp().substring(0, 10)))
-                        .collect(java.util.stream.Collectors.toCollection(java.util.HashSet::new));
-                LocalDate cur = startDate;
-                while (!cur.isAfter(endDate)) {
-                    if (!covered.contains(cur)) {
-                        HistoryResponse.DataPoint dp = new HistoryResponse.DataPoint();
-                        dp.setTimestamp(cur.toString());
-                        boolean isPastGap = cur.isBefore(today) && activeDailySavings > 0;
-                        dp.setActualHourlySavings(isPastGap ? activeDailySavings : 0.0);
-                        dp.setPotentialHourlySavings(isPastGap ? activeDailyPotential : 0.0);
-                        dp.setCurrentHourlyCost(isPastGap ? currentCost * 24 : 0.0);
-                        dp.setOndemandHourlyCost(isPastGap ? onDemandCost * 24 : 0.0);
-                        dp.setSpotInstanceCount(isPastGap ? spotCount : 0);
-                        dp.setOndemandInstanceCount(0);
-                        dataPoints.add(dp);
-                    }
-                    cur = cur.plusDays(1);
-                }
-                dataPoints.sort(java.util.Comparator.comparing(dp -> LocalDate.parse(dp.getTimestamp().substring(0, 10))));
-            }
 
             // Override today with live data converted to daily savings
             if (!endDate.isBefore(today)) {
@@ -479,6 +462,8 @@ public class AutoSpottingService {
                 todayDp.setCurrentHourlyCost(currentCost * 24);
                 todayDp.setOndemandHourlyCost(onDemandCost * 24);
                 todayDp.setOndemandInstanceCount(0);
+                // Live rate from the current ASG state, not a legacy row.
+                todayDp.setLegacy(Boolean.FALSE);
 
                 dataPoints.removeIf(dp -> dp.getTimestamp().startsWith(today.toString()));
                 dataPoints.add(todayDp);
@@ -488,19 +473,27 @@ public class AutoSpottingService {
             response.setDataPoints(dataPoints);
 
             // totalSavings = sum of daily savings across the period (period savings card)
-            // avg/peak are converted back to $/hr for the "Avg Hourly" and "Peak /hr" cards
+            // avg/peak are converted back to $/hr for the "Avg Hourly" and "Peak /hr" cards.
+            // Legacy points stay out of all of them and are summed apart (D-12, AC-LED-11).
+            List<HistoryResponse.DataPoint> nonLegacy = dataPoints.stream()
+                    .filter(dp -> !Boolean.TRUE.equals(dp.getLegacy()))
+                    .collect(Collectors.toList());
             HistoryResponse.HistorySummary summary = new HistoryResponse.HistorySummary();
-            double totalSavings = dataPoints.stream()
+            double totalSavings = nonLegacy.stream()
                     .mapToDouble(dp -> dp.getActualHourlySavings() != null ? dp.getActualHourlySavings() : 0.0)
                     .sum();
-            double peakDailySavings = dataPoints.stream()
+            double peakDailySavings = nonLegacy.stream()
                     .mapToDouble(dp -> dp.getActualHourlySavings() != null ? dp.getActualHourlySavings() : 0.0)
                     .max().orElse(0.0);
-            double totalPotential = dataPoints.stream()
+            double totalPotential = nonLegacy.stream()
                     .mapToDouble(dp -> dp.getPotentialHourlySavings() != null ? dp.getPotentialHourlySavings() : 0.0)
                     .sum();
+            double legacyTotal = dataPoints.stream()
+                    .filter(dp -> Boolean.TRUE.equals(dp.getLegacy()))
+                    .mapToDouble(dp -> dp.getActualHourlySavings() != null ? dp.getActualHourlySavings() : 0.0)
+                    .sum();
             // averageHourlySavings and peakSavings displayed with "/hr" label — divide daily back to hourly
-            double avgHourlySavings = dataPoints.isEmpty() ? 0.0 : (totalSavings / dataPoints.size()) / 24.0;
+            double avgHourlySavings = nonLegacy.isEmpty() ? 0.0 : (totalSavings / nonLegacy.size()) / 24.0;
             double peakHourlySavings = peakDailySavings / 24.0;
 
             summary.setTotalActualSavings(totalSavings);
@@ -508,6 +501,7 @@ public class AutoSpottingService {
             summary.setAverageHourlyCost(0.0);
             summary.setAverageHourlySavings(avgHourlySavings);
             summary.setPeakSavings(peakHourlySavings);
+            summary.setLegacyTotalSavings(legacyTotal);
             response.setSummary(summary);
 
             logger.info("Retrieved {} historical data points (DB: {})", dataPoints.size(), savingsHistory.size());
@@ -2863,24 +2857,38 @@ public class AutoSpottingService {
     }
 
     // ================= ADMIN DASHBOARD METRICS =================
+    //
+    // Every daily_spot_savings row is legacy (D-12), and spot_optimization_event is legacy history
+    // (core §8). A realized figure below reads only non-legacy rows, so it is 0 until the savings
+    // ledger exists; legacy amounts are returned apart and shown only as "Legacy (unverified)"
+    // (AC-LED-11, FR-LED-27).
+
     /**
-     * Get aggregated historical savings for all accounts (Admin Dashboard)
+     * Get aggregated historical savings for all accounts (Admin Dashboard).
+     *
+     * <p>One point per day that has data. {@code savings} is the non-legacy amount and
+     * {@code legacySavings} the legacy one: legacy rows, and for today the spot_optimization_event
+     * figure that used to be today's savings. Either is null when the day has none, so a missing
+     * figure never reads as $0.
      */
     @Transactional(readOnly = true)
     public List<Map<String, Object>> getAdminHistoricalSavings(int days) {
         LocalDate startDate = LocalDate.now().minusDays(days);
-        List<Object[]> results = savingsRepository.getAggregatedHistory(startDate);
+        Map<String, Map<String, Object>> byDate = new java.util.TreeMap<>();
 
-        List<Map<String, Object>> history = new ArrayList<>();
-        for (Object[] row : results) {
-            Map<String, Object> point = new HashMap<>();
-            point.put("date", row[0].toString());
-            point.put("savings", row[1]);
-            point.put("instanceCount", row[2]);
-            history.add(point);
+        for (Object[] row : savingsRepository.getAggregatedHistory(startDate)) {
+            Map<String, Object> point = adminHistoryPoint(byDate, row[0].toString());
+            point.put("savings", asDouble(row[1]));
+            point.put("instanceCount", (Long) point.get("instanceCount") + asLong(row[2]));
+        }
+        for (Object[] row : savingsRepository.getLegacyAggregatedHistory(startDate)) {
+            Map<String, Object> point = adminHistoryPoint(byDate, row[0].toString());
+            point.put("legacySavings", asDouble(row[1]));
+            point.put("instanceCount", (Long) point.get("instanceCount") + asLong(row[2]));
         }
 
-        // Add today's real-time aggregated data
+        // Today's real-time figure from spot_optimization_event replaces today's legacy rows, as
+        // before, and is legacy itself.
         LocalDate today = LocalDate.now();
         Instant todayStart = today.atStartOfDay(ZoneOffset.UTC).toInstant();
         Instant now = Instant.now();
@@ -2892,57 +2900,74 @@ public class AutoSpottingService {
                 .mapToDouble(e -> e.getHourlySavings() != null ? e.getHourlySavings() : 0.0)
                 .sum();
 
-        Map<String, Object> todayDp = new HashMap<>();
-        todayDp.put("date", today.toString());
-        todayDp.put("savings", todaySavings);
-        todayDp.put("instanceCount", todayEvents.size());
+        Map<String, Object> todayDp = adminHistoryPoint(byDate, today.toString());
+        todayDp.put("legacySavings", todaySavings);
+        todayDp.put("instanceCount", (long) todayEvents.size());
 
-        history.removeIf(p -> p.get("date").equals(today.toString()));
-        history.add(todayDp);
-        history.sort((a, b) -> ((String) a.get("date")).compareTo((String) b.get("date")));
+        return new ArrayList<>(byDate.values());
+    }
 
-        return history;
+    private static Map<String, Object> adminHistoryPoint(Map<String, Map<String, Object>> byDate, String date) {
+        return byDate.computeIfAbsent(date, d -> {
+            Map<String, Object> point = new HashMap<>();
+            point.put("date", d);
+            point.put("savings", null);
+            point.put("legacySavings", null);
+            point.put("instanceCount", 0L);
+            return point;
+        });
+    }
+
+    private static Double asDouble(Object value) {
+        return value instanceof Number n ? n.doubleValue() : null;
+    }
+
+    private static long asLong(Object value) {
+        return value instanceof Number n ? n.longValue() : 0L;
     }
 
     /**
-     * Get global savings metrics for Admin Dashboard
+     * Get global savings metrics for Admin Dashboard.
+     *
+     * <p>{@code totalSavings} is realized savings: non-legacy rows only. {@code legacyUnverifiedTotal}
+     * is reported apart: every legacy row plus today's spot_optimization_event figure, which the
+     * total used to include. The dummy {@code conversionRate} and the {@code totalSavings / 12}
+     * "monthly" figure are gone (AWS-13, FR-LED-27).
      */
     @Transactional(readOnly = true)
     public Map<String, Object> getAdminDashboardMetrics() {
-        Double totalSavings = savingsRepository.getTotalSavings();
-        if (totalSavings == null) {
-            totalSavings = 0.0;
-        }
+        Double realized = savingsRepository.getTotalSavings();
+        Double legacyRows = savingsRepository.getLegacyTotalSavings();
 
-        // Add today's real-time data to total
         LocalDate today = LocalDate.now();
         Instant todayStart = today.atStartOfDay(ZoneOffset.UTC).toInstant();
         List<SpotOptimizationEvent> todayEvents = eventRepository.findByEventTimeBetweenAndStatusOrderByEventTimeDesc(
                 todayStart, Instant.now(), "SUCCESS");
 
-        double todaySavings = todayEvents.stream()
+        double todayLegacy = todayEvents.stream()
                 .mapToDouble(e -> e.getHourlySavings() != null ? e.getHourlySavings() : 0.0)
                 .sum();
 
-        totalSavings += todaySavings;
-
         Map<String, Object> metrics = new HashMap<>();
-        metrics.put("totalSavings", totalSavings);
-        metrics.put("monthlySavings", totalSavings / 12.0); // Simple estimate
-        metrics.put("dailySavings", todaySavings);
+        metrics.put("totalSavings", realized != null ? realized : 0.0);
+        metrics.put("legacyUnverifiedTotal", (legacyRows != null ? legacyRows : 0.0) + todayLegacy);
         metrics.put("activeSpotInstances", todayEvents.size()); // As approximate proxy
-        metrics.put("conversionRate", 85.0); // Dummy for UI
 
         return metrics;
     }
 
     /**
-     * Get account-by-account breakdown for Admin Dashboard
+     * Get account-by-account breakdown for Admin Dashboard.
+     *
+     * <p>{@code totalSavings} is realized savings from non-legacy rows. The figure this used to
+     * return, the sum of the account's spot_optimization_event hourly savings, is legacy and is
+     * returned apart as {@code legacyUnverifiedSavings}.
      */
     @Transactional(readOnly = true)
     public List<Map<String, Object>> getAdminAccountBreakdown() {
         List<CloudAccount> accounts = cloudAccountRepository.findAll();
         List<Map<String, Object>> breakdown = new ArrayList<>();
+        LocalDate today = LocalDate.now();
 
         for (CloudAccount acc : accounts) {
             String accId = acc.getAwsAccountId();
@@ -2954,13 +2979,20 @@ public class AutoSpottingService {
             entry.put("accountId", accId);
             entry.put("accountName", acc.getAccountName());
 
-            // Total savings for this account
-            Double accSavings = eventRepository.findByAccountIdOrderByEventTimeDesc(acc.getId()).stream()
+            double realized = savingsRepository
+                    .findByAccountIdAndDateBetweenAndLegacyFalseOrderByDateAsc(acc.getId(), ALL_TIME_START, today)
+                    .stream()
+                    .mapToDouble(d -> d.getAmountSaved() != null ? d.getAmountSaved() : 0.0)
+                    .sum();
+
+            List<SpotOptimizationEvent> events = eventRepository.findByAccountIdOrderByEventTimeDesc(acc.getId());
+            double legacy = events.stream()
                     .mapToDouble(e -> e.getHourlySavings() != null ? e.getHourlySavings() : 0.0)
                     .sum();
 
-            entry.put("totalSavings", accSavings);
-            entry.put("instanceCount", eventRepository.findByAccountIdOrderByEventTimeDesc(acc.getId()).size());
+            entry.put("totalSavings", realized);
+            entry.put("legacyUnverifiedSavings", legacy);
+            entry.put("instanceCount", events.size());
             breakdown.add(entry);
         }
 
@@ -2972,6 +3004,10 @@ public class AutoSpottingService {
      * Only includes customers who have AutoSpotting enabled on at least one account.
      * Groups savings by client (customer), summing across all their cloud accounts per provider.
      * Result is cached in Redis for CACHE_TTL_ADMIN_MINUTES minutes.
+     *
+     * <p>{@code awsSavings}, {@code gcpSavings} and {@code totalSavings} are realized savings:
+     * non-legacy rows only. Legacy rows are returned apart as {@code legacyUnverifiedAws},
+     * {@code legacyUnverifiedGcp} and {@code legacyUnverifiedTotal}.
      */
     @Transactional(readOnly = true)
     public List<Map<String, Object>> getCustomerSpotSavings() {
@@ -2986,8 +3022,9 @@ public class AutoSpottingService {
 
         List<com.xammer.cloud.domain.AutoSpottingSettings> enabledSettings =
                 settingsRepository.findAllByEnabled(true);
+        LocalDate today = LocalDate.now();
 
-        // clientId → { clientName, awsSavings, gcpSavings }
+        // clientId → { clientName, awsSavings, gcpSavings, legacyUnverifiedAws, legacyUnverifiedGcp }
         Map<Long, Map<String, Object>> clientMap = new java.util.LinkedHashMap<>();
 
         for (com.xammer.cloud.domain.AutoSpottingSettings settings : enabledSettings) {
@@ -3003,12 +3040,14 @@ public class AutoSpottingService {
             // Only AWS and GCP have AutoSpotting; skip any other provider's settings rows.
             if (!"AWS".equals(provider) && !"GCP".equals(provider)) continue;
 
-            // Sum all-time savings from DailySpotSavings for this account
+            // All-time realized savings for this account: non-legacy rows only.
             double savings = savingsRepository
-                    .findByAccountIdAndDateAfterOrderByDateAsc(account.getId(), java.time.LocalDate.of(2000, 1, 1))
+                    .findByAccountIdAndDateBetweenAndLegacyFalseOrderByDateAsc(account.getId(), ALL_TIME_START, today)
                     .stream()
                     .mapToDouble(d -> d.getAmountSaved() != null ? d.getAmountSaved() : 0.0)
                     .sum();
+            Double legacySum = savingsRepository.sumLegacyAmount(List.of(account.getId()), ALL_TIME_START, today);
+            double legacy = legacySum != null ? legacySum : 0.0;
 
             Map<String, Object> entry = clientMap.computeIfAbsent(clientId, k -> {
                 Map<String, Object> m = new java.util.LinkedHashMap<>();
@@ -3016,25 +3055,36 @@ public class AutoSpottingService {
                 m.put("clientName", client.getName());
                 m.put("awsSavings", 0.0);
                 m.put("gcpSavings", 0.0);
+                m.put("legacyUnverifiedAws", 0.0);
+                m.put("legacyUnverifiedGcp", 0.0);
                 return m;
             });
 
             if ("AWS".equals(provider)) {
                 entry.put("awsSavings", (Double) entry.get("awsSavings") + savings);
+                entry.put("legacyUnverifiedAws", (Double) entry.get("legacyUnverifiedAws") + legacy);
             } else if ("GCP".equals(provider)) {
                 entry.put("gcpSavings", (Double) entry.get("gcpSavings") + savings);
+                entry.put("legacyUnverifiedGcp", (Double) entry.get("legacyUnverifiedGcp") + legacy);
             }
         }
 
-        // Add total and sort descending
+        // Add totals and sort descending: realized first, then legacy, so the order stays
+        // meaningful while every realized total is 0.
         List<Map<String, Object>> result = clientMap.values().stream()
                 .map(entry -> {
                     double total = (Double) entry.get("awsSavings")
                             + (Double) entry.get("gcpSavings");
                     entry.put("totalSavings", total);
+                    entry.put("legacyUnverifiedTotal", (Double) entry.get("legacyUnverifiedAws")
+                            + (Double) entry.get("legacyUnverifiedGcp"));
                     return entry;
                 })
-                .sorted((a, b) -> Double.compare((Double) b.get("totalSavings"), (Double) a.get("totalSavings")))
+                .sorted((a, b) -> {
+                    int byRealized = Double.compare((Double) b.get("totalSavings"), (Double) a.get("totalSavings"));
+                    return byRealized != 0 ? byRealized
+                            : Double.compare((Double) b.get("legacyUnverifiedTotal"), (Double) a.get("legacyUnverifiedTotal"));
+                })
                 .collect(Collectors.toList());
 
         // Save to Redis cache

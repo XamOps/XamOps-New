@@ -1,0 +1,11 @@
+{
+  "autoscalerMode": "full",
+  "evictorPolicy": {
+    "enabled": true,
+    "targetUtilizationCpu": 100,
+    "targetUtilizationMemory": 100,
+    "nodeGracePeriodMinutes": 0
+  },
+  "_label": "phase5-partial-bundle",
+  "_note": "A bundle that omits safetyGuards (the backend stores whatever the UI saved). Tests whether the autoscaler merges with defaults or runs with every guard false. DRY_RUN=true only."
+}

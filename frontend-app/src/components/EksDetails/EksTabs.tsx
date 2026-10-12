@@ -25,6 +25,7 @@ const TABS: TabItem[] = [
   { id: 'nodes',       label: 'Nodes',       icon: 'fas fa-server' },
   { id: 'resources',   label: 'Resources',   icon: 'fas fa-layer-group' },
   { id: 'karpenter',   label: 'Karpenter',   icon: 'fas fa-rocket' },
+  { id: 'automation',  label: 'Automation',  icon: 'fas fa-sliders-h' },
   // { id: 'autoscaling', label: 'Autoscaling', icon: 'fas fa-expand-arrows-alt' },
 ];
 

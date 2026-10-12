@@ -9,7 +9,7 @@
  * - Future: Scaling policies, notifications, etc.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useTopbar } from '../contexts/TopbarContext';
 import apiClient from '../utils/apiClient';
@@ -36,6 +36,8 @@ const ASGConfigPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set when the stored config could not be read: a Save then would post the defaults over it.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Configuration State
@@ -61,6 +63,7 @@ const ASGConfigPage: React.FC = () => {
       try {
         setLoading(true);
         setError(null);
+        setLoadFailed(false);
 
         // Load instance types
         const types = await apiClient.get(
@@ -82,6 +85,7 @@ const ASGConfigPage: React.FC = () => {
         }
 
       } catch (err) {
+        setLoadFailed(true);
         setError(err instanceof Error ? err.message : 'Failed to load configuration');
       } finally {
         setLoading(false);
@@ -131,6 +135,13 @@ const ASGConfigPage: React.FC = () => {
     }
   };
 
+  // The topbar button is rendered once per run of the effect below, which doesn't depend on the
+  // form values. Calling through a ref makes every click use the latest handler, and so the
+  // loaded config, not the starting values (PA-BUG-01).
+  const saveRef = useRef(handleSave);
+  saveRef.current = handleSave;
+  const saveDisabled = saving || loading || loadFailed;
+
   // Topbar Integration
   useEffect(() => {
     if (!asgName) return;
@@ -154,8 +165,8 @@ const ASGConfigPage: React.FC = () => {
         </div>
 
         <button
-          onClick={handleSave}
-          disabled={saving}
+          onClick={() => saveRef.current()}
+          disabled={saveDisabled}
           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition-all disabled:opacity-50 active:scale-95"
         >
           <i className={clsx('fas', saving ? 'fa-spinner fa-spin' : 'fa-save')}></i>
@@ -168,7 +179,7 @@ const ASGConfigPage: React.FC = () => {
       clearActions();
       setTitle(null);
     };
-  }, [setTitle, setActions, clearActions, asgName, accountId, region, saving, conversionsPaused]);
+  }, [setTitle, setActions, clearActions, asgName, accountId, region, saving, saveDisabled, conversionsPaused]);
 
   // Handle invalid params
   if (!asgName || !accountId || !region) {

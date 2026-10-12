@@ -35,7 +35,16 @@ frontend-app/node_modules/
 
 
 # Kubernetes configs (DO NOT COMMIT)
-kubeconfig*
+# NOTE: this was `kubeconfig*`, which with core.ignorecase=true (macOS) also matched
+# SOURCE files whose name merely begins with "Kubeconfig" --
+# KubeconfigClusterAccessProvider.java was silently excluded from a commit while
+# `git status` reported the tree clean and committed tests referenced the class. The
+# patterns below still cover every real credential file name (kubeconfig,
+# kubeconfig-prod, kubeconfig.yaml, cluster.kubeconfig) but cannot swallow a .java file.
+kubeconfig
+kubeconfig-*
+kubeconfig_*
+kubeconfig.*
 *.kubeconfig
 .kube/
 logs/

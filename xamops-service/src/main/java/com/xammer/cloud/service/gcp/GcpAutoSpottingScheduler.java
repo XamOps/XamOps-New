@@ -4,6 +4,7 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.DailySpotSavings;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.DailySpotSavingsRepository;
+import com.xammer.cloud.service.autospotting.AutoSpottingFeatureFlags;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -19,6 +20,10 @@ import java.util.List;
  * for all MIGs that have AutoSpotting enabled, ensuring continuous data in the graph.
  *
  * Runs at 11:59 PM daily to record the day's savings.
+ *
+ * Gated by {@code autospotting.gcp.savings-ledger.enabled} (default false, also in code): while
+ * it is off, no GCP row is written to {@code daily_spot_savings}, because these figures are not
+ * billing-grade (FR-LED-29).
  */
 @Component
 @Slf4j
@@ -28,6 +33,7 @@ public class GcpAutoSpottingScheduler {
     private final CloudAccountRepository cloudAccountRepository;
     private final DailySpotSavingsRepository savingsRepository;
     private final GcpAutoSpottingService gcpAutoSpottingService;
+    private final AutoSpottingFeatureFlags featureFlags;
 
     /**
      * Runs every day at 11:59 PM to record daily savings for all GCP accounts with AutoSpotting enabled.
@@ -35,6 +41,11 @@ public class GcpAutoSpottingScheduler {
      */
     @Scheduled(cron = "0 59 23 * * *")
     public void recordDailySavings() {
+        if (!featureFlags.isGcpSavingsLedgerEnabled()) {
+            log.info("[GCP AutoSpotting Scheduler] Savings ledger disabled "
+                    + "(autospotting.gcp.savings-ledger.enabled=false); skipping daily_spot_savings");
+            return;
+        }
         LocalDate today = LocalDate.now();
         log.info("🕐 [GCP AutoSpotting Scheduler] Starting daily savings calculation for {}", today);
 
@@ -117,6 +128,11 @@ public class GcpAutoSpottingScheduler {
      * @param endDate End date for backfill
      */
     public void backfillHistoricalSavings(String accountId, LocalDate startDate, LocalDate endDate) {
+        if (!featureFlags.isGcpSavingsLedgerEnabled()) {
+            log.info("[GCP AutoSpotting Scheduler] Savings ledger disabled "
+                    + "(autospotting.gcp.savings-ledger.enabled=false); skipping backfill for account {}", accountId);
+            return;
+        }
         log.info("🔄 [GCP Scheduler] Starting backfill for account {} from {} to {}",
                 accountId, startDate, endDate);
 

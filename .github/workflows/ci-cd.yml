@@ -27,6 +27,7 @@ jobs:
       frontend:   ${{ steps.diff.outputs.frontend }}
       media-ops:  ${{ steps.diff.outputs.media-ops }}
       agent:      ${{ steps.diff.outputs.agent }}
+      routing:    ${{ steps.diff.outputs.routing }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -66,6 +67,16 @@ jobs:
             echo "xamops=true" >> $GITHUB_OUTPUT
           else
             echo "xamops=false" >> $GITHUB_OUTPUT
+          fi
+
+          # RoutingContractTest (in xamops-build-test) parses these three files, so an edit
+          # to any of them alone must still run it. Only xamops-build-test reads this output;
+          # xamops-docker-push and xamops-deploy key on "xamops", so a routing-only edit does
+          # not redeploy xamops-service.
+          if echo "$CHANGED" | grep -qE "^(api-gateway/nginx-prod\.conf|frontend-app/nginx\.conf|frontend-app/vite\.config\.ts)$"; then
+            echo "routing=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "routing=false" >> "$GITHUB_OUTPUT"
           fi
 
           if echo "$CHANGED" | grep -q "^frontend-app/"; then
@@ -336,7 +347,8 @@ jobs:
     name: "[xamops-service] Build & Test"
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.xamops == 'true'
+    # "routing": RoutingContractTest also pins the gateway nginx, frontend nginx and Vite files.
+    if: needs.changes.outputs.xamops == 'true' || needs.changes.outputs.routing == 'true'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -385,11 +397,49 @@ jobs:
           path: xamops-service/target/surefire-reports/
           if-no-files-found: ignore
 
+  # Tests tagged @Tag("containers") (Testcontainers PostgreSQL, the AutoSpotting migration
+  # harness). The default "mvn test" above excludes them; ubuntu-latest ships Docker.
+  xamops-containers-test:
+    name: "[xamops-service] Containers Test"
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.xamops == 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run containers tests
+        run: mvn test -B --no-transfer-progress -pl xamops-service -am -Dgroups=containers -Dsurefire.excludedGroups=
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xamops-containers-test-reports
+          path: xamops-service/target/surefire-reports/
+          if-no-files-found: ignore
+
   xamops-docker-push:
     name: "[xamops-service] Build & Push Docker Image"
     runs-on: ubuntu-latest
-    needs: [changes, xamops-build-test]
+    needs: [changes, xamops-build-test, xamops-containers-test]
+    # A red or cancelled containers job (the only one that runs migrations on real
+    # PostgreSQL) must block the push, and with it the UAT deploy. The results are checked
+    # explicitly because the implicit success() also skips this job when a needed job was
+    # skipped; a skipped containers job still lets the push through.
     if: |
+      !cancelled() &&
+      needs.changes.result == 'success' &&
+      needs.xamops-build-test.result == 'success' &&
+      (needs.xamops-containers-test.result == 'success' || needs.xamops-containers-test.result == 'skipped') &&
       needs.changes.outputs.xamops == 'true' &&
       github.ref == 'refs/heads/main' &&
       github.event_name == 'push'
@@ -461,7 +511,13 @@ jobs:
     name: "[xamops-service] Deploy to UAT"
     runs-on: ubuntu-latest
     needs: [changes, xamops-docker-push]
+    # Explicit for the same reason as xamops-docker-push: the implicit success() looks at
+    # every ancestor, so a skipped containers job would skip this deploy even after the push
+    # succeeded. Runs exactly when the push succeeded, as before.
     if: |
+      !cancelled() &&
+      needs.changes.result == 'success' &&
+      needs.xamops-docker-push.result == 'success' &&
       needs.changes.outputs.xamops == 'true' &&
       github.ref == 'refs/heads/main' &&
       github.event_name == 'push'

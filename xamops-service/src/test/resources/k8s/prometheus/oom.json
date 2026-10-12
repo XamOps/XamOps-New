@@ -1,0 +1,17 @@
+{
+  "status": "success",
+  "data": {
+    "resultType": "vector",
+    "result": [
+      {
+        "metric": {
+          "container": "app"
+        },
+        "value": [
+          1760086370.123,
+          "2"
+        ]
+      }
+    ]
+  }
+}

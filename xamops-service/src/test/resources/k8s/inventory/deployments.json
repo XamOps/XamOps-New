@@ -1,0 +1,604 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "DeploymentList",
+  "metadata": {
+    "resourceVersion": "1"
+  },
+  "items": [
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "overprovisioned-api",
+        "namespace": "team-a",
+        "uid": "dep-1",
+        "generation": 1,
+        "labels": {
+          "app": "overprovisioned-api"
+        }
+      },
+      "spec": {
+        "replicas": 2,
+        "selector": {
+          "matchLabels": {
+            "app": "overprovisioned-api"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "overprovisioned-api"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "idler",
+                "image": "public.ecr.aws/docker/library/busybox:1.36",
+                "resources": {
+                  "requests": {
+                    "cpu": "200m",
+                    "memory": "256Mi"
+                  },
+                  "limits": {
+                    "cpu": "500m",
+                    "memory": "512Mi"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "observedGeneration": 1,
+        "replicas": 2
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "rightsized-worker",
+        "namespace": "prod-sim",
+        "uid": "dep-2",
+        "generation": 1,
+        "labels": {
+          "app": "rightsized-worker"
+        }
+      },
+      "spec": {
+        "replicas": 2,
+        "selector": {
+          "matchLabels": {
+            "app": "rightsized-worker"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "rightsized-worker"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "worker",
+                "image": "public.ecr.aws/docker/library/busybox:1.36",
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  },
+                  "limits": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  }
+                },
+                "resizePolicy": [
+                  {
+                    "resourceName": "cpu",
+                    "restartPolicy": "NotRequired"
+                  },
+                  {
+                    "resourceName": "memory",
+                    "restartPolicy": "RestartContainer"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "observedGeneration": 1,
+        "replicas": 2
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "throttled-encoder",
+        "namespace": "prod-sim",
+        "uid": "dep-3",
+        "generation": 1,
+        "labels": {
+          "app": "throttled-encoder"
+        }
+      },
+      "spec": {
+        "replicas": 2,
+        "selector": {
+          "matchLabels": {
+            "app": "throttled-encoder"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "throttled-encoder"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "encoder",
+                "image": "public.ecr.aws/docker/library/busybox:1.36",
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "100m",
+                    "memory": "64Mi"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "observedGeneration": 1,
+        "replicas": 2
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "idle-batch-listener",
+        "namespace": "dev-sim",
+        "uid": "dep-4",
+        "generation": 1,
+        "labels": {
+          "app": "idle-batch-listener"
+        },
+        "annotations": {
+          "xamops.io/lock": "active"
+        }
+      },
+      "spec": {
+        "replicas": 3,
+        "selector": {
+          "matchLabels": {
+            "app": "idle-batch-listener"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "idle-batch-listener"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "sleeper",
+                "image": "public.ecr.aws/docker/library/busybox:1.36",
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "32Mi"
+                  },
+                  "limits": {
+                    "cpu": "100m",
+                    "memory": "64Mi"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "observedGeneration": 1,
+        "replicas": 3
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "no-requests-sidecar-app",
+        "namespace": "dev-sim",
+        "uid": "dep-5",
+        "generation": 1,
+        "labels": {
+          "app": "no-requests-sidecar-app"
+        }
+      },
+      "spec": {
+        "replicas": 2,
+        "selector": {
+          "matchLabels": {
+            "app": "no-requests-sidecar-app"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "no-requests-sidecar-app"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "app",
+                "image": "public.ecr.aws/docker/library/busybox:1.36"
+              },
+              {
+                "name": "logshipper",
+                "image": "public.ecr.aws/docker/library/busybox:1.36"
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "observedGeneration": 1,
+        "replicas": 2
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "php-apache",
+        "namespace": "team-b",
+        "uid": "dep-6",
+        "generation": 1,
+        "labels": {
+          "app": "php-apache"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "php-apache"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "php-apache"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "php-apache",
+                "image": "public.ecr.aws/docker/library/busybox:1.36",
+                "resources": {
+                  "requests": {
+                    "cpu": "200m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "500m",
+                    "memory": "128Mi"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "observedGeneration": 1,
+        "replicas": 1
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "load-generator",
+        "namespace": "team-b",
+        "uid": "dep-7",
+        "generation": 1,
+        "labels": {
+          "app": "load-generator"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "load-generator"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "load-generator"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "loadgen",
+                "image": "public.ecr.aws/docker/library/busybox:1.36",
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "32Mi"
+                  },
+                  "limits": {
+                    "cpu": "150m",
+                    "memory": "64Mi"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "observedGeneration": 1,
+        "replicas": 1
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "pdb-guarded-web",
+        "namespace": "team-b",
+        "uid": "dep-8",
+        "generation": 1,
+        "labels": {
+          "app": "pdb-guarded-web"
+        }
+      },
+      "spec": {
+        "replicas": 3,
+        "selector": {
+          "matchLabels": {
+            "app": "pdb-guarded-web"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "pdb-guarded-web"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "web",
+                "image": "public.ecr.aws/docker/library/busybox:1.36",
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "64Mi"
+                  },
+                  "limits": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "observedGeneration": 1,
+        "replicas": 3
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "unschedulable-giant",
+        "namespace": "team-a",
+        "uid": "dep-9",
+        "generation": 3,
+        "labels": {
+          "app": "unschedulable-giant"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "unschedulable-giant"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "unschedulable-giant"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "giant",
+                "image": "public.ecr.aws/docker/library/busybox:1.36",
+                "resources": {
+                  "requests": {
+                    "cpu": "32",
+                    "memory": "64Gi"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "observedGeneration": 2,
+        "replicas": 1
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "overprovisioned-api-canary",
+        "namespace": "team-a",
+        "uid": "dep-decoy",
+        "generation": 1,
+        "labels": {
+          "app": "overprovisioned-api-canary"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "overprovisioned-api-canary"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "overprovisioned-api-canary"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "idler",
+                "image": "public.ecr.aws/docker/library/busybox:1.36",
+                "resources": {
+                  "requests": {
+                    "cpu": "200m",
+                    "memory": "256Mi"
+                  },
+                  "limits": {
+                    "cpu": "500m",
+                    "memory": "512Mi"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "observedGeneration": 1,
+        "replicas": 1
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "prometheus-server",
+        "namespace": "monitoring",
+        "uid": "dep-prom",
+        "generation": 1,
+        "labels": {
+          "app": "prometheus-server"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "prometheus-server"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "prometheus-server"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "prometheus",
+                "image": "public.ecr.aws/docker/library/busybox:1.36",
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "512Mi"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "observedGeneration": 1,
+        "replicas": 1
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "coredns",
+        "namespace": "kube-system",
+        "uid": "dep-dns",
+        "generation": 1,
+        "labels": {
+          "app": "coredns"
+        }
+      },
+      "spec": {
+        "replicas": 2,
+        "selector": {
+          "matchLabels": {
+            "app": "coredns"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "coredns"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "name": "coredns",
+                "image": "public.ecr.aws/docker/library/busybox:1.36",
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "70Mi"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {
+        "observedGeneration": 1,
+        "replicas": 2
+      }
+    }
+  ]
+}

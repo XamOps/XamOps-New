@@ -1,0 +1,26 @@
+{
+  "status": "success",
+  "data": {
+    "resultType": "vector",
+    "result": [
+      {
+        "metric": {
+          "container": "app"
+        },
+        "value": [
+          1760086370.123,
+          "584"
+        ]
+      },
+      {
+        "metric": {
+          "container": "logshipper"
+        },
+        "value": [
+          1760086370.123,
+          "584"
+        ]
+      }
+    ]
+  }
+}

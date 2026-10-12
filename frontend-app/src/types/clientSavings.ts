@@ -14,9 +14,15 @@ export interface DailyPoint {
 }
 
 export interface ClientSavingsDashboardData {
+  // Spot reads only verified (non-legacy) rows, so it is 0 until the savings ledger exists.
   realizedSpotAws: number
   realizedSpotGcp: number
   realizedEbsAws: number
+
+  // Legacy rows in the range. Shown only as "Legacy (unverified)" and never added into a total.
+  // Absent from responses cached before this field existed.
+  legacySpotUnverifiedAws?: number | null
+  legacySpotUnverifiedGcp?: number | null
 
   potentialRightsizingAws: number
   potentialRightsizingGcp: number

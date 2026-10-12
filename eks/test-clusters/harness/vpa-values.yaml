@@ -1,0 +1,26 @@
+# Upstream VPA, recommender ONLY — the open-source baseline the XamOps
+# rightsizer is scored against. No updater, no admission controller, so VPA
+# can never evict or mutate a pod; it only writes status.recommendation.
+#
+#   helm upgrade --install vpa fairwinds-stable/vpa --version 5.1.0 \
+#     -n vpa --create-namespace -f vpa-values.yaml
+#
+# The Fairwinds chart overrides the recommender floors to 15m / 100Mi. They are
+# pinned back to the upstream binary defaults (25m / 250MB per pod) so the
+# baseline is stock upstream VPA behaviour, not a chart opinion.
+
+recommender:
+  enabled: true
+  extraArgs:
+    v: "2"
+    pod-recommendation-min-cpu-millicores: 25
+    pod-recommendation-min-memory-mb: 250
+  resources:
+    requests: { cpu: 25m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+updater:
+  enabled: false
+
+admissionController:
+  enabled: false

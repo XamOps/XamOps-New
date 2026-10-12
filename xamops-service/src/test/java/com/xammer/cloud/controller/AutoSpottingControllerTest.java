@@ -83,7 +83,7 @@ class AutoSpottingControllerTest {
 
     private MockMvc mvc(boolean awsConversionsEnabled) {
         AutoSpottingController controller = new AutoSpottingController(service, accessService,
-                new AutoSpottingFeatureFlags(awsConversionsEnabled, false, false));
+                new AutoSpottingFeatureFlags(awsConversionsEnabled, false, false, false));
         return MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())

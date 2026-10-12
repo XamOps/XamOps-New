@@ -1,0 +1,46 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "overprovisioned-api-5d9f7c-abcde",
+    "namespace": "team-a",
+    "uid": "11111111-1111-1111-1111-111111111111",
+    "generation": 2
+  },
+  "spec": {
+    "containers": [
+      {
+        "name": "api",
+        "image": "public.ecr.aws/nginx/nginx:1.27",
+        "resources": {
+          "requests": { "cpu": "25m", "memory": "250Mi" },
+          "limits": { "cpu": "25m", "memory": "250Mi" }
+        }
+      }
+    ]
+  },
+  "status": {
+    "phase": "Running",
+    "observedGeneration": 2,
+    "conditions": [
+      { "type": "Initialized", "status": "True" },
+      { "type": "Ready", "status": "True" },
+      { "type": "ContainersReady", "status": "True" },
+      { "type": "PodScheduled", "status": "True" }
+    ],
+    "containerStatuses": [
+      {
+        "name": "api",
+        "containerID": "containerd://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ready": true,
+        "started": true,
+        "restartCount": 0,
+        "resources": {
+          "requests": { "cpu": "25m", "memory": "250Mi" },
+          "limits": { "cpu": "25m", "memory": "250Mi" }
+        },
+        "allocatedResources": { "cpu": "25m", "memory": "250Mi" }
+      }
+    ]
+  }
+}

@@ -14,6 +14,9 @@ import org.springframework.stereotype.Component;
  *   <li>{@code autospotting.gcp.conversions-enabled}: the same for GCP MIGs.</li>
  *   <li>{@code autospotting.aws.savings-ledger.enabled}: whether AWS code paths write
  *       {@code daily_spot_savings}. Off until the savings figures are trustworthy.</li>
+ *   <li>{@code autospotting.gcp.savings-ledger.enabled}: the same for the GCP writers (nightly
+ *       jobs, backfill, enable-time update). Never set true: the new ledger replaces these
+ *       writers, and this flag is deleted with them.</li>
  * </ul>
  */
 @Component
@@ -24,17 +27,20 @@ public class AutoSpottingFeatureFlags {
     private final boolean awsConversionsEnabled;
     private final boolean gcpConversionsEnabled;
     private final boolean awsSavingsLedgerEnabled;
+    private final boolean gcpSavingsLedgerEnabled;
 
     public AutoSpottingFeatureFlags(
             @Value("${autospotting.aws.conversions-enabled:false}") boolean awsConversionsEnabled,
             @Value("${autospotting.gcp.conversions-enabled:false}") boolean gcpConversionsEnabled,
-            @Value("${autospotting.aws.savings-ledger.enabled:false}") boolean awsSavingsLedgerEnabled) {
+            @Value("${autospotting.aws.savings-ledger.enabled:false}") boolean awsSavingsLedgerEnabled,
+            @Value("${autospotting.gcp.savings-ledger.enabled:false}") boolean gcpSavingsLedgerEnabled) {
         this.awsConversionsEnabled = awsConversionsEnabled;
         this.gcpConversionsEnabled = gcpConversionsEnabled;
         this.awsSavingsLedgerEnabled = awsSavingsLedgerEnabled;
+        this.gcpSavingsLedgerEnabled = gcpSavingsLedgerEnabled;
         log.info("AutoSpotting flags: aws.conversions-enabled={} gcp.conversions-enabled={} "
-                + "aws.savings-ledger.enabled={}", awsConversionsEnabled, gcpConversionsEnabled,
-                awsSavingsLedgerEnabled);
+                + "aws.savings-ledger.enabled={} gcp.savings-ledger.enabled={}", awsConversionsEnabled,
+                gcpConversionsEnabled, awsSavingsLedgerEnabled, gcpSavingsLedgerEnabled);
     }
 
     public boolean isAwsConversionsEnabled() {
@@ -47,6 +53,10 @@ public class AutoSpottingFeatureFlags {
 
     public boolean isAwsSavingsLedgerEnabled() {
         return awsSavingsLedgerEnabled;
+    }
+
+    public boolean isGcpSavingsLedgerEnabled() {
+        return gcpSavingsLedgerEnabled;
     }
 
     /** @throws AutoSpottingBlockedException 409 AUTOSPOTTING_CONVERSIONS_PAUSED when AWS conversions are off. */

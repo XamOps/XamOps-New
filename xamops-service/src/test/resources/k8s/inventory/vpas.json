@@ -1,0 +1,173 @@
+{
+  "apiVersion": "autoscaling.k8s.io/v1",
+  "kind": "VerticalPodAutoscalerList",
+  "metadata": {
+    "resourceVersion": "1"
+  },
+  "items": [
+    {
+      "apiVersion": "autoscaling.k8s.io/v1",
+      "kind": "VerticalPodAutoscaler",
+      "metadata": {
+        "name": "overprovisioned-api",
+        "namespace": "team-a",
+        "uid": "vpa-overprovisioned-api"
+      },
+      "spec": {
+        "targetRef": {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "name": "overprovisioned-api"
+        },
+        "updatePolicy": {
+          "updateMode": "Off"
+        }
+      },
+      "status": {
+        "recommendation": {
+          "containerRecommendations": [
+            {
+              "containerName": "idler",
+              "lowerBound": {
+                "cpu": "25m",
+                "memory": "262144k"
+              },
+              "target": {
+                "cpu": "26m",
+                "memory": "262144k"
+              },
+              "uncappedTarget": {
+                "cpu": "26m",
+                "memory": "262144k"
+              },
+              "upperBound": {
+                "cpu": "100m",
+                "memory": "524288k"
+              }
+            }
+          ]
+        },
+        "conditions": [
+          {
+            "type": "RecommendationProvided",
+            "status": "True",
+            "lastTransitionTime": "2026-10-11T09:15:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "autoscaling.k8s.io/v1",
+      "kind": "VerticalPodAutoscaler",
+      "metadata": {
+        "name": "no-requests-sidecar-app",
+        "namespace": "dev-sim",
+        "uid": "vpa-no-requests-sidecar-app"
+      },
+      "spec": {
+        "targetRef": {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "name": "no-requests-sidecar-app"
+        },
+        "updatePolicy": {
+          "updateMode": "Off"
+        }
+      },
+      "status": {
+        "recommendation": {
+          "containerRecommendations": [
+            {
+              "containerName": "app",
+              "target": {
+                "cpu": "25m",
+                "memory": "262144k"
+              }
+            },
+            {
+              "containerName": "logshipper",
+              "target": {
+                "cpu": "11m",
+                "memory": "104857600"
+              }
+            }
+          ]
+        },
+        "conditions": [
+          {
+            "type": "RecommendationProvided",
+            "status": "True",
+            "lastTransitionTime": "2026-10-11T09:15:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "autoscaling.k8s.io/v1",
+      "kind": "VerticalPodAutoscaler",
+      "metadata": {
+        "name": "rightsized-worker",
+        "namespace": "prod-sim",
+        "uid": "vpa-rightsized-worker"
+      },
+      "spec": {
+        "targetRef": {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "name": "rightsized-worker"
+        },
+        "updatePolicy": {
+          "updateMode": "Off"
+        }
+      },
+      "status": {
+        "conditions": [
+          {
+            "type": "RecommendationProvided",
+            "status": "False",
+            "lastTransitionTime": "2026-10-11T08:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "autoscaling.k8s.io/v1",
+      "kind": "VerticalPodAutoscaler",
+      "metadata": {
+        "name": "php-apache",
+        "namespace": "team-b",
+        "uid": "vpa-php-apache"
+      },
+      "spec": {
+        "targetRef": {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "name": "php-apache"
+        },
+        "updatePolicy": {
+          "updateMode": "Off"
+        }
+      },
+      "status": {
+        "recommendation": {
+          "containerRecommendations": [
+            {
+              "containerName": "php-apache",
+              "target": {
+                "cpu": "not-a-quantity",
+                "memory": "oops"
+              }
+            }
+          ]
+        },
+        "conditions": [
+          {
+            "type": "RecommendationProvided",
+            "status": "True",
+            "lastTransitionTime": "2026-10-11T09:15:00Z"
+          }
+        ]
+      }
+    }
+  ]
+}

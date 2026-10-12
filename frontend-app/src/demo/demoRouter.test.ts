@@ -246,3 +246,39 @@ describe('demo router — AutoSpotting feature status', () => {
     });
   });
 });
+
+/**
+ * The BillOps demo login is a real ROLE_BILLOPS_ADMIN user, so an AutoSpotting admin read that
+ * reached the backend would show real customers' names and savings. Every read the BillOps card
+ * and the admin page send must be answered here, for both demo roles.
+ */
+describe.each(['ROLE_XAMOPS', 'ROLE_BILLOPS_ADMIN'])('demo router — AutoSpotting admin reads (%s)', (role) => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, role);
+  });
+
+  it.each([
+    '/api/xamops/autospotting-admin/customer-savings',
+    '/api/xamops/autospotting-admin/recent-activity?limit=50',
+    '/api/xamops/autospotting-admin/historical-savings?days=7',
+    '/api/xamops/autospotting-admin/historical-savings?days=90',
+    '/api/xamops/autospotting-admin/account-breakdown',
+  ])('answers %s with an empty list', async (url) => {
+    expect(await readDemoBody(url)).toEqual([]);
+  });
+
+  it('answers total-savings with zeros', async () => {
+    expect(await readDemoBody('/api/xamops/autospotting-admin/total-savings')).toEqual({
+      totalSavings: 0,
+      legacyUnverifiedTotal: 0,
+      activeSpotInstances: 0,
+    });
+  });
+
+  it('answers any other path under the prefix itself, with a 404', () => {
+    const response = resolveDemoResponse('/api/xamops/autospotting-admin/not-a-read');
+    expect(response).not.toBeNull();
+    expect(response!.status).toBe(404);
+  });
+});

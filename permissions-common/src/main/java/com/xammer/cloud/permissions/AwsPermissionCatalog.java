@@ -111,7 +111,11 @@ public final class AwsPermissionCatalog {
         features("ec2", CLOUD_LIST, DASHBOARD, WASTE, RIGHTSIZING, EBS_RIGHTSIZING,
                 CLOUD_MAP, CLOUDSITTER, SPOT_AUTOMATION, PERFORMANCE);
         features("autoscaling", SPOT_AUTOMATION, CLOUD_LIST, CLOUDSITTER);
-        features("cloudwatch", PERFORMANCE, ALERTS, RIGHTSIZING, WASTE, DASHBOARD, DBOPS, OBSERVABILITY);
+        // KUBERNETES belongs here because EksService.fetchNodeNames discovers node names
+        // from cloudwatch:ListMetrics. Without it a query scoped to KUBERNETES drops the
+        // cloudwatch denial and the CloudK8s page reports no gap while showing no nodes.
+        features("cloudwatch", PERFORMANCE, ALERTS, RIGHTSIZING, WASTE, DASHBOARD, DBOPS, OBSERVABILITY,
+                KUBERNETES);
         features("logs", OBSERVABILITY, ALERTS, SRE);
         features("rds", CLOUD_LIST, DBOPS, CLOUDSITTER, WASTE);
         features("dynamodb", CLOUD_LIST, DBOPS);

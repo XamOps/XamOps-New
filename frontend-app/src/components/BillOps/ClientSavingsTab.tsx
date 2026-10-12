@@ -6,6 +6,7 @@ import {
 } from 'recharts'
 import { useClientSavings } from '../../hooks/useClientSavings'
 import { SavingsPreset } from '../../types/clientSavings'
+import LegacyUnverifiedTag from '../SpotAutomation/LegacyUnverifiedTag'
 
 interface Props {
   clientId: number
@@ -37,6 +38,11 @@ export default function ClientSavingsTab({ clientId }: Props) {
     data.potentialRightsizingAws + data.potentialRightsizingGcp + data.potentialRightsizingAzure
   const totalReservations =
     data.potentialReservationsAws + data.potentialReservationsGcp + data.potentialReservationsAzure
+
+  // Legacy spot savings: shown in their own row, never added into a total above.
+  const legacySpotAws = data.legacySpotUnverifiedAws ?? 0
+  const legacySpotGcp = data.legacySpotUnverifiedGcp ?? 0
+  const hasLegacySpot = legacySpotAws > 0 || legacySpotGcp > 0
 
   return (
     <div className="p-4 space-y-6">
@@ -115,6 +121,18 @@ export default function ClientSavingsTab({ clientId }: Props) {
             </tbody>
           </table>
         </div>
+        {hasLegacySpot && (
+          <div
+            data-testid="legacy-spot-row"
+            className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded border border-gray-200 px-2 py-1.5 text-xs text-gray-600"
+          >
+            <span className="font-medium text-gray-700">Spot</span>
+            <span>AWS <span className="text-gray-900">{fmt(legacySpotAws)}</span></span>
+            <span>GCP <span className="text-gray-900">{fmt(legacySpotGcp)}</span></span>
+            <LegacyUnverifiedTag />
+            <span className="text-gray-400">Not in totals</span>
+          </div>
+        )}
       </div>
 
       {/* Charts */}

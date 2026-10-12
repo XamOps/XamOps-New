@@ -1,0 +1,485 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  AutoSpotting Customer Account Template - Forwards EC2 and AutoScaling events
+  to the main AutoSpotting account's EventBridge and provides IAM role for
+  cross-account AutoSpotting operations.
+
+Parameters:
+  XamOpsAccountId:
+    Type: String
+    Description: >
+      The 12-digit AWS Account ID of the XamOps platform. This is the only
+      account allowed to assume the AutoSpotting execution role, and the only
+      account the EventBridge rules forward to.
+    AllowedPattern: "^[0-9]{12}$"
+    ConstraintDescription: Must be a valid 12-digit AWS Account ID.
+    Default: "605134457560"
+
+  ExternalId:
+    Type: String
+    Description: >
+      A unique secret value provided by XamOps to secure the cross-account role
+      assumption (confused-deputy protection). Must never be the account ID -
+      account IDs are public.
+    NoEcho: true
+    MinLength: 8
+
+  MainAccountId:
+    Type: String
+    Description: >
+      DEPRECATED - superseded by XamOpsAccountId and no longer referenced by any
+      resource. Retained only so an in-place stack update can keep its previous
+      value; it will be removed in a later revision.
+    AllowedPattern: "^[0-9]{12}$"
+    ConstraintDescription: Must be a valid 12-digit AWS Account ID.
+    Default: "605134457560"
+
+  MainRegion:
+    Type: String
+    Description: The AWS region where the XamOps AutoSpotting engine is installed.
+    Default: ap-south-1
+
+  AutoSpottingLambdaRoleArn:
+    Type: String
+    Description: >
+      DEPRECATED - the execution role is now trusted to the XamOpsAccountId
+      account root plus an ExternalId instead of a single named Lambda role ARN.
+      No resource references it. Retained only so an in-place stack update can
+      keep its previous value; it will be removed in a later revision.
+    AllowedPattern: "^arn:aws:iam::[0-9]{12}:role/.+$"
+    ConstraintDescription: Must be a valid IAM role ARN.
+    Default: "arn:aws:iam::605134457560:role/lambda/autospotting-LambdaExecutionRole"
+
+  Regions:
+    Type: CommaDelimitedList
+    Description: >
+      Comma-separated list of regions where to deploy the event forwarding rules.
+      NOTE: DO NOT include the deployment region.
+    Default: "ap-northeast-1,ap-northeast-2,ap-northeast-3,ap-south-1,ap-southeast-1,ap-southeast-2,ca-central-1,eu-central-1,eu-north-1,eu-west-1,eu-west-2,eu-west-3,sa-east-1,us-east-2,us-west-1,us-west-2"
+
+  DeployRegionalStackSet:
+    Type: String
+    AllowedValues:
+      - "true"
+      - "false"
+    Default: "true"
+    Description: Whether to deploy a StackSet for multi-region event forwarding.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: XamOps Connection
+        Parameters:
+          - XamOpsAccountId
+          - ExternalId
+          - MainRegion
+      - Label:
+          default: Regional Deployment
+        Parameters:
+          - Regions
+          - DeployRegionalStackSet
+      - Label:
+          default: Deprecated - do not set for new deployments
+        Parameters:
+          - MainAccountId
+          - AutoSpottingLambdaRoleArn
+    ParameterLabels:
+      XamOpsAccountId:
+        default: "XamOps AWS Account ID"
+      ExternalId:
+        default: "Unique External ID"
+      MainRegion:
+        default: "XamOps AWS Region"
+
+Conditions:
+  DeployStackSet:
+    Fn::Equals:
+      - Ref: DeployRegionalStackSet
+      - "true"
+
+Resources:
+  AutoSpottingExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AutoSpotting-Execution-Role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${XamOpsAccountId}:root"
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                "sts:ExternalId": !Ref ExternalId
+      Path: /
+      Policies:
+        # The action list below is the one the engine actually calls, copied from
+        # cloudformation/autospotting-customer.yaml. The IAM pass-role grant is
+        # deliberately absent: ec2:RunInstances without it cannot attach an
+        # instance profile, which is what keeps this role from being an
+        # account-takeover path. The spot service-linked-role creation grant is
+        # also absent - creating that role is an onboarding concern, not a
+        # runtime one. Both removals are recorded in the commit message.
+        - PolicyName: AutoSpottingPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AutoSpottingRuntime
+                Effect: Allow
+                Action:
+                  - autoscaling:DescribeAutoScalingGroups
+                  - autoscaling:UpdateAutoScalingGroup
+                  - autoscaling:CreateOrUpdateTags
+                  - autoscaling:DeleteTags
+                  - autoscaling:StartInstanceRefresh
+                  - autoscaling:DescribeInstanceRefreshes
+                  - ec2:DescribeInstances
+                  - ec2:DescribeSpotPriceHistory
+                  - ec2:DescribeInstanceTypes
+                  - ec2:DescribeLaunchTemplates
+                  - ec2:DescribeLaunchTemplateVersions
+                  - ec2:RunInstances
+                  - ec2:CreateLaunchTemplateVersion
+                  - ec2:TerminateInstances
+                  - ec2:CreateTags
+                  - pricing:GetProducts
+                Resource: "*"
+
+  EventBridgeCrossAccountRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AutoSpotting-EventBridge-CrossAccount-Role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: PutEventsToMainAccount
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: events:PutEvents
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:events:${MainRegion}:${XamOpsAccountId}:event-bus/default"
+
+  SpotTerminationEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: AutoSpotting-SpotTermination-Forward
+      Description: Forwards Spot termination events
+      EventPattern:
+        detail-type:
+          - "EC2 Spot Instance Interruption Warning"
+          - "EC2 Instance Rebalance Recommendation"
+        source:
+          - "aws.ec2"
+      State: ENABLED
+      Targets:
+        - Arn: !Sub "arn:${AWS::Partition}:events:${MainRegion}:${XamOpsAccountId}:event-bus/default"
+          Id: ForwardToMainAccount
+          RoleArn: !GetAtt EventBridgeCrossAccountRole.Arn
+
+  InstanceRunningEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: AutoSpotting-InstanceRunning-Forward
+      Description: Forwards instance running events
+      EventPattern:
+        detail-type:
+          - "EC2 Instance State-change Notification"
+        source:
+          - "aws.ec2"
+        detail:
+          state:
+            - "running"
+      State: ENABLED
+      Targets:
+        - Arn: !Sub "arn:${AWS::Partition}:events:${MainRegion}:${XamOpsAccountId}:event-bus/default"
+          Id: ForwardToMainAccount
+          RoleArn: !GetAtt EventBridgeCrossAccountRole.Arn
+
+  LifecycleHookEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: AutoSpotting-LifecycleHook-Forward
+      Description: Forwards lifecycle hook events
+      EventPattern:
+        detail-type:
+          - "AWS API Call via CloudTrail"
+        source:
+          - "aws.autoscaling"
+        detail:
+          eventName:
+            - "CompleteLifecycleAction"
+          errorCode:
+            - "ValidationException"
+          requestParameters:
+            lifecycleActionResult:
+              - "CONTINUE"
+      State: ENABLED
+      Targets:
+        - Arn: !Sub "arn:${AWS::Partition}:events:${MainRegion}:${XamOpsAccountId}:event-bus/default"
+          Id: ForwardToMainAccount
+          RoleArn: !GetAtt EventBridgeCrossAccountRole.Arn
+
+  # ===========================================================================
+  # MIGRATION - renaming these two roles is a BREAKING change on an existing
+  # stack. The StackSet AutoSpotting-CustomerRegionalResources has live stack
+  # instances; if the old role disappears before the StackSet is switched to the
+  # new one, those instances become unmanageable - they can be neither updated
+  # nor cleanly deleted. Changing RoleName forces IAM role replacement, so a
+  # change set on an existing stack will report Replacement: True on both roles.
+  #
+  # An EXISTING stack must therefore be migrated in three separate updates:
+  #
+  #   1. ADDITIVE - create XamOps-StackSetAdministration-Role and
+  #      XamOps-StackSetExecution-Role alongside the existing
+  #      AWSCloudFormationStackSet* pair. Do not touch the RegionalStackSet
+  #      resource. No replacement, no stack-instance churn.
+  #   2. SWITCH - set RegionalStackSet.AdministrationRoleARN and
+  #      ExecutionRoleName to the new roles. CloudFormation runs a StackSet
+  #      update across every instance using them, under the OperationPreferences
+  #      below (FailureToleranceCount 0 / MaxConcurrentCount 1 / SEQUENTIAL), so
+  #      a bad switch stops after the first region instead of all of them.
+  #   3. CLEANUP - delete AWSCloudFormationStackSetAdministrationRole and
+  #      AWSCloudFormationStackSetExecutionRole only after step 2 reports
+  #      SUCCEEDED on every stack instance.
+  #
+  # A NEW onboarding goes straight to the end state below and skips all three
+  # steps. The rename itself is correct: XamOps should not squat the AWS
+  # conventional role names, which another tool in the customer account (the
+  # CodePipeline StackSet action, for one) may expect to own.
+  # ===========================================================================
+  StackSetAdministrationRole:
+    Condition: DeployStackSet
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: XamOps-StackSetAdministration-Role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: AssumeRole-XamOps-StackSetExecution-Role
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Resource: !Sub "arn:${AWS::Partition}:iam::*:role/XamOps-StackSetExecution-Role"
+
+  StackSetExecutionRole:
+    Condition: DeployStackSet
+    Type: AWS::IAM::Role
+    DependsOn: EventBridgeCrossAccountRole
+    Properties:
+      RoleName: XamOps-StackSetExecution-Role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref AWS::AccountId
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                "sts:ExternalId": !Ref ExternalId
+      Path: /
+      Policies:
+        # The StackSet's embedded template creates three AWS::Events::Rule
+        # resources and nothing else, so stack lifecycle plus EventBridge rule
+        # CRUD is the whole requirement. Resource "*" is retained on both
+        # statements deliberately: a StackSet creates the stack before its ARN
+        # exists, and the regional rule names are generated per region, so
+        # neither can be pre-scoped by ARN without breaking the deployment.
+        # Narrowing the ACTIONS is the win here, not resource-level scoping.
+        # events:PutEvents is deliberately absent - this role creates rules, it
+        # does not publish events; that is EventBridgeCrossAccountRole's job.
+        - PolicyName: StackSetExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: StackLifecycleForRegionalRules
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStackResource
+                  - cloudformation:DescribeStackResources
+                  - cloudformation:ListStackResources
+                  - cloudformation:GetTemplate
+                  - cloudformation:GetTemplateSummary
+                  - cloudformation:ValidateTemplate
+                  - cloudformation:TagResource
+                  - cloudformation:UntagResource
+                Resource: "*"
+              - Sid: EventRuleManagement
+                Effect: Allow
+                Action:
+                  - events:PutRule
+                  - events:DeleteRule
+                  - events:DescribeRule
+                  - events:ListRules
+                  - events:PutTargets
+                  - events:RemoveTargets
+                  - events:ListTargetsByRule
+                  - events:EnableRule
+                  - events:DisableRule
+                  - events:TagResource
+                  - events:UntagResource
+                  - events:ListTagsForResource
+                Resource: "*"
+              # Allow passing the EventBridge forwarding role to the regional rules.
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !GetAtt EventBridgeCrossAccountRole.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:s3:::cf-templates-*"
+                  - !Sub "arn:${AWS::Partition}:s3:::autospotting-*"
+                  - !Sub "arn:${AWS::Partition}:s3:::xamops-*"
+
+  RegionalStackSet:
+    Condition: DeployStackSet
+    DependsOn:
+      - StackSetAdministrationRole
+      - StackSetExecutionRole
+      - EventBridgeCrossAccountRole
+    Type: AWS::CloudFormation::StackSet
+    Properties:
+      StackSetName: AutoSpotting-CustomerRegionalResources
+      Description: Deploys EventBridge rules to other regions
+      TemplateBody: |
+        AWSTemplateFormatVersion: "2010-09-09"
+        Description: Regional event forwarding rules
+        
+        Parameters:
+          XamOpsAccountId:
+            Type: String
+          MainAccountId:
+            Type: String
+          MainRegion:
+            Type: String
+          EventsRoleArn:
+            Type: String
+
+        Resources:
+          SpotTerminationEventRule:
+            Type: AWS::Events::Rule
+            Properties:
+              Name: AutoSpotting-SpotTermination-Forward
+              Description: Forwards Spot termination events
+              EventPattern:
+                detail-type:
+                  - "EC2 Spot Instance Interruption Warning"
+                  - "EC2 Instance Rebalance Recommendation"
+                source:
+                  - "aws.ec2"
+              State: ENABLED
+              Targets:
+                - Arn: !Sub "arn:aws:events:${MainRegion}:${XamOpsAccountId}:event-bus/default"
+                  Id: ForwardToMainAccount
+                  RoleArn: !Ref EventsRoleArn
+
+          InstanceRunningEventRule:
+            Type: AWS::Events::Rule
+            Properties:
+              Name: AutoSpotting-InstanceRunning-Forward
+              Description: Forwards instance running events
+              EventPattern:
+                detail-type:
+                  - "EC2 Instance State-change Notification"
+                source:
+                  - "aws.ec2"
+                detail:
+                  state:
+                    - "running"
+              State: ENABLED
+              Targets:
+                - Arn: !Sub "arn:aws:events:${MainRegion}:${XamOpsAccountId}:event-bus/default"
+                  Id: ForwardToMainAccount
+                  RoleArn: !Ref EventsRoleArn
+
+          LifecycleHookEventRule:
+            Type: AWS::Events::Rule
+            Properties:
+              Name: AutoSpotting-LifecycleHook-Forward
+              Description: Forwards lifecycle hook events
+              EventPattern:
+                detail-type:
+                  - "AWS API Call via CloudTrail"
+                source:
+                  - "aws.autoscaling"
+                detail:
+                  eventName:
+                    - "CompleteLifecycleAction"
+                  errorCode:
+                    - "ValidationException"
+                  requestParameters:
+                    lifecycleActionResult:
+                      - "CONTINUE"
+              State: ENABLED
+              Targets:
+                - Arn: !Sub "arn:aws:events:${MainRegion}:${XamOpsAccountId}:event-bus/default"
+                  Id: ForwardToMainAccount
+                  RoleArn: !Ref EventsRoleArn
+      Capabilities:
+        - CAPABILITY_NAMED_IAM
+      PermissionModel: SELF_MANAGED
+      AdministrationRoleARN: !GetAtt StackSetAdministrationRole.Arn
+      ExecutionRoleName: XamOps-StackSetExecution-Role
+      Parameters:
+        - ParameterKey: XamOpsAccountId
+          ParameterValue: !Ref XamOpsAccountId
+        - ParameterKey: MainAccountId
+          ParameterValue: !Ref MainAccountId
+        - ParameterKey: MainRegion
+          ParameterValue: !Ref MainRegion
+        - ParameterKey: EventsRoleArn
+          ParameterValue: !GetAtt EventBridgeCrossAccountRole.Arn
+      StackInstancesGroup:
+        - DeploymentTargets:
+            Accounts:
+              - !Ref AWS::AccountId
+          Regions: !Ref Regions
+      # Progressive rollout, in absolute counts. One region at a time, stop on
+      # the first failure. FailureTolerance*/MaxConcurrent* percentage keys are
+      # mutually exclusive with the count keys, so the percentages are removed
+      # rather than overridden.
+      OperationPreferences:
+        FailureToleranceCount: 0
+        MaxConcurrentCount: 1
+        RegionConcurrencyType: SEQUENTIAL
+
+Outputs:
+  AutoSpottingExecutionRoleArn:
+    Value: !GetAtt AutoSpottingExecutionRole.Arn
+  EventBridgeRoleArn:
+    Value: !GetAtt EventBridgeCrossAccountRole.Arn
+  CustomerAccountId:
+    Value: !Ref AWS::AccountId
+  # The ExternalId output is deliberately gone. It published
+  # `!Ref AWS::AccountId` - the same account-id-as-secret mistake as the trust
+  # policy - and an Output would defeat the NoEcho on the parameter. XamOps
+  # generates the value and already holds it; nothing in the repo reads this
+  # output (grep for AutoSpottingExecutionRoleArn / CustomerAccountId /
+  # EventBridgeRoleArn over xamops-service/src and frontend-app/src: 0 hits).
+

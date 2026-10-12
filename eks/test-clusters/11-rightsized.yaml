@@ -1,0 +1,51 @@
+# RIGHT-SIZED control case: requests roughly match real usage.
+# The container burns ~40-60m CPU and a few Mi of memory against a
+# 80m / 64Mi request, so rightsizing should report "no change needed".
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rightsized-worker
+  namespace: prod-sim
+  labels:
+    app: rightsized-worker
+    scenario: rightsized
+    project: XamOps
+    purpose: CloudK8sFeatureTesting
+    owner: agent-provisioned
+    created-on: "2026-10-09"
+    ephemeral: "true"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: rightsized-worker
+  template:
+    metadata:
+      labels:
+        app: rightsized-worker
+        scenario: rightsized
+        project: XamOps
+        purpose: CloudK8sFeatureTesting
+        owner: agent-provisioned
+        created-on: "2026-10-09"
+        ephemeral: "true"
+    spec:
+      containers:
+        - name: worker
+          image: public.ecr.aws/docker/library/busybox:1.36
+          command: ["/bin/sh", "-c"]
+          # Duty-cycled busy loop: short burst of work, then idle.
+          args:
+            - |
+              while true; do
+                i=0
+                while [ $i -lt 30000 ]; do i=$((i+1)); done
+                sleep 1
+              done
+          resources:
+            requests:
+              cpu: 80m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

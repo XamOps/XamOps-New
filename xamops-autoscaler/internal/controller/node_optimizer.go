@@ -13,7 +13,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -21,12 +20,16 @@ import (
 	"k8s.io/client-go/kubernetes"
 	metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
 
+	"github.com/xamops/automation/internal/drain"
+	"github.com/xamops/automation/internal/gate"
 	"github.com/xamops/automation/internal/policy"
+	"github.com/xamops/automation/internal/telemetry"
 )
 
-// NodeOptimizer analyses node utilization, detects idle nodes, identifies
-// on-demand nodes that could be replaced with spot, handles spot interruption
-// events, and manages the spot/on-demand ratio via safe PDB-aware drains.
+// NodeOptimizer analyses node utilization, detects idle nodes, lists on-demand nodes
+// that could be replaced with spot, detects spot interruption notices, and — only
+// through gate.NodeAction, the shared drain budget and drain.Executor — cordons or
+// drains nodes. It has no pricing input, so it reports no savings numbers.
 type NodeOptimizer struct {
 	k8s           kubernetes.Interface
 	dc            dynamic.Interface // for Karpenter NodePool CRD patching (optional)
@@ -50,29 +53,30 @@ func NewNodeOptimizer(k8s kubernetes.Interface, mc metricsv.Interface, dc dynami
 // ── DrainProgressReport ───────────────────────────────────────────────────────
 
 // DrainProgressReport describes the outcome of a single node drain operation.
-// Pushed back to XamOps backend as collector "node-drain-progress".
-type DrainProgressReport struct {
-	NodeName    string     `json:"nodeName"`
-	Status      string     `json:"status"` // queued | cordoned | draining | drained | failed | skipped
-	Reason      string     `json:"reason,omitempty"`
-	PodsTotal   int        `json:"podsTotal"`
-	PodsEvicted int        `json:"podsEvicted"`
-	PodsSkipped int        `json:"podsSkipped"`
-	StartedAt   time.Time  `json:"startedAt"`
-	FinishedAt  *time.Time `json:"finishedAt,omitempty"`
-	Error       string     `json:"error,omitempty"`
-}
+// Pushed back to XamOps backend as collector "node-drain-progress". It is the
+// executor's report type (statuses include simulated, refused and aborted).
+type DrainProgressReport = drain.Report
+
+// Reasons for values the node optimizer cannot know (plan.md D11).
+const (
+	StatusUnknown          = "unknown"
+	NoPricingReason        = "no pricing input — pricing is owned by the XamOps backend (roadmap C2); the agent has none"
+	InterruptibilityReason = "interruption tolerance not assessed"
+)
 
 // NodeOptimizerReport is pushed as collector "node-optimizer-report".
 type NodeOptimizerReport struct {
-	TotalNodes          int                 `json:"totalNodes"`
-	OnDemandNodes       int                 `json:"onDemandNodes"`
-	SpotNodes           int                 `json:"spotNodes"`
-	IdleNodes           []IdleNodeInfo      `json:"idleNodes"`
-	SpotCandidates      []SpotCandidateInfo `json:"spotCandidates"`
-	InterruptedNodes    []string            `json:"interruptedNodes,omitempty"`
-	EstimatedSavingsPct float64             `json:"estimatedSavingsPct"`
-	CollectedAt         string              `json:"collectedAt"`
+	TotalNodes             int                 `json:"totalNodes"`
+	OnDemandNodes          int                 `json:"onDemandNodes"`
+	SpotNodes              int                 `json:"spotNodes"`
+	IdleNodes              []IdleNodeInfo      `json:"idleNodes"`
+	SpotCandidates         []SpotCandidateInfo `json:"spotCandidates"`
+	InterruptedNodes       []string            `json:"interruptedNodes,omitempty"`
+	EstimatedSavingsPct    *float64            `json:"estimatedSavingsPct"` // always null: no pricing input
+	EstimatedSavingsStatus string              `json:"estimatedSavingsStatus"`
+	EstimatedSavingsReason string              `json:"estimatedSavingsReason"`
+	DryRun                 bool                `json:"dryRun"`
+	CollectedAt            string              `json:"collectedAt"`
 }
 
 type IdleNodeInfo struct {
@@ -87,25 +91,28 @@ type IdleNodeInfo struct {
 }
 
 type SpotCandidateInfo struct {
-	NodeName      string  `json:"nodeName"`
-	InstanceType  string  `json:"instanceType,omitempty"`
-	CPUUsagePct   float64 `json:"cpuUsagePct"`
-	MemUsagePct   float64 `json:"memUsagePct"`
-	SavingsPct    float64 `json:"savingsPct"` // typical spot savings vs on-demand
-	Interruptible bool    `json:"interruptible"`
+	NodeName     string  `json:"nodeName"`
+	InstanceType string  `json:"instanceType,omitempty"`
+	CPUUsagePct  float64 `json:"cpuUsagePct"` // live, informational only
+	MemUsagePct  float64 `json:"memUsagePct"` // live, informational only
+	// RequestsCPUPct = summed pod CPU requests / allocatable CPU. Drain-target
+	// selection uses this (stable), never live CPU%.
+	RequestsCPUPct         float64  `json:"requestsCpuPct"`
+	SavingsPct             *float64 `json:"savingsPct"` // always null: no pricing input
+	SavingsStatus          string   `json:"savingsStatus"`
+	SavingsReason          string   `json:"savingsReason"`
+	Interruptible          *bool    `json:"interruptible"` // always null: not assessed
+	InterruptibilityStatus string   `json:"interruptibilityStatus"`
+	InterruptibilityReason string   `json:"interruptibilityReason"`
 }
 
-// SpotInterruptionAction describes a cordon+drain triggered by spot interruption notice.
-type SpotInterruptionAction struct {
-	NodeName    string    `json:"nodeName"`
-	TriggeredAt time.Time `json:"triggeredAt"`
-	Status      string    `json:"status"` // cordoned | draining | drained | failed
-}
-
-// Analyse runs the full node optimization analysis.
+// Analyse runs the node optimization analysis (read-only).
 func (n *NodeOptimizer) Analyse(ctx context.Context, guards policy.SafetyGuards) (*NodeOptimizerReport, error) {
 	report := &NodeOptimizerReport{
-		CollectedAt: time.Now().UTC().Format(time.RFC3339),
+		CollectedAt:            time.Now().UTC().Format(time.RFC3339),
+		EstimatedSavingsStatus: StatusUnknown,
+		EstimatedSavingsReason: NoPricingReason,
+		DryRun:                 n.dryRun,
 	}
 
 	nodes, err := n.k8s.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
@@ -122,7 +129,7 @@ func (n *NodeOptimizer) Analyse(ctx context.Context, guards policy.SafetyGuards)
 	}
 	podsOnNode := map[string][]corev1.Pod{}
 	for _, p := range podList.Items {
-		if p.Spec.NodeName != "" {
+		if p.Spec.NodeName != "" && p.Status.Phase == corev1.PodRunning {
 			podsOnNode[p.Spec.NodeName] = append(podsOnNode[p.Spec.NodeName], p)
 		}
 	}
@@ -169,31 +176,22 @@ func (n *NodeOptimizer) Analyse(ctx context.Context, guards policy.SafetyGuards)
 
 		// On-demand nodes that could be spot candidates (CPU < 70%, stable workloads)
 		if capacityType == "on-demand" && cpuU < 70 && cpuU > 0 {
-			savingsPct := estimateSpotSavings(instanceType)
 			report.SpotCandidates = append(report.SpotCandidates, SpotCandidateInfo{
-				NodeName:      node.Name,
-				InstanceType:  instanceType,
-				CPUUsagePct:   nodeOptimizerRound(cpuU),
-				MemUsagePct:   nodeOptimizerRound(memU),
-				SavingsPct:    savingsPct,
-				Interruptible: true,
+				NodeName:               node.Name,
+				InstanceType:           instanceType,
+				CPUUsagePct:            nodeOptimizerRound(cpuU),
+				MemUsagePct:            nodeOptimizerRound(memU),
+				RequestsCPUPct:         nodeOptimizerRound(requestsCPUPct(node, pods)),
+				SavingsStatus:          StatusUnknown,
+				SavingsReason:          NoPricingReason,
+				InterruptibilityStatus: StatusUnknown,
+				InterruptibilityReason: InterruptibilityReason,
 			})
 		}
 	}
 
-	// Sort spot candidates by highest potential savings first
-	sort.Slice(report.SpotCandidates, func(i, j int) bool {
-		return report.SpotCandidates[i].SavingsPct > report.SpotCandidates[j].SavingsPct
-	})
-
-	// Estimated overall savings if all spot candidates were converted
-	if report.OnDemandNodes > 0 && len(report.SpotCandidates) > 0 {
-		totalSavings := 0.0
-		for _, c := range report.SpotCandidates {
-			totalSavings += c.SavingsPct
-		}
-		report.EstimatedSavingsPct = nodeOptimizerRound(totalSavings / float64(len(report.SpotCandidates)))
-	}
+	sortByRequests(report.SpotCandidates)
+	sort.SliceStable(report.IdleNodes, func(i, j int) bool { return report.IdleNodes[i].NodeName < report.IdleNodes[j].NodeName })
 
 	// Check for spot interruption notices via AWS node termination handler labels
 	report.InterruptedNodes = n.detectSpotInterruptions(ctx)
@@ -201,334 +199,139 @@ func (n *NodeOptimizer) Analyse(ctx context.Context, guards policy.SafetyGuards)
 	return report, nil
 }
 
-// HandleSpotInterruption cordons and drains a node that received an AWS spot
-// interruption notice. Must be called within ~2 minutes of the notice.
-func (n *NodeOptimizer) HandleSpotInterruption(ctx context.Context, nodeName string, guards policy.SafetyGuards) (*SpotInterruptionAction, error) {
-	action := &SpotInterruptionAction{
-		NodeName:    nodeName,
-		TriggeredAt: time.Now().UTC(),
+// requestsCPUPct = Σ container CPU requests of the node's pods / allocatable CPU.
+func requestsCPUPct(node corev1.Node, pods []corev1.Pod) float64 {
+	alloc := node.Status.Allocatable.Cpu().MilliValue()
+	if alloc <= 0 {
+		return 0
 	}
-
-	if n.dryRun {
-		log.Printf("DRY-RUN: would cordon+drain node %s (spot interruption)", nodeName)
-		action.Status = "cordoned"
-		return action, nil
+	var req int64
+	for _, p := range pods {
+		for _, c := range p.Spec.Containers {
+			req += c.Resources.Requests.Cpu().MilliValue()
+		}
 	}
+	return float64(req) / float64(alloc) * 100
+}
 
-	// Step 1: Cordon
-	cordonPatch := []byte(`{"spec":{"unschedulable":true}}`)
-	_, err := n.k8s.CoreV1().Nodes().Patch(ctx, nodeName, types.MergePatchType, cordonPatch, metav1.PatchOptions{})
-	if err != nil {
-		action.Status = "failed"
-		return action, fmt.Errorf("cordon node %s: %w", nodeName, err)
-	}
-	log.Printf("NodeOptimizer: cordoned spot node %s", nodeName)
-	action.Status = "draining"
-
-	// Step 2: Evict all non-DaemonSet, non-critical pods
-	pods, err := n.k8s.CoreV1().Pods("").List(ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("spec.nodeName=%s,status.phase=Running", nodeName),
+// sortByRequests orders by requests utilisation ascending, then node name.
+func sortByRequests(c []SpotCandidateInfo) {
+	sort.SliceStable(c, func(i, j int) bool {
+		if c[i].RequestsCPUPct != c[j].RequestsCPUPct {
+			return c[i].RequestsCPUPct < c[j].RequestsCPUPct
+		}
+		return c[i].NodeName < c[j].NodeName
 	})
-	if err != nil {
-		action.Status = "failed"
-		return action, fmt.Errorf("list pods on %s: %w", nodeName, err)
-	}
-
-	// Spot interruption: 2-minute window — skip PDB wait, just evict as fast as possible
-	// but still respect critical namespace protection
-	evicted := 0
-	for _, pod := range pods.Items {
-		if isDaemonSetPod(pod) {
-			continue
-		}
-		if guards.ProtectCriticalNamespaces && isCriticalNS(pod.Namespace, guards.CriticalNamespaces) {
-			continue
-		}
-		// For spot interruptions, skip PDB wait (we don't have time) but still check
-		// and log so the user sees disruption warnings in the activity feed
-		if guards.RespectPodDisruptionBudgets {
-			if blocked, pdbName := n.checkPDBBlocksEviction(ctx, pod); blocked {
-				log.Printf("WARN: NodeOptimizer: spot-interruption eviction of %s/%s blocked by PDB %s — evicting anyway (AWS deadline)",
-					pod.Namespace, pod.Name, pdbName)
-			}
-		}
-		eviction := buildEviction(pod.Name, pod.Namespace)
-		if evictErr := n.k8s.CoreV1().Pods(pod.Namespace).EvictV1(ctx, eviction); evictErr != nil {
-			log.Printf("WARN: NodeOptimizer: evict pod %s/%s: %v", pod.Namespace, pod.Name, evictErr)
-		} else {
-			evicted++
-		}
-	}
-
-	action.Status = "drained"
-	log.Printf("NodeOptimizer: drained spot node %s (%d pods evicted)", nodeName, evicted)
-	return action, nil
 }
 
-// CordonIdleNode cordons a detected idle node for review.
-func (n *NodeOptimizer) CordonIdleNode(ctx context.Context, nodeName string) error {
-	if n.dryRun {
-		log.Printf("DRY-RUN: would cordon idle node %s", nodeName)
-		return nil
-	}
-	cordonPatch := []byte(`{"spec":{"unschedulable":true}}`)
-	_, err := n.k8s.CoreV1().Nodes().Patch(ctx, nodeName, types.MergePatchType, cordonPatch, metav1.PatchOptions{})
-	if err != nil {
-		return fmt.Errorf("cordon idle node %s: %w", nodeName, err)
-	}
-	log.Printf("NodeOptimizer: cordoned idle node %s", nodeName)
-	return nil
+func nodeOpID(action, node string) string {
+	return fmt.Sprintf("node-optimizer-%s-%s-%d", action, node, time.Now().Unix())
 }
 
-// UncordonNode reverses a cordon.
-func (n *NodeOptimizer) UncordonNode(ctx context.Context, nodeName string) error {
-	if n.dryRun {
-		log.Printf("DRY-RUN: would uncordon node %s", nodeName)
-		return nil
+// DrainNodes is the node optimizer's one drain path (idle drain, spot-ratio drain,
+// spot interruption): candidates in the caller's deterministic order go through
+// drain.Executor.DrainCandidates — the fit simulator selects the largest set that is
+// drainable as a whole within the shared budget (and maxNodes when > 0), the executor
+// drains it as one set, every other candidate is recorded refused (with the plan's
+// reasons) or skipped. Every record carries the trigger.
+func (n *NodeOptimizer) DrainNodes(ctx context.Context, trigger string, nodes []string, maxNodes int, mode gate.Mode, budget *drain.Budget, exec *drain.Executor) drain.CandidateResult {
+	res := exec.DrainCandidates(ctx, policy.ControllerNodeOptimizer, nodeOpID(trigger, "set"), nodes, maxNodes, mode, budget)
+	tag := func(o *drain.Outcome) {
+		for i := range o.Actions {
+			telemetry.SetDetail(&o.Actions[i], "trigger", trigger)
+		}
 	}
-	patch := []byte(`{"spec":{"unschedulable":false}}`)
-	_, err := n.k8s.CoreV1().Nodes().Patch(ctx, nodeName, types.MergePatchType, patch, metav1.PatchOptions{})
-	if err != nil {
-		return fmt.Errorf("uncordon node %s: %w", nodeName, err)
+	if res.Set != nil {
+		tag(res.Set)
 	}
-	log.Printf("NodeOptimizer: uncordoned node %s", nodeName)
-	return nil
+	for i := range res.Others {
+		tag(&res.Others[i])
+	}
+	return res
 }
 
-// ── PDB-aware safe drain ──────────────────────────────────────────────────────
-
-// DrainForSpotConversion safely drains an on-demand node to allow its replacement
-// with a spot node. Steps:
-//  1. Pre-flight: cluster must have >1 schedulable node, node must exist
-//  2. Cordon (stop new pods scheduling)
-//  3. For each non-DaemonSet pod: check PDB, evict, wait for replacement pod running
-//  4. Return DrainProgressReport pushed to XamOps
-func (n *NodeOptimizer) DrainForSpotConversion(ctx context.Context, nodeName string, guards policy.SafetyGuards, drainTimeoutSec int) *DrainProgressReport {
-	now := time.Now().UTC()
-	report := &DrainProgressReport{
-		NodeName:  nodeName,
-		Status:    "queued",
-		StartedAt: now,
-	}
-
-	// ── Pre-flight: cluster capacity check ────────────────────────────────────
-	nodes, err := n.k8s.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-	if err != nil {
-		report.Status = "failed"
-		report.Error = fmt.Sprintf("list nodes for capacity check: %v", err)
-		return report
-	}
-	schedulableCount := 0
-	for _, nd := range nodes.Items {
-		if !nd.Spec.Unschedulable && nd.Name != nodeName {
-			schedulableCount++
-		}
-	}
-	if schedulableCount == 0 {
-		report.Status = "skipped"
-		report.Reason = "no other schedulable nodes — drain would leave cluster with no capacity"
-		log.Printf("NodeOptimizer: skip drain %s — no remaining schedulable nodes", nodeName)
-		return report
-	}
-
-	if n.dryRun {
-		log.Printf("DRY-RUN: would drain node %s for spot conversion (%d other schedulable nodes)", nodeName, schedulableCount)
-		finished := time.Now().UTC()
-		report.Status = "drained"
-		report.Reason = "dry-run"
-		report.FinishedAt = &finished
-		return report
-	}
-
-	// ── Step 1: Cordon ─────────────────────────────────────────────────────────
-	cordonPatch := []byte(`{"spec":{"unschedulable":true}}`)
-	if _, err := n.k8s.CoreV1().Nodes().Patch(ctx, nodeName, types.MergePatchType, cordonPatch, metav1.PatchOptions{}); err != nil {
-		report.Status = "failed"
-		report.Error = fmt.Sprintf("cordon: %v", err)
-		return report
-	}
-	report.Status = "cordoned"
-	log.Printf("NodeOptimizer: cordoned %s for spot conversion", nodeName)
-
-	// ── Step 2: List evictable pods ────────────────────────────────────────────
-	pods, err := n.k8s.CoreV1().Pods("").List(ctx, metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("spec.nodeName=%s,status.phase=Running", nodeName),
-	})
-	if err != nil {
-		report.Status = "failed"
-		report.Error = fmt.Sprintf("list pods: %v", err)
-		return report
-	}
-
-	evictable := make([]corev1.Pod, 0, len(pods.Items))
-	for _, pod := range pods.Items {
-		if isDaemonSetPod(pod) {
-			continue // DaemonSets reschedule automatically — skip
-		}
-		if guards.ProtectCriticalNamespaces && isCriticalNS(pod.Namespace, guards.CriticalNamespaces) {
-			report.PodsSkipped++
-			continue
-		}
-		if guards.ProtectStatefulSets && isStatefulSetPod(pod) {
-			report.PodsSkipped++
-			log.Printf("NodeOptimizer: skipping StatefulSet pod %s/%s (ProtectStatefulSets=true)", pod.Namespace, pod.Name)
-			continue
-		}
-		if guards.ProtectSingleReplicas && isSingleReplicaDeployment(pod) {
-			report.PodsSkipped++
-			log.Printf("NodeOptimizer: skipping single-replica pod %s/%s (ProtectSingleReplicas=true)", pod.Namespace, pod.Name)
-			continue
-		}
-		evictable = append(evictable, pod)
-	}
-	report.PodsTotal = len(evictable) + report.PodsSkipped
-	report.Status = "draining"
-
-	// ── Step 3: PDB-aware eviction with replacement wait ──────────────────────
-	deadline := time.Now().Add(time.Duration(drainTimeoutSec) * time.Second)
-	for _, pod := range evictable {
-		if time.Now().After(deadline) {
-			report.Status = "failed"
-			report.Error = fmt.Sprintf("drain timeout after %ds", drainTimeoutSec)
-			break
-		}
-
-		// Check PDB — retry up to 12 times (1 min) if disruption not allowed
-		if guards.RespectPodDisruptionBudgets {
-			if blocked, pdbName := n.checkPDBBlocksEviction(ctx, pod); blocked {
-				log.Printf("NodeOptimizer: PDB %s/%s blocks eviction of %s/%s — waiting...",
-					pod.Namespace, pdbName, pod.Namespace, pod.Name)
-				// Wait and retry up to 60 seconds for PDB to allow disruption
-				allowed := false
-				for i := 0; i < 12; i++ {
-					time.Sleep(5 * time.Second)
-					if blocked2, _ := n.checkPDBBlocksEviction(ctx, pod); !blocked2 {
-						allowed = true
-						break
-					}
-				}
-				if !allowed {
-					report.PodsSkipped++
-					log.Printf("NodeOptimizer: PDB still blocking %s/%s after 60s — skipping", pod.Namespace, pod.Name)
-					continue
-				}
-			}
-		}
-
-		// Evict
-		eviction := &policyv1.Eviction{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      pod.Name,
-				Namespace: pod.Namespace,
-			},
-		}
-		if err := n.k8s.CoreV1().Pods(pod.Namespace).EvictV1(ctx, eviction); err != nil {
-			log.Printf("WARN: NodeOptimizer: evict %s/%s: %v — skipping", pod.Namespace, pod.Name, err)
-			report.PodsSkipped++
-			continue
-		}
-		report.PodsEvicted++
-		log.Printf("NodeOptimizer: evicted %s/%s from %s", pod.Namespace, pod.Name, nodeName)
-
-		// Wait for the pod's replacement to be Running elsewhere (up to 3 min)
-		if waited := n.waitForPodRunningElsewhere(ctx, pod, nodeName, 180*time.Second); !waited {
-			log.Printf("WARN: NodeOptimizer: replacement for %s/%s not Running within 3m — continuing drain", pod.Namespace, pod.Name)
-		}
-	}
-
-	if report.Status == "draining" {
-		report.Status = "drained"
-	}
-	finished := time.Now().UTC()
-	report.FinishedAt = &finished
-	log.Printf("NodeOptimizer: drain %s complete (status=%s evicted=%d skipped=%d)",
-		nodeName, report.Status, report.PodsEvicted, report.PodsSkipped)
-	return report
+// HandleSpotInterruptions drains nodes that carry an AWS spot interruption notice
+// through the same simulator, executor, budget and guards as every other drain: no
+// PDB override and no "evicting anyway". A node whose plan is not drainable is
+// reported (refused), not drained — aws-node-termination-handler, when installed,
+// drains on its own.
+func (n *NodeOptimizer) HandleSpotInterruptions(ctx context.Context, nodes []string, mode gate.Mode, budget *drain.Budget, exec *drain.Executor) drain.CandidateResult {
+	return n.DrainNodes(ctx, "spot-interruption", nodes, 0, mode, budget, exec)
 }
 
-// checkPDBBlocksEviction returns true if evicting pod would violate a PDB.
-// Returns (blocked bool, pdbName string).
-func (n *NodeOptimizer) checkPDBBlocksEviction(ctx context.Context, pod corev1.Pod) (bool, string) {
-	pdbs, err := n.k8s.PolicyV1().PodDisruptionBudgets(pod.Namespace).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return false, "" // if we can't check, allow eviction
-	}
-	for _, pdb := range pdbs.Items {
-		if pdb.Spec.Selector == nil {
-			continue
-		}
-		// Check if PDB selector matches this pod's labels
-		if labelsMatchSelector(pod.Labels, pdb.Spec.Selector.MatchLabels) {
-			if pdb.Status.DisruptionsAllowed <= 0 {
-				return true, pdb.Name
-			}
-		}
-	}
-	return false, ""
+// HandleSpotInterruption is HandleSpotInterruptions for one node.
+func (n *NodeOptimizer) HandleSpotInterruption(ctx context.Context, nodeName string, mode gate.Mode, budget *drain.Budget, exec *drain.Executor) drain.Outcome {
+	return firstOutcome(n.HandleSpotInterruptions(ctx, []string{nodeName}, mode, budget, exec))
 }
 
-// waitForPodRunningElsewhere polls until a replacement pod (same owner) is Running
-// on a node other than excludeNode, or the timeout expires.
-func (n *NodeOptimizer) waitForPodRunningElsewhere(ctx context.Context, pod corev1.Pod, excludeNode string, timeout time.Duration) bool {
-	if len(pod.OwnerReferences) == 0 {
-		return true // bare pod — nothing to wait for
+func firstOutcome(r drain.CandidateResult) drain.Outcome {
+	if o := r.Outcomes(); len(o) > 0 {
+		return o[0]
 	}
-	ownerUID := pod.OwnerReferences[0].UID
-
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		time.Sleep(5 * time.Second)
-		allPods, err := n.k8s.CoreV1().Pods(pod.Namespace).List(ctx, metav1.ListOptions{})
-		if err != nil {
-			continue
-		}
-		for _, p := range allPods.Items {
-			if p.Name == pod.Name {
-				continue // the evicted pod itself (may still be Terminating)
-			}
-			for _, ref := range p.OwnerReferences {
-				if ref.UID == ownerUID && p.Spec.NodeName != excludeNode && p.Status.Phase == corev1.PodRunning {
-					return true
-				}
-			}
-		}
-	}
-	return false
+	return drain.Outcome{}
 }
 
-// labelsMatchSelector returns true if all selector labels are present in podLabels.
-func labelsMatchSelector(podLabels, selectorLabels map[string]string) bool {
-	for k, v := range selectorLabels {
-		if podLabels[k] != v {
-			return false
-		}
+// CordonIdleNode cordons a detected idle node for review, through the executor.
+func (n *NodeOptimizer) CordonIdleNode(ctx context.Context, nodeName string, mode gate.Mode, budget *drain.Budget, exec *drain.Executor) drain.Outcome {
+	out := exec.CordonOnly(ctx, policy.ControllerNodeOptimizer, nodeOpID("cordon", nodeName), nodeName, mode, budget)
+	for i := range out.Actions {
+		telemetry.SetDetail(&out.Actions[i], "trigger", "idle-node")
 	}
-	return true
+	return out
 }
 
-// isStatefulSetPod returns true if the pod is owned by a StatefulSet.
-func isStatefulSetPod(p corev1.Pod) bool {
-	for _, ref := range p.OwnerReferences {
-		if ref.Kind == "StatefulSet" {
-			return true
-		}
-	}
-	return false
+// ── Drains ────────────────────────────────────────────────────────────────────
+
+// DrainForSpotConversion drains one on-demand node (idle drain or spot-ratio drain).
+// Thin wrapper over DrainNodes: simulator selection within the budget -> cordon ->
+// Eviction API with a re-plan before every eviction -> new-UID replacement wait ->
+// verification; any failure aborts and uncordons.
+func (n *NodeOptimizer) DrainForSpotConversion(ctx context.Context, trigger, nodeName string, mode gate.Mode, budget *drain.Budget, exec *drain.Executor) drain.Outcome {
+	return firstOutcome(n.DrainNodes(ctx, trigger, []string{nodeName}, 0, mode, budget, exec))
 }
 
-// isSingleReplicaDeployment returns true if the pod's Deployment has only 1 replica.
-// We check the owner ReplicaSet → owner Deployment spec.replicas.
-// Falls back to false on any error (don't block eviction if we can't determine).
-func isSingleReplicaDeployment(p corev1.Pod) bool {
-	// Only check Deployment-owned pods (via ReplicaSet)
-	var rsName string
-	for _, ref := range p.OwnerReferences {
-		if ref.Kind == "ReplicaSet" {
-			rsName = ref.Name
-			break
+// SpotRatioDrainCandidates returns every on-demand spot candidate in drain order
+// (requests utilisation ascending, then name) and how many on-demand nodes must go
+// to reach targetSpotPct (0 when already there).
+func (n *NodeOptimizer) SpotRatioDrainCandidates(report *NodeOptimizerReport, targetSpotPct int) ([]string, int) {
+	if report == nil || report.TotalNodes == 0 || targetSpotPct <= 0 {
+		return nil, 0
+	}
+	needed := int(float64(report.TotalNodes)*float64(targetSpotPct)/100.0) - report.SpotNodes
+	if int(float64(report.SpotNodes)/float64(report.TotalNodes)*100) >= targetSpotPct || needed <= 0 {
+		return nil, 0
+	}
+	cands := make([]SpotCandidateInfo, len(report.SpotCandidates))
+	copy(cands, report.SpotCandidates)
+	sortByRequests(cands)
+	names := make([]string, 0, len(cands))
+	for _, c := range cands {
+		names = append(names, c.NodeName)
+	}
+	return names, needed
+}
+
+// waitForPodRunningElsewhere waits for a replacement of pod: a pod of the same
+// controller whose UID is not in knownUIDs (the UIDs present before the eviction),
+// Running+Ready on a node other than excludeNode. Thin wrapper over
+// drain.WaitForReplacement — a pre-existing sibling never satisfies it.
+func (n *NodeOptimizer) waitForPodRunningElsewhere(ctx context.Context, pod corev1.Pod, knownUIDs map[string]bool, excludeNode string, timeout time.Duration) bool {
+	ownerUID := ""
+	for _, ref := range pod.OwnerReferences {
+		if ref.Controller != nil && *ref.Controller {
+			ownerUID = string(ref.UID)
 		}
 	}
-	return rsName == "" // can't determine — treat as safe to evict
+	if ownerUID == "" {
+		return false // nothing recreates an ownerless pod
+	}
+	known := map[string]bool{string(pod.UID): true}
+	for uid := range knownUIDs {
+		known[uid] = true
+	}
+	_, ok := drain.WaitForReplacement(ctx, n.k8s, pod.Namespace, ownerUID, known,
+		map[string]bool{excludeNode: true}, timeout, 5*time.Second)
+	return ok
 }
 
 // ── Karpenter NodePool patching ───────────────────────────────────────────────
@@ -539,47 +342,56 @@ var karpenterNodePoolGVR = schema.GroupVersionResource{
 	Resource: "nodepools",
 }
 
-// PatchKarpenterSpotRatio updates Karpenter NodePool CRDs to annotate the desired
-// spot ratio. This doesn't directly change the ratio — it records the intent so
-// that Karpenter disruption policies can be adjusted by the cluster operator.
-// The actual node replacement happens via DrainForSpotConversion().
-func (n *NodeOptimizer) PatchKarpenterSpotRatio(ctx context.Context, spotPct int) error {
+// PatchKarpenterSpotRatio annotates Karpenter NodePools with the desired spot ratio
+// (intent only; the ratio is reached via drains). Gated by gate.NodeAction; it needs
+// no drain budget. Simulate lists the NodePools and writes nothing.
+func (n *NodeOptimizer) PatchKarpenterSpotRatio(ctx context.Context, spotPct int, mode gate.Mode) policy.ActionRecord {
+	rec := telemetry.NewAction(policy.ControllerNodeOptimizer, "karpenter-spot-ratio-patch", "nodepools", mode != gate.Live)
+	telemetry.SetDetail(&rec, "spotRatioTargetPct", spotPct)
+	if mode != gate.Live && mode != gate.Simulate {
+		return telemetry.Finish(rec, policy.ActionSkipped, false, fmt.Sprintf("gate mode %s", mode))
+	}
 	if n.dc == nil {
-		return fmt.Errorf("dynamic client not available for Karpenter patching")
+		return telemetry.Finish(rec, policy.ActionRefused, false, "dynamic client not available for Karpenter patching")
 	}
 
 	nodePools, err := n.dc.Resource(karpenterNodePoolGVR).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return fmt.Errorf("list Karpenter NodePools: %w", err)
+		return telemetry.Finish(rec, policy.ActionFailed, false, fmt.Sprintf("list Karpenter NodePools: %v", err))
 	}
+	telemetry.SetDetail(&rec, "nodePools", len(nodePools.Items))
 
-	if n.dryRun {
-		log.Printf("DRY-RUN: would annotate %d Karpenter NodePool(s) with xamops.io/spot-ratio-target=%d%%",
-			len(nodePools.Items), spotPct)
-		return nil
+	if mode == gate.Simulate {
+		return telemetry.Finish(rec, policy.ActionSimulated, false,
+			fmt.Sprintf("would annotate %d NodePool(s) with xamops.io/spot-ratio-target=%d", len(nodePools.Items), spotPct))
 	}
 
 	annotation := fmt.Sprintf(`{"metadata":{"annotations":{"xamops.io/spot-ratio-target":"%d","xamops.io/managed-by":"xamops-automation"}}}`, spotPct)
-	patchBytes := []byte(annotation)
-
+	want := strconv.Itoa(spotPct)
+	patched, failed := 0, 0
 	for _, np := range nodePools.Items {
-		_, err := n.dc.Resource(karpenterNodePoolGVR).Patch(
-			ctx, np.GetName(), types.MergePatchType, patchBytes, metav1.PatchOptions{},
+		obj, err := n.dc.Resource(karpenterNodePoolGVR).Patch(
+			ctx, np.GetName(), types.MergePatchType, []byte(annotation), metav1.PatchOptions{},
 		)
-		if err != nil {
+		if err != nil || obj.GetAnnotations()["xamops.io/spot-ratio-target"] != want {
+			failed++
 			log.Printf("WARN: NodeOptimizer: patch Karpenter NodePool %s: %v", np.GetName(), err)
-		} else {
-			log.Printf("NodeOptimizer: annotated Karpenter NodePool %s with spot-ratio-target=%d%%", np.GetName(), spotPct)
+			continue
 		}
+		patched++
 	}
-	return nil
+	if failed > 0 {
+		return telemetry.Finish(rec, policy.ActionFailed, false, fmt.Sprintf("%d of %d NodePool patch(es) failed", failed, len(nodePools.Items)))
+	}
+	rec.Verification = fmt.Sprintf("%d NodePool(s) returned with the annotation", patched)
+	return telemetry.Finish(rec, policy.ActionSucceeded, true, "")
 }
 
 // ── Spot ratio management ─────────────────────────────────────────────────────
 
-// SelectOnDemandNodesForDrain returns on-demand nodes to drain to achieve the
-// target spot ratio. Picks the least-loaded nodes first to minimise disruption.
-// Returns at most maxDrains nodes.
+// SelectOnDemandNodesForDrain returns on-demand nodes to drain to approach the target
+// spot ratio, at most maxDrains. Order is deterministic: requests utilisation
+// ascending, then node name (live CPU% is informational only).
 func (n *NodeOptimizer) SelectOnDemandNodesForDrain(
 	report *NodeOptimizerReport,
 	targetSpotPct int,
@@ -589,10 +401,7 @@ func (n *NodeOptimizer) SelectOnDemandNodesForDrain(
 		return nil
 	}
 
-	currentSpotPct := 0
-	if report.TotalNodes > 0 {
-		currentSpotPct = int(float64(report.SpotNodes) / float64(report.TotalNodes) * 100)
-	}
+	currentSpotPct := int(float64(report.SpotNodes) / float64(report.TotalNodes) * 100)
 	if currentSpotPct >= targetSpotPct {
 		return nil // already at or above target
 	}
@@ -607,12 +416,9 @@ func (n *NodeOptimizer) SelectOnDemandNodesForDrain(
 		needed = maxDrains
 	}
 
-	// Select candidates sorted by lowest CPU usage (least disruption)
 	candidates := make([]SpotCandidateInfo, len(report.SpotCandidates))
 	copy(candidates, report.SpotCandidates)
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].CPUUsagePct < candidates[j].CPUUsagePct
-	})
+	sortByRequests(candidates)
 
 	result := make([]string, 0, needed)
 	for _, c := range candidates {
@@ -721,26 +527,6 @@ func isDaemonSetPod(p corev1.Pod) bool {
 		}
 	}
 	return false
-}
-
-// estimateSpotSavings returns typical AWS spot discount by instance family.
-func estimateSpotSavings(instanceType string) float64 {
-	if len(instanceType) == 0 {
-		return 60.0
-	}
-	switch instanceType[0] {
-	case 'r':
-		return 72.0 // memory-optimized
-	case 'c':
-		return 65.0 // compute-optimized
-	case 'm':
-		return 62.0 // general purpose
-	case 't':
-		return 50.0 // burstable
-	case 'g', 'p':
-		return 70.0 // GPU
-	}
-	return 60.0
 }
 
 // noPromQuery is a minimal Prometheus instant query returning map[labelValue]→stringValue.

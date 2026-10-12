@@ -34,6 +34,7 @@ import EksContainersTab from '../components/EksDetails/tabs/EksContainersTab';
 import EksNodesTab from '../components/EksDetails/tabs/EksNodesTab';
 import EksKarpenterTab from '../components/EksDetails/tabs/EksKarpenterTab';
 import EksResourcesTab from '../components/EksDetails/tabs/EksResourcesTab';
+import EksAutomationTab from '../components/EksDetails/tabs/EksAutomationTab';
 // import EksAutoscalingTab from '../components/EksDetails/tabs/EksAutoscalingTab';
 import EksIntegrationModal from '../components/EksDetails/EksIntegrationModal';
 import EksDiagnosticsPanel from '../components/EksDetails/EksDiagnosticsPanel';
@@ -55,6 +56,10 @@ const EksDetailsPage: React.FC = () => {
   const region = searchParams.get('region') || 'us-east-1';
   const version = searchParams.get('version') || '1.33';
   const accountId = searchParams.get('accountIds');
+  // The vertical automation endpoint takes exactly one 12-digit AWS account, while this page's
+  // query parameter is a comma-separated list; the first entry is the account the cluster was
+  // opened from.
+  const primaryAccountId = accountId ? accountId.split(',')[0].trim() : null;
   const tabParam = searchParams.get('tab') as any;
   const debugMode = searchParams.get('debug') === 'true';
 
@@ -201,6 +206,13 @@ const EksDetailsPage: React.FC = () => {
                   {activeTab === 'nodes' && <EksNodesTab eksData={eksData} />}
                   {activeTab === 'resources' && <EksResourcesTab eksData={eksData} />}
                   {activeTab === 'karpenter' && <EksKarpenterTab eksData={eksData} />}
+                  {activeTab === 'automation' && primaryAccountId && (
+                    <EksAutomationTab
+                      clusterName={clusterName}
+                      accountId={primaryAccountId}
+                      region={region}
+                    />
+                  )}
                   {/* {activeTab === 'autoscaling' && <EksAutoscalingTab eksData={eksData} />} */}
                 </motion.div>
               </AnimatePresence>
