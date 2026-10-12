@@ -497,8 +497,12 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return capabilities ? makeResponse(capabilities) : makeResponse(k8sAutomation.DEMO_NO_ACCOUNT_ACCESS, 403);
   }
 
-  // Vertical engine, endpoint 1 only (plan P7): nothing else under /api/eks/automation/vertical/ is
-  // called yet, and an unrouted path would reach the real backend.
+  // Vertical engine writes (endpoints 2 and 3), which the Workload autoscaler subtab can send:
+  // refused by path, so a method-blind lookup can never answer a write with a read fixture (§16, P7).
+  if (/\/api\/eks\/automation\/vertical\/[^/?]+\/workloads\/.+\/(policy|apply)(\?|$)/.test(url))
+    return makeResponse(k8sAutomation.DEMO_WRITE_REFUSED, 403);
+
+  // Vertical engine, endpoint 1 (plan P7): an unrouted engine path would reach the real backend.
   {
     const vertical = /\/api\/eks\/automation\/vertical\/([^/?]+)(\?|$)/.exec(url);
     if (vertical) {

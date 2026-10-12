@@ -417,3 +417,10 @@ The realtime branch `feat/cloudk8s-realtime-autoscaling` (worktree `/Users/apple
 - B-3. No refactors in the cut. Two clients or type sets for the vertical endpoints stay side by side; unifying them becomes FEAT-005's first item.
 - B-4. Verify: the full frontend build and suite, the full backend suite, and a boot check of xamops-service against a throwaway Postgres (`/actuator/health` UP, no startup errors; then stop it and drop the database). Screenshots (demo mode) of Overview, Workloads and Automation, light and dark, under `RUN/screenshots/demo-cut/`.
 - B-5. Send the parent an `info` message with the demo-cut SHA, test counts, boot-check result and screenshot paths. No push, no merge. Then continue on top.
+
+### Decisions taken in the demo cut (2026-10-12)
+
+- **B6. Rebased onto `origin/main` `c8cce42eb`**, not local `main` (the orchestrator's correction). It holds the realtime work and other sessions' commits (AutoSpotting ledger, CUR revalidation, MediaOps).
+- **B7. Two vertical type sets, side by side, at different paths.** The realtime branch had created its own `api/verticalRightsizerApi.ts`, `api/verticalRightsizerAdapter.ts`, `types/verticalRightsizer.ts` and `hooks/useVerticalRightsizer.ts` at the same paths as this branch's contract-based ones, with different APIs. The realtime files move unchanged to `api/workloadRightsizingApi.ts`, `api/workloadRightsizingAdapter.ts`, `types/workloadRightsizing.ts` and `hooks/useWorkloadRightsizing.ts` (with their tests), imported by `EksAutomationTab`; the contract-based files keep the original paths. Unifying them is FEAT-005's first item.
+- **B8. "Workload autoscaler".** The owner renamed the feature: `EksAutomationTab` is registered as Automation › Workload autoscaler (`automation/workload-autoscaling`) and its page title reads "Workload autoscaler". The old page's `?tab=automation` resolves to Automation › Overview, since `automation` is also a section id.
+- **B9. Demo writes.** The subtab can send the engine's endpoint 3 from a demo session, so `…/workloads/…/(policy|apply)` now answers `403 K8S_DEMO` in demo mode (planned for FEAT-005 item 32, brought forward).

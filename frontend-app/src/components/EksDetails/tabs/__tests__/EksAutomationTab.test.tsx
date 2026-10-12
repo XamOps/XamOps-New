@@ -126,7 +126,7 @@ describe('EksAutomationTab', () => {
     resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
     const { container: page } = renderTab();
 
-    expect(await screen.findByRole('heading', { name: 'Workload rightsizing' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Workload autoscaler' })).toBeInTheDocument();
     expect(screen.getByText(/nothing changes in the cluster until you press Apply/)).toBeInTheDocument();
     expect(screen.getByText('Can be applied')).toBeInTheDocument();
     expect(screen.getByText('Connected')).toBeInTheDocument();

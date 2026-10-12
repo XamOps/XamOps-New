@@ -863,7 +863,7 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
   return (
     <div className="space-y-4">
       <section className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] px-6 py-4">
-        <h3 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">Workload rightsizing</h3>
+        <h3 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">Workload autoscaler</h3>
         <p className="mt-1 text-[12px] text-[rgba(0,0,0,0.6)] max-w-[820px]">
           Sets each container&apos;s CPU and memory requests to what it actually uses, plus headroom, and can resize
           running pods without restarting them. XamOps only suggests: nothing changes in the cluster until you press

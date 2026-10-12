@@ -89,13 +89,14 @@ describe('resolveSectionRoute', () => {
   });
 
   it('registers only the subtabs that render content so far, each section default among its subs (P3)', () => {
-    // Slice 1's targets, plus Overview › Events and Nodes › Node groups (FEAT-003 items 24, 25).
+    // Slice 1's targets, plus Overview › Events and Nodes › Node groups (FEAT-003 items 24, 25) and
+    // Automation › Workload autoscaler (the demo cut).
     expect(EKS_SECTIONS.map((s) => `${s.id}:${s.subs.map((x) => x.id).join(',')}`)).toEqual([
       'overview:summary,events',
       'cost:cluster',
       'workloads:workloads,pods,containers,resources',
       'nodes:nodes,node-groups,karpenter,utilization',
-      'automation:overview',
+      'automation:overview,workload-autoscaling',
       'security:vulnerabilities',
     ]);
     for (const s of EKS_SECTIONS) expect(s.subs.some((x) => x.id === s.defaultSub)).toBe(true);

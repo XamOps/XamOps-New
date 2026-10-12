@@ -116,6 +116,15 @@ export const DEMO_NO_ACCOUNT_ACCESS: K8sRefusal = {
 
 // ── Vertical engine, endpoint 1 (§16; published contract §2.1) ──────────────
 
+/** Every automation write in a demo session (§16): refused, and nothing is sent to the backend. */
+export const DEMO_WRITE_REFUSED: K8sRefusal = {
+  success: false,
+  code: 'K8S_DEMO',
+  message: "Demo workspace. Changes aren't saved.",
+  field: null,
+  detail: null,
+};
+
 /** What the engine answers for a cluster XamOps doesn't have a config for. */
 export const DEMO_CLUSTER_NOT_REGISTERED: K8sRefusal = {
   success: false,

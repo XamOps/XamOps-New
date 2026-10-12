@@ -31,7 +31,8 @@ export type SectionRegistry<T extends string = string, S extends string = string
 
 /**
  * The cluster page's sections (P3): the targets of the 11 legacy tabs, Automation › Overview and,
- * from FEAT-003, Overview › Events and Nodes › Node groups. Later slices add the cost subtabs,
+ * from FEAT-003, Overview › Events, Nodes › Node groups and Automation › Workload autoscaler (the
+ * realtime branch's tab, hosted for the demo cut). Later slices add the cost subtabs,
  * Security › Compliance and Runtime, Data sources and the other Automation subtabs.
  */
 export const EKS_SECTIONS: SectionRegistry<EksSectionId, EksSubtabId> = [
@@ -54,7 +55,8 @@ export const EKS_SECTIONS: SectionRegistry<EksSectionId, EksSubtabId> = [
       { id: 'utilization', label: 'Utilization' },
     ] },
   { id: 'automation', label: 'Automation', icon: 'mdi:robot-outline', defaultSub: 'overview',
-    subs: [{ id: 'overview', label: 'Overview' }] },
+    // Workload autoscaler hosts the realtime branch's Workload rightsizing tab (Addendum 1 Part B).
+    subs: [{ id: 'overview', label: 'Overview' }, { id: 'workload-autoscaling', label: 'Workload autoscaler' }] },
   { id: 'security', label: 'Security', icon: 'mdi:shield-outline', defaultSub: 'vulnerabilities',
     subs: [{ id: 'vulnerabilities', label: 'Vulnerabilities' }] },
 ];
@@ -72,7 +74,9 @@ export const LEGACY_TAB_MAP: Readonly<Record<TabType, { tab: EksSectionId; sub: 
   cost: { tab: 'cost', sub: 'cluster' },
   karpenter: { tab: 'nodes', sub: 'karpenter' },
   autoscaling: { tab: 'automation', sub: 'overview' },
-  // The realtime branch's Automation tab on the old page.
+  // The realtime branch's Automation tab on the old page. `automation` is also a section id, so it
+  // resolves directly to the section default, and the map agrees (§5.2); Workload autoscaler is one
+  // sidebar click away.
   automation: { tab: 'automation', sub: 'overview' },
 };
 

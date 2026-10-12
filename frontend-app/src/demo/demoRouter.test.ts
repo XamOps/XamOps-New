@@ -430,6 +430,14 @@ describe('demo router — vertical engine, endpoint 1 (ROLE_XAMOPS)', () => {
     expect(view.workloads).toEqual([]);
   });
 
+  it.each(['GET', 'POST', 'PUT'])('refuses the engine writes with 403 K8S_DEMO (%s)', async (method) => {
+    for (const path of ['apply', 'policy']) {
+      const response = resolveDemoResponse(`/api/eks/automation/vertical/prod-eks-cluster/workloads/production/Deployment/api-server/${path}?accountId=demo-aws-001&region=us-east-1`, method);
+      expect(response?.status).toBe(403);
+      expect((await response!.json()).code).toBe('K8S_DEMO');
+    }
+  });
+
   it('answers any other cluster 404 K8S_CLUSTER_NOT_REGISTERED, so nothing reaches the backend', async () => {
     const response = resolveDemoResponse(statusUrl('staging-eks-cluster'));
     expect(response?.status).toBe(404);

@@ -42,6 +42,7 @@ vi.mock('../../components/EksDetails/tabs/EksNodesTab', () => ({ default: () => 
 vi.mock('../../components/EksDetails/sections/workloads/ResourcesPanel', () => ({ default: () => <div>Resources tab content</div> }));
 vi.mock('../../components/EksDetails/tabs/EksKarpenterTab', () => ({ default: () => <div>Karpenter tab content</div> }));
 vi.mock('../../components/EksDetails/EksDiagnosticsPanel', () => ({ default: () => <div>Diagnostics panel</div> }));
+vi.mock('../../components/EksDetails/tabs/EksAutomationTab', () => ({ default: () => <div>Workload autoscaler content</div> }));
 vi.mock('../../components/EksDetails/EksIntegrationModal', () => ({
   default: ({ isOpen }: { isOpen: boolean }) => {
     flags.guideRendered = true;
@@ -167,6 +168,8 @@ describe('legacy ?tab= links (§5.2)', () => {
     ['cost', 'cost', 'cluster', 'Cost', 'Cluster', 'Cost tab content'],
     ['karpenter', 'nodes', 'karpenter', 'Nodes', 'Karpenter', 'Karpenter tab content'],
     ['autoscaling', 'automation', 'overview', 'Automation', 'Overview', AUTOMATION_HEADING],
+    // The realtime branch's Automation tab on the old page.
+    ['automation', 'automation', 'overview', 'Automation', 'Overview', AUTOMATION_HEADING],
   ])('?tab=%s lands on %s › %s with today\'s content', async (legacy, tab, sub, primaryLabel, subLabel, content) => {
     renderAt(`${BASE}&tab=${legacy}`);
     expect(await find(content)).toBeInTheDocument();
