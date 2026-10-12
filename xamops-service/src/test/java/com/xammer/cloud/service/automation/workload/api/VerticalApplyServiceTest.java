@@ -3,6 +3,7 @@ package com.xammer.cloud.service.automation.workload.api;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.service.automation.workload.HpaView;
 import com.xammer.cloud.service.automation.workload.NodeCapacity;
 import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
@@ -437,15 +438,92 @@ class VerticalApplyServiceTest {
     }
 
     @Test
-    @DisplayName("a dry run is not held by the cooldown, because it sends nothing")
-    void aDryRunIsNotHeldByTheCooldown() {
+    @DisplayName("a dry run is held by the cooldown too, so it predicts the real apply")
+    void aDryRunIsHeldByTheCooldownToo() {
         when(policyService.resolve(any(), any(), any())).thenReturn(METRICS.defaultsPolicy()
                 .withLastAppliedAt(Instant.parse("2026-10-11T11:59:00Z")));
+
+        assertThat(refuse(principal(), readWriteAccount(), body(true)).getMessage())
+                .startsWith("COOLDOWN:");
+        verify(executor, never()).submit(any(), any(), any());
+    }
+
+    // ---------------------------------------------------------------- the engine's holds (review S1)
+
+    @Test
+    @DisplayName("a single-replica workload is refused while the policy protects it")
+    void aSingleReplicaWorkloadIsRefused() {
+        givenInventory(holdWorkload(1, false, false, null));
+
+        VerticalApplyService.ApplyRefusedException refusal =
+                refuse(principal(), readWriteAccount(), body(false));
+
+        assertThat(refusal.code()).isEqualTo("K8S_INVALID_POLICY");
+        assertThat(refusal.getMessage()).startsWith("SINGLE_REPLICA:");
+        verify(executor, never()).submit(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a single-replica workload is applied when its policy does not protect it")
+    void anUnprotectedSingleReplicaWorkloadIsApplied() {
+        givenInventory(holdWorkload(1, false, false, null));
+        when(policyService.resolve(any(), any(), any()))
+                .thenReturn(METRICS.defaultsPolicy().withProtectSingleReplica(false));
         givenExecutorApplies();
 
-        service().apply(principal(), readWriteAccount(), TARGET, REF, body(true));
+        assertThat(service().apply(principal(), readWriteAccount(), TARGET, REF, body(false))
+                .result().terminal()).isEqualTo("APPLIED");
+    }
 
-        verify(executor).submit(any(), any(), any());
+    @Test
+    @DisplayName("a workload mid-rollout is refused, dry run included")
+    void aRolloutInProgressIsRefused() {
+        givenInventory(holdWorkload(2, true, false, null));
+
+        assertThat(refuse(principal(), readWriteAccount(), body(true)).getMessage())
+                .startsWith("ROLLOUT_IN_PROGRESS:");
+        verify(executor, never()).submit(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a workload locked with xamops.io/lock=active is refused")
+    void aLockedWorkloadIsRefused() {
+        givenInventory(holdWorkload(2, false, true, null));
+
+        assertThat(refuse(principal(), readWriteAccount(), body(false)).getMessage())
+                .startsWith("LOCKED:")
+                .contains("xamops.io/lock=active");
+        verify(executor, never()).submit(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("moving CPU on a workload whose HPA scales on CPU is refused; memory alone is applied")
+    void cpuIsRefusedUnderACpuHpa() {
+        givenInventory(holdWorkload(2, false, false, HpaView.cpuHpa("api-hpa", REF, 50, 2, 5)));
+
+        VerticalApplyService.ApplyRefusedException refusal =
+                refuse(principal(), readWriteAccount(), body(false));
+        assertThat(refusal.getMessage()).startsWith("HPA_CPU_MANAGED:");
+        assertThat(refusal.field()).isEqualTo("containers[0].cpuRequestM");
+
+        givenExecutorApplies();
+        ApplyRequestDto memoryOnly = new ApplyRequestDto(
+                List.of(new ApplyRequestDto.Container("api", 1000, 250L, 1000, 250L)), "IN_PLACE", false);
+        assertThat(service().apply(principal(), readWriteAccount(), TARGET, REF, memoryOnly)
+                .result().terminal())
+                .as("a CPU value equal to the current one does not move CPU")
+                .isEqualTo("APPLIED");
+    }
+
+    @Test
+    @DisplayName("an HPA on another workload does not hold this one")
+    void anHpaOnAnotherWorkloadDoesNotHold() {
+        givenInventory(holdWorkload(2, false, false,
+                HpaView.cpuHpa("other-hpa", WorkloadRef.of("team-a", "Deployment", "other"), 50, 2, 5)));
+        givenExecutorApplies();
+
+        assertThat(service().apply(principal(), readWriteAccount(), TARGET, REF, body(false))
+                .result().terminal()).isEqualTo("APPLIED");
     }
 
     @Test
@@ -640,6 +718,19 @@ class VerticalApplyServiceTest {
 
     private static ClusterWorkloadInventory.Workload workload() {
         return workload(GUARANTEED_1CPU_1GI);
+    }
+
+    private void givenInventory(ClusterWorkloadInventory.Workload workload) {
+        when(inventory.read(any())).thenReturn(new ClusterWorkloadInventory.Inventory(
+                List.of(workload), new NodeCapacity(1930, 3_454_423_040L)));
+    }
+
+    private static ClusterWorkloadInventory.Workload holdWorkload(int replicas, boolean rollout,
+                                                                  boolean locked, HpaView hpa) {
+        return new ClusterWorkloadInventory.Workload(REF, replicas, rollout, locked, hpa, null,
+                List.of(new ClusterWorkloadInventory.ContainerSpec("api", GUARANTEED_1CPU_1GI, Map.of())),
+                new WorkloadPods(REF, List.of(new WorkloadPods.Pod("api-1", "uid-1"),
+                        new WorkloadPods.Pod("api-2", "uid-2"))));
     }
 
     private static ClusterWorkloadInventory.Workload workload(ResourceEnvelope current) {

@@ -3,6 +3,7 @@ package com.xammer.cloud.service.automation.workload.api;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.automation.workload.ApplyMethod;
+import com.xammer.cloud.service.automation.workload.HpaView;
 import com.xammer.cloud.service.automation.workload.QosRules;
 import com.xammer.cloud.service.automation.workload.Quantities;
 import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
@@ -76,8 +77,9 @@ import java.util.UUID;
  * <h2>What makes the cooldown real</h2>
  *
  * A confirmed, non-dry-run apply upserts {@code vertical_workload_policy.last_applied_at}. Until
- * this existed, the engine's cooldown guard had nothing to read and so never fired. A real apply
- * inside that cooldown is now refused here as well, so the hold does not depend on the UI.
+ * this existed, the engine's cooldown guard had nothing to read and so never fired. An apply inside
+ * that cooldown is now refused here as well, as are the engine's other holds (single replica,
+ * rollout, lock, HPA-managed resource), so none of them depends on the UI.
  *
  * <h2>An apply never changes the policy</h2>
  *
@@ -183,10 +185,10 @@ public class VerticalApplyService {
             WorkloadPolicy policy = policyService.resolve(target.clusterConfigId(), workload.ref(),
                     metricsProperties.defaultsPolicy());
             boolean dryRun = Boolean.TRUE.equals(request.dryRun());
-            if (!dryRun) {
-                requireCooldownElapsed(policy, workload.ref());
-            }
             List<ContainerApplyTarget> targets = revalidate(submitted, workload, policy);
+            // The engine's holds, dry runs included, so a dry run predicts the real apply.
+            requireEngineHoldsClear(workload, policy, submitted);
+            requireCooldownElapsed(policy, workload.ref());
 
             ActionCommand command = new ActionCommand(UUID.randomUUID().toString(), target,
                     workload.ref(), targets, method, dryRun, null,
@@ -319,13 +321,84 @@ public class VerticalApplyService {
     }
 
     /**
-     * A real apply inside the policy's cooldown is refused, so the server enforces the same hold the
+     * The engine's per-workload holds, re-checked here so that a direct call cannot apply what the
+     * engine refuses to touch (review S1). Before this, they were enforced only by the UI choosing
+     * what to submit.
+     *
+     * <p>Same predicates as {@code WorkloadAutoscalingEngine}'s gate and HPA reconciliation, and the
+     * engine's own codes at the head of the message: {@code SINGLE_REPLICA} (when the policy
+     * protects single-replica workloads), {@code ROLLOUT_IN_PROGRESS}, {@code LOCKED}, and
+     * {@code HPA_CPU_MANAGED} / {@code HPA_MEMORY_MANAGED} when a submitted value would move a
+     * resource the workload's HPA scales on. Refused with {@code K8S_INVALID_POLICY}, the way a floor
+     * or a protected namespace is, and applied to dry runs too.
+     */
+    private static void requireEngineHoldsClear(ClusterWorkloadInventory.Workload workload,
+                                                WorkloadPolicy policy,
+                                                List<ApplyRequestDto.Container> submitted) {
+        WorkloadRef ref = workload.ref();
+        if (workload.replicas() <= 1 && policy.protectSingleReplica()) {
+            throw invalid("name", "SINGLE_REPLICA: " + ref.describe() + " runs "
+                    + workload.replicas() + " replica, and its policy protects single-replica"
+                    + " workloads: resizing the only pod leaves nothing to fall back on.");
+        }
+        if (workload.rolloutInProgress()) {
+            throw invalid("name", "ROLLOUT_IN_PROGRESS: " + ref.describe() + " is rolling out, so"
+                    + " its pods belong to two templates. Apply after the rollout has finished.");
+        }
+        if (workload.lockAnnotationActive()) {
+            throw invalid("name", "LOCKED: " + ref.describe() + " carries "
+                    + WorkloadPolicyDefaults.LOCK_ANNOTATION + "="
+                    + WorkloadPolicyDefaults.LOCK_ANNOTATION_ACTIVE
+                    + ", which suspends automation for it.");
+        }
+        HpaView hpa = workload.hpa() != null && workload.hpa().targets(ref) ? workload.hpa() : null;
+        if (hpa == null) {
+            return;
+        }
+        for (int i = 0; i < submitted.size(); i++) {
+            ApplyRequestDto.Container container = submitted.get(i);
+            ResourceEnvelope current = workload.containers().stream()
+                    .filter(candidate -> candidate.name().equals(container.name()))
+                    .map(ClusterWorkloadInventory.ContainerSpec::current)
+                    .findFirst()
+                    .orElse(ResourceEnvelope.UNSET);
+            String field = "containers[" + i + "]";
+            if (hpa.cpuResourceMetricPresent()
+                    && (moves(container.cpuRequestM(), current.cpuRequestMillis())
+                    || moves(container.cpuLimitM(), current.cpuLimitMillis()))) {
+                throw invalid(field + ".cpuRequestM", "HPA_CPU_MANAGED: the HPA " + hpa.name()
+                        + " scales " + ref.describe() + " on CPU utilisation, which is usage divided"
+                        + " by the request, so moving the CPU request changes how many replicas it"
+                        + " runs. CPU is left alone; memory can still be applied.");
+            }
+            Long memRequestBytes = container.memRequestMi() == null
+                    ? null : Quantities.miToBytes(container.memRequestMi());
+            Long memLimitBytes = container.memLimitMi() == null
+                    ? null : Quantities.miToBytes(container.memLimitMi());
+            if (hpa.memResourceMetricPresent()
+                    && (moves(memRequestBytes, current.memRequestBytes())
+                    || moves(memLimitBytes, current.memLimitBytes()))) {
+                throw invalid(field + ".memRequestMi", "HPA_MEMORY_MANAGED: the HPA " + hpa.name()
+                        + " scales " + ref.describe() + " on memory utilisation, so moving the"
+                        + " memory request changes how many replicas it runs. Memory is left"
+                        + " alone; CPU can still be applied.");
+            }
+        }
+    }
+
+    /** A submitted value moves a resource when it is present and differs from the current one. */
+    private static boolean moves(Number submitted, Number current) {
+        return submitted != null && (current == null || submitted.longValue() != current.longValue());
+    }
+
+    /**
+     * An apply inside the policy's cooldown is refused, so the server enforces the same hold the
      * engine publishes as {@code COOLDOWN} and the UI disables Apply for.
      *
      * <p>Same boundary as the engine's own guard: the hold lasts while {@code last_applied_at} is
-     * not older than {@code cooldown_minutes}. A dry run is not held, because it sends nothing.
-     * Refused with {@code K8S_INVALID_POLICY} and the rule named in the message, the way a floor or
-     * a protected namespace is.
+     * not older than {@code cooldown_minutes}. Dry runs are held too, so a dry run predicts the real
+     * apply. Refused with {@code K8S_INVALID_POLICY} and the rule named in the message, the way a
+     * floor or a protected namespace is.
      */
     private void requireCooldownElapsed(WorkloadPolicy policy, WorkloadRef ref) {
         Instant lastApplied = policy.lastAppliedAt();
