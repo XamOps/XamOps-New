@@ -22,6 +22,7 @@ export const GUARDED_PATHS: readonly string[] = [
   'components/CloudK8s/shared/',
   'hooks/useK8sCapabilities.tsx',
   'hooks/useK8sCacheIdentity.ts',
+  'hooks/useEksSectionRoute.ts',
   'utils/k8sCache.ts',
 ];
 

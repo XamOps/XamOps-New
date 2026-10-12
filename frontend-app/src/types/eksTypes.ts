@@ -349,7 +349,26 @@ export interface KarpenterStatus {
   color: string;
 }
 
+/**
+ * The old flat `?tab=` values of the cluster page. Still accepted: `LEGACY_TAB_MAP`
+ * (hooks/useEksSectionRoute.ts) maps each to its new section and subtab (design §5.2).
+ * `useEksAlertsData` builds alert links with them. `automation` is the realtime branch's tab on the
+ * old page (Workload rightsizing).
+ */
 export type TabType = 'overview' | 'cost' | 'performance' | 'security' | 'workloads' | 'pods' | 'containers' | 'nodes' | 'resources' | 'karpenter' | 'automation' | 'autoscaling';
+
+/** Primary sections of the cluster page, `?tab=` (design §4.2). Only registered ones render. */
+export type EksSectionId = 'overview' | 'cost' | 'workloads' | 'nodes' | 'automation' | 'security' | 'data-sources';
+
+/** Subtabs of the cluster page, `?sub=` (design §4.2); the registry says which section owns each. */
+export type EksSubtabId =
+  | 'summary' | 'events'
+  | 'cluster' | 'namespaces' | 'workloads' | 'nodes'
+  | 'pods' | 'containers' | 'resources'
+  | 'node-groups' | 'karpenter' | 'utilization'
+  | 'overview' | 'workload-autoscaling' | 'node-autoscaling' | 'rebalancing' | 'guardrails' | 'activity'
+  | 'vulnerabilities' | 'compliance' | 'runtime'
+  | 'connections' | 'install';
 
 // ─── XamOps Autoscaling Types (CAST.ai blueprint) ────────────────────────────
 
