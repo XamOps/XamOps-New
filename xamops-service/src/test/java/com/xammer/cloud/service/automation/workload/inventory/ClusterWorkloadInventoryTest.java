@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.xammer.cloud.service.automation.workload.NodeCapacity;
 import com.xammer.cloud.service.automation.workload.PodNameRule;
+import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicyDefaults;
 import io.fabric8.kubernetes.client.ConfigBuilder;
 import io.fabric8.kubernetes.client.KubernetesClient;
@@ -129,6 +130,59 @@ class ClusterWorkloadInventoryTest {
     @DisplayName("a superseded ReplicaSet with no pods does not break resolution")
     void anEmptyOldReplicaSetIsHarmless() {
         assertThat(workload("team-a", "overprovisioned-api").pods().pods()).hasSize(2);
+    }
+
+    // ---------------------------------------------------------------- live pods (review S2, S3)
+
+    @Test
+    @DisplayName("current is what the live pods run with, not the template an in-place resize leaves alone")
+    void currentIsWhatTheLivePodsRunWith() {
+        overrides.put("/api/v1/pods", "pods-live-state.json");
+
+        ClusterWorkloadInventory.ContainerSpec idler =
+                workload("team-a", "overprovisioned-api").containers().get(0);
+
+        assertThat(idler.current())
+                .as("the template still says 200m/256Mi; the pods were resized in place to 25m/250Mi")
+                .isEqualTo(new ResourceEnvelope(25, 100, 250 * MI, 512 * MI));
+    }
+
+    @Test
+    @DisplayName("live pods that disagree fall back to the template, the size every pod converges to")
+    void podsThatDisagreeFallBackToTheTemplate() {
+        overrides.put("/api/v1/pods", "pods-live-state.json");
+
+        assertThat(workload("prod-sim", "rightsized-worker").containers().get(0).current())
+                .isEqualTo(new ResourceEnvelope(100, 100, 128 * MI, 128 * MI));
+    }
+
+    @Test
+    @DisplayName("Evicted, Pending and Terminating pods are never live pods, so never the canary")
+    void onlyRunningPodsAreLive() {
+        overrides.put("/api/v1/pods", "pods-live-state.json");
+
+        assertThat(workload("team-a", "overprovisioned-api").pods().names())
+                .as("no revision annotations here, so every owned ReplicaSet's Running pods count")
+                .containsExactlyInAnyOrder("overprovisioned-api-7d9f-aaaaa",
+                        "overprovisioned-api-7d9f-bbbbb", "overprovisioned-api-5b8c-fffff")
+                .doesNotContain("overprovisioned-api-7d9f-ccccc", "overprovisioned-api-7d9f-ddddd",
+                        "overprovisioned-api-7d9f-eeeee");
+    }
+
+    @Test
+    @DisplayName("only the current revision's pods are live; history still spans every retained revision")
+    void onlyTheCurrentRevisionsPodsAreLive() {
+        overrides.put("/api/v1/pods", "pods-live-state.json");
+        overrides.put("/apis/apps/v1/deployments", "deployments-revisions.json");
+        overrides.put("/apis/apps/v1/replicasets", "replicasets-revisions.json");
+
+        WorkloadPods pods = workload("team-a", "overprovisioned-api").pods();
+
+        assertThat(pods.names()).containsExactlyInAnyOrder(
+                "overprovisioned-api-7d9f-aaaaa", "overprovisioned-api-7d9f-bbbbb");
+        assertThat(pods.nameRules())
+                .as("measured history is selected by name rules, which keep the old revision")
+                .hasSize(2);
     }
 
     // ---------------------------------------------------------------- history (addendum A)
