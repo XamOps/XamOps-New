@@ -43,12 +43,24 @@ public class WorkloadPolicyService {
         this.repository = repository;
     }
 
-    /** The policy for one workload. */
+    /** The policy for one workload, falling back to the bare Java defaults when it has no row. */
     public WorkloadPolicy resolve(Long clusterConfigId, WorkloadRef ref) {
+        return resolve(clusterConfigId, ref, WorkloadPolicyDefaults.policy());
+    }
+
+    /**
+     * The policy for one workload, falling back to {@code whenAbsent} when it has no row.
+     *
+     * <p>Callers that act on a workload pass the environment's configured defaults
+     * ({@code VerticalMetricsProperties#defaultsPolicy()}), the same value the read path reports, so
+     * what is acted on and recorded is what the operator was shown.
+     */
+    public WorkloadPolicy resolve(Long clusterConfigId, WorkloadRef ref, WorkloadPolicy whenAbsent) {
         Optional<WorkloadVerticalPolicy> row =
                 repository.findByClusterConfigIdAndNamespaceAndWorkloadKindAndWorkloadName(
                         clusterConfigId, ref.namespace(), ref.kind(), ref.name());
-        return row.map(WorkloadPolicyService::toPolicy).orElseGet(WorkloadPolicyDefaults::policy);
+        return row.map(WorkloadPolicyService::toPolicy)
+                .orElseGet(() -> whenAbsent == null ? WorkloadPolicyDefaults.policy() : whenAbsent);
     }
 
     /**
@@ -70,9 +82,18 @@ public class WorkloadPolicyService {
      *
      * <p>An upsert, because policy is <strong>absent by default</strong>: most workloads have no row
      * at all, and an apply against one of them still has to be remembered. The created row carries
-     * the mode that was <em>actually in force</em> at the time — not {@code AUTO}, and not a mode
-     * nobody chose — so a workload does not acquire a policy it was never given just because
-     * somebody pressed Apply once.
+     * <strong>every</strong> value of the policy that was <em>actually in force</em> at the time —
+     * mode, window, percentile, headroom, floors, bands, cooldown and the rest — so after an Apply the
+     * read endpoint reports the same policy it reported before, and keeps publishing
+     * recommendations. Copying only the mode left the rest at the column defaults, and a caller that
+     * passed the bare Java defaults wrote {@code OFF}: one Apply silently stopped the workload.
+     *
+     * <p>Known limit, deliberately not fixed without a migration: the row's existence still makes
+     * {@code policySource} read {@code WORKLOAD_ROW}, so a later change to the environment's default
+     * mode or window no longer reaches a workload that has been applied once. Every policy column is
+     * {@code NOT NULL}, so recording "inherit the defaults" needs a schema change.
+     *
+     * <p>An existing row is never rewritten: only {@code last_applied_at} changes.
      *
      * <p>Tenant-scoped by {@code client_id} <em>and</em> {@code cluster_config_id}: the unique
      * constraint is on the cluster scope, and {@code client_id} is denormalised on the row precisely
@@ -82,7 +103,7 @@ public class WorkloadPolicyService {
      * {@code V20261010_1__vertical_workload_policy.sql}.
      *
      * @param inForce the policy that was resolved for this apply, used only when a row has to be
-     *                created
+     *                created; null falls back to the bare defaults, whose mode is {@code OFF}
      */
     @Transactional
     public void recordApplied(Long clientId, Long clusterConfigId, WorkloadRef ref,
@@ -112,10 +133,27 @@ public class WorkloadPolicyService {
         row.setNamespace(ref.namespace());
         row.setWorkloadKind(ref.kind());
         row.setWorkloadName(ref.name());
-        if (inForce != null) {
-            row.setMode(inForce.mode().name());
-            row.setApplyMethod(inForce.applyMethod().name());
-        }
+        WorkloadPolicy policy = inForce == null ? WorkloadPolicyDefaults.policy() : inForce;
+        row.setMode(policy.mode().name());
+        row.setHeadroomPct(policy.headroomPct());
+        row.setPercentile(policy.percentile());
+        row.setWindowHours(policy.windowHours());
+        row.setCpuFloorMillicores(policy.cpuFloorMillis());
+        row.setMemoryFloorBytes(policy.memFloorBytes());
+        // The table holds one relative threshold per direction, shared by CPU and memory, which is
+        // also how toPolicy reads it back. A no-row policy is always the defaults, whose CPU and
+        // memory percentages are equal, so nothing is lost; WorkloadPolicyServiceTest round-trips it.
+        row.setMinIncreasePct(policy.cpuIncrease().minPercent());
+        row.setMinDecreasePct(policy.cpuDecrease().minPercent());
+        row.setMinIncreaseCpuMillicores(Math.toIntExact(policy.cpuIncrease().minAbsolute()));
+        row.setMinDecreaseCpuMillicores(Math.toIntExact(policy.cpuDecrease().minAbsolute()));
+        row.setMinIncreaseMemoryBytes(policy.memIncrease().minAbsolute());
+        row.setMinDecreaseMemoryBytes(policy.memDecrease().minAbsolute());
+        row.setApplyMethod(policy.applyMethod().name());
+        row.setCooldownMinutes(policy.cooldownMinutes());
+        row.setMaxLimitIncreaseFactor(policy.maxLimitIncreaseFactor());
+        row.setProtectSingleReplica(policy.protectSingleReplica());
+        row.setNodeCapacityFraction(policy.nodeCapacityFraction());
         return row;
     }
 

@@ -7,6 +7,7 @@ import com.xammer.cloud.service.automation.workload.NodeCapacity;
 import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadMode;
+import com.xammer.cloud.service.automation.workload.WorkloadPolicy;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicyDefaults;
 import com.xammer.cloud.service.automation.workload.WorkloadRef;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccess;
@@ -23,6 +24,7 @@ import com.xammer.cloud.service.automation.workload.execute.ResizeProof;
 import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
 import com.xammer.cloud.service.automation.workload.inventory.WorkloadPods;
 import com.xammer.cloud.service.automation.workload.policy.WorkloadPolicyService;
+import com.xammer.cloud.service.automation.workload.usage.VerticalMetricsProperties;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -66,6 +68,9 @@ class VerticalApplyServiceTest {
             new ResourceEnvelope(1000, 1000, 1_073_741_824L, 1_073_741_824L);
     private static final Clock FIXED =
             Clock.fixed(Instant.parse("2026-10-11T12:00:00Z"), ZoneOffset.UTC);
+    /** UAT's configuration: default mode RECOMMEND over a 72h window. */
+    private static final VerticalMetricsProperties METRICS =
+            VerticalReadServiceFixtures.metricsProperties("RECOMMEND", 72);
 
     private AutomationWritePermission writePermission;
     private ClusterWorkloadInventory inventory;
@@ -84,8 +89,10 @@ class VerticalApplyServiceTest {
         provider = new FakeProvider();
         when(inventory.read(any())).thenReturn(new ClusterWorkloadInventory.Inventory(
                 List.of(workload()), new NodeCapacity(1930, 3_454_423_040L)));
-        when(policyService.resolve(any(), any()))
-                .thenReturn(WorkloadPolicyDefaults.policy(WorkloadMode.RECOMMEND));
+        // No stored row: the resolver hands back the fallback it was given, which must be the
+        // environment's configured defaults (RECOMMEND / 72h here, as on UAT).
+        when(policyService.resolve(any(), any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(2));
     }
 
     // ---------------------------------------------------------------- the gates, in order
@@ -388,8 +395,72 @@ class VerticalApplyServiceTest {
         assertThat(response.result().pods().get(0).samePod()).isTrue();
         assertThat(response.result().pods().get(0).containers().get(0).restartCountAfter()).isZero();
         verify(policyService).recordApplied(7L, 42L, REF,
-                WorkloadPolicyDefaults.policy(WorkloadMode.RECOMMEND),
+                WorkloadPolicyDefaults.policy(WorkloadMode.RECOMMEND).withWindowHours(72),
                 Instant.parse("2026-10-11T12:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("with no row, an apply records the configured defaults (RECOMMEND, 72h), never the Java OFF")
+    void anApplyRecordsThePolicyEndpointOneReported() {
+        // The UAT defect: the apply path fell back to the bare Java defaults, whose mode is OFF, so
+        // the row recordApplied created turned a RECOMMEND workload OFF and endpoint 1 then
+        // reported POLICY_OFF for it. The fallback must be the read path's own.
+        givenExecutorApplies();
+
+        service().apply(principal(), readWriteAccount(), TARGET, REF, body(false));
+
+        verify(policyService).resolve(42L, REF, METRICS.defaultsPolicy());
+        ArgumentCaptor<WorkloadPolicy> recorded = ArgumentCaptor.forClass(WorkloadPolicy.class);
+        verify(policyService).recordApplied(any(), any(), any(), recorded.capture(), any());
+        assertThat(recorded.getValue().mode()).isEqualTo(WorkloadMode.RECOMMEND);
+        assertThat(recorded.getValue().windowHours()).isEqualTo(72);
+        assertThat(recorded.getValue())
+                .as("exactly the policy endpoint 1 reports for a workload with no row")
+                .isEqualTo(METRICS.defaultsPolicy());
+    }
+
+    @Test
+    @DisplayName("a second real apply inside the cooldown is refused, and nothing reaches the cluster")
+    void aSecondApplyInsideTheCooldownIsRefused() {
+        when(policyService.resolve(any(), any(), any())).thenReturn(METRICS.defaultsPolicy()
+                .withLastAppliedAt(Instant.parse("2026-10-11T11:59:00Z")));
+
+        VerticalApplyService.ApplyRefusedException refusal =
+                refuse(principal(), readWriteAccount(), body(false));
+
+        assertThat(refusal.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(refusal.code()).isEqualTo("K8S_INVALID_POLICY");
+        assertThat(refusal.field()).isEqualTo("name");
+        assertThat(refusal.getMessage()).startsWith("COOLDOWN:").contains("60-minute");
+        verify(executor, never()).submit(any(), any(), any());
+        verify(policyService, never()).recordApplied(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a dry run is not held by the cooldown, because it sends nothing")
+    void aDryRunIsNotHeldByTheCooldown() {
+        when(policyService.resolve(any(), any(), any())).thenReturn(METRICS.defaultsPolicy()
+                .withLastAppliedAt(Instant.parse("2026-10-11T11:59:00Z")));
+        givenExecutorApplies();
+
+        service().apply(principal(), readWriteAccount(), TARGET, REF, body(true));
+
+        verify(executor).submit(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("once the cooldown has elapsed, the next apply goes through and is recorded")
+    void anApplyAfterTheCooldownGoesThrough() {
+        when(policyService.resolve(any(), any(), any())).thenReturn(METRICS.defaultsPolicy()
+                .withLastAppliedAt(Instant.parse("2026-10-11T10:59:00Z")));
+        givenExecutorApplies();
+
+        ApplyResponseDto response = service().apply(principal(), readWriteAccount(), TARGET, REF,
+                body(false));
+
+        assertThat(response.result().terminal()).isEqualTo("APPLIED");
+        verify(policyService).recordApplied(any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.eq(Instant.parse("2026-10-11T12:00:00Z")));
     }
 
     @Test
@@ -508,7 +579,7 @@ class VerticalApplyServiceTest {
 
     private VerticalApplyService service(WorkloadAutoscalingProperties properties) {
         return new VerticalApplyService(properties, writePermission, List.of(provider), inventory,
-                executor, policyService, FIXED);
+                executor, policyService, METRICS, FIXED);
     }
 
     private static ApplyRequestDto body(boolean dryRun) {

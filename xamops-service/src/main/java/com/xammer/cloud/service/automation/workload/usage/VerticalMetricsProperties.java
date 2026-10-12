@@ -1,6 +1,7 @@
 package com.xammer.cloud.service.automation.workload.usage;
 
 import com.xammer.cloud.service.automation.workload.WorkloadMode;
+import com.xammer.cloud.service.automation.workload.WorkloadPolicy;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicyDefaults;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -130,6 +131,19 @@ public class VerticalMetricsProperties {
     /** The mode used when no row exists. Never overrides a stored row. */
     public WorkloadMode defaultMode() {
         return defaultMode;
+    }
+
+    /**
+     * The policy in force for a workload that has no {@code vertical_workload_policy} row: the Java
+     * defaults with this environment's configured mode and window applied.
+     *
+     * <p>The read path and the apply path both resolve the no-row case through this one method, so
+     * the policy an apply records is exactly the policy endpoint 1 reported. Before this existed the
+     * apply path fell back to the bare Java defaults ({@code OFF}, 24h), and one Apply on UAT turned
+     * a {@code RECOMMEND} workload {@code OFF}.
+     */
+    public WorkloadPolicy defaultsPolicy() {
+        return WorkloadPolicyDefaults.policy().withMode(defaultMode).withWindowHours(defaultWindowHours);
     }
 
     /**

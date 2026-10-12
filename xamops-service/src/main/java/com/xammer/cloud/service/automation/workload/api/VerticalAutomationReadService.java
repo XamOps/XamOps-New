@@ -7,7 +7,6 @@ import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingEngine;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadDecision;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicy;
-import com.xammer.cloud.service.automation.workload.WorkloadPolicyDefaults;
 import com.xammer.cloud.service.automation.workload.WorkloadRef;
 import com.xammer.cloud.service.automation.workload.WorkloadSnapshot;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccess;
@@ -382,9 +381,7 @@ public class VerticalAutomationReadService {
         if (stored != null) {
             return stored;
         }
-        return WorkloadPolicyDefaults.policy()
-                .withMode(metricsProperties.defaultMode())
-                .withWindowHours(metricsProperties.defaultWindowHours());
+        return metricsProperties.defaultsPolicy();
     }
 
     private static List<String> findingsFor(UpstreamVpaReader.View upstreamVpa) {

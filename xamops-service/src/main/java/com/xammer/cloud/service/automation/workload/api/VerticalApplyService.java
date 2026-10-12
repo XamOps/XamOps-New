@@ -24,6 +24,7 @@ import com.xammer.cloud.service.automation.workload.execute.DirectInPlaceResizeE
 import com.xammer.cloud.service.automation.workload.execute.ResizeProof;
 import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
 import com.xammer.cloud.service.automation.workload.policy.WorkloadPolicyService;
+import com.xammer.cloud.service.automation.workload.usage.VerticalMetricsProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,6 +34,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -74,7 +76,15 @@ import java.util.UUID;
  * <h2>What makes the cooldown real</h2>
  *
  * A confirmed, non-dry-run apply upserts {@code vertical_workload_policy.last_applied_at}. Until
- * this existed, the engine's cooldown guard had nothing to read and so never fired.
+ * this existed, the engine's cooldown guard had nothing to read and so never fired. A real apply
+ * inside that cooldown is now refused here as well, so the hold does not depend on the UI.
+ *
+ * <h2>An apply never changes the policy</h2>
+ *
+ * The policy an apply resolves, and records when it has to create a row, is the one endpoint 1
+ * reported: a stored row, or the environment's configured defaults. Nothing here requires
+ * {@code AUTO}: this endpoint is the one-time, user-initiated apply, and it is the only caller of the
+ * executor.
  */
 @Service
 public class VerticalApplyService {
@@ -97,6 +107,7 @@ public class VerticalApplyService {
     private final ClusterWorkloadInventory inventory;
     private final DirectInPlaceResizeExecutor executor;
     private final WorkloadPolicyService policyService;
+    private final VerticalMetricsProperties metricsProperties;
     private final Clock clock;
 
     @Autowired
@@ -105,9 +116,10 @@ public class VerticalApplyService {
                                List<ClusterAccessProvider> accessProviders,
                                ClusterWorkloadInventory inventory,
                                DirectInPlaceResizeExecutor executor,
-                               WorkloadPolicyService policyService) {
+                               WorkloadPolicyService policyService,
+                               VerticalMetricsProperties metricsProperties) {
         this(properties, writePermission, accessProviders, inventory, executor, policyService,
-                Clock.systemUTC());
+                metricsProperties, Clock.systemUTC());
     }
 
     VerticalApplyService(WorkloadAutoscalingProperties properties,
@@ -116,12 +128,14 @@ public class VerticalApplyService {
                          ClusterWorkloadInventory inventory,
                          DirectInPlaceResizeExecutor executor,
                          WorkloadPolicyService policyService,
+                         VerticalMetricsProperties metricsProperties,
                          Clock clock) {
         this.properties = properties;
         this.writePermission = writePermission;
         this.inventory = inventory;
         this.executor = executor;
         this.policyService = policyService;
+        this.metricsProperties = metricsProperties;
         this.clock = clock;
         List<ClusterAccessProvider> ordered = new ArrayList<>(
                 accessProviders == null ? List.of() : accessProviders);
@@ -163,11 +177,19 @@ public class VerticalApplyService {
                             "This cluster has no " + ref.kind() + " " + ref.describe()
                                     + " that XamOps can rightsize, so there is nothing to apply."));
 
-            WorkloadPolicy policy = policyService.resolve(target.clusterConfigId(), workload.ref());
+            // The no-row case resolves to the environment's configured defaults -- the policy the
+            // read endpoint reported -- so the row recordApplied creates carries that policy and
+            // not the bare Java defaults, whose mode is OFF.
+            WorkloadPolicy policy = policyService.resolve(target.clusterConfigId(), workload.ref(),
+                    metricsProperties.defaultsPolicy());
+            boolean dryRun = Boolean.TRUE.equals(request.dryRun());
+            if (!dryRun) {
+                requireCooldownElapsed(policy, workload.ref());
+            }
             List<ContainerApplyTarget> targets = revalidate(submitted, workload, policy);
 
             ActionCommand command = new ActionCommand(UUID.randomUUID().toString(), target,
-                    workload.ref(), targets, method, Boolean.TRUE.equals(request.dryRun()), null,
+                    workload.ref(), targets, method, dryRun, null,
                     clock.instant().plus(COMMAND_VALIDITY));
 
             ActionSubmission submission = executor.submit(command, access, workload);
@@ -267,6 +289,31 @@ public class VerticalApplyService {
                             + " established. Use IN_PLACE, which resizes the running pods without"
                             + " restarting them.");
         }
+    }
+
+    /**
+     * A real apply inside the policy's cooldown is refused, so the server enforces the same hold the
+     * engine publishes as {@code COOLDOWN} and the UI disables Apply for.
+     *
+     * <p>Same boundary as the engine's own guard: the hold lasts while {@code last_applied_at} is
+     * not older than {@code cooldown_minutes}. A dry run is not held, because it sends nothing.
+     * Refused with {@code K8S_INVALID_POLICY} and the rule named in the message, the way a floor or
+     * a protected namespace is.
+     */
+    private void requireCooldownElapsed(WorkloadPolicy policy, WorkloadRef ref) {
+        Instant lastApplied = policy.lastAppliedAt();
+        if (lastApplied == null || policy.cooldownMinutes() <= 0) {
+            return;
+        }
+        Instant now = clock.instant();
+        if (lastApplied.isBefore(now.minus(Duration.ofMinutes(policy.cooldownMinutes())))) {
+            return;
+        }
+        Instant endsAt = lastApplied.plus(Duration.ofMinutes(policy.cooldownMinutes()));
+        throw invalid("name", "COOLDOWN: a change was applied to " + ref.describe() + " at "
+                + lastApplied + ", and the policy's " + policy.cooldownMinutes() + "-minute cooldown"
+                + " runs until " + endsAt + ". This apply is refused and nothing was sent to the"
+                + " cluster.");
     }
 
     private ClusterAccess open(ClusterAccessProvider provider, ClusterTarget target) {

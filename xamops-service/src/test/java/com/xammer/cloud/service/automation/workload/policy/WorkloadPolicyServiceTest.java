@@ -205,6 +205,63 @@ class WorkloadPolicyServiceTest {
     }
 
     @Test
+    @DisplayName("a row created by an apply reads back as exactly the policy that was in force (report 4c)")
+    void aCreatedRowReadsBackAsThePolicyInForce() {
+        // UAT's no-row policy: RECOMMEND over 72h. The row used to copy the mode alone, so the window
+        // fell back to the column's 24h, and the apply path passed the bare defaults, so mode was OFF.
+        WorkloadPolicy inForce = WorkloadPolicyDefaults.policy(WorkloadMode.RECOMMEND).withWindowHours(72);
+        when(repository.findByClusterConfigIdAndNamespaceAndWorkloadKindAndWorkloadName(
+                CLUSTER_CONFIG_ID, "team-a", "Deployment", "overprovisioned-api"))
+                .thenReturn(Optional.empty());
+        Instant appliedAt = Instant.parse("2026-10-11T12:00:00Z");
+
+        service().recordApplied(5L, CLUSTER_CONFIG_ID, REF, inForce, appliedAt);
+
+        ArgumentCaptor<WorkloadVerticalPolicy> saved =
+                ArgumentCaptor.forClass(WorkloadVerticalPolicy.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getMode()).isEqualTo("RECOMMEND");
+        assertThat(saved.getValue().getWindowHours()).isEqualTo(72);
+        when(repository.findByClusterConfigIdAndNamespaceAndWorkloadKindAndWorkloadName(
+                CLUSTER_CONFIG_ID, "team-a", "Deployment", "overprovisioned-api"))
+                .thenReturn(Optional.of(saved.getValue()));
+        WorkloadPolicy readBack = service().resolve(CLUSTER_CONFIG_ID, REF);
+        assertThat(readBack)
+                .as("every policy value survives the round trip; only the source and the apply "
+                        + "stamp differ")
+                .isEqualTo(new WorkloadPolicy(inForce.mode(), inForce.headroomPct(),
+                        inForce.percentile(), inForce.windowHours(), inForce.cpuFloorMillis(),
+                        inForce.memFloorBytes(), inForce.cpuIncrease(), inForce.cpuDecrease(),
+                        inForce.memIncrease(), inForce.memDecrease(), inForce.applyMethod(),
+                        inForce.cooldownMinutes(), inForce.maxLimitIncreaseFactor(),
+                        inForce.protectSingleReplica(), inForce.nodeCapacityFraction(), appliedAt,
+                        WorkloadPolicy.Source.WORKLOAD_ROW));
+    }
+
+    @Test
+    @DisplayName("an apply against an existing row leaves every policy value as it was")
+    void anApplyNeverRewritesAnExistingRowsPolicy() {
+        WorkloadVerticalPolicy row = bareRow();
+        row.setMode("AUTO");
+        row.setPercentile(90);
+        row.setWindowHours(48);
+        row.setHeadroomPct(40);
+        row.setCooldownMinutes(30);
+        when(repository.findByClusterConfigIdAndNamespaceAndWorkloadKindAndWorkloadName(
+                CLUSTER_CONFIG_ID, "team-a", "Deployment", "overprovisioned-api"))
+                .thenReturn(Optional.of(row));
+        WorkloadPolicy beforeApply = service().resolve(CLUSTER_CONFIG_ID, REF);
+        Instant appliedAt = Instant.parse("2026-10-11T12:00:00Z");
+
+        service().recordApplied(5L, CLUSTER_CONFIG_ID, REF,
+                WorkloadPolicyDefaults.policy(WorkloadMode.RECOMMEND).withWindowHours(72), appliedAt);
+
+        assertThat(service().resolve(CLUSTER_CONFIG_ID, REF))
+                .as("the in-force policy passed to recordApplied is ignored when a row exists")
+                .isEqualTo(beforeApply.withLastAppliedAt(appliedAt));
+    }
+
+    @Test
     @DisplayName("recording an apply with no cluster, workload or timestamp is refused")
     void recordingAnApplyNeedsItsIdentifiers() {
         WorkloadPolicyService service = new WorkloadPolicyService(repository);
