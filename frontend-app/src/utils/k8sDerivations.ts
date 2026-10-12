@@ -393,6 +393,20 @@ export function topPodCpuUsage(dashboard: EksDashboard | null | undefined): Map<
   return usage;
 }
 
+/** Memory usage per pod in MiB from `topMemoryPods` (the top 20 pods only). */
+export function topPodMemoryUsageMi(dashboard: EksDashboard | null | undefined): Map<string, number> {
+  const usage = new Map<string, number>();
+  if (!dashboard) return usage;
+  for (const p of list(dashboard.topMemoryPods)) {
+    const name = text(p.name) ?? text(p.podName);
+    const mi = toNumber(p.memoryMB);
+    if (!name || mi === null) continue;
+    const key = `${text(p.namespace) ?? ''}/${name}`;
+    usage.set(key, (usage.get(key) ?? 0) + mi);
+  }
+  return usage;
+}
+
 export const USAGE_TOP_PODS_ONLY = 'Usage is reported for the top 20 pods only';
 
 export interface WorkloadRow {

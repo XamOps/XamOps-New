@@ -47,6 +47,9 @@ export const GUARDED_PATHS: readonly string[] = [
   'hooks/useEksDashboard.ts',
   // Item 24a: the engine's read hook; WorkloadsPanel and verticalCopy are under sections/.
   'hooks/useVerticalRightsizer.ts',
+  // Item 24b: Pods and Containers, rewritten on K8sDataTable.
+  'components/EksDetails/tabs/EksPodsTab.tsx',
+  'components/EksDetails/tabs/EksContainersTab.tsx',
 ];
 
 const TAILWIND_PREFIX = '(?:text|bg|border|from|via|to|ring|fill|stroke|divide|outline|shadow|accent|decoration|placeholder|caret)';

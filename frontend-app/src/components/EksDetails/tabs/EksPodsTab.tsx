@@ -1,635 +1,197 @@
 /**
- * EKS Pods Tab - Pro Max Edition
+ * Workloads › Pods (docs/cloudk8s/ui-revamp-design.md §10.4, D10, D14, §14.1; plan item 24).
  *
- * High-density monitoring table with real-time metrics, sticky headers,
- * and professional status indicators.
+ * Status counts, then every pod the agent reported in a K8sDataTable: search, phase and namespace
+ * filters, CSV, and each pod's containers on expand. Requests are summed from the containers ("Unset"
+ * when none sets one); usage comes only from the top-20 lists (`topCpuPods`, `topMemoryPods`) and is
+ * "—" for every other pod, never a request standing in for usage. The template-built colour classes
+ * and Font Awesome icons of the old tab are gone (NIT 9).
  */
+import { useMemo } from 'react';
+import { useK8sCapabilities } from '../../../hooks/useK8sCapabilities';
+import type { UseEksDashboardReturn } from '../../../hooks/useEksDashboard';
+import {
+  clusterPods, sumRequests, topPodCpuUsage, topPodMemoryUsageMi, USAGE_TOP_PODS_ONLY, type ClusterPod,
+} from '../../../utils/k8sDerivations';
+import { DASH, ageSortValue, formatAge, formatCpu, formatMemoryMiB } from '../../../utils/k8sQuantities';
+import { K8sDataTable, type ColumnDef, type FilterDef } from '../../CloudK8s/shared/K8sDataTable';
+import { SourceLabel } from '../../CloudK8s/shared/SourceLabel';
+import { StatusMark, type StatusState } from '../../CloudK8s/shared/StatusMark';
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Chart, registerables } from 'chart.js';
-Chart.register(...registerables);
+export const PODS_CAPTION = 'Pods';
+const PHASES = ['Running', 'Pending', 'Failed', 'Succeeded'] as const;
+const secondary = 'text-[12px] text-[rgba(0,0,0,0.6)]';
 
-const ITEMS_PER_PAGE = 10;
+interface PodRow {
+  pod: ClusterPod;
+  key: string;
+  cpuRequestM: number | null;
+  memRequestMi: number | null;
+  cpuUsedM: number | null;
+  memUsedMi: number | null;
+}
 
-const EksPodsTab: React.FC<{ eksData: any }> = ({ eksData }) => {
-  const { dashboard, getPodsCountByPhase, derivedPodResourceMetrics, normalizedPods } = eksData;
-  // Use hook-normalised pods: restarts summed, cpuRequest/memoryRequest aggregated from containers
-  const pods: any[] = normalizedPods || [];
+/** A pod's phase as a status mark: Running, Pending (or Unschedulable), Failed, Completed. */
+export function podPhaseMark(pod: Pick<ClusterPod, 'phase' | 'unschedulable'>): { state: StatusState; label: string } {
+  switch (pod.phase) {
+    case 'Running': return { state: 'healthy', label: 'Running' };
+    case 'Pending': return pod.unschedulable ? { state: 'attention', label: 'Unschedulable' } : { state: 'attention', label: 'Pending' };
+    case 'Failed': return { state: 'error', label: 'Failed' };
+    case 'Succeeded': return { state: 'not-set-up', label: 'Completed' };
+    default: return { state: 'unknown', label: pod.phase ?? 'Unknown' };
+  }
+}
 
-  // Local state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedNamespace, setSelectedNamespace] = useState('all');
-  const [phaseFilter, setPhaseFilter] = useState<'all' | 'Running' | 'Pending' | 'Failed'>('all');
-  const [sortBy, setSortBy] = useState<'name' | 'cpuUsage' | 'memoryUsage' | 'restarts' | 'age'>('cpuUsage');
-  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
-  const [expandedPod, setExpandedPod] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState(0);
+/** A container's state: running, waiting with its reason, terminated. */
+export function containerStateMark(state: string | null, waitingReason: string | null): { state: StatusState; label: string } {
+  switch ((state ?? '').toLowerCase()) {
+    case 'running': return { state: 'healthy', label: 'Running' };
+    case 'waiting': return { state: 'attention', label: waitingReason ? `Waiting · ${waitingReason}` : 'Waiting' };
+    case 'terminated': return { state: 'not-set-up', label: 'Terminated' };
+    default: return { state: 'unknown', label: state ?? 'Unknown' };
+  }
+}
 
-  // Chart refs
-  const cpuChartRef = useRef<HTMLCanvasElement>(null);
-  const memoryChartRef = useRef<HTMLCanvasElement>(null);
-  const cpuChartInstance = useRef<Chart | null>(null);
-  const memoryChartInstance = useRef<Chart | null>(null);
-
-  // Prefer hook-derived metrics (computed from container requests/limits) over raw backend field
-  const podResourceMetrics = derivedPodResourceMetrics || dashboard?.podResourceMetrics;
-
-  // Helper: Get unique namespaces
-  const namespaces = useMemo(() => {
-    const nsSet = new Set<string>();
-    pods.forEach((p: any) => p.namespace && nsSet.add(p.namespace));
-    return ['all', ...Array.from(nsSet).sort()];
-  }, [pods]);
-
-  // Filter and Sort Pods
-  const processedPods = useMemo(() => {
-    let result = [...pods];
-
-    if (phaseFilter !== 'all') {
-      result = result.filter(p => p.phase === phaseFilter);
-    }
-
-    if (selectedNamespace !== 'all') {
-      result = result.filter(p => p.namespace === selectedNamespace);
-    }
-
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(p =>
-        (p.name?.toLowerCase() || '').includes(q) ||
-        (p.namespace?.toLowerCase() || '').includes(q) ||
-        (p.nodeName?.toLowerCase() || '').includes(q) ||
-        (p.node?.toLowerCase() || '').includes(q)
-      );
-    }
-
-    result.sort((a, b) => {
-      let valA: any;
-      let valB: any;
-
-      switch (sortBy) {
-        case 'name':
-          valA = a.name || '';
-          valB = b.name || '';
-          break;
-        case 'cpuUsage':
-          valA = a.cpuUsage > 0 ? a.cpuUsage : (a.cpuRequest || 0);
-          valB = b.cpuUsage > 0 ? b.cpuUsage : (b.cpuRequest || 0);
-          break;
-        case 'memoryUsage':
-          valA = a.memoryUsage > 0 ? a.memoryUsage : (a.memoryRequest || 0);
-          valB = b.memoryUsage > 0 ? b.memoryUsage : (b.memoryRequest || 0);
-          break;
-        case 'restarts':
-          valA = a.restarts || 0;
-          valB = b.restarts || 0;
-          break;
-        case 'age':
-          valA = a.age || '';
-          valB = b.age || '';
-          break;
-        default:
-          valA = 0;
-          valB = 0;
-      }
-
-      if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
-      if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
-      return 0;
-    });
-
-    return result;
-  }, [pods, phaseFilter, selectedNamespace, searchQuery, sortBy, sortOrder]);
-
-  // Pagination Logic
-  const paginatedPods = useMemo(() => {
-    return processedPods.slice(
-      currentPage * ITEMS_PER_PAGE,
-      (currentPage + 1) * ITEMS_PER_PAGE
-    );
-  }, [processedPods, currentPage]);
-
-  const totalPages = Math.ceil(processedPods.length / ITEMS_PER_PAGE);
-
-  // Reset expansion and page when filters change
-  useEffect(() => {
-    setExpandedPod(null);
-    setCurrentPage(0);
-  }, [phaseFilter, selectedNamespace, searchQuery]);
-
-
-
-  // Initialize charts
-  useEffect(() => {
-    if (!podResourceMetrics || !cpuChartRef.current || !memoryChartRef.current) return;
-
-    // CPU Chart
-    const cpuCtx = cpuChartRef.current.getContext('2d');
-    if (cpuCtx) {
-      if (cpuChartInstance.current) {
-        cpuChartInstance.current.destroy();
-      }
-
-      cpuChartInstance.current = new Chart(cpuCtx, {
-        type: 'bar',
-        data: {
-          labels: ['Cluster Capacity', 'Pod Requests', 'Pod Limits', 'Current Usage'],
-          datasets: [{
-            data: [
-              podResourceMetrics.totalCpuCapacity,
-              podResourceMetrics.totalCpuRequests,
-              podResourceMetrics.totalCpuLimits,
-              podResourceMetrics.totalCpuUsage
-            ],
-            backgroundColor: ['#9CA3AF', '#3B82F6', '#F59E0B', '#10B981'],
-            borderRadius: 8,
-            barThickness: 60
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              callbacks: {
-                label: (context) => `${context.parsed.y.toFixed(2)} millicores`
-              }
-            }
-          },
-          scales: {
-            y: {
-              beginAtZero: true,
-              grid: { color: '#F3F4F6', drawBorder: false },
-              ticks: { font: { size: 11 } }
-            },
-            x: {
-              grid: { display: false },
-              ticks: { font: { size: 11, weight: '600' } }
-            }
-          }
-        }
-      });
-    }
-
-    // Memory Chart
-    const memoryCtx = memoryChartRef.current.getContext('2d');
-    if (memoryCtx) {
-      if (memoryChartInstance.current) {
-        memoryChartInstance.current.destroy();
-      }
-
-      memoryChartInstance.current = new Chart(memoryCtx, {
-        type: 'bar',
-        data: {
-          labels: ['Cluster Capacity', 'Pod Requests', 'Pod Limits', 'Current Usage'],
-          datasets: [{
-            data: [
-              podResourceMetrics.totalMemoryCapacity / 1024, // Convert to GB
-              podResourceMetrics.totalMemoryRequests / 1024,
-              podResourceMetrics.totalMemoryLimits / 1024,
-              podResourceMetrics.totalMemoryUsage / 1024
-            ],
-            backgroundColor: ['#9CA3AF', '#3B82F6', '#F59E0B', '#10B981'],
-            borderRadius: 8,
-            barThickness: 60
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              callbacks: {
-                label: (context) => `${context.parsed.y.toFixed(2)} GB`
-              }
-            }
-          },
-          scales: {
-            y: {
-              beginAtZero: true,
-              grid: { color: '#F3F4F6', drawBorder: false },
-              ticks: { font: { size: 11 } }
-            },
-            x: {
-              grid: { display: false },
-              ticks: { font: { size: 11, weight: '600' } }
-            }
-          }
-        }
-      });
-    }
-
-    return () => {
-      cpuChartInstance.current?.destroy();
-      memoryChartInstance.current?.destroy();
-    };
-  }, [podResourceMetrics]);
-
-  const resetFilters = () => {
-    setSearchQuery('');
-    setSelectedNamespace('all');
-    setPhaseFilter('all');
-    setCurrentPage(0);
-    setExpandedPod(null);
-  };
-
-  if (!dashboard) return null;
-
-  return (
-    <div className="space-y-6">
-      {/* 1. Professional Status Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {[
-          { label: 'Running', count: getPodsCountByPhase('Running'), color: 'emerald', icon: 'fa-play-circle' },
-          { label: 'Pending', count: getPodsCountByPhase('Pending'), color: 'amber', icon: 'fa-hourglass-half' },
-          { label: 'Failed', count: getPodsCountByPhase('Failed'), color: 'rose', icon: 'fa-exclamation-triangle' },
-          { label: 'Total Pods', count: pods.length, color: 'blue', icon: 'fa-box' }
-        ].map((stat) => (
-          <div key={stat.label} className="bg-white px-5 py-4 rounded-lg border border-[rgba(0,0,0,0.12)]">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] font-medium text-[rgba(0,0,0,0.4)] uppercase tracking-wider">{stat.label}</span>
-              <div className={`w-7 h-7 rounded-md flex items-center justify-center bg-${stat.color}-50 text-${stat.color}-600`}>
-                <i className={`fas ${stat.icon} text-xs`}></i>
-              </div>
-            </div>
-            <div className="text-[26px] font-semibold leading-none text-[rgba(0,0,0,0.88)]">{stat.count}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Resource Requests vs Limits Overview Charts */}
-      {podResourceMetrics && (
-        <div className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] p-6">
-          <h3 className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] mb-2 flex items-center gap-2">
-            <div className="w-7 h-7 rounded-md bg-blue-50 flex items-center justify-center">
-              <i className="fas fa-chart-bar text-[rgba(0,0,0,0.88)] text-xs"></i>
-            </div>
-            Resource Requests vs Limits Overview
-          </h3>
-          {podResourceMetrics._derived && (
-            <p className="text-[11px] text-[rgba(0,0,0,0.4)] mb-5 flex items-center gap-1.5">
-              <i className="fas fa-info-circle text-[rgba(0,0,0,0.88)]"></i>
-              Showing configured requests &amp; limits from pod specs. Live usage (Current Usage bar) requires Prometheus metrics.
-            </p>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div>
-              <h4 className="text-sm font-semibold text-gray-700 mb-3">CPU Resources</h4>
-              <div style={{ height: '300px' }}>
-                <canvas ref={cpuChartRef}></canvas>
-              </div>
-            </div>
-
-            <div>
-              <h4 className="text-sm font-semibold text-gray-700 mb-3">Memory Resources</h4>
-              <div style={{ height: '300px' }}>
-                <canvas ref={memoryChartRef}></canvas>
-              </div>
-            </div>
-          </div>
-
-          {/* Summary cards below charts */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-[rgba(0,0,0,0.06)]">
-            <div className="text-center">
-              <div className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1">Pods Without Requests</div>
-              <div className="text-[22px] font-semibold text-[#9a6700]">{podResourceMetrics.podsWithoutRequests}</div>
-            </div>
-            <div className="text-center">
-              <div className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1">Pods Without Limits</div>
-              <div className="text-[22px] font-semibold text-[#cf222e]">{podResourceMetrics.podsWithoutLimits}</div>
-            </div>
-            <div className="text-center">
-              <div className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1">Request Utilization</div>
-              <div className="text-[22px] font-semibold text-[rgba(0,0,0,0.88)]">
-                {podResourceMetrics.totalCpuRequests > 0
-                  ? ((podResourceMetrics.totalCpuUsage / podResourceMetrics.totalCpuRequests) * 100).toFixed(1)
-                  : '0.0'}%
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-[11px] text-[rgba(0,0,0,0.4)] mb-1">Limit Utilization</div>
-              <div className="text-[22px] font-semibold text-[#9a6700]">
-                {podResourceMetrics.totalCpuLimits > 0
-                  ? ((podResourceMetrics.totalCpuUsage / podResourceMetrics.totalCpuLimits) * 100).toFixed(1)
-                  : '0.0'}%
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 2. Sticky Filtering controls */}
-      <div className="sticky top-0 z-20 bg-[rgba(0,0,0,0.02)]/90 backdrop-blur-md py-3">
-        <div className="bg-white p-2 rounded-lg border border-[rgba(0,0,0,0.12)] flex flex-col lg:flex-row gap-3 items-center">
-          <div className="flex bg-[rgba(0,0,0,0.02)] p-1 rounded-md w-full lg:w-auto shrink-0 border border-[rgba(0,0,0,0.06)]">
-            {['all', 'Running', 'Pending', 'Failed'].map((p) => (
-              <button
-                key={p}
-                onClick={() => setPhaseFilter(p as any)}
-                className={`flex-1 lg:flex-none px-4 py-1.5 rounded text-[12px] font-medium transition-all ${phaseFilter === p
-                  ? 'bg-white text-[rgba(0,0,0,0.88)] border border-[rgba(0,0,0,0.12)]'
-                  : 'text-[rgba(0,0,0,0.5)] hover:text-[rgba(0,0,0,0.88)]'
-                  }`}
-              >
-                {p.charAt(0).toUpperCase() + p.slice(1)}
-              </button>
-            ))}
-          </div>
-
-          <div className="h-8 w-px bg-gray-200 hidden lg:block mx-1"></div>
-
-          <div className="relative flex-1 w-full min-w-[200px]">
-            <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
-            <input
-              type="text"
-              placeholder="Search by pod name, node, or namespace..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-12 pr-4 py-2.5 bg-transparent border-none focus:ring-0 text-sm font-medium text-gray-900 placeholder:text-gray-400"
-            />
-          </div>
-
-          <div className="h-8 w-px bg-gray-200 hidden lg:block mx-1"></div>
-
-          <div className="flex items-center gap-3 w-full lg:w-auto px-2">
-            <select
-              value={selectedNamespace}
-              onChange={(e) => setSelectedNamespace(e.target.value)}
-              className="bg-transparent border-none text-sm font-bold text-gray-700 focus:ring-0 cursor-pointer min-w-[140px]"
-            >
-              <option value="all">All Namespaces</option>
-              {namespaces.filter(ns => ns !== 'all').map(ns => (
-                <option key={ns} value={ns}>{ns}</option>
-              ))}
-            </select>
-
-            <div className="h-8 w-px bg-gray-200 hidden lg:block"></div>
-
-            <button
-              onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
-              className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
-              title={`Sort ${sortOrder === 'asc' ? 'Descending' : 'Ascending'}`}
-            >
-              <i className={`fas ${sortOrder === 'asc' ? 'fa-sort-amount-up' : 'fa-sort-amount-down'} text-lg`}></i>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* 3. Professional Monitoring Table */}
-      <div className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] overflow-hidden">
-        <div className="overflow-x-auto no-scrollbar">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
-                <th className="px-6 py-3 text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] w-20">Status</th>
-                <th
-                  className="px-6 py-3 text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] cursor-pointer hover:text-[rgba(0,0,0,0.88)] transition-colors"
-                  onClick={() => setSortBy('name')}
-                >
-                  Pod Name {sortBy === 'name' && <i className={`fas fa-caret-${sortOrder === 'asc' ? 'up' : 'down'} ml-1`}></i>}
-                </th>
-                <th className="px-6 py-3 text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)]">Node</th>
-                <th
-                  className="px-6 py-3 text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] cursor-pointer hover:text-[rgba(0,0,0,0.88)] transition-colors"
-                  onClick={() => setSortBy('restarts')}
-                >
-                  Restarts {sortBy === 'restarts' && <i className={`fas fa-caret-${sortOrder === 'asc' ? 'up' : 'down'} ml-1`}></i>}
-                </th>
-                <th
-                  className="px-6 py-3 text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] cursor-pointer hover:text-[rgba(0,0,0,0.88)] transition-colors"
-                  onClick={() => setSortBy('cpuUsage')}
-                >
-                  CPU {sortBy === 'cpuUsage' && <i className={`fas fa-caret-${sortOrder === 'asc' ? 'up' : 'down'} ml-1`}></i>}
-                </th>
-                <th
-                  className="px-6 py-3 text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] cursor-pointer hover:text-[rgba(0,0,0,0.88)] transition-colors"
-                  onClick={() => setSortBy('memoryUsage')}
-                >
-                  Memory {sortBy === 'memoryUsage' && <i className={`fas fa-caret-${sortOrder === 'asc' ? 'up' : 'down'} ml-1`}></i>}
-                </th>
-                <th
-                  className="px-6 py-3 text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] cursor-pointer hover:text-[rgba(0,0,0,0.88)] transition-colors"
-                  onClick={() => setSortBy('age')}
-                >
-                  Age {sortBy === 'age' && <i className={`fas fa-caret-${sortOrder === 'asc' ? 'up' : 'down'} ml-1`}></i>}
-                </th>
-                <th className="px-6 py-3 text-[11px] font-medium uppercase tracking-wider text-[rgba(0,0,0,0.4)] w-10"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[rgba(0,0,0,0.06)]">
-              {paginatedPods.map((pod: any) => {
-                const isExpanded = expandedPod === pod.name;
-                const cpuUsage = pod.cpuUsage || 0;
-                const memUsage = pod.memoryUsage || 0;
-                const cpuLimit = pod.cpuLimit || 0;
-                const memLimit = pod.memoryLimit || 0;
-                // When Prometheus usage is unavailable (0), fall back to configured requests
-                const cpuVal   = cpuUsage > 0 ? cpuUsage  : (pod.cpuRequest    || 0);
-                const memVal   = memUsage > 0 ? memUsage  : (pod.memoryRequest || 0);
-                const cpuIsReq = cpuUsage === 0 && cpuVal > 0;
-                const memIsReq = memUsage === 0 && memVal > 0;
-                const isRunning = pod.phase === 'Running';
-                const isPending = pod.phase === 'Pending';
-
-                return (
-                  <React.Fragment key={pod.name}>
-                    <tr
-                      className={`group hover:bg-[rgba(0,0,0,0.02)] transition-all cursor-pointer ${isExpanded ? 'bg-[rgba(0,0,0,0.02)]' : ''}`}
-                      onClick={() => setExpandedPod(isExpanded ? null : pod.name)}
-                    >
-                      <td className="px-6 py-3.5">
-                        <div className={`rounded-full flex items-center justify-center w-7 h-7 ${isRunning ? 'bg-[#dafbe1] text-[#1a7f37]' :
-                          isPending ? 'bg-[#fff8c5] text-[#9a6700]' : 'bg-[#ffebe9] text-[#cf222e]'
-                          }`}>
-                          <i className={`fas ${isRunning ? 'fa-check-circle' : isPending ? 'fa-clock' : 'fa-times-circle'} text-xs`}></i>
-                        </div>
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <div className="flex flex-col max-w-[280px]">
-                          <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] truncate" title={pod.name}>{pod.name}</span>
-                          <span className="text-[11px] text-[rgba(0,0,0,0.4)]">{pod.namespace}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <div className="flex items-center gap-2 text-[13px] text-[rgba(0,0,0,0.5)]">
-                          <i className="fas fa-microchip text-[rgba(0,0,0,0.4)] text-xs"></i>
-                          <span className="truncate max-w-[120px]">{pod.nodeName || pod.node || 'N/A'}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-3.5 text-center">
-                        <span className={`text-[13px] font-semibold ${pod.restarts > 5 ? 'text-[#cf222e]' : 'text-[rgba(0,0,0,0.88)]'}`}>
-                          {pod.restarts || 0}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <div className="flex flex-col gap-1.5 w-28">
-                          <div className="flex justify-between items-center text-[11px]">
-                            <span className="text-[rgba(0,0,0,0.88)] font-medium flex items-center gap-1">
-                              {cpuVal.toFixed(1)}m
-                              {cpuIsReq && <span className="text-[9px] text-[rgba(0,0,0,0.4)] bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] rounded px-1">req</span>}
-                            </span>
-                            <span className="text-[rgba(0,0,0,0.4)]">{cpuLimit > 0 ? `${((cpuVal / cpuLimit) * 100).toFixed(0)}%` : ''}</span>
-                          </div>
-                          <div className="h-1.5 w-full bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
-                            <div
-                              className="h-full rounded-full transition-all duration-700"
-                              style={{ width: `${cpuLimit > 0 ? Math.min(100, (cpuVal / cpuLimit) * 100) : (cpuVal > 0 ? 30 : 5)}%`, background: cpuVal > 800 ? '#cf222e' : 'rgba(0,0,0,0.88)' }}
-                            ></div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <div className="flex flex-col gap-1.5 w-28">
-                          <div className="flex justify-between items-center text-[11px]">
-                            <span className="text-[rgba(0,0,0,0.88)] font-medium flex items-center gap-1">
-                              {memVal.toFixed(0)}Mi
-                              {memIsReq && <span className="text-[9px] text-[rgba(0,0,0,0.4)] bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] rounded px-1">req</span>}
-                            </span>
-                            <span className="text-[rgba(0,0,0,0.4)]">{memLimit > 0 ? `${((memVal / memLimit) * 100).toFixed(0)}%` : ''}</span>
-                          </div>
-                          <div className="h-1.5 w-full bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
-                            <div
-                              className="h-full rounded-full transition-all duration-700"
-                              style={{ width: `${memLimit > 0 ? Math.min(100, (memVal / memLimit) * 100) : (memVal > 0 ? 30 : 5)}%`, background: memVal > 1024 ? '#9a6700' : 'rgba(0,0,0,0.88)' }}
-                            ></div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-3.5">
-                        <span className="text-[11px] text-[rgba(0,0,0,0.5)] bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] px-2 py-0.5 rounded">{pod.age || 'N/A'}</span>
-                      </td>
-                      <td className="px-6 py-3.5 text-right">
-                        <i className={`fas fa-chevron-right text-[rgba(0,0,0,0.4)] transition-transform duration-300 text-xs ${isExpanded ? 'rotate-90 text-[rgba(0,0,0,0.88)]' : ''}`}></i>
-                      </td>
-                    </tr>
-
-                    {/* Expansion Drawer */}
-                    {isExpanded && (
-                      <tr>
-                        <td colSpan={8} className="p-0 border-none">
-                          <div className="px-8 py-5 bg-[rgba(0,0,0,0.02)] border-y border-[rgba(0,0,0,0.06)]">
-                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                              {/* Metadata Card */}
-                              <div className="bg-white p-4 rounded-lg border border-[rgba(0,0,0,0.12)] space-y-3">
-                                <h4 className="text-[11px] font-medium text-[rgba(0,0,0,0.88)] uppercase tracking-wider flex items-center gap-2">
-                                  <i className="fas fa-fingerprint"></i> Pod Identification
-                                </h4>
-                                <div className="space-y-2.5">
-                                  <div className="flex justify-between">
-                                    <span className="text-[11px] text-[rgba(0,0,0,0.4)]">IP Address</span>
-                                    <span className="text-[11px] font-mono text-[rgba(0,0,0,0.88)]">{pod.podIp || 'N/A'}</span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[11px] text-[rgba(0,0,0,0.4)]">Owner Type</span>
-                                    <span className="text-[11px] text-[rgba(0,0,0,0.88)]">{pod.ownerKind || 'N/A'}</span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[11px] text-[rgba(0,0,0,0.4)]">Owner Name</span>
-                                    <span className="text-[11px] text-[rgba(0,0,0,0.88)] truncate max-w-[140px]">{pod.ownerName || 'N/A'}</span>
-                                  </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-[11px] text-[rgba(0,0,0,0.4)]">QoS Class</span>
-                                    <span className="px-1.5 py-0.5 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] rounded text-[11px] text-[rgba(0,0,0,0.5)]">{pod.qosClass || 'Guaranteed'}</span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Resource Details Card */}
-                              <div className="lg:col-span-2 bg-white p-4 rounded-lg border border-[rgba(0,0,0,0.12)]">
-                                <h4 className="text-[11px] font-medium text-[rgba(0,0,0,0.88)] uppercase tracking-wider mb-3 flex items-center gap-2">
-                                  <i className="fas fa-chart-line"></i> Container Utilization ({pod.containers?.length || 0})
-                                </h4>
-                                <div className="space-y-1.5 max-h-[240px] overflow-y-auto pr-2 no-scrollbar">
-                                  {(pod.containers || []).map((container: any) => {
-                                    const status = (pod.containers || pod.containerStatuses)?.find((s: any) => s.name === container.name);
-                                    const isCtnRunning = status ? status.state === 'running' : container.running;
-                                    return (
-                                      <div key={container.name} className="flex items-center justify-between p-2.5 rounded-md bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] hover:border-[rgba(0,0,0,0.12)] transition-all">
-                                        <div className="flex items-center gap-2.5">
-                                          <div className={`w-2 h-2 rounded-full ${isCtnRunning ? 'bg-[#1a7f37]' : 'bg-[#cf222e]'}`}></div>
-                                          <div className="flex flex-col">
-                                            <span className="text-[12px] font-medium text-[rgba(0,0,0,0.88)]">{container.name}</span>
-                                            <span className="text-[11px] text-[rgba(0,0,0,0.4)] truncate max-w-[200px]">{status?.image || container.image}</span>
-                                          </div>
-                                        </div>
-                                        <div className="flex items-center gap-5">
-                                          <div className="flex flex-col items-end">
-                                            <span className="text-[11px] font-medium text-[rgba(0,0,0,0.5)]">{(container.cpuUsage || 0).toFixed(1)}m</span>
-                                            <span className="text-[10px] text-[rgba(0,0,0,0.4)] uppercase leading-none">CPU</span>
-                                          </div>
-                                          <div className="flex flex-col items-end">
-                                            <span className="text-[11px] font-medium text-[rgba(0,0,0,0.5)]">{(container.memoryUsage || 0).toFixed(0)}Mi</span>
-                                            <span className="text-[10px] text-[rgba(0,0,0,0.4)] uppercase leading-none">Mem</span>
-                                          </div>
-                                          <div className="flex flex-col items-end min-w-[50px]">
-                                            <span className={`text-[11px] font-medium ${status?.restartCount > 5 ? 'text-[#cf222e]' : 'text-[rgba(0,0,0,0.5)]'}`}>
-                                              {status?.restartCount ?? container.restarts ?? 0}
-                                            </span>
-                                            <span className="text-[10px] text-[rgba(0,0,0,0.4)] uppercase leading-none">Restarts</span>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* 4. Functional Pagination */}
-        <div className="px-6 py-4 bg-[rgba(0,0,0,0.02)] border-t border-[rgba(0,0,0,0.06)] flex items-center justify-between">
-          <div className="text-[11px] text-[rgba(0,0,0,0.4)]">
-            Viewing <span className="text-[rgba(0,0,0,0.88)] font-medium">{(currentPage * ITEMS_PER_PAGE) + 1} – {Math.min((currentPage + 1) * ITEMS_PER_PAGE, processedPods.length)}</span> of <span className="text-[rgba(0,0,0,0.88)] font-medium">{processedPods.length}</span> pods
-          </div>
-          <div className="flex gap-2">
-            <button
-              disabled={currentPage === 0}
-              onClick={() => setCurrentPage(prev => prev - 1)}
-              className="px-4 py-1.5 bg-white border border-[rgba(0,0,0,0.12)] rounded-md text-[12px] font-medium text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.02)] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-            >
-              Previous
-            </button>
-            <button
-              disabled={currentPage === totalPages - 1 || totalPages === 0}
-              onClick={() => setCurrentPage(prev => prev + 1)}
-              className="px-4 py-1.5 bg-white border border-[rgba(0,0,0,0.12)] rounded-md text-[12px] font-medium text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.02)] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-
-        {processedPods.length === 0 && (
-          <div className="py-16 text-center">
-            <div className="w-16 h-16 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] rounded-lg flex items-center justify-center mx-auto mb-4">
-              <i className="fas fa-search text-[rgba(0,0,0,0.4)] text-xl"></i>
-            </div>
-            <h3 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)] mb-1">No pods matching your filters</h3>
-            <p className="text-[13px] text-[rgba(0,0,0,0.5)] mb-5">Try clearing filters or broadening your search.</p>
-            <button
-              onClick={resetFilters}
-              className="px-5 py-2 bg-[rgba(0,0,0,0.88)] text-white rounded-md font-medium text-[12px] hover:bg-[#2440c4] transition-all"
-            >
-              Reset Filters
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+const requestValue = (pod: ClusterPod, resource: 'cpu' | 'memory'): number | null => {
+  const sum = sumRequests(pod.containers);
+  const unset = resource === 'cpu' ? sum.cpuUnset : sum.memUnset;
+  if (sum.containers === 0 || unset === sum.containers) return null;
+  return resource === 'cpu' ? sum.cpuRequestM : sum.memRequestMi;
 };
 
-export default EksPodsTab;
+function ContainersDetail({ pod }: { pod: ClusterPod }) {
+  if (pod.containers.length === 0) return <p className={secondary}>The agent reported no containers for this pod.</p>;
+  return (
+    <div className="space-y-2">
+      <dl className="flex flex-wrap gap-x-6 gap-y-1 text-[12px]">
+        <div className="flex gap-1"><dt className="text-[rgba(0,0,0,0.6)]">Pod IP</dt><dd className="font-mono">{pod.podIp ?? DASH}</dd></div>
+        <div className="flex gap-1"><dt className="text-[rgba(0,0,0,0.6)]">Owner</dt><dd>{pod.owner ? `${pod.owner.kind} ${pod.owner.name}` : DASH}</dd></div>
+        <div className="flex gap-1"><dt className="text-[rgba(0,0,0,0.6)]">QoS</dt><dd>{pod.qosClass ?? DASH}</dd></div>
+      </dl>
+      <table className="w-full text-[12px]">
+        <caption className="sr-only">{`Containers of ${pod.name}`}</caption>
+        <thead>
+          <tr className="text-left text-[rgba(0,0,0,0.6)]">
+            <th scope="col" className="py-1 pr-3 font-semibold">Container</th>
+            <th scope="col" className="py-1 pr-3 font-semibold">State</th>
+            <th scope="col" className="py-1 pr-3 font-semibold">Restarts</th>
+            <th scope="col" className="py-1 pr-3 font-semibold">CPU request / limit</th>
+            <th scope="col" className="py-1 pr-3 font-semibold">Memory request / limit</th>
+            <th scope="col" className="py-1 font-semibold">Image</th>
+          </tr>
+        </thead>
+        <tbody>
+          {pod.containers.map((c) => {
+            const mark = containerStateMark(c.state, c.waitingReason);
+            return (
+              <tr key={c.name} className="border-t border-[rgba(0,0,0,0.06)] align-top">
+                <td className="py-1.5 pr-3 font-semibold">{c.name}</td>
+                <td className="py-1.5 pr-3"><StatusMark state={mark.state} label={mark.label} /></td>
+                <td className="py-1.5 pr-3 tabular-nums">{c.restartCount}</td>
+                <td className="py-1.5 pr-3 tabular-nums">{`${c.cpuRequestM === null ? 'Unset' : formatCpu(c.cpuRequestM)} / ${c.cpuLimitM === null ? 'None' : formatCpu(c.cpuLimitM)}`}</td>
+                <td className="py-1.5 pr-3 tabular-nums">{`${c.memRequestMi === null ? 'Unset' : formatMemoryMiB(c.memRequestMi)} / ${c.memLimitMi === null ? 'None' : formatMemoryMiB(c.memLimitMi)}`}</td>
+                <td className="break-all py-1.5 font-mono text-[rgba(0,0,0,0.6)]">{c.image ?? DASH}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export default function EksPodsTab({ eksData, clusterName }: { eksData: UseEksDashboardReturn; clusterName: string }) {
+  const dashboard = eksData.dashboard;
+  const caps = useK8sCapabilities();
+  const rows = useMemo((): PodRow[] => {
+    const cpu = topPodCpuUsage(dashboard);
+    const mem = topPodMemoryUsageMi(dashboard);
+    return clusterPods(dashboard).map((pod) => {
+      const key = `${pod.namespace}/${pod.name}`;
+      return {
+        pod, key,
+        cpuRequestM: requestValue(pod, 'cpu'),
+        memRequestMi: requestValue(pod, 'memory'),
+        cpuUsedM: cpu.get(key) ?? null,
+        memUsedMi: mem.get(key) ?? null,
+      };
+    });
+  }, [dashboard]);
+
+  const counts = PHASES.map((phase) => ({ phase, n: rows.filter((r) => r.pod.phase === phase).length }));
+  const namespaces = [...new Set(rows.map((r) => r.pod.namespace))].sort();
+  const at = caps.forCluster(clusterName)?.dataSources.find((s) => s.type === 'k8s-resources')?.collectedAt ?? null;
+
+  const columns: ReadonlyArray<ColumnDef<PodRow>> = [
+    {
+      id: 'name', header: 'Pod', priority: 'essential',
+      cell: (r) => (
+        <span className="flex max-w-[320px] flex-col">
+          <span className="truncate font-semibold text-[rgba(0,0,0,0.88)]" title={r.pod.name}>{r.pod.name}</span>
+          <span className={secondary}>{r.pod.namespace}</span>
+        </span>
+      ),
+      sortValue: (r) => r.pod.name, csv: (r) => r.pod.name,
+    },
+    { id: 'namespace', header: 'Namespace', priority: 'low', hideBelowPx: 1600, cell: (r) => r.pod.namespace, sortValue: (r) => r.pod.namespace },
+    {
+      id: 'status', header: 'Status', priority: 'essential',
+      cell: (r) => { const m = podPhaseMark(r.pod); return <StatusMark state={m.state} label={m.label} />; },
+      sortValue: (r) => r.pod.phase, csv: (r) => podPhaseMark(r.pod).label,
+    },
+    { id: 'node', header: 'Node', cell: (r) => <span className="font-mono text-[12px]">{r.pod.nodeName ?? DASH}</span>, sortValue: (r) => r.pod.nodeName },
+    {
+      id: 'restarts', header: 'Restarts', align: 'right',
+      cell: (r) => <span className={r.pod.restarts > 5 ? 'font-semibold' : undefined}>{r.pod.restarts}</span>,
+      sortValue: (r) => r.pod.restarts,
+    },
+    { id: 'cpuReq', header: 'CPU requests', align: 'right', cell: (r) => (r.cpuRequestM === null ? 'Unset' : formatCpu(r.cpuRequestM)), sortValue: (r) => r.cpuRequestM },
+    { id: 'memReq', header: 'Memory requests', align: 'right', cell: (r) => (r.memRequestMi === null ? 'Unset' : formatMemoryMiB(r.memRequestMi)), sortValue: (r) => r.memRequestMi },
+    {
+      id: 'cpuUsed', header: 'CPU used', headerTitle: USAGE_TOP_PODS_ONLY, align: 'right',
+      cell: (r) => (r.cpuUsedM === null ? <span title={USAGE_TOP_PODS_ONLY}>{DASH}</span> : formatCpu(r.cpuUsedM)), sortValue: (r) => r.cpuUsedM,
+    },
+    {
+      id: 'memUsed', header: 'Memory used', headerTitle: USAGE_TOP_PODS_ONLY, align: 'right',
+      cell: (r) => (r.memUsedMi === null ? <span title={USAGE_TOP_PODS_ONLY}>{DASH}</span> : formatMemoryMiB(r.memUsedMi)), sortValue: (r) => r.memUsedMi,
+    },
+    { id: 'age', header: 'Age', align: 'right', cell: (r) => formatAge(r.pod.age), sortValue: (r) => ageSortValue(r.pod.age), csv: (r) => r.pod.age },
+  ];
+
+  const filters: ReadonlyArray<FilterDef<PodRow>> = [
+    { id: 'phase', label: 'Status', options: PHASES.map((p) => ({ value: p, label: p === 'Succeeded' ? 'Completed' : p })), match: (r, v) => r.pod.phase === v },
+    { id: 'namespace', label: 'Namespace', options: namespaces.map((n) => ({ value: n, label: n })), match: (r, v) => r.pod.namespace === v },
+  ];
+
+  return (
+    <div className="space-y-3" data-panel="pods">
+      <dl className="flex flex-wrap gap-3">
+        <div className="min-w-[120px] rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-4 py-2.5" data-count="Total">
+          <dt className={secondary}>Total</dt>
+          <dd className="text-[20px] font-semibold tabular-nums text-[rgba(0,0,0,0.88)]">{rows.length}</dd>
+        </div>
+        {counts.map(({ phase, n }) => (
+          <div key={phase} className="min-w-[120px] rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-4 py-2.5" data-count={phase}>
+            <dt className={secondary}>{phase === 'Succeeded' ? 'Completed' : phase}</dt>
+            <dd className={`text-[20px] tabular-nums text-[rgba(0,0,0,0.88)] ${phase === 'Failed' && n > 0 ? 'font-bold' : 'font-semibold'}`}>{n}</dd>
+          </div>
+        ))}
+      </dl>
+      <K8sDataTable
+        rows={rows}
+        columns={columns}
+        rowKey={(r) => r.key}
+        caption={PODS_CAPTION}
+        search={(r) => `${r.pod.name} ${r.pod.namespace} ${r.pod.nodeName ?? ''}`}
+        searchPlaceholder="Search pods, namespaces, nodes"
+        filters={filters}
+        initialSort={{ columnId: 'name', direction: 'asc' }}
+        exportName={`${clusterName}-pods`}
+        expandRow={(r) => <ContainersDetail pod={r.pod} />}
+        rowLabel={(r) => r.pod.name}
+        source={<SourceLabel source="XamOps agent · k8s-resources" at={at} verb="data" missingText="no data yet" />}
+        emptyState={<p className={`px-4 py-8 text-center ${secondary}`}>The agent reported no pods.</p>}
+      />
+    </div>
+  );
+}
