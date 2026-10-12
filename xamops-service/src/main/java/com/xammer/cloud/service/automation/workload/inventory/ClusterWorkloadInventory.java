@@ -10,6 +10,7 @@ import com.xammer.cloud.service.automation.workload.WorkloadPolicyDefaults;
 import com.xammer.cloud.service.automation.workload.WorkloadRef;
 import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.ContainerResizePolicy;
+import io.fabric8.kubernetes.api.model.ContainerStatus;
 import io.fabric8.kubernetes.api.model.HasMetadata;
 import io.fabric8.kubernetes.api.model.Node;
 import io.fabric8.kubernetes.api.model.ObjectMeta;
@@ -101,6 +102,7 @@ public class ClusterWorkloadInventory {
                     observedGeneration(deployment.getStatus() == null
                             ? null : deployment.getStatus().getObservedGeneration()),
                     deploymentPods(deployment, replicaSetsByOwnerUid, podsByOwnerUid),
+                    deploymentOtherRevisionPods(deployment, replicaSetsByOwnerUid, podsByOwnerUid),
                     deploymentPodNameRules(deployment, replicaSetsByOwnerUid),
                     hpas, pdbs);
             if (workload != null) {
@@ -113,7 +115,8 @@ public class ClusterWorkloadInventory {
                     replicas(statefulSet.getSpec() == null ? null : statefulSet.getSpec().getReplicas()),
                     observedGeneration(statefulSet.getStatus() == null
                             ? null : statefulSet.getStatus().getObservedGeneration()),
-                    ownedPods(uid(statefulSet), podsByOwnerUid),
+                    statefulSetPods(statefulSet, podsByOwnerUid),
+                    statefulSetOtherRevisionPods(statefulSet, podsByOwnerUid),
                     statefulSetPodNameRules(statefulSet),
                     hpas, pdbs);
             if (workload != null) {
@@ -127,7 +130,7 @@ public class ClusterWorkloadInventory {
 
     /** @return the workload, or null when it is protected, template-less or unreadable */
     private Workload workload(HasMetadata object, String kind, PodTemplateSpec template, int replicas,
-                              Long observedGeneration, List<Pod> ownedPods,
+                              Long observedGeneration, List<Pod> ownedPods, List<Pod> otherRevisionPods,
                               List<PodNameRule> podNameRules,
                               List<HorizontalPodAutoscaler> hpas, List<PodDisruptionBudget> pdbs) {
         ObjectMeta metadata = object.getMetadata();
@@ -143,6 +146,10 @@ public class ClusterWorkloadInventory {
             return null;
         }
         WorkloadRef ref = new WorkloadRef(namespace, kind, metadata.getName(), metadata.getUid());
+        // Review S3: only pods that are Running and not being deleted are this workload's live pods.
+        // An Evicted (Failed), Pending or Terminating pod has no running container to resize or to
+        // measure "current" from, and must never be the executor's canary.
+        List<Pod> livePods = ownedPods.stream().filter(ClusterWorkloadInventory::isLive).toList();
 
         List<ContainerSpec> containers = new ArrayList<>();
         for (Container container : template.getSpec().getContainers()) {
@@ -150,8 +157,10 @@ public class ClusterWorkloadInventory {
                 return null;
             }
             try {
-                containers.add(new ContainerSpec(container.getName(), envelope(container.getResources()),
-                        resizePolicy(container)));
+                ResourceEnvelope declared = envelope(container.getResources());
+                containers.add(new ContainerSpec(container.getName(),
+                        current(ref, container.getName(), livePods, declared), resizePolicy(container),
+                        smallestLiveIfDisagreeing(container.getName(), livePods)));
             } catch (QuantityParseException unreadable) {
                 // Dropped, not defaulted: a fabricated baseline is the failure this engine exists to
                 // prevent, and the API server does not normally produce an unparseable quantity.
@@ -167,11 +176,141 @@ public class ClusterWorkloadInventory {
                 hpaFor(ref, hpas),
                 pdbMinAvailable(ref, template, pdbs),
                 List.copyOf(containers),
-                new WorkloadPods(ref, ownedPods.stream()
+                new WorkloadPods(ref, livePods.stream()
                         .map(pod -> new WorkloadPods.Pod(pod.getMetadata().getName(),
-                                pod.getMetadata().getUid()))
+                                pod.getMetadata().getUid(), isReady(pod)))
                         .toList(),
-                        podNameRules));
+                        podNameRules,
+                        skipped(ownedPods, otherRevisionPods)));
+    }
+
+    /**
+     * The pods this workload owns that are not resized, and why (review-2 SF3): not Running, being
+     * deleted, or of an older revision. Kept so an outcome never claims every pod.
+     */
+    private static List<WorkloadPods.Skipped> skipped(List<Pod> ownedPods, List<Pod> otherRevisionPods) {
+        List<WorkloadPods.Skipped> skipped = new ArrayList<>();
+        for (Pod pod : ownedPods) {
+            if (!isLive(pod) && pod.getMetadata() != null && pod.getMetadata().getName() != null) {
+                skipped.add(new WorkloadPods.Skipped(pod.getMetadata().getName(), phaseOf(pod),
+                        pod.getMetadata().getDeletionTimestamp() != null
+                                ? WorkloadPods.SKIPPED_TERMINATING : WorkloadPods.SKIPPED_NOT_RUNNING));
+            }
+        }
+        for (Pod pod : otherRevisionPods) {
+            if (pod.getMetadata() != null && pod.getMetadata().getName() != null) {
+                skipped.add(new WorkloadPods.Skipped(pod.getMetadata().getName(), phaseOf(pod),
+                        WorkloadPods.SKIPPED_OLD_REVISION));
+            }
+        }
+        return skipped;
+    }
+
+    /** The pod's {@code Ready} condition, or null when it reports none. */
+    private static Boolean isReady(Pod pod) {
+        if (pod.getStatus() == null || pod.getStatus().getConditions() == null) {
+            return null;
+        }
+        return pod.getStatus().getConditions().stream()
+                .filter(condition -> "Ready".equals(condition.getType()))
+                .map(condition -> "True".equalsIgnoreCase(condition.getStatus()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static String phaseOf(Pod pod) {
+        return pod.getStatus() == null ? null : pod.getStatus().getPhase();
+    }
+
+    private static boolean isLive(Pod pod) {
+        return pod.getMetadata() != null
+                && pod.getMetadata().getDeletionTimestamp() == null
+                && pod.getStatus() != null
+                && "Running".equals(pod.getStatus().getPhase());
+    }
+
+    /**
+     * What a container runs with now (review S2): the resources its live pods report, taken from
+     * {@code status.containerStatuses[].resources} and falling back to the pod's own spec.
+     *
+     * <p>In-place resize never writes the template, so after the first apply the template is the
+     * size <em>new</em> replicas start at, not what the pods run with. Reading the template here made
+     * every read after an apply show the pre-apply numbers as current, and judged direction,
+     * censoring and the OOM guard against a container that no longer existed.
+     *
+     * <p>When the live pods disagree (a partial apply, a resize still in progress) or none reports
+     * the container, the template is used: it is the one value every pod converges to on a restart,
+     * and an apply from it moves every pod to the same target.
+     */
+    private static ResourceEnvelope current(WorkloadRef ref, String containerName, List<Pod> livePods,
+                                            ResourceEnvelope declared) {
+        ResourceEnvelope agreed = null;
+        for (Pod pod : livePods) {
+            ResourceEnvelope observed = observedOn(pod, containerName);
+            if (observed == null) {
+                continue;
+            }
+            if (agreed == null) {
+                agreed = observed;
+            } else if (!agreed.equals(observed)) {
+                logger.info("Pods of {} disagree on container '{}' resources ({} vs {}); using the"
+                        + " template's {}", ref.describe(), containerName, agreed, observed, declared);
+                return declared;
+            }
+        }
+        return agreed == null ? declared : agreed;
+    }
+
+    /**
+     * When the live pods report different resources for this container, the smallest value per
+     * field among them; null when they agree or fewer than two report. This is what a pod that was
+     * resized down and is now OOM-killed actually runs with (review-2 SF2).
+     */
+    private static ResourceEnvelope smallestLiveIfDisagreeing(String containerName, List<Pod> livePods) {
+        List<ResourceEnvelope> reported = new ArrayList<>();
+        for (Pod pod : livePods) {
+            ResourceEnvelope observed = observedOn(pod, containerName);
+            if (observed != null) {
+                reported.add(observed);
+            }
+        }
+        if (reported.size() < 2 || reported.stream().distinct().count() == 1) {
+            return null;
+        }
+        return new ResourceEnvelope(
+                minOf(reported.stream().map(ResourceEnvelope::cpuRequestMillis).toList()),
+                minOf(reported.stream().map(ResourceEnvelope::cpuLimitMillis).toList()),
+                minOf(reported.stream().map(ResourceEnvelope::memRequestBytes).toList()),
+                minOf(reported.stream().map(ResourceEnvelope::memLimitBytes).toList()));
+    }
+
+    /** The smallest non-null value, or null when none is set. */
+    private static <T extends Comparable<T>> T minOf(List<T> values) {
+        T smallest = null;
+        for (T value : values) {
+            if (value != null && (smallest == null || value.compareTo(smallest) < 0)) {
+                smallest = value;
+            }
+        }
+        return smallest;
+    }
+
+    private static ResourceEnvelope observedOn(Pod pod, String containerName) {
+        if (pod.getStatus() != null && pod.getStatus().getContainerStatuses() != null) {
+            for (ContainerStatus status : pod.getStatus().getContainerStatuses()) {
+                if (containerName.equals(status.getName()) && status.getResources() != null) {
+                    return envelope(status.getResources());
+                }
+            }
+        }
+        if (pod.getSpec() != null && pod.getSpec().getContainers() != null) {
+            for (Container container : pod.getSpec().getContainers()) {
+                if (containerName.equals(container.getName())) {
+                    return envelope(container.getResources());
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -273,7 +412,14 @@ public class ClusterWorkloadInventory {
         return byOwner;
     }
 
-    /** Deployment → every ReplicaSet it owns → every Pod those own. Old ReplicaSets included. */
+    /**
+     * Deployment → its <strong>current</strong> ReplicaSet → the Pods that owns (review S3).
+     *
+     * <p>The current ReplicaSet is the one whose {@code deployment.kubernetes.io/revision} matches
+     * the Deployment's, else the highest revision among those it owns. When no ReplicaSet carries a
+     * revision, every owned ReplicaSet's pods are taken, as before. Measured history does not depend
+     * on this: it is selected by {@link #deploymentPodNameRules}, which keeps every retained revision.
+     */
     private static List<Pod> deploymentPods(Deployment deployment,
                                             Map<String, List<ReplicaSet>> replicaSetsByOwnerUid,
                                             Map<String, List<Pod>> podsByOwnerUid) {
@@ -281,9 +427,11 @@ public class ClusterWorkloadInventory {
         if (deploymentUid == null) {
             return List.of();
         }
+        List<ReplicaSet> owned = replicaSetsByOwnerUid.getOrDefault(deploymentUid, List.of());
+        ReplicaSet current = currentReplicaSet(deployment, owned);
         List<Pod> resolved = new ArrayList<>();
         Set<String> seen = new HashSet<>();
-        for (ReplicaSet replicaSet : replicaSetsByOwnerUid.getOrDefault(deploymentUid, List.of())) {
+        for (ReplicaSet replicaSet : current == null ? owned : List.of(current)) {
             for (Pod pod : podsByOwnerUid.getOrDefault(uid(replicaSet), List.of())) {
                 if (seen.add(pod.getMetadata().getUid() == null
                         ? pod.getMetadata().getName() : pod.getMetadata().getUid())) {
@@ -292,6 +440,32 @@ public class ClusterWorkloadInventory {
             }
         }
         return resolved;
+    }
+
+    /**
+     * The pods of this Deployment's <em>other</em> ReplicaSets: what {@link #deploymentPods} leaves
+     * out during a rollout. Empty when no current ReplicaSet could be told apart, because then every
+     * owned pod was taken as current.
+     */
+    private static List<Pod> deploymentOtherRevisionPods(Deployment deployment,
+                                                         Map<String, List<ReplicaSet>> replicaSetsByOwnerUid,
+                                                         Map<String, List<Pod>> podsByOwnerUid) {
+        String deploymentUid = uid(deployment);
+        if (deploymentUid == null) {
+            return List.of();
+        }
+        List<ReplicaSet> owned = replicaSetsByOwnerUid.getOrDefault(deploymentUid, List.of());
+        ReplicaSet current = currentReplicaSet(deployment, owned);
+        if (current == null) {
+            return List.of();
+        }
+        List<Pod> others = new ArrayList<>();
+        for (ReplicaSet replicaSet : owned) {
+            if (replicaSet != current) {
+                others.addAll(podsByOwnerUid.getOrDefault(uid(replicaSet), List.of()));
+            }
+        }
+        return others;
     }
 
     /**
@@ -331,6 +505,74 @@ public class ClusterWorkloadInventory {
             return List.of();
         }
         return List.of(PodNameRule.statefulSetPods(name));
+    }
+
+    static final String REVISION_ANNOTATION = "deployment.kubernetes.io/revision";
+    static final String STATEFUL_SET_REVISION_LABEL = "controller-revision-hash";
+
+    private static ReplicaSet currentReplicaSet(Deployment deployment, List<ReplicaSet> owned) {
+        String revision = annotation(deployment.getMetadata(), REVISION_ANNOTATION);
+        if (revision != null) {
+            for (ReplicaSet replicaSet : owned) {
+                if (revision.equals(annotation(replicaSet.getMetadata(), REVISION_ANNOTATION))) {
+                    return replicaSet;
+                }
+            }
+        }
+        ReplicaSet newest = null;
+        long newestRevision = -1;
+        for (ReplicaSet replicaSet : owned) {
+            String value = annotation(replicaSet.getMetadata(), REVISION_ANNOTATION);
+            try {
+                long parsed = value == null ? -1 : Long.parseLong(value.trim());
+                if (parsed > newestRevision) {
+                    newestRevision = parsed;
+                    newest = replicaSet;
+                }
+            } catch (NumberFormatException unreadable) {
+                // Not a revision the controller wrote; this ReplicaSet cannot be ranked.
+            }
+        }
+        return newest;
+    }
+
+    private static String annotation(ObjectMeta metadata, String key) {
+        if (metadata == null || metadata.getAnnotations() == null) {
+            return null;
+        }
+        String value = metadata.getAnnotations().get(key);
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    /**
+     * A StatefulSet's pods of its update revision when the controller reports one (review S3), so a
+     * pod left on the previous revision mid-update is never resized against the new template.
+     */
+    private static List<Pod> statefulSetPods(StatefulSet statefulSet, Map<String, List<Pod>> podsByOwnerUid) {
+        List<Pod> owned = ownedPods(uid(statefulSet), podsByOwnerUid);
+        String updateRevision = statefulSet.getStatus() == null ? null
+                : statefulSet.getStatus().getUpdateRevision();
+        if (updateRevision == null || updateRevision.isBlank()) {
+            return owned;
+        }
+        return owned.stream()
+                .filter(pod -> pod.getMetadata().getLabels() != null && updateRevision.equals(
+                        pod.getMetadata().getLabels().get(STATEFUL_SET_REVISION_LABEL)))
+                .toList();
+    }
+
+    /** The StatefulSet's pods {@link #statefulSetPods} leaves out: those not on its update revision. */
+    private static List<Pod> statefulSetOtherRevisionPods(StatefulSet statefulSet,
+                                                          Map<String, List<Pod>> podsByOwnerUid) {
+        String updateRevision = statefulSet.getStatus() == null ? null
+                : statefulSet.getStatus().getUpdateRevision();
+        if (updateRevision == null || updateRevision.isBlank()) {
+            return List.of();
+        }
+        return ownedPods(uid(statefulSet), podsByOwnerUid).stream()
+                .filter(pod -> pod.getMetadata().getLabels() == null || !updateRevision.equals(
+                        pod.getMetadata().getLabels().get(STATEFUL_SET_REVISION_LABEL)))
+                .toList();
     }
 
     private static List<Pod> ownedPods(String ownerUid, Map<String, List<Pod>> podsByOwnerUid) {
@@ -546,10 +788,19 @@ public class ClusterWorkloadInventory {
     }
 
     /**
-     * @param current      the container's declared requests and limits; {@code UNSET}, never zeros
+     * @param current      the requests and limits the container's live pods run with, or the
+     *                     template's when they disagree or none reports it; {@code UNSET}, never
+     *                     zeros
      * @param resizePolicy {@code resourceName -> restartPolicy}, empty when none is declared
      */
-    public record ContainerSpec(String name, ResourceEnvelope current, Map<String, String> resizePolicy) {
+    /**
+     * @param current      what the container runs with: its live pods' agreed value, or the
+     *                     template when they disagree or none reports
+     * @param smallestLive when the live pods disagree, the smallest value per field among them; null
+     *                     otherwise. The OOM guard judges against it (review-2 SF2)
+     */
+    public record ContainerSpec(String name, ResourceEnvelope current, Map<String, String> resizePolicy,
+                                ResourceEnvelope smallestLive) {
 
         public ContainerSpec {
             if (name == null || name.isBlank()) {
@@ -561,6 +812,15 @@ public class ClusterWorkloadInventory {
                                 + " fabricated zero");
             }
             resizePolicy = resizePolicy == null ? Map.of() : Map.copyOf(resizePolicy);
+        }
+
+        /** A container whose live pods agree, or have not reported. */
+        public ContainerSpec(String name, ResourceEnvelope current, Map<String, String> resizePolicy) {
+            this(name, current, resizePolicy, null);
+        }
+
+        public boolean podsDisagree() {
+            return smallestLive != null;
         }
     }
 }

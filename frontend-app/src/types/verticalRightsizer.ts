@@ -39,6 +39,11 @@ export interface VerticalContainerWire {
   recommended: VerticalResourcesWire | null;
   reasons: string[] | null;
   upstreamVpa: UpstreamVpaWire | null;
+  /**
+   * The live pods run different sizes for this container right now, so `current` is the workload's
+   * own size (what new pods start at), not what every pod runs. Absent from older builds.
+   */
+  podsDisagree?: boolean | null;
 }
 
 export interface VerticalWorkloadRefWire {
@@ -107,13 +112,25 @@ export interface VerticalEngineResponseWire {
   engine: VerticalEngineWire;
   gateReasons: string[] | null;
   workloads: VerticalWorkloadWire[] | null;
+  /**
+   * For a gate whose rule has a finer name than its code, that name, keyed by the gate code:
+   * `{ NO_USER_PERMISSION: 'TAB_GRANT' }`. Absent from builds that predate it.
+   */
+  gateDetails?: Record<string, string | null> | null;
+  /**
+   * True only when `gateReasons` already includes the caller's write gates. Absent from a build
+   * that never evaluated them, which must not read as "permitted".
+   */
+  writeGatesChecked?: boolean | null;
 }
 
-/** A refusal body: `{ code, message, field? }`. */
+/** A refusal body: `{ code, message, field?, detail? }`. */
 export interface VerticalRefusalWire {
   code?: string | null;
   message?: string | null;
   field?: string | null;
+  /** Which permission rule refused (`TAB_GRANT`, `IMPERSONATION`, `ROLE`, `NO_PRINCIPAL`, `DEMO`). */
+  detail?: string | null;
 }
 
 // ─── View shape ──────────────────────────────────────────────────────────────
@@ -163,6 +180,8 @@ export interface ContainerView {
   recommended: ResourcesView | null;
   reasons: CodeView[];
   upstreamVpa: UpstreamVpaView | null;
+  /** The live pods run different sizes for this container right now. */
+  podsDisagree: boolean;
 }
 
 export interface ProvenanceView {
@@ -189,11 +208,33 @@ export interface WorkloadView {
   findings: CodeView[];
   containers: ContainerView[];
   lastAction: { at: string | null; dryRun: boolean | null; outcome: string | null } | null;
+  /**
+   * Whether the engine would apply this on its own (policy `AUTO` and every gate). Display only:
+   * it is not the condition for a user-initiated apply — see `manualApplyGate`.
+   */
   autoApplyEligible: boolean;
-  /** Why Apply is disabled, already resolved to the single most useful reason. */
+  /**
+   * Why the engine would not apply this automatically, resolved to the single most useful reason.
+   * Not the manual Apply gate.
+   */
   applyBlockedBy: CodeView | null;
   provenance: ProvenanceView | null;
   horizontal: VerticalHorizontalWire | null;
+}
+
+/**
+ * Whether a user may submit a one-time apply for one workload, and if not, why.
+ *
+ * `reason` is the text shown beside the greyed control; it is null exactly when `enabled` is true.
+ * `changes` is the apply body: `recommended` diffed against `current`, so it is empty when nothing
+ * would move.
+ */
+export interface ManualApplyGate {
+  enabled: boolean;
+  reason: string | null;
+  /** What the user can do about `reason`, when the glossary gives a next step. */
+  nextStep: string | null;
+  changes: ApplyContainerRequest[];
 }
 
 export interface EngineView {
@@ -216,6 +257,10 @@ export interface EngineView {
 export interface VerticalEngineView {
   engine: EngineView;
   gateReasons: CodeView[];
+  /** Gate code (no `K8S_` prefix) to the permission rule's detail, e.g. `NO_USER_PERMISSION → TAB_GRANT`. */
+  gateDetails: Record<string, string>;
+  /** Whether the server evaluated this caller's write gates; Apply stays greyed when it did not. */
+  writeGatesChecked: boolean;
   workloads: WorkloadView[];
   /**
    * Backend contract violations found while adapting — currently only a `0` in a resources field.
@@ -285,6 +330,10 @@ export interface ApplyPodProofWire {
   samePod: boolean | null;
   ready: boolean | null;
   containers: ApplyContainerProofWire[] | null;
+  /** Whether the observed resources differ between before and the final state. */
+  changed?: boolean | null;
+  /** For a pod whose new size was not put in place: what putting it back achieved. */
+  revert?: { state: string | null; detail: string | null } | null;
 }
 
 /**
@@ -301,6 +350,19 @@ export interface ApplyOutcomeWire {
   restartFree: boolean | null;
   containers: ApplyContainerOutcomeWire[] | null;
   pods: ApplyPodProofWire[] | null;
+  /**
+   * Absent or null when no pod needed putting back. True when every pod whose new size was not put
+   * in place was put back and proved back; false when at least one was not, so its new size may
+   * still be applied later.
+   */
+  reverted?: boolean | null;
+  /** `cpu` or `memory` when the kubelet declined a pod for lack of that resource on its node. */
+  insufficient?: string | null;
+  /**
+   * The workload's pods that were not resized: `NOT_RUNNING` (with its phase), `TERMINATING` or
+   * `OLD_REVISION`. "Every pod" is never claimed when this is not empty.
+   */
+  skippedPods?: { podName: string; phase: string | null; reason: string | null }[] | null;
 }
 
 /**
@@ -312,7 +374,8 @@ export type ApplyResult =
   | {
       kind: 'submitted';
       correlationId: string | null;
-      state: ApplyState | string;
+      /** null when the server sent none; never defaulted to ACCEPTED. */
+      state: ApplyState | string | null;
       dryRun: boolean | null;
       result: ApplyOutcomeWire | null;
     }
@@ -320,5 +383,15 @@ export type ApplyResult =
   | { kind: 'writes-not-deployed' }
   /** A typed 404: the endpoint exists, this cluster is not registered here. A setup step. */
   | { kind: 'cluster-not-registered'; message: string }
-  | { kind: 'refused'; code: CodeView; message: string }
+  /** `detail` names the permission rule on a caller-level refusal, else null. */
+  | { kind: 'refused'; code: CodeView; message: string; detail: string | null }
   | { kind: 'error'; message: string };
+
+/**
+ * A caller-level refusal endpoint 3 answered with (demo, permission, read-only connection, account).
+ * It holds for every workload of this cluster, so it greys every Apply until the next read.
+ */
+export interface CallerRefusal {
+  code: string;
+  detail: string | null;
+}

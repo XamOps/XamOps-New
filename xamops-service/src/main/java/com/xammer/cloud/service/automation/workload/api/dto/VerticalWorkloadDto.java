@@ -58,13 +58,22 @@ public record VerticalWorkloadDto(WorkloadRefDto ref,
      *                    <strong>null</strong> when there is no VPA object, the optional ClusterRole
      *                    rule was not granted, or VPA has not produced a target. An addition to
      *                    §11.5; the UI renders {@code —} rather than a number when it is null.
+     * @param podsDisagree the live pods run different resources for this container right now, so
+     *                    {@code current} is the workload's own size (what new pods start at), not
+     *                    what every pod runs (review-2 SF2)
      */
     public record ContainerDto(String name, String qosClass, ResourcesDto current,
                                ResourcesDto recommended, List<String> reasons,
-                               UpstreamVpaDto upstreamVpa) {
+                               UpstreamVpaDto upstreamVpa, boolean podsDisagree) {
 
         public ContainerDto {
             reasons = reasons == null ? List.of() : List.copyOf(reasons);
+        }
+
+        /** A container whose live pods agree. */
+        public ContainerDto(String name, String qosClass, ResourcesDto current, ResourcesDto recommended,
+                            List<String> reasons, UpstreamVpaDto upstreamVpa) {
+            this(name, qosClass, current, recommended, reasons, upstreamVpa, false);
         }
     }
 

@@ -21,7 +21,7 @@ grants no access to Secret objects and no `patch` on `apps/deployments`.
 | Cluster | `xamops-test-1` |
 | IAM role | `XamOpsWorkloadAutoscalerRole-102227938259` |
 | Trusted XamOps principal | `arn:aws:iam::605134457560:role/XamOps-App-EC2-Role` |
-| External id | `40940876-6821-409a-a76e-a8b2f2a43486` |
+| External id | `<EXTERNAL_ID>` (the value stored on the account's `cloud_account.external_id`; not committed) |
 | Kubernetes group | `xamops-workload-autoscaler` |
 | Tags (every resource) | `Project=XamOps` `Purpose=CloudK8sFeatureTesting` `Owner=agent-provisioned` `CreatedOn=2026-10-11` `Ephemeral=true` |
 
@@ -47,7 +47,7 @@ cat > /tmp/wa-trust.json <<'JSON'
       "Principal": { "AWS": "arn:aws:iam::605134457560:role/XamOps-App-EC2-Role" },
       "Action": "sts:AssumeRole",
       "Condition": {
-        "StringEquals": { "sts:ExternalId": "40940876-6821-409a-a76e-a8b2f2a43486" }
+        "StringEquals": { "sts:ExternalId": "<EXTERNAL_ID>" }
       }
     },
     {
@@ -56,7 +56,7 @@ cat > /tmp/wa-trust.json <<'JSON'
       "Principal": { "AWS": "arn:aws:iam::102227938259:user/iam.autospotting" },
       "Action": "sts:AssumeRole",
       "Condition": {
-        "StringEquals": { "sts:ExternalId": "40940876-6821-409a-a76e-a8b2f2a43486" }
+        "StringEquals": { "sts:ExternalId": "<EXTERNAL_ID>" }
       }
     }
   ]
@@ -193,7 +193,7 @@ Nothing is trusted until it has been exercised as the role rather than as an adm
 ```bash
 CREDS=$(aws sts assume-role \
   --role-arn arn:aws:iam::102227938259:role/XamOpsWorkloadAutoscalerRole-102227938259 \
-  --external-id 40940876-6821-409a-a76e-a8b2f2a43486 \
+  --external-id <EXTERNAL_ID> \
   --role-session-name xamops-wa-proof \
   --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text)
 export AWS_ACCESS_KEY_ID=$(echo "$CREDS" | cut -f1)
@@ -285,7 +285,7 @@ cat > /tmp/wa-trust-prod-only.json <<'JSON'
       "Principal": { "AWS": "arn:aws:iam::605134457560:role/XamOps-App-EC2-Role" },
       "Action": "sts:AssumeRole",
       "Condition": {
-        "StringEquals": { "sts:ExternalId": "40940876-6821-409a-a76e-a8b2f2a43486" }
+        "StringEquals": { "sts:ExternalId": "<EXTERNAL_ID>" }
       }
     }
   ]

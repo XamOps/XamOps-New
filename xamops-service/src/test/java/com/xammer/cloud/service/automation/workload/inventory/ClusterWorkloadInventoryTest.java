@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.xammer.cloud.service.automation.workload.NodeCapacity;
 import com.xammer.cloud.service.automation.workload.PodNameRule;
+import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicyDefaults;
 import io.fabric8.kubernetes.client.ConfigBuilder;
 import io.fabric8.kubernetes.client.KubernetesClient;
@@ -129,6 +130,105 @@ class ClusterWorkloadInventoryTest {
     @DisplayName("a superseded ReplicaSet with no pods does not break resolution")
     void anEmptyOldReplicaSetIsHarmless() {
         assertThat(workload("team-a", "overprovisioned-api").pods().pods()).hasSize(2);
+    }
+
+    // ---------------------------------------------------------------- live pods (review S2, S3)
+
+    @Test
+    @DisplayName("current is what the live pods run with, not the template an in-place resize leaves alone")
+    void currentIsWhatTheLivePodsRunWith() {
+        overrides.put("/api/v1/pods", "pods-live-state.json");
+
+        ClusterWorkloadInventory.ContainerSpec idler =
+                workload("team-a", "overprovisioned-api").containers().get(0);
+
+        assertThat(idler.current())
+                .as("the template still says 200m/256Mi; the pods were resized in place to 25m/250Mi")
+                .isEqualTo(new ResourceEnvelope(25, 100, 250 * MI, 512 * MI));
+    }
+
+    @Test
+    @DisplayName("live pods that disagree fall back to the template, the size every pod converges to")
+    void podsThatDisagreeFallBackToTheTemplate() {
+        overrides.put("/api/v1/pods", "pods-live-state.json");
+
+        ClusterWorkloadInventory.ContainerSpec worker = workload("prod-sim", "rightsized-worker").containers().get(0);
+        assertThat(worker.current())
+                .isEqualTo(new ResourceEnvelope(100, 100, 128 * MI, 128 * MI));
+        // Review-2 SF2: the disagreement is published, with the smallest value each field runs at.
+        assertThat(worker.podsDisagree()).isTrue();
+        assertThat(worker.smallestLive()).isEqualTo(new ResourceEnvelope(40, 200, 64 * MI, 128 * MI));
+    }
+
+    @Test
+    @DisplayName("Evicted, Pending and Terminating pods are never live pods, so never the canary")
+    void onlyRunningPodsAreLive() {
+        overrides.put("/api/v1/pods", "pods-live-state.json");
+
+        assertThat(workload("team-a", "overprovisioned-api").pods().names())
+                .as("no revision annotations here, so every owned ReplicaSet's Running pods count")
+                .containsExactlyInAnyOrder("overprovisioned-api-7d9f-aaaaa",
+                        "overprovisioned-api-7d9f-bbbbb", "overprovisioned-api-5b8c-fffff")
+                .doesNotContain("overprovisioned-api-7d9f-ccccc", "overprovisioned-api-7d9f-ddddd",
+                        "overprovisioned-api-7d9f-eeeee");
+    }
+
+    @Test
+    @DisplayName("only the current revision's pods are live; history still spans every retained revision")
+    void onlyTheCurrentRevisionsPodsAreLive() {
+        overrides.put("/api/v1/pods", "pods-live-state.json");
+        overrides.put("/apis/apps/v1/deployments", "deployments-revisions.json");
+        overrides.put("/apis/apps/v1/replicasets", "replicasets-revisions.json");
+
+        WorkloadPods pods = workload("team-a", "overprovisioned-api").pods();
+
+        assertThat(pods.names()).containsExactlyInAnyOrder(
+                "overprovisioned-api-7d9f-aaaaa", "overprovisioned-api-7d9f-bbbbb");
+        assertThat(pods.nameRules())
+                .as("measured history is selected by name rules, which keep the old revision")
+                .hasSize(2);
+    }
+
+    @Test
+    @DisplayName("the pods left out are recorded with why: not Running, being deleted, an older revision (review-2 SF3)")
+    void skippedPodsAreRecordedWithWhy() {
+        overrides.put("/api/v1/pods", "pods-live-state.json");
+        overrides.put("/apis/apps/v1/deployments", "deployments-revisions.json");
+        overrides.put("/apis/apps/v1/replicasets", "replicasets-revisions.json");
+
+        WorkloadPods pods = workload("team-a", "overprovisioned-api").pods();
+
+        assertThat(pods.skipped()).containsExactlyInAnyOrder(
+                new WorkloadPods.Skipped("overprovisioned-api-7d9f-ccccc", "Failed", WorkloadPods.SKIPPED_NOT_RUNNING),
+                new WorkloadPods.Skipped("overprovisioned-api-7d9f-ddddd", "Pending", WorkloadPods.SKIPPED_NOT_RUNNING),
+                new WorkloadPods.Skipped("overprovisioned-api-7d9f-eeeee", "Running", WorkloadPods.SKIPPED_TERMINATING),
+                new WorkloadPods.Skipped("overprovisioned-api-5b8c-fffff", "Running", WorkloadPods.SKIPPED_OLD_REVISION));
+    }
+
+    @Test
+    @DisplayName("a StatefulSet mid-update resizes only its update revision's pods, and reads readiness (review-2 item 14)")
+    void aStatefulSetMidUpdateKeepsOnlyItsUpdateRevision() {
+        // StatefulSets update in reverse ordinal order: pod 1 is on the new revision, pod 0 is not.
+        overrides.put("/apis/apps/v1/statefulsets", "statefulsets-revisions.json");
+        overrides.put("/api/v1/pods", "pods-statefulset-revisions.json");
+
+        WorkloadPods pods = workload("prod-sim", "stateful-queue").pods();
+
+        assertThat(pods.names()).containsExactly("stateful-queue-1");
+        assertThat(pods.pods().get(0).ready()).isTrue();
+        assertThat(pods.skipped()).containsExactly(
+                new WorkloadPods.Skipped("stateful-queue-0", "Running", WorkloadPods.SKIPPED_OLD_REVISION));
+    }
+
+    @Test
+    @DisplayName("with no revision to tell them apart, no pod is called an older revision")
+    void withoutRevisionsNothingIsAnOldRevision() {
+        overrides.put("/api/v1/pods", "pods-live-state.json");
+
+        assertThat(workload("team-a", "overprovisioned-api").pods().skipped())
+                .extracting(WorkloadPods.Skipped::reason)
+                .containsExactlyInAnyOrder(WorkloadPods.SKIPPED_NOT_RUNNING, WorkloadPods.SKIPPED_NOT_RUNNING,
+                        WorkloadPods.SKIPPED_TERMINATING);
     }
 
     // ---------------------------------------------------------------- history (addendum A)

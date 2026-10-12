@@ -69,7 +69,8 @@ class PodNameRuleSelectorTest {
         PromQl.Selector selector = new PromQl.Selector("team-a", List.of("api-1"),
                 List.of(PodNameRule.replicaSetPods("api.v2")), List.of("api"));
 
-        assertThat(selector.labels()).contains("pod=~\"api-1|api\\.v2-[a-z0-9]{5}\"");
+        // On the wire the dot is preceded by an escaped backslash, as a PromQL (Go) string needs.
+        assertThat(selector.labels()).contains("pod=~\"api-1|api\\\\.v2-[a-z0-9]{5}\"");
         assertThat(anchored(selector).matcher("apiXv2-aaaaa").matches())
                 .as("an unescaped dot would make any character match")
                 .isFalse();
@@ -118,6 +119,46 @@ class PodNameRuleSelectorTest {
         String labels = selector.labels();
         String podMatcher = labels.substring(labels.indexOf("pod=~\"") + 6,
                 labels.indexOf("\",container=~\""));
-        return Pattern.compile("^(?:" + podMatcher + ")$");
+        return Pattern.compile("^(?:" + promqlString(podMatcher) + ")$");
+    }
+
+    /**
+     * The value of a PromQL double-quoted string, decoded the way the PromQL parser decodes it (Go
+     * escaping). An escape Go does not know, such as a backslash before a dot, fails the whole
+     * query in Prometheus, so it fails here too (review S4).
+     */
+    private static String promqlString(String quotedBody) {
+        StringBuilder value = new StringBuilder();
+        for (int i = 0; i < quotedBody.length(); i++) {
+            char c = quotedBody.charAt(i);
+            if (c != '\\') {
+                value.append(c);
+                continue;
+            }
+            char next = quotedBody.charAt(++i);
+            switch (next) {
+                case '\\' -> value.append('\\');
+                case '"' -> value.append('"');
+                case 'n' -> value.append('\n');
+                case 't' -> value.append('\t');
+                default -> throw new AssertionError("PromQL rejects the escape sequence \\" + next
+                        + " in \"" + quotedBody + "\"");
+            }
+        }
+        return value.toString();
+    }
+
+    @Test
+    @DisplayName("every generated matcher is a valid PromQL string, so a dotted name cannot blank the cluster")
+    void aDottedNameIsAValidPromQlString() {
+        PromQl.Selector selector = new PromQl.Selector("team-a", List.of("api.v2-7d9f-aaaaa"),
+                List.of(PodNameRule.replicaSetPods("api.v2-7d9f")), List.of("api.main"));
+        String labels = selector.labels();
+        String containers = labels.substring(labels.indexOf("container=~\"") + 12, labels.length() - 1);
+
+        assertThat(anchored(selector).matcher("api.v2-7d9f-aaaaa").matches()).isTrue();
+        assertThat(anchored(selector).matcher("apiXv2-7d9f-aaaaa").matches()).isFalse();
+        assertThat(Pattern.compile("^(?:" + promqlString(containers) + ")$").matcher("api.main").matches())
+                .isTrue();
     }
 }

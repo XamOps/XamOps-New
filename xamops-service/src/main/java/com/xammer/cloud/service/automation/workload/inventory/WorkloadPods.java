@@ -29,11 +29,26 @@ import java.util.List;
  * a provider select the pods the workload owned <strong>during</strong> the window without going back
  * to a prefix match.
  *
+ * <h2>The pods that were left out are kept too (review-2 SF3)</h2>
+ *
+ * Only Running, non-deleting pods of the current revision are resized. The others are recorded in
+ * {@code skipped} with why, so an outcome can say "every running pod (2 of 3)" instead of claiming
+ * every pod while a Pending one will start at the template's size.
+ *
  * @param ref       the workload these pods belong to
- * @param pods      its pods; empty when the workload currently has none
+ * @param pods      its live pods; empty when the workload currently has none
  * @param nameRules the pod-name shapes it has owned; empty when none could be resolved
+ * @param skipped   its pods that are not resized, and why
  */
-public record WorkloadPods(WorkloadRef ref, List<Pod> pods, List<PodNameRule> nameRules) {
+public record WorkloadPods(WorkloadRef ref, List<Pod> pods, List<PodNameRule> nameRules,
+                           List<Skipped> skipped) {
+
+    /** Not Running (Pending, Failed, Succeeded or unknown); {@link Skipped#phase()} says which. */
+    public static final String SKIPPED_NOT_RUNNING = "NOT_RUNNING";
+    /** Being deleted. */
+    public static final String SKIPPED_TERMINATING = "TERMINATING";
+    /** Owned by an older revision during a rollout, so sized against another template. */
+    public static final String SKIPPED_OLD_REVISION = "OLD_REVISION";
 
     public WorkloadPods {
         if (ref == null) {
@@ -41,23 +56,52 @@ public record WorkloadPods(WorkloadRef ref, List<Pod> pods, List<PodNameRule> na
         }
         pods = pods == null ? List.of() : List.copyOf(pods);
         nameRules = nameRules == null ? List.of() : List.copyOf(nameRules);
+        skipped = skipped == null ? List.of() : List.copyOf(skipped);
+    }
+
+    public WorkloadPods(WorkloadRef ref, List<Pod> pods, List<PodNameRule> nameRules) {
+        this(ref, pods, nameRules, List.of());
     }
 
     /** Current pods with no historical shapes — the pre-addendum-A shape, kept for callers that
      * genuinely only need the live pods (every executor path). */
     public WorkloadPods(WorkloadRef ref, List<Pod> pods) {
-        this(ref, pods, List.of());
+        this(ref, pods, List.of(), List.of());
     }
 
     /**
-     * @param name {@code metadata.name}
-     * @param uid  {@code metadata.uid} — identity that survives a name being reused
+     * @param name  {@code metadata.name}
+     * @param uid   {@code metadata.uid} — identity that survives a name being reused
+     * @param ready whether its {@code Ready} condition was True at the read, or null when not known.
+     *              The executor prefers a Ready pod as the canary (review-2 item 14)
      */
-    public record Pod(String name, String uid) {
+    public record Pod(String name, String uid, Boolean ready) {
 
         public Pod {
             if (name == null || name.isBlank()) {
                 throw new IllegalArgumentException("pod name is mandatory");
+            }
+        }
+
+        /** A pod whose readiness was not read. */
+        public Pod(String name, String uid) {
+            this(name, uid, null);
+        }
+    }
+
+    /**
+     * @param phase  {@code status.phase}, or null when the pod reports none
+     * @param reason {@link #SKIPPED_NOT_RUNNING}, {@link #SKIPPED_TERMINATING} or
+     *               {@link #SKIPPED_OLD_REVISION}
+     */
+    public record Skipped(String name, String phase, String reason) {
+
+        public Skipped {
+            if (name == null || name.isBlank()) {
+                throw new IllegalArgumentException("pod name is mandatory");
+            }
+            if (reason == null || reason.isBlank()) {
+                throw new IllegalArgumentException("reason is mandatory");
             }
         }
     }

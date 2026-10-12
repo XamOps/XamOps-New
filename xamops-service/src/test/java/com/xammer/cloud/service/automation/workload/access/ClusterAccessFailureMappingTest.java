@@ -150,6 +150,24 @@ class ClusterAccessFailureMappingTest {
                 .isEqualTo(ClusterAccessException.Kind.CLUSTER_ACCESS_NOT_CONFIGURED);
     }
 
+    @Test
+    void theTokenIsSignedForTheEntitledRowNeverForItsNumber() {
+        // Review S5: re-resolving the number with an unscoped unique finder throws when two tenants'
+        // rows share it, which took the DIRECT path down as CLUSTER_UNREACHABLE.
+        givenDescribedCluster();
+        when(k8sClientFactory.createFromComponents(anyString(), anyString(), anyString()))
+                .thenThrow(new KubernetesClientException("Forbidden", 403, null));
+
+        kindOf(() -> eksProvider.open(target));
+
+        org.mockito.ArgumentCaptor<CloudAccount> signedFor = org.mockito.ArgumentCaptor.forClass(CloudAccount.class);
+        org.mockito.Mockito.verify(eksTokenGenerator)
+                .generateTokenForCluster(signedFor.capture(), anyString(), anyString());
+        assertThat(signedFor.getValue().getClient().getId()).isEqualTo(CLIENT_ID);
+        org.mockito.Mockito.verify(eksTokenGenerator, org.mockito.Mockito.never())
+                .generateTokenForCluster(anyString(), anyString(), anyString());
+    }
+
     // ------------------------------------------------------------------ reachability failures
 
     @Test
@@ -268,7 +286,7 @@ class ClusterAccessFailureMappingTest {
                                 .certificateAuthority(c -> c.data("Zm9v"))
                                 .build())
                         .build());
-        when(eksTokenGenerator.generateTokenForCluster(anyString(), anyString(), anyString()))
+        when(eksTokenGenerator.generateTokenForCluster(any(CloudAccount.class), anyString(), anyString()))
                 .thenReturn("k8s-aws-v1.token");
     }
 

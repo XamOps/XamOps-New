@@ -45,12 +45,31 @@ public record ApplyResponseDto(String correlationId, String state, boolean dryRu
     }
 
     /**
-     * @param restartFree true only when every pod touched was proved not to have restarted. False
-     *                    also covers "the question was not answered", which is why {@code pods}
-     *                    carries the raw numbers.
+     * @param restartFree  true only when every pod touched was proved not to have restarted. False
+     *                     also covers "the question was not answered", which is why {@code pods}
+     *                     carries the raw numbers.
+     * @param reverted     null when no pod needed putting back; true when every pod whose PATCH was
+     *                     accepted but whose new size was not put in place was put back and proved
+     *                     back; false when at least one was not, so its new size may still be
+     *                     applied later
+     * @param insufficient {@code cpu} or {@code memory} when the kubelet declined a pod for lack of
+     *                     that resource on its node, else null
+     * @param skippedPods  the workload's pods that were not resized (not Running, being deleted, or
+     *                     of an older revision), so "every pod" is never claimed for a partial set
      */
     public record Result(String method, String terminal, String detail, boolean restartFree,
-                         List<ContainerResultDto> containers, List<PodProofDto> pods) {
+                         List<ContainerResultDto> containers, List<PodProofDto> pods,
+                         Boolean reverted, String insufficient, List<SkippedPodDto> skippedPods) {
+
+        public Result {
+            skippedPods = skippedPods == null ? List.of() : List.copyOf(skippedPods);
+        }
+
+        /** A result with nothing put back and no pod left out. */
+        public Result(String method, String terminal, String detail, boolean restartFree,
+                      List<ContainerResultDto> containers, List<PodProofDto> pods) {
+            this(method, terminal, detail, restartFree, containers, pods, null, null, List.of());
+        }
 
         static Result of(String method, ResizeProof proof) {
             List<ContainerResultDto> containers = new ArrayList<>();
@@ -69,11 +88,34 @@ public record ApplyResponseDto(String correlationId, String state, boolean dryRu
                             resources(container.observedBefore()), resources(container.observedAfter())));
                 }
                 pods.add(new PodProofDto(pod.podName(), pod.uidBefore(), pod.uidAfter(), pod.samePod(),
-                        pod.ready(), proofs));
+                        pod.ready(), proofs, pod.changed(),
+                        pod.revert() == null ? null
+                                : new RevertDto(pod.revert().state().name(), pod.revert().detail())));
             }
             return new Result(method, proof.outcome().name(), proof.detail(), proof.restartFree(),
-                    List.copyOf(containers), List.copyOf(pods));
+                    List.copyOf(containers), List.copyOf(pods), proof.reverted(),
+                    proof.insufficientResource(),
+                    proof.skippedPods().stream()
+                            .map(pod -> new SkippedPodDto(pod.podName(), pod.phase(), pod.reason()))
+                            .toList());
         }
+    }
+
+    /**
+     * One of the workload's pods that was not resized.
+     *
+     * @param phase  {@code status.phase}, or null
+     * @param reason {@code NOT_RUNNING | TERMINATING | OLD_REVISION}
+     */
+    public record SkippedPodDto(String podName, String phase, String reason) {
+    }
+
+    /**
+     * What putting a declined pod back achieved.
+     *
+     * @param state {@code REVERTED | NOT_CONFIRMED | FAILED}
+     */
+    public record RevertDto(String state, String detail) {
     }
 
     /** @param state the rich per-container state, e.g. {@code APPLIED}, {@code DEFERRED} */
@@ -87,9 +129,21 @@ public record ApplyResponseDto(String correlationId, String state, boolean dryRu
      * @param uidAfter  the uid after; a different value means a different pod, so the resize was
      *                  never applied to the pod that was measured
      * @param samePod   {@code uidBefore.equals(uidAfter)}, computed once so a reader does not have to
+     * @param changed   whether the observed resources differ between before and the final state
+     * @param revert    for a pod that had to be put back, what that achieved; null otherwise
      */
     public record PodProofDto(String podName, String uidBefore, String uidAfter, boolean samePod,
-                              boolean ready, List<ContainerProofDto> containers) {
+                              boolean ready, List<ContainerProofDto> containers, boolean changed,
+                              RevertDto revert) {
+
+        /** A pod nothing had to be put back on; {@code changed} is derived from the numbers. */
+        public PodProofDto(String podName, String uidBefore, String uidAfter, boolean samePod,
+                           boolean ready, List<ContainerProofDto> containers) {
+            this(podName, uidBefore, uidAfter, samePod, ready, containers,
+                    containers != null && containers.stream().anyMatch(c -> c.observedBefore() != null
+                            && c.observedAfter() != null && !c.observedBefore().equals(c.observedAfter())),
+                    null);
+        }
     }
 
     /** @param observedAfter read from {@code status.containerStatuses[].resources}, not from the spec */

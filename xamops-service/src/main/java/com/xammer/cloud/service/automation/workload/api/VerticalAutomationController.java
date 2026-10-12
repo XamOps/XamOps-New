@@ -115,7 +115,14 @@ public class VerticalAutomationController {
                 account.getClient() == null ? null : account.getClient().getId(),
                 config.getId(), account.getAwsAccountId(), cluster, region);
 
-        return readService.read(target, config);
+        // The caller's write gates (demo, permission, read-write connection) are appended after the
+        // engine's own, computed by the same predicates endpoint 3 enforces, so the UI greys Apply
+        // for exactly the callers the apply would refuse. withWriteGates also sets
+        // writeGatesChecked, which is what lets the UI tell "checked, and permitted" apart from a
+        // response that never checked (a frontend deployed ahead of its backend).
+        VerticalApplyService.WriteGates writeGates = applyService.callerWriteGates(principal, account);
+        return readService.read(target, config)
+                .withWriteGates(writeGates.codes(), writeGates.details());
     }
 
     /**

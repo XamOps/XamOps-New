@@ -72,15 +72,15 @@ describe('verticalRightsizerAdapter codes', () => {
     expect(parseCode('K8S_CLUSTER_ACCESS_NOT_CONFIGURED')).toEqual({
       kind: 'known',
       code: 'CLUSTER_ACCESS_NOT_CONFIGURED',
-      label: 'Cluster access not configured',
+      label: 'No cluster access for XamOps',
     });
     expect(parseCode('NO_METRICS_SOURCE')).toMatchObject({ kind: 'known', code: 'NO_METRICS_SOURCE' });
   });
 
-  it('keeps an unrecognised code verbatim rather than dropping it', () => {
+  it('keeps an unrecognised code verbatim rather than dropping it, shown as Other (glossary rule 3)', () => {
     const parsed = parseCode('SOME_FUTURE_REASON');
     expect(parsed).toEqual({ kind: 'unknown', raw: 'SOME_FUTURE_REASON' });
-    expect(codeText(parsed!)).toBe('SOME_FUTURE_REASON');
+    expect(codeText(parsed!)).toBe('Other: SOME_FUTURE_REASON');
   });
 
   it('ignores null and blank codes', () => {
@@ -329,6 +329,43 @@ describe('verticalRightsizerApi', () => {
       'ap-south-1',
       { containers: [{ name: 'api', cpuRequestM: 25 }], applyMethod: 'IN_PLACE', dryRun: false },
     );
-    expect(result).toMatchObject({ kind: 'refused', message: 'Read-only.' });
+    expect(result).toMatchObject({ kind: 'refused', message: 'Read-only.', detail: null });
+  });
+
+  it('carries the permission rule a 403 names in detail', async () => {
+    mockedFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({ code: 'K8S_NO_USER_PERMISSION', message: 'No automation key.', detail: 'TAB_GRANT' }),
+        { status: 403 },
+      ),
+    );
+    const result = await applyVerticalRecommendation(
+      'xamops-test-1',
+      { namespace: 'team-a', kind: 'Deployment', name: 'overprovisioned-api' },
+      '102227938259',
+      'ap-south-1',
+      { containers: [{ name: 'api', cpuRequestM: 25 }], applyMethod: 'IN_PLACE', dryRun: true },
+    );
+    expect(result).toMatchObject({
+      kind: 'refused',
+      code: { kind: 'known', code: 'NO_USER_PERMISSION' },
+      detail: 'TAB_GRANT',
+    });
+  });
+
+  it('reads gateDetails and writeGatesChecked, and treats a missing flag as not checked', () => {
+    const checked = adaptEngineResponse({
+      engine,
+      gateReasons: ['NO_USER_PERMISSION'],
+      gateDetails: { NO_USER_PERMISSION: 'IMPERSONATION' },
+      writeGatesChecked: true,
+      workloads: [],
+    });
+    expect(checked.gateDetails).toEqual({ NO_USER_PERMISSION: 'IMPERSONATION' });
+    expect(checked.writeGatesChecked).toBe(true);
+
+    const older = adaptEngineResponse({ engine, gateReasons: [], workloads: [] });
+    expect(older.gateDetails).toEqual({});
+    expect(older.writeGatesChecked).toBe(false);
   });
 });

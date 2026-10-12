@@ -5,6 +5,7 @@ import com.xammer.cloud.service.automation.workload.PodNameRule;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -225,8 +226,17 @@ public final class PromQl {
         return names.stream().map(PromQl::escape).reduce((a, b) -> a + "|" + b).orElseThrow();
     }
 
+    /**
+     * A literal as a regex, written for a PromQL double-quoted string (review S4).
+     *
+     * <p>Two layers of escaping: the regex needs {@code \.} to match a dot, and a PromQL string
+     * follows Go's escaping, where {@code \.} is an "unknown escape sequence" that fails the whole
+     * query. So each metacharacter is preceded by an escaped backslash ({@code \\.} on the wire),
+     * which the PromQL parser turns back into the regex's {@code \.}. One dotted name used to make
+     * every query a parse error and blank the whole cluster as NO_METRICS_SOURCE.
+     */
     private static String escape(String literal) {
-        return REGEX_META.matcher(literal).replaceAll("\\\\$1");
+        return REGEX_META.matcher(literal).replaceAll(Matcher.quoteReplacement("\\\\") + "$1");
     }
 
     /** {@code 0.95} for p95 — Prometheus wants a fraction, the policy speaks percentiles. */

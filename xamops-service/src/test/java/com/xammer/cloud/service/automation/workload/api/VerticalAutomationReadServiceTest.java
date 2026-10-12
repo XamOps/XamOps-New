@@ -1,6 +1,8 @@
 package com.xammer.cloud.service.automation.workload.api;
 
 import com.xammer.cloud.domain.KubernetesClusterConfig;
+import com.xammer.cloud.domain.WorkloadVerticalPolicy;
+import com.xammer.cloud.repository.WorkloadVerticalPolicyRepository;
 import com.xammer.cloud.service.automation.workload.ApplyMethod;
 import com.xammer.cloud.service.automation.workload.HysteresisBand;
 import com.xammer.cloud.service.automation.workload.NodeCapacity;
@@ -28,10 +30,12 @@ import com.xammer.cloud.service.automation.workload.usage.PercentileSet;
 import com.xammer.cloud.service.automation.workload.usage.UsageHistoryProvider;
 import com.xammer.cloud.service.automation.workload.usage.UsageQuery;
 import com.xammer.cloud.service.automation.workload.usage.UsageUnavailableException;
+import com.xammer.cloud.service.automation.workload.usage.VerticalMetricsProperties;
 import com.xammer.cloud.service.automation.workload.inventory.WorkloadPods;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.core.annotation.Order;
 
 import java.time.Duration;
@@ -43,6 +47,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -385,6 +390,40 @@ class VerticalAutomationReadServiceTest {
                 .isEqualTo("WORKLOAD_ROW");
         assertThat(fromRow.provenance().windowHours()).isEqualTo(24);
         assertThat(storedUsage.lastQuery.windowHours()).isEqualTo(24);
+    }
+
+    @Test
+    @DisplayName("after one Apply under RECOMMEND, endpoint 1 still reports RECOMMEND and keeps publishing (report 4c)")
+    void anApplyDoesNotTurnTheWorkloadOff() {
+        // Real policy service over a mocked table, so the row is the one recordApplied writes and
+        // the read path maps it back -- the round trip that turned a workload OFF on the live run.
+        WorkloadVerticalPolicyRepository table = mock(WorkloadVerticalPolicyRepository.class);
+        WorkloadPolicyService policies = new WorkloadPolicyService(table);
+        VerticalMetricsProperties uat = VerticalReadServiceFixtures.metricsProperties("RECOMMEND", 72);
+        VerticalWorkloadDto before = service(new FakeUsage(), inventory(overprovisionedApi()),
+                VerticalReadServiceFixtures.noStoredPolicies(), "RECOMMEND", 72)
+                .read(TARGET, config(null)).workloads().get(0);
+
+        // Applied two hours before this cycle, so the 60-minute cooldown has elapsed.
+        policies.recordApplied(7L, 42L, API, uat.defaultsPolicy(),
+                VerticalReadServiceFixtures.CYCLE_AT.minus(Duration.ofHours(2)));
+        ArgumentCaptor<WorkloadVerticalPolicy> written = ArgumentCaptor.forClass(WorkloadVerticalPolicy.class);
+        verify(table).save(written.capture());
+        when(table.findByClusterConfigId(42L)).thenReturn(List.of(written.getValue()));
+
+        VerticalWorkloadDto after = service(new FakeUsage(), inventory(overprovisionedApi()),
+                policies, "RECOMMEND", 72).read(TARGET, config(null)).workloads().get(0);
+
+        assertThat(after.policy()).as("the same mode and policy values as before the Apply")
+                .isEqualTo(before.policy());
+        assertThat(after.policy().mode()).isEqualTo("RECOMMEND");
+        assertThat(after.provenance().windowHours()).isEqualTo(72);
+        assertThat(after.skipReason()).as("never POLICY_OFF").isNull();
+        assertThat(after.containers()).hasSize(1);
+        assertThat(after.containers().get(0).recommended())
+                .as("recommendations keep being published once the cooldown has passed")
+                .isEqualTo(before.containers().get(0).recommended())
+                .isNotNull();
     }
 
     @Test

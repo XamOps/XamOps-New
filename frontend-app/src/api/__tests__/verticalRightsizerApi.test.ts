@@ -51,6 +51,14 @@ describe('applyVerticalRecommendation', () => {
     expect(JSON.parse(options.body)).toEqual(REQUEST);
   });
 
+  it('never invents a state the server did not send (review F6)', async () => {
+    mockedFetch.mockResolvedValue(answer(202, { correlationId: 'c0ffee', dryRun: true }));
+
+    const reply = await apply();
+
+    expect(reply).toMatchObject({ kind: 'submitted', state: null });
+  });
+
   it('carries the additive result block through, including the restart-free proof', async () => {
     mockedFetch.mockResolvedValue(
       answer(202, {
@@ -125,6 +133,7 @@ describe('applyVerticalRecommendation', () => {
       kind: 'refused',
       code: { kind: 'known', code: 'READ_ONLY_CONNECTION', label: 'Read-only connection' },
       message: 'Connected read-only.',
+      detail: null,
     });
   });
 

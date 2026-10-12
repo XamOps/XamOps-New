@@ -115,8 +115,9 @@ public class EksClusterAccessProvider implements ClusterAccessProvider {
             }
             apiServer = cluster.endpoint();
             caCertData = cluster.certificateAuthority() == null ? null : cluster.certificateAuthority().data();
-            token = eksTokenGenerator.generateTokenForCluster(
-                    account.getAwsAccountId(), target.clusterName(), target.region());
+            // The entitled row itself, never its number: re-resolving the number with an unscoped
+            // unique lookup throws when two tenants' rows share it (review S5).
+            token = eksTokenGenerator.generateTokenForCluster(account, target.clusterName(), target.region());
         } catch (ClusterAccessException alreadyTyped) {
             throw alreadyTyped;
         } catch (Exception e) {
