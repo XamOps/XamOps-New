@@ -490,9 +490,8 @@ describe('design-rule guard: palette', () => {
 });
 
 describe('design-rule guard: CloudK8s files', () => {
-  // charts/ is declared now (design-delta §2.6 item 7) but FEAT-002 creates it, so it has no files
-  // yet. Every other guarded path must resolve to at least one scanned file.
-  const NOT_YET_CREATED: readonly string[] = ['components/CloudK8s/shared/charts/'];
+  // FEAT-002 created charts/, so every guarded path now resolves to at least one scanned file.
+  const NOT_YET_CREATED: readonly string[] = [];
 
   it('scans at least one file per guarded path', () => {
     const files = guardedFiles();
