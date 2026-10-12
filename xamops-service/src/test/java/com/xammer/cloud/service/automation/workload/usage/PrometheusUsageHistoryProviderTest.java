@@ -194,7 +194,7 @@ class PrometheusUsageHistoryProviderTest {
                 new UsageQuery(TARGET, REF, CONTAINERS, List.of("api.prod", "api-2"), 95, 24));
 
         assertThat(transport.queryContaining("count_over_time"))
-                .contains("pod=~\"api\\.prod|api-2\"");
+                .contains("pod=~\"api\\\\.prod|api-2\"");
     }
 
     // ------------------------------------------- history outlives the current pods (addendum A)
