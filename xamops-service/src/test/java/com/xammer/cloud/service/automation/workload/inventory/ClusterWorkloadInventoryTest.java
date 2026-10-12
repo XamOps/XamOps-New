@@ -185,6 +185,33 @@ class ClusterWorkloadInventoryTest {
                 .hasSize(2);
     }
 
+    @Test
+    @DisplayName("the pods left out are recorded with why: not Running, being deleted, an older revision (review-2 SF3)")
+    void skippedPodsAreRecordedWithWhy() {
+        overrides.put("/api/v1/pods", "pods-live-state.json");
+        overrides.put("/apis/apps/v1/deployments", "deployments-revisions.json");
+        overrides.put("/apis/apps/v1/replicasets", "replicasets-revisions.json");
+
+        WorkloadPods pods = workload("team-a", "overprovisioned-api").pods();
+
+        assertThat(pods.skipped()).containsExactlyInAnyOrder(
+                new WorkloadPods.Skipped("overprovisioned-api-7d9f-ccccc", "Failed", WorkloadPods.SKIPPED_NOT_RUNNING),
+                new WorkloadPods.Skipped("overprovisioned-api-7d9f-ddddd", "Pending", WorkloadPods.SKIPPED_NOT_RUNNING),
+                new WorkloadPods.Skipped("overprovisioned-api-7d9f-eeeee", "Running", WorkloadPods.SKIPPED_TERMINATING),
+                new WorkloadPods.Skipped("overprovisioned-api-5b8c-fffff", "Running", WorkloadPods.SKIPPED_OLD_REVISION));
+    }
+
+    @Test
+    @DisplayName("with no revision to tell them apart, no pod is called an older revision")
+    void withoutRevisionsNothingIsAnOldRevision() {
+        overrides.put("/api/v1/pods", "pods-live-state.json");
+
+        assertThat(workload("team-a", "overprovisioned-api").pods().skipped())
+                .extracting(WorkloadPods.Skipped::reason)
+                .containsExactlyInAnyOrder(WorkloadPods.SKIPPED_NOT_RUNNING, WorkloadPods.SKIPPED_NOT_RUNNING,
+                        WorkloadPods.SKIPPED_TERMINATING);
+    }
+
     // ---------------------------------------------------------------- history (addendum A)
 
     @Test

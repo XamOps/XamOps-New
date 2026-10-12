@@ -217,8 +217,12 @@ public class DirectInPlaceResizeExecutor implements WorkloadActionExecutor {
             return record(command, ResizeProof.refused(preflight.refusal()), SubmitState.REFUSED);
         }
 
+        List<ResizeProof.SkippedPod> skipped = workload.pods().skipped().stream()
+                .map(pod -> new ResizeProof.SkippedPod(pod.name(), pod.phase(), pod.reason()))
+                .toList();
+
         if (command.dryRun()) {
-            return record(command, dryRun(preflight), SubmitState.ACCEPTED);
+            return record(command, dryRun(preflight).withSkippedPods(skipped), SubmitState.ACCEPTED);
         }
 
         List<WorkloadPods.Pod> pods = workload.pods().pods();
@@ -228,7 +232,8 @@ public class DirectInPlaceResizeExecutor implements WorkloadActionExecutor {
                     SubmitState.REFUSED);
         }
 
-        return record(command, rollout(access.client(), command, preflight, pods), SubmitState.ACCEPTED);
+        return record(command, rollout(access.client(), command, preflight, pods).withSkippedPods(skipped),
+                SubmitState.ACCEPTED);
     }
 
     @Override

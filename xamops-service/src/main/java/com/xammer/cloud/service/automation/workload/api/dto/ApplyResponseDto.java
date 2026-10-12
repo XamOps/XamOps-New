@@ -54,15 +54,21 @@ public record ApplyResponseDto(String correlationId, String state, boolean dryRu
      *                     applied later
      * @param insufficient {@code cpu} or {@code memory} when the kubelet declined a pod for lack of
      *                     that resource on its node, else null
+     * @param skippedPods  the workload's pods that were not resized (not Running, being deleted, or
+     *                     of an older revision), so "every pod" is never claimed for a partial set
      */
     public record Result(String method, String terminal, String detail, boolean restartFree,
                          List<ContainerResultDto> containers, List<PodProofDto> pods,
-                         Boolean reverted, String insufficient) {
+                         Boolean reverted, String insufficient, List<SkippedPodDto> skippedPods) {
 
-        /** A result with nothing put back. */
+        public Result {
+            skippedPods = skippedPods == null ? List.of() : List.copyOf(skippedPods);
+        }
+
+        /** A result with nothing put back and no pod left out. */
         public Result(String method, String terminal, String detail, boolean restartFree,
                       List<ContainerResultDto> containers, List<PodProofDto> pods) {
-            this(method, terminal, detail, restartFree, containers, pods, null, null);
+            this(method, terminal, detail, restartFree, containers, pods, null, null, List.of());
         }
 
         static Result of(String method, ResizeProof proof) {
@@ -88,8 +94,20 @@ public record ApplyResponseDto(String correlationId, String state, boolean dryRu
             }
             return new Result(method, proof.outcome().name(), proof.detail(), proof.restartFree(),
                     List.copyOf(containers), List.copyOf(pods), proof.reverted(),
-                    proof.insufficientResource());
+                    proof.insufficientResource(),
+                    proof.skippedPods().stream()
+                            .map(pod -> new SkippedPodDto(pod.podName(), pod.phase(), pod.reason()))
+                            .toList());
         }
+    }
+
+    /**
+     * One of the workload's pods that was not resized.
+     *
+     * @param phase  {@code status.phase}, or null
+     * @param reason {@code NOT_RUNNING | TERMINATING | OLD_REVISION}
+     */
+    public record SkippedPodDto(String podName, String phase, String reason) {
     }
 
     /**

@@ -33,12 +33,39 @@ import java.util.List;
  *                    restarted" and is why {@link #pods()} carries the raw numbers too.
  * @param containers  per-container result
  * @param pods        per-pod before/after proof, in the order the pods were touched (canary first)
+ * @param skippedPods the workload's pods that were not touched and why, so "every pod" is never
+ *                    claimed for a rollout that covered only the running ones
  */
 public record ResizeProof(Outcome outcome,
                           String detail,
                           boolean restartFree,
                           List<ContainerResult> containers,
-                          List<PodProof> pods) {
+                          List<PodProof> pods,
+                          List<SkippedPod> skippedPods) {
+
+    /** A proof with no pods left out. */
+    public ResizeProof(Outcome outcome, String detail, boolean restartFree,
+                       List<ContainerResult> containers, List<PodProof> pods) {
+        this(outcome, detail, restartFree, containers, pods, List.of());
+    }
+
+    /** The same proof, naming the workload's pods that were not resized and why (review-2 SF3). */
+    public ResizeProof withSkippedPods(List<SkippedPod> skipped) {
+        return new ResizeProof(outcome, detail, restartFree, containers, pods, skipped);
+    }
+
+    /**
+     * One of the workload's pods that was not resized: not Running, being deleted, or of an older
+     * revision. It starts at the workload's own size whenever it runs.
+     */
+    public record SkippedPod(String podName, String phase, String reason) {
+
+        public SkippedPod {
+            if (podName == null || podName.isBlank()) {
+                throw new IllegalArgumentException("podName is mandatory");
+            }
+        }
+    }
 
     public ResizeProof {
         if (outcome == null) {
@@ -56,6 +83,7 @@ public record ResizeProof(Outcome outcome,
         }
         containers = containers == null ? List.of() : List.copyOf(containers);
         pods = pods == null ? List.of() : List.copyOf(pods);
+        skippedPods = skippedPods == null ? List.of() : List.copyOf(skippedPods);
     }
 
     /** What actually happened. Every value except {@link #APPLIED} means nothing was confirmed. */

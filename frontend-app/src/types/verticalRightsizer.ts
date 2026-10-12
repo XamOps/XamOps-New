@@ -351,6 +351,11 @@ export interface ApplyOutcomeWire {
   reverted?: boolean | null;
   /** `cpu` or `memory` when the kubelet declined a pod for lack of that resource on its node. */
   insufficient?: string | null;
+  /**
+   * The workload's pods that were not resized: `NOT_RUNNING` (with its phase), `TERMINATING` or
+   * `OLD_REVISION`. "Every pod" is never claimed when this is not empty.
+   */
+  skippedPods?: { podName: string; phase: string | null; reason: string | null }[] | null;
 }
 
 /**

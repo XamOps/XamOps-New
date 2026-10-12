@@ -422,6 +422,27 @@ class DirectInPlaceResizeExecutorTest {
     }
 
     @Test
+    @DisplayName("the proof names the pods that were left out, so 'every pod' is never claimed (review-2 SF3)")
+    void skippedPodsAreInTheProof() {
+        givenPod("api-1", "uid-api-1", "containerd://c1", 0, true, "1", "1Gi");
+        whenPatched("api-1", pod("api-1", "uid-api-1", "containerd://c1", 0, true, "25m", "250Mi"));
+        ClusterWorkloadInventory.Workload withAPendingPod = new ClusterWorkloadInventory.Workload(REF, 2,
+                false, false, null, null,
+                List.of(new ClusterWorkloadInventory.ContainerSpec("api", GUARANTEED_1CPU_1GI, Map.of())),
+                new WorkloadPods(REF, List.of(new WorkloadPods.Pod("api-1", "uid-api-1")), List.of(),
+                        List.of(new WorkloadPods.Skipped("api-2", "Pending", WorkloadPods.SKIPPED_NOT_RUNNING))));
+
+        executor().submit(command(false), access(), withAPendingPod);
+
+        ResizeProof proof = proof();
+        assertThat(proof.outcome()).isEqualTo(ResizeProof.Outcome.APPLIED);
+        assertThat(proof.pods()).hasSize(1);
+        assertThat(proof.skippedPods()).containsExactly(
+                new ResizeProof.SkippedPod("api-2", "Pending", WorkloadPods.SKIPPED_NOT_RUNNING));
+        assertThat(patchedPods).containsExactly("api-1");
+    }
+
+    @Test
     @DisplayName("the pending reason names the resource the node lacked, in either kubelet wording")
     void theInsufficientResourceIsReadFromTheReason() {
         assertThat(DirectInPlaceResizeExecutor.insufficientResource(PodResizeStatus.of(

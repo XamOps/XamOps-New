@@ -102,6 +102,7 @@ public class ClusterWorkloadInventory {
                     observedGeneration(deployment.getStatus() == null
                             ? null : deployment.getStatus().getObservedGeneration()),
                     deploymentPods(deployment, replicaSetsByOwnerUid, podsByOwnerUid),
+                    deploymentOtherRevisionPods(deployment, replicaSetsByOwnerUid, podsByOwnerUid),
                     deploymentPodNameRules(deployment, replicaSetsByOwnerUid),
                     hpas, pdbs);
             if (workload != null) {
@@ -115,6 +116,7 @@ public class ClusterWorkloadInventory {
                     observedGeneration(statefulSet.getStatus() == null
                             ? null : statefulSet.getStatus().getObservedGeneration()),
                     statefulSetPods(statefulSet, podsByOwnerUid),
+                    statefulSetOtherRevisionPods(statefulSet, podsByOwnerUid),
                     statefulSetPodNameRules(statefulSet),
                     hpas, pdbs);
             if (workload != null) {
@@ -128,7 +130,7 @@ public class ClusterWorkloadInventory {
 
     /** @return the workload, or null when it is protected, template-less or unreadable */
     private Workload workload(HasMetadata object, String kind, PodTemplateSpec template, int replicas,
-                              Long observedGeneration, List<Pod> ownedPods,
+                              Long observedGeneration, List<Pod> ownedPods, List<Pod> otherRevisionPods,
                               List<PodNameRule> podNameRules,
                               List<HorizontalPodAutoscaler> hpas, List<PodDisruptionBudget> pdbs) {
         ObjectMeta metadata = object.getMetadata();
@@ -177,7 +179,34 @@ public class ClusterWorkloadInventory {
                         .map(pod -> new WorkloadPods.Pod(pod.getMetadata().getName(),
                                 pod.getMetadata().getUid()))
                         .toList(),
-                        podNameRules));
+                        podNameRules,
+                        skipped(ownedPods, otherRevisionPods)));
+    }
+
+    /**
+     * The pods this workload owns that are not resized, and why (review-2 SF3): not Running, being
+     * deleted, or of an older revision. Kept so an outcome never claims every pod.
+     */
+    private static List<WorkloadPods.Skipped> skipped(List<Pod> ownedPods, List<Pod> otherRevisionPods) {
+        List<WorkloadPods.Skipped> skipped = new ArrayList<>();
+        for (Pod pod : ownedPods) {
+            if (!isLive(pod) && pod.getMetadata() != null && pod.getMetadata().getName() != null) {
+                skipped.add(new WorkloadPods.Skipped(pod.getMetadata().getName(), phaseOf(pod),
+                        pod.getMetadata().getDeletionTimestamp() != null
+                                ? WorkloadPods.SKIPPED_TERMINATING : WorkloadPods.SKIPPED_NOT_RUNNING));
+            }
+        }
+        for (Pod pod : otherRevisionPods) {
+            if (pod.getMetadata() != null && pod.getMetadata().getName() != null) {
+                skipped.add(new WorkloadPods.Skipped(pod.getMetadata().getName(), phaseOf(pod),
+                        WorkloadPods.SKIPPED_OLD_REVISION));
+            }
+        }
+        return skipped;
+    }
+
+    private static String phaseOf(Pod pod) {
+        return pod.getStatus() == null ? null : pod.getStatus().getPhase();
     }
 
     private static boolean isLive(Pod pod) {
@@ -367,6 +396,32 @@ public class ClusterWorkloadInventory {
     }
 
     /**
+     * The pods of this Deployment's <em>other</em> ReplicaSets: what {@link #deploymentPods} leaves
+     * out during a rollout. Empty when no current ReplicaSet could be told apart, because then every
+     * owned pod was taken as current.
+     */
+    private static List<Pod> deploymentOtherRevisionPods(Deployment deployment,
+                                                         Map<String, List<ReplicaSet>> replicaSetsByOwnerUid,
+                                                         Map<String, List<Pod>> podsByOwnerUid) {
+        String deploymentUid = uid(deployment);
+        if (deploymentUid == null) {
+            return List.of();
+        }
+        List<ReplicaSet> owned = replicaSetsByOwnerUid.getOrDefault(deploymentUid, List.of());
+        ReplicaSet current = currentReplicaSet(deployment, owned);
+        if (current == null) {
+            return List.of();
+        }
+        List<Pod> others = new ArrayList<>();
+        for (ReplicaSet replicaSet : owned) {
+            if (replicaSet != current) {
+                others.addAll(podsByOwnerUid.getOrDefault(uid(replicaSet), List.of()));
+            }
+        }
+        return others;
+    }
+
+    /**
      * One rule per <strong>retained</strong> ReplicaSet of this Deployment — the pod-name shapes it
      * has produced over the revisions Kubernetes still keeps.
      *
@@ -455,6 +510,20 @@ public class ClusterWorkloadInventory {
         }
         return owned.stream()
                 .filter(pod -> pod.getMetadata().getLabels() != null && updateRevision.equals(
+                        pod.getMetadata().getLabels().get(STATEFUL_SET_REVISION_LABEL)))
+                .toList();
+    }
+
+    /** The StatefulSet's pods {@link #statefulSetPods} leaves out: those not on its update revision. */
+    private static List<Pod> statefulSetOtherRevisionPods(StatefulSet statefulSet,
+                                                          Map<String, List<Pod>> podsByOwnerUid) {
+        String updateRevision = statefulSet.getStatus() == null ? null
+                : statefulSet.getStatus().getUpdateRevision();
+        if (updateRevision == null || updateRevision.isBlank()) {
+            return List.of();
+        }
+        return ownedPods(uid(statefulSet), podsByOwnerUid).stream()
+                .filter(pod -> pod.getMetadata().getLabels() == null || !updateRevision.equals(
                         pod.getMetadata().getLabels().get(STATEFUL_SET_REVISION_LABEL)))
                 .toList();
     }

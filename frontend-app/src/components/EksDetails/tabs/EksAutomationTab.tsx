@@ -48,6 +48,7 @@ import type {
   EngineView,
   ManualApplyGate,
   MetricValue,
+  VerticalResourcesWire,
   WorkloadView,
 } from '../../../types/verticalRightsizer';
 
@@ -122,7 +123,8 @@ const ResourceCell: React.FC<{
  */
 const OUTCOME_TEXT: Record<string, string> = {
   APPLIED: 'Applied. Confirmed in every pod.',
-  PARTIALLY_APPLIED: 'Partly applied: it stopped at the first pod that failed. The pods below say which changed.',
+  // Each pod's line below shows what it ran before and runs now (review-2 SF7).
+  PARTIALLY_APPLIED: 'Partly applied: it stopped at the first pod that failed.',
   DRY_RUN: 'Test run passed. Nothing was sent to the cluster.',
   DEFERRED: "Not applied: the node doesn't have room right now. Kubernetes may apply it later.",
   INFEASIBLE: 'Not applied: the node can never fit this size.',
@@ -187,9 +189,55 @@ const outcomeText = (outcome: ApplyOutcomeWire): string => {
   if (outcome.reverted === false && NOT_PUT_BACK_HEAD[terminal]) {
     return `${NOT_PUT_BACK_HEAD[terminal]} ${NOT_PUT_BACK}`;
   }
-  const text = OUTCOME_TEXT[terminal];
+  const text = terminal === 'APPLIED' ? appliedText(outcome) : OUTCOME_TEXT[terminal];
   if (!text) return `Other: ${terminal}`;
   return terminal === 'APPLIED' && outcome.restartFree === true ? `${text} No restart.` : text;
+};
+
+/** "N of M" when pods were left out, else null (review-2 SF3). */
+const runningShare = (outcome: ApplyOutcomeWire): string | null => {
+  const skipped = (outcome.skippedPods ?? []).length;
+  if (skipped === 0) return null;
+  const touched = (outcome.pods ?? []).length;
+  return `${touched} of ${touched + skipped}`;
+};
+
+/** Never "every pod" when some were not running: they start at the workload's own size later. */
+const appliedText = (outcome: ApplyOutcomeWire): string => {
+  const share = runningShare(outcome);
+  return share ? `Applied. Confirmed in every running pod (${share}).` : OUTCOME_TEXT.APPLIED;
+};
+
+const SKIPPED_POD_TEXT: Record<string, string> = {
+  TERMINATING: 'being deleted',
+  OLD_REVISION: 'from the previous version of the workload',
+};
+
+const skippedPodText = (pod: { phase: string | null; reason: string | null }): string => {
+  if (pod.reason && SKIPPED_POD_TEXT[pod.reason]) return SKIPPED_POD_TEXT[pod.reason];
+  return pod.phase ? `not running (${pod.phase})` : 'not running';
+};
+
+const OBSERVED_FIELDS: { key: keyof VerticalResourcesWire; label: string; format: (v: MetricValue) => string }[] = [
+  { key: 'cpuRequestM', label: 'CPU request', format: formatMillis },
+  { key: 'memRequestMi', label: 'memory request', format: formatMib },
+  { key: 'cpuLimitM', label: 'CPU limit', format: formatMillis },
+  { key: 'memLimitMi', label: 'memory limit', format: formatMib },
+];
+
+const metric = (value: number | null | undefined): MetricValue =>
+  value === null || value === undefined ? { kind: 'unset' } : { kind: 'value', value };
+
+/**
+ * What one container ran before and runs now, read from the pod's status (review-2 SF7): only the
+ * fields that moved, or "no change".
+ */
+const observedChange = (before: VerticalResourcesWire | null, after: VerticalResourcesWire | null): string => {
+  if (!before || !after) return 'not reported';
+  const moved = OBSERVED_FIELDS.filter((f) => (before[f.key] ?? null) !== (after[f.key] ?? null)).map(
+    (f) => `${f.label} ${shown(metric(before[f.key]), f.format)} → ${shown(metric(after[f.key]), f.format)}`,
+  );
+  return moved.length > 0 ? moved.join(' · ') : 'no change';
 };
 
 const CONTAINER_STATE_TEXT: Record<string, string> = {
@@ -228,38 +276,56 @@ const SUBMISSION_TEXT: Record<string, string> = {
 const submissionText = (state: string | null): string =>
   state === null || state.trim() === '' ? DASH : (SUBMISSION_TEXT[state] ?? `Other: ${state}`);
 
-/** The restart-free proof for one pod, in the numbers it was proved from (glossary 4.6). */
+/**
+ * The restart-free proof for one pod, in the numbers it was proved from (glossary 4.6), and what
+ * each container ran before and runs now, so a partial outcome shows which pods changed.
+ */
 const PodProof: React.FC<{ pod: ApplyPodProofWire }> = ({ pod }) => (
   <li className="text-[11px] text-[rgba(0,0,0,0.5)]">
-    {pod.podName}: {pod.samePod === true ? 'same pod' : 'pod replaced'}
-    {(pod.containers ?? []).map((c) => (
-      <span key={c.name}>
-        {c.containerIdBefore !== null && c.containerIdAfter !== null
-          ? c.containerIdBefore === c.containerIdAfter
-            ? ' · same container'
-            : ' · container replaced'
-          : ''}
-        {c.restartCountBefore !== null && c.restartCountAfter !== null && c.restartCountBefore !== c.restartCountAfter
-          ? ` · restarted (${c.restartCountBefore} → ${c.restartCountAfter})`
-          : ` · restarts ${formatCount(c.restartCountBefore)} → ${formatCount(c.restartCountAfter)}`}
-      </span>
-    ))}
-    {pod.ready === true ? ' · ready' : ' · not ready'}
-    {pod.revert?.state ? (
-      <span title={pod.revert.detail ?? undefined}>{POD_REVERT_TEXT[pod.revert.state] ?? ` · ${pod.revert.state}`}</span>
-    ) : null}
+    <span data-testid="pod-proof-summary">
+      {pod.podName}: {pod.samePod === true ? 'same pod' : 'pod replaced'}
+      {(pod.containers ?? []).map((c) => (
+        <span key={c.name}>
+          {c.containerIdBefore !== null && c.containerIdAfter !== null
+            ? c.containerIdBefore === c.containerIdAfter
+              ? ' · same container'
+              : ' · container replaced'
+            : ''}
+          {c.restartCountBefore !== null && c.restartCountAfter !== null && c.restartCountBefore !== c.restartCountAfter
+            ? ` · restarted (${c.restartCountBefore} → ${c.restartCountAfter})`
+            : ` · restarts ${formatCount(c.restartCountBefore)} → ${formatCount(c.restartCountAfter)}`}
+        </span>
+      ))}
+      {pod.ready === true ? ' · ready' : ' · not ready'}
+      {pod.revert?.state ? (
+        <span title={pod.revert.detail ?? undefined}>{POD_REVERT_TEXT[pod.revert.state] ?? ` · ${pod.revert.state}`}</span>
+      ) : null}
+    </span>
+    {(pod.containers ?? []).length > 0 && (
+      <ul className="pl-3">
+        {(pod.containers ?? []).map((c) => (
+          <li key={c.name}>
+            {c.name}: {observedChange(c.observedBefore, c.observedAfter)}
+          </li>
+        ))}
+      </ul>
+    )}
   </li>
 );
 
 const ApplyOutcome: React.FC<{ outcome: ApplyOutcomeWire }> = ({ outcome }) => {
   const proven = outcome.terminal === 'APPLIED' && outcome.restartFree === true;
+  const share = runningShare(outcome);
+  const skipped = outcome.skippedPods ?? [];
   return (
     <div className="space-y-1">
       <p className="text-[12px] font-semibold text-[rgba(0,0,0,0.88)]" title={outcome.detail ?? undefined}>
         {outcomeText(outcome)}
       </p>
       <p className="text-[11px] text-[rgba(0,0,0,0.5)]">
-        {proven ? 'In place, no restart · proven in every pod' : 'In place · no restart-free proof'}
+        {proven
+          ? `In place, no restart · proven in every ${share ? `running pod (${share})` : 'pod'}`
+          : 'In place · no restart-free proof'}
       </p>
       {proven && (
         <p className="text-[11px] text-[rgba(0,0,0,0.5)]">
@@ -282,6 +348,18 @@ const ApplyOutcome: React.FC<{ outcome: ApplyOutcomeWire }> = ({ outcome }) => {
             <PodProof key={pod.podName} pod={pod} />
           ))}
         </ul>
+      )}
+      {skipped.length > 0 && (
+        <div className="text-[11px] text-[rgba(0,0,0,0.5)]">
+          <p>Not resized. These pods run at the workload&apos;s own size:</p>
+          <ul className="space-y-0.5">
+            {skipped.map((pod) => (
+              <li key={pod.podName} title={pod.reason ? `Code: ${pod.reason}` : undefined}>
+                {pod.podName}: {skippedPodText(pod)}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

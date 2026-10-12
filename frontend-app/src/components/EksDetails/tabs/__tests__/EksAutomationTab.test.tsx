@@ -865,13 +865,111 @@ describe('EksAutomationTab', () => {
 
     expect(await screen.findByText('Applied. Confirmed in every pod. No restart.')).toBeInTheDocument();
     expect(screen.getByText('In place, no restart · proven in every pod')).toBeInTheDocument();
+    expect(screen.getByTestId('pod-proof-summary')).toHaveTextContent(
+      /^overprovisioned-api-5d9f-abcde: same pod · same container · restarts 0 → 0 · ready$/,
+    );
+    // Review-2 SF7: what the pod ran before and runs now, from its status.
     expect(
       screen.getByText(
-        (_, el) =>
-          el?.tagName === 'LI' &&
-          el.textContent === 'overprovisioned-api-5d9f-abcde: same pod · same container · restarts 0 → 0 · ready',
+        'api: CPU request 1000m → 25m · memory request 1 GiB → 250Mi · CPU limit 1000m → 25m · memory limit 1 GiB → 250Mi',
       ),
     ).toBeInTheDocument();
+  });
+
+  it('says "every running pod (N of M)" and lists the pods it left out (review-2 SF3)', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+    const resized = (name: string) => ({
+      podName: name,
+      uidBefore: `uid-${name}`,
+      uidAfter: `uid-${name}`,
+      samePod: true,
+      ready: true,
+      containers: [
+        {
+          name: 'api',
+          containerIdBefore: 'c1',
+          containerIdAfter: 'c1',
+          restartCountBefore: 0,
+          restartCountAfter: 0,
+          observedBefore: { cpuRequestM: 1000, memRequestMi: 1024, cpuLimitM: 1000, memLimitMi: 1024 },
+          observedAfter: { cpuRequestM: 25, memRequestMi: 250, cpuLimitM: 25, memLimitMi: 250 },
+        },
+      ],
+    });
+    mockedApply.mockResolvedValue({
+      kind: 'submitted',
+      correlationId: 'c0ffee',
+      state: 'ACCEPTED',
+      dryRun: false,
+      result: {
+        method: 'IN_PLACE',
+        terminal: 'APPLIED',
+        detail: null,
+        restartFree: true,
+        containers: [{ name: 'api', state: 'APPLIED', detail: null, requested: null, restartExpected: false }],
+        pods: [resized('api-1'), resized('api-2')],
+        skippedPods: [{ podName: 'api-3', phase: 'Pending', reason: 'NOT_RUNNING' }],
+      },
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+
+    expect(await screen.findByText('Applied. Confirmed in every running pod (2 of 3). No restart.')).toBeInTheDocument();
+    expect(screen.getByText('In place, no restart · proven in every running pod (2 of 3)')).toBeInTheDocument();
+    expect(screen.getByText('api-3: not running (Pending)')).toBeInTheDocument();
+    expect(screen.queryByText(/Confirmed in every pod/)).toBeNull();
+  });
+
+  it('a partial outcome shows which pod changed and which did not (review-2 SF7)', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+    const proofOf = (name: string, after: { cpuRequestM: number; memRequestMi: number; cpuLimitM: number; memLimitMi: number }) => ({
+      podName: name,
+      uidBefore: `uid-${name}`,
+      uidAfter: `uid-${name}`,
+      samePod: true,
+      ready: true,
+      containers: [
+        {
+          name: 'api',
+          containerIdBefore: 'c1',
+          containerIdAfter: 'c1',
+          restartCountBefore: 0,
+          restartCountAfter: 0,
+          observedBefore: { cpuRequestM: 1000, memRequestMi: 1024, cpuLimitM: 1000, memLimitMi: 1024 },
+          observedAfter: after,
+        },
+      ],
+    });
+    mockedApply.mockResolvedValue({
+      kind: 'submitted',
+      correlationId: 'c0ffee',
+      state: 'ACCEPTED',
+      dryRun: false,
+      result: {
+        method: 'IN_PLACE',
+        terminal: 'PARTIALLY_APPLIED',
+        detail: 'The canary pod was resized and confirmed, but pod api-2 was not.',
+        restartFree: false,
+        containers: [{ name: 'api', state: 'FAILED', detail: null, requested: null, restartExpected: false }],
+        pods: [
+          proofOf('api-1', { cpuRequestM: 25, memRequestMi: 250, cpuLimitM: 25, memLimitMi: 250 }),
+          proofOf('api-2', { cpuRequestM: 1000, memRequestMi: 1024, cpuLimitM: 1000, memLimitMi: 1024 }),
+        ],
+      },
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+
+    expect(await screen.findByText('Partly applied: it stopped at the first pod that failed.')).toBeInTheDocument();
+    expect(screen.queryByText(/The pods below say which changed/)).toBeNull();
+    expect(
+      screen.getByText(
+        'api: CPU request 1000m → 25m · memory request 1 GiB → 250Mi · CPU limit 1000m → 25m · memory limit 1 GiB → 250Mi',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('api: no change')).toBeInTheDocument();
   });
 
   it('renders a deferred outcome as a wait for room, never as a success', async () => {
