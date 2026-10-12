@@ -876,6 +876,80 @@ describe('EksAutomationTab', () => {
     ).toBeInTheDocument();
   });
 
+  describe('the status block and the copy say only what the payload backs (review-2 SF6, items 9-11)', () => {
+    const changesValue = () => screen.getByText('Changes').nextElementSibling;
+
+    it.each([
+      [['NO_USER_PERMISSION'], { NO_USER_PERMISSION: 'TAB_GRANT' }, 'View only'],
+      [['READ_ONLY_CONNECTION'], {}, 'View only'],
+      [['DEMO'], { DEMO: 'DEMO' }, 'View only'],
+      [[], {}, 'Can be applied'],
+    ])('"Changes" with gates %j reads %s', async (gateReasons, gateDetails, value) => {
+      resolveWith({ engine: engine(), gateReasons, gateDetails, workloads: [workload()] });
+      renderTab();
+
+      await screen.findByRole('button', { name: 'Apply overprovisioned-api' });
+      expect(changesValue()).toHaveTextContent(new RegExp(`^${value}$`));
+    });
+
+    it('"Changes" reads Not checked when the server did not check the caller', async () => {
+      mockedRead.mockResolvedValue({
+        kind: 'ok',
+        view: adaptEngineResponse({ engine: engine(), gateReasons: [], workloads: [workload()] }),
+      });
+      renderTab();
+
+      await screen.findByRole('button', { name: 'Apply overprovisioned-api' });
+      expect(changesValue()).toHaveTextContent(/^Not checked$/);
+      expect(changesValue()).toHaveAttribute('title', "Couldn't check whether you can change automation.");
+    });
+
+    it('an empty cluster with only a write gate still reads "No workloads to analyse" (item 9)', async () => {
+      resolveWith({ engine: engine(), gateReasons: ['READ_ONLY_CONNECTION'], workloads: [] });
+      renderTab();
+
+      expect(await screen.findByText('No workloads to analyse')).toBeInTheDocument();
+      expect(screen.queryByText('View only: this account is connected read-only')).toBeNull();
+    });
+
+    it('an unknown replica count is not 1: "Could free" is per pod (item 10)', () => {
+      const status = workloadStatus(
+        adaptEngineResponse({ engine: engine(), gateReasons: [], workloads: [workload({ replicas: null })] }).workloads[0],
+      );
+      // 1000m → 25m and 1024Mi → 250Mi on one pod, as the two-replica case above shows doubled.
+      expect(status.detail).toBe('Could free up to 0.97 vCPU and 774Mi memory per pod');
+    });
+
+    it('"How this was calculated" names no usage source it was not given, and no saved choice (item 11)', async () => {
+      resolveWith({
+        engine: engine(),
+        gateReasons: [],
+        workloads: [
+          workload({
+            provenance: {
+              percentile: 95,
+              windowHours: 24,
+              windowStart: null,
+              windowEnd: null,
+              sampleCoverage: null,
+              usageSource: null,
+              policySource: 'WORKLOAD_ROW',
+            },
+          }),
+        ],
+      });
+      renderTab();
+
+      fireEvent.click(await screen.findByText('How this was calculated'));
+      expect(screen.getByText(`Usage source: ${DASH}`)).toBeInTheDocument();
+      expect(screen.queryByText(/Usage from Prometheus/)).toBeNull();
+      expect(
+        screen.getByText('Settings recorded for this workload when a change was applied: the defaults in force then'),
+      ).toBeInTheDocument();
+      expect(screen.queryByText('Saved for this workload')).toBeNull();
+    });
+  });
+
   it('flags a container whose pods disagree beside "now" (review-2 SF2)', async () => {
     const base = workload();
     resolveWith({

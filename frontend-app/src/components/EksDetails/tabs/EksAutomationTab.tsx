@@ -35,6 +35,7 @@ import {
   windowWords,
   workloadStatus,
   workloadWindowHours,
+  WRITE_GATES_NOT_CHECKED,
   writeGateText,
 } from '../../../api/verticalRightsizerAdapter';
 import useVerticalRightsizer from '../../../hooks/useVerticalRightsizer';
@@ -523,9 +524,17 @@ const NO_WORKLOADS: GateCopy = {
   subtitle: 'XamOps found no Deployments or StatefulSets outside the system namespaces.',
 };
 
+/**
+ * The caller's write gates say who may apply, not why the list is empty, so an empty cluster with
+ * only a write gate still reads "No workloads to analyse" (review-2 item 9).
+ */
+const CALLER_WRITE_GATES = new Set(['DEMO', 'NO_USER_PERMISSION', 'READ_ONLY_CONNECTION']);
+
 const gateEmptyState = (gateReasons: CodeView[]): GateCopy => {
   for (const reason of gateReasons) {
-    if (reason.kind === 'known' && GATE_COPY[reason.code]) return GATE_COPY[reason.code];
+    if (reason.kind === 'known' && !CALLER_WRITE_GATES.has(reason.code) && GATE_COPY[reason.code]) {
+      return GATE_COPY[reason.code];
+    }
   }
   const unknown = gateReasons.find((r) => r.kind === 'unknown');
   if (unknown && unknown.kind === 'unknown') {
@@ -751,6 +760,29 @@ const PATH_TEXT: Record<string, string> = {
   NONE: 'No way to send changes',
 };
 
+/**
+ * Glossary 4.1 "Changes", told the caller's write gates (review-2 SF6): "Can be applied" only when
+ * the environment allows applying, the server checked this caller, and no write gate applies.
+ */
+const changesStatus = (
+  view: { engine: EngineView; gateReasons: CodeView[]; gateDetails: Record<string, string>; writeGatesChecked: boolean },
+  callerRefusal: { code: string; detail: string | null } | null,
+): { value: string; title: string } => {
+  if (!view.engine.ready) {
+    return { value: 'Suggestions only', title: 'Applying is turned off in this XamOps environment.' };
+  }
+  const gate =
+    (callerRefusal && writeGateText(callerRefusal.code, callerRefusal.detail)) ??
+    view.gateReasons
+      .filter((g): g is Extract<CodeView, { kind: 'known' }> => g.kind === 'known' && CALLER_WRITE_GATES.has(g.code))
+      .map((g) => writeGateText(g.code, view.gateDetails[g.code]))
+      .find((text) => text !== null) ??
+    null;
+  if (gate) return { value: 'View only', title: gate.nextStep ? `${gate.reason} ${gate.nextStep}` : gate.reason };
+  if (!view.writeGatesChecked) return { value: 'Not checked', title: WRITE_GATES_NOT_CHECKED };
+  return { value: 'Can be applied', title: `Code: ready ${view.engine.ready}` };
+};
+
 const clusterAccessText = (engine: EngineView): string =>
   engine.clusterAccess === null ? 'Not checked' : (CLUSTER_ACCESS_TEXT[engine.clusterAccess] ?? `Other: ${engine.clusterAccess}`);
 
@@ -806,14 +838,19 @@ const HowCalculated: React.FC<{ workload: WorkloadView }> = ({ workload }) => {
             </li>
           ))}
         <li>The first 2 minutes after a container starts are ignored.</li>
+        {/* Review-2 item 11: name a source only when the payload names it. */}
         <li>
-          {p?.usageSource === 'prometheus-proxy' || p?.usageSource == null
+          {p?.usageSource === 'prometheus-proxy'
             ? 'Usage from Prometheus in your cluster, read through the Kubernetes API.'
-            : `Usage from ${p.usageSource}.`}
+            : p?.usageSource
+              ? `Usage from ${p.usageSource}.`
+              : `Usage source: ${DASH}`}
         </li>
         <li>
+          {/* There is no way to edit a workload's settings yet, so a stored row is one an apply
+              recorded: the settings in force then, not a choice someone saved. */}
           {p?.policySource === 'WORKLOAD_ROW'
-            ? 'Saved for this workload'
+            ? 'Settings recorded for this workload when a change was applied: the defaults in force then'
             : p?.policySource === 'DEFAULTS'
               ? 'XamOps defaults (not saved for this workload)'
               : `Settings: ${formatText(p?.policySource)}`}
@@ -1018,6 +1055,7 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
 
   const { engine, gateReasons, workloads, anomalies } = result.view;
   const empty = gateEmptyState(gateReasons);
+  const changes = changesStatus(result.view, callerRefusal);
 
   return (
     <div className="space-y-4">
@@ -1036,11 +1074,7 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
               value={engine.enabled ? 'On' : 'Off in this environment'}
               title={`Code: enabled ${engine.enabled}`}
             />
-            <StatusItem
-              label="Changes"
-              value={engine.ready ? 'Can be applied' : 'Suggestions only'}
-              title={engine.ready ? `Code: ready ${engine.ready}` : 'Applying is turned off in this XamOps environment.'}
-            />
+            <StatusItem label="Changes" value={changes.value} title={changes.title} />
             <StatusItem
               label="Cluster access"
               value={clusterAccessText(engine)}

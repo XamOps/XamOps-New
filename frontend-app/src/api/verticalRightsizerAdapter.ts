@@ -545,11 +545,19 @@ export const workloadStatus = (workload: WorkloadView): WorkloadStatusText => {
     return { status, detail: lead ? reasonSentence(lead, changing ?? undefined, workload) : '' };
   }
   if (cpuDown || memDown) {
-    const replicas = workload.replicas ?? 1;
+    // Review-2 item 10: an unknown replica count is not 1. And when the pods run different sizes
+    // (SF2), "now" is the workload's own size, so multiplying by every replica over-counts: say what
+    // one pod at that size would free instead.
+    const replicas = workload.replicas;
+    const perPod = replicas === null || replicas === undefined || workload.containers.some((c) => c.podsDisagree);
+    const times = perPod ? 1 : replicas;
     const parts: string[] = [];
-    if (cpuFreed > 0) parts.push(`${((cpuFreed * replicas) / 1000).toFixed(2)} vCPU`);
-    if (memFreed > 0) parts.push(`${formatMemoryMi(memFreed * replicas)} memory`);
-    return { status: 'Over-provisioned', detail: `Could free ${parts.join(' and ')}` };
+    if (cpuFreed > 0) parts.push(`${((cpuFreed * times) / 1000).toFixed(2)} vCPU`);
+    if (memFreed > 0) parts.push(`${formatMemoryMi(memFreed * times)} memory`);
+    return {
+      status: 'Over-provisioned',
+      detail: perPod ? `Could free up to ${parts.join(' and ')} per pod` : `Could free ${parts.join(' and ')}`,
+    };
   }
   const reasons = workload.containers.flatMap((c) => c.reasons);
   if (hasCode(reasons, 'COOLDOWN')) {
