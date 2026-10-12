@@ -1,29 +1,30 @@
 /**
- * Status as icon + label + weight, never colour alone (docs/cloudk8s/ui-revamp-design.md §14, WCAG 1.4.1).
- * The colour comes from the semantic status tokens (src/styles/k8sSemanticTokens.css), never a grey
- * picked here, so the owner's status palette lands without touching this file.
+ * Status as icon + label, never colour alone (CLAUDE.md; WCAG 1.4.1). A thin wrapper over the new
+ * StatusChip (components/CloudK8s/shared/status/StatusChip.tsx): it keeps the historical
+ * `StatusState` union, `STATUS_ICONS` map and props so every existing caller (OverviewPanel,
+ * SummaryPanel, WorkloadsPanel, …) still compiles, and routes the colour through StatusChip's tone
+ * so there is a single place that pairs a status token with an icon and a label.
  */
-import { Icon } from '@iconify/react';
+import StatusChip from './status/StatusChip';
+import type { Tone } from './status/statusTones';
 
 export type StatusState = 'healthy' | 'attention' | 'error' | 'not-set-up' | 'unknown' | 'simulated' | 'unverified';
 
-interface StatusStyle {
+interface StateStyle {
+  tone: Tone;
   icon: string;
-  className: string;
+  weight: 'normal' | 'semibold' | 'bold';
 }
 
-/** Icon ids are string literals so the offline bundle picks them up. */
-const STYLES: Record<StatusState, StatusStyle> = {
-  healthy: { icon: 'mdi:check-circle', className: 'font-semibold text-status-good' },
-  attention: { icon: 'mdi:clock-alert-outline', className: 'font-semibold text-status-warn' },
-  error: {
-    icon: 'mdi:alert-octagon',
-    className: 'font-bold text-status-bad border border-status-bad rounded px-1',
-  },
-  'not-set-up': { icon: 'mdi:circle-off-outline', className: 'font-normal text-status-off' },
-  unknown: { icon: 'mdi:help-circle-outline', className: 'font-normal text-status-off' },
-  simulated: { icon: 'mdi:flask-outline', className: 'font-semibold text-status-info' },
-  unverified: { icon: 'mdi:progress-question', className: 'font-normal text-status-off' },
+/** Icon ids are string literals so the offline bundle picks them up. Unchanged from before the wrapper. */
+const STYLES: Record<StatusState, StateStyle> = {
+  healthy: { tone: 'good', icon: 'mdi:check-circle', weight: 'semibold' },
+  attention: { tone: 'warn', icon: 'mdi:clock-alert-outline', weight: 'semibold' },
+  error: { tone: 'bad', icon: 'mdi:alert-octagon', weight: 'bold' },
+  'not-set-up': { tone: 'off', icon: 'mdi:circle-off-outline', weight: 'normal' },
+  unknown: { tone: 'off', icon: 'mdi:help-circle-outline', weight: 'normal' },
+  simulated: { tone: 'info', icon: 'mdi:flask-outline', weight: 'semibold' },
+  unverified: { tone: 'off', icon: 'mdi:progress-question', weight: 'normal' },
 };
 
 export const STATUS_ICONS: Record<StatusState, string> = Object.fromEntries(
@@ -42,11 +43,14 @@ export interface StatusMarkProps {
 export function StatusMark({ state, label, detail, className = '' }: StatusMarkProps) {
   const style = STYLES[state];
   return (
-    <span className={`inline-flex items-center gap-1 text-[12px] ${style.className} ${className}`} data-status={state}>
-      <Icon icon={style.icon} width={14} aria-hidden="true" className="shrink-0" />
-      <span>{label}</span>
-      {detail && <span className="font-normal text-[rgba(0,0,0,0.6)]">· {detail}</span>}
-    </span>
+    <StatusChip
+      tone={style.tone}
+      icon={style.icon}
+      label={label}
+      detail={detail ?? undefined}
+      weight={style.weight}
+      className={className}
+    />
   );
 }
 

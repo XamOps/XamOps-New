@@ -4,45 +4,80 @@
  * names that tailwind.config.js maps onto these variables, for example `text-status-good`,
  * `border-status-bad`, `bg-series-requested` or `stroke-series-used`.
  *
- * Every value is a grey today, matching what the pages showed before the tokens existed, so
- * CloudK8s still reads black, white and grey. The owner's palette (status green, amber, red, blue
- * and grey; a multi-colour chart palette) replaces the values below and nothing else. This file is
- * deliberately outside the design-rule guard's paths (src/test/designRules.test.ts) for that reason.
+ * The owner's palette, design-delta v3 §2. Status green, amber, red, blue and grey; an Okabe–Ito
+ * chart-series palette; money saved/extra; one accent per automation feature. The values are set
+ * per theme: light under `:root`, dark under `.dark` (Tailwind `darkMode: 'class'`, already set).
+ * The design-rule guard (src/test/designRules.test.ts) holds the reviewed PALETTE table and fails
+ * unless this file matches it exactly, so a colour change edits both together in one review.
  *
  * Values are space-separated R G B channels, so Tailwind's opacity modifiers work
- * (`bg-status-warn/10`). The page chrome (text, borders, surfaces) keeps its own greys and has no
- * token here.
+ * (`bg-status-warn/[.11]`). No hex, no rgb(, no color-mix(, no gradient here. The page chrome
+ * (text, borders, surfaces) keeps its own greys and has no token here.
  */
 :root {
-  /* Status: healthy, ready, connected. */
-  --k8s-status-good: 31 31 31;
-  /* Status: needs attention, stale, pending. */
-  --k8s-status-warn: 31 31 31;
-  /* Status: failed, error, critical. */
-  --k8s-status-bad: 31 31 31;
-  /* Status: informational, a test run. */
-  --k8s-status-info: 31 31 31;
-  /* Status: off, not set up, unknown. */
+  /* Status: healthy, applied, saving. */
+  --k8s-status-good: 30 122 62;
+  /* Status: needs attention, waiting, costs more. */
+  --k8s-status-warn: 138 90 0;
+  /* Status: refused, failed, at risk. */
+  --k8s-status-bad: 196 22 63;
+  /* Status: in progress, information. */
+  --k8s-status-info: 10 95 191;
+  /* Status: off, not available. */
   --k8s-status-off: 102 102 102;
 
-  /* Chart series, in the glossary's order (§9.1): requested, used, suggested, limit. */
-  --k8s-series-requested: 31 31 31;
-  --k8s-series-used: 115 115 115;
-  --k8s-series-suggested: 31 31 31;
-  --k8s-series-limit: 102 102 102;
-  /* What pods can use but haven't requested: the track behind requested. */
-  --k8s-series-allocatable: 235 235 235;
-  /* Provisioned minus allocatable: what each node keeps for the system. */
-  --k8s-series-overhead: 204 204 204;
+  /* Money: saved, freed capacity band. */
+  --k8s-money-saved: 30 122 62;
+  /* Money: extra cost. */
+  --k8s-money-extra: 138 90 0;
 
-  /* HPA/VPA coexistence (FEAT-003). XamOps's own suggestion and the native VPA's share one hue so a
-   * reader sees them as "two views of the same thing"; the fill pattern tells them apart (XamOps
-   * dashed, native VPA hatched). Grey today, like every token above, so the page still reads black,
-   * white and grey until the owner's palette replaces the values. */
-  --k8s-hpa-suggestion: 102 102 102;
-  --k8s-vpa-native: 102 102 102;
-  /* A real coexistence conflict (a mutating VPA owns the requests). */
-  --k8s-coexist-conflict: 31 31 31;
-  /* An Off-mode VPA: present but changes no pods — never drawn as a warning. */
-  --k8s-coexist-off: 102 102 102;
+  /* Chart series (Okabe–Ito hues, one meaning each): capacity, requested, used, suggested, limit. */
+  --k8s-series-capacity: 102 117 131;
+  --k8s-series-requested: 11 103 160;
+  --k8s-series-used: 0 147 107;
+  --k8s-series-suggested: 156 61 114;
+  --k8s-series-limit: 194 122 0;
+  /* Aliases of capacity until FE-10 removes them, so CapacityDonut/RequestBar/SummaryPanel keep working. */
+  --k8s-series-allocatable: 102 117 131;
+  --k8s-series-overhead: 102 117 131;
+
+  /* Feature accents (wayfinding only): Workload autoscaler, Node autoscaler, HPA, VPA. */
+  --k8s-feature-workload: 91 63 176;
+  --k8s-feature-node: 0 131 139;
+  --k8s-feature-hpa: 161 68 42;
+  --k8s-feature-vpa: 105 126 15;
+}
+
+.dark {
+  /* Status: healthy, applied, saving. */
+  --k8s-status-good: 143 209 106;
+  /* Status: needs attention, waiting, costs more. */
+  --k8s-status-warn: 235 170 60;
+  /* Status: refused, failed, at risk. */
+  --k8s-status-bad: 255 90 102;
+  /* Status: in progress, information. */
+  --k8s-status-info: 107 163 242;
+  /* Status: off, not available. */
+  --k8s-status-off: 158 158 158;
+
+  /* Money: saved, freed capacity band. */
+  --k8s-money-saved: 143 209 106;
+  /* Money: extra cost. */
+  --k8s-money-extra: 235 170 60;
+
+  /* Chart series (Okabe–Ito hues, one meaning each): capacity, requested, used, suggested, limit. */
+  --k8s-series-capacity: 163 173 182;
+  --k8s-series-requested: 86 171 228;
+  --k8s-series-used: 37 192 142;
+  --k8s-series-suggested: 215 116 182;
+  --k8s-series-limit: 242 165 30;
+  /* Aliases of capacity until FE-10 removes them, so CapacityDonut/RequestBar/SummaryPanel keep working. */
+  --k8s-series-allocatable: 163 173 182;
+  --k8s-series-overhead: 163 173 182;
+
+  /* Feature accents (wayfinding only): Workload autoscaler, Node autoscaler, HPA, VPA. */
+  --k8s-feature-workload: 157 140 240;
+  --k8s-feature-node: 111 211 222;
+  --k8s-feature-hpa: 227 154 128;
+  --k8s-feature-vpa: 201 212 90;
 }
