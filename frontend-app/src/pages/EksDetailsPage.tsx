@@ -14,6 +14,7 @@ import { useEksDashboard } from '../hooks/useEksDashboard';
 import { useEksSectionRoute } from '../hooks/useEksSectionRoute';
 import { useK8sCacheIdentity } from '../hooks/useK8sCacheIdentity';
 import { K8sCapabilitiesProvider } from '../hooks/useK8sCapabilities';
+import { usePublishClusterNavAccess } from '../hooks/useK8sNavAccess';
 import { isDemoMode } from '../demo/demoConfig';
 import { resolveClusterVersion } from '../utils/k8sVersion';
 import { parseClusterLink, type ClusterLink } from '../utils/k8sClusterLink';
@@ -128,6 +129,8 @@ function SectionPanel({ tab, ...props }: EksSectionProps & { tab: EksSectionId }
 function ClusterPage({ link, debug }: { link: ClusterLink; debug: boolean }) {
   const { clusterName, accountId, region, version } = link;
   useK8sCacheIdentity();
+  // The sidebar's "View only" marker reads this page's capabilities (Addendum 1, A4).
+  usePublishClusterNavAccess(clusterName, accountId);
   const eksData = useEksDashboard({ clusterName, accountId, region, version });
   const route = useEksSectionRoute();
   const [guideLoaded, setGuideLoaded] = useState(false);

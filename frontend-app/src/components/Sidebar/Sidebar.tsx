@@ -18,6 +18,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { makeXamTabGate } from '../../constants/xamopsTabs';
 import { XAMSECURE_SIDEBAR_TABS } from '../../constants/xamsecureTabs';
 import { XAMLENS_SIDEBAR_TABS } from '../../constants/xamlensTabs';
+import { ClusterSectionsNav } from '../CloudK8s/shared/ClusterSectionsNav';
 import clsx from 'clsx';
 
 // XamSecure nested entries come from the tab catalog rather than a copy kept in step by hand.
@@ -139,7 +140,7 @@ const Sidebar: React.FC = () => {
       '/finops', '/gcp-finops', '/azure-finops', '/waste', '/gcp-waste', '/azure-waste',
       '/rightsizing', '/gcp-rightsizing', '/azure-rightsizing', '/ebs-rightsizing', '/gcp-disk-rightsizing',
       '/cloudsitter', '/gcp-cloudsitter', '/azure-cloudsitter', '/flex-compute', '/autospotting', '/gcp-autospotting'];
-    const cloudopsRoutes = ['/cloudk8s', '/gcp-cloudk8s', '/azure-cloudk8s',
+    const cloudopsRoutes = ['/cloudk8s', '/gcp-cloudk8s', '/azure-cloudk8s', '/eks-details',
       '/sonarqube', '/cicd-pipelines', '/devops-in-the-box', '/aiops', '/dataops', '/gcp-dataops', '/azure-dataops', '/ebs-rightsizing'];
     const ticketsRoutes = ['/tickets', '/billops-tickets'];
     const secopsRoutes = ['/xamsecure', '/xamlens', '/security', '/gcp-security', '/azure-security', '/war', '/gcp-war', '/azure-war', '/complianceops', '/soc2-program',
@@ -382,7 +383,14 @@ const Sidebar: React.FC = () => {
                 isOpen={openDropdown === 'cloudops'}
                 onToggle={() => toggleDropdown('cloudops')}
               >
-                {isXamTabAllowed('cloudops-cloudk8s') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cloudk8s' : selectedAccountDisplay.provider === 'Azure' ? '/azure-cloudk8s' : '/cloudk8s'} icon="fas fa-dharmachakra" label="CloudK8s" isActive={isActive('/cloudk8s')} />}
+                {/* CloudK8s, and on an EKS cluster page that cluster's sections (Addendum 1), laid out
+                    like XamSecure below. */}
+                {isXamTabAllowed('cloudops-cloudk8s') && (
+                  <>
+                    <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-cloudk8s' : selectedAccountDisplay.provider === 'Azure' ? '/azure-cloudk8s' : '/cloudk8s'} icon="fas fa-dharmachakra" label="CloudK8s" isActive={isActive('/cloudk8s') || isActive('/eks-details')} />
+                    <ClusterSectionsNav dark={theme === 'dark'} />
+                  </>
+                )}
                 {isXamTabAllowed('cloudops-code-quality') && <NavItem href="/sonarqube" icon="fas fa-chart-line" label="Code Quality" isActive={isActive('/sonarqube')} />}
                 {isXamTabAllowed('cloudops-cicd') && <NavItem href="/cicd-pipelines" icon="fas fa-cogs" label="CICD Pipelines" isActive={isActive('/cicd-pipelines')} />}
                 {isXamTabAllowed('cloudops-devops-box') && <NavItem href="/devops-in-the-box" icon="fas fa-toolbox" label="DevOps-in-the-Box" isActive={isActive('/devops-in-the-box')} />}

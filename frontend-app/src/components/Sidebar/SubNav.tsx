@@ -6,6 +6,12 @@ interface Props {
   isOpen: boolean;
   /** Dark theme, for the connecting rule colour. */
   dark: boolean;
+  /**
+   * Nesting depth. 2 is a list inside another SubNav (the CloudK8s cluster subtabs), with a
+   * tighter indent so its labels still fit the sidebar. Defaults to 1, which renders exactly as
+   * every SubNav did before the prop existed.
+   */
+  level?: 1 | 2;
   children: React.ReactNode;
 }
 
@@ -26,7 +32,7 @@ interface Props {
  * Children stay mounted so there is something to animate. While collapsed the group is
  * `aria-hidden` and takes no pointer events, so it is neither announced nor clickable.
  */
-const SubNav: React.FC<Props> = ({ isOpen, dark, children }) => (
+const SubNav: React.FC<Props> = ({ isOpen, dark, level = 1, children }) => (
   <div
     aria-hidden={!isOpen}
     className={clsx(
@@ -36,7 +42,9 @@ const SubNav: React.FC<Props> = ({ isOpen, dark, children }) => (
   >
     <div
       className={clsx(
-        'min-h-0 space-y-0.5 ml-3 pl-3 border-l',
+        'min-h-0 space-y-0.5',
+        level === 2 ? 'ml-2 pl-2' : 'ml-3 pl-3',
+        'border-l',
         !isOpen && 'pointer-events-none',
         dark ? 'border-[rgba(255,255,255,0.08)]' : 'border-[rgba(0,0,0,0.08)]'
       )}

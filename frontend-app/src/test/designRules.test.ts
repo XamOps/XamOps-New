@@ -37,6 +37,10 @@ export const GUARDED_PATHS: readonly string[] = [
   'utils/k8sDerivations.ts',
   'utils/csvExport.ts',
   'utils/k8sClusterLink.ts',
+  // Addendum 1 (sidebar section navigation); ClusterSectionsNav is under components/CloudK8s/shared/.
+  'utils/k8sNavAccess.ts',
+  'hooks/useK8sNavAccess.ts',
+  'components/Sidebar/SubNav.tsx',
 ];
 
 const TAILWIND_PREFIX = '(?:text|bg|border|from|via|to|ring|fill|stroke|divide|outline|shadow|accent|decoration|placeholder|caret)';
