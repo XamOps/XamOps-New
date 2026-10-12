@@ -448,6 +448,124 @@ class VerticalApplyServiceTest {
         verify(executor, never()).submit(any(), any(), any());
     }
 
+    @Test
+    @DisplayName("a workload whose policy is OFF is refused with POLICY_OFF, dry runs too, and nothing is sent (item 15)")
+    void aPolicyOffWorkloadIsRefused() {
+        // The engine skips it and publishes nothing, so only a direct call could reach this.
+        when(policyService.resolve(any(), any(), any()))
+                .thenReturn(WorkloadPolicyDefaults.policy(WorkloadMode.OFF));
+
+        for (boolean dryRun : List.of(true, false)) {
+            VerticalApplyService.ApplyRefusedException refusal =
+                    refuse(principal(), readWriteAccount(), body(dryRun));
+            assertThat(refusal.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(refusal.code()).isEqualTo("K8S_INVALID_POLICY");
+            assertThat(refusal.field()).isEqualTo("name");
+            assertThat(refusal.getMessage()).startsWith("POLICY_OFF:");
+        }
+        verify(executor, never()).submit(any(), any(), any());
+        verify(policyService, never()).recordApplied(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("an OOM-driven memory-only raise inside the cooldown goes through, as the engine publishes it")
+    void aMemoryOnlyRaiseIsExemptFromTheCooldown() {
+        // Review-2 SF1: 1 GiB -> 250Mi is applied, the container is OOM-killed twenty minutes later,
+        // and endpoint 1 publishes a memory raise under OOM_RISK. Refusing it would keep the
+        // container being killed for the rest of the hour.
+        givenExecutorApplies();
+        when(policyService.resolve(any(), any(), any())).thenReturn(METRICS.defaultsPolicy()
+                .withLastAppliedAt(Instant.parse("2026-10-11T11:59:00Z")));
+        ApplyRequestDto raise = new ApplyRequestDto(
+                List.of(new ApplyRequestDto.Container("api", null, 1280L, null, 1280L)), "IN_PLACE", false);
+
+        ApplyResponseDto response = service().apply(principal(), readWriteAccount(), TARGET, REF, raise);
+
+        assertThat(response.state()).isEqualTo("ACCEPTED");
+        verify(executor).submit(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a second real apply on a workload whose rollout is still running is refused 409, and sends nothing")
+    void oneRealApplyPerWorkloadAtATime() throws Exception {
+        // Review-2 SF5: the cooldown is stamped only after the rollout, so without a lock a second
+        // request read last_applied_at while the first was still polling its canary.
+        java.util.concurrent.CountDownLatch inRollout = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        when(executor.submit(any(), any(), any())).thenAnswer(invocation -> {
+            ActionCommand command = invocation.getArgument(0);
+            if (!command.dryRun()) {
+                inRollout.countDown();
+                release.await(10, java.util.concurrent.TimeUnit.SECONDS);
+            }
+            return ActionSubmission.accepted(command.correlationId());
+        });
+        when(executor.proof(anyString())).thenReturn(Optional.empty());
+        VerticalApplyService service = service();
+
+        java.util.concurrent.ExecutorService first = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            java.util.concurrent.Future<ApplyResponseDto> running =
+                    first.submit(() -> service.apply(principal(), readWriteAccount(), TARGET, REF, body(false)));
+            assertThat(inRollout.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+            VerticalApplyService.ApplyRefusedException second = catchRefusal(
+                    () -> service.apply(principal(), readWriteAccount(), TARGET, REF, body(false)));
+            assertThat(second.status()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(second.code()).isEqualTo("K8S_APPLY_IN_PROGRESS");
+            assertThat(service.apply(principal(), readWriteAccount(), TARGET, REF, body(true)).dryRun())
+                    .as("a dry run sends nothing, so it is not held by the lock")
+                    .isTrue();
+
+            release.countDown();
+            assertThat(running.get(10, java.util.concurrent.TimeUnit.SECONDS).state()).isEqualTo("ACCEPTED");
+        } finally {
+            release.countDown();
+            first.shutdownNow();
+        }
+        assertThat(service.apply(principal(), readWriteAccount(), TARGET, REF, body(false)).state())
+                .as("the lock is released when the rollout returns")
+                .isEqualTo("ACCEPTED");
+        verify(executor, org.mockito.Mockito.times(3)).submit(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("with disagreeing pods, a raise is judged against the smallest live size, as in the engine (SF2)")
+    void aRaiseIsJudgedAgainstTheSmallestLivePod() {
+        List<ApplyRequestDto.Container> raise =
+                List.of(new ApplyRequestDto.Container("api", null, 313L, null, 313L));
+        ClusterWorkloadInventory.Workload agreeing = workload();
+        ClusterWorkloadInventory.Workload disagreeing = new ClusterWorkloadInventory.Workload(REF, 3,
+                false, false, null, null,
+                List.of(new ClusterWorkloadInventory.ContainerSpec("api", GUARANTEED_1CPU_1GI, Map.of(),
+                        new ResourceEnvelope(1000, 1000, 262_144_000L, 262_144_000L))),
+                agreeing.pods());
+
+        assertThat(VerticalApplyService.isMemoryOnlyIncrease(raise, agreeing))
+                .as("313Mi is below the 1 GiB every pod runs")
+                .isFalse();
+        assertThat(VerticalApplyService.isMemoryOnlyIncrease(raise, disagreeing))
+                .as("313Mi is above the 250Mi the smallest pods run, which the OOM guard judges against")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("inside the cooldown, a body with any CPU field or any memory decrease is still refused")
+    void onlyAMemoryRaiseIsExempt() {
+        when(policyService.resolve(any(), any(), any())).thenReturn(METRICS.defaultsPolicy()
+                .withLastAppliedAt(Instant.parse("2026-10-11T11:59:00Z")));
+
+        for (ApplyRequestDto.Container container : List.of(
+                new ApplyRequestDto.Container("api", 1200, 1280L, 1200, 1280L),   // CPU moves too
+                new ApplyRequestDto.Container("api", null, 512L, null, 512L),     // memory decrease
+                new ApplyRequestDto.Container("api", null, 1024L, null, 1024L))) { // equal, not a raise
+            assertThat(refuse(principal(), readWriteAccount(),
+                    new ApplyRequestDto(List.of(container), "IN_PLACE", true)).getMessage())
+                    .startsWith("COOLDOWN:");
+        }
+        verify(executor, never()).submit(any(), any(), any());
+    }
+
     // ---------------------------------------------------------------- the engine's holds (review S1)
 
     @Test
@@ -562,6 +680,61 @@ class VerticalApplyServiceTest {
     }
 
     @Test
+    @DisplayName("PARTIALLY_APPLIED, RESTART_DETECTED and NOT_READY changed pods, so each starts the cooldown")
+    void everyOutcomeThatChangedAPodStartsTheCooldown() {
+        // Review-2 SF4: the confirmation promises 60 minutes, and these three leave pods at the new size.
+        for (ResizeProof.Outcome outcome : List.of(ResizeProof.Outcome.PARTIALLY_APPLIED,
+                ResizeProof.Outcome.RESTART_DETECTED, ResizeProof.Outcome.NOT_READY)) {
+            org.mockito.Mockito.clearInvocations(policyService);
+            when(executor.submit(any(), any(), any())).thenReturn(ActionSubmission.accepted("ignored"));
+            when(executor.proof(anyString())).thenReturn(Optional.of(new ResizeProof(outcome,
+                    outcome + " on the canary.", false, List.of(),
+                    List.of(podProof(SMALL_ENVELOPE, null)))));
+
+            service().apply(principal(), readWriteAccount(), TARGET, REF, body(false));
+
+            verify(policyService).recordApplied(any(), any(), any(), any(), any());
+        }
+    }
+
+    @Test
+    @DisplayName("a declined pod proved back where it was starts no cooldown; one not proved back does")
+    void aRevertedPodStartsNoCooldownButAnUnprovedOneDoes() {
+        when(executor.submit(any(), any(), any())).thenReturn(ActionSubmission.accepted("ignored"));
+        when(executor.proof(anyString())).thenReturn(Optional.of(new ResizeProof(
+                ResizeProof.Outcome.DEFERRED, "Deferred, and put back.", false, List.of(),
+                List.of(podProof(GUARANTEED_1CPU_1GI, new ResizeProof.Revert(
+                        ResizeProof.RevertState.REVERTED, "Put back."))))));
+
+        ApplyResponseDto putBack = service().apply(principal(), readWriteAccount(), TARGET, REF, body(false));
+
+        assertThat(putBack.result().reverted()).isTrue();
+        assertThat(putBack.result().pods().get(0).changed()).isFalse();
+        assertThat(putBack.result().pods().get(0).revert().state()).isEqualTo("REVERTED");
+        verify(policyService, never()).recordApplied(any(), any(), any(), any(), any());
+
+        when(executor.proof(anyString())).thenReturn(Optional.of(new ResizeProof(
+                ResizeProof.Outcome.DEFERRED, "Deferred, and not proved back.", false, List.of(),
+                List.of(podProof(GUARANTEED_1CPU_1GI, new ResizeProof.Revert(
+                        ResizeProof.RevertState.NOT_CONFIRMED, "Sent back, not confirmed."))))));
+
+        ApplyResponseDto notProved = service().apply(principal(), readWriteAccount(), TARGET, REF, body(false));
+
+        assertThat(notProved.result().reverted()).isFalse();
+        // The spec may still hold the new size, so the kubelet can still apply it: start the cooldown.
+        verify(policyService).recordApplied(any(), any(), any(), any(), any());
+    }
+
+    private static final ResourceEnvelope SMALL_ENVELOPE = new ResourceEnvelope(25, 25, 262_144_000L, 262_144_000L);
+
+    /** One pod that went from 1 CPU / 1 GiB to {@code after}, with the given revert. */
+    private static ResizeProof.PodProof podProof(ResourceEnvelope after, ResizeProof.Revert revert) {
+        return new ResizeProof.PodProof("api-1", "uid-1", "uid-1", true,
+                List.of(new ResizeProof.ContainerProof("api", "containerd://c1", "containerd://c1", 0, 0,
+                        GUARANTEED_1CPU_1GI, after)), revert, null);
+    }
+
+    @Test
     @DisplayName("an outcome the executor did not record publishes result: null, never a guess")
     void anUnknownOutcomeIsNull() {
         when(executor.submit(any(), any(), any())).thenReturn(ActionSubmission.accepted("ignored"));
@@ -632,6 +805,56 @@ class VerticalApplyServiceTest {
         assertThat(service().writeGates(principal(), readWriteAccount()))
                 .as("a Login-As session is NO_USER_PERMISSION, as on endpoint 3")
                 .containsExactly("NO_USER_PERMISSION");
+    }
+
+    @Test
+    @DisplayName("endpoint 1's gate and endpoint 3's refusal name the same rule for the same caller")
+    void theReadAndTheRefusalAgreeOnTheRule() {
+        // The UAT 403 of 2026-10-12: a user with tab rows but no automation key. Endpoint 3 answered
+        // K8S_NO_USER_PERMISSION with a message only the TAB_GRANT rule writes; endpoint 1 has to
+        // carry the same gate and the same detail, or the UI offers an Apply the server refuses.
+        for (String detail : List.of(AutomationWritePermission.Detail.TAB_GRANT,
+                AutomationWritePermission.Detail.IMPERSONATION, AutomationWritePermission.Detail.ROLE,
+                AutomationWritePermission.Detail.NO_PRINCIPAL)) {
+            when(writePermission.decide(any(), any())).thenReturn(new AutomationWritePermission.Decision(
+                    false, ReasonCode.NO_USER_PERMISSION, detail, "Refused by " + detail + ".",
+                    "K8S_NO_USER_PERMISSION"));
+
+            VerticalApplyService.WriteGates gates = service().callerWriteGates(principal(), readWriteAccount());
+            VerticalApplyService.ApplyRefusedException refusal = refuse(principal(), readWriteAccount(), body(true));
+
+            assertThat(gates.codes()).containsExactly("NO_USER_PERMISSION");
+            assertThat(gates.details()).containsExactly(org.assertj.core.api.Assertions.entry("NO_USER_PERMISSION", detail));
+            assertThat(refusal.code()).isEqualTo("K8S_" + gates.codes().get(0));
+            assertThat(refusal.detail()).as("the 403 body names the rule, not only the code").isEqualTo(detail);
+            assertThat(refusal.body().detail()).isEqualTo(detail);
+            assertThat(refusal.body().field()).isNull();
+        }
+
+        when(writePermission.decide(any(), any())).thenReturn(new AutomationWritePermission.Decision(
+                false, ReasonCode.DEMO, AutomationWritePermission.Detail.DEMO,
+                "This is the shared demo identity, so nothing is applied to a real cluster.", "K8S_DEMO"));
+        assertThat(service().callerWriteGates(principal(), readWriteAccount()).details())
+                .containsExactly(org.assertj.core.api.Assertions.entry("DEMO", "DEMO"));
+        assertThat(refuse(principal(), readWriteAccount(), body(true)).body().detail()).isEqualTo("DEMO");
+    }
+
+    @Test
+    @DisplayName("a permitted caller has no gate details, and a missing principal is NO_PRINCIPAL")
+    void gateDetailsForThePermittedAndTheAbsent() {
+        assertThat(service().callerWriteGates(principal(), readWriteAccount()).details()).isEmpty();
+
+        VerticalApplyService.WriteGates anonymous = service().callerWriteGates(null, readWriteAccount());
+        assertThat(anonymous.codes()).containsExactly("NO_USER_PERMISSION");
+        assertThat(anonymous.details())
+                .containsExactly(org.assertj.core.api.Assertions.entry("NO_USER_PERMISSION", "NO_PRINCIPAL"));
+
+        CloudAccount readOnly = readWriteAccount();
+        readOnly.setAccessType("read-only");
+        assertThat(service().callerWriteGates(principal(), readOnly).details())
+                .as("a read-only connection has no finer rule than its code")
+                .isEmpty();
+        assertThat(refuse(principal(), readOnly, body(true)).body().detail()).isNull();
     }
 
     @Test

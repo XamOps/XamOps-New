@@ -1,6 +1,19 @@
 # AdminDashboardDto JSON field paths (AC 24). Written by AdminDashboardDtoShapeTest with
 # -Dlobtext.captureDtoFields=true before AdminDashboardService was changed (FEAT-003 step 3.1).
 # a.b = nested field, x[] = list element, m.{} = map value under a data key.
+#
+# Re-captured since: manual private pricing added privatePricedTotal, discountShieldedTotal
+# and privatePricing[] to InvoiceDto, and privateUnitRate, privateRateUnit, originalCost
+# and discountShielded to its line items. The dashboard embeds InvoiceDto as
+# recentInvoices[], so its payload grew by those fields and no others -- the diff against
+# the FEAT-003 capture is purely additive, which is what this file is here to make visible.
+#
+# LineItemDto.privatelyPriced and PrivatePricingDto.margin are deliberately absent: both
+# are derived from fields already here and have no setter, so serializing them broke the
+# detail bill's JSON round trip. They are @JsonIgnore'd -- see DetailBillDtoRoundTripTest.
+#
+# Re-capturing rewrites these header lines from capture(); this note has to be put back by
+# hand.
 accountsByStatus.{}
 awsAccountsCount
 azureAccountsCount
@@ -19,6 +32,7 @@ recentInvoices[].clientName
 recentInvoices[].cloudAccountId
 recentInvoices[].dataSource
 recentInvoices[].discountAmount
+recentInvoices[].discountShieldedTotal
 recentInvoices[].discounts[].description
 recentInvoices[].discounts[].id
 recentInvoices[].discounts[].percentage
@@ -30,8 +44,12 @@ recentInvoices[].invoiceDate
 recentInvoices[].invoiceNumber
 recentInvoices[].lastUpdated
 recentInvoices[].lineItems[].cost
+recentInvoices[].lineItems[].discountShielded
 recentInvoices[].lineItems[].hidden
 recentInvoices[].lineItems[].id
+recentInvoices[].lineItems[].originalCost
+recentInvoices[].lineItems[].privateRateUnit
+recentInvoices[].lineItems[].privateUnitRate
 recentInvoices[].lineItems[].quantity
 recentInvoices[].lineItems[].regionName
 recentInvoices[].lineItems[].resourceName
@@ -42,6 +60,20 @@ recentInvoices[].lineItems[].usageQuantity
 recentInvoices[].lineItems[].usageType
 recentInvoices[].marketplaceCharge
 recentInvoices[].preDiscountTotal
+recentInvoices[].privatePricedTotal
+recentInvoices[].privatePricing[].description
+recentInvoices[].privatePricing[].excludeFromOverallDiscount
+recentInvoices[].privatePricing[].id
+recentInvoices[].privatePricing[].lineCount
+recentInvoices[].privatePricing[].originalAmount
+recentInvoices[].privatePricing[].pricedAmount
+recentInvoices[].privatePricing[].rateUnit
+recentInvoices[].privatePricing[].regionName
+recentInvoices[].privatePricing[].scopeLabel
+recentInvoices[].privatePricing[].serviceName
+recentInvoices[].privatePricing[].skippedLineCount
+recentInvoices[].privatePricing[].unitRate
+recentInvoices[].privatePricing[].usageType
 recentInvoices[].provider
 recentInvoices[].provisional
 recentInvoices[].status

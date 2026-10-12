@@ -33,12 +33,39 @@ import java.util.List;
  *                    restarted" and is why {@link #pods()} carries the raw numbers too.
  * @param containers  per-container result
  * @param pods        per-pod before/after proof, in the order the pods were touched (canary first)
+ * @param skippedPods the workload's pods that were not touched and why, so "every pod" is never
+ *                    claimed for a rollout that covered only the running ones
  */
 public record ResizeProof(Outcome outcome,
                           String detail,
                           boolean restartFree,
                           List<ContainerResult> containers,
-                          List<PodProof> pods) {
+                          List<PodProof> pods,
+                          List<SkippedPod> skippedPods) {
+
+    /** A proof with no pods left out. */
+    public ResizeProof(Outcome outcome, String detail, boolean restartFree,
+                       List<ContainerResult> containers, List<PodProof> pods) {
+        this(outcome, detail, restartFree, containers, pods, List.of());
+    }
+
+    /** The same proof, naming the workload's pods that were not resized and why (review-2 SF3). */
+    public ResizeProof withSkippedPods(List<SkippedPod> skipped) {
+        return new ResizeProof(outcome, detail, restartFree, containers, pods, skipped);
+    }
+
+    /**
+     * One of the workload's pods that was not resized: not Running, being deleted, or of an older
+     * revision. It starts at the workload's own size whenever it runs.
+     */
+    public record SkippedPod(String podName, String phase, String reason) {
+
+        public SkippedPod {
+            if (podName == null || podName.isBlank()) {
+                throw new IllegalArgumentException("podName is mandatory");
+            }
+        }
+    }
 
     public ResizeProof {
         if (outcome == null) {
@@ -56,6 +83,7 @@ public record ResizeProof(Outcome outcome,
         }
         containers = containers == null ? List.of() : List.copyOf(containers);
         pods = pods == null ? List.of() : List.copyOf(pods);
+        skippedPods = skippedPods == null ? List.of() : List.copyOf(skippedPods);
     }
 
     /** What actually happened. Every value except {@link #APPLIED} means nothing was confirmed. */
@@ -114,6 +142,59 @@ public record ResizeProof(Outcome outcome,
     }
 
     /**
+     * Whether any pod now runs, or may still come to run, resources other than it had before.
+     *
+     * <p>True when a pod's observed values moved (an {@code APPLIED} pod, the confirmed pods of a
+     * {@code PARTIALLY_APPLIED}, a {@code RESTART_DETECTED} or {@code NOT_READY} one), and when a
+     * declined pod could not be proved back where it was: its spec may still hold the new size, and
+     * the kubelet can apply that later. This is what starts the cooldown — not {@code APPLIED} alone.
+     */
+    public boolean anyPodChanged() {
+        return pods.stream().anyMatch(pod -> pod.changed()
+                || (pod.revert() != null && pod.revert().state() != RevertState.REVERTED));
+    }
+
+    /**
+     * {@code null} when no pod needed putting back; otherwise whether every pod that did was put back
+     * and proved back.
+     */
+    public Boolean reverted() {
+        List<Revert> reverts = pods.stream().map(PodProof::revert).filter(java.util.Objects::nonNull).toList();
+        if (reverts.isEmpty()) {
+            return null;
+        }
+        return reverts.stream().allMatch(revert -> revert.state() == RevertState.REVERTED);
+    }
+
+    /** The resource the node lacked on the first pod that was declined for room, or null. */
+    public String insufficientResource() {
+        return pods.stream().map(PodProof::insufficientResource).filter(java.util.Objects::nonNull)
+                .findFirst().orElse(null);
+    }
+
+    /** What putting a declined pod back achieved. */
+    public enum RevertState {
+        /** The pod's spec and status are back at the values from before the apply, nothing pending. */
+        REVERTED,
+        /** The revert was sent, but the pod was not seen back at its old values before the deadline. */
+        NOT_CONFIRMED,
+        /** The revert could not be sent or was refused; the new size may still be applied later. */
+        FAILED
+    }
+
+    /**
+     * @param detail what was done and seen, for the record and the tooltip
+     */
+    public record Revert(RevertState state, String detail) {
+
+        public Revert {
+            if (state == null) {
+                throw new IllegalArgumentException("state is mandatory");
+            }
+        }
+    }
+
+    /**
      * @param requested      the numbers submitted for this container, so the record is readable
      *                       without a join back to the command
      * @param restartExpected true when the container declares {@code resizePolicy:
@@ -141,14 +222,20 @@ public record ResizeProof(Outcome outcome,
     /**
      * One pod's before/after, which is the whole restart-free argument in data.
      *
-     * @param uidBefore the pod's {@code metadata.uid} before the patch
-     * @param uidAfter  the uid after; a different value means this is a <em>different pod</em> that
-     *                  happens to share a name, so the resize was never applied to the pod that was
-     *                  measured
-     * @param ready     whether the pod's {@code Ready} condition was still True afterwards
+     * @param uidBefore            the pod's {@code metadata.uid} before the patch
+     * @param uidAfter             the uid after; a different value means this is a <em>different
+     *                             pod</em> that happens to share a name, so the resize was never
+     *                             applied to the pod that was measured
+     * @param ready                whether the pod's {@code Ready} condition was still True afterwards
+     * @param containers           per container; "after" is the <strong>final</strong> state, so for
+     *                             a pod that was put back it is the state after the revert
+     * @param revert               for a pod whose PATCH was accepted and whose new size was not put in
+     *                             place, what putting it back achieved; null when no revert was needed
+     * @param insufficientResource {@code cpu} or {@code memory} when the kubelet declined this pod for
+     *                             lack of that resource on its node, else null
      */
     public record PodProof(String podName, String uidBefore, String uidAfter, boolean ready,
-                           List<ContainerProof> containers) {
+                           List<ContainerProof> containers, Revert revert, String insufficientResource) {
 
         public PodProof {
             if (podName == null || podName.isBlank()) {
@@ -157,8 +244,21 @@ public record ResizeProof(Outcome outcome,
             containers = containers == null ? List.of() : List.copyOf(containers);
         }
 
+        /** A pod nothing had to be put back on. */
+        public PodProof(String podName, String uidBefore, String uidAfter, boolean ready,
+                        List<ContainerProof> containers) {
+            this(podName, uidBefore, uidAfter, ready, containers, null, null);
+        }
+
         public boolean samePod() {
             return uidBefore != null && uidBefore.equals(uidAfter);
+        }
+
+        /** Whether any container's observed resources differ between before and the final state. */
+        public boolean changed() {
+            return containers.stream().anyMatch(container -> container.observedBefore() != null
+                    && container.observedAfter() != null
+                    && !container.observedBefore().equals(container.observedAfter()));
         }
     }
 

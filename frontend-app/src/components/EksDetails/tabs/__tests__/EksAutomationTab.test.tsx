@@ -74,11 +74,16 @@ const workload = (overrides: Partial<VerticalWorkloadWire> = {}): VerticalWorklo
   ...overrides,
 });
 
+/** Every fixture here is a current backend, which states that it checked the caller's write gates. */
 const resolveWith = (wire: VerticalEngineResponseWire) =>
-  mockedRead.mockResolvedValue({ kind: 'ok', view: adaptEngineResponse(wire) });
+  mockedRead.mockResolvedValue({ kind: 'ok', view: adaptEngineResponse({ writeGatesChecked: true, ...wire }) });
 
 const renderTab = () =>
   render(<EksAutomationTab clusterName="xamops-test-1" accountId="102227938259" region="ap-south-1" />);
+
+/** Glossary 7.1, the reason shown at the control for a read-only connection. */
+const READ_ONLY_SENTENCE =
+  'View only: this AWS account is connected read-only. Applying changes needs read-write access.';
 
 const container = (current: VerticalResourcesWire, recommended: VerticalResourcesWire | null, reasons: string[]) => ({
   name: 'c',
@@ -300,13 +305,83 @@ describe('EksAutomationTab', () => {
 
     const button = await screen.findByRole('button', { name: 'Apply overprovisioned-api' });
     expect(button).toBeDisabled();
-    expect(button).toHaveAttribute('title', 'Read-only connection');
+    expect(button).toHaveAttribute('title', READ_ONLY_SENTENCE);
     expect(screen.getByText('Why changes are off')).toBeInTheDocument();
+  });
+
+  it('never enables Apply on a payload that did not check the caller (a backend older than the frontend)', async () => {
+    // UAT, 2026-10-12: the frontend went live seven minutes before the backend, whose endpoint 1
+    // sent no write gates at all. "No gate" from a server that never looked enabled Apply for a user
+    // without the automation key, and every click came back 403 K8S_NO_USER_PERMISSION.
+    mockedRead.mockResolvedValue({
+      kind: 'ok',
+      view: adaptEngineResponse({ engine: engine(), gateReasons: [], workloads: [workload()] }),
+    });
+    renderTab();
+
+    const button = await screen.findByRole('button', { name: 'Apply overprovisioned-api' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('title', "Couldn't check whether you can change automation.");
+    expect(mockedApply).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['TAB_GRANT', "View only: you don't have permission to change automation.",
+      'Ask your XamOps administrator to allow automation changes for your user.'],
+    ['IMPERSONATION', "View only while you're signed in as another user.",
+      'Return to your own session to change automation.'],
+    ['ROLE', 'View only: your role can see automation but not change it.', null],
+    ['NO_PRINCIPAL', 'Sign in again to change automation.', null],
+  ])('words a NO_USER_PERMISSION gate by its %s detail, with the next step (glossary 7.2)', async (detail, reason, next) => {
+    resolveWith({
+      engine: engine(),
+      gateReasons: ['NO_USER_PERMISSION'],
+      gateDetails: { NO_USER_PERMISSION: detail },
+      workloads: [workload()],
+    });
+    renderTab();
+
+    const button = await screen.findByRole('button', { name: 'Apply overprovisioned-api' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('title', reason);
+    expect(screen.getByText(reason)).toBeInTheDocument();
+    if (next) expect(screen.getByText(next)).toBeInTheDocument();
+  });
+
+  it('after a caller-level 403, shows the reason, greys every Apply and reads the gates again', async () => {
+    const second = workload({ ref: { namespace: 'team-a', kind: 'Deployment', name: 'idle-batch-listener' } });
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload(), second] });
+    mockedApply.mockResolvedValue({
+      kind: 'refused',
+      code: { kind: 'known', code: 'NO_USER_PERMISSION', label: 'No permission to change automation' },
+      message: "You don't have permission to change automation. Ask your XamOps administrator to allow automation changes for your user.",
+      detail: 'TAB_GRANT',
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "View only: you don't have permission to change automation. Ask your XamOps administrator to allow automation changes for your user.",
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply idle-batch-listener' })).toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Apply overprovisioned-api' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Apply idle-batch-listener' })).toHaveAttribute(
+      'title',
+      "View only: you don't have permission to change automation.",
+    );
+    await waitFor(() => expect(mockedRead).toHaveBeenCalledTimes(2));
+    expect(mockedApply).toHaveBeenCalledTimes(1);
+    // The automatic re-read said "permitted" here, and Apply still stays greyed: the server has
+    // already refused this caller once. Only the user's Refresh hands the decision back to endpoint 1.
+    expect(screen.getByRole('button', { name: 'Apply idle-batch-listener' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply idle-batch-listener' })).toBeEnabled());
   });
 
   describe('manual apply gate', () => {
     const gateFor = (wire: VerticalEngineResponseWire) => {
-      const view = adaptEngineResponse(wire);
+      const view = adaptEngineResponse({ writeGatesChecked: true, ...wire });
       return manualApplyGate(view, view.workloads[0]);
     };
     const cases: { name: string; wire: VerticalEngineResponseWire; reason: string | null }[] = [
@@ -368,17 +443,27 @@ describe('EksAutomationTab', () => {
       {
         name: 'a read-only connection disables',
         wire: { engine: engine(), gateReasons: ['READ_ONLY_CONNECTION'], workloads: [workload()] },
-        reason: 'Read-only connection',
+        reason: READ_ONLY_SENTENCE,
       },
       {
-        name: 'no permission (including a Login-As session) disables',
+        name: 'no permission with no detail disables, in the TAB_GRANT words (glossary 7.2)',
         wire: { engine: engine(), gateReasons: ['NO_USER_PERMISSION'], workloads: [workload()] },
-        reason: 'No permission to change automation',
+        reason: "View only: you don't have permission to change automation.",
+      },
+      {
+        name: 'a Login-As session disables, in its own words',
+        wire: {
+          engine: engine(),
+          gateReasons: ['NO_USER_PERMISSION'],
+          gateDetails: { NO_USER_PERMISSION: 'IMPERSONATION' },
+          workloads: [workload()],
+        },
+        reason: "View only while you're signed in as another user.",
       },
       {
         name: 'demo disables, ahead of the connection',
         wire: { engine: engine(), gateReasons: ['READ_ONLY_CONNECTION', 'DEMO'], workloads: [workload()] },
-        reason: 'Demo workspace',
+        reason: "Demo workspace. Changes aren't saved.",
       },
       {
         name: 'a controller that is not ready disables',
@@ -412,8 +497,52 @@ describe('EksAutomationTab', () => {
                   name: 'api',
                   qosClass: 'Guaranteed',
                   current: { cpuRequestM: 25, memRequestMi: 250, cpuLimitM: 25, memLimitMi: 250 },
-                  recommended: { cpuRequestM: 25, memRequestMi: 400, cpuLimitM: 25, memLimitMi: 400 },
+                  recommended: { cpuRequestM: 60, memRequestMi: 400, cpuLimitM: 60, memLimitMi: 400 },
+                  reasons: ['COOLDOWN'],
+                  upstreamVpa: null,
+                },
+              ],
+            }),
+          ],
+        },
+        reason: 'Changed recently',
+      },
+      {
+        name: 'an OOM-driven memory-only raise inside the cooldown is enabled, as endpoint 3 accepts it (SF1)',
+        wire: {
+          engine: engine(),
+          gateReasons: [],
+          workloads: [
+            workload({
+              containers: [
+                {
+                  name: 'api',
+                  qosClass: 'Guaranteed',
+                  current: { cpuRequestM: 25, memRequestMi: 250, cpuLimitM: 25, memLimitMi: 250 },
+                  recommended: { cpuRequestM: 25, memRequestMi: 313, cpuLimitM: 25, memLimitMi: 313 },
                   reasons: ['COOLDOWN', 'OOM_RISK'],
+                  upstreamVpa: null,
+                },
+              ],
+            }),
+          ],
+        },
+        reason: null,
+      },
+      {
+        name: 'a memory decrease inside the cooldown still disables',
+        wire: {
+          engine: engine(),
+          gateReasons: [],
+          workloads: [
+            workload({
+              containers: [
+                {
+                  name: 'api',
+                  qosClass: 'Guaranteed',
+                  current: { cpuRequestM: 25, memRequestMi: 600, cpuLimitM: 25, memLimitMi: 600 },
+                  recommended: { cpuRequestM: 25, memRequestMi: 300, cpuLimitM: 25, memLimitMi: 300 },
+                  reasons: ['COOLDOWN'],
                   upstreamVpa: null,
                 },
               ],
@@ -736,13 +865,198 @@ describe('EksAutomationTab', () => {
 
     expect(await screen.findByText('Applied. Confirmed in every pod. No restart.')).toBeInTheDocument();
     expect(screen.getByText('In place, no restart · proven in every pod')).toBeInTheDocument();
+    expect(screen.getByTestId('pod-proof-summary')).toHaveTextContent(
+      /^overprovisioned-api-5d9f-abcde: same pod · same container · restarts 0 → 0 · ready$/,
+    );
+    // Review-2 SF7: what the pod ran before and runs now, from its status.
     expect(
       screen.getByText(
-        (_, el) =>
-          el?.tagName === 'LI' &&
-          el.textContent === 'overprovisioned-api-5d9f-abcde: same pod · same container · restarts 0 → 0 · ready',
+        'api: CPU request 1000m → 25m · memory request 1 GiB → 250Mi · CPU limit 1000m → 25m · memory limit 1 GiB → 250Mi',
       ),
     ).toBeInTheDocument();
+  });
+
+  describe('the status block and the copy say only what the payload backs (review-2 SF6, items 9-11)', () => {
+    const changesValue = () => screen.getByText('Changes').nextElementSibling;
+
+    it.each([
+      [['NO_USER_PERMISSION'], { NO_USER_PERMISSION: 'TAB_GRANT' }, 'View only'],
+      [['READ_ONLY_CONNECTION'], {}, 'View only'],
+      [['DEMO'], { DEMO: 'DEMO' }, 'View only'],
+      [[], {}, 'Can be applied'],
+    ])('"Changes" with gates %j reads %s', async (gateReasons, gateDetails, value) => {
+      resolveWith({ engine: engine(), gateReasons, gateDetails, workloads: [workload()] });
+      renderTab();
+
+      await screen.findByRole('button', { name: 'Apply overprovisioned-api' });
+      expect(changesValue()).toHaveTextContent(new RegExp(`^${value}$`));
+    });
+
+    it('"Changes" reads Not checked when the server did not check the caller', async () => {
+      mockedRead.mockResolvedValue({
+        kind: 'ok',
+        view: adaptEngineResponse({ engine: engine(), gateReasons: [], workloads: [workload()] }),
+      });
+      renderTab();
+
+      await screen.findByRole('button', { name: 'Apply overprovisioned-api' });
+      expect(changesValue()).toHaveTextContent(/^Not checked$/);
+      expect(changesValue()).toHaveAttribute('title', "Couldn't check whether you can change automation.");
+    });
+
+    it('an empty cluster with only a write gate still reads "No workloads to analyse" (item 9)', async () => {
+      resolveWith({ engine: engine(), gateReasons: ['READ_ONLY_CONNECTION'], workloads: [] });
+      renderTab();
+
+      expect(await screen.findByText('No workloads to analyse')).toBeInTheDocument();
+      expect(screen.queryByText('View only: this account is connected read-only')).toBeNull();
+    });
+
+    it('an unknown replica count is not 1: "Could free" is per pod (item 10)', () => {
+      const status = workloadStatus(
+        adaptEngineResponse({ engine: engine(), gateReasons: [], workloads: [workload({ replicas: null })] }).workloads[0],
+      );
+      // 1000m → 25m and 1024Mi → 250Mi on one pod, as the two-replica case above shows doubled.
+      expect(status.detail).toBe('Could free up to 0.97 vCPU and 774Mi memory per pod');
+    });
+
+    it('"How this was calculated" names no usage source it was not given, and no saved choice (item 11)', async () => {
+      resolveWith({
+        engine: engine(),
+        gateReasons: [],
+        workloads: [
+          workload({
+            provenance: {
+              percentile: 95,
+              windowHours: 24,
+              windowStart: null,
+              windowEnd: null,
+              sampleCoverage: null,
+              usageSource: null,
+              policySource: 'WORKLOAD_ROW',
+            },
+          }),
+        ],
+      });
+      renderTab();
+
+      fireEvent.click(await screen.findByText('How this was calculated'));
+      expect(screen.getByText(`Usage source: ${DASH}`)).toBeInTheDocument();
+      expect(screen.queryByText(/Usage from Prometheus/)).toBeNull();
+      expect(
+        screen.getByText('Settings recorded for this workload when a change was applied: the defaults in force then'),
+      ).toBeInTheDocument();
+      expect(screen.queryByText('Saved for this workload')).toBeNull();
+    });
+  });
+
+  it('flags a container whose pods disagree beside "now" (review-2 SF2)', async () => {
+    const base = workload();
+    resolveWith({
+      engine: engine(),
+      gateReasons: [],
+      workloads: [workload({ containers: [{ ...base.containers![0], podsDisagree: true }] })],
+    });
+    renderTab();
+
+    const chip = await screen.findByText('Pods differ');
+    expect(chip).toHaveAttribute('title', expect.stringContaining('new pods start at'));
+  });
+
+  it('says "every running pod (N of M)" and lists the pods it left out (review-2 SF3)', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+    const resized = (name: string) => ({
+      podName: name,
+      uidBefore: `uid-${name}`,
+      uidAfter: `uid-${name}`,
+      samePod: true,
+      ready: true,
+      containers: [
+        {
+          name: 'api',
+          containerIdBefore: 'c1',
+          containerIdAfter: 'c1',
+          restartCountBefore: 0,
+          restartCountAfter: 0,
+          observedBefore: { cpuRequestM: 1000, memRequestMi: 1024, cpuLimitM: 1000, memLimitMi: 1024 },
+          observedAfter: { cpuRequestM: 25, memRequestMi: 250, cpuLimitM: 25, memLimitMi: 250 },
+        },
+      ],
+    });
+    mockedApply.mockResolvedValue({
+      kind: 'submitted',
+      correlationId: 'c0ffee',
+      state: 'ACCEPTED',
+      dryRun: false,
+      result: {
+        method: 'IN_PLACE',
+        terminal: 'APPLIED',
+        detail: null,
+        restartFree: true,
+        containers: [{ name: 'api', state: 'APPLIED', detail: null, requested: null, restartExpected: false }],
+        pods: [resized('api-1'), resized('api-2')],
+        skippedPods: [{ podName: 'api-3', phase: 'Pending', reason: 'NOT_RUNNING' }],
+      },
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+
+    expect(await screen.findByText('Applied. Confirmed in every running pod (2 of 3). No restart.')).toBeInTheDocument();
+    expect(screen.getByText('In place, no restart · proven in every running pod (2 of 3)')).toBeInTheDocument();
+    expect(screen.getByText('api-3: not running (Pending)')).toBeInTheDocument();
+    expect(screen.queryByText(/Confirmed in every pod/)).toBeNull();
+  });
+
+  it('a partial outcome shows which pod changed and which did not (review-2 SF7)', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+    const proofOf = (name: string, after: { cpuRequestM: number; memRequestMi: number; cpuLimitM: number; memLimitMi: number }) => ({
+      podName: name,
+      uidBefore: `uid-${name}`,
+      uidAfter: `uid-${name}`,
+      samePod: true,
+      ready: true,
+      containers: [
+        {
+          name: 'api',
+          containerIdBefore: 'c1',
+          containerIdAfter: 'c1',
+          restartCountBefore: 0,
+          restartCountAfter: 0,
+          observedBefore: { cpuRequestM: 1000, memRequestMi: 1024, cpuLimitM: 1000, memLimitMi: 1024 },
+          observedAfter: after,
+        },
+      ],
+    });
+    mockedApply.mockResolvedValue({
+      kind: 'submitted',
+      correlationId: 'c0ffee',
+      state: 'ACCEPTED',
+      dryRun: false,
+      result: {
+        method: 'IN_PLACE',
+        terminal: 'PARTIALLY_APPLIED',
+        detail: 'The canary pod was resized and confirmed, but pod api-2 was not.',
+        restartFree: false,
+        containers: [{ name: 'api', state: 'FAILED', detail: null, requested: null, restartExpected: false }],
+        pods: [
+          proofOf('api-1', { cpuRequestM: 25, memRequestMi: 250, cpuLimitM: 25, memLimitMi: 250 }),
+          proofOf('api-2', { cpuRequestM: 1000, memRequestMi: 1024, cpuLimitM: 1000, memLimitMi: 1024 }),
+        ],
+      },
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+
+    expect(await screen.findByText('Partly applied: it stopped at the first pod that failed.')).toBeInTheDocument();
+    expect(screen.queryByText(/The pods below say which changed/)).toBeNull();
+    expect(
+      screen.getByText(
+        'api: CPU request 1000m → 25m · memory request 1 GiB → 250Mi · CPU limit 1000m → 25m · memory limit 1 GiB → 250Mi',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('api: no change')).toBeInTheDocument();
   });
 
   it('renders a deferred outcome as a wait for room, never as a success', async () => {
@@ -771,6 +1085,138 @@ describe('EksAutomationTab', () => {
     expect(screen.getByText('In place · no restart-free proof')).toBeInTheDocument();
     expect(screen.getByText('api: Waiting for room on the node')).toBeInTheDocument();
     expect(screen.queryByText(/Applied\. Confirmed/)).toBeNull();
+  });
+
+  it('keeps a card greyed while its own apply runs, even when another card finishes first (review-2 SF5)', async () => {
+    const second = workload({ ref: { namespace: 'team-a', kind: 'Deployment', name: 'idle-batch-listener' } });
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload(), second] });
+    let finishFirst: (value: unknown) => void = () => undefined;
+    const testRun = { kind: 'submitted', correlationId: 'c', state: 'ACCEPTED', dryRun: true, result: null };
+    mockedApply
+      .mockImplementationOnce(() => new Promise((resolve) => { finishFirst = resolve; }))
+      .mockResolvedValueOnce(testRun);
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply overprovisioned-api' })).toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Apply idle-batch-listener' }));
+    await waitFor(() => expect(mockedApply).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply idle-batch-listener' })).toBeEnabled());
+
+    expect(screen.getByRole('button', { name: 'Apply overprovisioned-api' }))
+      .toBeDisabled();
+    finishFirst(testRun);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply overprovisioned-api' })).toBeEnabled());
+  });
+
+  it('explains a 409 from endpoint 3: another change to the workload is still running', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+    mockedApply.mockResolvedValue({
+      kind: 'refused',
+      code: { kind: 'known', code: 'APPLY_IN_PROGRESS', label: 'Another change is running' },
+      message: 'Another change to team-a/overprovisioned-api is still being applied.',
+      detail: null,
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Not applied: another change to this workload is still running. Wait for it to finish, then refresh.',
+    );
+    // Not a caller-level refusal: the other cards are not greyed by it.
+    expect(screen.getByRole('button', { name: 'Apply overprovisioned-api' })).toBeEnabled();
+  });
+
+  describe('a declined resize that XamOps put back (review-1 S7)', () => {
+    const declined = (terminal: string, reverted: boolean, insufficient: string | null, revertState: string) => ({
+      kind: 'submitted',
+      correlationId: 'c0ffee',
+      state: 'ACCEPTED',
+      dryRun: false,
+      result: {
+        method: 'IN_PLACE',
+        terminal,
+        detail: `The kubelet declined it (${terminal}). XamOps put pod prod-sim/throttled-encoder-8b999cc87-mcw8q back.`,
+        restartFree: false,
+        containers: [{ name: 'api', state: terminal, detail: null, requested: null, restartExpected: false }],
+        pods: [
+          {
+            podName: 'throttled-encoder-8b999cc87-mcw8q',
+            uidBefore: 'u1',
+            uidAfter: 'u1',
+            samePod: true,
+            ready: true,
+            changed: false,
+            revert: { state: revertState, detail: 'XamOps put the pod back.' },
+            containers: [
+              {
+                name: 'api',
+                containerIdBefore: 'c1',
+                containerIdAfter: 'c1',
+                restartCountBefore: 0,
+                restartCountAfter: 0,
+                observedBefore: { cpuRequestM: 10, memRequestMi: 64, cpuLimitM: 50, memLimitMi: 128 },
+                observedAfter: { cpuRequestM: 10, memRequestMi: 64, cpuLimitM: 50, memLimitMi: 128 },
+              },
+            ],
+          },
+        ],
+        reverted,
+        insufficient,
+      },
+    });
+
+    const applyAndRead = async () => {
+      fireEvent.click(await screen.findByRole('checkbox', { name: /Test run only/ }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Resize pods' }));
+    };
+
+    it('DEFERRED for CPU says the pod was put back and what would let it through', async () => {
+      resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+      mockedApply.mockResolvedValue(declined('DEFERRED', true, 'cpu', 'REVERTED'));
+      renderTab();
+      await applyAndRead();
+
+      expect(
+        await screen.findByText(
+          'The node has no free CPU for this increase, so XamOps put the pod back as it was. Free room on that node, for example by applying an over-provisioned workload there, or add a node.',
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByText('api: Not applied: put back as it was')).toBeInTheDocument();
+      expect(screen.getByText(/put back as it was$/, { selector: 'span' })).toBeInTheDocument();
+      expect(screen.queryByText(/Nothing was changed/)).toBeNull();
+      expect(screen.queryByText(/Kubernetes may apply it later/)).toBeNull();
+    });
+
+    it('INFEASIBLE for memory says it can never fit, and that the pod was put back', async () => {
+      resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+      mockedApply.mockResolvedValue(declined('INFEASIBLE', true, 'memory', 'REVERTED'));
+      renderTab();
+      await applyAndRead();
+
+      expect(
+        await screen.findByText(
+          'This size can never fit on the node: it has less memory in total than the pod would ask for, so XamOps put the pod back as it was. Choose a smaller size, or run the workload on a larger node.',
+        ),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/Nothing was changed/)).toBeNull();
+    });
+
+    it('a pod that could not be proved back says the new size may still be applied', async () => {
+      resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+      mockedApply.mockResolvedValue(declined('DEFERRED', false, 'cpu', 'NOT_CONFIRMED'));
+      renderTab();
+      await applyAndRead();
+
+      expect(
+        await screen.findByText(
+          "Not applied: the node doesn't have room right now. XamOps tried to put the pod back as it was and couldn't confirm it, so the new size may still be applied later. Check the pod before trying again.",
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/sent back, but it didn't confirm$/, { selector: 'span' })).toBeInTheDocument();
+    });
   });
 
   it('renders a test run as a rehearsal, not as a change', async () => {
@@ -831,10 +1277,26 @@ describe('EksAutomationTab', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
 
-    const text = await screen.findByText(
-      'View only: this AWS account is connected read-only. Applying changes needs read-write access.',
-    );
+    const text = await screen.findByRole('alert');
+    expect(text).toHaveTextContent(READ_ONLY_SENTENCE);
     expect(text).toHaveAttribute('title', 'This AWS account is connected read-only.');
+    // A caller-level refusal holds for the whole page, so the control now says the same thing.
+    expect(screen.getByRole('button', { name: 'Apply overprovisioned-api' })).toBeDisabled();
+  });
+
+  it('explains a POLICY_OFF refusal from endpoint 3 in plain words (review-2 item 15)', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+    mockedApply.mockResolvedValue({
+      kind: 'refused',
+      code: { kind: 'unknown', raw: 'K8S_INVALID_POLICY' },
+      message: 'POLICY_OFF: rightsizing is off for team-a/overprovisioned-api, so XamOps does not change it.',
+      detail: null,
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Not applied: rightsizing is off for this workload.');
   });
 
   it('explains a cooldown refusal from endpoint 3 in plain words', async () => {

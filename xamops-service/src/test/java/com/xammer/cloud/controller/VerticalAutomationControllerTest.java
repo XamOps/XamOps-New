@@ -31,6 +31,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -83,6 +84,8 @@ class VerticalAutomationControllerTest {
         when(accessService.requireAwsAccess(any(), eq(AWS_ID))).thenReturn(account);
         when(accessService.requireAwsAccess(any(), eq(FOREIGN_ID)))
                 .thenThrow(new AccessDeniedException("Account not found or access denied."));
+        when(applyService.callerWriteGates(any(), any()))
+                .thenReturn(new VerticalApplyService.WriteGates(List.of(), Map.of()));
 
         ClientUserDetails principal = new ClientUserDetails("user@example.com", "pw",
                 List.of(new SimpleGrantedAuthority("ROLE_USER")), 10L, 7L, "tenant-a");
@@ -115,14 +118,35 @@ class VerticalAutomationControllerTest {
     @DisplayName("the caller's write gates are reported after the engine's own, from endpoint 3's predicates")
     void theCallersWriteGatesAreReported() throws Exception {
         givenClusterConfigByPrimaryKey();
-        when(applyService.writeGates(any(), eq(account)))
-                .thenReturn(List.of("READ_ONLY_CONNECTION"));
+        when(applyService.callerWriteGates(any(), eq(account)))
+                .thenReturn(new VerticalApplyService.WriteGates(
+                        List.of("NO_USER_PERMISSION", "READ_ONLY_CONNECTION"),
+                        Map.of("NO_USER_PERMISSION", "TAB_GRANT")));
 
         mvc().perform(get(BASE + "/xamops-test-cluster" + QUERY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.gateReasons[0]").value("CONTROLLER_NOT_READY"))
                 .andExpect(jsonPath("$.gateReasons")
-                        .value(org.hamcrest.Matchers.hasItem("READ_ONLY_CONNECTION")));
+                        .value(org.hamcrest.Matchers.hasItems("NO_USER_PERMISSION", "READ_ONLY_CONNECTION")))
+                .andExpect(jsonPath("$.gateDetails.NO_USER_PERMISSION").value("TAB_GRANT"))
+                .andExpect(jsonPath("$.writeGatesChecked").value(true));
+    }
+
+    @Test
+    @DisplayName("a permitted caller's payload still says its write gates were checked")
+    void aPermittedCallerIsCheckedNotJustUngated() throws Exception {
+        // Absence of a gate used to be the only signal. A build that never evaluated the gates
+        // produced the same empty list, and a frontend deployed ahead of its backend enabled an
+        // Apply the server refused. writeGatesChecked is the positive statement.
+        givenClusterConfigByPrimaryKey();
+
+        mvc().perform(get(BASE + "/xamops-test-cluster" + QUERY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.writeGatesChecked").value(true))
+                .andExpect(jsonPath("$.gateDetails").isMap())
+                .andExpect(jsonPath("$.gateDetails").isEmpty())
+                .andExpect(jsonPath("$.gateReasons")
+                        .value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem("NO_USER_PERMISSION"))));
     }
 
     @Test
@@ -255,6 +279,25 @@ class VerticalAutomationControllerTest {
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.code").value(code))
                     .andExpect(jsonPath("$.message").value("Refused because " + code + "."))
+                    .andExpect(jsonPath("$.field").doesNotExist())
+                    .andExpect(jsonPath("$.detail").doesNotExist());
+        }
+    }
+
+    @Test
+    @DisplayName("a permission refusal names its rule in detail, so the UI can say which remedy applies")
+    void aPermissionRefusalCarriesItsDetail() throws Exception {
+        givenClusterConfigByPrimaryKey();
+        for (String detail : List.of("TAB_GRANT", "IMPERSONATION", "ROLE", "NO_PRINCIPAL")) {
+            doThrow(new VerticalApplyService.ApplyRefusedException(HttpStatus.FORBIDDEN,
+                    "K8S_NO_USER_PERMISSION", null, "Refused by " + detail + ".", detail))
+                    .when(applyService).apply(any(), any(), any(), any(), any());
+
+            mvc().perform(post(BASE + APPLY + QUERY)
+                            .contentType(MediaType.APPLICATION_JSON).content(APPLY_BODY))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("K8S_NO_USER_PERMISSION"))
+                    .andExpect(jsonPath("$.detail").value(detail))
                     .andExpect(jsonPath("$.field").doesNotExist());
         }
     }

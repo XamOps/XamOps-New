@@ -35,6 +35,14 @@ interface LineItemDto {
    * CloudFront lines, which stay directly under their region.
    */
   usageType?: string | null;
+  /** The rate an admin set, when private pricing produced this line's amount. */
+  privateUnitRate?: number | null;
+  /** The unit that rate was quoted in — "GB", "Hrs", "Per 10000 Requests". */
+  privateRateUnit?: string | null;
+  /** What the line cost at provider rates, kept only once a private rate replaced it. */
+  originalCost?: number | null;
+  /** Whether an invoice-wide discount must skip this line. Decided by the server. */
+  discountShielded?: boolean;
 }
 
 interface DiscountDto {
@@ -42,6 +50,23 @@ interface DiscountDto {
   serviceName: string;
   percentage: number;
   description: string;
+}
+
+/** A rate an admin applied by hand to part of this invoice. */
+interface PrivatePricingDto {
+  id: number;
+  serviceName: string;
+  regionName?: string | null;
+  usageType?: string | null;
+  scopeLabel: string;
+  unitRate: number;
+  rateUnit?: string | null;
+  excludeFromOverallDiscount: boolean;
+  lineCount?: number | null;
+  skippedLineCount?: number | null;
+  originalAmount?: number | null;
+  pricedAmount?: number | null;
+  description?: string | null;
 }
 
 interface InvoiceDetail {
@@ -61,16 +86,38 @@ interface InvoiceDetail {
   taxAmount: number;
   amount: number;
   marketplaceCharge?: number | null;
+  /** How much of the charges are billed at a rate an admin set rather than at provider cost. */
+  privatePricedTotal?: number | null;
+  /** The part of that an invoice-wide discount may not reduce. */
+  discountShieldedTotal?: number | null;
   includeIrn?: boolean;
   lineItems: LineItemDto[];
   discounts: DiscountDto[];
+  privatePricing?: PrivatePricingDto[];
   dataSource?: 'CUR' | 'COST_EXPLORER' | null;
   provisional?: boolean;
 }
 
 interface UsageTypeNode { usageType: string; total: number; lines: LineItemDto[] }
-interface RegionNode { key: string; region: string; total: number; usageTypes: UsageTypeNode[]; flat: LineItemDto[] }
+interface RegionNode {
+  key: string;
+  /** Display label, which is "Global" when the lines carry no region. */
+  region: string;
+  /**
+   * The region exactly as the line items carry it, empty string included.
+   *
+   * Kept apart from {@link region} because a private rate is matched against the stored
+   * value: pricing a CloudFront region by its "Global" label would match no charge at all.
+   */
+  rawRegion: string;
+  total: number;
+  usageTypes: UsageTypeNode[];
+  flat: LineItemDto[];
+}
 interface ServiceNode { service: string; total: number; regions: RegionNode[]; lineCount: number }
+
+/** The part of the bill a private rate applies to, taken from the row the admin clicked. */
+interface PricingScope { service: string; region?: string; usageType?: string }
 
 // ─── Formatting ──────────────────────────────────────────────────────────────
 
@@ -104,6 +151,48 @@ const formatQuantity = (raw: string | null | undefined): string => {
   return v.toLocaleString('en-US', { maximumFractionDigits: 6 });
 };
 
+/** A rate shown at its own precision: $0.0085 stays $0.0085, not $0.01. */
+const rate = (v: number | null | undefined): string => {
+  const value = v ?? 0;
+  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 10 })}`;
+};
+
+// ─── Private pricing preview ─────────────────────────────────────────────────
+//
+// Mirrors PrivatePricingCalculator on the server so the admin sees what a rate will bill
+// before committing to it. The figures shown after applying are the server's own, read
+// back off the returned invoice -- this is only the preview.
+
+/** The quantity to multiply, or null when the line carries none that can be trusted. */
+const usageQuantityOf = (raw: string | null | undefined): number | null => {
+  if (raw == null || raw.trim() === '') return null;
+  const token = raw.trim().split(/\s+/)[0].replace(/,/g, '');
+  if (token === '') return null;
+  const value = Number(token);
+  return Number.isFinite(value) ? value : null;
+};
+
+/** Divisor implied by a rate unit such as "Per 10000 Requests"; 1 when it names none. */
+const rateUnitDivisor = (rateUnit: string): number => {
+  const match = /per\s*([\d,]+)/i.exec(rateUnit);
+  if (!match) return 1;
+  const n = Number(match[1].replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : 1;
+};
+
+/**
+ * Why a line inside a scope would be left at provider cost, or null if it can be priced.
+ * Credits are checked first: a Savings Plan negation has a perfectly readable quantity,
+ * which is exactly what makes multiplying it dangerous.
+ */
+const pricingSkipReason = (line: LineItemDto): string | null => {
+  if ((line.cost ?? 0) < 0) return 'credit or Savings Plan line';
+  const quantity = usageQuantityOf(line.usageQuantity);
+  if (quantity === null) return 'no readable quantity';
+  if (quantity === 0) return 'no measured usage';
+  return null;
+};
+
 const formatPeriod = (period: string | null | undefined): string => {
   if (!period) return '—';
   const [y, m] = period.split('-').map(Number);
@@ -125,6 +214,43 @@ const accountIdOf = (inv: InvoiceDetail): string => {
 
 const regionLabel = awsRegionName;
 
+/**
+ * Marks a charge billed at an admin's rate rather than the provider's cost, showing the
+ * rate and what the provider charged.
+ *
+ * <p>On the line itself because this is the one place the two figures can be compared, and
+ * because a charge that does not match the provider's bill invites exactly that question.
+ */
+const PricedBadge: React.FC<{ line: LineItemDto }> = ({ line }) => {
+  if (line.privateUnitRate == null) return null;
+  const provider = line.originalCost == null ? null : usd(line.originalCost);
+  // The same phrasing the detail bill prints, so the page and the customer's bill
+  // describe one rate the same way. A unit already written "Per 10000 Requests" is not
+  // prefixed again.
+  // Falls back to the line's own unit when no rate unit was recorded, as the bill does:
+  // a rate quoted without a unit carries no divisor, so it is per one unit of whatever
+  // the quantity measures.
+  const rateUnit = line.privateRateUnit
+    || (line.unit && !['n/a', 'na', 'none'].includes(line.unit.trim().toLowerCase()) ? line.unit : '');
+  const phrase = rateUnit
+    ? `${rate(line.privateUnitRate)} ${/^per/i.test(rateUnit) ? '' : 'per '}${rateUnit}`
+    : rate(line.privateUnitRate);
+  return (
+    <span
+      className="inv-pill inv-pill--priced"
+      style={{ marginLeft: 8 }}
+      title={`Billed at ${phrase}`
+        + (provider ? `, instead of the provider's ${provider}` : '')
+        + (line.discountShielded ? '. The overall discount skips this charge.' : '')}
+    >
+      <i className="fas fa-tag" aria-hidden="true" />
+      {phrase}
+      {provider && <span className="inv-pill__was">was {provider}</span>}
+      {line.discountShielded && <i className="fas fa-shield-alt" aria-hidden="true" />}
+    </span>
+  );
+};
+
 // ─── Charges tree ────────────────────────────────────────────────────────────
 
 /**
@@ -133,12 +259,13 @@ const regionLabel = awsRegionName;
  * repriced CloudFront) skip that level and sit straight under their region.
  */
 const buildTree = (lines: LineItemDto[]): ServiceNode[] => {
-  const services = new Map<string, Map<string, { byUsage: Map<string, LineItemDto[]>; flat: LineItemDto[] }>>();
+  const services = new Map<string, Map<string, { byUsage: Map<string, LineItemDto[]>; flat: LineItemDto[]; raw: string }>>();
   for (const line of lines) {
     const svc = line.serviceName || 'Other';
     const rgn = line.regionName || 'Global';
     const regions = services.get(svc) ?? new Map();
-    const bucket = regions.get(rgn) ?? { byUsage: new Map<string, LineItemDto[]>(), flat: [] as LineItemDto[] };
+    const bucket = regions.get(rgn)
+      ?? { byUsage: new Map<string, LineItemDto[]>(), flat: [] as LineItemDto[], raw: line.regionName || '' };
     if (line.usageType) {
       const list = bucket.byUsage.get(line.usageType) ?? [];
       list.push(line);
@@ -156,13 +283,14 @@ const buildTree = (lines: LineItemDto[]): ServiceNode[] => {
   return [...services.entries()]
     .map(([service, regionMap]) => {
       const regions: RegionNode[] = [...regionMap.entries()]
-        .map(([region, { byUsage, flat }]) => {
+        .map(([region, { byUsage, flat, raw }]) => {
           const usageTypes = [...byUsage.entries()]
             .map(([usageType, ls]) => ({ usageType, total: sum(ls), lines: [...ls].sort(byCost) }))
             .sort((a, b) => b.total - a.total);
           return {
             key: `${service}|${region}`,
             region,
+            rawRegion: raw,
             total: usageTypes.reduce((s, u) => s + u.total, 0) + sum(flat),
             usageTypes,
             flat: [...flat].sort(byCost),
@@ -199,6 +327,17 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
   const [discountPct, setDiscountPct] = useState('');
   const [applyingDiscount, setApplyingDiscount] = useState(false);
   const [discountError, setDiscountError] = useState<string | null>(null);
+
+  // Private pricing is applied from the charges tree itself: the row the admin clicked
+  // IS the scope, since the tree's three levels — service, region, usage type — are
+  // exactly the levels a rate can be scoped to. Null when no editor is open.
+  const [pricingScope, setPricingScope] = useState<PricingScope | null>(null);
+  const [priceRate, setPriceRate] = useState('');
+  const [priceRateUnit, setPriceRateUnit] = useState('');
+  const [priceShield, setPriceShield] = useState(true);
+  const [applyingPrice, setApplyingPrice] = useState(false);
+  const [pricingError, setPricingError] = useState<string | null>(null);
+  const [pricingBusyId, setPricingBusyId] = useState<number | null>(null);
 
   const [finalizing, setFinalizing] = useState(false);
   const [confirmFinalize, setConfirmFinalize] = useState(false);
@@ -300,6 +439,124 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
 
   const serviceNames = useMemo(() => fullTree.map(s => s.service).sort(), [fullTree]);
 
+  // ── Private pricing ───────────────────────────────────────────────────────
+
+  const privatePricing = useMemo(() => invoice?.privatePricing ?? [], [invoice]);
+
+  /** Services whose charges an overall discount would skip, for the discount picker. */
+  const shieldedServices = useMemo(
+    () => new Set(privatePricing.filter(p => p.excludeFromOverallDiscount).map(p => p.serviceName)),
+    [privatePricing]);
+
+  /**
+   * The rate already applied to exactly this scope, if any.
+   *
+   * Matched on the scope's own three levels rather than on which lines it covers, so the
+   * row that set a rate is the row that shows and removes it.
+   */
+  const rateForScope = useCallback((scope: PricingScope): PrivatePricingDto | undefined =>
+    privatePricing.find(p =>
+      p.serviceName === scope.service
+      && (p.regionName ?? '') === (scope.region ?? '')
+      && (p.usageType ?? '') === (scope.usageType ?? '')),
+    [privatePricing]);
+
+  /** Whether a rate on a broader or narrower scope already covers these charges. */
+  const overlappingRate = useCallback((scope: PricingScope): PrivatePricingDto | undefined =>
+    privatePricing.find(p => {
+      if (p.serviceName !== scope.service) return false;
+      const regionOverlaps = !p.regionName || !scope.region || p.regionName === scope.region;
+      const usageOverlaps = !p.usageType || !scope.usageType || p.usageType === scope.usageType;
+      return regionOverlaps && usageOverlaps;
+    }),
+    [privatePricing]);
+
+  const linesInScope = useCallback((scope: PricingScope): LineItemDto[] =>
+    allLines.filter(l =>
+      (l.serviceName || 'Other') === scope.service
+      && (!scope.region || (l.regionName || '') === scope.region)
+      && (!scope.usageType || l.usageType === scope.usageType)),
+    [allLines]);
+
+  /** The invoice lines the open editor's scope would price. */
+  const priceScopeLines = useMemo(
+    () => (pricingScope ? linesInScope(pricingScope) : []),
+    [pricingScope, linesInScope]);
+
+  /**
+   * What applying the current rate would do, worked out the way the server will.
+   *
+   * Shown before committing because the alternative is applying a rate to find out: the
+   * quantities on this page span eight orders of magnitude, so a per-GB rate that looks
+   * sensible against one line can be wildly wrong against another.
+   */
+  const pricePreview = useMemo(() => {
+    const parsedRate = Number(priceRate);
+    const rateIsUsable = priceRate.trim() !== '' && Number.isFinite(parsedRate) && parsedRate >= 0;
+
+    const priceable = priceScopeLines.filter(l => pricingSkipReason(l) === null);
+    const skipped = priceScopeLines.filter(l => pricingSkipReason(l) !== null);
+
+    // One rate, one unit -- the check the server enforces. Placeholder units are left
+    // out: the region-only fallback line writes "N/A", which names no measure.
+    const units = [...new Set(priceable
+      .map(l => (l.unit ?? '').trim().toLowerCase())
+      .filter(u => u !== '' && u !== 'n/a' && u !== 'na' && u !== 'none'))];
+
+    const divisor = rateUnitDivisor(priceRateUnit);
+    const quantity = priceable.reduce((sum, l) => sum + (usageQuantityOf(l.usageQuantity) ?? 0), 0);
+    const providerCost = priceable.reduce((sum, l) => sum + (l.cost ?? 0), 0);
+    const billed = rateIsUsable ? (quantity / divisor) * parsedRate : null;
+
+    return {
+      rateIsUsable,
+      lineCount: priceable.length,
+      skippedCount: skipped.length,
+      skipNotes: [...new Set(skipped.map(l => pricingSkipReason(l)!))],
+      units,
+      mixedUnits: units.length > 1,
+      quantity,
+      divisor,
+      providerCost,
+      billed,
+      margin: billed === null ? null : billed - providerCost,
+    };
+  }, [priceScopeLines, priceRate, priceRateUnit]);
+
+  /** The unit the scope is measured in, offered as the rate's unit by default. */
+  const impliedRateUnit = pricePreview.units.length === 1 ? pricePreview.units[0] : '';
+
+  /**
+   * Opens the editor on a row, or closes it if that row is already open.
+   *
+   * The scope's own unit is prefilled, so pricing CloudFront egress per GB takes a rate
+   * and nothing else.
+   */
+  const openPricingOn = useCallback((scope: PricingScope) => {
+    setPricingError(null);
+    setPricingScope(prev => {
+      const same = prev
+        && prev.service === scope.service
+        && (prev.region ?? '') === (scope.region ?? '')
+        && (prev.usageType ?? '') === (scope.usageType ?? '');
+      if (same) return null;
+
+      const lines = linesInScope(scope).filter(l => pricingSkipReason(l) === null);
+      const units = [...new Set(lines
+        .map(l => (l.unit ?? '').trim())
+        .filter(u => u !== '' && !['n/a', 'na', 'none'].includes(u.toLowerCase())))];
+      setPriceRate('');
+      setPriceRateUnit(units.length === 1 ? units[0] : '');
+      setPriceShield(true);
+      return scope;
+    });
+  }, [linesInScope]);
+
+  const closePricing = useCallback(() => {
+    setPricingScope(null);
+    setPricingError(null);
+  }, []);
+
   // ── Actions ───────────────────────────────────────────────────────────────
 
   const applyDiscount = useCallback(async () => {
@@ -343,6 +600,90 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
       setInvoice(await res.json());
     } catch (err) {
       setDiscountError(err instanceof Error ? err.message : 'Failed to remove discount.');
+    }
+  }, [invoice]);
+
+  /** Reads the server's own explanation out of a failed pricing call. */
+  const pricingErrorFrom = async (res: Response, fallback: string): Promise<string> => {
+    try {
+      const body = await res.json();
+      return typeof body?.message === 'string' && body.message ? body.message : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const applyPricing = useCallback(async () => {
+    if (!invoice || !pricingScope) return;
+    const parsedRate = Number(priceRate);
+    if (priceRate.trim() === '' || !Number.isFinite(parsedRate) || parsedRate < 0) {
+      setPricingError('Enter a rate of zero or more.');
+      return;
+    }
+    setApplyingPrice(true);
+    setPricingError(null);
+    try {
+      const res = await apiFetch(`/api/admin/invoices/${invoice.id}/private-pricing`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          serviceName: pricingScope.service,
+          regionName: pricingScope.region || null,
+          usageType: pricingScope.usageType || null,
+          unitRate: parsedRate,
+          rateUnit: priceRateUnit.trim() || null,
+          excludeFromOverallDiscount: priceShield,
+        }),
+      });
+      if (!res.ok) throw new Error(await pricingErrorFrom(res, 'Failed to apply private pricing.'));
+      setInvoice(await res.json());
+      setPricingScope(null);
+      setPriceRate('');
+      setPriceRateUnit('');
+      setPriceShield(true);
+    } catch (err) {
+      setPricingError(err instanceof Error ? err.message : 'Failed to apply private pricing.');
+    } finally {
+      setApplyingPrice(false);
+    }
+  }, [invoice, pricingScope, priceRate, priceRateUnit, priceShield]);
+
+  const togglePricingShield = useCallback(async (pricingId: number, exclude: boolean) => {
+    if (!invoice) return;
+    setPricingBusyId(pricingId);
+    setPricingError(null);
+    try {
+      const res = await apiFetch(`/api/admin/invoices/${invoice.id}/private-pricing/${pricingId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ excludeFromOverallDiscount: exclude }),
+      });
+      if (!res.ok) throw new Error(await pricingErrorFrom(res, 'Failed to change this rate.'));
+      setInvoice(await res.json());
+    } catch (err) {
+      setPricingError(err instanceof Error ? err.message : 'Failed to change this rate.');
+    } finally {
+      setPricingBusyId(null);
+    }
+  }, [invoice]);
+
+  const removePricing = useCallback(async (pricingId: number) => {
+    if (!invoice) return;
+    setPricingBusyId(pricingId);
+    setPricingError(null);
+    try {
+      const res = await apiFetch(`/api/admin/invoices/${invoice.id}/private-pricing/${pricingId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(await pricingErrorFrom(res, 'Failed to remove this rate.'));
+      setInvoice(await res.json());
+    } catch (err) {
+      setPricingError(err instanceof Error ? err.message : 'Failed to remove this rate.');
+    } finally {
+      setPricingBusyId(null);
     }
   }, [invoice]);
 
@@ -449,6 +790,233 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
   const isDraft = invoice.status === 'DRAFT';
   const marketplace = invoice.marketplaceCharge ?? 0;
   const taxable = (invoice.preDiscountTotal ?? 0) - (invoice.discountAmount ?? 0);
+
+  // ── Private pricing, in the charges tree ──────────────────────────────────
+  //
+  // Every row of the tree that a rate can be scoped to carries its own control, so
+  // pricing happens where the charge is being read rather than in a form somewhere else
+  // that restates the same hierarchy.
+
+  const scopeIsOpen = (scope: PricingScope): boolean => Boolean(
+    pricingScope
+    && pricingScope.service === scope.service
+    && (pricingScope.region ?? '') === (scope.region ?? '')
+    && (pricingScope.usageType ?? '') === (scope.usageType ?? ''));
+
+  /**
+   * The rate control for one row: the applied rate and its discount checkbox, a note
+   * when a broader rate already covers these charges, or the button that opens the editor.
+   */
+  const pricingCell = (scope: PricingScope) => {
+    const applied = rateForScope(scope);
+
+    if (applied) {
+      const busy = pricingBusyId === applied.id;
+      // Two lines, not one: the rate, its remove button and the discount checkbox do not
+      // fit side by side in this column, and when they were inline the remove button was
+      // pushed out of the column into the table's horizontal overflow — present in the
+      // DOM, unreachable on screen.
+      return (
+        <div className="inv-rate-cell">
+          <span className="inv-rate-cell__rate">
+            <span className="inv-pill inv-pill--priced" title={applied.description ?? undefined}>
+              <i className="fas fa-tag" aria-hidden="true" />
+              {rate(applied.unitRate)}
+              {applied.rateUnit && <span className="inv-pill__unit">/ {applied.rateUnit}</span>}
+            </span>
+            {isDraft && (
+              <button
+                type="button"
+                className="inv-icon-btn inv-icon-btn--danger inv-icon-btn--sm"
+                onClick={() => removePricing(applied.id)}
+                disabled={busy}
+                aria-label={`Remove the rate on ${applied.scopeLabel}`}
+                title="Remove this rate and go back to provider cost"
+              >
+                <i className={`fas ${busy ? 'fa-spinner fa-spin' : 'fa-times'}`} aria-hidden="true" />
+              </button>
+            )}
+          </span>
+          {/* The checkbox the overall discount reads. Shown on the row that set the rate,
+              which is where an admin looks to answer "is this one discountable?". */}
+          <label className="inv-rate-cell__shield" title="Exclude these charges from the invoice's overall discount">
+            <input
+              type="checkbox"
+              checked={applied.excludeFromOverallDiscount}
+              disabled={!isDraft || busy}
+              onChange={e => togglePricingShield(applied.id, e.target.checked)}
+              aria-label={`Exclude ${applied.scopeLabel} from the overall discount`}
+            />
+            <span>No discount</span>
+          </label>
+        </div>
+      );
+    }
+
+    if (!isDraft) return null;
+
+    // A rate on a broader or narrower scope already owns these lines. Said here rather
+    // than left to the server to refuse after the admin has typed a rate.
+    const covering = overlappingRate(scope);
+    if (covering) {
+      const depth = (s: { region?: string | null; usageType?: string | null }) =>
+        1 + (s.region ? 1 : 0) + (s.usageType ? 1 : 0);
+      // Which way to point matters: a service row whose usage type carries a rate is
+      // priced below it, and telling the admin to look up would send them nowhere.
+      const broader = depth(covering) < depth(scope);
+      return (
+        <span
+          className="inv-rate-cell__covered"
+          title={`Already priced by “${covering.scopeLabel}”. Remove that rate to price these separately.`}
+        >
+          <i className="fas fa-tag" aria-hidden="true" />
+          {broader ? 'priced above' : 'priced below'}
+        </span>
+      );
+    }
+
+    const open = scopeIsOpen(scope);
+    return (
+      <button
+        type="button"
+        className={`inv-btn inv-btn--ghost inv-btn--sm inv-rate-btn${open ? ' is-open' : ''}`}
+        onClick={() => openPricingOn(scope)}
+        aria-expanded={open}
+        title="Bill these charges at your own per-unit rate"
+      >
+        <i className="fas fa-tag" aria-hidden="true" />
+        {open ? 'Cancel' : 'Set rate'}
+      </button>
+    );
+  };
+
+  /** The editor, as a row of the tree directly beneath the charges it prices. */
+  const pricingEditorRow = (scope: PricingScope, key: string) => {
+    if (!scopeIsOpen(scope)) return null;
+    const label = [scope.service, scope.region ? regionLabel(scope.region) : null, scope.usageType]
+      .filter(Boolean).join(' · ');
+
+    return (
+      <tr key={`${key}|rate-editor`} className="inv-rate-editor-row">
+        <td colSpan={5}>
+          <div className="inv-rate-editor">
+            <p className="inv-rate-editor__scope">
+              Billing <strong>{label}</strong> at your own rate
+              <small>The amount becomes usage quantity × your rate, instead of the provider&rsquo;s cost.</small>
+            </p>
+
+            {pricingError && (
+              <div className="inv-alert inv-alert--warning" role="alert">
+                <i className="fas fa-exclamation-triangle" aria-hidden="true" />
+                <p className="flex-1">{pricingError}</p>
+              </div>
+            )}
+
+            <div className="inv-rate-editor__fields">
+              <div>
+                <label className="inv-field-label" htmlFor="rate-value">Your rate (USD)</label>
+                <input
+                  id="rate-value"
+                  type="number"
+                  className="inv-input inv-num"
+                  value={priceRate}
+                  onChange={e => setPriceRate(e.target.value)}
+                  placeholder="e.g. 0.085"
+                  min="0"
+                  step="any"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="inv-field-label" htmlFor="rate-unit">Per</label>
+                <input
+                  id="rate-unit"
+                  type="text"
+                  className="inv-input"
+                  value={priceRateUnit}
+                  onChange={e => setPriceRateUnit(e.target.value)}
+                  placeholder={impliedRateUnit || 'e.g. GB, or Per 10000 Requests'}
+                />
+              </div>
+              <label className="inv-rate-editor__shield" htmlFor="rate-shield">
+                <input
+                  id="rate-shield"
+                  type="checkbox"
+                  checked={priceShield}
+                  onChange={e => setPriceShield(e.target.checked)}
+                />
+                <span>
+                  Exclude from the overall discount
+                  <small>An invoice-wide discount will skip these charges.</small>
+                </span>
+              </label>
+              <div className="inv-rate-editor__actions">
+                <button type="button" className="inv-btn inv-btn--ghost inv-btn--sm" onClick={closePricing}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="inv-btn inv-btn--primary inv-btn--sm"
+                  onClick={applyPricing}
+                  disabled={applyingPrice || !priceRate || pricePreview.mixedUnits || pricePreview.lineCount === 0}
+                >
+                  {applyingPrice
+                    ? <><i className="fas fa-spinner fa-spin" aria-hidden="true" /> Applying…</>
+                    : 'Apply rate'}
+                </button>
+              </div>
+            </div>
+
+            {/* What the rate will do, before it is committed. */}
+            {pricePreview.mixedUnits ? (
+              <p className="inv-rate-editor__note is-warning">
+                <i className="fas fa-exclamation-triangle" aria-hidden="true" />
+                These charges are measured in more than one unit ({pricePreview.units.join(', ')}), so one
+                rate cannot price them all. Set a rate on a single usage type instead.
+              </p>
+            ) : pricePreview.lineCount === 0 ? (
+              <p className="inv-rate-editor__note is-warning">
+                <i className="fas fa-exclamation-triangle" aria-hidden="true" />
+                Nothing here carries usage a per-unit rate can price
+                {pricePreview.skipNotes.length > 0 && <> ({pricePreview.skipNotes.join(', ')})</>}.
+              </p>
+            ) : (
+              <p className="inv-rate-editor__note">
+                <i className="fas fa-calculator" aria-hidden="true" />
+                <span>
+                  <strong className="inv-num">{pricePreview.lineCount}</strong>
+                  {pricePreview.lineCount === 1 ? ' line' : ' lines'}
+                  {' · '}
+                  <strong className="inv-num">{formatQuantity(String(pricePreview.quantity))}</strong>
+                  {pricePreview.units.length === 1 ? ` ${pricePreview.units[0]}` : ''}
+                  {pricePreview.billed !== null && (
+                    <>
+                      {' → '}
+                      <strong className="inv-num">{usd(pricePreview.billed)}</strong>
+                      {' (provider cost '}
+                      <span className="inv-num">{usd(pricePreview.providerCost)}</span>
+                      {pricePreview.margin !== null && (
+                        <>, margin <span className="inv-num">{usd(pricePreview.margin)}</span></>
+                      )}
+                      {')'}
+                    </>
+                  )}
+                  {pricePreview.skippedCount > 0 && (
+                    <small className="block inv-muted">
+                      {pricePreview.skippedCount}{' '}
+                      {pricePreview.skippedCount === 1 ? 'line stays' : 'lines stay'} at provider cost
+                      ({pricePreview.skipNotes.join(', ')}) — a credit or Savings Plan line is never
+                      repriced.
+                    </small>
+                  )}
+                </span>
+              </p>
+            )}
+          </div>
+        </td>
+      </tr>
+    );
+  };
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -589,6 +1157,19 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                 </span>
                 <strong className="inv-num">{usd(invoice.preDiscountTotal)}</strong>
               </div>
+              {(invoice.privatePricedTotal ?? 0) !== 0 && (
+                <div className="inv-summary-line">
+                  <span>
+                    At private rates
+                    <small>
+                      {privatePricing.length} rate{privatePricing.length === 1 ? '' : 's'} applied
+                      {(invoice.discountShieldedTotal ?? 0) > 0
+                        && <> · {usd(invoice.discountShieldedTotal)} shielded from the overall discount</>}
+                    </small>
+                  </span>
+                  <strong className="inv-num">{usd(invoice.privatePricedTotal)}</strong>
+                </div>
+              )}
               <div className="inv-summary-line">
                 <span>
                   Discounts
@@ -677,6 +1258,7 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                         <th className="hidden md:table-cell inv-col-share">Share of charges</th>
                         <th className="is-num inv-col-qty">Usage quantity</th>
                         <th className="is-num inv-col-amt">Amount (USD)</th>
+                        <th className="inv-col-rate">Private rate</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -710,10 +1292,20 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                               </td>
                               <td className="is-num inv-qty-cell" />
                               <td className="is-num inv-num">{usd(svc.total)}</td>
+                              <td className="inv-rate-col">{pricingCell({ service: svc.service })}</td>
                             </tr>
+                            {pricingEditorRow({ service: svc.service }, svc.service)}
 
                             {svcOpen && svc.regions.map(rgn => {
                               const rgnOpen = isRegionOpen(rgn.key);
+                              // A region can only be priced on its own if the charges
+                              // actually carry one. CloudFront's CUR lines have no region
+                              // — the geography lives in the usage type — so there the
+                              // service and usage-type levels are the real choices.
+                              const rgnScope: PricingScope | null = rgn.rawRegion
+                                ? { service: svc.service, region: rgn.rawRegion }
+                                : null;
+                              const utRegion = rgn.rawRegion || undefined;
                               return (
                                 <React.Fragment key={rgn.key}>
                                   <tr className="inv-tree-row--region">
@@ -732,20 +1324,29 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                                     <td className="hidden md:table-cell" />
                                     <td className="is-num inv-qty-cell" />
                                     <td className="is-num inv-num">{usd(rgn.total)}</td>
+                                    <td className="inv-rate-col">{rgnScope && pricingCell(rgnScope)}</td>
                                   </tr>
+                                  {rgnScope && pricingEditorRow(rgnScope, rgn.key)}
 
-                                  {rgnOpen && rgn.usageTypes.map(ut => (
+                                  {rgnOpen && rgn.usageTypes.map(ut => {
+                                    const utScope: PricingScope = {
+                                      service: svc.service, region: utRegion, usageType: ut.usageType,
+                                    };
+                                    return (
                                     <React.Fragment key={`${rgn.key}|${ut.usageType}`}>
                                       <tr className="inv-tree-row--usage">
                                         <td className="inv-tree-cell">{ut.usageType}</td>
                                         <td className="hidden md:table-cell" />
                                         <td className="is-num inv-qty-cell" />
                                         <td className="is-num inv-num">{usd(ut.total)}</td>
+                                        <td className="inv-rate-col">{pricingCell(utScope)}</td>
                                       </tr>
+                                      {pricingEditorRow(utScope, `${rgn.key}|${ut.usageType}`)}
                                       {ut.lines.map(line => (
                                         <tr key={line.id} className="inv-tree-row--line">
                                           <td className="inv-tree-cell">
                                             {line.resourceName || '—'}
+                                            <PricedBadge line={line} />
                                             <span className="inv-inline-qty inv-num">
                                               {formatQuantity(line.usageQuantity)} {line.unit}
                                             </span>
@@ -756,15 +1357,18 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                                             {line.unit && <span className="inv-muted ml-1">{line.unit}</span>}
                                           </td>
                                           <td className="is-num inv-num whitespace-nowrap">{usd(line.cost)}</td>
+                                          <td className="inv-rate-col" />
                                         </tr>
                                       ))}
                                     </React.Fragment>
-                                  ))}
+                                    );
+                                  })}
 
                                   {rgnOpen && rgn.flat.map(line => (
                                     <tr key={line.id} className="inv-tree-row--line is-flat">
                                       <td className="inv-tree-cell">
                                         {line.resourceName || '—'}
+                                        <PricedBadge line={line} />
                                         <span className="inv-inline-qty inv-num">
                                           {formatQuantity(line.usageQuantity)} {line.unit && line.unit !== 'N/A' ? line.unit : ''}
                                         </span>
@@ -775,6 +1379,7 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                                         {line.unit && line.unit !== 'N/A' && <span className="inv-muted ml-1">{line.unit}</span>}
                                       </td>
                                       <td className="is-num inv-num whitespace-nowrap">{usd(line.cost)}</td>
+                                      <td className="inv-rate-col" />
                                     </tr>
                                   ))}
                                 </React.Fragment>
@@ -795,6 +1400,7 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                           <td className="is-num inv-num font-bold" style={{ borderTop: '1px solid var(--inv-border)', padding: '12px 16px' }}>
                             {usd(chargesTotal)}
                           </td>
+                          <td className="inv-rate-col" style={{ borderTop: '1px solid var(--inv-border)' }} />
                         </tr>
                       </tfoot>
                     )}
@@ -802,6 +1408,11 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                   <p className="px-5 py-3 text-[11.5px] inv-muted leading-relaxed" style={{ borderTop: '1px solid var(--inv-divider)' }}>
                     Negative amounts are credits, or usage covered by a Savings Plan or Reserved Instance.
                     {invoice.dataSource === 'CUR' && ' Built from the same Cost and Usage Report lines as the cost page’s “Charges by service”.'}
+                    {isDraft
+                      ? ' Set a rate on a service, region or usage type to bill it at usage quantity × your'
+                        + ' rate instead of the provider’s cost. Credits and Savings Plan lines are never'
+                        + ' repriced, and removing a rate restores the provider’s figures exactly.'
+                      : ' This invoice is finalized, so its rates can no longer be changed.'}
                   </p>
                 </div>
               )}
@@ -832,7 +1443,11 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                     >
                       <option value="">Choose what to discount…</option>
                       <option value="ALL">Entire invoice</option>
-                      {serviceNames.map(name => <option key={name} value={name}>{name}</option>)}
+                      {serviceNames.map(name => (
+                        <option key={name} value={name}>
+                          {name}{shieldedServices.has(name) ? ' — at private rates' : ''}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div>
@@ -897,6 +1512,36 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                 </div>
               ) : (
                 <p className="text-[13px] inv-muted">No discounts applied.</p>
+              )}
+
+              {/* Named once here, where the admin is choosing a discount, rather than left
+                  to be discovered in the total afterwards. */}
+              {(invoice.discountShieldedTotal ?? 0) > 0 && (
+                <div className="inv-alert inv-alert--info" role="note">
+                  <i className="fas fa-shield-alt" aria-hidden="true" />
+                  <div className="flex-1">
+                    <p className="inv-alert__title">
+                      {usd(invoice.discountShieldedTotal)} is excluded from the overall discount
+                    </p>
+                    <p>
+                      {[...shieldedServices].join(', ')} {shieldedServices.size === 1 ? 'is' : 'are'} billed
+                      at private rates that already carry their margin, so an invoice-wide or
+                      consumption-wide discount skips those charges. Discounting one of those services
+                      by name still works, and the &ldquo;No discount&rdquo; checkbox beside the rate in
+                      Charges by service lifts the exclusion.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {discountService !== '' && discountService !== 'ALL' && shieldedServices.has(discountService) && (
+                <div className="inv-alert inv-alert--warning" role="note">
+                  <i className="fas fa-exclamation-triangle" aria-hidden="true" />
+                  <p className="flex-1">
+                    {discountService} is billed at a private rate that already carries its margin.
+                    Discounting it by name will reduce that rate.
+                  </p>
+                </div>
               )}
 
               <p className="text-[12px] inv-muted">

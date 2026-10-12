@@ -196,6 +196,109 @@ class InvoiceDiscountAttributionTest {
         assertThat(result.cloudFront()).isEqualByComparingTo("0");
     }
 
+    // ── Charges shielded by manual private pricing ──────────────────────────
+    //
+    // The rendered invoice has to deduct exactly what recalculateTotals deducted, which
+    // now means skipping charges billed at a rate an admin set. If the PDF kept
+    // discounting them, the customer would be billed less than the invoice record says --
+    // the same class of disagreement these tests were written for.
+
+    /**
+     * CloudFront at a private rate, shielded. An "ALL" discount reaches the consumption
+     * row in full and the CloudFront row not at all.
+     */
+    @Test
+    @DisplayName("an ALL discount skips the shielded CloudFront row")
+    void allScopedDiscountSkipsShieldedCloudFront() {
+        var result = InvoiceManagementService.attributeDiscounts(
+                List.of(discount("ALL", "10")), STD, CF, STD_ITEMS,
+                BigDecimal.ZERO, CF);
+
+        assertThat(result.standard()).isEqualByComparingTo("880.12");
+        assertThat(result.cloudFront()).isEqualByComparingTo("0.00");
+    }
+
+    /** Shielding inside the consumption row reduces that row's base, not CloudFront's. */
+    @Test
+    @DisplayName("an ALL discount skips shielded consumption charges")
+    void allScopedDiscountSkipsShieldedConsumption() {
+        BigDecimal shielded = new BigDecimal("4182.55"); // EC2 at a private rate
+
+        var result = InvoiceManagementService.attributeDiscounts(
+                List.of(discount("ALL", "10")), STD, CF, STD_ITEMS,
+                shielded, BigDecimal.ZERO);
+
+        // 10% of (8801.17 - 4182.55)
+        assertThat(result.standard()).isEqualByComparingTo("461.86");
+        assertThat(result.cloudFront()).isEqualByComparingTo("330.36");
+    }
+
+    @Test
+    @DisplayName("a consumption-scoped discount skips shielded consumption charges")
+    void consumptionScopedDiscountSkipsShieldedCharges() {
+        var result = InvoiceManagementService.attributeDiscounts(
+                List.of(discount("AWS Consumption Charge", "8")), STD, CF, STD_ITEMS,
+                new BigDecimal("4182.55"), BigDecimal.ZERO);
+
+        // 8% of (8801.17 - 4182.55)
+        assertThat(result.standard()).isEqualByComparingTo("369.49");
+        assertThat(result.showConsumptionPercent()).isTrue();
+    }
+
+    /**
+     * The shield is against discounts that sweep the invoice without naming what is inside
+     * it. A discount scoped to the service by name is the admin saying they mean it, so it
+     * applies to the full priced amount.
+     */
+    @Test
+    @DisplayName("a discount naming CloudFront still applies even when CloudFront is shielded")
+    void aDiscountNamingTheServiceIgnoresTheShield() {
+        var result = InvoiceManagementService.attributeDiscounts(
+                List.of(discount("Amazon CloudFront", "12")), STD, CF, STD_ITEMS,
+                BigDecimal.ZERO, CF);
+
+        assertThat(result.cloudFront()).isEqualByComparingTo("396.43");
+        assertThat(result.standard()).isEqualByComparingTo("0.00");
+    }
+
+    /** Everything shielded leaves an overall discount with nothing to reduce. */
+    @Test
+    void anEntirelyShieldedInvoiceDiscountsNothing() {
+        var result = InvoiceManagementService.attributeDiscounts(
+                List.of(discount("ALL", "10")), STD, CF, STD_ITEMS, STD, CF);
+
+        assertThat(result.standard()).isEqualByComparingTo("0.00");
+        assertThat(result.cloudFront()).isEqualByComparingTo("0.00");
+    }
+
+    /**
+     * Shielding more than a row holds cannot invert into a discount. Not reachable through
+     * the service -- the shielded figure is summed from the same lines as the row -- but
+     * the clamp is what keeps a rounding disagreement from becoming a negative charge.
+     */
+    @Test
+    void shieldingMoreThanTheRowHoldsClampsAtZero() {
+        var result = InvoiceManagementService.attributeDiscounts(
+                List.of(discount("ALL", "10")), STD, CF, STD_ITEMS,
+                STD.add(new BigDecimal("1000")), CF.add(new BigDecimal("1000")));
+
+        assertThat(result.standard()).isEqualByComparingTo("0.00");
+        assertThat(result.cloudFront()).isEqualByComparingTo("0.00");
+    }
+
+    /** The four-argument form keeps meaning "nothing is shielded". */
+    @Test
+    void theShorterFormShieldsNothing() {
+        var withoutShield = InvoiceManagementService.attributeDiscounts(
+                List.of(discount("ALL", "10")), STD, CF, STD_ITEMS);
+        var withZeroShield = InvoiceManagementService.attributeDiscounts(
+                List.of(discount("ALL", "10")), STD, CF, STD_ITEMS,
+                BigDecimal.ZERO, BigDecimal.ZERO);
+
+        assertThat(withoutShield.standard()).isEqualByComparingTo(withZeroShield.standard());
+        assertThat(withoutShield.cloudFront()).isEqualByComparingTo(withZeroShield.cloudFront());
+    }
+
     /** A discount row with no percentage is skipped rather than throwing. */
     @Test
     void discountWithNullPercentageIsIgnored() {

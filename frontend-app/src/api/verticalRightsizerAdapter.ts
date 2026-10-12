@@ -13,6 +13,7 @@
 
 import type {
   ApplyContainerRequest,
+  CallerRefusal,
   CodeView,
   ContainerView,
   EngineView,
@@ -50,6 +51,7 @@ const CODE_LABELS: Record<string, string> = {
   INSUFFICIENT_HISTORY: 'Not enough data yet',
   GITOPS_MANAGED: 'Managed by Argo CD or Flux',
   // non-gate codes the UI may still be handed
+  APPLY_IN_PROGRESS: 'Another change is running',
   CLUSTER_NOT_REGISTERED: 'Cluster not connected to XamOps',
   NO_ACCOUNT_ACCESS: 'No access to this account',
   AGENT_NOT_INSTALLED: 'XamOps agent not connected',
@@ -146,6 +148,7 @@ const adaptContainer = (
     : null,
   reasons: parseCodes(container.reasons),
   upstreamVpa: adaptUpstreamVpa(container, anomalies, where),
+  podsDisagree: container.podsDisagree === true,
 });
 
 const adaptProvenance = (workload: VerticalWorkloadWire): ProvenanceView | null => {
@@ -211,12 +214,28 @@ const adaptEngine = (wire: VerticalEngineResponseWire['engine']): EngineView => 
   lastCycleError: wire?.lastCycle?.error ?? null,
 });
 
+/** Gate code (prefix stripped) to its rule's detail; anything that is not a string pair is dropped. */
+const adaptGateDetails = (raw: VerticalEngineResponseWire['gateDetails']): Record<string, string> => {
+  const details: Record<string, string> = {};
+  if (!raw || typeof raw !== 'object') return details;
+  for (const [code, detail] of Object.entries(raw)) {
+    if (typeof detail === 'string' && detail.trim() !== '') {
+      details[code.trim().replace(/^K8S_/, '')] = detail.trim();
+    }
+  }
+  return details;
+};
+
 export const adaptEngineResponse = (wire: VerticalEngineResponseWire): VerticalEngineView => {
   const anomalies: string[] = [];
   const gateReasons = parseCodes(wire?.gateReasons);
   return {
     engine: adaptEngine(wire?.engine),
     gateReasons,
+    gateDetails: adaptGateDetails(wire?.gateDetails),
+    // Only an explicit true counts: a build that never evaluated the caller's write gates sends no
+    // flag, and its empty gateReasons must not read as "you may apply".
+    writeGatesChecked: wire?.writeGatesChecked === true,
     workloads: (wire?.workloads ?? []).map((w) => adaptWorkload(w, gateReasons, anomalies)),
     anomalies,
   };
@@ -526,11 +545,19 @@ export const workloadStatus = (workload: WorkloadView): WorkloadStatusText => {
     return { status, detail: lead ? reasonSentence(lead, changing ?? undefined, workload) : '' };
   }
   if (cpuDown || memDown) {
-    const replicas = workload.replicas ?? 1;
+    // Review-2 item 10: an unknown replica count is not 1. And when the pods run different sizes
+    // (SF2), "now" is the workload's own size, so multiplying by every replica over-counts: say what
+    // one pod at that size would free instead.
+    const replicas = workload.replicas;
+    const perPod = replicas === null || replicas === undefined || workload.containers.some((c) => c.podsDisagree);
+    const times = perPod ? 1 : replicas;
     const parts: string[] = [];
-    if (cpuFreed > 0) parts.push(`${((cpuFreed * replicas) / 1000).toFixed(2)} vCPU`);
-    if (memFreed > 0) parts.push(`${formatMemoryMi(memFreed * replicas)} memory`);
-    return { status: 'Over-provisioned', detail: `Could free ${parts.join(' and ')}` };
+    if (cpuFreed > 0) parts.push(`${((cpuFreed * times) / 1000).toFixed(2)} vCPU`);
+    if (memFreed > 0) parts.push(`${formatMemoryMi(memFreed * times)} memory`);
+    return {
+      status: 'Over-provisioned',
+      detail: perPod ? `Could free up to ${parts.join(' and ')} per pod` : `Could free ${parts.join(' and ')}`,
+    };
   }
   const reasons = workload.containers.flatMap((c) => c.reasons);
   if (hasCode(reasons, 'COOLDOWN')) {
@@ -565,11 +592,92 @@ export const reasonTitle = (code: CodeView, container?: ContainerView, workload?
   return `${sentence}${extra} Code: ${code.kind === 'known' ? code.code : code.raw}`;
 };
 
-// ─── Manual apply gate ───────────────────────────────────────────────────────
+// ─── Caller-level write gates (glossary 7.1, 7.2, 7.4) ───────────────────────
 
 /** The caller-level write gates, in the server's published refusal order. */
 const WRITE_GATES = ['DEMO', 'NO_USER_PERMISSION', 'READ_ONLY_CONNECTION'] as const;
+
+/**
+ * Refusal codes that are about the caller rather than the workload, so one of them holds for every
+ * workload on the page: the write gates, plus the account entitlement endpoint 3 re-asks.
+ */
+const CALLER_LEVEL = new Set<string>([...WRITE_GATES, 'NO_ACCOUNT_ACCESS']);
+
+export const isCallerLevelRefusal = (code: CodeView): boolean =>
+  code.kind === 'known' && CALLER_LEVEL.has(code.code);
+
+/** Glossary 7.3 `UNKNOWN`: the answer when the server did not say whether the caller may apply. */
+export const WRITE_GATES_NOT_CHECKED = "Couldn't check whether you can change automation.";
+
+export interface WriteGateText {
+  /** The reason shown at the control (exact glossary text). */
+  reason: string;
+  /** The next step, when the glossary gives one. */
+  nextStep: string | null;
+}
+
+const TAB_GRANT_TEXT: WriteGateText = {
+  reason: "View only: you don't have permission to change automation.",
+  nextStep: 'Ask your XamOps administrator to allow automation changes for your user.',
+};
+
+/** Glossary 7.2: one NO_USER_PERMISSION code, four rules, four different remedies. */
+const PERMISSION_TEXT: Record<string, WriteGateText> = {
+  TAB_GRANT: TAB_GRANT_TEXT,
+  ROLE: { reason: 'View only: your role can see automation but not change it.', nextStep: null },
+  IMPERSONATION: {
+    reason: "View only while you're signed in as another user.",
+    nextStep: 'Return to your own session to change automation.',
+  },
+  NO_PRINCIPAL: { reason: 'Sign in again to change automation.', nextStep: null },
+};
+
+const DEMO_TEXT: WriteGateText = { reason: "Demo workspace. Changes aren't saved.", nextStep: null };
+
+/**
+ * The sentence (and next step) for a caller-level gate or refusal, by its code and the permission
+ * rule's detail. A NO_USER_PERMISSION with no detail gets the TAB_GRANT wording, as glossary 7.2
+ * says to until the detail is served; a refusal's own message is the caller's fallback for that.
+ */
+export const writeGateText = (code: string, detail: string | null | undefined): WriteGateText | null => {
+  switch (code) {
+    case 'DEMO':
+      return DEMO_TEXT;
+    case 'NO_USER_PERMISSION':
+      if (detail === 'DEMO') return DEMO_TEXT;
+      if (detail === 'ACCOUNT') return { reason: "You don't have access to this AWS account.", nextStep: null };
+      return (detail && PERMISSION_TEXT[detail]) || TAB_GRANT_TEXT;
+    case 'READ_ONLY_CONNECTION':
+      return {
+        reason: 'View only: this AWS account is connected read-only. Applying changes needs read-write access.',
+        nextStep: null,
+      };
+    case 'NO_ACCOUNT_ACCESS':
+      return { reason: "You don't have access to this AWS account.", nextStep: null };
+    default:
+      return null;
+  }
+};
+
+// ─── Manual apply gate ───────────────────────────────────────────────────────
+
 const PATH_GATES = ['CLUSTER_ACCESS_NOT_CONFIGURED', 'CLUSTER_UNREACHABLE'] as const;
+
+/**
+ * Every change moves memory up and nothing else: no CPU field, and each memory field above what the
+ * container has now. The same rule endpoint 3 exempts from the cooldown.
+ */
+export const isMemoryOnlyIncrease = (workload: WorkloadView, changes: ApplyContainerRequest[]): boolean =>
+  changes.length > 0 &&
+  changes.every((change) => {
+    if (change.cpuRequestM !== undefined || change.cpuLimitM !== undefined) return false;
+    if (change.memRequestMi === undefined && change.memLimitMi === undefined) return false;
+    const container = workload.containers.find((c) => c.name === change.name);
+    if (!container) return false;
+    const raises = (next: number | undefined, now: MetricValue): boolean =>
+      next === undefined || (now.kind === 'value' && next > now.value);
+    return raises(change.memRequestMi, container.current.memRequestMi) && raises(change.memLimitMi, container.current.memLimitMi);
+  });
 
 const findGate = (gateReasons: CodeView[], code: string): CodeView | undefined =>
   gateReasons.find((g) => g.kind === 'known' && g.code === code);
@@ -585,16 +693,39 @@ const label = (code: string): string => codeText(parseCode(code) ?? { kind: 'unk
  * covers a Login-As session — and a read-write connection), a ready controller, an execution path,
  * then the workload's own refusals (a skip reason, GitOps-managed persistence, the cooldown, and
  * requests the engine would be inventing). The first that fails is the reason shown.
+ *
+ * Two rules make the caller's part fail closed rather than open:
+ *  - `callerRefusal`, a caller-level refusal endpoint 3 already answered on this page, greys every
+ *    workload: it is about the user, not the row, and a second click would only be refused again;
+ *  - a payload that does not say `writeGatesChecked` never enables Apply, because "no write gate"
+ *    from a server that never looked is not "permitted". That is what a frontend deployed ahead of
+ *    its backend was shown on UAT on 2026-10-12, and every click came back 403.
  */
-export const manualApplyGate = (view: VerticalEngineView, workload: WorkloadView): ManualApplyGate => {
+export const manualApplyGate = (
+  view: VerticalEngineView,
+  workload: WorkloadView,
+  callerRefusal: CallerRefusal | null = null,
+): ManualApplyGate => {
   const changes = toApplyContainers(workload);
-  const blocked = (reason: string): ManualApplyGate => ({ enabled: false, reason, changes });
+  const blocked = (reason: string, nextStep: string | null = null): ManualApplyGate => ({
+    enabled: false,
+    reason,
+    nextStep,
+    changes,
+  });
   const { engine, gateReasons } = view;
 
-  for (const code of WRITE_GATES) {
-    const gate = findGate(gateReasons, code);
-    if (gate) return blocked(codeText(gate));
+  if (callerRefusal) {
+    const text = writeGateText(callerRefusal.code, callerRefusal.detail);
+    if (text) return blocked(text.reason, text.nextStep);
   }
+  for (const code of WRITE_GATES) {
+    if (findGate(gateReasons, code)) {
+      const text = writeGateText(code, view.gateDetails[code]);
+      return blocked(text!.reason, text!.nextStep);
+    }
+  }
+  if (!view.writeGatesChecked) return blocked(WRITE_GATES_NOT_CHECKED);
   if (!engine.enabled || !engine.ready || findGate(gateReasons, 'CONTROLLER_NOT_READY')) {
     return blocked(label('CONTROLLER_NOT_READY'));
   }
@@ -608,7 +739,9 @@ export const manualApplyGate = (view: VerticalEngineView, workload: WorkloadView
     return blocked(label('GITOPS_MANAGED'));
   }
   const reasons = workload.containers.flatMap((c) => c.reasons);
-  if (reasons.some((r) => r.kind === 'known' && r.code === 'COOLDOWN')) {
+  // The cooldown holds everything except a memory-only raise, which the engine publishes for a
+  // container that ran out of memory after the last change and endpoint 3 accepts (review-2 SF1).
+  if (reasons.some((r) => r.kind === 'known' && r.code === 'COOLDOWN') && !isMemoryOnlyIncrease(workload, changes)) {
     return blocked(label('COOLDOWN'));
   }
   const changing = new Set(changes.map((c) => c.name));
@@ -617,5 +750,5 @@ export const manualApplyGate = (view: VerticalEngineView, workload: WorkloadView
   );
   if (invented) return blocked(label('REQUESTS_UNSET'));
   if (changes.length === 0) return blocked('No change suggested');
-  return { enabled: true, reason: null, changes };
+  return { enabled: true, reason: null, nextStep: null, changes };
 };

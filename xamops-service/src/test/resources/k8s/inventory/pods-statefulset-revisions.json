@@ -1,0 +1,491 @@
+{
+  "apiVersion": "v1",
+  "kind": "PodList",
+  "metadata": {
+    "resourceVersion": "1"
+  },
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "overprovisioned-api-7d9f-aaaaa",
+        "namespace": "team-a",
+        "uid": "pod-1a",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "overprovisioned-api-7d9f",
+            "uid": "rs-1",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "placeholder",
+            "image": "public.ecr.aws/docker/library/busybox:1.36"
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "overprovisioned-api-7d9f-bbbbb",
+        "namespace": "team-a",
+        "uid": "pod-1b",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "overprovisioned-api-7d9f",
+            "uid": "rs-1",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "placeholder",
+            "image": "public.ecr.aws/docker/library/busybox:1.36"
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "rightsized-worker-5c4b-aaaaa",
+        "namespace": "prod-sim",
+        "uid": "pod-2a",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "rightsized-worker-5c4b",
+            "uid": "rs-2",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "placeholder",
+            "image": "public.ecr.aws/docker/library/busybox:1.36"
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "rightsized-worker-5c4b-bbbbb",
+        "namespace": "prod-sim",
+        "uid": "pod-2b",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "rightsized-worker-5c4b",
+            "uid": "rs-2",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "placeholder",
+            "image": "public.ecr.aws/docker/library/busybox:1.36"
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "throttled-encoder-8a1e-aaaaa",
+        "namespace": "prod-sim",
+        "uid": "pod-3a",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "throttled-encoder-8a1e",
+            "uid": "rs-3",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "placeholder",
+            "image": "public.ecr.aws/docker/library/busybox:1.36"
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "throttled-encoder-8a1e-bbbbb",
+        "namespace": "prod-sim",
+        "uid": "pod-3b",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "throttled-encoder-8a1e",
+            "uid": "rs-3",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "placeholder",
+            "image": "public.ecr.aws/docker/library/busybox:1.36"
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "idle-batch-listener-6b2d-aaaaa",
+        "namespace": "dev-sim",
+        "uid": "pod-4a",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "idle-batch-listener-6b2d",
+            "uid": "rs-4",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "placeholder",
+            "image": "public.ecr.aws/docker/library/busybox:1.36"
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "no-requests-sidecar-app-9f3c-aaaaa",
+        "namespace": "dev-sim",
+        "uid": "pod-5a",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "no-requests-sidecar-app-9f3c",
+            "uid": "rs-5",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "placeholder",
+            "image": "public.ecr.aws/docker/library/busybox:1.36"
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "php-apache-4e7a-aaaaa",
+        "namespace": "team-b",
+        "uid": "pod-6a",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "php-apache-4e7a",
+            "uid": "rs-6",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "placeholder",
+            "image": "public.ecr.aws/docker/library/busybox:1.36"
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "load-generator-2c9b-aaaaa",
+        "namespace": "team-b",
+        "uid": "pod-7a",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "load-generator-2c9b",
+            "uid": "rs-7",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "placeholder",
+            "image": "public.ecr.aws/docker/library/busybox:1.36"
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "pdb-guarded-web-1a5f-aaaaa",
+        "namespace": "team-b",
+        "uid": "pod-8a",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "pdb-guarded-web-1a5f",
+            "uid": "rs-8",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "placeholder",
+            "image": "public.ecr.aws/docker/library/busybox:1.36"
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "unschedulable-giant-3d8c-aaaaa",
+        "namespace": "team-a",
+        "uid": "pod-9a",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "unschedulable-giant-3d8c",
+            "uid": "rs-9",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "placeholder",
+            "image": "public.ecr.aws/docker/library/busybox:1.36"
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "overprovisioned-api-canary-6f2a-aaaaa",
+        "namespace": "team-a",
+        "uid": "pod-decoy",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "overprovisioned-api-canary-6f2a",
+            "uid": "rs-decoy",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "placeholder",
+            "image": "public.ecr.aws/docker/library/busybox:1.36"
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "stateful-queue-0",
+        "namespace": "prod-sim",
+        "uid": "pod-sts-0",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "StatefulSet",
+            "name": "stateful-queue",
+            "uid": "sts-1",
+            "controller": true
+          }
+        ],
+        "labels": {
+          "controller-revision-hash": "stateful-queue-5c2a"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "placeholder",
+            "image": "public.ecr.aws/docker/library/busybox:1.36"
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "False"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "stateful-queue-1",
+        "namespace": "prod-sim",
+        "uid": "pod-sts-1",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "StatefulSet",
+            "name": "stateful-queue",
+            "uid": "sts-1",
+            "controller": true
+          }
+        ],
+        "labels": {
+          "controller-revision-hash": "stateful-queue-7f8d"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "placeholder",
+            "image": "public.ecr.aws/docker/library/busybox:1.36"
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running",
+        "conditions": [
+          {
+            "type": "Ready",
+            "status": "True"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Pod",
+      "metadata": {
+        "name": "prometheus-server-0",
+        "namespace": "monitoring",
+        "uid": "pod-prom",
+        "ownerReferences": [
+          {
+            "apiVersion": "apps/v1",
+            "kind": "ReplicaSet",
+            "name": "prometheus-server",
+            "uid": "dep-prom",
+            "controller": true
+          }
+        ]
+      },
+      "spec": {
+        "containers": [
+          {
+            "name": "placeholder",
+            "image": "public.ecr.aws/docker/library/busybox:1.36"
+          }
+        ]
+      },
+      "status": {
+        "phase": "Running"
+      }
+    }
+  ]
+}

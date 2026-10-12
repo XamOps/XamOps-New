@@ -42,6 +42,46 @@ public class InvoiceLineItem {
     @Column(precision = 19, scale = 4)
     private BigDecimal cost;
 
+    /**
+     * What this line cost at provider rates, kept only once a private rate has replaced
+     * {@link #cost}. Null on every line billed at provider cost, which is almost all of
+     * them.
+     *
+     * <p>Private pricing overwrites {@code cost} in place so that totals, the PDF and the
+     * detail bill all follow without knowing anything about it. Without the original here
+     * that overwrite would be one-way: removing the rate could not put the invoice back,
+     * and there would be nothing to show the margin against.
+     *
+     * <p>Nullable on purpose. billops runs {@code ddl-auto=update}, which can add a
+     * nullable column to the populated {@code invoice_line_item} table but would fail on a
+     * NOT NULL one.
+     */
+    @Column(name = "original_cost", precision = 19, scale = 4)
+    private BigDecimal originalCost;
+
+    /**
+     * The per-unit rate {@link #cost} was computed from, when an admin set one.
+     *
+     * <p>Doubles as the marker for "this line is privately priced", which is what shields
+     * it from invoice-wide discounts and badges it on the detail page. Distinct from
+     * {@code InvoiceDto.LineItemDto.unitRate}, which is derived the other way round --
+     * cost divided by quantity -- for display.
+     */
+    @Column(name = "private_unit_rate", precision = 19, scale = 10)
+    private BigDecimal privateUnitRate;
+
+    /**
+     * The unit {@link #privateUnitRate} was quoted in — "GB", "Hrs", "Per 10000 Requests".
+     *
+     * <p>Held on the line, not only on the rate record, because the detail bill prints one
+     * row per line and has nothing but the line in hand at that point. Without it the bill
+     * would have to print the rate against {@link #unit}, which is wrong by the quoted
+     * divisor: $0.01 per 10,000 requests shown as "$0.01 per Requests" overstates the rate
+     * by four orders of magnitude next to a raw request count.
+     */
+    @Column(name = "private_rate_unit")
+    private String privateRateUnit;
+
     // --- START: NEW FIELD ---
     @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean hidden = false;
@@ -68,6 +108,14 @@ public class InvoiceLineItem {
     public void setUsageType(String usageType) { this.usageType = usageType; }
     public BigDecimal getCost() { return cost; }
     public void setCost(BigDecimal cost) { this.cost = cost; }
+    public BigDecimal getOriginalCost() { return originalCost; }
+    public void setOriginalCost(BigDecimal originalCost) { this.originalCost = originalCost; }
+    public BigDecimal getPrivateUnitRate() { return privateUnitRate; }
+    public void setPrivateUnitRate(BigDecimal privateUnitRate) { this.privateUnitRate = privateUnitRate; }
+    public String getPrivateRateUnit() { return privateRateUnit; }
+    public void setPrivateRateUnit(String privateRateUnit) { this.privateRateUnit = privateRateUnit; }
+    /** Whether an admin's private rate produced this line's amount. */
+    public boolean isPrivatelyPriced() { return privateUnitRate != null; }
     public Invoice getInvoice() { return invoice; }
     public void setInvoice(Invoice invoice) { this.invoice = invoice; }
 

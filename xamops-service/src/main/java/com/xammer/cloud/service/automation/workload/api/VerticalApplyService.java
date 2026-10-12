@@ -9,6 +9,7 @@ import com.xammer.cloud.service.automation.workload.Quantities;
 import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicy;
+import com.xammer.cloud.service.automation.workload.WorkloadMode;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicyDefaults;
 import com.xammer.cloud.service.automation.workload.WorkloadRef;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccess;
@@ -37,9 +38,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -76,7 +80,8 @@ import java.util.UUID;
  *
  * <h2>What makes the cooldown real</h2>
  *
- * A confirmed, non-dry-run apply upserts {@code vertical_workload_policy.last_applied_at}. Until
+ * A non-dry-run apply that changed any pod, or left one that may still change, upserts
+ * {@code vertical_workload_policy.last_applied_at} ({@link ResizeProof#anyPodChanged()}). Until
  * this existed, the engine's cooldown guard had nothing to read and so never fired. An apply inside
  * that cooldown is now refused here as well, as are the engine's other holds (single replica,
  * rollout, lock, HPA-managed resource), so none of them depends on the UI.
@@ -111,6 +116,11 @@ public class VerticalApplyService {
     private final WorkloadPolicyService policyService;
     private final VerticalMetricsProperties metricsProperties;
     private final Clock clock;
+    /**
+     * The workloads a real apply is running on right now. In memory, so it holds per backend
+     * instance; with more than one instance behind a balancer this would need a shared lock.
+     */
+    private final Set<String> inFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     @Autowired
     public VerticalApplyService(WorkloadAutoscalingProperties properties,
@@ -179,37 +189,78 @@ public class VerticalApplyService {
                             "This cluster has no " + ref.kind() + " " + ref.describe()
                                     + " that XamOps can rightsize, so there is nothing to apply."));
 
-            // The no-row case resolves to the environment's configured defaults -- the policy the
-            // read endpoint reported -- so the row recordApplied creates carries that policy and
-            // not the bare Java defaults, whose mode is OFF.
-            WorkloadPolicy policy = policyService.resolve(target.clusterConfigId(), workload.ref(),
-                    metricsProperties.defaultsPolicy());
             boolean dryRun = Boolean.TRUE.equals(request.dryRun());
-            List<ContainerApplyTarget> targets = revalidate(submitted, workload, policy);
-            // The engine's holds, dry runs included, so a dry run predicts the real apply.
-            requireEngineHoldsClear(workload, policy, submitted);
-            requireCooldownElapsed(policy, workload.ref());
-
-            ActionCommand command = new ActionCommand(UUID.randomUUID().toString(), target,
-                    workload.ref(), targets, method, dryRun, null,
-                    clock.instant().plus(COMMAND_VALIDITY));
-
-            ActionSubmission submission = executor.submit(command, access, workload);
-            ResizeProof proof = executor.proof(command.correlationId()).orElse(null);
-
-            if (!command.dryRun() && proof != null
-                    && proof.outcome() == ResizeProof.Outcome.APPLIED) {
-                policyService.recordApplied(target.clientId(), target.clusterConfigId(),
-                        workload.ref(), policy, clock.instant());
+            // One real apply per workload at a time (review-2 SF5), held from the cooldown check to
+            // the cooldown stamp: a second request that read last_applied_at while the first was
+            // still rolling out would otherwise start a second rollout on the same pods. A dry run
+            // sends nothing, so it takes no lock.
+            String lock = lockKey(target, workload.ref());
+            if (!dryRun && !inFlight.add(lock)) {
+                throw new ApplyRefusedException(HttpStatus.CONFLICT, RefusalDto.APPLY_IN_PROGRESS, null,
+                        "Another change to " + workload.ref().describe() + " is still being applied."
+                                + " Nothing was sent; wait for it to finish, then refresh.");
             }
-
-            logger.info("Vertical apply {} for {} on {}: state {} outcome {}",
-                    command.correlationId(), workload.ref().describe(), target.describe(),
-                    submission.state(), proof == null ? "unknown" : proof.outcome());
-
-            return ApplyResponseDto.of(command.correlationId(), submission.state().name(),
-                    command.dryRun(), method.name(), proof);
+            try {
+                return applyLocked(target, workload, submitted, method, dryRun, access);
+            } finally {
+                if (!dryRun) {
+                    inFlight.remove(lock);
+                }
+            }
         }
+    }
+
+    private ApplyResponseDto applyLocked(ClusterTarget target,
+                                         ClusterWorkloadInventory.Workload workload,
+                                         List<ApplyRequestDto.Container> submitted, ApplyMethod method,
+                                         boolean dryRun, ClusterAccess access) {
+        // The no-row case resolves to the environment's configured defaults -- the policy the
+        // read endpoint reported -- so the row recordApplied creates carries that policy and
+        // not the bare Java defaults, whose mode is OFF.
+        WorkloadPolicy policy = policyService.resolve(target.clusterConfigId(), workload.ref(),
+                metricsProperties.defaultsPolicy());
+        // Review-2 item 15: the engine skips a workload whose policy is OFF and publishes nothing for
+        // it, so a direct call must not resize it either. Dry runs too, so they predict the apply.
+        if (policy.mode() == WorkloadMode.OFF) {
+            throw invalid("name", "POLICY_OFF: rightsizing is off for " + workload.ref().describe()
+                    + ", so XamOps does not change it. Nothing was sent to the cluster.");
+        }
+        List<ContainerApplyTarget> targets = revalidate(submitted, workload, policy);
+        // The engine's holds, dry runs included, so a dry run predicts the real apply.
+        requireEngineHoldsClear(workload, policy, submitted);
+        if (!isMemoryOnlyIncrease(submitted, workload)) {
+            requireCooldownElapsed(policy, workload.ref());
+        }
+
+        ActionCommand command = new ActionCommand(UUID.randomUUID().toString(), target,
+                workload.ref(), targets, method, dryRun, null,
+                clock.instant().plus(COMMAND_VALIDITY));
+
+        ActionSubmission submission = executor.submit(command, access, workload);
+        ResizeProof proof = executor.proof(command.correlationId()).orElse(null);
+
+        // The cooldown starts whenever a pod changed or may still change (review-2 SF4): a
+        // partial rollout, a restart or a lost readiness all leave pods at the new size, and a
+        // declined pod XamOps could not prove back where it was may still be resized by the
+        // kubelet. A declined pod that was put back and proved back changed nothing, so it
+        // starts no cooldown and the user can try again once there is room.
+        if (!command.dryRun() && proof != null && proof.anyPodChanged()) {
+            policyService.recordApplied(target.clientId(), target.clusterConfigId(),
+                    workload.ref(), policy, clock.instant());
+        }
+
+        logger.info("Vertical apply {} for {} on {}: state {} outcome {}",
+                command.correlationId(), workload.ref().describe(), target.describe(),
+                submission.state(), proof == null ? "unknown" : proof.outcome());
+
+        return ApplyResponseDto.of(command.correlationId(), submission.state().name(),
+                command.dryRun(), method.name(), proof);
+    }
+
+    /** The registered cluster and the workload's identity: what two applies must not share at once. */
+    private static String lockKey(ClusterTarget target, WorkloadRef ref) {
+        return target.clusterConfigId() + "|" + ref.namespace() + "|"
+                + ref.kind().toLowerCase(Locale.ROOT) + "|" + ref.name();
     }
 
     /**
@@ -221,22 +272,51 @@ public class VerticalApplyService {
      * before anybody clicks. They are computed by the same two predicates {@link #apply} enforces,
      * so the read cannot promise an apply the write would refuse. Entitlement is not repeated here:
      * the controller has already refused an unentitled caller, and {@code K8S_NO_ACCOUNT_ACCESS} is
-     * not a gate code.
+     * not a gate code. The codes of {@link #callerWriteGates}.
      */
     public List<String> writeGates(ClientUserDetails principal, CloudAccount account) {
+        return callerWriteGates(principal, account).codes();
+    }
+
+    /**
+     * {@link #writeGates} with the permission rule's {@link AutomationWritePermission.Detail} for
+     * each gate that has one — the same value {@link #apply} puts in a refusal's {@code detail} — so
+     * endpoint 1 can say <em>which</em> permission rule applies and the UI can show that rule's
+     * sentence and next step before anybody clicks.
+     */
+    public WriteGates callerWriteGates(ClientUserDetails principal, CloudAccount account) {
         List<String> gates = new ArrayList<>();
+        Map<String, String> details = new LinkedHashMap<>();
         if (principal == null) {
             gates.add(ReasonCode.NO_USER_PERMISSION.name());
+            details.put(ReasonCode.NO_USER_PERMISSION.name(), AutomationWritePermission.Detail.NO_PRINCIPAL);
         } else {
             AutomationWritePermission.Decision decision = writePermission.decide(principal, account);
             if (!decision.permitted() && decision.reason() != null) {
                 gates.add(decision.reason().name());
+                if (decision.detail() != null) {
+                    details.put(decision.reason().name(), decision.detail());
+                }
             }
         }
         if (account == null || !"read-write".equalsIgnoreCase(account.getAccessType())) {
             gates.add(ReasonCode.READ_ONLY_CONNECTION.name());
         }
-        return List.copyOf(gates);
+        return new WriteGates(gates, details);
+    }
+
+    /**
+     * The caller's write gates in the published order, and the permission rule's detail per gate.
+     *
+     * @param codes   shared gate codes without the {@code K8S_} prefix
+     * @param details gate code to {@link AutomationWritePermission.Detail}, for the gates that have one
+     */
+    public record WriteGates(List<String> codes, Map<String, String> details) {
+
+        public WriteGates {
+            codes = codes == null ? List.of() : List.copyOf(codes);
+            details = details == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(details));
+        }
     }
 
     // ---------------------------------------------------------------- gates
@@ -262,8 +342,11 @@ public class VerticalApplyService {
         if (!decision.permitted()) {
             logger.info("Vertical apply refused for user {}: {} ({})", principal.getId(),
                     decision.refusalCode(), decision.detail());
+            // The detail is on the wire as well as in the log: one K8S_NO_USER_PERMISSION covers a
+            // missing tab grant, a Login-As session, a BillOps role and a lost principal, and each
+            // has a different remedy.
             throw new ApplyRefusedException(HttpStatus.FORBIDDEN, decision.refusalCode(), null,
-                    decision.message());
+                    decision.message(), decision.detail());
         }
     }
 
@@ -398,7 +481,8 @@ public class VerticalApplyService {
      * <p>Same boundary as the engine's own guard: the hold lasts while {@code last_applied_at} is
      * not older than {@code cooldown_minutes}. Dry runs are held too, so a dry run predicts the real
      * apply. Refused with {@code K8S_INVALID_POLICY} and the rule named in the message, the way a
-     * floor or a protected namespace is.
+     * floor or a protected namespace is. A memory-only increase is not held
+     * ({@link #isMemoryOnlyIncrease}), as in the engine.
      */
     private void requireCooldownElapsed(WorkloadPolicy policy, WorkloadRef ref) {
         Instant lastApplied = policy.lastAppliedAt();
@@ -414,6 +498,64 @@ public class VerticalApplyService {
                 + lastApplied + ", and the policy's " + policy.cooldownMinutes() + "-minute cooldown"
                 + " runs until " + endsAt + ". This apply is refused and nothing was sent to the"
                 + " cluster.");
+    }
+
+    /**
+     * Whether every submitted field is a memory increase over the container's current value, with no
+     * CPU field at all — the one change the engine publishes inside a cooldown, for a container that
+     * OOM-killed after the last apply (review-2 SF1).
+     *
+     * <p>The cooldown damps the engine arguing with its own write. An OOM kill after a decrease is
+     * not that: refusing the raise would leave the container being killed for the rest of the hour
+     * while the screen promises "XamOps will only raise its memory, even right after a change". A
+     * raise cannot cause an OOM kill, and CPU is never exempt. The floors, QoS and limit checks in
+     * {@link #revalidate} still apply.
+     */
+    static boolean isMemoryOnlyIncrease(List<ApplyRequestDto.Container> submitted,
+                                        ClusterWorkloadInventory.Workload workload) {
+        if (submitted == null || submitted.isEmpty()) {
+            return false;
+        }
+        for (ApplyRequestDto.Container container : submitted) {
+            if (container.cpuRequestM() != null || container.cpuLimitM() != null) {
+                return false;
+            }
+            if (container.memRequestMi() == null && container.memLimitMi() == null) {
+                return false;
+            }
+            ClusterWorkloadInventory.ContainerSpec spec = workload.containers().stream()
+                    .filter(candidate -> candidate.name().equals(container.name()))
+                    .findFirst()
+                    .orElse(null);
+            if (spec == null) {
+                return false;
+            }
+            // When the live pods disagree, a raise is judged against the smallest size a live pod
+            // runs with, the same basis the engine's OOM guard and its cooldown exemption use.
+            ResourceEnvelope live = spec.smallestLive();
+            if (!raises(container.memRequestMi(), smaller(spec.current().memRequestBytes(),
+                    live == null ? null : live.memRequestBytes()))
+                    || !raises(container.memLimitMi(), smaller(spec.current().memLimitBytes(),
+                    live == null ? null : live.memLimitBytes()))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static Long smaller(Long a, Long b) {
+        if (a == null) {
+            return b;
+        }
+        return b == null ? a : Math.min(a, b);
+    }
+
+    /** A submitted MiB value that is absent, or strictly above a current value that exists. */
+    private static boolean raises(Long submittedMi, Long currentBytes) {
+        if (submittedMi == null) {
+            return true;
+        }
+        return currentBytes != null && Quantities.miToBytes(submittedMi) > currentBytes;
     }
 
     private ClusterAccess open(ClusterAccessProvider provider, ClusterTarget target) {
@@ -594,12 +736,20 @@ public class VerticalApplyService {
         private final HttpStatus status;
         private final String code;
         private final String field;
+        private final String detail;
 
         public ApplyRefusedException(HttpStatus status, String code, String field, String message) {
+            this(status, code, field, message, null);
+        }
+
+        /** @param detail the rule's finer name ({@link AutomationWritePermission.Detail}), or null */
+        public ApplyRefusedException(HttpStatus status, String code, String field, String message,
+                                     String detail) {
             super(message);
             this.status = status;
             this.code = code;
             this.field = field;
+            this.detail = detail;
         }
 
         public HttpStatus status() {
@@ -615,8 +765,13 @@ public class VerticalApplyService {
             return field;
         }
 
+        /** Which permission rule refused, on a caller-level refusal, else null. */
+        public String detail() {
+            return detail;
+        }
+
         public RefusalDto body() {
-            return new RefusalDto(code, getMessage(), field);
+            return new RefusalDto(code, getMessage(), field, detail);
         }
     }
 }

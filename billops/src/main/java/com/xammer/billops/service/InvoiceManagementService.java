@@ -33,6 +33,7 @@ import com.xammer.billops.service.cdn.CloudFrontPricingService;
 import com.xammer.billops.service.cur.CurInvoiceDataService;
 import com.xammer.billops.service.cur.CurUnavailable;
 import com.xammer.billops.service.cur.CurUnavailableException;
+import com.xammer.billops.service.pricing.PrivatePricingCalculator;
 import com.xammer.cloud.domain.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,10 +53,12 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.math.RoundingMode;
 import java.text.DecimalFormat;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 @Service
@@ -85,6 +88,7 @@ public class InvoiceManagementService {
     private static final Logger logger = LoggerFactory.getLogger(InvoiceManagementService.class);
     private final CloudFrontUsageService cloudFrontUsageService;
     private final CloudFrontPrivateRateRepository privateRateRepository;
+    private final InvoicePrivatePricingRepository privatePricingRepository;
     private final CloudFrontPricingService cloudFrontPricingService;
     private final ClientRepository clientRepository;
     private final RedisCacheService redisCache;
@@ -135,6 +139,7 @@ public class InvoiceManagementService {
             EmailService emailService,
             CloudFrontUsageService cloudFrontUsageService,
             CloudFrontPrivateRateRepository privateRateRepository,
+            InvoicePrivatePricingRepository privatePricingRepository,
             CloudFrontPricingService cloudFrontPricingService,
             ClientRepository clientRepository,
             RedisCacheService redisCache,
@@ -150,6 +155,7 @@ public class InvoiceManagementService {
         this.emailService = emailService;
         this.cloudFrontUsageService = cloudFrontUsageService;
         this.privateRateRepository = privateRateRepository;
+        this.privatePricingRepository = privatePricingRepository;
         this.cloudFrontPricingService = cloudFrontPricingService;
         this.clientRepository = clientRepository;
         this.redisCache = redisCache;
@@ -508,13 +514,21 @@ public class InvoiceManagementService {
                 .subtract(marketplaceForDiscount)
                 .max(BigDecimal.ZERO);
 
+        // Charges a manual private rate has shielded, per row. Flagged on the line itself
+        // by InvoiceDto.fromEntity, so the PDF reads the same decision the saved invoice
+        // was computed from rather than re-deriving it from the scope records.
+        BigDecimal stdShielded = shieldedTotalOf(grouped.getOrDefault("STANDARD", Collections.emptyList()));
+        BigDecimal cfShielded = shieldedTotalOf(grouped.getOrDefault("CLOUDFRONT", Collections.emptyList()));
+
         // Attributed once, so the rows cannot disagree with each other or with the
         // saved invoice. See attributeDiscounts.
         RowDiscounts rowDiscounts = attributeDiscounts(
                 dto.getDiscounts(),
                 stdDiscountableTotal,
                 cfTotalUsd,
-                grouped.getOrDefault("STANDARD", Collections.emptyList()));
+                grouped.getOrDefault("STANDARD", Collections.emptyList()),
+                stdShielded,
+                cfShielded);
 
         // --- ROW 1: Standard Consumption (AWS, GCP, or Azure) ---
         if (grouped.containsKey("STANDARD")) {
@@ -1040,6 +1054,17 @@ public class InvoiceManagementService {
 
             document.add(table);
 
+            // Says so when any line is billed at a contracted rate rather than the
+            // provider's, because those lines no longer match the provider's own invoice
+            // and a customer reconciling the two should know why.
+            boolean anyPrivatelyPriced = items.stream().anyMatch(InvoiceDto.LineItemDto::isPrivatelyPriced);
+            if (anyPrivatelyPriced) {
+                document.add(new Paragraph(
+                        "Lines marked with a rate (\"@ $x per unit\") are billed at contracted rates "
+                                + "rather than the cloud provider's list price.")
+                        .setFontSize(7.5f).setItalic().setMarginTop(6));
+            }
+
             document.add(new Paragraph("This is a Computer Generated Detailed Bill")
                     .setFontSize(8).setItalic()
                     .setTextAlignment(TextAlignment.CENTER).setMarginTop(10));
@@ -1099,6 +1124,26 @@ public class InvoiceManagementService {
                                            BigDecimal stdTotal,
                                            BigDecimal cfTotal,
                                            List<InvoiceDto.LineItemDto> stdItems) {
+        return attributeDiscounts(discounts, stdTotal, cfTotal, stdItems, BigDecimal.ZERO, BigDecimal.ZERO);
+    }
+
+    /**
+     * As above, less the charges that manual private pricing has shielded.
+     *
+     * <p>The two shielded figures are subtracted from the broad scopes only -- "ALL" and
+     * the consumption-level names -- because those are the scopes an admin applies to the
+     * invoice as a whole, without naming what is inside it. A discount scoped to one
+     * service by name is left alone: the admin picked that service knowing it was priced.
+     *
+     * @param stdShielded shielded charges inside {@code stdTotal}
+     * @param cfShielded  shielded charges inside {@code cfTotal}
+     */
+    static RowDiscounts attributeDiscounts(List<InvoiceDto.DiscountDto> discounts,
+                                           BigDecimal stdTotal,
+                                           BigDecimal cfTotal,
+                                           List<InvoiceDto.LineItemDto> stdItems,
+                                           BigDecimal stdShielded,
+                                           BigDecimal cfShielded) {
         BigDecimal std = BigDecimal.ZERO;
         BigDecimal cf = BigDecimal.ZERO;
         BigDecimal consumptionPercent = BigDecimal.ZERO;
@@ -1107,6 +1152,11 @@ public class InvoiceManagementService {
         if (discounts == null || discounts.isEmpty()) {
             return new RowDiscounts(std, cf, consumptionPercent, false);
         }
+
+        BigDecimal stdDiscountable = stdTotal
+                .subtract(Optional.ofNullable(stdShielded).orElse(BigDecimal.ZERO)).max(BigDecimal.ZERO);
+        BigDecimal cfDiscountable = cfTotal
+                .subtract(Optional.ofNullable(cfShielded).orElse(BigDecimal.ZERO)).max(BigDecimal.ZERO);
 
         for (InvoiceDto.DiscountDto d : discounts) {
             if (d == null || d.getPercentage() == null) {
@@ -1119,13 +1169,13 @@ public class InvoiceManagementService {
                 // Base spans everything but Marketplace, CloudFront included, so it lands
                 // on both rows. Applying it only to the consumption row -- as this used to
                 // -- under-discounted the invoice by CloudFront's share.
-                std = std.add(stdTotal.multiply(pct));
-                cf = cf.add(cfTotal.multiply(pct));
+                std = std.add(stdDiscountable.multiply(pct));
+                cf = cf.add(cfDiscountable.multiply(pct));
                 consumptionPercent = d.getPercentage();
                 showConsumptionPercent = true;
 
             } else if (isConsumptionScope(svc)) {
-                std = std.add(stdTotal.multiply(pct));
+                std = std.add(stdDiscountable.multiply(pct));
                 consumptionPercent = d.getPercentage();
                 showConsumptionPercent = true;
 
@@ -1151,6 +1201,14 @@ public class InvoiceManagementService {
                 showConsumptionPercent);
     }
 
+    /** Charges in a set of lines that manual private pricing has shielded from discounts. */
+    private static BigDecimal shieldedTotalOf(List<InvoiceDto.LineItemDto> items) {
+        return items.stream()
+                .filter(InvoiceDto.LineItemDto::isDiscountShielded)
+                .map(i -> Optional.ofNullable(i.getCost()).orElse(BigDecimal.ZERO))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
     private void recalculateTotalsForDto(InvoiceDto invoiceDto) {
         BigDecimal totalDiscount = BigDecimal.ZERO;
         BigDecimal preDiscountTotal = Optional.ofNullable(invoiceDto.getPreDiscountTotal()).orElse(BigDecimal.ZERO);
@@ -1160,12 +1218,26 @@ public class InvoiceManagementService {
         List<InvoiceDto.LineItemDto> lineItems = Optional.ofNullable(invoiceDto.getLineItems())
                 .orElse(Collections.emptyList());
 
+        // Same shield as recalculateTotals, read off the lines rather than recomputed.
+        BigDecimal shieldedTotal = lineItems.stream()
+                .filter(item -> !item.isHidden())
+                .filter(InvoiceDto.LineItemDto::isDiscountShielded)
+                .map(item -> Optional.ofNullable(item.getCost()).orElse(BigDecimal.ZERO))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal shieldedNonCloudFront = lineItems.stream()
+                .filter(item -> !item.isHidden())
+                .filter(item -> !CLOUDFRONT_SERVICE.equalsIgnoreCase(item.getServiceName()))
+                .filter(InvoiceDto.LineItemDto::isDiscountShielded)
+                .map(item -> Optional.ofNullable(item.getCost()).orElse(BigDecimal.ZERO))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
         for (InvoiceDto.DiscountDto disc : discounts) {
             BigDecimal percentage = Optional.ofNullable(disc.getPercentage()).orElse(BigDecimal.ZERO)
                     .divide(new BigDecimal(100), 4, RoundingMode.HALF_UP);
 
             if ("ALL".equalsIgnoreCase(disc.getServiceName())) {
-                BigDecimal allBase = preDiscountTotal.subtract(dtoMarketplace).max(BigDecimal.ZERO);
+                BigDecimal allBase = preDiscountTotal.subtract(dtoMarketplace)
+                        .subtract(shieldedTotal).max(BigDecimal.ZERO);
                 totalDiscount = totalDiscount.add(allBase.multiply(percentage));
             } else if (isConsumptionScope(disc.getServiceName())) {
                 BigDecimal standardTotal = lineItems.stream()
@@ -1173,7 +1245,8 @@ public class InvoiceManagementService {
                         .filter(item -> !CLOUDFRONT_SERVICE.equalsIgnoreCase(item.getServiceName()))
                         .map(item -> Optional.ofNullable(item.getCost()).orElse(BigDecimal.ZERO))
                         .reduce(BigDecimal.ZERO, BigDecimal::add)
-                        .subtract(dtoMarketplace).max(BigDecimal.ZERO);
+                        .subtract(dtoMarketplace)
+                        .subtract(shieldedNonCloudFront).max(BigDecimal.ZERO);
                 totalDiscount = totalDiscount.add(standardTotal.multiply(percentage));
             } else {
                 String discountServiceName = Optional.ofNullable(disc.getServiceName()).orElse("");
@@ -1596,9 +1669,80 @@ public class InvoiceManagementService {
         return saved;
     }
 
+    /**
+     * A rate written the way a bill should read it: {@code $0.044 per Hrs}.
+     *
+     * <p>A unit already phrased as "Per 10000 Requests" is not prefixed again, since the
+     * admin typed the whole phrase and "per Per 10000 Requests" is what naive
+     * concatenation produces. The rate keeps its own precision -- CDN and per-request
+     * rates are meaningful several places below a cent, and rounding one to two decimals
+     * for display would make the printed arithmetic wrong.
+     */
+    static String ratePhrase(BigDecimal rate, String rateUnit) {
+        if (rate == null) {
+            return "";
+        }
+        String amount = "$" + rate.stripTrailingZeros().toPlainString();
+        if (rateUnit == null || rateUnit.isBlank()) {
+            return amount + " per unit";
+        }
+        String unit = rateUnit.trim();
+        return unit.toLowerCase().startsWith("per")
+                ? amount + " " + unit
+                : amount + " per " + unit;
+    }
+
+    /** Matches the provider's own rate at the head of a report line's description. */
+    private static final java.util.regex.Pattern LEADING_RATE =
+            java.util.regex.Pattern.compile("^\\s*\\$\\s*[0-9][0-9,.]*\\s+per\\s+",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * The text for one line of the detail bill.
+     *
+     * <p>A charge built from the Cost and Usage Report describes itself with the
+     * provider's own rate -- "$0.056 per NAT Gateway Hour". Printing that beside an amount
+     * derived from a different rate puts a contradiction on the customer's bill: the rate
+     * times the quantity does not equal the total next to it, and the first person to
+     * check the arithmetic finds it. So on a repriced line the provider's rate is replaced
+     * by the one actually billed, and the description keeps the rest of its wording:
+     * "NAT Gateway Hour @ $0.044 per Hrs".
+     *
+     * <p>Only a leading "$x per " is removed, and only when it is there. A description
+     * with no rate in it -- a Cost Explorer resource name, a repriced CloudFront line --
+     * is left whole and the applied rate appended.
+     */
+    static String detailLineDescription(InvoiceDto.LineItemDto li) {
+        String text = li.getResourceName() == null ? "" : li.getResourceName();
+        if (li.getPrivateUnitRate() == null) {
+            return text;
+        }
+        String subject = LEADING_RATE.matcher(text).replaceFirst("").trim();
+        String phrase = ratePhrase(li.getPrivateUnitRate(), billedRateUnit(li));
+        return subject.isBlank() ? phrase : subject + " @ " + phrase;
+    }
+
+    /**
+     * The unit to print a line's private rate against.
+     *
+     * <p>Normally the unit the admin quoted. When that is missing — a rate applied before
+     * the quote was recorded — the line's own unit is correct rather than merely close: a
+     * blank rate unit means {@code unitDivisor} returned 1, so the amount was computed as
+     * quantity times rate, and the rate is therefore per one unit of whatever the quantity
+     * measures. Printing "per unit" there would be vaguer than the arithmetic warrants.
+     */
+    private static String billedRateUnit(InvoiceDto.LineItemDto li) {
+        String quoted = li.getPrivateRateUnit();
+        if (quoted != null && !quoted.isBlank()) {
+            return quoted;
+        }
+        String lineUnit = li.getUnit();
+        return PrivatePricingCalculator.isPlaceholderUnit(lineUnit) ? null : lineUnit;
+    }
+
     /** One line of the detail bill: text, quantity, unit and amount, indented to its level. */
     private void addDetailLineRow(Table table, InvoiceDto.LineItemDto li, float indent) {
-        String resource = li.getResourceName() != null ? li.getResourceName() : "";
+        String resource = detailLineDescription(li);
         String qty      = li.getUsageQuantity() != null ? li.getUsageQuantity() : "";
         String unit     = li.getUnit() != null ? li.getUnit() : "";
         double cost     = li.getCost() != null ? li.getCost().doubleValue() : 0.0;
@@ -1858,6 +2002,301 @@ public class InvoiceManagementService {
         return saved;
     }
 
+    // ─── Manual private pricing ──────────────────────────────────────────────────
+    //
+    // Bills part of an invoice at a rate the admin sets instead of at provider cost. The
+    // automatic equivalent for CloudFront is repriceCloudFrontAtPrivateRates above, which
+    // runs from per-client rates while a draft is generated; this is the manual form,
+    // applied to one invoice after the fact.
+    //
+    // Both work the same way where it matters: the line item's own cost is replaced, so
+    // recalculateTotals, the invoice PDF and the detail bill all follow without needing to
+    // know a rate was involved.
+
+    /**
+     * Prices every charge in a scope at {@code quantity x unitRate}.
+     *
+     * <p>Refuses rather than guesses, in each of these cases:
+     * <ul>
+     *   <li><b>Nothing matches the scope.</b> Silently storing a rate that prices no
+     *       charge would read, on the invoice, as pricing applied.</li>
+     *   <li><b>The scope overlaps a rate already applied.</b> Two rates with a claim on
+     *       one line make the result depend on the order they were entered, and removal
+     *       ambiguous. The admin removes the broader one first.</li>
+     *   <li><b>The scope spans more than one unit.</b> A per-GB rate across CloudFront's
+     *       GB and request lines is wrong by orders of magnitude and still looks
+     *       plausible. The usage-type level of the scope is the way to price those
+     *       separately.</li>
+     *   <li><b>No line in the scope has usable usage.</b> Nothing to multiply.</li>
+     * </ul>
+     *
+     * <p>Credits and Savings Plan negations inside the scope are left at provider cost:
+     * they carry a positive quantity and a negative amount, so repricing one would turn
+     * money owed to the customer into money charged to them. They are counted and
+     * reported rather than hidden.
+     */
+    @Transactional
+    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
+    public Invoice applyPrivatePricing(Long invoiceId, PrivatePricingRequestDto request) {
+        Invoice invoice = invoiceRepository.findById(invoiceId)
+                .orElseThrow(() -> new RuntimeException("Invoice not found: " + invoiceId));
+        if (invoice.getStatus() != Invoice.InvoiceStatus.DRAFT) {
+            throw new IllegalStateException("Cannot apply private pricing to a "
+                    + String.valueOf(invoice.getStatus()).toLowerCase() + " invoice.");
+        }
+
+        String serviceName = blankToNull(request.getServiceName());
+        if (serviceName == null) {
+            throw new IllegalArgumentException("Choose the service to price.");
+        }
+        BigDecimal unitRate = request.getUnitRate();
+        if (unitRate == null || unitRate.signum() < 0) {
+            throw new IllegalArgumentException("Enter a rate of zero or more.");
+        }
+
+        InvoicePrivatePricing pricing = new InvoicePrivatePricing();
+        pricing.setInvoice(invoice);
+        pricing.setServiceName(serviceName);
+        pricing.setRegionName(blankToNull(request.getRegionName()));
+        pricing.setUsageType(blankToNull(request.getUsageType()));
+        pricing.setUnitRate(unitRate);
+        pricing.setRateUnit(blankToNull(request.getRateUnit()));
+        pricing.setExcludeFromOverallDiscount(request.isExcludeFromOverallDiscount());
+
+        if (invoice.getPrivatePricings() == null) {
+            invoice.setPrivatePricings(new ArrayList<>());
+        }
+        for (InvoicePrivatePricing existing : invoice.getPrivatePricings()) {
+            if (existing.overlaps(pricing)) {
+                throw new IllegalStateException("These charges are already priced by \""
+                        + existing.scopeLabel() + "\". Remove that rate first.");
+            }
+        }
+
+        List<InvoiceLineItem> inScope = Optional.ofNullable(invoice.getLineItems())
+                .orElse(Collections.emptyList()).stream()
+                .filter(item -> !item.isHidden())
+                .filter(pricing::matches)
+                .collect(Collectors.toList());
+        if (inScope.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "No charges on this invoice match " + pricing.scopeLabel() + ".");
+        }
+
+        // One rate, one unit. Placeholder units are left out of the check: the region-only
+        // fallback line writes "N/A", which names no measure to be inconsistent with.
+        Set<String> units = inScope.stream()
+                .filter(item -> PrivatePricingCalculator.skipReason(item.getUsageQuantity(), item.getCost()) == null)
+                .map(item -> PrivatePricingCalculator.normaliseUnit(item.getUnit()))
+                .filter(unit -> !PrivatePricingCalculator.isPlaceholderUnit(unit))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (units.size() > 1) {
+            throw new IllegalStateException("These charges are measured in more than one unit ("
+                    + String.join(", ", units) + "), so one rate cannot price them all."
+                    + " Apply a rate per usage type instead.");
+        }
+
+        BigDecimal originalAmount = BigDecimal.ZERO;
+        BigDecimal pricedAmount = BigDecimal.ZERO;
+        int priced = 0;
+        Map<PrivatePricingCalculator.SkipReason, Integer> skipped = new EnumMap<>(PrivatePricingCalculator.SkipReason.class);
+
+        for (InvoiceLineItem item : inScope) {
+            PrivatePricingCalculator.SkipReason reason =
+                    PrivatePricingCalculator.skipReason(item.getUsageQuantity(), item.getCost());
+            if (reason != null) {
+                skipped.merge(reason, 1, Integer::sum);
+                continue;
+            }
+            BigDecimal quantity = PrivatePricingCalculator.parseQuantity(item.getUsageQuantity());
+            BigDecimal amount = PrivatePricingCalculator.amountFor(quantity, unitRate, pricing.getRateUnit());
+            if (amount == null) {
+                skipped.merge(PrivatePricingCalculator.SkipReason.UNREADABLE_QUANTITY, 1, Integer::sum);
+                continue;
+            }
+
+            BigDecimal before = Optional.ofNullable(item.getCost()).orElse(BigDecimal.ZERO);
+            // Only on the first repricing, so re-applying a rate after removing one does
+            // not overwrite the provider's figure with our own.
+            if (item.getOriginalCost() == null) {
+                item.setOriginalCost(before);
+            }
+            item.setPrivateUnitRate(unitRate);
+            item.setPrivateRateUnit(pricing.getRateUnit());
+            item.setCost(amount);
+
+            originalAmount = originalAmount.add(Optional.ofNullable(item.getOriginalCost()).orElse(before));
+            pricedAmount = pricedAmount.add(amount);
+            priced++;
+        }
+
+        int skippedCount = skipped.values().stream().mapToInt(Integer::intValue).sum();
+        if (priced == 0) {
+            // Nothing was mutated above in this case -- every line hit a skip -- so there
+            // is nothing to undo, only a reason to give.
+            throw new IllegalStateException("None of the charges under " + pricing.scopeLabel()
+                    + " carry usage a per-unit rate can price (" + describeSkips(skipped) + ").");
+        }
+
+        pricing.setLineCount(priced);
+        pricing.setSkippedLineCount(skippedCount);
+        pricing.setOriginalAmount(originalAmount.setScale(4, RoundingMode.HALF_UP));
+        pricing.setPricedAmount(pricedAmount.setScale(4, RoundingMode.HALF_UP));
+        pricing.setAppliedAt(Instant.now());
+        pricing.setDescription(describePricing(pricing));
+        invoice.getPrivatePricings().add(pricing);
+
+        recalculateTotals(invoice);
+        Invoice saved = invoiceRepository.save(invoice);
+        evictInvoiceListCache();
+        logger.info("[InvoiceMgmt] Private pricing applied to invoice {}: scope='{}', rate={} {}, "
+                        + "{} line(s) repriced ({} skipped), providerCost=${} -> billed=${}, shielded={}",
+                invoiceId, pricing.scopeLabel(), pricing.getUnitRate(),
+                Optional.ofNullable(pricing.getRateUnit()).orElse("per unit"),
+                priced, skippedCount, pricing.getOriginalAmount(), pricing.getPricedAmount(),
+                pricing.isExcludeFromOverallDiscount());
+        return saved;
+    }
+
+    /**
+     * Turns the overall-discount shield on or off for one applied rate.
+     *
+     * <p>Changes no charge, only which of them an invoice-wide discount may reduce, so the
+     * totals are recomputed and nothing else moves.
+     */
+    @Transactional
+    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
+    public Invoice setPrivatePricingDiscountExclusion(Long invoiceId, Long pricingId, boolean exclude) {
+        Invoice invoice = invoiceRepository.findById(invoiceId)
+                .orElseThrow(() -> new RuntimeException("Invoice not found: " + invoiceId));
+        if (invoice.getStatus() != Invoice.InvoiceStatus.DRAFT) {
+            throw new IllegalStateException("Cannot change private pricing on a "
+                    + String.valueOf(invoice.getStatus()).toLowerCase() + " invoice.");
+        }
+        InvoicePrivatePricing pricing = Optional.ofNullable(invoice.getPrivatePricings())
+                .orElse(Collections.emptyList()).stream()
+                .filter(p -> Objects.equals(p.getId(), pricingId))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Private pricing not found: " + pricingId));
+
+        pricing.setExcludeFromOverallDiscount(exclude);
+        pricing.setDescription(describePricing(pricing));
+
+        recalculateTotals(invoice);
+        Invoice saved = invoiceRepository.save(invoice);
+        evictInvoiceListCache();
+        logger.info("[InvoiceMgmt] Private pricing {} on invoice {} is now {} from overall discounts",
+                pricingId, invoiceId, exclude ? "shielded" : "NOT shielded");
+        return saved;
+    }
+
+    /**
+     * Removes an applied rate and puts its charges back to provider cost.
+     *
+     * <p>Restoration is exact because the provider's figure was kept on the line itself,
+     * and unambiguous because overlapping scopes are refused when applied -- no other rate
+     * can have a claim on these lines.
+     */
+    @Transactional
+    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
+    public Invoice removePrivatePricing(Long invoiceId, Long pricingId) {
+        Invoice invoice = invoiceRepository.findById(invoiceId)
+                .orElseThrow(() -> new RuntimeException("Invoice not found: " + invoiceId));
+        if (invoice.getStatus() != Invoice.InvoiceStatus.DRAFT) {
+            throw new IllegalStateException("Cannot change private pricing on a "
+                    + String.valueOf(invoice.getStatus()).toLowerCase() + " invoice.");
+        }
+        Optional<InvoicePrivatePricing> found = Optional.ofNullable(invoice.getPrivatePricings())
+                .orElse(Collections.emptyList()).stream()
+                .filter(p -> Objects.equals(p.getId(), pricingId))
+                .findFirst();
+        if (found.isEmpty()) {
+            return invoice;
+        }
+        InvoicePrivatePricing pricing = found.get();
+
+        int restored = 0;
+        for (InvoiceLineItem item : Optional.ofNullable(invoice.getLineItems()).orElse(Collections.emptyList())) {
+            if (!item.isPrivatelyPriced() || !pricing.matches(item)) {
+                continue;
+            }
+            if (item.getOriginalCost() != null) {
+                item.setCost(item.getOriginalCost());
+                item.setOriginalCost(null);
+            }
+            item.setPrivateUnitRate(null);
+            item.setPrivateRateUnit(null);
+            restored++;
+        }
+
+        invoice.getPrivatePricings().remove(pricing);
+        privatePricingRepository.delete(pricing);
+
+        recalculateTotals(invoice);
+        Invoice saved = invoiceRepository.save(invoice);
+        evictInvoiceListCache();
+        logger.info("[InvoiceMgmt] Private pricing {} removed from invoice {}: {} line(s) back at provider cost",
+                pricingId, invoiceId, restored);
+        return saved;
+    }
+
+    /** "$0.085 per GB · 12 lines · shielded from overall discount" */
+    private static String describePricing(InvoicePrivatePricing pricing) {
+        StringBuilder sb = new StringBuilder();
+        // Same phrasing the detail bill prints, so the admin page and the customer's bill
+        // describe one rate the same way.
+        sb.append(ratePhrase(pricing.getUnitRate(), pricing.getRateUnit()));
+        if (pricing.getLineCount() != null) {
+            sb.append(" · ").append(pricing.getLineCount())
+              .append(pricing.getLineCount() == 1 ? " line" : " lines");
+        }
+        if (pricing.getSkippedLineCount() != null && pricing.getSkippedLineCount() > 0) {
+            sb.append(" · ").append(pricing.getSkippedLineCount()).append(" left at provider cost");
+        }
+        sb.append(pricing.isExcludeFromOverallDiscount()
+                ? " · shielded from overall discount"
+                : " · overall discount still applies");
+        return sb.toString();
+    }
+
+    private static String describeSkips(Map<PrivatePricingCalculator.SkipReason, Integer> skipped) {
+        if (skipped.isEmpty()) {
+            return "no usable usage";
+        }
+        return skipped.entrySet().stream()
+                .map(e -> e.getValue() + " " + switch (e.getKey()) {
+                    case CREDIT -> "credit or Savings Plan line";
+                    case NO_USAGE -> "line with no measured usage";
+                    case UNREADABLE_QUANTITY -> "line with no readable quantity";
+                })
+                .collect(Collectors.joining(", "));
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    /**
+     * Whether a charge is priced at an admin's rate that is shielded from the invoice's
+     * overall discount.
+     *
+     * <p>Both halves are needed. The rate marks the line, which keeps credits and
+     * unpriceable lines inside a scope discountable -- they are still at provider cost, so
+     * there is no negotiated margin to protect. The shield comes from the rate's own
+     * checkbox, so an admin can price a service and still let the overall discount reach
+     * it.
+     */
+    private static Predicate<InvoiceLineItem> shieldedFromOverallDiscount(Invoice invoice) {
+        List<InvoicePrivatePricing> shields = Optional.ofNullable(invoice.getPrivatePricings())
+                .orElse(Collections.emptyList()).stream()
+                .filter(InvoicePrivatePricing::isExcludeFromOverallDiscount)
+                .collect(Collectors.toList());
+        if (shields.isEmpty()) {
+            return item -> false;
+        }
+        return item -> item.isPrivatelyPriced() && shields.stream().anyMatch(p -> p.matches(item));
+    }
+
     @Transactional
     @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
     public void deleteInvoice(Long invoiceId) {
@@ -1904,6 +2343,31 @@ public class InvoiceManagementService {
         // subtract it from any discount base.
         BigDecimal marketplace = Optional.ofNullable(invoice.getMarketplaceCharge()).orElse(BigDecimal.ZERO);
 
+        // Charges billed at a rate the admin set, where the rate's own checkbox shields
+        // them. That rate was negotiated with its margin already in it, so letting an
+        // invoice-wide discount reduce it would concede the same margin twice. Subtracted
+        // from the broad scopes below, and from those only: a discount aimed at this
+        // service by name is the admin saying they mean it.
+        Predicate<InvoiceLineItem> shielded = shieldedFromOverallDiscount(invoice);
+        BigDecimal shieldedTotal = lineItems.stream()
+                .filter(item -> !item.isHidden())
+                .filter(shielded)
+                .map(item -> Optional.ofNullable(item.getCost()).orElse(BigDecimal.ZERO))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal shieldedNonCloudFront = lineItems.stream()
+                .filter(item -> !item.isHidden())
+                .filter(item -> !CLOUDFRONT_SERVICE.equalsIgnoreCase(item.getServiceName()))
+                .filter(shielded)
+                .map(item -> Optional.ofNullable(item.getCost()).orElse(BigDecimal.ZERO))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        invoice.setPrivatePricedTotal(lineItems.stream()
+                .filter(item -> !item.isHidden())
+                .filter(InvoiceLineItem::isPrivatelyPriced)
+                .map(item -> Optional.ofNullable(item.getCost()).orElse(BigDecimal.ZERO))
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(4, RoundingMode.HALF_UP));
+        invoice.setDiscountShieldedTotal(shieldedTotal.setScale(4, RoundingMode.HALF_UP));
+
         List<Discount> discounts = Optional.ofNullable(invoice.getDiscounts()).orElse(Collections.emptyList());
         BigDecimal totalDiscount = BigDecimal.ZERO;
 
@@ -1912,7 +2376,8 @@ public class InvoiceManagementService {
                     .divide(new BigDecimal(100), 4, RoundingMode.HALF_UP);
 
             if ("ALL".equalsIgnoreCase(disc.getServiceName())) {
-                BigDecimal allBase = preDiscountTotal.subtract(marketplace).max(BigDecimal.ZERO);
+                BigDecimal allBase = preDiscountTotal.subtract(marketplace)
+                        .subtract(shieldedTotal).max(BigDecimal.ZERO);
                 totalDiscount = totalDiscount.add(allBase.multiply(percentage));
 
             } else if (isConsumptionScope(disc.getServiceName())) {
@@ -1921,7 +2386,10 @@ public class InvoiceManagementService {
                         .filter(item -> !CLOUDFRONT_SERVICE.equalsIgnoreCase(item.getServiceName()))
                         .map(item -> Optional.ofNullable(item.getCost()).orElse(BigDecimal.ZERO))
                         .reduce(BigDecimal.ZERO, BigDecimal::add)
-                        .subtract(marketplace).max(BigDecimal.ZERO);
+                        .subtract(marketplace)
+                        // CloudFront is already out of this base, so only the rest of the
+                        // shielded charges can still be inside it.
+                        .subtract(shieldedNonCloudFront).max(BigDecimal.ZERO);
 
                 totalDiscount = totalDiscount.add(standardTotal.multiply(percentage));
             } else {

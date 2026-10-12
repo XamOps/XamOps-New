@@ -11,6 +11,7 @@ import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.CloudFrontPrivateRateRepository;
 import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.DiscountRepository;
+import com.xammer.billops.repository.InvoicePrivatePricingRepository;
 import com.xammer.billops.repository.InvoiceRepository;
 import com.xammer.billops.service.cdn.CloudFrontPricingService;
 import com.xammer.billops.service.cur.CurInvoiceDataService;
@@ -80,6 +81,7 @@ class InvoiceCurSourceTest {
                 mock(EmailService.class),
                 cloudFrontUsageService,
                 mock(CloudFrontPrivateRateRepository.class),
+                mock(InvoicePrivatePricingRepository.class),
                 mock(CloudFrontPricingService.class),
                 mock(ClientRepository.class),
                 mock(RedisCacheService.class),
