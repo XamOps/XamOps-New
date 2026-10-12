@@ -268,6 +268,16 @@ describe('Overview › Summary, laid out like the cast.ai Dashboard (23b)', () =
     expect(within(attention).getByRole('link', { name: VIEW_ALL_ALERTS })).toHaveAttribute('href', ALERTS_HREF);
   });
 
+  it("lists the status strip's attention signals, such as a node that isn't ready", async () => {
+    renderPanel({ dashboard: clone((d) => { d.k8sNodes[0].conditions[0].status = 'False'; }) });
+    const attention = await screen.findByRole('region', { name: ATTENTION_TITLE });
+    const item = attention.querySelector('[data-attention="signal-nodes-ready"]')!;
+    expect(item).toHaveTextContent('Nodes ready: 5 / 6');
+    expect(item).toHaveTextContent('1 node not ready');
+    const target = resolved(item.querySelector('a')!.getAttribute('href')!);
+    expect([target.tab, target.sub, target.corrected]).toEqual(['nodes', 'nodes', null]);
+  });
+
   it('keeps the dashboard cards when capabilities fail', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     renderPanel({ caps: new K8sApiError({ status: 500, code: 'K8S_INTERNAL' }) });

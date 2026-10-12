@@ -26,7 +26,7 @@ import type { CapabilitiesCluster } from '../../../../types/k8sAutomation';
 import type { EksDashboard, EksSectionId, EksSubtabId } from '../../../../types/eksTypes';
 import type { Known, VerticalEngineView, VerticalWorkload } from '../../../../types/verticalRightsizer';
 import {
-  capacityTypeCounts, clusterCapacity, clusterCostSource, clusterNodes, freedCapacity, hpaStates, instanceTypeCounts,
+  capacityTypeCounts, clusterCapacity, clusterCostSource, clusterNodes, freedCapacity, healthSignals, hpaStates, instanceTypeCounts,
   largestNodeAllocatable, monitoringState, nodeGroups, nodeProvisioners, notRunningWorkloads, podCounts, podPlacement,
   sumRequests, workloadKey, MONTHLY_FROM_DAILY, UNMANAGED_GROUP, type HpaState, type NodeProvisioners, type ResourceCapacity,
 } from '../../../../utils/k8sDerivations';
@@ -248,6 +248,18 @@ export function attentionItems(input: {
       tab: 'workloads', sub: 'pods', query: 'phase=Pending',
     });
   }
+  // The rule-based health signals that need attention (D10), from the same node and pod lists as
+  // the strip; unschedulable pods are the item above.
+  for (const signal of healthSignals(dashboard)) {
+    if (!signal.attention || signal.id === 'unschedulable') continue;
+    const onPods = signal.id === 'pods';
+    items.push({
+      id: `signal-${signal.id}`, icon: signal.id === 'node-pressure' ? 'mdi:clock-alert-outline' : 'mdi:alert-circle-outline',
+      tone: signal.id === 'node-pressure' ? 'text-status-warn' : 'text-status-bad',
+      title: `${signal.label}: ${signal.value}`, detail: signal.detail ?? '',
+      tab: onPods ? 'workloads' : 'nodes', sub: onPods ? 'pods' : 'nodes',
+    });
+  }
   const finding = (code: string) => workloads.filter((w) => w.findings.some((f) => raw(f) === code));
   const throttled = finding('THROTTLED');
   if (throttled.length > 0) {
@@ -276,8 +288,12 @@ export function attentionItems(input: {
       tab: 'workloads', sub: 'resources',
     });
   }
-  const covered = new Set(items.some((i) => i.id === 'unschedulable') ? ['FailedScheduling'] : []);
-  for (const alert of topFindings(alerts.filter((a) => a.severity !== 'low' && a.severity !== 'info' && !covered.has(a.title)), limit)) {
+  // A finding that says what an item above already says isn't listed twice.
+  const has = (id: string) => items.some((i) => i.id === id);
+  const repeats = (a: EksAlertItem) => (has('unschedulable') && a.title === 'FailedScheduling')
+    || ((has('signal-nodes-ready') || has('signal-node-pressure')) && a.source === 'nodes')
+    || (has('signal-pods') && a.id.endsWith('-pods-failed'));
+  for (const alert of topFindings(alerts.filter((a) => a.severity !== 'low' && a.severity !== 'info' && !repeats(a)), limit)) {
     const target = findingTarget(alert);
     items.push({
       id: alert.id, icon: SEVERITY[alert.severity].icon, tone: SEVERITY[alert.severity].tone,
