@@ -1,16 +1,17 @@
 /**
- * Overview (docs/cloudk8s/ui-revamp-design.md §4.2). Slice 1: Summary hosts today's Overview tab (P2).
+ * Overview (docs/cloudk8s/ui-revamp-design.md §4.2, §10.1). Summary is the restyled overview: health
+ * signals, tiles with sources, top findings, data sources, namespace utilisation and top pods.
  */
-import EksOverviewTab from '../tabs/EksOverviewTab';
+import SummaryPanel from './overview/SummaryPanel';
 import { SectionSubPanel } from './SectionSubPanel';
 import type { EksSectionProps } from './sectionTypes';
 
-export default function OverviewSection({ eksData, route }: EksSectionProps) {
+export default function OverviewSection(props: EksSectionProps) {
   return (
     <SectionSubPanel
       sectionId="overview"
-      route={route}
-      renderPanel={(sub) => (sub === 'summary' ? <EksOverviewTab eksData={eksData} /> : null)}
+      route={props.route}
+      renderPanel={(sub) => (sub === 'summary' ? <SummaryPanel {...props} /> : null)}
     />
   );
 }

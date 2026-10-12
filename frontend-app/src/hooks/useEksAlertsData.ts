@@ -75,7 +75,9 @@ function normaliseSeverity(raw: string | undefined): EksAlertSeverity {
 }
 
 // ── extract alerts from one cluster's dashboard ────────────────────────────
-function extractAlerts(
+// Exported for the cluster page's Overview › Summary, so its top findings and the Alerts page agree
+// (docs/cloudk8s/ui-revamp-design.md §10.1).
+export function extractAlerts(
   clusterName: string,
   region: string,
   accountId: string,
@@ -277,7 +279,7 @@ function extractAlerts(
 }
 
 // ── sort order ─────────────────────────────────────────────────────────────
-const SEV_ORDER: Record<EksAlertSeverity, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+export const SEV_ORDER: Record<EksAlertSeverity, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 
 export const useEksAlertsData = ({ accountId }: UseEksAlertsDataOptions): UseEksAlertsDataReturn => {
   const [alerts, setAlerts] = useState<EksAlertItem[]>([]);

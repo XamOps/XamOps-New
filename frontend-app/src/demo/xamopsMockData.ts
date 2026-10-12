@@ -1228,7 +1228,9 @@ export const demoEksDashboard = {
   clusterOverview: {
     totalNodes: 6,
     totalNamespaces: 8,
-    runningPods: 52,
+    // The agent counts these from the same pod list it sends (k8sPods below: 16 running, 2 pending).
+    totalPods: 18,
+    runningPods: 16,
     pendingPods: 2,
     failedPods: 0,
     cpuUsageMillicores: 12480,
@@ -1274,6 +1276,35 @@ export const demoEksDashboard = {
       { nodeName: 'ip-10-0-1-106', cpuUsagePercent: 31.0, memoryUsagePercent: 42.0, cpuRequestsPercent: 40.0, memoryRequestsPercent: 45.0 },
     ],
   },
+  // k8sNodes: the agent's k8s-resources node shape (xamops-agent collector NodeDetail): labels with
+  // the managed node group, Karpenter NodePool and capacity type, conditions, allocatable quantities.
+  // ip-10-0-1-106 carries neither group label, so it shows as Unmanaged.
+  k8sNodes: [
+    { name: 'ip-10-0-1-101', instanceType: 'm5.xlarge', capacityType: 'on-demand', zone: 'us-east-1a', kubeletVersion: 'v1.29.3-eks-ae9a62a', internalIp: '10.0.1.101', age: '2026-09-12T08:00:00Z', unschedulable: false,
+      labels: { 'eks.amazonaws.com/nodegroup': 'general', 'eks.amazonaws.com/capacityType': 'ON_DEMAND', 'node.kubernetes.io/instance-type': 'm5.xlarge', 'topology.kubernetes.io/zone': 'us-east-1a' },
+      capacityCpu: '4', capacityMemory: '16106116Ki', capacityPods: '58', allocatableCpu: '3920m', allocatableMemory: '15147652Ki', allocatablePods: '58',
+      conditions: [{ type: 'Ready', status: 'True' }, { type: 'MemoryPressure', status: 'False' }, { type: 'DiskPressure', status: 'False' }, { type: 'PIDPressure', status: 'False' }] },
+    { name: 'ip-10-0-1-102', instanceType: 'm5.xlarge', capacityType: 'spot', zone: 'us-east-1b', kubeletVersion: 'v1.29.3-eks-ae9a62a', internalIp: '10.0.1.102', age: '2026-10-06T11:20:00Z', unschedulable: false,
+      labels: { 'karpenter.sh/nodepool': 'default', 'karpenter.sh/capacity-type': 'spot', 'node.kubernetes.io/instance-type': 'm5.xlarge', 'topology.kubernetes.io/zone': 'us-east-1b' },
+      capacityCpu: '4', capacityMemory: '16106116Ki', capacityPods: '58', allocatableCpu: '3920m', allocatableMemory: '15147652Ki', allocatablePods: '58',
+      conditions: [{ type: 'Ready', status: 'True' }, { type: 'MemoryPressure', status: 'False' }, { type: 'DiskPressure', status: 'False' }, { type: 'PIDPressure', status: 'False' }] },
+    { name: 'ip-10-0-1-103', instanceType: 'm5.2xlarge', capacityType: 'on-demand', zone: 'us-east-1c', kubeletVersion: 'v1.29.3-eks-ae9a62a', internalIp: '10.0.1.103', age: '2026-09-12T08:00:00Z', unschedulable: false,
+      labels: { 'eks.amazonaws.com/nodegroup': 'general', 'eks.amazonaws.com/capacityType': 'ON_DEMAND', 'node.kubernetes.io/instance-type': 'm5.2xlarge', 'topology.kubernetes.io/zone': 'us-east-1c' },
+      capacityCpu: '8', capacityMemory: '32498112Ki', capacityPods: '58', allocatableCpu: '7910m', allocatableMemory: '31482304Ki', allocatablePods: '58',
+      conditions: [{ type: 'Ready', status: 'True' }, { type: 'MemoryPressure', status: 'False' }, { type: 'DiskPressure', status: 'False' }, { type: 'PIDPressure', status: 'False' }] },
+    { name: 'ip-10-0-1-104', instanceType: 'c5.xlarge', capacityType: 'spot', zone: 'us-east-1a', kubeletVersion: 'v1.29.3-eks-ae9a62a', internalIp: '10.0.1.104', age: '2026-10-08T02:45:00Z', unschedulable: false,
+      labels: { 'karpenter.sh/nodepool': 'default', 'karpenter.sh/capacity-type': 'spot', 'node.kubernetes.io/instance-type': 'c5.xlarge', 'topology.kubernetes.io/zone': 'us-east-1a' },
+      capacityCpu: '4', capacityMemory: '7934620Ki', capacityPods: '58', allocatableCpu: '3920m', allocatableMemory: '6976156Ki', allocatablePods: '58',
+      conditions: [{ type: 'Ready', status: 'True' }, { type: 'MemoryPressure', status: 'False' }, { type: 'DiskPressure', status: 'False' }, { type: 'PIDPressure', status: 'False' }] },
+    { name: 'ip-10-0-1-105', instanceType: 'c5.xlarge', capacityType: 'spot', zone: 'us-east-1b', kubeletVersion: 'v1.29.3-eks-ae9a62a', internalIp: '10.0.1.105', age: '2026-10-09T19:10:00Z', unschedulable: false,
+      labels: { 'karpenter.sh/nodepool': 'default', 'karpenter.sh/capacity-type': 'spot', 'node.kubernetes.io/instance-type': 'c5.xlarge', 'topology.kubernetes.io/zone': 'us-east-1b' },
+      capacityCpu: '4', capacityMemory: '7934620Ki', capacityPods: '58', allocatableCpu: '3920m', allocatableMemory: '6976156Ki', allocatablePods: '58',
+      conditions: [{ type: 'Ready', status: 'True' }, { type: 'MemoryPressure', status: 'False' }, { type: 'DiskPressure', status: 'False' }, { type: 'PIDPressure', status: 'False' }] },
+    { name: 'ip-10-0-1-106', instanceType: 'r5.large', capacityType: 'on-demand', zone: 'us-east-1c', kubeletVersion: 'v1.29.3-eks-ae9a62a', internalIp: '10.0.1.106', age: '2026-08-30T14:00:00Z', unschedulable: false,
+      labels: { 'node.kubernetes.io/instance-type': 'r5.large', 'topology.kubernetes.io/zone': 'us-east-1c' },
+      capacityCpu: '2', capacityMemory: '16106116Ki', capacityPods: '29', allocatableCpu: '1930m', allocatableMemory: '15371444Ki', allocatablePods: '29',
+      conditions: [{ type: 'Ready', status: 'True' }, { type: 'MemoryPressure', status: 'False' }, { type: 'DiskPressure', status: 'False' }, { type: 'PIDPressure', status: 'False' }] },
+  ],
   // k8sPods: preferred by hooks over workloadHealth.pods; each pod needs containers[] for the Containers tab
   k8sPods: [
     { name: 'api-server-6d8f7b9c4-xk2pq',  namespace: 'production',  phase: 'Running', qosClass: 'Guaranteed', nodeName: 'ip-10-0-1-101', cpuUsage: 320,  memoryUsage: 512,  podIp: '10.0.1.20', age: '18d', ownerKind: 'ReplicaSet', ownerName: 'api-server-6d8f7b9c4',  cpuRequest: 256,  memoryRequest: 512,  cpuLimit: 512,  memoryLimit: 1024, containers: [{ name: 'api-server',   image: 'xammer/api-server:v2.4.1',   state: 'running', ready: true, restartCount: 0, cpuRequest: '256m', cpuLimit: '512m', memoryRequest: '512Mi', memoryLimit: '1Gi'  }] },
@@ -1396,6 +1427,28 @@ export const demoEksDashboard = {
   trivy: null,
   karpenter: null,
 };
+
+/**
+ * The dashboard the backend serves for a cluster nothing reports on (EksDashboardService's empty
+ * shell): zero counts and usage, and `workloadHealth.clusterHealthScore` 100 by default. The page
+ * must read it as Not monitored and never render the score or the zeros.
+ */
+export const demoEksEmptyShellDashboard = (clusterName: string) => ({
+  clusterName,
+  region: 'us-east-1',
+  lastSyncedAt: new Date().toISOString(),
+  clusterOverview: {
+    clusterName, region: 'us-east-1', version: '1.28', status: 'ACTIVE',
+    totalNodes: 0, totalPods: 0, totalNamespaces: 0, cpuUsagePercent: 0.0, memoryUsagePercent: 0.0,
+  },
+  costMetrics: {},
+  securityMetrics: {},
+  resourceUtilization: {},
+  workloadHealth: { clusterHealthScore: 100.0 },
+  kubescape: null,
+  trivy: null,
+  karpenter: null,
+});
 
 // ─── Observability (/api/observability/*) ────────────────────────────────────
 export const demoObservabilityConfig = {

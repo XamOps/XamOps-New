@@ -341,21 +341,6 @@ export interface ContainerWithMetrics {
   fsUsage: number;
 }
 
-export interface PotentialSavings {
-  daily: number;
-  monthly: number;
-  affectedNodes: number;
-}
-
-export interface QuickWin {
-  priority: number;
-  type: string;
-  icon: string;
-  title: string;
-  impact: string;
-  actions: string[];
-}
-
 export interface KarpenterStatus {
   status: 'healthy' | 'degraded' | 'unhealthy';
   label: string;

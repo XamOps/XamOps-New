@@ -41,6 +41,10 @@ export const GUARDED_PATHS: readonly string[] = [
   'utils/k8sNavAccess.ts',
   'hooks/useK8sNavAccess.ts',
   'components/Sidebar/SubNav.tsx',
+  // FEAT-003 item 23a: the status strip; the dashboard hook without its score colours.
+  // SummaryPanel is under components/EksDetails/sections/.
+  'components/EksDetails/ClusterStatusStrip.tsx',
+  'hooks/useEksDashboard.ts',
 ];
 
 const TAILWIND_PREFIX = '(?:text|bg|border|from|via|to|ring|fill|stroke|divide|outline|shadow|accent|decoration|placeholder|caret)';

@@ -3,7 +3,7 @@
  *
  * Validates the link (a bad one goes back to /cloudk8s with a notice), loads capabilities for the
  * account, and renders the header, the dashboard's loading and error states, the diagnostics panel
- * with `?debug=true`, the summary cards, and the section the URL names under a heading. `?tab=&sub=`
+ * with `?debug=true`, the status strip, and the section the URL names under a heading. `?tab=&sub=`
  * belongs to useEksSectionRoute; the sections and subtabs are links in the left sidebar
  * (ClusterSectionsNav, implementation plan Addendum 1), not a tab strip. Each section is its own lazy
  * chunk inside Suspense and an ErrorBoundary, so a section that fails leaves the rest of the page
@@ -22,7 +22,7 @@ import { resolveClusterVersion } from '../utils/k8sVersion';
 import { parseClusterLink, type ClusterLink } from '../utils/k8sClusterLink';
 import ErrorBoundary from '../components/Shared/ErrorBoundary';
 import { ClusterHeader } from '../components/EksDetails/ClusterHeader';
-import EksSummaryCards from '../components/EksDetails/EksSummaryCards';
+import { ClusterStatusStrip } from '../components/EksDetails/ClusterStatusStrip';
 import EksDiagnosticsPanel from '../components/EksDetails/EksDiagnosticsPanel';
 import type { EksSectionProps } from '../components/EksDetails/sections/sectionTypes';
 import type { EksSectionId } from '../types/eksTypes';
@@ -186,20 +186,32 @@ function ClusterPage({ link, debug }: { link: ClusterLink; debug: boolean }) {
 
         {loading && !dashboard && <PageSkeleton />}
 
+        {/* The status strip (§4.2, D10) replaces the old summary cards; when the dashboard failed it
+            says "Data unavailable" above the error rather than disappearing. */}
+        {(!loading || dashboard) && (
+          <ClusterStatusStrip clusterName={clusterName} dashboard={dashboard} dashboardError={Boolean(error) && !loading} />
+        )}
+
         {error && !loading && <LoadError message={error} onRetry={retry} />}
 
         {(!loading || dashboard) && !error && (
           <>
             {debug && dashboard && <EksDiagnosticsPanel dashboard={dashboard} />}
 
-            <EksSummaryCards eksData={eksData} clusterVersion={clusterVersion} />
-
             <SectionHeading route={route} />
 
             {/* Today's tabs still read eks-details.css through this class (removed in item 31); the
                 overrides drop the page-level min-height and tinted background it also sets. */}
             <div className="eks-details-page !min-h-0 !bg-transparent">
-              <SectionPanel tab={route.tab} clusterName={clusterName} eksData={eksData} route={route} />
+              <SectionPanel
+                tab={route.tab}
+                clusterName={clusterName}
+                accountId={accountId}
+                region={region}
+                eksData={eksData}
+                route={route}
+                onOpenGuide={openGuide}
+              />
             </div>
           </>
         )}

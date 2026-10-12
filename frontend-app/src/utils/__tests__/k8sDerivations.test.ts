@@ -15,6 +15,7 @@ import {
   nodeGroups,
   nodeUsageByName,
   overallHealth,
+  podCounts,
   podWorkload,
   qosChange,
   qosClassOf,
@@ -137,6 +138,22 @@ describe('health signals (D10)', () => {
     expect(clusterNodes(fromMetrics).map((n) => [n.name, n.ready, n.pressure.disk])).toEqual([['m1', true, false], ['m2', false, true]]);
     const fromUtil = dash({ resourceUtilization: { nodes: [{ nodeName: 'u1', condition: 'Ready' }, { nodeName: 'u2', condition: 'Unknown' }] } });
     expect(clusterNodes(fromUtil).map((n) => n.ready)).toEqual([true, null]);
+  });
+
+  it('counts running against total from one source, so running never exceeds the total', () => {
+    // The old cards showed "52/18": the overview's running count over the pod list's length.
+    const mixed = dash({
+      clusterOverview: { runningPods: 52, totalPods: 60 },
+      k8sPods: [pod('a'), pod('b'), pod('c', { phase: 'Pending', nodeName: '' }), pod('d', { phase: 'Failed' })],
+    });
+    expect(podCounts(mixed)).toEqual({ running: 2, total: 4, pending: 1, failed: 1, basis: 'pods' });
+    expect(healthSignals(mixed).find((s) => s.id === 'pods')?.value).toBe('2 / 4');
+    // Without a pod list, the overview's own pair (the agent counts both from one list).
+    expect(podCounts(dash({ clusterOverview: { runningPods: 5, totalPods: 7, pendingPods: 2 } })))
+      .toEqual({ running: 5, total: 7, pending: 2, failed: 0, basis: 'overview' });
+    // Half a pair is no pair.
+    expect(podCounts(dash({ clusterOverview: { runningPods: 52 } }))).toBeNull();
+    expect(podCounts(ZERO_SHELL)).toBeNull();
   });
 });
 

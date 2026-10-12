@@ -26,7 +26,7 @@ vi.mock('../../contexts/AccountContext', async (importOriginal) => {
 });
 
 // Today's tabs, hosted unchanged by the sections (P2): each renders a marker.
-vi.mock('../../components/EksDetails/tabs/EksOverviewTab', () => ({ default: () => <div>Overview tab content</div> }));
+vi.mock('../../components/EksDetails/sections/overview/SummaryPanel', () => ({ default: () => <div>Overview tab content</div> }));
 vi.mock('../../components/EksDetails/tabs/EksCostTab', () => ({ default: () => <div>Cost tab content</div> }));
 vi.mock('../../components/EksDetails/tabs/EksPerformanceTab', () => ({ default: () => <div>Performance tab content</div> }));
 vi.mock('../../components/EksDetails/tabs/EksSecurityTab', () => ({ default: () => <div>Security tab content</div> }));
@@ -41,11 +41,6 @@ vi.mock('../../components/EksDetails/tabs/EksContainersTab', () => ({ default: (
 vi.mock('../../components/EksDetails/tabs/EksNodesTab', () => ({ default: () => <div>Nodes tab content</div> }));
 vi.mock('../../components/EksDetails/tabs/EksResourcesTab', () => ({ default: () => <div>Resources tab content</div> }));
 vi.mock('../../components/EksDetails/tabs/EksKarpenterTab', () => ({ default: () => <div>Karpenter tab content</div> }));
-vi.mock('../../components/EksDetails/EksSummaryCards', () => ({
-  default: ({ clusterVersion }: { clusterVersion: string | null }) => (
-    <div data-testid="summary-cards" data-version={clusterVersion ?? 'none'}>Summary cards</div>
-  ),
-}));
 vi.mock('../../components/EksDetails/EksDiagnosticsPanel', () => ({ default: () => <div>Diagnostics panel</div> }));
 vi.mock('../../components/EksDetails/EksIntegrationModal', () => ({
   default: ({ isOpen }: { isOpen: boolean }) => {
@@ -72,6 +67,7 @@ import { DEMO_MODE_KEY } from '../../demo/demoConfig';
 import { demoCapabilities } from '../../demo/k8sAutomationMockData';
 import { SYNC_TIMEOUT_TEXT, VERSION_NOT_REPORTED } from '../../components/EksDetails/ClusterHeader';
 import { CLUSTER_SECTIONS_LABEL, ClusterSectionsNav } from '../../components/CloudK8s/shared/ClusterSectionsNav';
+import { DATA_UNAVAILABLE, STRIP_LABEL } from '../../components/EksDetails/ClusterStatusStrip';
 import { EKS_SECTIONS } from '../../hooks/useEksSectionRoute';
 import type { CapabilitiesDto } from '../../types/k8sAutomation';
 
@@ -142,6 +138,7 @@ const find = (text: string | RegExp) => screen.findByText(text, undefined, { tim
 /** The content area's heading, "Section, Subtab" to assistive tech (shown as "Section › Subtab"). */
 const sectionHeading = (name: string) => screen.getByRole('heading', { level: 2, name });
 const anySectionHeading = () => document.querySelector('[data-section-heading]');
+const statusStrip = () => screen.getByRole('region', { name: STRIP_LABEL });
 const topbar = () => screen.getByTestId('topbar');
 
 beforeEach(() => {
@@ -333,18 +330,17 @@ describe('cluster page shell', () => {
   });
 
   it.each([
-    ['no version anywhere', BASE, undefined, VERSION_NOT_REPORTED, 'none'],
-    ["only the backend's echo of a default", BASE, '1.28', VERSION_NOT_REPORTED, 'none'],
-    ["the link's describeCluster version", `${BASE}&version=1.36`, undefined, 'v1.36', '1.36'],
-    ["the agent's gitVersion over the link's", `${BASE}&version=1.36`, 'v1.36.4-eks-a737599', 'v1.36.4', 'v1.36.4-eks-a737599'],
-  ])('shows the version from %s', async (_label, url, reported, shown, cardVersion) => {
+    ['no version anywhere', BASE, undefined, VERSION_NOT_REPORTED],
+    ["only the backend's echo of a default", BASE, '1.28', VERSION_NOT_REPORTED],
+    ["the link's describeCluster version", `${BASE}&version=1.36`, undefined, 'v1.36'],
+    ["the agent's gitVersion over the link's", `${BASE}&version=1.36`, 'v1.36.4-eks-a737599', 'v1.36.4'],
+  ])('shows the version from %s', async (_label, url, reported, shown) => {
     useEksDashboard.mockReturnValue(dashboardState({
       dashboard: { clusterName: 'prod-eks-cluster', clusterOverview: reported ? { version: reported } : undefined },
     }));
     renderAt(url);
     expect(await within(topbar()).findByText(shown)).toBeInTheDocument();
     expect(topbar()).not.toHaveTextContent('1.33');
-    expect(screen.getByTestId('summary-cards')).toHaveAttribute('data-version', cardVersion);
   });
 
   it('shows the XamOps agent and automation agent clocks separately', async () => {
@@ -424,6 +420,8 @@ describe('cluster page shell', () => {
     expect(await find("Couldn't load this cluster")).toBeInTheDocument();
     expect(screen.getByText('HTTP 500: upstream failed')).toBeInTheDocument();
     expect(anySectionHeading()).toBeNull();
+    // The status strip stays, and says the data is unavailable rather than disappearing.
+    expect(statusStrip()).toHaveTextContent(DATA_UNAVAILABLE);
     await user.click(screen.getByRole('button', { name: 'Retry' }));
     expect(fetchDashboard).toHaveBeenCalledWith(false);
   });
@@ -443,7 +441,7 @@ describe('cluster page shell', () => {
 
     expect(await find("This section couldn't be shown.")).toBeInTheDocument();
     expect(sectionHeading('Workloads, Pods')).toBeInTheDocument();
-    expect(screen.getByText('Summary cards')).toBeInTheDocument();
+    expect(statusStrip()).toBeInTheDocument();
 
     flags.podsThrows = false;
     await user.click(screen.getByRole('button', { name: 'Try again' }));

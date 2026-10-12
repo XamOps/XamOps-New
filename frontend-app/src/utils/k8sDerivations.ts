@@ -611,11 +611,40 @@ export interface HealthSignal {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+export interface PodCounts {
+  running: number;
+  total: number;
+  pending: number;
+  failed: number;
+  /** The pod list, or the overview's own counts when the dashboard carries no pods. */
+  basis: 'pods' | 'overview';
+}
+
+/**
+ * Running, pending and failed pods against the total, all from one source so running can never
+ * exceed the total: the pod list when there is one, else the overview's own counts (the agent
+ * derives both from one pod list). Null when neither reports running and total. Mixing the two, the
+ * overview's running count over the pod list's length, is how the old page showed "52/18".
+ */
+export function podCounts(dashboard: EksDashboard | null | undefined): PodCounts | null {
+  const pods = clusterPods(dashboard);
+  if (pods.length > 0) {
+    const phase = (p: string) => pods.filter((pod) => pod.phase === p).length;
+    return { running: phase('Running'), total: pods.length, pending: phase('Pending'), failed: phase('Failed'), basis: 'pods' };
+  }
+  const overview = dashboard?.clusterOverview as AnyRecord | undefined;
+  const running = toNumber(overview?.runningPods);
+  const total = toNumber(overview?.totalPods);
+  if (running === null || total === null) return null;
+  return {
+    running, total, pending: toNumber(overview?.pendingPods) ?? 0, failed: toNumber(overview?.failedPods) ?? 0, basis: 'overview',
+  };
+}
+
 /** Rule-based signals, each from data with its own count; never a score (D10). */
 export function healthSignals(dashboard: EksDashboard | null | undefined): HealthSignal[] {
   const nodes = clusterNodes(dashboard);
   const pods = clusterPods(dashboard);
-  const overview = dashboard?.clusterOverview as AnyRecord | undefined;
 
   const notReady = nodes.filter((n) => n.ready === false).length;
   const readyCount = nodes.filter((n) => n.ready === true).length;
@@ -639,17 +668,15 @@ export function healthSignals(dashboard: EksDashboard | null | undefined): Healt
         attention: pressured.length > 0, detail: pressured.length ? `Under ${kinds} pressure` : null, known: true,
       };
 
-  // Running and total from one source, so the pair always agrees.
-  const running = pods.length > 0 ? pods.filter((p) => p.phase === 'Running').length : toNumber(overview?.runningPods);
-  const total = pods.length > 0 ? pods.length : toNumber(overview?.totalPods);
-  const failed = pods.length > 0 ? pods.filter((p) => p.phase === 'Failed').length : (toNumber(overview?.failedPods) ?? 0);
+  const counts = podCounts(dashboard);
+  const failed = counts?.failed ?? 0;
   const crashLooping = pods.flatMap((p) => p.containers).filter((c) => c.waitingReason === 'CrashLoopBackOff').length;
   const podDetail = [failed > 0 && `${failed} failed`, crashLooping > 0 && `${plural(crashLooping, 'container')} crash-looping`]
     .filter(Boolean).join(' · ');
-  const podsSignal: HealthSignal = running === null || total === null
+  const podsSignal: HealthSignal = counts === null
     ? { id: 'pods', label: 'Pods running', value: '—', attention: false, detail: null, known: false }
     : {
-        id: 'pods', label: 'Pods running', value: `${running} / ${total}`,
+        id: 'pods', label: 'Pods running', value: `${counts.running} / ${counts.total}`,
         attention: failed > 0 || crashLooping > 0, detail: podDetail || null, known: true,
       };
 

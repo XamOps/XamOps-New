@@ -4,6 +4,7 @@ import { DEMO_MODE_KEY, DEMO_ROLE_KEY } from './demoConfig';
 import { demoCapabilities } from './k8sAutomationMockData';
 import { demoAccounts, demoK8sClusters } from './xamopsMockData';
 import { READINESS_KEYS } from '../types/k8sAutomation';
+import { isEmptyDashboard, nodeGroups, podCounts } from '../utils/k8sDerivations';
 
 /**
  * The generic `/api/xamops/*` fallback answers `{}`, which is wrong for any
@@ -368,5 +369,35 @@ describe.each(['ROLE_XAMOPS', 'ROLE_BILLOPS_ADMIN'])('demo router — AutoSpotti
     const response = resolveDemoResponse('/api/xamops/autospotting-admin/not-a-read');
     expect(response).not.toBeNull();
     expect(response!.status).toBe(404);
+  });
+});
+
+describe('demo router — EKS cluster dashboards (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+
+  const dashboardUrl = (cluster: string) =>
+    `/api/xamops/eks/${cluster}/dashboard?accountId=demo-aws-001&region=us-east-1&forceRefresh=false`;
+
+  it('answers staging with the empty shell, score 100 included, which reads as not monitored', async () => {
+    const body = await readDemoBody(dashboardUrl('staging-eks-cluster'));
+    expect(body.clusterOverview).toMatchObject({ totalNodes: 0, totalPods: 0 });
+    expect(body.workloadHealth.clusterHealthScore).toBe(100);
+    expect(isEmptyDashboard(body)).toBe(true);
+  });
+
+  it('gives the prod nodes their node-group, NodePool and capacity-type labels', async () => {
+    const body = await readDemoBody(dashboardUrl('prod-eks-cluster'));
+    expect(isEmptyDashboard(body)).toBe(false);
+    const groups = nodeGroups(body).map((g) => [g.type, g.name, g.nodes]);
+    expect(groups).toEqual(expect.arrayContaining([
+      ['Managed node group', 'general', 2],
+      ['Karpenter NodePool', 'default', 3],
+      ['Unmanaged', 'Unmanaged', 1],
+    ]));
+    // Running and total agree with the pod list.
+    expect(podCounts(body)).toMatchObject({ running: body.clusterOverview.runningPods, total: body.clusterOverview.totalPods });
   });
 });

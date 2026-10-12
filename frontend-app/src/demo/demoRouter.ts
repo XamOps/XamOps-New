@@ -390,7 +390,11 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   if (url.includes('/api/xamops/cloudlist'))
     return makeResponse([]);
 
-  // EKS cluster detail dashboard — must come before generic eks catch-all
+  // EKS cluster detail dashboard — must come before generic eks catch-all. staging-eks-cluster has
+  // no agent, so it gets the backend's empty shell (with its clusterHealthScore of 100), which the
+  // page must show as Not monitored.
+  if (/\/api\/xamops\/eks\/staging-eks-cluster\/dashboard(\?|$)/.test(url))
+    return makeResponse(xamops.demoEksEmptyShellDashboard('staging-eks-cluster'));
   if (url.includes('/api/xamops/eks/') && url.includes('/dashboard'))
     return makeResponse(xamops.demoEksDashboard);
   if (url.includes('/api/xamops/eks/') && url.includes('/sync'))

@@ -14,8 +14,6 @@ import {
   EksDashboard,
   ContainerWithMetrics,
   ContainerStatus,
-  PotentialSavings,
-  QuickWin,
   KarpenterStatus,
   NodeCost
 } from '../types/eksTypes';
@@ -48,23 +46,12 @@ export interface UseEksDashboardReturn {
   fetchDashboard: (forceRefresh?: boolean) => Promise<void>;
   refresh: () => Promise<void>;
   syncInBackground: () => Promise<void>;
-  // Computed values
-  clusterHealth: string;
-  cpuColor: string;
-  memoryColor: string;
-  costEfficiency: number;
-  idleCostPercentage: number;
+  // Computed values. The composite health and efficiency scores, their colours, the heuristic
+  // "savings opportunity" and quick wins are gone (design D10): health is rule-based signals in
+  // utils/k8sDerivations, and savings come only from the vertical engine.
   totalPodsCount: number;
   sortedNodesByCost: NodeCost[];
   sortedNodesByPressure: any[];
-  clusterHealthScore: number;
-  resourceScore: number;
-  costScore: number;
-  securityScore: number;
-  healthScoreLabel: string;
-  healthScoreColor: string;
-  potentialSavings: PotentialSavings;
-  quickWins: QuickWin[];
   securityStatus: string;
   sortedAlertsByPriority: any[];
   karpenterOverallStatus: KarpenterStatus;
@@ -288,43 +275,6 @@ export const useEksDashboard = ({
   };
 
   // Computed values
-  const clusterHealth = useMemo(() => {
-    if (!dashboard) return 'healthy';
-
-    const cpu = dashboard.clusterOverview?.cpuUsagePercent || 0;
-    const memory = dashboard.clusterOverview?.memoryUsagePercent || 0;
-    const events = dashboard.securityMetrics?.eventsByPriority || {};
-    const criticalAlerts = events['CRITICAL'] || events['high'] || events['4'] || 0;
-
-    if (cpu >= 85 || memory >= 85 || criticalAlerts > 0) return 'at-risk';
-    if (cpu >= 70 || memory >= 70) return 'degraded';
-    return 'healthy';
-  }, [dashboard]);
-
-  const cpuColor = useMemo(() => {
-    const cpu = dashboard?.clusterOverview?.cpuUsagePercent || 0;
-    if (cpu >= 85) return '#dc2626';
-    if (cpu >= 70) return '#f59e0b';
-    return '#10b981';
-  }, [dashboard]);
-
-  const memoryColor = useMemo(() => {
-    const memory = dashboard?.clusterOverview?.memoryUsagePercent || 0;
-    if (memory >= 85) return '#dc2626';
-    if (memory >= 70) return '#f59e0b';
-    return '#10b981';
-  }, [dashboard]);
-
-  const costEfficiency = useMemo(() => {
-    const cpu = dashboard?.clusterOverview?.cpuUsagePercent || 0;
-    const memory = dashboard?.clusterOverview?.memoryUsagePercent || 0;
-    return Math.round((cpu + memory) / 2);
-  }, [dashboard]);
-
-  const idleCostPercentage = useMemo(() => {
-    return Math.max(0, 100 - costEfficiency);
-  }, [costEfficiency]);
-
   const totalPodsCount = useMemo(() => {
     // prefer k8sPods (from k8s-resources collector) over workloadHealth.pods (from prometheus)
     return dashboard?.k8sPods?.length || dashboard?.workloadHealth?.pods?.length || 0;
@@ -381,114 +331,6 @@ export const useEksDashboard = ({
       };
     });
   }, [dashboard]);
-
-  // Health score calculations
-  const resourceScore = useMemo(() => {
-    const cpu = dashboard?.clusterOverview?.cpuUsagePercent || 0;
-    const mem = dashboard?.clusterOverview?.memoryUsagePercent || 0;
-    const avgUtil = (cpu + mem) / 2;
-
-    let score;
-    if (avgUtil >= 40 && avgUtil <= 75) score = 100;
-    else if (avgUtil < 40) score = Math.max(0, 100 - (40 - avgUtil) * 2);
-    else score = Math.max(0, 100 - (avgUtil - 75) * 3);
-
-    return Math.round(score);
-  }, [dashboard]);
-
-  const costScore = useMemo(() => costEfficiency, [costEfficiency]);
-
-  const securityScore = useMemo(() => {
-    const critical = dashboard?.securityMetrics?.eventsByPriority?.['4'] ||
-      dashboard?.securityMetrics?.eventsByPriority?.['CRITICAL'] || 0;
-    const high = dashboard?.securityMetrics?.eventsByPriority?.['3'] ||
-      dashboard?.securityMetrics?.eventsByPriority?.['WARNING'] || 0;
-
-    let score = 100;
-    score -= critical * 10;
-    score -= high * 5;
-
-    return Math.max(0, Math.round(score));
-  }, [dashboard]);
-
-  const clusterHealthScore = useMemo(() => {
-    const weights = { resource: 0.4, cost: 0.3, security: 0.3 };
-    return Math.round(
-      resourceScore * weights.resource +
-      costScore * weights.cost +
-      securityScore * weights.security
-    );
-  }, [resourceScore, costScore, securityScore]);
-
-  const healthScoreLabel = useMemo(() => {
-    if (clusterHealthScore >= 80) return 'Excellent Health';
-    if (clusterHealthScore >= 60) return 'Good Health';
-    if (clusterHealthScore >= 40) return 'Fair Health';
-    return 'Needs Attention';
-  }, [clusterHealthScore]);
-
-  const healthScoreColor = useMemo(() => {
-    if (clusterHealthScore >= 80) return '#10b981';
-    if (clusterHealthScore >= 60) return '#3b82f6';
-    if (clusterHealthScore >= 40) return '#f59e0b';
-    return '#dc2626';
-  }, [clusterHealthScore]);
-
-  const potentialSavings = useMemo((): PotentialSavings => {
-    const nodeCosts = dashboard?.costMetrics?.nodeCosts || [];
-    const underutilizedNodes = nodeCosts.filter(node => (node.cpuUsagePercent || 0) < 40);
-
-    const wastedCost = underutilizedNodes.reduce((sum, node) => {
-      const wastePercent = 100 - (node.cpuUsagePercent || 0);
-      return sum + (node.dailyCost * (wastePercent / 100));
-    }, 0);
-
-    return {
-      daily: wastedCost,
-      monthly: wastedCost * 30,
-      affectedNodes: underutilizedNodes.length
-    };
-  }, [dashboard]);
-
-  const quickWins = useMemo((): QuickWin[] => {
-    const wins: QuickWin[] = [];
-
-    const criticalVulns = dashboard?.kubescape?.totalCritical || 0;
-    if (criticalVulns > 0) {
-      wins.push({
-        priority: 1,
-        type: 'security',
-        icon: 'fa-shield-alt',
-        title: `Fix ${criticalVulns} Critical Security Vulnerabilities`,
-        impact: 'Prevent potential exploits',
-        actions: ['View Details', 'Auto-Fix Available']
-      });
-    }
-
-    if (potentialSavings.affectedNodes > 0) {
-      wins.push({
-        priority: 2,
-        type: 'cost',
-        icon: 'fa-bolt',
-        title: `Optimize ${potentialSavings.affectedNodes} Underutilized Nodes`,
-        impact: `Save $${potentialSavings.daily.toFixed(2)}/day`,
-        actions: ['View Nodes', 'Apply Recommendations']
-      });
-    }
-
-    if (!dashboard?.karpenter?.healthy) {
-      wins.push({
-        priority: 3,
-        type: 'optimization',
-        icon: 'fa-rocket',
-        title: 'Enable Karpenter Autoscaling',
-        impact: `Save ~$${(potentialSavings.daily * 0.6).toFixed(2)}/day with intelligent scaling`,
-        actions: ['Configure Now', 'Learn More']
-      });
-    }
-
-    return wins.sort((a, b) => a.priority - b.priority);
-  }, [dashboard, potentialSavings]);
 
   const securityStatus = useMemo(() => {
     let status = 'safe';
@@ -886,22 +728,9 @@ export const useEksDashboard = ({
     fetchDashboard,
     refresh,
     syncInBackground,
-    clusterHealth,
-    cpuColor,
-    memoryColor,
-    costEfficiency,
-    idleCostPercentage,
     totalPodsCount,
     sortedNodesByCost,
     sortedNodesByPressure,
-    clusterHealthScore,
-    resourceScore,
-    costScore,
-    securityScore,
-    healthScoreLabel,
-    healthScoreColor,
-    potentialSavings,
-    quickWins,
     securityStatus,
     sortedAlertsByPriority,
     karpenterOverallStatus,
