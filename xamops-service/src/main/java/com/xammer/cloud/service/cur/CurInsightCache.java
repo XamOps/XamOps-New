@@ -16,6 +16,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.Optional;
 import java.util.Set;
@@ -61,6 +62,18 @@ public class CurInsightCache {
 
     /** Past this age an entry is still served, but also refreshed behind the response. */
     private static final Duration FRESH_FOR = Duration.ofHours(6);
+
+    /**
+     * Freshness for the billing month still being written.
+     *
+     * <p>A closed month is final, so six hours of age costs nothing. The open month is
+     * not: AWS rewrites it up to three times a day, and on the first of the month it
+     * starts out with no rows at all. A zero-row answer for a month that has only just
+     * opened is a correct 200, so it is cached like any other — and at six hours it
+     * then outlived the first delivery, leaving the sections reading $0.00 for most of
+     * a day after the figures existed.
+     */
+    private static final Duration OPEN_MONTH_FRESH_FOR = Duration.ofHours(1);
 
     /** Redis lifetime. Longer than FRESH_FOR so a stale entry exists to be served while it refreshes. */
     private static final int REDIS_TTL_MINUTES = 3 * 24 * 60;
@@ -109,7 +122,7 @@ public class CurInsightCache {
 
         Entry hit = read(key);
         if (hit != null) {
-            if (isStale(hit)) {
+            if (isStale(key, hit)) {
                 refreshInBackground(key, compute);
             }
             return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(hit.json());
@@ -201,7 +214,26 @@ public class CurInsightCache {
         try {
             executor.execute(() -> {
                 try {
-                    store(key, compute.get());
+                    ResponseEntity<?> fresh = compute.get();
+                    if (fresh.getStatusCode().is2xxSuccessful()) {
+                        store(key, fresh);
+                    } else if (fresh.getStatusCode().is4xxClientError()) {
+                        // The endpoint can no longer answer at all — the account's report went
+                        // away, or stopped being delivered and is now refused as stale. Keeping
+                        // the old entry turns that into a figure, and an empty one cached while
+                        // the report was healthy then reads as "$0.00 this month" indefinitely:
+                        // store() ignores the 409, so the entry it was supposed to replace
+                        // survives, is re-served, and is never overwritten because every
+                        // subsequent refresh is the same 409.
+                        //
+                        // Dropping it hands the decision back to the client, which hides a
+                        // section it has no data for rather than drawing a zero.
+                        logger.info("[CUR] Dropping cached {} — endpoint now answers {}",
+                                key, fresh.getStatusCode());
+                        evict(key);
+                    }
+                    // 5xx is left alone deliberately: Athena timing out once is not a reason
+                    // to throw away a good answer. The stale entry is served until it succeeds.
                 } catch (Exception e) {
                     // The stale entry keeps being served; the next visit tries again.
                     logger.debug("[CUR] Background refresh failed for {}: {}", key, e.getMessage());
@@ -214,8 +246,40 @@ public class CurInsightCache {
         }
     }
 
-    private boolean isStale(Entry entry) {
-        return System.currentTimeMillis() - entry.storedAt() > FRESH_FOR.toMillis();
+    /** Removes one entry from both tiers. */
+    private void evict(String key) {
+        try {
+            redisCache.evict(key);
+            cachedDataRepository.deleteById(key);
+        } catch (Exception e) {
+            logger.debug("[CUR] Could not evict {}: {}", key, e.getMessage());
+        }
+    }
+
+    private boolean isStale(String key, Entry entry) {
+        Duration freshFor = isOpenMonth(key) ? OPEN_MONTH_FRESH_FOR : FRESH_FOR;
+        return System.currentTimeMillis() - entry.storedAt() > freshFor.toMillis();
+    }
+
+    /**
+     * Whether this entry is for the billing month still being written.
+     *
+     * <p>Read back off the key rather than the request, so the background refresh — which
+     * runs on a pool thread with no request bound to it — reaches the same answer as the
+     * call that scheduled it.
+     */
+    private boolean isOpenMonth(String key) {
+        int at = key.indexOf("period=");
+        if (at < 0) {
+            // No period at all: every one of these endpoints defaults to the current month.
+            return true;
+        }
+        String value = key.substring(at + "period=".length());
+        int next = value.indexOf('&');
+        if (next >= 0) {
+            value = value.substring(0, next);
+        }
+        return YearMonth.now().toString().equals(value);
     }
 
     /**

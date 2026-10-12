@@ -35,6 +35,12 @@ public class CurSourceResolver {
     private final CurSourceRepository curSourceRepository;
 
     /**
+     * Asked to repair a source this class has just rejected as stale. Injected rather
+     * than scheduled because staleness is only ever discovered here.
+     */
+    private final CurIngestionService ingestionService;
+
+    /**
      * Master switch. Off by default so the migration can land, sources can be
      * configured and validated, and the read path can be turned on per
      * environment once a source has actually delivered data.
@@ -54,8 +60,10 @@ public class CurSourceResolver {
     @Value("${xamops.cur.max-validation-age-hours:48}")
     private long maxValidationAgeHours;
 
-    public CurSourceResolver(CurSourceRepository curSourceRepository) {
+    public CurSourceResolver(CurSourceRepository curSourceRepository,
+                             CurIngestionService ingestionService) {
         this.curSourceRepository = curSourceRepository;
+        this.ingestionService = ingestionService;
     }
 
     /**
@@ -158,6 +166,18 @@ public class CurSourceResolver {
             logger.warn("[CUR] Source {} last validated {} — stale beyond {}h, using Cost Explorer for {}",
                     source.getId(), source.getLastValidatedAt(), maxValidationAgeHours,
                     account.getAwsAccountId());
+
+            // Staleness is the one unavailable reason that may be nothing to do with the
+            // report. "Not revalidated within the limit" and "no longer being delivered"
+            // are the same state here, and only the 01:45 job tells them apart — so an
+            // instance that was not running at 01:45 refuses a healthy report until it
+            // next happens to be up at that minute, which on a laptop is never.
+            //
+            // Asking for the check now, rather than returning and leaving it stale, is
+            // what stops that becoming permanent. This request still falls back: the
+            // answer cannot be waited for on a cost query. The next one reads the report.
+            ingestionService.requestRevalidation(source.getId());
+
             return Coverage.unavailable("STALE",
                     "This report has not been delivered recently, so its figures would be out of date.",
                     earliest);

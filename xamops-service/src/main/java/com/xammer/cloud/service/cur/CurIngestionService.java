@@ -6,11 +6,20 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.CurSourceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 
 /**
  * Re-validates every configured CUR daily, so the read path always knows whether
@@ -40,19 +49,163 @@ public class CurIngestionService {
 
     private static final Logger logger = LoggerFactory.getLogger(CurIngestionService.class);
 
+    /**
+     * Minimum gap between on-demand attempts on one source.
+     *
+     * <p>A source can be stale because the report really has stopped arriving, and
+     * that state is reached through the same branch as a laptop that was asleep at
+     * 01:45. Without a floor, every page load on a genuinely broken report would
+     * start another manifest read and Athena probe.
+     */
+    private static final Duration RETRY_AFTER = Duration.ofMinutes(10);
+
     private final CurSourceRepository curSourceRepository;
     private final CloudAccountRepository cloudAccountRepository;
     private final CurSourceValidationService validationService;
+    private final Executor executor;
 
     @Value("${xamops.cur.enabled:false}")
     private boolean curEnabled;
 
+    /** Must match {@link CurSourceResolver}'s limit, or this would repair the wrong sources. */
+    @Value("${xamops.cur.max-validation-age-hours:48}")
+    private long maxValidationAgeHours;
+
+    /** When each source was last attempted, so a broken one is not retried per request. */
+    private final Map<Long, Long> lastAttempt = new ConcurrentHashMap<>();
+
+    /** Sources with an attempt already running, so a page of six sections starts one. */
+    private final Set<Long> inFlight = ConcurrentHashMap.newKeySet();
+
     public CurIngestionService(CurSourceRepository curSourceRepository,
                                CloudAccountRepository cloudAccountRepository,
-                               CurSourceValidationService validationService) {
+                               CurSourceValidationService validationService,
+                               @Qualifier("awsTaskExecutor") Executor executor) {
         this.curSourceRepository = curSourceRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.validationService = validationService;
+        this.executor = executor;
+    }
+
+    /**
+     * Revalidates anything already stale when the application starts.
+     *
+     * <p>{@link #revalidateAll()} is the only thing that refreshes
+     * {@code lastValidatedAt}, and it runs at 01:45. An instance that is not running
+     * at 01:45 — every developer laptop, and any deployment restarted outside that
+     * window — therefore ages every source past
+     * {@code xamops.cur.max-validation-age-hours} and keeps it there, at which point
+     * {@link CurSourceResolver} refuses a report that is being delivered perfectly
+     * normally. The cost pages fall back to Cost Explorer and the CUR-only sections,
+     * which have no fallback, return 409 indefinitely.
+     *
+     * <p>Checking at startup costs one manifest read per stale source and removes the
+     * whole class of failure, so there is no reason to wait for the small hours.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void revalidateStaleOnStartup() {
+        if (!curEnabled) {
+            return;
+        }
+        // Off the startup thread: each source costs an S3 listing, a manifest read and
+        // an Athena probe, and none of that should hold up the application being ready.
+        try {
+            executor.execute(this::revalidateStale);
+        } catch (Exception e) {
+            logger.warn("[CUR] Could not schedule startup revalidation: {}", e.getMessage());
+        }
+    }
+
+    /** Revalidates every source that is stale or not ACTIVE, leaving healthy ones alone. */
+    public void revalidateStale() {
+        List<CurSource> due = curSourceRepository.findAll().stream()
+                .filter(source -> !source.isActive() || isStale(source))
+                .toList();
+        if (due.isEmpty()) {
+            logger.debug("[CUR] No sources need revalidation");
+            return;
+        }
+
+        logger.info("[CUR] {} source(s) stale or inactive at startup — revalidating", due.size());
+        for (CurSource source : due) {
+            attempt(source.getId());
+        }
+    }
+
+    /**
+     * Asks for one source to be revalidated behind the current request.
+     *
+     * <p>Called by the resolver the moment it rejects a source as stale, so a running
+     * instance repairs itself rather than serving Cost Explorer until 01:45. The caller
+     * is not made to wait: this request still falls back, and the one after it reads the
+     * report.
+     *
+     * <p>Rate-limited per source by {@link #RETRY_AFTER} and single-flighted, because the
+     * Cost page asks six sections at once and each one would otherwise trigger its own
+     * manifest read.
+     */
+    public void requestRevalidation(Long sourceId) {
+        if (!curEnabled || sourceId == null) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        Long previous = lastAttempt.get(sourceId);
+        if (previous != null && now - previous < RETRY_AFTER.toMillis()) {
+            return;
+        }
+        if (!inFlight.add(sourceId)) {
+            return;
+        }
+
+        try {
+            executor.execute(() -> {
+                try {
+                    attempt(sourceId);
+                } finally {
+                    inFlight.remove(sourceId);
+                }
+            });
+        } catch (Exception e) {
+            inFlight.remove(sourceId);
+            logger.debug("[CUR] Could not schedule revalidation for source {}: {}",
+                    sourceId, e.getMessage());
+        }
+    }
+
+    /**
+     * Revalidates one source by id, re-reading it first.
+     *
+     * <p>By id rather than by the instance the caller held: the resolver hands over a
+     * source loaded on a request thread, and this runs on a pool thread after that
+     * session has closed.
+     */
+    private void attempt(Long sourceId) {
+        // Stamped here rather than at the request, so the startup sweep and an on-demand
+        // ask share one floor — otherwise a source the sweep has just failed to repair
+        // gets tried again by the first page load a moment later.
+        lastAttempt.put(sourceId, System.currentTimeMillis());
+        try {
+            curSourceRepository.findById(sourceId).ifPresent(source -> {
+                CurSource validated = revalidate(source);
+                if (validated.isActive()) {
+                    logger.info("✅ [CUR] Source {} revalidated — reads resume from the report",
+                            sourceId);
+                } else {
+                    logger.warn("[CUR] Source {} still unusable after revalidation: {}",
+                            sourceId, validated.getStatusDetail());
+                }
+            });
+        } catch (Exception e) {
+            logger.warn("[CUR] Revalidation failed for source {}: {}", sourceId, e.getMessage());
+        }
+    }
+
+    /** Same test {@link CurSourceResolver} applies before refusing a source. */
+    private boolean isStale(CurSource source) {
+        LocalDateTime validated = source.getLastValidatedAt();
+        return validated == null
+                || validated.isBefore(LocalDateTime.now().minusHours(maxValidationAgeHours));
     }
 
     /**
