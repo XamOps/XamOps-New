@@ -173,7 +173,8 @@ export function demoVerticalStatus(cluster: string, now: number = Date.now()): V
   const engine = (metrics: boolean): VerticalStatusWire['engine'] => ({
     enabled: true,
     ready: false,
-    clusterAccess: 'CLUSTER_ACCESS_NOT_CONFIGURED',
+    // The engine's own vocabulary (CONFIGURED | NOT_CONFIGURED | UNREACHABLE), not the reason code.
+    clusterAccess: 'NOT_CONFIGURED',
     executionPath: 'AGENT',
     executionPathDetail: {
       direct: { available: false, reason: 'CLUSTER_ACCESS_NOT_CONFIGURED' },

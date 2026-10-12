@@ -424,6 +424,12 @@ describe('demo router — vertical engine, endpoint 1 (ROLE_XAMOPS)', () => {
     expect(body.workloads.filter((w: any) => w.skipReason === 'POLICY_OFF')).toHaveLength(1);
   });
 
+  it('sends clusterAccess in the engine vocabulary, which the Workload autoscaler tab prints', async () => {
+    const body = await readDemoBody(statusUrl('prod-eks-cluster'));
+    expect(['CONFIGURED', 'NOT_CONFIGURED', 'UNREACHABLE', null]).toContain(body.engine.clusterAccess);
+    expect(body.engine.executionPathDetail.direct.reason).toBe('CLUSTER_ACCESS_NOT_CONFIGURED');
+  });
+
   it('answers eu as V2 with no workloads', async () => {
     const view = toVerticalEngineView(await readDemoBody(statusUrl('eu-eks-cluster')));
     expect(view.state).toBe('V2');
