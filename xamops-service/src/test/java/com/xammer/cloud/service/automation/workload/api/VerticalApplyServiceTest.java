@@ -448,6 +448,41 @@ class VerticalApplyServiceTest {
         verify(executor, never()).submit(any(), any(), any());
     }
 
+    @Test
+    @DisplayName("an OOM-driven memory-only raise inside the cooldown goes through, as the engine publishes it")
+    void aMemoryOnlyRaiseIsExemptFromTheCooldown() {
+        // Review-2 SF1: 1 GiB -> 250Mi is applied, the container is OOM-killed twenty minutes later,
+        // and endpoint 1 publishes a memory raise under OOM_RISK. Refusing it would keep the
+        // container being killed for the rest of the hour.
+        givenExecutorApplies();
+        when(policyService.resolve(any(), any(), any())).thenReturn(METRICS.defaultsPolicy()
+                .withLastAppliedAt(Instant.parse("2026-10-11T11:59:00Z")));
+        ApplyRequestDto raise = new ApplyRequestDto(
+                List.of(new ApplyRequestDto.Container("api", null, 1280L, null, 1280L)), "IN_PLACE", false);
+
+        ApplyResponseDto response = service().apply(principal(), readWriteAccount(), TARGET, REF, raise);
+
+        assertThat(response.state()).isEqualTo("ACCEPTED");
+        verify(executor).submit(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("inside the cooldown, a body with any CPU field or any memory decrease is still refused")
+    void onlyAMemoryRaiseIsExempt() {
+        when(policyService.resolve(any(), any(), any())).thenReturn(METRICS.defaultsPolicy()
+                .withLastAppliedAt(Instant.parse("2026-10-11T11:59:00Z")));
+
+        for (ApplyRequestDto.Container container : List.of(
+                new ApplyRequestDto.Container("api", 1200, 1280L, 1200, 1280L),   // CPU moves too
+                new ApplyRequestDto.Container("api", null, 512L, null, 512L),     // memory decrease
+                new ApplyRequestDto.Container("api", null, 1024L, null, 1024L))) { // equal, not a raise
+            assertThat(refuse(principal(), readWriteAccount(),
+                    new ApplyRequestDto(List.of(container), "IN_PLACE", true)).getMessage())
+                    .startsWith("COOLDOWN:");
+        }
+        verify(executor, never()).submit(any(), any(), any());
+    }
+
     // ---------------------------------------------------------------- the engine's holds (review S1)
 
     @Test

@@ -653,6 +653,22 @@ export const writeGateText = (code: string, detail: string | null | undefined): 
 
 const PATH_GATES = ['CLUSTER_ACCESS_NOT_CONFIGURED', 'CLUSTER_UNREACHABLE'] as const;
 
+/**
+ * Every change moves memory up and nothing else: no CPU field, and each memory field above what the
+ * container has now. The same rule endpoint 3 exempts from the cooldown.
+ */
+export const isMemoryOnlyIncrease = (workload: WorkloadView, changes: ApplyContainerRequest[]): boolean =>
+  changes.length > 0 &&
+  changes.every((change) => {
+    if (change.cpuRequestM !== undefined || change.cpuLimitM !== undefined) return false;
+    if (change.memRequestMi === undefined && change.memLimitMi === undefined) return false;
+    const container = workload.containers.find((c) => c.name === change.name);
+    if (!container) return false;
+    const raises = (next: number | undefined, now: MetricValue): boolean =>
+      next === undefined || (now.kind === 'value' && next > now.value);
+    return raises(change.memRequestMi, container.current.memRequestMi) && raises(change.memLimitMi, container.current.memLimitMi);
+  });
+
 const findGate = (gateReasons: CodeView[], code: string): CodeView | undefined =>
   gateReasons.find((g) => g.kind === 'known' && g.code === code);
 
@@ -713,7 +729,9 @@ export const manualApplyGate = (
     return blocked(label('GITOPS_MANAGED'));
   }
   const reasons = workload.containers.flatMap((c) => c.reasons);
-  if (reasons.some((r) => r.kind === 'known' && r.code === 'COOLDOWN')) {
+  // The cooldown holds everything except a memory-only raise, which the engine publishes for a
+  // container that ran out of memory after the last change and endpoint 3 accepts (review-2 SF1).
+  if (reasons.some((r) => r.kind === 'known' && r.code === 'COOLDOWN') && !isMemoryOnlyIncrease(workload, changes)) {
     return blocked(label('COOLDOWN'));
   }
   const changing = new Set(changes.map((c) => c.name));

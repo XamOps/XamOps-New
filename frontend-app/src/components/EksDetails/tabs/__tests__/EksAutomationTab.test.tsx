@@ -497,8 +497,52 @@ describe('EksAutomationTab', () => {
                   name: 'api',
                   qosClass: 'Guaranteed',
                   current: { cpuRequestM: 25, memRequestMi: 250, cpuLimitM: 25, memLimitMi: 250 },
-                  recommended: { cpuRequestM: 25, memRequestMi: 400, cpuLimitM: 25, memLimitMi: 400 },
+                  recommended: { cpuRequestM: 60, memRequestMi: 400, cpuLimitM: 60, memLimitMi: 400 },
+                  reasons: ['COOLDOWN'],
+                  upstreamVpa: null,
+                },
+              ],
+            }),
+          ],
+        },
+        reason: 'Changed recently',
+      },
+      {
+        name: 'an OOM-driven memory-only raise inside the cooldown is enabled, as endpoint 3 accepts it (SF1)',
+        wire: {
+          engine: engine(),
+          gateReasons: [],
+          workloads: [
+            workload({
+              containers: [
+                {
+                  name: 'api',
+                  qosClass: 'Guaranteed',
+                  current: { cpuRequestM: 25, memRequestMi: 250, cpuLimitM: 25, memLimitMi: 250 },
+                  recommended: { cpuRequestM: 25, memRequestMi: 313, cpuLimitM: 25, memLimitMi: 313 },
                   reasons: ['COOLDOWN', 'OOM_RISK'],
+                  upstreamVpa: null,
+                },
+              ],
+            }),
+          ],
+        },
+        reason: null,
+      },
+      {
+        name: 'a memory decrease inside the cooldown still disables',
+        wire: {
+          engine: engine(),
+          gateReasons: [],
+          workloads: [
+            workload({
+              containers: [
+                {
+                  name: 'api',
+                  qosClass: 'Guaranteed',
+                  current: { cpuRequestM: 25, memRequestMi: 600, cpuLimitM: 25, memLimitMi: 600 },
+                  recommended: { cpuRequestM: 25, memRequestMi: 300, cpuLimitM: 25, memLimitMi: 300 },
+                  reasons: ['COOLDOWN'],
                   upstreamVpa: null,
                 },
               ],

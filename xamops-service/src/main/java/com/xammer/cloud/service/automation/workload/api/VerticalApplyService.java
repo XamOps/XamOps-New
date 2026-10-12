@@ -192,7 +192,9 @@ public class VerticalApplyService {
             List<ContainerApplyTarget> targets = revalidate(submitted, workload, policy);
             // The engine's holds, dry runs included, so a dry run predicts the real apply.
             requireEngineHoldsClear(workload, policy, submitted);
-            requireCooldownElapsed(policy, workload.ref());
+            if (!isMemoryOnlyIncrease(submitted, workload)) {
+                requireCooldownElapsed(policy, workload.ref());
+            }
 
             ActionCommand command = new ActionCommand(UUID.randomUUID().toString(), target,
                     workload.ref(), targets, method, dryRun, null,
@@ -438,7 +440,8 @@ public class VerticalApplyService {
      * <p>Same boundary as the engine's own guard: the hold lasts while {@code last_applied_at} is
      * not older than {@code cooldown_minutes}. Dry runs are held too, so a dry run predicts the real
      * apply. Refused with {@code K8S_INVALID_POLICY} and the rule named in the message, the way a
-     * floor or a protected namespace is.
+     * floor or a protected namespace is. A memory-only increase is not held
+     * ({@link #isMemoryOnlyIncrease}), as in the engine.
      */
     private void requireCooldownElapsed(WorkloadPolicy policy, WorkloadRef ref) {
         Instant lastApplied = policy.lastAppliedAt();
@@ -454,6 +457,51 @@ public class VerticalApplyService {
                 + lastApplied + ", and the policy's " + policy.cooldownMinutes() + "-minute cooldown"
                 + " runs until " + endsAt + ". This apply is refused and nothing was sent to the"
                 + " cluster.");
+    }
+
+    /**
+     * Whether every submitted field is a memory increase over the container's current value, with no
+     * CPU field at all — the one change the engine publishes inside a cooldown, for a container that
+     * OOM-killed after the last apply (review-2 SF1).
+     *
+     * <p>The cooldown damps the engine arguing with its own write. An OOM kill after a decrease is
+     * not that: refusing the raise would leave the container being killed for the rest of the hour
+     * while the screen promises "XamOps will only raise its memory, even right after a change". A
+     * raise cannot cause an OOM kill, and CPU is never exempt. The floors, QoS and limit checks in
+     * {@link #revalidate} still apply.
+     */
+    static boolean isMemoryOnlyIncrease(List<ApplyRequestDto.Container> submitted,
+                                        ClusterWorkloadInventory.Workload workload) {
+        if (submitted == null || submitted.isEmpty()) {
+            return false;
+        }
+        for (ApplyRequestDto.Container container : submitted) {
+            if (container.cpuRequestM() != null || container.cpuLimitM() != null) {
+                return false;
+            }
+            if (container.memRequestMi() == null && container.memLimitMi() == null) {
+                return false;
+            }
+            ResourceEnvelope current = workload.containers().stream()
+                    .filter(candidate -> candidate.name().equals(container.name()))
+                    .map(ClusterWorkloadInventory.ContainerSpec::current)
+                    .findFirst()
+                    .orElse(null);
+            if (current == null
+                    || !raises(container.memRequestMi(), current.memRequestBytes())
+                    || !raises(container.memLimitMi(), current.memLimitBytes())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** A submitted MiB value that is absent, or strictly above a current value that exists. */
+    private static boolean raises(Long submittedMi, Long currentBytes) {
+        if (submittedMi == null) {
+            return true;
+        }
+        return currentBytes != null && Quantities.miToBytes(submittedMi) > currentBytes;
     }
 
     private ClusterAccess open(ClusterAccessProvider provider, ClusterTarget target) {
