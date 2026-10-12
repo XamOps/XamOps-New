@@ -78,7 +78,12 @@ public class LlmProxyService {
         MODEL_PRICING.put("claude-3-5-haiku-20241022", new double[]{0.80, 4.00});
         MODEL_PRICING.put("claude-3-haiku-20240307", new double[]{0.25, 1.25});
 
-        // Google Gemini models
+        // Google Gemini models — current (3.x / 2.5) first
+        MODEL_PRICING.put("gemini-3.8-flash", new double[]{0.15, 0.60});
+        MODEL_PRICING.put("gemini-3.1-flash", new double[]{0.15, 0.60});
+        MODEL_PRICING.put("gemini-2.5-flash", new double[]{0.15, 0.60});
+        MODEL_PRICING.put("gemini-2.5-pro", new double[]{1.25, 10.00});
+        // Legacy Gemini models — retained so historical usage logs still price correctly
         MODEL_PRICING.put("gemini-1.5-pro", new double[]{3.50, 10.50});
         MODEL_PRICING.put("gemini-1.5-flash", new double[]{0.075, 0.30});
         MODEL_PRICING.put("gemini-2.0-flash", new double[]{0.10, 0.40});
@@ -219,7 +224,7 @@ public class LlmProxyService {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body("{\"error\":\"No API key available for " + providerForModel + ". Add or rotate the key in AIOps → AI Gateway.\"}");
         }
-        String targetUrl = buildTargetUrl(providerForModel, subPath);
+        String targetUrl = buildTargetUrl(providerForModel, subPath, body);
         String translatedBody = translateBodyForProvider(providerForModel, body);
         HttpHeaders directHeaders = buildProviderHeaders(providerForModel, apiKey, incomingHeaders);
         long startTime = System.currentTimeMillis();
@@ -291,7 +296,7 @@ public class LlmProxyService {
                 return forwardBedrockRequest(config, subPath, method, body, agentName);
             }
             long startTime = System.currentTimeMillis();
-            String targetUrl = buildTargetUrl(providerForModel, subPath);
+            String targetUrl = buildTargetUrl(providerForModel, subPath, body);
             String translatedBody = translateBodyForProvider(providerForModel, body);
             HttpHeaders directHeaders = buildProviderHeaders(providerForModel, selectedKey.decryptedKey(), incomingHeaders);
             try {
@@ -346,7 +351,7 @@ public class LlmProxyService {
         }
 
         long startTime = System.currentTimeMillis();
-        String targetUrl = buildTargetUrl(providerForModel, subPath);
+        String targetUrl = buildTargetUrl(providerForModel, subPath, body);
         String translatedBody = translateBodyForProvider(providerForModel, body);
         HttpHeaders directHeaders = buildProviderHeaders(providerForModel, resolvedKey, incomingHeaders);
         try {
@@ -401,12 +406,18 @@ public class LlmProxyService {
             String agentName,
             boolean rewriteModel) {
 
-        // For per-provider key: rewrite model to first real model for that provider
-        // For master key: body already has the real model name LiteLLM recognises
+        // For per-provider key:
+        //   - If the caller supplied a 'model' in the body, honor it as-is (do NOT override).
+        //   - If no model was supplied, resolve one from the provider config so the caller
+        //     never has to pass one (first enabled model, else the built-in default).
+        // For master key: body already has the real model name LiteLLM recognises.
         String outBody = body;
         if (rewriteModel) {
-            String firstModel = getFirstModelForProvider(config.getProvider().toUpperCase());
-            if (firstModel != null) outBody = rewriteModelInBody(body, firstModel);
+            String callerModel = extractModelFromBody(body);
+            if (callerModel == null || callerModel.isBlank()) {
+                String resolvedModel = resolveModelForProvider(config);
+                if (resolvedModel != null) outBody = rewriteModelInBody(body, resolvedModel);
+            }
         }
 
         // LiteLLM exposes an OpenAI-compatible endpoint
@@ -479,7 +490,7 @@ public class LlmProxyService {
                         .body("{\"error\":\"No API key available. Add keys via AIOps → AI Gateway → API Keys tab, or pass Authorization: Bearer YOUR_KEY\"}");
             }
 
-            String targetUrl2 = buildTargetUrl(provider, subPath);
+            String targetUrl2 = buildTargetUrl(provider, subPath, body);
             HttpHeaders fallbackHeaders = buildProviderHeaders(provider, apiKey, incomingHeaders);
             // Translate OpenAI-format body to provider-native format if needed
             String fallbackBody = translateBodyForProvider(provider, body);
@@ -553,12 +564,32 @@ public class LlmProxyService {
     static {
         PROVIDER_DEFAULT_MODEL.put("OPENAI",    "gpt-4o");
         PROVIDER_DEFAULT_MODEL.put("ANTHROPIC", "claude-sonnet-4-5-20250929");
-        PROVIDER_DEFAULT_MODEL.put("GEMINI",    "gemini-2.0-flash");
+        PROVIDER_DEFAULT_MODEL.put("GEMINI",    "gemini-3.8-flash");
         PROVIDER_DEFAULT_MODEL.put("BEDROCK",   "anthropic.claude-3-5-sonnet-20241022-v2:0");
     }
 
     private String getFirstModelForProvider(String provider) {
         return PROVIDER_DEFAULT_MODEL.get(provider);
+    }
+
+    /**
+     * Resolve the model to use for a per-provider-key request so the caller doesn't have to
+     * supply one. Order of preference:
+     *   1. The first model from the provider's configured {@code enabledModels} (what the user
+     *      selected when adding the provider).
+     *   2. The built-in default model for that provider.
+     */
+    private String resolveModelForProvider(LlmProviderConfig config) {
+        String enabled = config.getEnabledModels();
+        if (enabled != null && !enabled.isBlank()) {
+            for (String m : enabled.split(",")) {
+                String trimmed = m.trim();
+                if (!trimmed.isEmpty()) {
+                    return trimmed;
+                }
+            }
+        }
+        return getFirstModelForProvider(config.getProvider().toUpperCase());
     }
 
     @Async
@@ -754,7 +785,7 @@ public class LlmProxyService {
 
     // ─── Provider-specific URL building ──────────────────────────
 
-    private String buildTargetUrl(String provider, String subPath) {
+    private String buildTargetUrl(String provider, String subPath, String body) {
         // Always use the provider's native endpoint — ignore subPath since each
         // provider has a different API structure (OpenAI vs Anthropic vs Gemini).
         switch (provider) {
@@ -762,8 +793,17 @@ public class LlmProxyService {
                 return "https://api.openai.com/v1/chat/completions";
             case "ANTHROPIC":
                 return "https://api.anthropic.com/v1/messages";
-            case "GEMINI":
-                return "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+            case "GEMINI": {
+                // Gemini encodes the model in the URL path (…/models/{model}:generateContent),
+                // NOT in the request body. Use the caller's requested model; fall back to the
+                // provider default only when the body has none.
+                String geminiModel = extractModelFromBody(body);
+                if (geminiModel == null || geminiModel.isBlank()) {
+                    geminiModel = getFirstModelForProvider("GEMINI");
+                }
+                return "https://generativelanguage.googleapis.com/v1beta/models/"
+                        + geminiModel + ":generateContent";
+            }
             default:
                 throw new IllegalArgumentException("Unsupported provider: " + provider);
         }

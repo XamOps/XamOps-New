@@ -43,6 +43,19 @@ export interface AdminTicketCacheData {
 }
 
 /**
+ * One chat-content search hit returned by GET /api/billops/tickets/search-chats:
+ * the ticket whose conversation matched, a short snippet centred on the matched term,
+ * and whether the match was in the opening message ('description') or a 'reply'.
+ */
+export interface ChatSearchMatch {
+  ticketId: number;
+  snippet: string;
+  source: 'description' | 'reply';
+  /** ISO timestamp of the matched message (reply time, or ticket creation for the opening message). */
+  createdAt?: string;
+}
+
+/**
  * Tab configuration for the admin tickets page
  */
 export interface TabConfig {

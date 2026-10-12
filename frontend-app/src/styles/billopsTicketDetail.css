@@ -215,6 +215,21 @@
   animation: chat-bubble-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* ── Chat search match flash ──────────────────────────────────────────────────
+   Applied briefly to the message bubble the admin jumped to from the Chats search,
+   so the matched message is obvious on arrival, then fades on its own. */
+@keyframes chat-search-flash {
+  0%   { background-color: rgba(251, 191, 36, 0.28); box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.5); }
+  70%  { background-color: rgba(251, 191, 36, 0.18); box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.28); }
+  100% { background-color: transparent;              box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); }
+}
+
+.chat-search-flash {
+  animation: chat-search-flash 2.6s ease-out both;
+  border-radius: 12px;
+  scroll-margin: 80px;
+}
+
 /* ── Typing indicator ─────────────────────────────────────────────────────── */
 .typing-indicator {
   display: flex;

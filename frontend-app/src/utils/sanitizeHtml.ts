@@ -89,11 +89,46 @@ export function sanitizeRichText(html: string | null | undefined): string {
   if (!html) return '';
   if (!canSanitize()) return escapeHtml(html);
   installHooks();
-  return DOMPurify.sanitize(html, {
+  const clean = DOMPurify.sanitize(html, {
     ALLOWED_TAGS: RICH_TEXT_TAGS,
     ALLOWED_ATTR: RICH_TEXT_ATTR,
     ALLOW_DATA_ATTR: false,
   });
+  return trimEmptyEdgeBlocks(clean);
+}
+
+/**
+ * Removes empty leading/trailing blocks the rich-text editor leaves behind — a trailing
+ * `<p><br></p>` or `<p></p>` (and the same at the start). These carry no content but render as
+ * blank lines, which makes a one-word chat bubble look needlessly tall. Only strips blocks that
+ * are truly empty (nothing but whitespace or a single `<br>`); any text, image, or other element
+ * stops the trim so real content is never touched.
+ */
+function trimEmptyEdgeBlocks(html: string): string {
+  if (!html || !canSanitize()) return html;
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const body = doc.body;
+  if (!body) return html;
+
+  const isEmptyBlock = (node: ChildNode): boolean => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return (node.textContent ?? '').trim() === '';
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return false;
+    const el = node as HTMLElement;
+    if (!/^(P|DIV)$/.test(el.tagName)) return false;
+    // Empty if there's no text and no meaningful children (only <br> / whitespace).
+    if ((el.textContent ?? '').trim() !== '') return false;
+    return !el.querySelector('img, a, table, ul, ol, pre, blockquote');
+  };
+
+  while (body.lastChild && isEmptyBlock(body.lastChild)) {
+    body.removeChild(body.lastChild);
+  }
+  while (body.firstChild && isEmptyBlock(body.firstChild)) {
+    body.removeChild(body.firstChild);
+  }
+  return body.innerHTML;
 }
 
 /**

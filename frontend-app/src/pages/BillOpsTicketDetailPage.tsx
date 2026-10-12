@@ -62,13 +62,15 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const ticketId = searchParams.get('id');
+  // When arriving from the admin Chats search, this is the term that matched inside the
+  // conversation. The detail view scrolls to and highlights the first message containing it.
+  const highlightTerm = searchParams.get('highlight') || '';
   const { setActions, clearActions } = useTopbarActions();
 
   const {
     ticket,
     currentUser,
     loading,
-    isSubmitting,
     error,
     isAdmin,
     adminUsers,
@@ -132,6 +134,12 @@ const BillOpsTicketDetailPage: React.FC = () => {
   // File attachments (multiple)
   const [attachments, setAttachments] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Optimistic "sending" bubbles: a reply is cleared from the editor the instant Send is pressed
+  // and shown here at the bottom of the thread with a sending/spinner state, until the server
+  // responds and the real reply arrives (or it fails and we drop/restore it).
+  interface PendingReply { tempId: string; html: string; isInternal: boolean; failed: boolean; }
+  const [pendingReplies, setPendingReplies] = useState<PendingReply[]>([]);
 
   // Assignment dropdown state
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
@@ -370,6 +378,13 @@ const BillOpsTicketDetailPage: React.FC = () => {
    */
   useEffect(() => {
     if (!chatContainerRef.current || !ticket?.replies?.length) return;
+    // When we arrived with a ?highlight term, the highlight effect below owns the initial scroll
+    // (to the matched message, not the bottom). Skip the bottom-scroll on first load so the two
+    // don't fight; later new-reply auto-scroll still works once the user is near the bottom.
+    if (highlightTerm && !hasInitialScrolled.current) {
+      hasInitialScrolled.current = true;
+      return;
+    }
     setTimeout(() => {
       const el = chatContainerRef.current;
       if (!el) return;
@@ -381,7 +396,45 @@ const BillOpsTicketDetailPage: React.FC = () => {
         if (distFromBottom < 200) el.scrollTop = el.scrollHeight;
       }
     }, 100);
-  }, [ticket?.replies]);
+  }, [ticket?.replies, highlightTerm]);
+
+  /**
+   * Scroll to and highlight the message that matched the admin Chats search. Runs once per load
+   * when a ?highlight term is present: finds the first non-deleted reply whose text contains the
+   * term, scrolls its bubble into view, and flashes a ring around it. Pure DOM — no persistent
+   * state, so the pulse fades on its own and leaves the thread untouched.
+   */
+  const didHighlightRef = useRef(false);
+  useEffect(() => {
+    if (!highlightTerm || didHighlightRef.current) return;
+    if (!ticket?.replies?.length) return;
+
+    const term = highlightTerm.toLowerCase();
+    const matchingReply = ticket.replies.find(r =>
+      !r.deleted && typeof r.message === 'string' &&
+      r.message.replace(/<[^>]*>/g, ' ').toLowerCase().includes(term)
+    );
+
+    // Prefer a matching reply; otherwise, if the opening description contains the term, flash the
+    // "Original Issue Description" card (the first message isn't rendered as a reply bubble).
+    const descriptionMatches =
+      typeof ticket.description === 'string' &&
+      ticket.description.replace(/<[^>]*>/g, ' ').toLowerCase().includes(term);
+
+    const targetId = matchingReply ? `msg-${matchingReply.id}` : descriptionMatches ? 'msg-description' : null;
+    if (!targetId) return;
+
+    didHighlightRef.current = true;
+    // Let the bubbles render first, then scroll to and flash the match.
+    const timer = setTimeout(() => {
+      const node = document.getElementById(targetId);
+      if (!node) return;
+      node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      node.classList.add('chat-search-flash');
+      setTimeout(() => node.classList.remove('chat-search-flash'), 2600);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [highlightTerm, ticket?.replies, ticket?.description]);
 
   /**
    * Persist one or more note fields to the backend (partial update).
@@ -933,41 +986,57 @@ const BillOpsTicketDetailPage: React.FC = () => {
     const hasEmbeddedImage = /<img[^>]+src="data:/i.test(rawHtml);
     if (!textContent && attachments.length === 0 && !hasEmbeddedImage) return;
 
-    try {
-      let htmlMessage = (textContent || hasEmbeddedImage) ? rawHtml : '';
+    let htmlMessage = (textContent || hasEmbeddedImage) ? rawHtml : '';
 
-      // Extract any base64 image from the HTML and convert to a file attachment.
-      // This handles cases where Quill embeds a pasted image before our clipboard
-      // matcher can capture it, or when the async fetch hasn't completed yet.
-      const filesToSend = [...attachments];
-      const b64Match = htmlMessage.match(/<img[^>]+src="(data:image\/[^;]+;base64,[^"]+)"[^>]*>/i);
-      if (b64Match && filesToSend.length === 0) {
-        const dataUrl = b64Match[1];
-        const byteString = atob(dataUrl.split(',')[1]);
-        const mimeType = dataUrl.match(/data:([^;]+)/)?.[1] || 'image/png';
-        const ab = new ArrayBuffer(byteString.length);
-        const ia = new Uint8Array(ab);
-        for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
-        filesToSend.push(new File([ab], 'pasted-image.png', { type: mimeType }));
+    // Extract any base64 image from the HTML and convert to a file attachment.
+    // This handles cases where Quill embeds a pasted image before our clipboard
+    // matcher can capture it, or when the async fetch hasn't completed yet.
+    const filesToSend = [...attachments];
+    const b64Match = htmlMessage.match(/<img[^>]+src="(data:image\/[^;]+;base64,[^"]+)"[^>]*>/i);
+    if (b64Match && filesToSend.length === 0) {
+      const dataUrl = b64Match[1];
+      const byteString = atob(dataUrl.split(',')[1]);
+      const mimeType = dataUrl.match(/data:([^;]+)/)?.[1] || 'image/png';
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+      filesToSend.push(new File([ab], 'pasted-image.png', { type: mimeType }));
+    }
+    // Always strip base64 images from the message HTML
+    htmlMessage = htmlMessage.replace(/<img[^>]+src="data:[^"]*"[^>]*>/gi, '');
+
+    const wasInternal = isInternalNote;
+
+    // Snapshot for an optimistic bubble, and a label when there's no text (attachment-only send).
+    const optimisticHtml = htmlMessage || (filesToSend.length > 0
+      ? `<p class="italic opacity-70">Sending ${filesToSend.length} attachment${filesToSend.length > 1 ? 's' : ''}…</p>`
+      : '');
+    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    // ── Clear the editor and show the message in the thread immediately (optimistic send) ──
+    quillInstance.current.root.innerHTML = '';
+    setNewReplyHasContent(false);
+    if (ticketId) localStorage.removeItem(`xamops_ticket_draft_${ticketId}`);
+    setDraftRestored(false);
+    clearFile();
+    setIsInternalNote(false);
+    setPendingReplies(prev => [...prev, { tempId, html: optimisticHtml, isInternal: wasInternal, failed: false }]);
+
+    // Scroll to the new optimistic bubble.
+    setTimeout(() => {
+      if (chatContainerRef.current) {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
       }
-      // Always strip base64 images from the message HTML
-      htmlMessage = htmlMessage.replace(/<img[^>]+src="data:[^"]*"[^>]*>/gi, '');
+    }, 60);
 
-      await submitReply(htmlMessage, filesToSend, isInternalNote);
-
-      quillInstance.current.root.innerHTML = '';
-      setNewReplyHasContent(false);
-      if (ticketId) localStorage.removeItem(`xamops_ticket_draft_${ticketId}`);
-      setDraftRestored(false);
-      clearFile();
-      setIsInternalNote(false);
-
-      setTimeout(() => {
-        if (chatContainerRef.current) {
-          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-        }
-      }, 100);
+    try {
+      await submitReply(htmlMessage, filesToSend, wasInternal);
+      // Success: the hook replaced `ticket` with the server copy that already contains this
+      // reply, so drop the optimistic placeholder.
+      setPendingReplies(prev => prev.filter(p => p.tempId !== tempId));
     } catch (err) {
+      // Mark the bubble as failed so the user sees it didn't go through, then surface the error.
+      setPendingReplies(prev => prev.map(p => p.tempId === tempId ? { ...p, failed: true } : p));
       globalThis.alert('Error sending reply. Please try again.');
     }
   };
@@ -1215,7 +1284,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
           {/* Original Ticket + Metadata Card — the anchor of the page: black left
               edge + a slightly lifted shadow so it reads above the activity feed. */}
-          <div className="bg-white border border-[#e5e7eb] border-l-[3px] border-l-[rgba(0,0,0,0.88)] rounded-xl p-6 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_28px_-16px_rgba(0,0,0,0.18)]">
+          <div id="msg-description" className="bg-white border border-[#e5e7eb] border-l-[3px] border-l-[rgba(0,0,0,0.88)] rounded-xl p-6 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_28px_-16px_rgba(0,0,0,0.18)]">
             <div className="flex gap-4">
               <div className="flex-shrink-0">
                 <div className="w-10 h-10 rounded-lg bg-[rgba(0,0,0,0.88)] flex items-center justify-center text-white">
@@ -1381,7 +1450,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                 if (callEvent) {
                   if (activityFilter === 'messages') return null;
                   return (
-                    <div key={reply.id} className="flex justify-center">
+                    <div key={reply.id} id={`msg-${reply.id}`} className="flex justify-center">
                       <div className="flex items-center gap-2.5 max-w-full px-3 py-2 rounded-lg bg-[#f7f8f9] border border-[#e5e7eb]">
                         <span className="w-6 h-6 rounded-md bg-white border border-[#e5e7eb] flex items-center justify-center flex-shrink-0">
                           <Icon
@@ -1423,19 +1492,19 @@ const BillOpsTicketDetailPage: React.FC = () => {
                 if (isInternalReply) {
                   return (
                     <React.Fragment key={reply.id}>
-                      <div className="flex w-full justify-end chat-bubble-enter" style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}>
+                      <div id={`msg-${reply.id}`} className="flex w-full justify-end chat-bubble-enter" style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}>
                         <div className="flex max-w-[85%] md:max-w-[70%] gap-3 flex-row-reverse min-w-0">
                           <div className="flex-shrink-0 mt-auto">
                             <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm shadow-sm bg-amber-500 text-white">
                               <Icon icon="mdi:lock-outline" width={14} />
                             </div>
                           </div>
-                          <div className="space-y-1 text-left min-w-0">
+                          <div className="space-y-1 text-right min-w-0 max-w-full">
                             <div className="flex items-center justify-end gap-2 px-1">
                               <span className="px-2 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-600 border border-amber-200 rounded uppercase tracking-wide flex-shrink-0">Internal Note</span>
                               <span className="text-[10px] text-[rgba(0,0,0,0.35)] flex-shrink-0">{reply.createdAt ? new Date(reply.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</span>
                             </div>
-                            <div className="p-4 rounded-xl rounded-tr-sm shadow-sm text-sm leading-relaxed overflow-hidden bg-amber-50 text-amber-900 border border-amber-200">
+                            <div className="inline-block text-left max-w-full px-3.5 py-2 rounded-xl rounded-tr-sm shadow-sm text-sm leading-relaxed overflow-hidden bg-amber-50 text-amber-900 border border-amber-200">
                               <div dangerouslySetInnerHTML={{ __html: sanitizeRichText(reply.message) }} className="prose-chat break-words" />
                             </div>
                           </div>
@@ -1459,7 +1528,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                       </div>
                     )}
 
-                  <div className={`flex w-full ${isMine ? 'justify-end' : 'justify-start'} chat-bubble-enter`} style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}>
+                  <div id={`msg-${reply.id}`} className={`flex w-full ${isMine ? 'justify-end' : 'justify-start'} chat-bubble-enter`} style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}>
                     <div className={`flex max-w-[85%] md:max-w-[72%] gap-3 min-w-0 ${isMine ? 'flex-row-reverse' : ''}`}>
                       <div className="flex-shrink-0 mt-auto">
                         <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-semibold ${reply.admin ? 'bg-[#1e293b] text-white' : 'bg-[rgba(0,0,0,0.06)] text-[rgba(0,0,0,0.5)] border border-[#e5e7eb]'}`}>
@@ -1467,7 +1536,7 @@ const BillOpsTicketDetailPage: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="space-y-1.5 min-w-0 text-left">
+                      <div className={`space-y-1.5 min-w-0 max-w-full ${isMine ? 'text-right' : 'text-left'}`}>
                         <div className={`flex items-center gap-1.5 px-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
                           {!isMine && <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.88)]">{reply.authorUsername}</span>}
                           <span className="text-[10px] text-[rgba(0,0,0,0.35)]">{reply.createdAt ? new Date(reply.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''}</span>
@@ -1492,8 +1561,10 @@ const BillOpsTicketDetailPage: React.FC = () => {
                         </div>
 
                         {/* Outgoing bubbles use deep slate rather than solid black —
-                            same hierarchy, far easier on the eyes over a long thread. */}
-                        <div className={`group/msg relative p-4 rounded-xl text-sm leading-relaxed overflow-visible ${isMine ? 'bg-[#1e293b] text-white rounded-tr-none shadow-[0_1px_2px_rgba(15,23,42,0.18)]' : 'bg-white text-[rgba(0,0,0,0.88)] border border-[#e5e7eb] rounded-tl-none shadow-[0_1px_2px_rgba(0,0,0,0.04)]'}`}>
+                            same hierarchy, far easier on the eyes over a long thread.
+                            w-fit so the bubble hugs its text and scales with content; the
+                            tighter px-3.5/py-2.5 padding keeps short messages compact. */}
+                        <div className={`group/msg relative inline-block text-left max-w-full px-3.5 py-2 rounded-xl text-sm leading-relaxed overflow-visible align-top ${isMine ? 'bg-[#1e293b] text-white rounded-tr-none shadow-[0_1px_2px_rgba(15,23,42,0.18)]' : 'bg-white text-[rgba(0,0,0,0.88)] border border-[#e5e7eb] rounded-tl-none shadow-[0_1px_2px_rgba(0,0,0,0.04)]'}`}>
 
                           {/* ── Edit / Delete hover buttons ── */}
                           {isMine && !reply.deleted && ticket.status !== 'CLOSED' && (
@@ -1672,11 +1743,69 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   </React.Fragment>
                 );
               })}
+
+              {/* Optimistic "sending" bubbles — right-aligned like outgoing messages, shown the
+                  instant Send is pressed and removed once the server confirms the reply. */}
+              {pendingReplies.map((p) => (
+                <div key={p.tempId} className="flex w-full justify-end chat-bubble-enter">
+                  <div className="flex max-w-[85%] md:max-w-[72%] gap-3 flex-row-reverse min-w-0">
+                    <div className="flex-shrink-0 mt-auto">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-semibold ${p.isInternal ? 'bg-amber-500 text-white' : 'bg-[#1e293b] text-white'}`}>
+                        <Icon icon={p.isInternal ? 'mdi:lock-outline' : 'mdi:shield-account'} width={14} />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5 min-w-0 max-w-full text-right">
+                      <div className="flex items-center justify-end gap-1.5 px-1">
+                        <span className={`text-[10px] flex items-center gap-1 ${p.failed ? 'text-red-500' : 'text-[rgba(0,0,0,0.35)]'}`}>
+                          {p.failed ? (
+                            <><Icon icon="mdi:alert-circle-outline" width={11} /> Failed to send</>
+                          ) : (
+                            <><Icon icon="mdi:loading" width={11} className="animate-spin" /> Sending…</>
+                          )}
+                        </span>
+                      </div>
+                      <div className={`inline-block text-left max-w-full px-3.5 py-2 rounded-xl rounded-tr-none text-sm leading-relaxed align-top ${p.isInternal ? 'bg-amber-50 text-amber-900 border border-amber-200' : 'bg-[#1e293b] text-white'} ${p.failed ? 'opacity-60' : 'opacity-80'}`}>
+                        <div dangerouslySetInnerHTML={{ __html: sanitizeRichText(p.html) }} className="prose-chat !p-0 break-words" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           ) : (
-            <div className="text-center py-10">
-              <p className="text-[rgba(0,0,0,0.35)] text-sm italic">No replies yet. Start the conversation below.</p>
-            </div>
+            pendingReplies.length > 0 ? (
+              <div className="space-y-6">
+                {pendingReplies.map((p) => (
+                  <div key={p.tempId} className="flex w-full justify-end chat-bubble-enter">
+                    <div className="flex max-w-[85%] md:max-w-[72%] gap-3 flex-row-reverse min-w-0">
+                      <div className="flex-shrink-0 mt-auto">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-semibold ${p.isInternal ? 'bg-amber-500 text-white' : 'bg-[#1e293b] text-white'}`}>
+                          <Icon icon={p.isInternal ? 'mdi:lock-outline' : 'mdi:shield-account'} width={14} />
+                        </div>
+                      </div>
+                      <div className="space-y-1.5 min-w-0 max-w-full text-right">
+                        <div className="flex items-center justify-end gap-1.5 px-1">
+                          <span className={`text-[10px] flex items-center gap-1 ${p.failed ? 'text-red-500' : 'text-[rgba(0,0,0,0.35)]'}`}>
+                            {p.failed ? (
+                              <><Icon icon="mdi:alert-circle-outline" width={11} /> Failed to send</>
+                            ) : (
+                              <><Icon icon="mdi:loading" width={11} className="animate-spin" /> Sending…</>
+                            )}
+                          </span>
+                        </div>
+                        <div className={`inline-block text-left max-w-full px-3.5 py-2 rounded-xl rounded-tr-none text-sm leading-relaxed align-top ${p.isInternal ? 'bg-amber-50 text-amber-900 border border-amber-200' : 'bg-[#1e293b] text-white'} ${p.failed ? 'opacity-60' : 'opacity-80'}`}>
+                          <div dangerouslySetInnerHTML={{ __html: sanitizeRichText(p.html) }} className="prose-chat !p-0 break-words" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-10">
+                <p className="text-[rgba(0,0,0,0.35)] text-sm italic">No replies yet. Start the conversation below.</p>
+              </div>
+            )
           )}
 
           {/* "Messages only" with nothing but system events left to show */}
@@ -1806,13 +1935,12 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
                 <button
                   type="submit"
-                  disabled={isSubmitting || (!newReplyHasContent && attachments.length === 0)}
+                  disabled={!newReplyHasContent && attachments.length === 0}
                   className="flex items-center gap-1.5 px-5 py-2 text-white rounded-md text-[12px] font-medium transition-all disabled:opacity-50 bg-[rgba(0,0,0,0.88)] hover:bg-black hover:scale-[1.02] active:scale-95"
                 >
-                  {isSubmitting
-                    ? <><Icon icon="mdi:loading" width={14} className="animate-spin" /> Sending...</>
-                    : <><Icon icon="mdi:send-outline" width={14} /> Send</>
-                  }
+                  {/* The in-flight "sending" state now lives on the optimistic bubble in the thread,
+                      so the button stays "Send" and ready for the next message rather than locking. */}
+                  <Icon icon="mdi:send-outline" width={14} /> Send
                 </button>
               </div>
             </div>

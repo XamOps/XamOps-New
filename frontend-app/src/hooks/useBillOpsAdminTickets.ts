@@ -11,7 +11,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   AdminTicket,
   AdminTicketCacheData,
-  AdminTicketTab
+  AdminTicketTab,
+  ChatSearchMatch
 } from '../types/billopsAdminTickets';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -53,6 +54,7 @@ const loadSavedFilterState = (): SavedFilterState | null => {
 interface UseBillOpsAdminTicketsReturn {
   tickets: AdminTicket[];
   filteredTickets: AdminTicket[];
+  chatMatches: ChatSearchMatch[];
   starredClientIds: Set<number>;
   newlyUpdatedIds: Set<number>;
   loading: boolean;
@@ -89,26 +91,33 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
   const [search, setSearch] = useState(() => loadSavedFilterState()?.search ?? '');
   const [filters, setFilters] = useState<TicketFilters>(() => loadSavedFilterState()?.filters ?? DEFAULT_FILTERS);
   const [newlyUpdatedIds, setNewlyUpdatedIds] = useState<Set<number>>(new Set());
-  // Ticket IDs whose reply bodies match the current search term (server-side lookup,
-  // since the lightweight admin list does not carry reply text).
-  const [replyMatchIds, setReplyMatchIds] = useState<Set<number>>(new Set());
+  // Chat-content matches for the current search term (server-side lookup, since the
+  // lightweight admin list carries neither the opening message nor reply text). Each entry
+  // has the ticket id, a snippet, and whether it matched in the description or a reply.
+  const [chatMatches, setChatMatches] = useState<ChatSearchMatch[]>([]);
+  // Derived: just the ticket ids that matched on chat content — used by the search filter.
+  const replyMatchIds = useMemo(
+    () => new Set(chatMatches.map(m => m.ticketId)),
+    [chatMatches]
+  );
 
-  // Debounced reply-body search: when the query is long enough, ask the backend
-  // which tickets have a matching reply and merge those into the search filter.
+  // Debounced chat-content search: when the query is long enough, ask the backend which
+  // tickets have a matching message (opening description or reply) and keep the snippets so
+  // the page can render a dedicated "Chats" results section.
   useEffect(() => {
     const q = search.trim();
     if (q.length < 2) {
-      setReplyMatchIds(new Set());
+      setChatMatches([]);
       return;
     }
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/billops/tickets/search-replies?q=${encodeURIComponent(q)}`, {
+        const res = await fetch(`/api/billops/tickets/search-chats?q=${encodeURIComponent(q)}`, {
           credentials: 'include',
         });
         if (!res.ok) return;
-        const ids: number[] = await res.json();
-        setReplyMatchIds(new Set(ids));
+        const matches: ChatSearchMatch[] = await res.json();
+        setChatMatches(matches);
       } catch {
         /* non-critical — subject/metadata search still works */
       }
@@ -479,6 +488,7 @@ export const useBillOpsAdminTickets = (): UseBillOpsAdminTicketsReturn => {
   return {
     tickets,
     filteredTickets,
+    chatMatches,
     starredClientIds,
     newlyUpdatedIds,
     loading,

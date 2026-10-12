@@ -10,6 +10,7 @@ import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.TicketReplyRepository;
+import com.xammer.billops.repository.TicketRepository;
 import com.xammer.billops.service.RcaService;
 import com.xammer.billops.service.TicketService;
 import com.xammer.billops.util.TicketHtmlSanitizer;
@@ -55,6 +56,9 @@ public class TicketController {
     @Autowired
     private TicketReplyRepository ticketReplyRepository;
 
+    @Autowired
+    private TicketRepository ticketRepository;
+
     public TicketController(TicketService ticketService, RcaService rcaService) {
         this.ticketService = ticketService;
         this.rcaService = rcaService;
@@ -85,9 +89,12 @@ public class TicketController {
     }
 
     /**
-     * Reply-body search — returns the IDs of tickets whose replies contain the
-     * given term (case-insensitive). The admin list is lightweight and does not
-     * carry reply text, so the frontend merges these IDs into its search filter.
+     * Chat-content search — returns the IDs of tickets whose conversation contains the given
+     * term (case-insensitive). The admin list is lightweight and carries neither the ticket's
+     * opening message nor its replies, so the frontend merges these IDs into its search filter.
+     *
+     * <p>A ticket's chat is its original description (the first bubble) plus every reply, so this
+     * searches both {@code Ticket.description} and {@code TicketReply.message} and unions the hits.
      */
     @GetMapping("/tickets/search-replies")
     @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
@@ -95,7 +102,105 @@ public class TicketController {
         if (q == null || q.trim().length() < 2) {
             return ResponseEntity.ok(java.util.Collections.emptyList());
         }
-        return ResponseEntity.ok(ticketReplyRepository.findTicketIdsByReplyMessageContaining(q.trim()));
+        String term = q.trim();
+        java.util.LinkedHashSet<Long> ids = new java.util.LinkedHashSet<>();
+        ids.addAll(ticketReplyRepository.findTicketIdsByReplyMessageContaining(term));
+        ids.addAll(ticketRepository.findTicketIdsByDescriptionContaining(term));
+        return ResponseEntity.ok(new java.util.ArrayList<>(ids));
+    }
+
+    /**
+     * Chat-content search WITH snippets — like {@link #searchReplyBodies} but returns, for each
+     * matching message, the ticket id plus a short plain-text snippet centred on the match. The
+     * admin UI uses this to render a dedicated "Chats" results section (keyword found inside the
+     * conversation) separate from the "Tickets" section (keyword in id/subject/account/etc.).
+     *
+     * <p>Searches both the ticket's opening description and every reply. At most one snippet per
+     * ticket is returned (the first match wins) so the Chats list has one row per ticket.
+     */
+    @GetMapping("/tickets/search-chats")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    public ResponseEntity<List<com.xammer.billops.dto.ChatSearchMatchDto>> searchChats(@RequestParam("q") String q) {
+        if (q == null || q.trim().length() < 2) {
+            return ResponseEntity.ok(java.util.Collections.emptyList());
+        }
+        String term = q.trim();
+
+        // One snippet per ticket — the opening message is considered first, then replies, so a
+        // match in the description is preferred when both match.
+        java.util.LinkedHashMap<Long, com.xammer.billops.dto.ChatSearchMatchDto> byTicket = new java.util.LinkedHashMap<>();
+
+        for (Object[] row : ticketRepository.findDescriptionMatches(term)) {
+            Long ticketId = ((Number) row[0]).longValue();
+            String text = row[1] != null ? row[1].toString() : "";
+            byTicket.putIfAbsent(ticketId,
+                    new com.xammer.billops.dto.ChatSearchMatchDto(ticketId, buildSnippet(text, term), "description", toIso(row[2])));
+        }
+
+        for (Object[] row : ticketReplyRepository.findReplyMatches(term)) {
+            Long ticketId = ((Number) row[0]).longValue();
+            String text = row[1] != null ? row[1].toString() : "";
+            byTicket.putIfAbsent(ticketId,
+                    new com.xammer.billops.dto.ChatSearchMatchDto(ticketId, buildSnippet(text, term), "reply", toIso(row[2])));
+        }
+
+        return ResponseEntity.ok(new java.util.ArrayList<>(byTicket.values()));
+    }
+
+    /**
+     * Normalises the {@code created_at} value from a native-query row to an ISO-8601 string the
+     * frontend can format. JDBC may hand this back as {@link java.sql.Timestamp} or
+     * {@link java.time.LocalDateTime} depending on driver/version, so both are handled; anything
+     * else falls back to {@code toString()}, and null yields null.
+     */
+    private static String toIso(Object value) {
+        if (value == null) return null;
+        if (value instanceof java.sql.Timestamp ts) {
+            return ts.toLocalDateTime().toString();
+        }
+        if (value instanceof java.time.LocalDateTime ldt) {
+            return ldt.toString();
+        }
+        return value.toString();
+    }
+
+    /** Max characters of context shown on each side of the matched term in a chat snippet. */
+    private static final int SNIPPET_PADDING = 60;
+
+    /**
+     * Produces a plain-text snippet centred on the first occurrence of {@code term} within
+     * {@code rawHtml}: strips HTML tags, collapses whitespace, then returns a window of up to
+     * {@link #SNIPPET_PADDING} characters either side of the match with ellipses where trimmed.
+     * Falls back to the leading characters when the term isn't found in the stripped text (e.g.
+     * the match was inside markup).
+     */
+    private static String buildSnippet(String rawHtml, String term) {
+        if (rawHtml == null) return "";
+        // Drop tags and decode the few entities the editor emits, then collapse whitespace.
+        String text = rawHtml
+                .replaceAll("<[^>]+>", " ")
+                .replace("&nbsp;", " ")
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'")
+                .replaceAll("\\s+", " ")
+                .trim();
+
+        int idx = text.toLowerCase().indexOf(term.toLowerCase());
+        if (idx < 0) {
+            return text.length() <= SNIPPET_PADDING * 2
+                    ? text
+                    : text.substring(0, SNIPPET_PADDING * 2) + "…";
+        }
+
+        int start = Math.max(0, idx - SNIPPET_PADDING);
+        int end = Math.min(text.length(), idx + term.length() + SNIPPET_PADDING);
+        String snippet = text.substring(start, end);
+        if (start > 0) snippet = "…" + snippet;
+        if (end < text.length()) snippet = snippet + "…";
+        return snippet;
     }
 
     @GetMapping("/tickets")

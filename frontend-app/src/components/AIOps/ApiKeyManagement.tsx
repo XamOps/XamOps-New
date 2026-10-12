@@ -251,6 +251,7 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
   const [limitValue, setLimitValue] = useState('');
   const [deletingKey, setDeletingKey] = useState<ApiKeyStats | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [cleanupMsg, setCleanupMsg] = useState<string | null>(null);
   const [cleaning, setCleaning] = useState(false);
 
@@ -498,7 +499,7 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
                 )}
                 {onDeleteProvider && (
                   <button
-                    onClick={() => setDeletingKey(key)}
+                    onClick={() => { setDeleteError(null); setDeletingKey(key); }}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-100 rounded-lg hover:bg-red-200 transition-colors"
                   >
                     <Icon icon="mdi:trash-can-outline" width={12} />
@@ -567,7 +568,7 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
       )}
 
       {/* Delete Confirmation Modal */}
-      <DialogRoot isOpen={!!deletingKey} onClose={() => setDeletingKey(null)}>
+      <DialogRoot isOpen={!!deletingKey} onClose={() => { setDeletingKey(null); setDeleteError(null); }}>
         <DialogPanel title="Remove Provider">
           <div className="space-y-4">
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
@@ -578,10 +579,16 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
             <p className="text-sm text-[rgba(0,0,0,0.6)]">
               Are you sure you want to remove this provider? This action cannot be undone.
             </p>
+            {deleteError && (
+              <div className="p-3 bg-red-50 border border-red-300 rounded-lg text-xs text-red-800" role="alert">
+                <Icon icon="mdi:alert-circle-outline" width={12} className="inline mr-1" />
+                <span className="font-semibold">Removal failed.</span> {deleteError}
+              </div>
+            )}
             <div className="flex justify-end gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => setDeletingKey(null)}
+                onClick={() => { setDeletingKey(null); setDeleteError(null); }}
                 className="px-4 py-2 text-sm font-medium text-[rgba(0,0,0,0.7)] bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-md hover:bg-[rgba(0,0,0,0.06)] transition-colors"
               >
                 Cancel
@@ -592,9 +599,19 @@ const ApiKeyManagement: React.FC<ApiKeyManagementProps> = ({
                 onClick={async () => {
                   if (!deletingKey || !onDeleteProvider) return;
                   setDeleting(true);
-                  await onDeleteProvider(deletingKey.id);
-                  setDeleting(false);
-                  setDeletingKey(null);
+                  setDeleteError(null);
+                  try {
+                    await onDeleteProvider(deletingKey.id);
+                    setDeletingKey(null);
+                  } catch (err) {
+                    // Without this the rejected promise skipped the reset below and the button
+                    // sat on "Removing..." indefinitely, which read as a hang rather than a
+                    // failed request. Keep the dialog open and say what went wrong.
+                    console.error('Failed to remove provider', err);
+                    setDeleteError(err instanceof Error ? err.message : 'Unexpected error. Please try again.');
+                  } finally {
+                    setDeleting(false);
+                  }
                 }}
                 className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-all disabled:opacity-50"
               >

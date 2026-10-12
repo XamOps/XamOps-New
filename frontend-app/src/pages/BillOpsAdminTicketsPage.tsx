@@ -19,7 +19,7 @@
  * - Search across all ticket fields
  */
 
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
 import { createPortal } from 'react-dom';
@@ -66,6 +66,24 @@ const formatTicketAge = (isoString: string): string => {
   if (hours > 0) return `${hours}h`;
   if (mins > 0) return `${mins}m`;
   return 'now';
+};
+
+/** Escapes a user string for safe use inside a RegExp (search term may contain regex chars). */
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Renders a chat snippet with every case-insensitive occurrence of {@code term} wrapped in a
+ * highlight. Returns React nodes (not HTML) so the snippet text is never interpreted as markup.
+ */
+const renderHighlightedSnippet = (snippet: string, term: string): React.ReactNode => {
+  if (!term) return snippet;
+  const parts = snippet.split(new RegExp(`(${escapeRegExp(term)})`, 'ig'));
+  const lower = term.toLowerCase();
+  return parts.map((part, i) =>
+    part.toLowerCase() === lower
+      ? <mark key={i} className="bg-amber-200/70 text-[rgba(0,0,0,0.88)] rounded px-0.5">{part}</mark>
+      : <React.Fragment key={i}>{part}</React.Fragment>
+  );
 };
 
 // ─── TicketRow ─────────────────────────────────────────────────────────────────
@@ -275,6 +293,7 @@ const BillOpsAdminTicketsPage: React.FC = () => {
   const {
     tickets,
     filteredTickets,
+    chatMatches,
     starredClientIds,
     newlyUpdatedIds,
     loading,
@@ -491,8 +510,37 @@ const BillOpsAdminTicketsPage: React.FC = () => {
   }, [tickets]);
 
   // Apply quick filter + sort on top of hook-filtered tickets
+  // True while a chat-content search is being shown, which is when we split results into the
+  // "Tickets" table (metadata matches) and a separate "Chats" section (keyword in conversation).
+  const searchQuery = search.trim();
+  const searchActive = searchQuery.length >= 2;
+
+  // Does this ticket match the search on its METADATA (id, subject, account, creator, status,
+  // assignee) — i.e. the non-chat fields? Mirrors the hook's search predicate minus the chat
+  // match, so the Tickets table can show metadata hits and the Chats section the rest.
+  const matchesMetadata = useCallback((t: AdminTicket): boolean => {
+    const q = searchQuery.toLowerCase();
+    if (!q) return true;
+    return Boolean(
+      (t.subject && t.subject.toLowerCase().includes(q)) ||
+      (t.id && t.id.toString().includes(q)) ||
+      (t.accountId && t.accountId.toString().toLowerCase().includes(q)) ||
+      (t.accountName && t.accountName.toLowerCase().includes(q)) ||
+      (t.creatorId && t.creatorId.toString().includes(q)) ||
+      (t.creatorUsername && t.creatorUsername.toLowerCase().includes(q)) ||
+      (t.status && t.status.toLowerCase().includes(q)) ||
+      (t.assignedToUsername && t.assignedToUsername.toLowerCase().includes(q))
+    );
+  }, [searchQuery]);
+
   const displayTickets = useMemo(() => {
     let result = filteredTickets;
+
+    // When searching, the Tickets table shows metadata matches only; chat-only matches move to
+    // the dedicated Chats section below so the two kinds of result are not mixed together.
+    if (searchActive) {
+      result = result.filter(matchesMetadata);
+    }
 
     // Quick filters
     if (quickFilter === 'breached') {
@@ -537,7 +585,24 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     }
 
     return result;
-  }, [filteredTickets, quickFilter, sortField, sortDir]);
+  }, [filteredTickets, quickFilter, sortField, sortDir, searchActive, matchesMetadata]);
+
+  // Chat-content results for the "Chats" section: the server-side matches (ticket id + snippet),
+  // joined to the loaded ticket so we can show its subject/account. Excludes tickets already
+  // shown in the Tickets table (metadata match) so a result never appears in both sections, and
+  // respects the active category tab. Only computed while a search is active.
+  const chatResults = useMemo(() => {
+    if (!searchActive) return [];
+    const ticketById = new Map(tickets.map(t => [t.id, t]));
+    return chatMatches
+      .map(m => ({ match: m, ticket: ticketById.get(m.ticketId) }))
+      .filter((r): r is { match: typeof r.match; ticket: AdminTicket } => {
+        if (!r.ticket) return false;                                   // ticket not in current list
+        if (activeTab !== 'All' && r.ticket.category !== activeTab) return false; // respect tab
+        if (matchesMetadata(r.ticket)) return false;                   // already in Tickets table
+        return true;
+      });
+  }, [searchActive, chatMatches, tickets, activeTab, matchesMetadata]);
 
   const totalPages = Math.ceil(displayTickets.length / pageSize);
 
@@ -546,8 +611,41 @@ const BillOpsAdminTicketsPage: React.FC = () => {
     return displayTickets.slice(start, start + pageSize);
   }, [displayTickets, page, pageSize]);
 
-  // Reset to page 1 whenever the filtered result set changes
-  useEffect(() => { setPage(1); }, [filteredTickets, quickFilter, pageSize]);
+  // Reset to page 1 when the user actually changes a filter input — search text, category
+  // tab, advanced filters, quick-filter chip, or page size. Keying this on the derived
+  // `filteredTickets` array (its original dependency) reset the page on every 30s background
+  // poll too: the poll uses forceRefresh=true, which skips the identical-data bail-out in the
+  // hook, so `filteredTickets` got a brand-new array reference each cycle even when nothing
+  // changed — yanking the user back to page 1.
+  useEffect(() => { setPage(1); }, [search, activeTab, filters, quickFilter, pageSize]);
+
+  // Reset to page 1 when a genuinely NEW ticket arrives (an id not seen on the previous
+  // render), so a freshly raised ticket — which sorts to the top of page 1 — is actually
+  // visible. We compare the set of ids rather than the array reference, so the 30s poll
+  // returning the same tickets in a new array does NOT reset the page. Only the appearance
+  // of an id that wasn't there before counts as "a new ticket".
+  const prevTicketIdsRef = useRef<Set<number> | null>(null);
+  useEffect(() => {
+    const currentIds = new Set(tickets.map(t => t.id));
+    const prevIds = prevTicketIdsRef.current;
+    if (prevIds !== null) {
+      let hasNewTicket = false;
+      for (const id of currentIds) {
+        if (!prevIds.has(id)) { hasNewTicket = true; break; }
+      }
+      if (hasNewTicket) setPage(1);
+    }
+    prevTicketIdsRef.current = currentIds;
+  }, [tickets]);
+
+  // Clamp the current page if the visible result set shrinks (e.g. a background poll removes
+  // tickets, or a filter trims the list) so the user is never stranded on a now-empty page.
+  // Only pulls the page down when it's out of range — it never forces a jump back to page 1.
+  useEffect(() => {
+    if (totalPages > 0 && page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [totalPages, page]);
 
   /** Sort icon for a given column */
   const renderSortIcon = (field: Exclude<SortField, ''>) => {
@@ -560,6 +658,12 @@ const BillOpsAdminTicketsPage: React.FC = () => {
   const viewTicket = useCallback((id: number) => {
     navigate(`/billops-ticket-detail?id=${id}`);
   }, [navigate]);
+
+  // Opening a Chats result: carry the search term as `highlight` so the detail page scrolls to
+  // and highlights the message that matched instead of landing at the bottom of the thread.
+  const viewChatMatch = useCallback((id: number) => {
+    navigate(`/billops-ticket-detail?id=${id}&highlight=${encodeURIComponent(searchQuery)}`);
+  }, [navigate, searchQuery]);
 
   const toggleStatusFilter = useCallback((status: string) => {
     setFilters({
@@ -1176,6 +1280,67 @@ const BillOpsAdminTicketsPage: React.FC = () => {
           </motion.div>
         )}
         </AnimatePresence>
+
+        {/* ─── Chats section — keyword matched inside the conversation ───────── */}
+        {!loading && searchActive && chatResults.length > 0 && (
+          <motion.div
+            key="chats"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm overflow-hidden"
+          >
+            <div className="px-5 py-3 border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)] flex items-center gap-2">
+              <Icon icon="mdi:message-text-outline" width={15} className="text-indigo-500" />
+              <h3 className="text-[12px] font-semibold text-[rgba(0,0,0,0.7)] uppercase tracking-[0.06em]">
+                Chats
+              </h3>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.4)]">
+                {chatResults.length}
+              </span>
+              <span className="text-[11px] text-[rgba(0,0,0,0.35)] ml-1">
+                matched “{searchQuery}” in the conversation
+              </span>
+            </div>
+            <ul className="divide-y divide-[rgba(0,0,0,0.04)]">
+              {chatResults.map(({ match, ticket }) => (
+                <li
+                  key={ticket.id}
+                  onClick={() => viewChatMatch(ticket.id)}
+                  className="px-5 py-3 flex items-start gap-3 hover:bg-[rgba(0,0,0,0.02)] cursor-pointer transition-colors group"
+                >
+                  <span className="text-[11px] text-[rgba(0,0,0,0.35)] font-mono mt-0.5 flex-shrink-0">#{ticket.id}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[12px] font-semibold text-[rgba(0,0,0,0.88)] group-hover:text-indigo-600 transition-colors truncate">
+                        {ticket.subject || '(no subject)'}
+                      </span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-500 border border-indigo-100 flex-shrink-0">
+                        {match.source === 'description' ? 'First message' : 'Reply'}
+                      </span>
+                    </div>
+                    <p className="text-[12px] text-[rgba(0,0,0,0.55)] mt-0.5 leading-snug">
+                      {renderHighlightedSnippet(match.snippet, searchQuery)}
+                    </p>
+                    <div className="flex items-center gap-2 mt-0.5 text-[10px] text-[rgba(0,0,0,0.35)]">
+                      <span>{ticket.accountName || ticket.accountId || 'GLOBAL'}</span>
+                      {match.createdAt && (
+                        <>
+                          <span className="text-[rgba(0,0,0,0.2)]">•</span>
+                          <span className="flex items-center gap-1">
+                            <Icon icon="mdi:clock-outline" width={10} className="text-[rgba(0,0,0,0.3)]" />
+                            {formatIST(match.createdAt)}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <Icon icon="mdi:chevron-right" width={14} className="text-[rgba(0,0,0,0.2)] group-hover:text-indigo-600 mt-1 flex-shrink-0" />
+                </li>
+              ))}
+            </ul>
+          </motion.div>
+        )}
       </motion.div>
 
       {/* ─── Admin Raise Ticket Modal ─────────────────────────────────────── */}

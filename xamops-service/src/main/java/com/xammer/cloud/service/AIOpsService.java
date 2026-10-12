@@ -369,12 +369,27 @@ public class AIOpsService {
             throw new SecurityException("Not authorized to delete this provider config");
         }
 
+        String provider = config.getProvider();
+
+        // A provider can belong to any number of key groups, and that membership lives in the
+        // llm_key_group_provider join table owned by LlmKeyGroup. Deleting only the config leaves
+        // those rows dangling, so the foreign key rejects the delete — previously at commit time,
+        // after this method had already logged success, surfacing to the caller as a bare 500.
+        int removedMemberships = keyGroupRepo.removeProviderFromAllGroups(configId);
+
         // Delete associated usage logs so stale data doesn't show up after re-adding
         usageLogRepo.deleteByProviderConfigId(configId);
 
         providerConfigRepo.delete(config);
+
+        // Flush inside the method rather than letting the delete fire at commit. A constraint
+        // problem then throws here, where it can be attributed to this operation, instead of
+        // during JpaTransactionManager.doCommit after the success log line has been written.
+        providerConfigRepo.flush();
+
         liteLLMConfigService.syncConfig(clientId);
-        logger.info("Deleted LLM provider {} (and associated usage logs) for client {}", config.getProvider(), clientId);
+        logger.info("Deleted LLM provider {} for client {} ({} key group membership(s) and associated usage logs removed)",
+                provider, clientId, removedMemberships);
     }
 
     // ─── Test Connection ─────────────────────────────────────────

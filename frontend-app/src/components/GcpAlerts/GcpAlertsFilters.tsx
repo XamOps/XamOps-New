@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
 import type { GcpAlertStatus, GcpAlertType } from '../../types/gcpAlerts';
 
@@ -18,21 +18,126 @@ interface Props {
   totalCount: number;
 }
 
-const TYPE_CHIPS: { type: GcpAlertType; label: string; active: string }[] = [
-  { type: 'SECURITY', label: 'Security', active: 'bg-red-50 text-red-700 border-red-300' },
-  { type: 'ANOMALY', label: 'Cost', active: 'bg-amber-50 text-amber-700 border-amber-300' },
-  { type: 'QUOTA', label: 'Quota', active: 'bg-blue-50 text-blue-700 border-blue-300' },
+const TYPE_OPTIONS: { value: GcpAlertType; label: string; dot: string }[] = [
+  { value: 'SECURITY', label: 'Security', dot: 'bg-red-500' },
+  { value: 'ANOMALY', label: 'Cost', dot: 'bg-amber-500' },
+  { value: 'QUOTA', label: 'Quota', dot: 'bg-blue-500' },
 ];
 
-const SEVERITY_CHIPS: { severity: GcpAlertStatus; label: string; active: string }[] = [
-  { severity: 'CRITICAL', label: 'Critical', active: 'bg-red-50 text-red-700 border-red-300' },
-  { severity: 'HIGH', label: 'High', active: 'bg-orange-50 text-orange-700 border-orange-300' },
-  { severity: 'WARNING', label: 'Warning', active: 'bg-amber-50 text-amber-700 border-amber-300' },
-  { severity: 'OK', label: 'OK', active: 'bg-emerald-50 text-emerald-700 border-emerald-300' },
+const SEVERITY_OPTIONS: { value: GcpAlertStatus; label: string; dot: string }[] = [
+  { value: 'CRITICAL', label: 'Critical', dot: 'bg-red-500' },
+  { value: 'HIGH', label: 'High', dot: 'bg-orange-500' },
+  { value: 'WARNING', label: 'Warning', dot: 'bg-amber-500' },
+  { value: 'OK', label: 'OK', dot: 'bg-emerald-500' },
 ];
 
-const INACTIVE_CHIP =
-  'bg-white text-[rgba(0,0,0,0.4)] border-[rgba(0,0,0,0.12)] hover:border-[rgba(0,0,0,0.25)]';
+/**
+ * A compact multi-select dropdown, kept inside this file so the filter bar is self-contained.
+ *
+ * Replaces the toggle-chip rows that read backwards: clicking a chip removed its alerts, so clicking
+ * "Critical" hid critical alerts. A checklist in a popover makes the action explicit — a ticked row
+ * is included — and it scales to more types or severities without overflowing the bar, which chips
+ * do not. Follows the click-outside popover pattern already used elsewhere (e.g. DbAlertPanel).
+ */
+function MultiSelect<T extends string>({
+  label,
+  options,
+  selected,
+  onToggle,
+  allLabel,
+}: {
+  label: string;
+  options: { value: T; label: string; dot: string }[];
+  selected: T[];
+  onToggle: (value: T) => void;
+  /** Trigger text when everything is selected — the page treats "all" as "no filter". */
+  allLabel: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onClickOutside);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onClickOutside);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, []);
+
+  const allSelected = selected.length === options.length;
+  const summary = allSelected
+    ? allLabel
+    : selected.length === 0
+      ? 'None'
+      : selected.length === 1
+        ? options.find(o => o.value === selected[0])?.label ?? `${selected.length} selected`
+        : `${selected.length} selected`;
+
+  return (
+    <div className="flex items-center gap-2" ref={ref}>
+      <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[rgba(0,0,0,0.35)]">
+        {label}
+      </span>
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          className="flex items-center gap-2 px-3 py-2 border border-[rgba(0,0,0,0.12)] rounded-lg text-[13px] font-medium text-[rgba(0,0,0,0.7)] bg-white hover:border-[rgba(0,0,0,0.25)] focus:outline-none focus:ring-2 focus:ring-indigo-500 min-w-[130px]"
+        >
+          <span className="truncate">{summary}</span>
+          <Icon
+            icon="mdi:chevron-down"
+            width={16}
+            className={`ml-auto text-[rgba(0,0,0,0.4)] transition-transform ${open ? 'rotate-180' : ''}`}
+          />
+        </button>
+
+        {open && (
+          <div
+            role="listbox"
+            aria-multiselectable="true"
+            className="absolute left-0 top-full mt-1.5 z-50 min-w-[180px] bg-white rounded-lg shadow-lg border border-[rgba(0,0,0,0.1)] py-1"
+          >
+            {options.map(opt => {
+              const checked = selected.includes(opt.value);
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="option"
+                  aria-selected={checked}
+                  onClick={() => onToggle(opt.value)}
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left text-[13px] text-[rgba(0,0,0,0.8)] hover:bg-[rgba(0,0,0,0.04)] transition-colors"
+                >
+                  <span
+                    className={`w-4 h-4 flex items-center justify-center rounded border transition-colors ${
+                      checked
+                        ? 'bg-indigo-600 border-indigo-600'
+                        : 'bg-white border-[rgba(0,0,0,0.25)]'
+                    }`}
+                  >
+                    {checked && <Icon icon="mdi:check" width={12} className="text-white" />}
+                  </span>
+                  <span className={`w-2 h-2 rounded-full ${opt.dot}`} />
+                  <span className="font-medium">{opt.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Search and filter controls.
@@ -101,45 +206,23 @@ const GcpAlertsFilters: React.FC<Props> = ({
     </div>
 
     <div className="flex items-center gap-4 flex-wrap">
-      {/* Type chips */}
-      <div className="flex items-center gap-1.5" role="group" aria-label="Filter by alert type">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[rgba(0,0,0,0.35)] mr-0.5">
-          Type
-        </span>
-        {TYPE_CHIPS.map(chip => {
-          const on = activeTypes.includes(chip.type);
-          return (
-            <button
-              key={chip.type}
-              onClick={() => toggleType(chip.type)}
-              aria-pressed={on}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-all ${on ? chip.active : INACTIVE_CHIP}`}
-            >
-              {chip.label}
-            </button>
-          );
-        })}
-      </div>
+      {/* Type multi-select */}
+      <MultiSelect
+        label="Type"
+        options={TYPE_OPTIONS}
+        selected={activeTypes}
+        onToggle={toggleType}
+        allLabel="All types"
+      />
 
-      {/* Severity chips */}
-      <div className="flex items-center gap-1.5" role="group" aria-label="Filter by severity">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[rgba(0,0,0,0.35)] mr-0.5">
-          Severity
-        </span>
-        {SEVERITY_CHIPS.map(chip => {
-          const on = activeSeverities.includes(chip.severity);
-          return (
-            <button
-              key={chip.severity}
-              onClick={() => toggleSeverity(chip.severity)}
-              aria-pressed={on}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-all ${on ? chip.active : INACTIVE_CHIP}`}
-            >
-              {chip.label}
-            </button>
-          );
-        })}
-      </div>
+      {/* Severity multi-select */}
+      <MultiSelect
+        label="Severity"
+        options={SEVERITY_OPTIONS}
+        selected={activeSeverities}
+        onToggle={toggleSeverity}
+        allLabel="All severities"
+      />
 
       <div className="flex items-center gap-2 ml-auto">
         <span

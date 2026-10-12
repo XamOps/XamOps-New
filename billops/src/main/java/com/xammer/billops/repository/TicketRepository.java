@@ -42,4 +42,43 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
            "AND t.lastAdminReplyAt <= :cutoff " +
            "AND t.reminderSentAt IS NULL")
     List<Ticket> findTicketsNeedingReminder(@Param("cutoff") LocalDateTime cutoff);
+
+    /**
+     * Returns the IDs of tickets whose original description (the first message of the chat)
+     * contains the given term, case-insensitively. Used for chat-content search alongside the
+     * reply-body search so matches in a ticket's opening message are also found.
+     *
+     * <p>Native query for the same reason as
+     * {@code TicketReplyRepository.findTicketIdsByReplyMessageContaining}: Ticket.description is
+     * a @Lob over a PostgreSQL {@code oid}, so the column holds a pointer into
+     * {@code pg_largeobject}, not the text. An HQL LIKE compares the OID number, never the body.
+     * {@code lo_get} + {@code convert_from} read and decode the large object so the LIKE runs
+     * against the actual text; the {@code pg_largeobject_metadata} guard skips orphaned OIDs that
+     * would otherwise make {@code lo_get} throw. @Transactional because large objects cannot be
+     * read in auto-commit mode and Spring Data does not wrap custom @Query methods.
+     */
+    @Transactional(readOnly = true)
+    @Query(value =
+        "SELECT t.id FROM ticket t "
+        + "WHERE EXISTS (SELECT 1 FROM pg_largeobject_metadata m WHERE m.oid = t.description) "
+        + "AND lower(convert_from(lo_get(t.description), 'UTF8')) LIKE lower(concat('%', :term, '%'))",
+        nativeQuery = true)
+    List<Long> findTicketIdsByDescriptionContaining(@Param("term") String term);
+
+    /**
+     * Like {@link #findTicketIdsByDescriptionContaining} but also returns the matched description
+     * text and when it was sent (the ticket's created_at — the opening message's timestamp) so the
+     * UI can show a snippet with a timestamp. Each row is
+     * {@code [id (BigInteger), description (String), created_at (Timestamp)]}.
+     * Same native-query + large-object + @Transactional reasoning as the id-only variant.
+     */
+    @Transactional(readOnly = true)
+    @Query(value =
+        "SELECT t.id AS ticketId, convert_from(lo_get(t.description), 'UTF8') AS message, t.created_at AS createdAt "
+        + "FROM ticket t "
+        + "WHERE EXISTS (SELECT 1 FROM pg_largeobject_metadata m WHERE m.oid = t.description) "
+        + "AND lower(convert_from(lo_get(t.description), 'UTF8')) LIKE lower(concat('%', :term, '%')) "
+        + "ORDER BY t.id",
+        nativeQuery = true)
+    List<Object[]> findDescriptionMatches(@Param("term") String term);
 }

@@ -18,7 +18,7 @@ type Step = 'select' | 'success';
 const PROVIDER_MODELS: Record<string, string[]> = {
   OPENAI:    ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo', 'o1', 'o3-mini'],
   ANTHROPIC: ['claude-sonnet-4-5-20250929', 'claude-opus-4-5-20250929', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-haiku-20240307'],
-  GEMINI:    ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+  GEMINI:    ['gemini-3.8-flash', 'gemini-3.1-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'],
   BEDROCK:   ['anthropic.claude-3-5-sonnet-20241022-v2:0', 'anthropic.claude-3-haiku-20240307-v1:0', 'amazon.titan-text-express-v1', 'meta.llama3-70b-instruct-v1:0'],
 };
 
