@@ -31,7 +31,7 @@ export type SectionRegistry<T extends string = string, S extends string = string
 
 /**
  * The cluster page's sections (P3): the targets of the 11 legacy tabs, Automation › Overview and,
- * from FEAT-003, Overview › Events. Later slices add the cost subtabs, Nodes › Node groups,
+ * from FEAT-003, Overview › Events and Nodes › Node groups. Later slices add the cost subtabs,
  * Security › Compliance and Runtime, Data sources and the other Automation subtabs.
  */
 export const EKS_SECTIONS: SectionRegistry<EksSectionId, EksSubtabId> = [
@@ -49,6 +49,7 @@ export const EKS_SECTIONS: SectionRegistry<EksSectionId, EksSubtabId> = [
   { id: 'nodes', label: 'Nodes', icon: 'mdi:server', defaultSub: 'nodes',
     subs: [
       { id: 'nodes', label: 'Nodes' },
+      { id: 'node-groups', label: 'Node groups' },
       { id: 'karpenter', label: 'Karpenter' },
       { id: 'utilization', label: 'Utilization' },
     ] },

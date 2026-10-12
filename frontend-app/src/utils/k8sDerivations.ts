@@ -609,6 +609,55 @@ export function nodeGroups(dashboard: EksDashboard | null | undefined): NodeGrou
     .sort((a, b) => order[a.type] - order[b.type] || a.name.localeCompare(b.name));
 }
 
+// ── Node list (§10.5) ────────────────────────────────────────────────────────
+
+/** Ready, Not ready, Cordoned (unschedulable, counted apart even when Ready), or Unknown. */
+export type NodeStatus = 'ready' | 'not-ready' | 'cordoned' | 'unknown';
+
+export interface NodeRow extends ClusterNode {
+  status: NodeStatus;
+  /** The node's managed node group or Karpenter NodePool, from its labels; null when neither. */
+  group: string | null;
+  /** Requests of the pods scheduled on the node that haven't finished. */
+  cpuRequestM: number;
+  memRequestMi: number;
+  pods: number;
+  /** Requested % of allocatable; null when the node doesn't report allocatable. */
+  cpuRequestedPct: number | null;
+  memRequestedPct: number | null;
+}
+
+export function nodeStatus(node: Pick<ClusterNode, 'ready' | 'unschedulable'>): NodeStatus {
+  if (node.unschedulable) return 'cordoned';
+  if (node.ready === true) return 'ready';
+  if (node.ready === false) return 'not-ready';
+  return 'unknown';
+}
+
+/** One row per node with the requests of the pods on it, against its allocatable. */
+export function nodeRows(dashboard: EksDashboard | null | undefined): NodeRow[] {
+  const byNode = new Map<string, { cpu: number; mem: number; pods: number }>();
+  for (const pod of clusterPods(dashboard)) {
+    if (!pod.nodeName || pod.phase === 'Succeeded' || pod.phase === 'Failed') continue;
+    const sum = sumRequests(pod.containers);
+    const prev = byNode.get(pod.nodeName) ?? { cpu: 0, mem: 0, pods: 0 };
+    byNode.set(pod.nodeName, { cpu: prev.cpu + sum.cpuRequestM, mem: prev.mem + sum.memRequestMi, pods: prev.pods + 1 });
+  }
+  return clusterNodes(dashboard).map((node) => {
+    const r = byNode.get(node.name) ?? { cpu: 0, mem: 0, pods: 0 };
+    return {
+      ...node,
+      status: nodeStatus(node),
+      group: node.labels[NODE_GROUP_LABEL] ?? node.labels[NODE_POOL_LABEL] ?? null,
+      cpuRequestM: r.cpu,
+      memRequestMi: r.mem,
+      pods: r.pods,
+      cpuRequestedPct: node.allocatableCpuM ? (r.cpu / node.allocatableCpuM) * 100 : null,
+      memRequestedPct: node.allocatableMemMi ? (r.mem / node.allocatableMemMi) * 100 : null,
+    };
+  });
+}
+
 // ── Health signals (D10) ─────────────────────────────────────────────────────
 
 export type HealthSignalId = 'nodes-ready' | 'node-pressure' | 'pods' | 'unschedulable';

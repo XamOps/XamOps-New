@@ -50,6 +50,8 @@ export const GUARDED_PATHS: readonly string[] = [
   // Item 24b: Pods and Containers, rewritten on K8sDataTable.
   'components/EksDetails/tabs/EksPodsTab.tsx',
   'components/EksDetails/tabs/EksContainersTab.tsx',
+  // Item 25a: the node list (NodeGroupsPanel is under sections/, RequestBar under CloudK8s/shared/).
+  'components/EksDetails/tabs/EksNodesTab.tsx',
 ];
 
 const TAILWIND_PREFIX = '(?:text|bg|border|from|via|to|ring|fill|stroke|divide|outline|shadow|accent|decoration|placeholder|caret)';

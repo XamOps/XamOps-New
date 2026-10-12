@@ -53,8 +53,8 @@ describe('resolveSectionRoute', () => {
 
   it('sends an unknown or unregistered sub to the section default', () => {
     expect(resolve(`${BASE}&tab=nodes&sub=bogus`)).toMatchObject({ tab: 'nodes', sub: 'nodes' });
-    // Registered in a later slice; until then it falls back rather than break the link.
-    expect(resolve(`${BASE}&tab=nodes&sub=node-groups`)).toMatchObject({ tab: 'nodes', sub: 'nodes' });
+    // Registered in a later slice (FEAT-004); until then it falls back rather than break the link.
+    expect(resolve(`${BASE}&tab=security&sub=compliance`)).toMatchObject({ tab: 'security', sub: 'vulnerabilities' });
     expect(resolve(`${BASE}&tab=workloads&sub=nodes`)).toMatchObject({ tab: 'workloads', sub: 'workloads' });
   });
 
@@ -89,12 +89,12 @@ describe('resolveSectionRoute', () => {
   });
 
   it('registers only the subtabs that render content so far, each section default among its subs (P3)', () => {
-    // Slice 1's targets, plus Overview › Events (FEAT-003 item 24).
+    // Slice 1's targets, plus Overview › Events and Nodes › Node groups (FEAT-003 items 24, 25).
     expect(EKS_SECTIONS.map((s) => `${s.id}:${s.subs.map((x) => x.id).join(',')}`)).toEqual([
       'overview:summary,events',
       'cost:cluster',
       'workloads:workloads,pods,containers,resources',
-      'nodes:nodes,karpenter,utilization',
+      'nodes:nodes,node-groups,karpenter,utilization',
       'automation:overview',
       'security:vulnerabilities',
     ]);

@@ -1,482 +1,151 @@
 /**
- * EKS Nodes Tab
+ * Nodes › Nodes (docs/cloudk8s/ui-revamp-design.md §10.5, D10, §14.1; plan item 25), shaped like the
+ * cast.ai node list: the nodes split by capacity type, status counts, search, filters, and one row per
+ * node with its CPU and memory requests as a value and a % bar of allocatable.
  *
- * Comprehensive node health and resource monitoring with modern visualizations
+ * Capacity type comes from the node's labels (`karpenter.sh/capacity-type`,
+ * `eks.amazonaws.com/capacityType`) or the agent's field, and is "Unknown" when nothing says.
+ * Requests are summed from the pods scheduled on the node that haven't finished. Status counts are the
+ * ones the agent's node data supports: Ready, Not ready, Cordoned (unschedulable) and Unknown, plus
+ * nodes under pressure. No price column: that needs a pricing source first.
  */
+import { useMemo } from 'react';
+import { useK8sCapabilities } from '../../../hooks/useK8sCapabilities';
+import type { UseEksDashboardReturn } from '../../../hooks/useEksDashboard';
+import { nodeRows, type NodeRow, type NodeStatus } from '../../../utils/k8sDerivations';
+import { DASH, ageSortValue, formatAge, formatCpu, formatMemoryMiB } from '../../../utils/k8sQuantities';
+import { K8sDataTable, type ColumnDef, type FilterDef } from '../../CloudK8s/shared/K8sDataTable';
+import { RequestBar } from '../../CloudK8s/shared/RequestBar';
+import { SourceLabel } from '../../CloudK8s/shared/SourceLabel';
+import { StatusMark, type StatusState } from '../../CloudK8s/shared/StatusMark';
 
-import React, { useState, useMemo } from 'react';
+export const NODES_CAPTION = 'Nodes';
+const secondary = 'text-[12px] text-[rgba(0,0,0,0.6)]';
 
-// Returns true for any node shape: boolean ready, condition string, or conditions[]
-const resolveReady = (n: any): boolean =>
-  n?.ready === true ||
-  n?.condition === 'Ready' || n?.condition === 'ready' ||
-  n?.conditions?.some((c: any) => c.type === 'Ready' && c.status === 'True') ||
-  false;
+export const OFFERING_LABELS = { 'on-demand': 'On-demand', spot: 'Spot', unknown: 'Unknown' } as const;
+type Offering = keyof typeof OFFERING_LABELS;
+const offeringOf = (n: NodeRow): Offering => n.capacityType ?? 'unknown';
 
-const EksNodesTab: React.FC<{ eksData: any }> = ({ eksData }) => {
-  const { dashboard, sortedNodesByPressure, getNodeConditionCount, derivedNodeRequestMetrics } = eksData;
-  const nodes = dashboard?.nodeMetrics?.nodes || [];
-  const totalNodeCount = nodes.length || sortedNodesByPressure.length;
-
-  // State for filtering and pagination
-  const [filterStatus, setFilterStatus] = useState<'all' | 'running' | 'notReady'>('running');
-  const [currentPage, setCurrentPage] = useState(1);
-  const NODES_PER_PAGE = 5;
-
-  // Filter and sort nodes
-  const filteredNodes = useMemo(() => {
-    // Stage 1: Get base nodes (All nodes, no capacity filter)
-    let baseNodes = [...sortedNodesByPressure];
-
-    // Stage 2: Filter by Status
-    let result = [...baseNodes];
-    // nodeMetrics.nodes use `nodeName` field (not `name`) — support both to be safe
-    const findNode = (nodeName: string) =>
-      nodes.find((n: any) => (n.nodeName || n.name) === nodeName);
-
-    if (filterStatus === 'running') {
-      result = baseNodes.filter((node: any) => {
-        const fullNode = findNode(node.nodeName);
-        return resolveReady(fullNode) || resolveReady(node);
-      });
-    } else if (filterStatus === 'notReady') {
-      result = baseNodes.filter((node: any) => {
-        const fullNode = findNode(node.nodeName);
-        return !resolveReady(fullNode) && !resolveReady(node);
-      });
-    } else {
-      result = baseNodes;
-    }
-
-    return result.sort((a: any, b: any) => {
-      const fullA = findNode(a.nodeName);
-      const fullB = findNode(b.nodeName);
-      const aReady = (resolveReady(fullA) || resolveReady(a)) ? 1 : 0;
-      const bReady = (resolveReady(fullB) || resolveReady(b)) ? 1 : 0;
-      if (aReady !== bReady) return bReady - aReady;
-      return 0; // maintain original relative order (pressure based)
-    });
-  }, [sortedNodesByPressure, nodes, filterStatus]);
-
-  // Paginate filtered nodes
-  const totalPages = Math.ceil(filteredNodes.length / NODES_PER_PAGE);
-  const paginatedNodes = useMemo(() => {
-    const startIndex = (currentPage - 1) * NODES_PER_PAGE;
-    return filteredNodes.slice(startIndex, startIndex + NODES_PER_PAGE);
-  }, [filteredNodes, currentPage]);
-
-  // Reset to page 1 when filter changes
-  const handleFilterChange = (newFilter: 'all' | 'running' | 'notReady') => {
-    setFilterStatus(newFilter);
-    setCurrentPage(1);
-  };
-
-  return (
-    <div className="space-y-8">
-      {/* Node Health Status Cards */}
-      <section className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-            <i className="fas fa-server text-blue-600"></i>
-          </div>
-          Node Health Overview
-        </h3>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {/* Ready Nodes */}
-          <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200 hover:shadow-md transition-shadow">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
-                <i className="fas fa-check-double text-green-600 text-lg"></i>
-              </div>
-              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Ready</span>
-            </div>
-            <div className="text-3xl font-bold text-gray-900">{getNodeConditionCount('ready')}</div>
-            <div className="text-xs text-gray-600 mt-1">Healthy nodes</div>
-          </div>
-
-          {/* Disk Pressure */}
-          <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200 hover:shadow-md transition-shadow">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-                <i className="fas fa-hdd text-amber-600 text-lg"></i>
-              </div>
-              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Disk Pressure</span>
-            </div>
-            <div className="text-3xl font-bold text-gray-900">{getNodeConditionCount('diskPressure')}</div>
-            <div className="text-xs text-gray-600 mt-1">Storage issues</div>
-          </div>
-
-          {/* Memory Pressure */}
-          <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200 hover:shadow-md transition-shadow">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
-                <i className="fas fa-memory text-red-600 text-lg"></i>
-              </div>
-              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Memory Pressure</span>
-            </div>
-            <div className="text-3xl font-bold text-gray-900">{getNodeConditionCount('memoryPressure')}</div>
-            <div className="text-xs text-gray-600 mt-1">RAM issues</div>
-          </div>
-
-          {/* Total Nodes */}
-          <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200 hover:shadow-md transition-shadow">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                <i className="fas fa-server text-blue-600 text-lg"></i>
-              </div>
-              <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Total Nodes</span>
-            </div>
-            <div className="text-3xl font-bold text-gray-900">{totalNodeCount}</div>
-            <div className="text-xs text-gray-600 mt-1">{getNodeConditionCount('ready')} running nodes</div>
-          </div>
-        </div>
-      </section>
-
-      {/* Node Details with Visual Capacity Bars */}
-      <section className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-              <i className="fas fa-network-wired text-blue-600"></i>
-            </div>
-            Node Resource Allocation
-            <span className="text-sm font-normal text-gray-600">
-              ({getNodeConditionCount('ready')} running nodes)
-            </span>
-          </h3>
-
-          {/* Filter Buttons */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => handleFilterChange('all')}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${filterStatus === 'all'
-                ? 'bg-blue-100 text-blue-700 border border-blue-200'
-                : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'
-                }`}
-            >
-              All Nodes
-            </button>
-            <button
-              onClick={() => handleFilterChange('running')}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${filterStatus === 'running'
-                ? 'bg-green-100 text-green-700 border border-green-200'
-                : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'
-                }`}
-            >
-              <i className="fas fa-check-circle mr-1"></i>
-              Running
-            </button>
-            <button
-              onClick={() => handleFilterChange('notReady')}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${filterStatus === 'notReady'
-                ? 'bg-red-100 text-red-700 border border-red-200'
-                : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'
-                }`}
-            >
-              <i className="fas fa-exclamation-circle mr-1"></i>
-              Not Ready
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {paginatedNodes.map((node: any, index: number) => {
-            // nodeMetrics.nodes may use either `name` or `nodeName` depending on backend version
-            let fullNode = nodes.find((n: any) => (n.name || n.nodeName) === node.nodeName) ||
-              eksData.sortedNodesByCost?.find((n: any) => n.nodeName === node.nodeName) ||
-              node;
-
-            // Normalize usage metrics with fallbacks
-            // Check all available sources (nodeMetrics, sortedNodesByPressure, sortedNodesByCost)
-            const cpuUsageMillicores = fullNode.cpuUsageMillicores || node.cpuUsageMillicores || 0;
-            const cpuCapacity = fullNode.cpuCapacity || node.cpuCapacity || 0;
-
-            // Calculate CPU percent if missing but millicores present
-            let cpuPercent = fullNode.cpuUsagePercent || fullNode.cpuUsage || node.cpuUsagePercent || 0;
-            if ((cpuPercent === 0 || cpuPercent === undefined) && cpuUsageMillicores > 0 && cpuCapacity > 0) {
-              cpuPercent = (cpuUsageMillicores / (cpuCapacity * 1000)) * 100;
-            }
-
-            const memPercent = fullNode.memoryUsagePercent || fullNode.memoryUsage || node.memoryUsagePercent || 0;
-            const memUsageMB = fullNode.memoryUsageMB || node.memoryUsageMB ||
-              (memPercent > 0 && (fullNode.memoryCapacity || node.memoryCapacity || 0) > 0 ? (memPercent / 100) * (fullNode.memoryCapacity || node.memoryCapacity) * 1024 : 0);
-
-            const isNodeReady = resolveReady(fullNode) || resolveReady(node);
-
-            // Derived request metrics (computed from pod requests vs node allocatable)
-            const nodeReqData = derivedNodeRequestMetrics?.[node.nodeName] || null;
-            const cpuReqPct        = fullNode?.cpuRequestsPercent  ?? nodeReqData?.cpuRequestsPct        ?? 0;
-            const cpuReqMillicores = fullNode?.cpuRequests          ?? nodeReqData?.cpuRequestsMillicores ?? 0;
-            const memReqPct        = fullNode?.memoryRequestsPercent ?? nodeReqData?.memoryRequestsPct    ?? 0;
-            const memReqMiB        = fullNode?.memoryRequests        ?? nodeReqData?.memoryRequestsMiB    ?? 0;
-            // When Prometheus usage is 0 fall back to request % for the usage bars
-            const cpuDisplayPct   = cpuPercent  > 0 ? cpuPercent  : cpuReqPct;
-            const cpuDisplayIsReq = cpuPercent  === 0 && cpuReqPct  > 0;
-            const memDisplayPct   = memPercent  > 0 ? memPercent  : memReqPct;
-            const memDisplayIsReq = memPercent  === 0 && memReqPct  > 0;
-
-            const isHealthy = isNodeReady && cpuDisplayPct < 85 && memDisplayPct < 85;
-
-            return (
-              <div
-                key={index}
-                className="bg-white rounded-xl p-6 border border-gray-200 hover:border-gray-300 hover:shadow-md transition-all"
-              >
-                <div className="flex items-start justify-between gap-6 mb-4">
-                  {/* Node Info */}
-                  <div className="flex items-start gap-4 flex-1 min-w-0">
-                    <div className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 ${isHealthy ? 'bg-green-100' : 'bg-red-100'
-                      }`}>
-                      <i className={`fas fa-server text-2xl ${isHealthy ? 'text-green-600' : 'text-red-600'
-                        }`}></i>
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <h4 className="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2 flex-wrap">
-                        {node.nodeName}
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${isNodeReady ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                          }`}>
-                          <div className={`w-2 h-2 rounded-full ${isNodeReady ? 'bg-green-600' : 'bg-red-600'} animate-pulse`}></div>
-                          {isNodeReady ? 'Ready' : 'Not Ready'}
-                        </span>
-                      </h4>
-
-                      <div className="flex items-center gap-3 flex-wrap mb-4">
-                        <span className="text-sm bg-slate-100 text-slate-700 px-3 py-1 rounded-lg font-semibold flex items-center gap-1.5">
-                          <i className="fas fa-microchip text-xs"></i>
-                          {fullNode?.instanceType || 'Unknown'}
-                        </span>
-                        {fullNode?.capacityType && (
-                          <span className={`text-xs px-2 py-1 rounded-full font-semibold ${fullNode.capacityType === 'spot'
-                            ? 'bg-purple-100 text-purple-700'
-                            : fullNode.capacityType === 'on-demand'
-                              ? 'bg-blue-100 text-blue-700'
-                              : 'bg-gray-100 text-gray-700'
-                            }`}>
-                            {fullNode.capacityType === 'spot' ? '⚡ Spot' : fullNode.capacityType === 'on-demand' ? '💎 On-Demand' : fullNode.capacityType}
-                          </span>
-                        )}
-                        <span className="text-sm text-gray-500 flex items-center gap-1.5">
-                          <i className="fas fa-map-marker-alt text-xs"></i>
-                          {fullNode?.zone || 'N/A'}
-                        </span>
-                        {fullNode?.kubeletVersion && (
-                          <span className="text-sm text-gray-500 flex items-center gap-1.5">
-                            <i className="fas fa-code-branch text-xs"></i>
-                            v{fullNode.kubeletVersion}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* AWS and K8s Metadata Badges */}
-                      <div className="flex flex-wrap gap-2 mb-4">
-                        {fullNode?.internalIp && (
-                          <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded font-mono border border-gray-200">
-                            IP: {fullNode.internalIp}
-                          </span>
-                        )}
-                        {fullNode?.instanceId && (
-                          <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded font-mono border border-gray-200">
-                            ID: {fullNode.instanceId}
-                          </span>
-                        )}
-                        {(fullNode?.runningPodsCount !== undefined || fullNode?.podCount !== undefined) && (
-                          <span className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-700 rounded font-bold border border-blue-100">
-                            <i className="fas fa-cubes mr-1"></i>
-                            {fullNode.runningPodsCount ?? 0} / {fullNode.podCount ?? 0} Pods
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Resource Metrics Grid - 2x2 Layout */}
-                      <div className="grid grid-cols-2 gap-3">
-                        {/* CPU Usage (falls back to Requests% when Prometheus usage unavailable) */}
-                        <div>
-                          <div className="flex items-center justify-between text-xs mb-1.5">
-                            <span className="font-bold text-gray-700 flex items-center gap-1.5">
-                              <i className="fas fa-microchip text-orange-500 text-[10px]"></i>
-                              {cpuDisplayIsReq ? 'CPU (req-based)' : 'CPU Usage'}
-                            </span>
-                            <span className={`font-semibold text-[12px] ${cpuDisplayPct >= 80 ? 'text-[#cf222e]' : cpuDisplayPct >= 60 ? 'text-[#9a6700]' : 'text-[#1a7f37]'}`}>
-                              {cpuDisplayPct.toFixed(1)}%{' '}
-                              {cpuDisplayIsReq && cpuReqMillicores > 0
-                                ? `(${Math.round(cpuReqMillicores)}m req)`
-                                : cpuUsageMillicores > 0 ? `(${Math.round(cpuUsageMillicores)}m)` : ''}
-                            </span>
-                          </div>
-                          <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
-                            <div className="h-full rounded-full transition-all duration-500"
-                              style={{ width: `${Math.min(100, cpuDisplayPct)}%`, background: cpuDisplayPct >= 80 ? '#cf222e' : cpuDisplayPct >= 60 ? '#9a6700' : 'rgba(0,0,0,0.88)' }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Memory Usage (falls back to Requests% when Prometheus usage unavailable) */}
-                        <div>
-                          <div className="flex items-center justify-between text-xs mb-1.5">
-                            <span className="font-semibold text-[rgba(0,0,0,0.5)] flex items-center gap-1.5">
-                              <i className="fas fa-memory text-[11px]"></i>
-                              {memDisplayIsReq ? 'Memory (req-based)' : 'Memory Usage'}
-                            </span>
-                            <span className="font-semibold text-sm" style={{ color: memDisplayPct >= 80 ? '#cf222e' : memDisplayPct >= 60 ? '#9a6700' : 'rgba(0,0,0,0.88)' }}>
-                              {memDisplayPct.toFixed(1)}%{' '}
-                              {memDisplayIsReq && memReqMiB > 0
-                                ? `(${Math.round(memReqMiB)} Mi req)`
-                                : memUsageMB > 0 ? `(${Math.round(memUsageMB)} MB)` : ''}
-                            </span>
-                          </div>
-                          <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
-                            <div className="h-full rounded-full transition-all duration-500"
-                              style={{ width: `${Math.min(100, memDisplayPct)}%`, background: memDisplayPct >= 80 ? '#cf222e' : memDisplayPct >= 60 ? '#9a6700' : 'rgba(0,0,0,0.88)' }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* CPU Requests — derived from pod requests vs node allocatable */}
-                        <div>
-                          <div className="flex items-center justify-between text-xs mb-1.5">
-                            <span className="font-semibold text-[rgba(0,0,0,0.5)] flex items-center gap-1.5">
-                              <i className="fas fa-chart-line text-[11px]"></i>
-                              CPU Requests
-                            </span>
-                            <span className="font-semibold text-sm text-[rgba(0,0,0,0.88)]">
-                              {cpuReqPct > 0
-                                ? `${cpuReqPct.toFixed(1)}%${cpuReqMillicores > 0 ? ` (${Math.round(cpuReqMillicores)}m)` : ''}`
-                                : 'N/A'}
-                            </span>
-                          </div>
-                          <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
-                            <div className="h-full bg-[rgba(0,0,0,0.88)] rounded-full transition-all duration-500"
-                              style={{ width: `${Math.min(100, cpuReqPct)}%` }} />
-                          </div>
-                        </div>
-
-                        {/* Memory Requests — derived from pod requests vs node allocatable */}
-                        <div>
-                          <div className="flex items-center justify-between text-xs mb-1.5">
-                            <span className="font-semibold text-[rgba(0,0,0,0.5)] flex items-center gap-1.5">
-                              <i className="fas fa-chart-line text-[11px]"></i>
-                              Memory Requests
-                            </span>
-                            <span className="font-semibold text-sm text-[rgba(0,0,0,0.88)]">
-                              {memReqPct > 0
-                                ? `${memReqPct.toFixed(1)}%${memReqMiB > 0 ? ` (${Math.round(memReqMiB)} Mi)` : ''}`
-                                : 'N/A'}
-                            </span>
-                          </div>
-                          <div className="h-1.5 bg-[rgba(0,0,0,0.06)] rounded-full overflow-hidden">
-                            <div className="h-full bg-[rgba(0,0,0,0.88)] rounded-full transition-all duration-500"
-                              style={{ width: `${Math.min(100, memReqPct)}%` }} />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Right side Metadata (IAM, Subnet, SG) */}
-                  <div className="hidden lg:flex flex-col gap-2 min-w-[200px] border-l border-gray-100 pl-4">
-                    {fullNode?.iamRole && (
-                      <div className="flex flex-col">
-                        <span className="text-[10px] uppercase text-gray-400 font-bold">IAM Role</span>
-                        <span className="text-xs text-gray-700 font-medium truncate max-w-[180px]" title={fullNode.iamRole}>
-                          {fullNode.iamRole}
-                        </span>
-                      </div>
-                    )}
-                    {fullNode?.subnetIds && fullNode.subnetIds.length > 0 && (
-                      <div className="flex flex-col">
-                        <span className="text-[10px] uppercase text-gray-400 font-bold">Subnet</span>
-                        <span className="text-xs text-gray-700 font-medium truncate max-w-[180px]" title={fullNode.subnetIds.join(', ')}>
-                          {fullNode.subnetIds[0]}
-                        </span>
-                      </div>
-                    )}
-                    {fullNode?.securityGroupIds && fullNode.securityGroupIds.length > 0 && (
-                      <div className="flex flex-col">
-                        <span className="text-[10px] uppercase text-gray-400 font-bold">Security Group</span>
-                        <span className="text-xs text-gray-700 font-medium truncate max-w-[180px]" title={fullNode.securityGroupIds[0]}>
-                          {fullNode.securityGroupIds[0]}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Health Score */}
-                  <div className="text-center flex-shrink-0 border-l border-gray-100 pl-4 min-w-[80px]">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-base font-semibold mx-auto border-2 ${isHealthy ? 'border-[#aceebb] text-[#1a7f37] bg-[#dafbe1]' : 'border-[rgba(255,129,130,0.4)] text-[#cf222e] bg-[#ffebe9]'
-                      }`}>
-                      {isHealthy ? '✓' : '!'}
-                    </div>
-                    <div className="text-[10px] text-[rgba(0,0,0,0.4)] mt-1.5 font-medium uppercase tracking-wider">
-                      {isHealthy ? 'Healthy' : 'Issues'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-
-          {
-            filteredNodes.length === 0 && (
-              <div className="text-center py-12 bg-[rgba(0,0,0,0.02)] rounded-lg border border-dashed border-[rgba(0,0,0,0.12)]">
-                <i className="fas fa-server text-[rgba(0,0,0,0.4)] text-2xl mb-3"></i>
-                <p className="text-[13px] text-[rgba(0,0,0,0.5)] font-medium">No nodes found matching the filter</p>
-              </div>
-            )
-          }
-        </div >
-
-        {/* Pagination Controls */}
-        {
-          filteredNodes.length > NODES_PER_PAGE && (
-            <div className="flex items-center justify-between mt-6 pt-6 border-t border-gray-200">
-              <div className="text-sm text-gray-600">
-                Showing {((currentPage - 1) * NODES_PER_PAGE) + 1} to {Math.min(currentPage * NODES_PER_PAGE, filteredNodes.length)} of {filteredNodes.length} nodes
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  className={`px-3 py-2 rounded-lg text-sm font-semibold transition-all ${currentPage === 1
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
-                    }`}
-                >
-                  <i className="fas fa-chevron-left"></i>
-                </button>
-
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                  <button
-                    key={page}
-                    onClick={() => setCurrentPage(page)}
-                    className={`px-3 py-2 rounded-lg text-sm font-semibold transition-all ${currentPage === page
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
-                      }`}
-                  >
-                    {page}
-                  </button>
-                ))}
-
-                <button
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                  className={`px-3 py-2 rounded-lg text-sm font-semibold transition-all ${currentPage === totalPages
-                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                    : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
-                    }`}
-                >
-                  <i className="fas fa-chevron-right"></i>
-                </button>
-              </div>
-            </div>
-          )
-        }
-      </section >
-    </div >
-  );
+export const NODE_STATUS: Record<NodeStatus, { state: StatusState; label: string }> = {
+  ready: { state: 'healthy', label: 'Ready' },
+  'not-ready': { state: 'error', label: 'Not ready' },
+  cordoned: { state: 'attention', label: 'Cordoned' },
+  unknown: { state: 'unknown', label: 'Unknown' },
 };
 
-export default EksNodesTab;
+const pressureText = (n: NodeRow) =>
+  [n.pressure.memory && 'memory', n.pressure.disk && 'disk', n.pressure.pid && 'PID'].filter(Boolean).join(', ');
+
+function OfferingBadge({ node }: { node: NodeRow }) {
+  const offering = offeringOf(node);
+  if (offering === 'unknown') {
+    return <span className={secondary} title={node.capacityTypeRaw ? `Reported as ${node.capacityTypeRaw}` : 'No capacity-type label'}>Unknown</span>;
+  }
+  return (
+    <span className={`rounded border px-1.5 py-px text-[12px] font-semibold uppercase tracking-wide ${offering === 'spot'
+      ? 'border-[rgba(0,0,0,0.88)] text-[rgba(0,0,0,0.88)]'
+      : 'border-[rgba(0,0,0,0.88)] bg-[rgba(0,0,0,0.88)] text-white'}`}
+    >
+      {OFFERING_LABELS[offering]}
+    </span>
+  );
+}
+
+function Count({ label, n, id }: { label: string; n: number; id: string }) {
+  return (
+    <div className="min-w-[112px] rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-4 py-2.5" data-count={id}>
+      <dt className={secondary}>{label}</dt>
+      <dd className="text-[20px] font-semibold tabular-nums text-[rgba(0,0,0,0.88)]">{n}</dd>
+    </div>
+  );
+}
+
+export default function EksNodesTab({ eksData, clusterName }: { eksData: UseEksDashboardReturn; clusterName: string }) {
+  const dashboard = eksData.dashboard;
+  const caps = useK8sCapabilities();
+  const rows = useMemo(() => nodeRows(dashboard), [dashboard]);
+  const at = caps.forCluster(clusterName)?.dataSources.find((s) => s.type === 'k8s-resources')?.collectedAt ?? null;
+
+  const byOffering = (o: Offering) => rows.filter((n) => offeringOf(n) === o).length;
+  const byStatus = (s: NodeStatus) => rows.filter((n) => n.status === s).length;
+  const pressured = rows.filter((n) => pressureText(n) !== '').length;
+
+  const columns: ReadonlyArray<ColumnDef<NodeRow>> = [
+    {
+      id: 'name', header: 'Node', priority: 'essential',
+      cell: (n) => (
+        <span className="flex flex-col">
+          <span className="font-mono text-[12px] font-semibold text-[rgba(0,0,0,0.88)]">{n.name}</span>
+          <span className={secondary}>{[n.internalIp, n.zone].filter(Boolean).join(' · ') || DASH}</span>
+        </span>
+      ),
+      sortValue: (n) => n.name, csv: (n) => n.name,
+    },
+    { id: 'created', header: 'Created', cell: (n) => (n.age ? `${formatAge(n.age)} ago` : DASH), sortValue: (n) => ageSortValue(n.age), csv: (n) => n.age },
+    {
+      id: 'instance', header: 'Instance type',
+      cell: (n) => (
+        <span className="flex flex-col">
+          <span>{n.instanceType ?? DASH}</span>
+          {n.group && <span className={secondary}>{n.group}</span>}
+        </span>
+      ),
+      sortValue: (n) => n.instanceType, csv: (n) => n.instanceType,
+    },
+    { id: 'offering', header: 'Offering', cell: (n) => <OfferingBadge node={n} />, sortValue: (n) => offeringOf(n), csv: (n) => OFFERING_LABELS[offeringOf(n)] },
+    {
+      id: 'cpu', header: 'CPU requests', headerTitle: 'Requests of the pods on the node, of its allocatable CPU',
+      cell: (n) => <RequestBar requested={formatCpu(n.cpuRequestM)} allocatable={n.allocatableCpuM === null ? null : formatCpu(n.allocatableCpuM)} pct={n.cpuRequestedPct} />,
+      sortValue: (n) => n.cpuRequestedPct, csv: (n) => n.cpuRequestM,
+    },
+    {
+      id: 'memory', header: 'Memory requests', headerTitle: 'Requests of the pods on the node, of its allocatable memory',
+      cell: (n) => <RequestBar requested={formatMemoryMiB(n.memRequestMi)} allocatable={n.allocatableMemMi === null ? null : formatMemoryMiB(n.allocatableMemMi)} pct={n.memRequestedPct} />,
+      sortValue: (n) => n.memRequestedPct, csv: (n) => n.memRequestMi,
+    },
+    { id: 'pods', header: 'Pods', align: 'right', cell: (n) => n.pods, sortValue: (n) => n.pods },
+    {
+      id: 'status', header: 'Status', priority: 'essential',
+      cell: (n) => <StatusMark state={NODE_STATUS[n.status].state} label={NODE_STATUS[n.status].label} detail={pressureText(n) ? `${pressureText(n)} pressure` : null} />,
+      sortValue: (n) => n.status, csv: (n) => NODE_STATUS[n.status].label,
+    },
+  ];
+
+  const filters: ReadonlyArray<FilterDef<NodeRow>> = [
+    { id: 'offering', label: 'Offering', options: (Object.keys(OFFERING_LABELS) as Offering[]).map((o) => ({ value: o, label: OFFERING_LABELS[o] })), match: (n, v) => offeringOf(n) === v },
+    { id: 'status', label: 'Status', options: (Object.keys(NODE_STATUS) as NodeStatus[]).map((s) => ({ value: s, label: NODE_STATUS[s].label })), match: (n, v) => n.status === v },
+  ];
+
+  return (
+    <div className="space-y-3" data-panel="nodes">
+      <div className="flex flex-wrap gap-6">
+        <dl className="flex flex-wrap gap-3" aria-label="Nodes by capacity type">
+          <Count label="Total nodes" n={rows.length} id="total" />
+          <Count label="On-demand" n={byOffering('on-demand')} id="on-demand" />
+          <Count label="Spot" n={byOffering('spot')} id="spot" />
+          {byOffering('unknown') > 0 && <Count label="Capacity type unknown" n={byOffering('unknown')} id="unknown-offering" />}
+        </dl>
+        <dl className="flex flex-wrap gap-3" aria-label="Nodes by status">
+          <Count label="Ready" n={byStatus('ready')} id="ready" />
+          <Count label="Not ready" n={byStatus('not-ready')} id="not-ready" />
+          <Count label="Cordoned" n={byStatus('cordoned')} id="cordoned" />
+          <Count label="Under pressure" n={pressured} id="pressure" />
+          {byStatus('unknown') > 0 && <Count label="Unknown" n={byStatus('unknown')} id="unknown-status" />}
+        </dl>
+      </div>
+      <K8sDataTable
+        rows={rows}
+        columns={columns}
+        rowKey={(n) => n.name}
+        caption={NODES_CAPTION}
+        search={(n) => `${n.name} ${n.instanceType ?? ''} ${n.zone ?? ''} ${n.group ?? ''} ${n.internalIp ?? ''}`}
+        searchPlaceholder="Search nodes, instance types, zones, groups"
+        filters={filters}
+        initialSort={{ columnId: 'name', direction: 'asc' }}
+        exportName={`${clusterName}-nodes`}
+        source={<SourceLabel source="XamOps agent · k8s-resources" at={at} verb="data" missingText="no data yet" />}
+        emptyState={<p className={`px-4 py-8 text-center ${secondary}`}>The agent reported no nodes.</p>}
+      />
+    </div>
+  );
+}
