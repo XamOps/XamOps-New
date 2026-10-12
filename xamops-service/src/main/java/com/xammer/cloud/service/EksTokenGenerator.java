@@ -79,14 +79,41 @@ public class EksTokenGenerator {
             CloudAccount account = cloudAccountRepository.findByProviderAccountId(accountId)
                     .orElseThrow(() -> new RuntimeException("Account not found in database: " + accountId));
 
-            AwsCredentialsProvider credentialsProvider = awsClientProvider.getCredentialsProvider(account);
-            String presignedUrl = presignedGetCallerIdentityUrl(
-                    credentialsProvider.resolveCredentials(), region, clusterName, Clock.systemUTC());
-            return token(presignedUrl);
+            return tokenFor(account, clusterName, region);
         } catch (Exception e) {
             logger.error("\u274c Failed to generate token", e);
             throw new RuntimeException("Failed to generate EKS token: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * A token for a cluster, signed with the credentials of an account the caller has
+     * <strong>already resolved and is entitled to</strong> (review S5).
+     *
+     * <p>The account-number overload looks the number up again with an unscoped unique finder,
+     * which throws when two tenants' rows share the number, and that failure took the DIRECT path
+     * down as {@code CLUSTER_UNREACHABLE}. Passing the entitled row skips the second lookup, so the
+     * token is signed for exactly the tenant's own connection.
+     */
+    public String generateTokenForCluster(CloudAccount account, String clusterName, String region) {
+        if (account == null) {
+            throw new IllegalArgumentException("An entitled account is required to sign an EKS token");
+        }
+        logger.info("[EksTokenGenerator] Generating token for cluster: {} with account row {} region: {}",
+                clusterName, account.getId(), region);
+        try {
+            return tokenFor(account, clusterName, region);
+        } catch (Exception e) {
+            logger.error("Failed to generate token", e);
+            throw new RuntimeException("Failed to generate EKS token: " + e.getMessage(), e);
+        }
+    }
+
+    private String tokenFor(CloudAccount account, String clusterName, String region) {
+        AwsCredentialsProvider credentialsProvider = awsClientProvider.getCredentialsProvider(account);
+        String presignedUrl = presignedGetCallerIdentityUrl(
+                credentialsProvider.resolveCredentials(), region, clusterName, Clock.systemUTC());
+        return token(presignedUrl);
     }
 
     /**
