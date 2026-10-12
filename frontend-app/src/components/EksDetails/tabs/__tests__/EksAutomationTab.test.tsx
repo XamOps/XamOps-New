@@ -6,11 +6,14 @@ import {
   DASH,
   formatInstant,
   manualApplyGate,
+  reasonSentence,
+  workloadStatus,
 } from '../../../../api/verticalRightsizerAdapter';
-import { formatIST } from '../../../../utils/timeUtils';
 import { applyVerticalRecommendation, fetchVerticalEngine } from '../../../../api/verticalRightsizerApi';
+import { formatIST } from '../../../../utils/timeUtils';
 import type {
   VerticalEngineResponseWire,
+  VerticalResourcesWire,
   VerticalWorkloadWire,
 } from '../../../../types/verticalRightsizer';
 
@@ -77,21 +80,30 @@ const resolveWith = (wire: VerticalEngineResponseWire) =>
 const renderTab = () =>
   render(<EksAutomationTab clusterName="xamops-test-1" accountId="102227938259" region="ap-south-1" />);
 
+const container = (current: VerticalResourcesWire, recommended: VerticalResourcesWire | null, reasons: string[]) => ({
+  name: 'c',
+  qosClass: 'Burstable',
+  current,
+  recommended,
+  reasons,
+  upstreamVpa: null,
+});
+
 describe('EksAutomationTab', () => {
   beforeEach(() => {
     mockedRead.mockReset();
     mockedApply.mockReset();
   });
 
-  it('disables Apply and states the blocking reason when the controller is not ready', async () => {
+  it('disables Apply and states the blocking reason when applying is off in this environment', async () => {
     resolveWith({ engine: engine(), gateReasons: ['CONTROLLER_NOT_READY'], workloads: [workload()] });
     renderTab();
 
     const button = await screen.findByRole('button', { name: 'Apply overprovisioned-api' });
     expect(button).toBeDisabled();
-    expect(button).toHaveAttribute('title', 'Automation not enabled');
+    expect(button).toHaveAttribute('title', 'Applying is off in this environment');
     // The reason is readable without hovering, not hidden in a tooltip only.
-    expect(screen.getAllByText('Automation not enabled').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Applying is off in this environment').length).toBeGreaterThan(0);
   });
 
   it('enables a one-time Apply under RECOMMEND although autoApplyEligible is false', async () => {
@@ -101,11 +113,165 @@ describe('EksAutomationTab', () => {
     const button = await screen.findByRole('button', { name: 'Apply overprovisioned-api' });
     expect(button).toBeEnabled();
     // autoApplyEligible is shown for what it is, not used as the gate.
-    expect(screen.getByText('Automatic apply off')).toBeInTheDocument();
-    expect(screen.getByText('Mode RECOMMEND')).toBeInTheDocument();
+    expect(screen.getByText('Automatic changes Off')).toBeInTheDocument();
+    expect(screen.getByText('Mode Suggest only')).toBeInTheDocument();
   });
 
-  it('shows the last cycle and the window in IST, with the raw UTC value in the tooltip', async () => {
+  it('names the feature, says what it does, and uses the glossary words', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+    const { container: page } = renderTab();
+
+    expect(await screen.findByRole('heading', { name: 'Workload rightsizing' })).toBeInTheDocument();
+    expect(screen.getByText(/nothing changes in the cluster until you press Apply/)).toBeInTheDocument();
+    expect(screen.getByText('Can be applied')).toBeInTheDocument();
+    expect(screen.getByText('Connected')).toBeInTheDocument();
+    expect(screen.getByText('Directly to the cluster API')).toBeInTheDocument();
+    expect(screen.getByText('Prometheus in your cluster')).toBeInTheDocument();
+    expect(screen.getByLabelText('Status: Over-provisioned')).toBeInTheDocument();
+    expect(screen.getByText('Could free 1.95 vCPU and 1.51 GiB memory')).toBeInTheDocument();
+    // A reason chip shows the short text; its sentence and code sit in the tooltip.
+    expect(screen.getByText('Set to the minimum')).toHaveAttribute(
+      'title',
+      'Set to the minimum XamOps allows (25m CPU, 250Mi memory). Usage is lower, but XamOps never goes below this. Code: FLOOR_CLAMPED',
+    );
+    // And the sentence is readable without hovering.
+    expect(screen.getByText('Why this suggestion')).toBeInTheDocument();
+    // Engineering fields are behind the disclosure, phrased plainly.
+    expect(screen.getByText('How this was calculated')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'CPU: the 95th percentile of usage over the last 24 hours, measured as 5-minute rates, from the busiest pod, plus 25% headroom.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('XamOps defaults (not saved for this workload)')).toBeInTheDocument();
+    // Codes never appear as visible text.
+    expect(page.textContent).not.toMatch(/FLOOR_CLAMPED|RECOMMEND|DIRECT|CONFIGURED|DEFAULTS|prometheus-proxy/);
+  });
+
+  describe('workload status words (glossary section 2)', () => {
+    const statusOf = (overrides: Partial<VerticalWorkloadWire>) =>
+      workloadStatus(adaptEngineResponse({ engine: engine(), gateReasons: [], workloads: [workload(overrides)] }).workloads[0]);
+
+    it.each([
+      ['a floored decrease', {}, 'Over-provisioned'],
+      [
+        'nothing big enough to change',
+        { containers: [container({ cpuRequestM: 80, memRequestMi: 64, cpuLimitM: 200, memLimitMi: 128 }, null, ['WITHIN_HYSTERESIS'])] },
+        'Right-sized',
+      ],
+      [
+        'a throttled raise',
+        {
+          findings: ['THROTTLED'],
+          containers: [
+            container(
+              { cpuRequestM: 10, memRequestMi: 32, cpuLimitM: 50, memLimitMi: 64 },
+              { cpuRequestM: 63, memRequestMi: 32, cpuLimitM: 200, memLimitMi: 64 },
+              ['BELOW_FLOOR_NO_RAISE', 'LIMIT_MOVED', 'DEMAND_CENSORED_BY_LIMIT'],
+            ),
+          ],
+        },
+        'Needs more CPU (throttled)',
+      ],
+      [
+        'requests XamOps would be inventing',
+        {
+          containers: [
+            container(
+              { cpuRequestM: null, memRequestMi: null, cpuLimitM: null, memLimitMi: null },
+              { cpuRequestM: 25, memRequestMi: 250, cpuLimitM: null, memLimitMi: null },
+              ['FLOOR_CLAMPED', 'REQUESTS_UNSET'],
+            ),
+          ],
+        },
+        'Left alone: no requests set',
+      ],
+      [
+        'an HPA on CPU',
+        {
+          hpa: { present: true, name: 'php-apache' },
+          containers: [
+            container({ cpuRequestM: 200, memRequestMi: 64, cpuLimitM: 500, memLimitMi: 128 }, null, [
+              'HPA_CPU_MANAGED',
+              'BELOW_FLOOR_NO_RAISE',
+              'WITHIN_HYSTERESIS',
+            ]),
+          ],
+        },
+        'Left alone: an HPA scales it',
+      ],
+      ['a single replica', { skipReason: 'SINGLE_REPLICA', containers: [] }, 'Skipped: only 1 replica'],
+      ['no history', { skipReason: 'INSUFFICIENT_HISTORY', containers: [] }, 'Not enough data yet'],
+      ['rightsizing switched off', { skipReason: 'POLICY_OFF', containers: [] }, 'Off'],
+      [
+        'a recent apply',
+        { containers: [container({ cpuRequestM: 25, memRequestMi: 250, cpuLimitM: 25, memLimitMi: 250 }, null, ['COOLDOWN'])] },
+        'Left alone: changed recently',
+      ],
+    ] as [string, Partial<VerticalWorkloadWire>, string][])('%s reads "%s"', (_name, overrides, expected) => {
+      expect(statusOf(overrides).status).toBe(expected);
+    });
+
+    it('explains a throttled raise with the reason that drove it', () => {
+      const status = statusOf({
+        findings: ['THROTTLED'],
+        containers: [
+          container(
+            { cpuRequestM: 10, memRequestMi: 32, cpuLimitM: 50, memLimitMi: 64 },
+            { cpuRequestM: 63, memRequestMi: 32, cpuLimitM: 200, memLimitMi: 64 },
+            ['BELOW_FLOOR_NO_RAISE', 'LIMIT_MOVED', 'DEMAND_CENSORED_BY_LIMIT'],
+          ),
+        ],
+      });
+      expect(status.detail).toBe(
+        'Hits its CPU limit most of the time, so real demand may be higher than measured. XamOps sized it from the limit instead.',
+      );
+    });
+
+    it('names the HPA and drops "already the right size" when memory has its own reason', () => {
+      const status = statusOf({
+        hpa: { present: true, name: 'php-apache' },
+        containers: [
+          container({ cpuRequestM: 200, memRequestMi: 64, cpuLimitM: 500, memLimitMi: 128 }, null, [
+            'HPA_CPU_MANAGED',
+            'BELOW_FLOOR_NO_RAISE',
+          ]),
+        ],
+      });
+      expect(status.detail).toBe('CPU is left to the HPA php-apache.');
+    });
+
+    it('turns reason codes into sentences, naming the resource, and shows unknown codes as Other', () => {
+      expect(reasonSentence({ kind: 'known', code: 'HPA_CPU_MANAGED', label: 'CPU left to the HPA' })).toBe(
+        'CPU left alone: an HPA scales this workload on CPU, and changing the request would change how many replicas it runs.',
+      );
+      const view = adaptEngineResponse({
+        engine: engine(),
+        gateReasons: [],
+        workloads: [
+          workload({
+            containers: [
+              container(
+                { cpuRequestM: 50, memRequestMi: 48, cpuLimitM: 150, memLimitMi: 128 },
+                { cpuRequestM: 25, memRequestMi: 48, cpuLimitM: 75, memLimitMi: 128 },
+                ['FLOOR_CLAMPED', 'BELOW_FLOOR_NO_RAISE'],
+              ),
+            ],
+          }),
+        ],
+      });
+      const [floor, below] = view.workloads[0].containers[0].reasons;
+      expect(reasonSentence(floor, view.workloads[0].containers[0], view.workloads[0])).toBe(
+        'CPU set to the minimum XamOps allows (25m).',
+      );
+      expect(reasonSentence(below, view.workloads[0].containers[0], view.workloads[0])).toBe(
+        'Memory is already below the minimum (250Mi), so it is left as is.',
+      );
+      expect(reasonSentence({ kind: 'unknown', raw: 'SOMETHING_NEW' })).toBe('Other: SOMETHING_NEW');
+    });
+  });
+
+  it('shows the last analysis and the window in IST, with the raw UTC value in the tooltip', async () => {
     const lastCycle = '2026-10-12T07:23:19.015387285Z';
     resolveWith({
       engine: engine({ lastCycle: { at: lastCycle, evaluated: 9, error: null } }),
@@ -116,8 +282,8 @@ describe('EksAutomationTab', () => {
 
     const cycle = await screen.findByTitle(lastCycle);
     // Nanoseconds are cut to milliseconds before parsing; 07:23 UTC is 12:53 IST.
-    expect(cycle.textContent).toBe(`${formatIST('2026-10-12T07:23:19.015Z')} · 9`);
-    expect(cycle.textContent).toMatch(/12:53 PM IST · 9$/);
+    expect(cycle.textContent).toBe(`${formatIST('2026-10-12T07:23:19.015Z')} · 9 workloads`);
+    expect(cycle.textContent).toMatch(/12:53 PM IST · 9 workloads$/);
     expect(screen.getByTitle('2026-10-10T02:00:00Z').textContent).toBe(formatIST('2026-10-10T02:00:00Z'));
     expect(screen.getByTitle('2026-10-11T02:00:00Z').textContent).toBe(formatIST('2026-10-11T02:00:00Z'));
     expect(screen.queryByText(/2026-10-1\dT/)).toBeNull();
@@ -135,6 +301,7 @@ describe('EksAutomationTab', () => {
     const button = await screen.findByRole('button', { name: 'Apply overprovisioned-api' });
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute('title', 'Read-only connection');
+    expect(screen.getByText('Why changes are off')).toBeInTheDocument();
   });
 
   describe('manual apply gate', () => {
@@ -144,7 +311,7 @@ describe('EksAutomationTab', () => {
     };
     const cases: { name: string; wire: VerticalEngineResponseWire; reason: string | null }[] = [
       {
-        name: 'RECOMMEND + an actionable recommendation is enabled',
+        name: 'RECOMMEND + an actionable suggestion is enabled',
         wire: { engine: engine(), gateReasons: [], workloads: [workload()] },
         reason: null,
       },
@@ -174,10 +341,10 @@ describe('EksAutomationTab', () => {
             }),
           ],
         },
-        reason: 'No change is recommended.',
+        reason: 'No change suggested',
       },
       {
-        name: 'a recommendation equal to current is nothing to apply',
+        name: 'a suggestion equal to current is nothing to apply',
         wire: {
           engine: engine(),
           gateReasons: [],
@@ -196,7 +363,7 @@ describe('EksAutomationTab', () => {
             }),
           ],
         },
-        reason: 'No change is recommended.',
+        reason: 'No change suggested',
       },
       {
         name: 'a read-only connection disables',
@@ -206,17 +373,17 @@ describe('EksAutomationTab', () => {
       {
         name: 'no permission (including a Login-As session) disables',
         wire: { engine: engine(), gateReasons: ['NO_USER_PERMISSION'], workloads: [workload()] },
-        reason: 'No permission',
+        reason: 'No permission to change automation',
       },
       {
         name: 'demo disables, ahead of the connection',
         wire: { engine: engine(), gateReasons: ['READ_ONLY_CONNECTION', 'DEMO'], workloads: [workload()] },
-        reason: 'Demo mode',
+        reason: 'Demo workspace',
       },
       {
         name: 'a controller that is not ready disables',
         wire: { engine: engine({ ready: false }), gateReasons: [], workloads: [workload()] },
-        reason: 'Automation not enabled',
+        reason: 'Applying is off in this environment',
       },
       {
         name: 'no execution path disables, with the path reason',
@@ -231,7 +398,7 @@ describe('EksAutomationTab', () => {
           gateReasons: ['CLUSTER_ACCESS_NOT_CONFIGURED'],
           workloads: [workload()],
         },
-        reason: 'Cluster access not configured',
+        reason: 'No cluster access for XamOps',
       },
       {
         name: 'a workload in cooldown disables',
@@ -253,20 +420,20 @@ describe('EksAutomationTab', () => {
             }),
           ],
         },
-        reason: 'Waiting out cooldown',
+        reason: 'Changed recently',
       },
       {
         name: 'a GitOps-managed workload disables',
         wire: { engine: engine(), gateReasons: [], workloads: [workload({ gitopsManaged: true })] },
-        reason: 'GitOps managed',
+        reason: 'Managed by Argo CD or Flux',
       },
       {
         name: 'a skipped workload disables with its skip reason',
         wire: { engine: engine(), gateReasons: [], workloads: [workload({ skipReason: 'POLICY_OFF' })] },
-        reason: 'Policy off',
+        reason: 'Rightsizing off',
       },
       {
-        name: 'requests the engine would be inventing disable',
+        name: 'requests XamOps would be inventing disable',
         wire: {
           engine: engine(),
           gateReasons: [],
@@ -285,7 +452,7 @@ describe('EksAutomationTab', () => {
             }),
           ],
         },
-        reason: 'Requests unset',
+        reason: 'No requests set',
       },
     ];
 
@@ -319,25 +486,25 @@ describe('EksAutomationTab', () => {
     });
   });
 
-  it('confirms a real apply with before and after per container, then submits it', async () => {
+  it('confirms a real resize with before and after per container, then submits it', async () => {
     resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
     mockedApply.mockResolvedValue({ kind: 'writes-not-deployed' });
     renderTab();
 
-    fireEvent.click(await screen.findByRole('checkbox'));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Test run only/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
 
     const dialog = await screen.findByRole('alertdialog');
     expect(mockedApply).not.toHaveBeenCalled();
-    expect(dialog.textContent).toContain('CPU request 1000m → 25m');
-    expect(dialog.textContent).toContain('Memory request 1024Mi → 250Mi');
-    expect(dialog.textContent).toContain('CPU limit 1000m → 25m');
-    expect(dialog.textContent).toContain('Memory limit 1024Mi → 250Mi');
-    expect(dialog.textContent).toContain('resized in place. No restart is expected.');
+    expect(dialog.textContent).toContain('Resize overprovisioned-api now?');
     expect(dialog.textContent).toContain(
-      'The Deployment spec is not changed, so a rollout or a rescheduled pod returns to the spec values.',
+      'api: CPU request 1000m → 25m · Memory request 1 GiB → 250Mi · CPU limit 1000m → 25m · Memory limit 1 GiB → 250Mi',
     );
-    expect(dialog.textContent).toContain('A cooldown starts.');
+    expect(dialog.textContent).toContain('XamOps resizes the running pods in place: one pod first as a check');
+    expect(dialog.textContent).toContain(
+      "The Deployment itself isn't changed, so pods created later (a rollout, a rescheduled pod) start at the old size.",
+    );
+    expect(dialog.textContent).toContain("XamOps won't change this workload again for 60 minutes.");
 
     fireEvent.click(screen.getByRole('button', { name: 'Resize pods' }));
     await waitFor(() => expect(mockedApply).toHaveBeenCalledTimes(1));
@@ -350,11 +517,11 @@ describe('EksAutomationTab', () => {
     expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 
-  it('sends nothing when a real apply is cancelled at the confirmation', async () => {
+  it('sends nothing when a real resize is cancelled at the confirmation', async () => {
     resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
     renderTab();
 
-    fireEvent.click(await screen.findByRole('checkbox'));
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Test run only/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
 
@@ -362,7 +529,7 @@ describe('EksAutomationTab', () => {
     expect(mockedApply).not.toHaveBeenCalled();
   });
 
-  it('renders a dash for every unset resource field and never a 0', async () => {
+  it('renders "Not set" for a request the manifest leaves unset, and never a 0', async () => {
     resolveWith({
       engine: engine(),
       gateReasons: [],
@@ -382,19 +549,19 @@ describe('EksAutomationTab', () => {
         }),
       ],
     });
-    const { container } = renderTab();
+    const { container: page } = renderTab();
 
     await screen.findByText('no-requests-sidecar-app');
-    const row = container.querySelector('tbody tr')!;
+    const row = page.querySelector('tbody tr')!;
     const cells = Array.from(row.querySelectorAll('td')).map((td) => td.textContent ?? '');
 
-    // Container, QoS, then four resource cells, then the VPA cell.
-    expect(cells[2]).toBe(DASH);
-    expect(cells[3]).toBe(DASH);
-    expect(cells[4]).toBe(DASH);
+    // Container, then four resource cells, then the Kubernetes VPA cell.
+    expect(cells[1]).toBe('Not set');
+    expect(cells[2]).toBe('Not set');
+    expect(cells[3]).toBe('Not set');
+    expect(cells[4]).toBe('Not set');
+    // No VPA target renders a dash, not 0, with the reason in the tooltip.
     expect(cells[5]).toBe(DASH);
-    // upstreamVpa null renders two dashes, not 0.
-    expect(cells[6]).toBe(`${DASH} / ${DASH}`);
     expect(row.textContent).not.toMatch(/\b0\b/);
   });
 
@@ -419,37 +586,35 @@ describe('EksAutomationTab', () => {
     });
     renderTab();
 
-    expect(await screen.findByText(/Unusable values in the payload/)).toBeInTheDocument();
-    expect(screen.getByText(/cpuRequestM was 0/)).toBeInTheDocument();
+    expect(await screen.findByText("Some numbers couldn't be shown")).toBeInTheDocument();
+    expect(screen.getByText(/XamOps sent 0 for .*cpuRequestM, which Kubernetes doesn't allow/)).toBeInTheDocument();
   });
 
-  it('renders the matching empty state, not a table of zeros, when nothing was evaluated', async () => {
+  it('renders the matching empty state, not a table of zeros, when nothing was analysed', async () => {
     resolveWith({ engine: engine({ enabled: false, ready: false }), gateReasons: ['NO_METRICS_SOURCE'], workloads: [] });
-    const { container } = renderTab();
+    const { container: page } = renderTab();
 
-    expect(await screen.findByText('No usage history source in this cluster')).toBeInTheDocument();
-    expect(container.querySelector('table')).toBeNull();
+    expect(await screen.findByText('No usage data for this cluster')).toBeInTheDocument();
+    expect(page.querySelector('table')).toBeNull();
   });
 
   it('explains an unregistered cluster as a setup step rather than a crash', async () => {
     mockedRead.mockResolvedValue({ kind: 'cluster-not-registered', message: 'Install the XamOps agent first.' });
     renderTab();
 
-    expect(
-      await screen.findByText('This cluster is not registered with XamOps in this environment'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("This cluster isn't connected to XamOps yet")).toBeInTheDocument();
     expect(screen.getByText(/Install the XamOps agent/)).toBeInTheDocument();
   });
 
   it('explains missing cluster access with its remedy', async () => {
     mockedRead.mockResolvedValue({
       kind: 'refused',
-      code: { kind: 'known', code: 'CLUSTER_ACCESS_NOT_CONFIGURED', label: 'Cluster access not configured' },
+      code: { kind: 'known', code: 'CLUSTER_ACCESS_NOT_CONFIGURED', label: 'No cluster access for XamOps' },
       message: 'No access entry.',
     });
     renderTab();
 
-    expect(await screen.findByText('This cluster has not granted XamOps access')).toBeInTheDocument();
+    expect(await screen.findByText("XamOps can't sign in to this cluster")).toBeInTheDocument();
     expect(screen.getByText(/EKS access entry/)).toBeInTheDocument();
   });
 
@@ -474,15 +639,16 @@ describe('EksAutomationTab', () => {
         }),
       ],
     });
-    const { container } = renderTab();
+    const { container: page } = renderTab();
 
     await screen.findByText('unschedulable-giant');
-    expect(screen.getByText(/Not measured yet/)).toBeInTheDocument();
-    expect(container.querySelector('table')).toBeNull();
-    expect(screen.getByText(`Coverage ${DASH}`)).toBeInTheDocument();
+    expect(screen.getByLabelText('Status: Not enough data yet')).toBeInTheDocument();
+    expect(screen.getByText(/XamOps needs at least half of the last 24 hours of usage/)).toBeInTheDocument();
+    expect(page.querySelector('table')).toBeNull();
+    expect(screen.getByText('No usage was measured for this window.')).toBeInTheDocument();
   });
 
-  it('submits the apply and reports a 404 as "not deployed yet"', async () => {
+  it('submits a test run and reports an untyped 404 as "not available yet"', async () => {
     resolveWith({ engine: engine(), gateReasons: [], workloads: [workload({ autoApplyEligible: true })] });
     mockedApply.mockResolvedValue({ kind: 'writes-not-deployed' });
     renderTab();
@@ -500,15 +666,15 @@ describe('EksAutomationTab', () => {
       dryRun: true,
     });
 
-    expect(await screen.findByText(/Apply is not deployed in this environment yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/Applying isn't available in this environment yet/)).toBeInTheDocument();
     expect(screen.queryByText(/Applied/)).toBeNull();
   });
 
   it('reports a submission with no outcome as submitted, never as applied', async () => {
-    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload({ autoApplyEligible: true })] });
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
     mockedApply.mockResolvedValue({
       kind: 'submitted',
-      correlationId: 'c0ffee',
+      correlationId: 'c0ffee12-3456',
       state: 'ACCEPTED',
       dryRun: true,
       result: null,
@@ -516,13 +682,13 @@ describe('EksAutomationTab', () => {
     renderTab();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
-    expect(await screen.findByText(/Submitted/)).toBeInTheDocument();
-    expect(screen.getByText(/dry run/)).toBeInTheDocument();
-    expect(screen.getByText(/The outcome arrives in the actions feed/)).toBeInTheDocument();
+    expect(await screen.findByText(/Submitted · Test run/)).toBeInTheDocument();
+    expect(screen.getByText('Reference c0ffee12')).toHaveAttribute('title', 'c0ffee12-3456');
+    expect(screen.getByText('No result reported yet.')).toBeInTheDocument();
   });
 
-  it('renders the restart-free proof for a confirmed apply', async () => {
-    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload({ autoApplyEligible: true })] });
+  it('renders the restart-free proof for a confirmed resize', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
     mockedApply.mockResolvedValue({
       kind: 'submitted',
       correlationId: 'c0ffee',
@@ -568,15 +734,19 @@ describe('EksAutomationTab', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
 
-    expect(await screen.findByText('Applied and confirmed in the pods')).toBeInTheDocument();
-    expect(screen.getByText(/restart-free, proved per pod/)).toBeInTheDocument();
-    expect(screen.getByText(/same pod/)).toBeInTheDocument();
-    expect(screen.getByText(/same container/)).toBeInTheDocument();
-    expect(screen.getByText(/restarts 0/)).toBeInTheDocument();
+    expect(await screen.findByText('Applied. Confirmed in every pod. No restart.')).toBeInTheDocument();
+    expect(screen.getByText('In place, no restart · proven in every pod')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        (_, el) =>
+          el?.tagName === 'LI' &&
+          el.textContent === 'overprovisioned-api-5d9f-abcde: same pod · same container · restarts 0 → 0 · ready',
+      ),
+    ).toBeInTheDocument();
   });
 
-  it('renders a Deferred outcome as waiting for capacity, never as a success', async () => {
-    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload({ autoApplyEligible: true })] });
+  it('renders a deferred outcome as a wait for room, never as a success', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
     mockedApply.mockResolvedValue({
       kind: 'submitted',
       correlationId: 'c0ffee',
@@ -587,9 +757,7 @@ describe('EksAutomationTab', () => {
         terminal: 'DEFERRED',
         detail: 'The kubelet deferred the resize and will retry when there is capacity.',
         restartFree: false,
-        containers: [
-          { name: 'api', state: 'DEFERRED', detail: null, requested: null, restartExpected: false },
-        ],
+        containers: [{ name: 'api', state: 'DEFERRED', detail: null, requested: null, restartExpected: false }],
         pods: [],
       },
     });
@@ -597,14 +765,16 @@ describe('EksAutomationTab', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
 
-    expect(await screen.findByText('Waiting for node capacity — not applied')).toBeInTheDocument();
-    expect(screen.getByText(/restart-free not claimed/)).toBeInTheDocument();
-    expect(screen.queryByText(/Applied and confirmed/)).toBeNull();
-    expect(screen.queryByText(/^Applied$/)).toBeNull();
+    expect(
+      await screen.findByText("Not applied: the node doesn't have room right now. Kubernetes may apply it later."),
+    ).toBeInTheDocument();
+    expect(screen.getByText('In place · no restart-free proof')).toBeInTheDocument();
+    expect(screen.getByText('api: Waiting for room on the node')).toBeInTheDocument();
+    expect(screen.queryByText(/Applied\. Confirmed/)).toBeNull();
   });
 
-  it('renders a dry run as a rehearsal, not as a change', async () => {
-    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload({ autoApplyEligible: true })] });
+  it('renders a test run as a rehearsal, not as a change', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
     mockedApply.mockResolvedValue({
       kind: 'submitted',
       correlationId: 'c0ffee',
@@ -615,9 +785,7 @@ describe('EksAutomationTab', () => {
         terminal: 'DRY_RUN',
         detail: 'Dry run: no patch was sent to the cluster, so nothing was applied.',
         restartFree: false,
-        containers: [
-          { name: 'api', state: 'DRY_RUN', detail: null, requested: null, restartExpected: false },
-        ],
+        containers: [{ name: 'api', state: 'DRY_RUN', detail: null, requested: null, restartExpected: false }],
         pods: [],
       },
     });
@@ -625,12 +793,12 @@ describe('EksAutomationTab', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
 
-    expect(await screen.findByText('Dry run — nothing was sent to the cluster')).toBeInTheDocument();
-    expect(screen.queryByText(/Applied and confirmed/)).toBeNull();
+    expect(await screen.findByText('Test run passed. Nothing was sent to the cluster.')).toBeInTheDocument();
+    expect(screen.queryByText(/Applied\. Confirmed/)).toBeNull();
   });
 
-  it('renders an unknown outcome verbatim instead of guessing', async () => {
-    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload({ autoApplyEligible: true })] });
+  it('renders an unknown outcome as Other instead of guessing', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
     mockedApply.mockResolvedValue({
       kind: 'submitted',
       correlationId: 'c0ffee',
@@ -649,11 +817,11 @@ describe('EksAutomationTab', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
 
-    expect(await screen.findByText('The engine reported SOMETHING_NEW')).toBeInTheDocument();
+    expect(await screen.findByText('Other: SOMETHING_NEW')).toBeInTheDocument();
   });
 
-  it('explains a refused apply with the gate code the server sent', async () => {
-    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload({ autoApplyEligible: true })] });
+  it('explains a refused apply in plain words, with the server message in the tooltip', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
     mockedApply.mockResolvedValue({
       kind: 'refused',
       code: { kind: 'known', code: 'READ_ONLY_CONNECTION', label: 'Read-only connection' },
@@ -663,7 +831,25 @@ describe('EksAutomationTab', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
 
-    expect(await screen.findByText(/Refused/)).toBeInTheDocument();
-    expect(screen.getByText(/Read-only connection/)).toBeInTheDocument();
+    const text = await screen.findByText(
+      'View only: this AWS account is connected read-only. Applying changes needs read-write access.',
+    );
+    expect(text).toHaveAttribute('title', 'This AWS account is connected read-only.');
+  });
+
+  it('explains a cooldown refusal from endpoint 3 in plain words', async () => {
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+    mockedApply.mockResolvedValue({
+      kind: 'refused',
+      code: { kind: 'unknown', raw: 'K8S_INVALID_POLICY' },
+      message: 'COOLDOWN: a change was applied to team-a/overprovisioned-api at 2026-10-12T07:00:00Z.',
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+
+    expect(
+      await screen.findByText('Not applied: this workload was changed less than 60 minutes ago. Nothing was sent.'),
+    ).toBeInTheDocument();
   });
 });

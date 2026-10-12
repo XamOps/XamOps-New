@@ -72,15 +72,15 @@ describe('verticalRightsizerAdapter codes', () => {
     expect(parseCode('K8S_CLUSTER_ACCESS_NOT_CONFIGURED')).toEqual({
       kind: 'known',
       code: 'CLUSTER_ACCESS_NOT_CONFIGURED',
-      label: 'Cluster access not configured',
+      label: 'No cluster access for XamOps',
     });
     expect(parseCode('NO_METRICS_SOURCE')).toMatchObject({ kind: 'known', code: 'NO_METRICS_SOURCE' });
   });
 
-  it('keeps an unrecognised code verbatim rather than dropping it', () => {
+  it('keeps an unrecognised code verbatim rather than dropping it, shown as Other (glossary rule 3)', () => {
     const parsed = parseCode('SOME_FUTURE_REASON');
     expect(parsed).toEqual({ kind: 'unknown', raw: 'SOME_FUTURE_REASON' });
-    expect(codeText(parsed!)).toBe('SOME_FUTURE_REASON');
+    expect(codeText(parsed!)).toBe('Other: SOME_FUTURE_REASON');
   });
 
   it('ignores null and blank codes', () => {
