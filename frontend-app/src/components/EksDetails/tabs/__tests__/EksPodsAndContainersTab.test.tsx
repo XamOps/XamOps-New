@@ -74,6 +74,18 @@ describe('Workloads › Pods (§10.4, D10)', () => {
     expect(containers).toHaveTextContent('Waiting · ContainerCreating');
     expect(containers).toHaveTextContent('Unset / None');
   });
+
+  it("opens on the status a link asked for with phase= (Overview's View pending pods)", async () => {
+    window.history.pushState({}, '', '/eks-details?name=prod-eks-cluster&tab=workloads&sub=pods&phase=Pending');
+    try {
+      renderWith(<EksPodsTab eksData={eksData} clusterName="prod-eks-cluster" />);
+      const table = screen.getByRole('table', { name: PODS_CAPTION });
+      expect(table.querySelectorAll('tbody tr')).toHaveLength(2);
+      expect(within(screen.getByRole('group', { name: 'Status' })).getByRole('button', { name: 'Pending' })).toHaveAttribute('aria-pressed', 'true');
+    } finally {
+      window.history.pushState({}, '', '/');
+    }
+  });
 });
 
 describe('Workloads › Containers (§10.4, D10)', () => {

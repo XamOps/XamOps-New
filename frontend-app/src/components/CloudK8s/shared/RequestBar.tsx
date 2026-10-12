@@ -1,7 +1,8 @@
 /**
- * A requested-of-allocatable value with a greyscale % bar, as cast.ai's node list shows requests
+ * A requested-of-allocatable value with a % bar, as cast.ai's node list shows requests
  * (docs/cloudk8s/ui-revamp-design.md §10.5, §14). The text carries the value; the bar is decorative.
- * Unknown allocatable shows the requested value alone, without a bar or a percentage.
+ * Unknown allocatable shows the requested value alone, without a bar or a percentage. The bar's
+ * colours are the requested and allocatable series tokens (src/styles/k8sSemanticTokens.css).
  */
 import { formatPercent } from '../../../utils/k8sQuantities';
 
@@ -21,8 +22,8 @@ export function RequestBar({ requested, allocatable, pct }: RequestBarProps) {
         {pct !== null && <span className="text-[12px] text-[rgba(0,0,0,0.6)]">{formatPercent(pct)}</span>}
       </span>
       {pct !== null && (
-        <span className="h-1.5 overflow-hidden rounded-full bg-[rgba(0,0,0,0.08)]" aria-hidden="true">
-          <span className="block h-full rounded-full bg-[rgba(0,0,0,0.88)]" style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
+        <span className="h-1.5 overflow-hidden rounded-full bg-series-allocatable" aria-hidden="true">
+          <span className="block h-full rounded-full bg-series-requested" style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
         </span>
       )}
     </span>

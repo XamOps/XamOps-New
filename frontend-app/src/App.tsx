@@ -211,6 +211,7 @@ import './styles/spotautomation.css';
 import './styles/actionsHistory.css';
 import './styles/grafana.css';
 import './styles/cloudk8s.css';
+import './styles/k8sSemanticTokens.css';
 import './styles/eks-details.css';
 import './styles/performance.css';
 import './styles/alerts.css';

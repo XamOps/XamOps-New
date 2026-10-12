@@ -88,6 +88,19 @@ export function formatCpu(millicores: number | null | undefined): string {
   return `${trimFixed(cores, 2)} ${cores === 1 ? 'core' : 'cores'}`;
 }
 
+/** Cluster totals and KPI cards (glossary rule 6): "8.00 vCPU", always two decimals; "—" for null. */
+export function formatVcpu(millicores: number | null | undefined): string {
+  if (millicores === null || millicores === undefined || !Number.isFinite(millicores)) return DASH;
+  return `${(millicores / 1000).toFixed(2)} vCPU`;
+}
+
+/** Cluster totals and KPI cards (glossary rule 6): "250Mi" below 1024 Mi, else "14.98 GiB"; "—" for null. */
+export function formatGib(mib: number | null | undefined): string {
+  if (mib === null || mib === undefined || !Number.isFinite(mib)) return DASH;
+  if (Math.abs(mib) < 1024) return `${trimFixed(mib, 0)}Mi`;
+  return `${trimFixed(mib / 1024, 2)} GiB`;
+}
+
 /** "512 MiB", "1.5 GiB", "340 KiB"; "—" for null. */
 export function formatMemoryMiB(mib: number | null | undefined): string {
   if (mib === null || mib === undefined || !Number.isFinite(mib)) return DASH;
@@ -109,6 +122,13 @@ export function formatBytes(bytes: number | null | undefined): string {
 export function formatPercent(pct: number | null | undefined, digits = 0): string {
   if (pct === null || pct === undefined || !Number.isFinite(pct)) return DASH;
   return `${trimFixed(pct, digits)}%`;
+}
+
+/** Money on cards (glossary rule 6): two significant digits under $1 ("$0.37"), whole dollars above ("$1,480"); "$—" for null. */
+export function formatMoney(amount: number | null | undefined): string {
+  if (amount === null || amount === undefined || !Number.isFinite(amount)) return `$${DASH}`;
+  if (Math.abs(amount) < 1) return `$${Number(amount.toPrecision(2))}`;
+  return formatUsd(amount, 0);
 }
 
 /** "$48.60"; "—" for null. */

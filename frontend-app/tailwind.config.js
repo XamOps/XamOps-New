@@ -23,6 +23,19 @@ export default {
         // Pump green brand
         'pump-green': '#1BE68B',
         'pump-green-active': '#32E97A',
+        // CloudK8s semantic colours. Names only: the values live in
+        // src/styles/k8sSemanticTokens.css, so a palette change is that one file.
+        'status-good': 'rgb(var(--k8s-status-good) / <alpha-value>)',
+        'status-warn': 'rgb(var(--k8s-status-warn) / <alpha-value>)',
+        'status-bad': 'rgb(var(--k8s-status-bad) / <alpha-value>)',
+        'status-info': 'rgb(var(--k8s-status-info) / <alpha-value>)',
+        'status-off': 'rgb(var(--k8s-status-off) / <alpha-value>)',
+        'series-requested': 'rgb(var(--k8s-series-requested) / <alpha-value>)',
+        'series-used': 'rgb(var(--k8s-series-used) / <alpha-value>)',
+        'series-suggested': 'rgb(var(--k8s-series-suggested) / <alpha-value>)',
+        'series-limit': 'rgb(var(--k8s-series-limit) / <alpha-value>)',
+        'series-allocatable': 'rgb(var(--k8s-series-allocatable) / <alpha-value>)',
+        'series-overhead': 'rgb(var(--k8s-series-overhead) / <alpha-value>)',
       },
       fontFamily: {
         // Slot for PPMonument display numbers — falls back to system sans

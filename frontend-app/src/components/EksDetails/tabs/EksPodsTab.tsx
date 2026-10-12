@@ -7,7 +7,7 @@
  * "—" for every other pod, never a request standing in for usage. The template-built colour classes
  * and Font Awesome icons of the old tab are gone (NIT 9).
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useK8sCapabilities } from '../../../hooks/useK8sCapabilities';
 import type { UseEksDashboardReturn } from '../../../hooks/useEksDashboard';
 import {
@@ -21,6 +21,15 @@ import { StatusMark, type StatusState } from '../../CloudK8s/shared/StatusMark';
 export const PODS_CAPTION = 'Pods';
 const PHASES = ['Running', 'Pending', 'Failed', 'Succeeded'] as const;
 const secondary = 'text-[12px] text-[rgba(0,0,0,0.6)]';
+
+/**
+ * The Status filter a link asked for with `phase=` (Overview's "View pending pods"), read once
+ * when the table mounts; section links drop the parameter (useEksSectionRoute.VIEW_FILTER_PARAMS).
+ */
+function phaseFromUrl(): string | undefined {
+  const phase = new URLSearchParams(window.location.search).get('phase');
+  return PHASES.find((p) => p === phase);
+}
 
 interface PodRow {
   pod: ClusterPod;
@@ -103,6 +112,7 @@ function ContainersDetail({ pod }: { pod: ClusterPod }) {
 export default function EksPodsTab({ eksData, clusterName }: { eksData: UseEksDashboardReturn; clusterName: string }) {
   const dashboard = eksData.dashboard;
   const caps = useK8sCapabilities();
+  const [linkedPhase] = useState(phaseFromUrl);
   const rows = useMemo((): PodRow[] => {
     const cpu = topPodCpuUsage(dashboard);
     const mem = topPodMemoryUsageMi(dashboard);
@@ -159,7 +169,10 @@ export default function EksPodsTab({ eksData, clusterName }: { eksData: UseEksDa
   ];
 
   const filters: ReadonlyArray<FilterDef<PodRow>> = [
-    { id: 'phase', label: 'Status', options: PHASES.map((p) => ({ value: p, label: p === 'Succeeded' ? 'Completed' : p })), match: (r, v) => r.pod.phase === v },
+    {
+      id: 'phase', label: 'Status', options: PHASES.map((p) => ({ value: p, label: p === 'Succeeded' ? 'Completed' : p })),
+      match: (r, v) => r.pod.phase === v, defaultValue: linkedPhase,
+    },
     { id: 'namespace', label: 'Namespace', options: namespaces.map((n) => ({ value: n, label: n })), match: (r, v) => r.pod.namespace === v },
   ];
 

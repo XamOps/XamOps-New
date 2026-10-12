@@ -95,9 +95,17 @@ function hasSub<T extends string, S extends string>(section: SectionDef<T, S>, s
   return sub !== null && section.subs.some((s) => s.id === sub);
 }
 
-/** Search string with tab and sub set and every other parameter kept in place. */
+/**
+ * One-shot view filters a link may add to the URL it builds, e.g. Overview's "View pending pods"
+ * (`phase=Pending` on Workloads › Pods). Section links drop them, so a filter doesn't follow the
+ * user into the next section or back.
+ */
+export const VIEW_FILTER_PARAMS = ['phase'] as const;
+
+/** Search string with tab and sub set, the view filters dropped, and every other parameter kept in place. */
 export function withSection(search: string, tab: string, sub: string): string {
   const params = new URLSearchParams(search);
+  for (const p of VIEW_FILTER_PARAMS) params.delete(p);
   params.set('tab', tab);
   params.set('sub', sub);
   return params.toString();

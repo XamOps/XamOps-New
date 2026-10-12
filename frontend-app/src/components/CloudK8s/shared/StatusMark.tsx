@@ -1,5 +1,7 @@
 /**
  * Status as icon + label + weight, never colour alone (docs/cloudk8s/ui-revamp-design.md §14, WCAG 1.4.1).
+ * The colour comes from the semantic status tokens (src/styles/k8sSemanticTokens.css), never a grey
+ * picked here, so the owner's status palette lands without touching this file.
  */
 import { Icon } from '@iconify/react';
 
@@ -12,16 +14,16 @@ interface StatusStyle {
 
 /** Icon ids are string literals so the offline bundle picks them up. */
 const STYLES: Record<StatusState, StatusStyle> = {
-  healthy: { icon: 'mdi:check-circle', className: 'font-semibold text-[rgba(0,0,0,0.88)]' },
-  attention: { icon: 'mdi:clock-alert-outline', className: 'font-semibold text-[rgba(0,0,0,0.88)]' },
+  healthy: { icon: 'mdi:check-circle', className: 'font-semibold text-status-good' },
+  attention: { icon: 'mdi:clock-alert-outline', className: 'font-semibold text-status-warn' },
   error: {
     icon: 'mdi:alert-octagon',
-    className: 'font-bold text-[rgba(0,0,0,0.88)] border border-black rounded px-1',
+    className: 'font-bold text-status-bad border border-status-bad rounded px-1',
   },
-  'not-set-up': { icon: 'mdi:circle-off-outline', className: 'font-normal text-[rgba(0,0,0,0.6)]' },
-  unknown: { icon: 'mdi:help-circle-outline', className: 'font-normal text-[rgba(0,0,0,0.6)]' },
-  simulated: { icon: 'mdi:flask-outline', className: 'font-semibold text-[rgba(0,0,0,0.88)]' },
-  unverified: { icon: 'mdi:progress-question', className: 'font-normal text-[rgba(0,0,0,0.6)]' },
+  'not-set-up': { icon: 'mdi:circle-off-outline', className: 'font-normal text-status-off' },
+  unknown: { icon: 'mdi:help-circle-outline', className: 'font-normal text-status-off' },
+  simulated: { icon: 'mdi:flask-outline', className: 'font-semibold text-status-info' },
+  unverified: { icon: 'mdi:progress-question', className: 'font-normal text-status-off' },
 };
 
 export const STATUS_ICONS: Record<StatusState, string> = Object.fromEntries(

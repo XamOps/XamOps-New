@@ -1,0 +1,37 @@
+/*
+ * CloudK8s semantic colours: the one file that sets what status, KPI-delta and chart-series
+ * colours look like. Components never pick a grey (or a hue) for meaning; they use the Tailwind
+ * names that tailwind.config.js maps onto these variables, for example `text-status-good`,
+ * `border-status-bad`, `bg-series-requested` or `stroke-series-used`.
+ *
+ * Every value is a grey today, matching what the pages showed before the tokens existed, so
+ * CloudK8s still reads black, white and grey. The owner's palette (status green, amber, red, blue
+ * and grey; a multi-colour chart palette) replaces the values below and nothing else. This file is
+ * deliberately outside the design-rule guard's paths (src/test/designRules.test.ts) for that reason.
+ *
+ * Values are space-separated R G B channels, so Tailwind's opacity modifiers work
+ * (`bg-status-warn/10`). The page chrome (text, borders, surfaces) keeps its own greys and has no
+ * token here.
+ */
+:root {
+  /* Status: healthy, ready, connected. */
+  --k8s-status-good: 31 31 31;
+  /* Status: needs attention, stale, pending. */
+  --k8s-status-warn: 31 31 31;
+  /* Status: failed, error, critical. */
+  --k8s-status-bad: 31 31 31;
+  /* Status: informational, a test run. */
+  --k8s-status-info: 31 31 31;
+  /* Status: off, not set up, unknown. */
+  --k8s-status-off: 102 102 102;
+
+  /* Chart series, in the glossary's order (§9.1): requested, used, suggested, limit. */
+  --k8s-series-requested: 31 31 31;
+  --k8s-series-used: 115 115 115;
+  --k8s-series-suggested: 31 31 31;
+  --k8s-series-limit: 102 102 102;
+  /* What pods can use but haven't requested: the track behind requested. */
+  --k8s-series-allocatable: 235 235 235;
+  /* Provisioned minus allocatable: what each node keeps for the system. */
+  --k8s-series-overhead: 204 204 204;
+}

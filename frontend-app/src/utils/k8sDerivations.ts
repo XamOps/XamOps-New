@@ -83,6 +83,9 @@ export interface ClusterNode {
   capacityTypeRaw: string | null;
   zone: string | null;
   labels: Record<string, string>;
+  /** What the machine reports (Overview's "Provisioned"); null when the node doesn't say. */
+  capacityCpuM: number | null;
+  capacityMemMi: number | null;
   allocatableCpuM: number | null;
   allocatableMemMi: number | null;
   kubeletVersion: string | null;
@@ -149,7 +152,9 @@ function toClusterNode(node: AnyRecord): ClusterNode | null {
     zone: text(node.zone) ?? labels['topology.kubernetes.io/zone'] ?? null,
     labels,
     // Only Kubernetes quantity strings: the numeric fields mean cores on one backend path and
-    // millicores on another, so a bare number isn't trusted as allocatable.
+    // millicores on another, so a bare number isn't trusted as capacity or allocatable.
+    capacityCpuM: typeof node.capacityCpu === 'string' ? parseCpuMillicores(node.capacityCpu) : null,
+    capacityMemMi: typeof node.capacityMemory === 'string' ? parseMemoryMiB(node.capacityMemory) : null,
     allocatableCpuM: typeof node.allocatableCpu === 'string' ? parseCpuMillicores(node.allocatableCpu) : null,
     allocatableMemMi: typeof node.allocatableMemory === 'string' ? parseMemoryMiB(node.allocatableMemory) : null,
     kubeletVersion: text(node.kubeletVersion),
@@ -532,6 +537,172 @@ export function clusterRequestTotals(dashboard: EksDashboard | null | undefined)
     cpuRequestedPct: cpuAllocatableM ? (sum.cpuRequestM / cpuAllocatableM) * 100 : null,
     memRequestedPct: memAllocatableMi ? (sum.memRequestMi / memAllocatableMi) * 100 : null,
   };
+}
+
+// ── Cluster capacity (Overview, glossary §9.1) ───────────────────────────────
+
+/** One resource, CPU in millicores or memory in MiB; null wherever nobody reported it. */
+export interface ResourceCapacity {
+  /** Node capacity summed; null when any node doesn't report it. */
+  provisioned: number | null;
+  /** Node allocatable summed; null when any node doesn't report it. */
+  allocatable: number | null;
+  /** Provisioned minus allocatable: what the nodes keep for the system. */
+  overhead: number | null;
+  /** Requests of the pods holding node capacity (clusterRequestTotals). */
+  requested: number;
+  /** What Prometheus in the cluster measured; null when it reported nothing (never a measured 0). */
+  used: number | null;
+}
+
+export interface ClusterCapacity {
+  cpu: ResourceCapacity;
+  memory: ResourceCapacity;
+}
+
+/** Provisioned, allocatable, overhead, requested and used for CPU and memory, each from its own source. */
+export function clusterCapacity(dashboard: EksDashboard | null | undefined): ClusterCapacity {
+  const nodes = clusterNodes(dashboard);
+  const totals = clusterRequestTotals(dashboard);
+  const sum = (pick: (n: ClusterNode) => number | null) =>
+    nodes.length > 0 && nodes.every((n) => pick(n) !== null) ? nodes.reduce((s, n) => s + (pick(n) as number), 0) : null;
+  const overview = dashboard?.clusterOverview as AnyRecord | undefined;
+  // The backend fills the absolute usage only from the agent's per-node Prometheus metrics, and
+  // leaves 0 when there were none: usage counts only when the agent reported it.
+  const cpuUsed = clusterUsagePct(dashboard, 'cpu') === null ? null : positive(overview?.cpuUsageMillicores);
+  const memBytes = clusterUsagePct(dashboard, 'memory') === null ? null : positive(overview?.memoryUsageBytes);
+  const resource = (provisioned: number | null, allocatable: number | null, requested: number, used: number | null): ResourceCapacity => ({
+    provisioned,
+    allocatable,
+    overhead: provisioned !== null && allocatable !== null ? Math.max(0, provisioned - allocatable) : null,
+    requested,
+    used,
+  });
+  return {
+    cpu: resource(sum((n) => n.capacityCpuM), totals.cpuAllocatableM, totals.cpuRequestM, cpuUsed),
+    memory: resource(sum((n) => n.capacityMemMi), totals.memAllocatableMi, totals.memRequestMi, memBytes === null ? null : memBytes / 1024 ** 2),
+  };
+}
+
+/** Nodes by capacity type (glossary §9.2): a node without a capacity-type label, or another value, is Unknown. */
+export function capacityTypeCounts(nodes: readonly ClusterNode[]): { onDemand: number; spot: number; unknown: number } {
+  const onDemand = nodes.filter((n) => n.capacityType === 'on-demand').length;
+  const spot = nodes.filter((n) => n.capacityType === 'spot').length;
+  return { onDemand, spot, unknown: nodes.length - onDemand - spot };
+}
+
+export interface InstanceTypeCount {
+  type: string;
+  count: number;
+  /** One node's capacity, as the first node of the type reports it. */
+  cpuM: number | null;
+  memMi: number | null;
+}
+
+/** Instance types by node count, most nodes first; nodes without an instance type are left out. */
+export function instanceTypeCounts(nodes: readonly ClusterNode[]): InstanceTypeCount[] {
+  const byType = new Map<string, InstanceTypeCount>();
+  for (const n of nodes) {
+    if (!n.instanceType) continue;
+    const entry = byType.get(n.instanceType) ?? { type: n.instanceType, count: 0, cpuM: n.capacityCpuM, memMi: n.capacityMemMi };
+    entry.count += 1;
+    byType.set(n.instanceType, entry);
+  }
+  return [...byType.values()].sort((a, b) => b.count - a.count || a.type.localeCompare(b.type));
+}
+
+/** The most allocatable CPU and memory any one node has; null when no node reports it. */
+export function largestNodeAllocatable(nodes: readonly ClusterNode[]): { cpuM: number | null; memMi: number | null } {
+  const max = (values: Array<number | null>) => {
+    const known = values.filter((v): v is number => v !== null);
+    return known.length > 0 ? Math.max(...known) : null;
+  };
+  return { cpuM: max(nodes.map((n) => n.allocatableCpuM)), memMi: max(nodes.map((n) => n.allocatableMemMi)) };
+}
+
+export interface PodPlacement {
+  total: number;
+  /** Scheduled and not finished: "running on a node" (glossary §9.2). */
+  onNode: number;
+  /** Pending without a node: "waiting for a node". */
+  waiting: number;
+  failed: number;
+  completed: number;
+  /** Pending pods the scheduler reported as Unschedulable, largest CPU ask first. */
+  unschedulable: ClusterPod[];
+}
+
+/** Where the pods are, from the one pod list; null when the dashboard carries no pods. */
+export function podPlacement(dashboard: EksDashboard | null | undefined): PodPlacement | null {
+  const pods = clusterPods(dashboard);
+  if (pods.length === 0) return null;
+  const finished = (p: ClusterPod) => p.phase === 'Succeeded' || p.phase === 'Failed';
+  const cpuAsk = (p: ClusterPod) => sumRequests(p.containers).cpuRequestM;
+  return {
+    total: pods.length,
+    onNode: pods.filter((p) => p.nodeName && !finished(p)).length,
+    waiting: pods.filter((p) => p.phase === 'Pending' && !p.nodeName).length,
+    failed: pods.filter((p) => p.phase === 'Failed').length,
+    completed: pods.filter((p) => p.phase === 'Succeeded').length,
+    unschedulable: pods.filter((p) => p.unschedulable).sort((a, b) => cpuAsk(b) - cpuAsk(a)),
+  };
+}
+
+/**
+ * Workloads that have pods, none Running, all Pending and reported Unschedulable: the glossary's
+ * "Not running" (§2 rule 1a), keyed by {@link workloadKey}.
+ */
+export function notRunningWorkloads(dashboard: EksDashboard | null | undefined): Set<string> {
+  const out = new Set<string>();
+  if (!dashboard) return out;
+  const byNs = deploymentsByNamespace(dashboard);
+  const byWorkload = new Map<string, ClusterPod[]>();
+  for (const pod of clusterPods(dashboard)) {
+    const ref = podWorkload(pod, byNs);
+    if (!ref) continue;
+    const key = workloadKey(ref.namespace, ref.kind, ref.name);
+    byWorkload.set(key, [...(byWorkload.get(key) ?? []), pod]);
+  }
+  for (const [key, pods] of byWorkload) {
+    if (pods.every((p) => p.phase === 'Pending' && p.unschedulable)) out.add(key);
+  }
+  return out;
+}
+
+export interface NodeProvisioners {
+  /** Karpenter's own data was reported, or nodes carry its NodePool label. */
+  karpenter: 'reported' | 'labels' | null;
+  /** A Deployment named cluster-autoscaler is running in the cluster. */
+  clusterAutoscaler: boolean;
+}
+
+/** Who adds and removes nodes in this cluster, as far as the agent's data shows. */
+export function nodeProvisioners(dashboard: EksDashboard | null | undefined): NodeProvisioners {
+  if (!dashboard) return { karpenter: null, clusterAutoscaler: false };
+  const karpenter = dashboard.karpenter ? 'reported' : nodeGroups(dashboard).some((g) => g.type === 'Karpenter NodePool') ? 'labels' : null;
+  const clusterAutoscaler = deploymentList(dashboard).some((d) => /(^|-)cluster-autoscaler($|-)/.test(text(d.name) ?? ''));
+  return { karpenter, clusterAutoscaler };
+}
+
+export interface HpaState {
+  name: string;
+  namespace: string;
+  current: number | null;
+  max: number | null;
+  /** Running its maximum number of replicas. */
+  atMax: boolean;
+}
+
+/** The HPAs the agent reported; null when it reported no HPA list at all (not the same as none). */
+export function hpaStates(dashboard: EksDashboard | null | undefined): HpaState[] | null {
+  if (!Array.isArray(dashboard?.k8sHpas)) return null;
+  return list(dashboard?.k8sHpas).flatMap((h) => {
+    const name = text(h.name);
+    if (!name) return [];
+    const current = toNumber(h.currentReplicas);
+    const max = toNumber(h.maxReplicas);
+    return [{ name, namespace: text(h.namespace) ?? 'default', current, max, atMax: current !== null && max !== null && current >= max }];
+  });
 }
 
 // ── Node groups (§10.5) ──────────────────────────────────────────────────────
@@ -988,6 +1159,42 @@ export function workloadSavings(
     hourly += (cpuDown / 1000) * CPU_RATE_PER_VCPU_HOUR + (memDown / 1024) * MEMORY_RATE_PER_GIB_HOUR;
   }
   return { eligible: true, exclusion: null, replicas, monthlyUsd: hourly * replicas * HOURS_PER_MONTH, needsMore, contributing };
+}
+
+export interface FreedCapacity {
+  cpuM: number;
+  memMi: number;
+  /** Workloads that contributed. */
+  workloads: number;
+  /** Workloads left out because neither the engine nor the dashboard knows their replicas. */
+  replicasUnknown: number;
+}
+
+/**
+ * Capacity, not dollars, that the given workloads' suggestions would free (glossary §2 rule 6,
+ * §9.3 "Freed capacity"): per container, each request that goes down, times the replicas.
+ */
+export function freedCapacity(workloads: readonly VerticalWorkload[], dashboard: EksDashboard | null | undefined): FreedCapacity {
+  const out: FreedCapacity = { cpuM: 0, memMi: 0, workloads: 0, replicasUnknown: 0 };
+  for (const w of workloads) {
+    const replicas = w.replicas ?? dashboardReplicas(dashboard, w.ref);
+    if (replicas === null) {
+      out.replicasUnknown += 1;
+      continue;
+    }
+    let cpu = 0;
+    let mem = 0;
+    for (const c of w.containers) {
+      const rec = c.recommended;
+      if (!rec) continue;
+      if (c.current.cpuRequestM !== null && rec.cpuRequestM !== null) cpu += Math.max(0, c.current.cpuRequestM - rec.cpuRequestM);
+      if (c.current.memRequestMi !== null && rec.memRequestMi !== null) mem += Math.max(0, c.current.memRequestMi - rec.memRequestMi);
+    }
+    if (cpu > 0 || mem > 0) out.workloads += 1;
+    out.cpuM += cpu * replicas;
+    out.memMi += mem * replicas;
+  }
+  return out;
 }
 
 /** Replicas the dashboard reports for a workload, for savings when the engine sends none. */

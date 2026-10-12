@@ -105,6 +105,10 @@ describe('resolveSectionRoute', () => {
   it('withSection sets tab and sub only', () => {
     expect(withSection('a=1&tab=x', 'nodes', 'nodes')).toBe('a=1&tab=nodes&sub=nodes');
   });
+
+  it('withSection drops a one-shot view filter, so it never follows the user to the next section', () => {
+    expect(withSection('a=1&tab=workloads&sub=pods&phase=Pending', 'nodes', 'nodes')).toBe('a=1&tab=nodes&sub=nodes');
+  });
 });
 
 describe('sectionNavEntries (Addendum 1, J-2..J-4)', () => {
