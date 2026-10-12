@@ -88,7 +88,9 @@ function Explainer({ remedy }: { remedy: Extract<Remedy, { kind: 'explainer' }> 
       >
         {remedy.label}
       </button>
-      <span id={panelId} hidden={!open} className="mt-1 block">
+      {/* `block` would override the hidden attribute (same specificity, later in the sheet), so the
+          class follows `open` too. */}
+      <span id={panelId} hidden={!open} className={open ? 'mt-1 block' : 'hidden'}>
         {remedy.explainer === 'read-write'
           ? <ReadWriteHelp />
           : <span className="block text-[12px] text-[rgba(0,0,0,0.6)]">{NOT_READY_EXPLAINER}</span>}

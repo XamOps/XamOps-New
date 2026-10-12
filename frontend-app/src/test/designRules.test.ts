@@ -24,6 +24,12 @@ export const GUARDED_PATHS: readonly string[] = [
   'hooks/useK8sCacheIdentity.ts',
   'hooks/useEksSectionRoute.ts',
   'utils/k8sCache.ts',
+  'pages/EksDetailsPage.tsx',
+  'pages/CloudK8sPage.tsx',
+  'components/EksDetails/ClusterHeader.tsx',
+  'components/EksDetails/sections/',
+  'utils/inPageNavigation.ts',
+  'utils/k8sVersion.ts',
 ];
 
 const TAILWIND_PREFIX = '(?:text|bg|border|from|via|to|ring|fill|stroke|divide|outline|shadow|accent|decoration|placeholder|caret)';

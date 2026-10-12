@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { EksSectionId, EksSubtabId, TabType } from '../types/eksTypes';
+import { inPageState } from '../utils/inPageNavigation';
 
 export interface SubtabDef<S extends string = string> {
   id: S;
@@ -150,11 +151,13 @@ export function useEksSectionRoute<T extends string = EksSectionId, S extends st
     [registry, legacyMap, location.search],
   );
 
+  // In-page navigations (utils/inPageNavigation): the layout keeps the page mounted, so a tab click
+  // or a correction re-renders the page instead of remounting it and refetching what it loaded.
   useEffect(() => {
     if (resolved.corrected !== null) {
-      navigate({ search: resolved.corrected, hash: location.hash }, { replace: true });
+      navigate({ search: resolved.corrected, hash: location.hash }, { replace: true, state: inPageState(location) });
     }
-  }, [resolved.corrected, navigate, location.hash]);
+  }, [resolved.corrected, navigate, location]);
 
   const section = registry.find((s) => s.id === resolved.tab) ?? registry[0];
 
@@ -165,8 +168,8 @@ export function useEksSectionRoute<T extends string = EksSectionId, S extends st
   }, [registry, location.search]);
 
   const select = useCallback((tab: T, sub?: S) => {
-    navigate({ search: searchFor(tab, sub) }, { replace: true });
-  }, [navigate, searchFor]);
+    navigate({ search: searchFor(tab, sub) }, { replace: true, state: inPageState(location) });
+  }, [navigate, searchFor, location]);
 
   const hrefFor = useCallback((tab: T, sub?: S) => `${location.pathname}?${searchFor(tab, sub)}`,
     [location.pathname, searchFor]);

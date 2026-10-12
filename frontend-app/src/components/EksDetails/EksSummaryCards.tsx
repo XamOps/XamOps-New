@@ -4,9 +4,12 @@
  */
 
 import React from 'react';
+import { displayVersion } from '../../utils/k8sVersion';
 
 interface EksSummaryCardsProps {
   eksData: any;
+  /** The page's resolved Kubernetes version (utils/k8sVersion), or null when nothing reported one. */
+  clusterVersion: string | null;
 }
 
 const StatCard: React.FC<{
@@ -34,8 +37,8 @@ const StatCard: React.FC<{
   </div>
 );
 
-const EksSummaryCards: React.FC<EksSummaryCardsProps> = ({ eksData }) => {
-  const { dashboard, totalPodsCount, version, getNodeConditionCount } = eksData;
+const EksSummaryCards: React.FC<EksSummaryCardsProps> = ({ eksData, clusterVersion }) => {
+  const { dashboard, totalPodsCount, getNodeConditionCount } = eksData;
 
   const totalNodes = dashboard?.clusterOverview?.totalNodes || 0;
   // getNodeConditionCount falls back to resourceUtilization.nodes condition strings
@@ -57,14 +60,13 @@ const EksSummaryCards: React.FC<EksSummaryCardsProps> = ({ eksData }) => {
   const cpuPct = dashboard?.clusterOverview?.cpuUsagePercent || 0;
   const memPct = dashboard?.clusterOverview?.memoryUsagePercent || 0;
   const dailyCost = dashboard?.costMetrics?.dailyCost || 0;
-  const clusterVersion = dashboard?.clusterOverview?.version || version || 'N/A';
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-0">
       <StatCard
         label="Nodes Ready"
         value={<>{readyNodes}<span className="text-[16px] text-[rgba(0,0,0,0.4)] font-normal">/{totalNodes}</span></>}
-        sub={`k8s v${clusterVersion}`}
+        sub={clusterVersion ? `k8s ${displayVersion(clusterVersion)}` : 'k8s version not reported'}
       />
       <StatCard
         label="Pods Running"

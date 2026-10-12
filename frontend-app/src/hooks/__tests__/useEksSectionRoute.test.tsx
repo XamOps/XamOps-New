@@ -8,6 +8,7 @@ import {
   useEksSectionRoute,
   withSection,
 } from '../useEksSectionRoute';
+import { pageKeyOf } from '../../utils/inPageNavigation';
 
 const BASE = 'name=prod-eks&region=us-east-1&accountIds=111111111111';
 const resolve = (search: string) => resolveSectionRoute(EKS_SECTIONS, LEGACY_TAB_MAP, search);
@@ -139,6 +140,21 @@ describe('useEksSectionRoute', () => {
     await act(async () => {});
     expect(router.state.historyAction).toBe('POP');
     expect(screen.getByTestId('pair')).toHaveTextContent('nodes/karpenter');
+  });
+
+  it('keeps the page mounted: corrections and switches carry the key of the entry the page opened on', async () => {
+    const router = createMemoryRouter([{ path: '/eks-details', element: <Probe /> }], {
+      initialEntries: [`/eks-details?${BASE}&tab=pods`],
+    });
+    const opened = router.state.location.key;
+    render(<RouterProvider router={router} />);
+    await act(async () => {});
+    // The legacy value was corrected with a new entry key, but the page key is unchanged.
+    expect(router.state.location.key).not.toBe(opened);
+    expect(pageKeyOf(router.state.location)).toBe(opened);
+    await act(async () => screen.getByText('security').click());
+    expect(screen.getByTestId('pair')).toHaveTextContent('security/vulnerabilities');
+    expect(pageKeyOf(router.state.location)).toBe(opened);
   });
 
   it('selects with replace and builds hrefs that keep the other parameters', async () => {

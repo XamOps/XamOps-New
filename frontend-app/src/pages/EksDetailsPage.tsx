@@ -1,234 +1,229 @@
 /**
- * EKS Details Page
+ * The EKS cluster page (docs/cloudk8s/ui-revamp-design.md §4.2, §5, §13, §15; plan item 19).
  *
- * Converted from: eks-details.html
- *
- * Comprehensive EKS cluster dashboard with multiple tabs for monitoring
- * cluster health, cost, performance, security, workloads, and more.
- *
- * Features:
- * - Real-time cluster metrics and health scoring
- * - Cost analysis and optimization recommendations
- * - Security monitoring (Falco, Kubescape, Trivy)
- * - Resource utilization tracking
- * - Workload, pod, container, and node management
- * - Karpenter autoscaling monitoring
- * - Integration guide modal
+ * Validates the link (a bad one goes back to /cloudk8s with a notice), loads capabilities for the
+ * account, and renders the header, the dashboard's loading and error states, the diagnostics panel
+ * with `?debug=true`, the summary cards, and the primary sections as WAI-ARIA tabs. `?tab=&sub=`
+ * belongs to useEksSectionRoute. Each section is its own lazy chunk inside Suspense and an
+ * ErrorBoundary, so a section that fails leaves the rest of the page working.
  */
-
-import React, { useState, useEffect } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
-import { useSearchParams, Link } from 'react-router-dom';
+import React, { Suspense, lazy, useCallback, useState } from 'react';
+import { Icon } from '@iconify/react';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { useEksDashboard } from '../hooks/useEksDashboard';
-import { useTopbar } from '../contexts/TopbarContext';
-import clsx from 'clsx';
+import { useEksSectionRoute } from '../hooks/useEksSectionRoute';
+import { useK8sCacheIdentity } from '../hooks/useK8sCacheIdentity';
+import { K8sCapabilitiesProvider } from '../hooks/useK8sCapabilities';
+import { isDemoMode } from '../demo/demoConfig';
+import { parseVersionParam, resolveClusterVersion } from '../utils/k8sVersion';
+import ErrorBoundary from '../components/Shared/ErrorBoundary';
+import { SectionTabs } from '../components/CloudK8s/shared/SectionTabs';
+import { ClusterHeader } from '../components/EksDetails/ClusterHeader';
 import EksSummaryCards from '../components/EksDetails/EksSummaryCards';
-import EksTabs from '../components/EksDetails/EksTabs';
-import EksOverviewTab from '../components/EksDetails/tabs/EksOverviewTab';
-import EksCostTab from '../components/EksDetails/tabs/EksCostTab';
-import EksPerformanceTab from '../components/EksDetails/tabs/EksPerformanceTab';
-import EksSecurityTab from '../components/EksDetails/tabs/EksSecurityTab';
-import EksWorkloadsTab from '../components/EksDetails/tabs/EksWorkloadsTab';
-import EksPodsTab from '../components/EksDetails/tabs/EksPodsTab';
-import EksContainersTab from '../components/EksDetails/tabs/EksContainersTab';
-import EksNodesTab from '../components/EksDetails/tabs/EksNodesTab';
-import EksKarpenterTab from '../components/EksDetails/tabs/EksKarpenterTab';
-import EksResourcesTab from '../components/EksDetails/tabs/EksResourcesTab';
-import EksAutomationTab from '../components/EksDetails/tabs/EksAutomationTab';
-// import EksAutoscalingTab from '../components/EksDetails/tabs/EksAutoscalingTab';
-import EksIntegrationModal from '../components/EksDetails/EksIntegrationModal';
 import EksDiagnosticsPanel from '../components/EksDetails/EksDiagnosticsPanel';
+import type { EksSectionProps } from '../components/EksDetails/sections/sectionTypes';
+import type { EksSectionId } from '../types/eksTypes';
 
-const EksDetailsPage: React.FC = () => {
-  const [searchParams] = useSearchParams();
-  const [showIntegrationGuide, setShowIntegrationGuide] = useState(false);
-  const { setTitle, setActions, clearActions } = useTopbar();
+/** 69 KB of guide; loaded the first time Guide is opened (§15). */
+const EksIntegrationModal = lazy(() => import('../components/EksDetails/EksIntegrationModal'));
 
-  // Listen for the custom event dispatched by child tabs (e.g. EksAutoscalingTab)
-  useEffect(() => {
-    const handler = () => setShowIntegrationGuide(true);
-    document.addEventListener('open-integration-guide', handler);
-    return () => document.removeEventListener('open-integration-guide', handler);
-  }, []);
+type SectionComponent = React.LazyExoticComponent<React.ComponentType<EksSectionProps>>;
 
-  // Get params from URL
-  const clusterName = searchParams.get('name');
-  const region = searchParams.get('region') || 'us-east-1';
-  const version = searchParams.get('version') || '1.33';
-  const accountId = searchParams.get('accountIds');
-  // The vertical automation endpoint takes exactly one 12-digit AWS account, while this page's
-  // query parameter is a comma-separated list; the first entry is the account the cluster was
-  // opened from.
-  const primaryAccountId = accountId ? accountId.split(',')[0].trim() : null;
-  const tabParam = searchParams.get('tab') as any;
-  const debugMode = searchParams.get('debug') === 'true';
+/** One chunk per registered primary section (§15). */
+const SECTIONS: Partial<Record<EksSectionId, SectionComponent>> = {
+  overview: lazy(() => import('../components/EksDetails/sections/OverviewSection')),
+  cost: lazy(() => import('../components/EksDetails/sections/CostSection')),
+  workloads: lazy(() => import('../components/EksDetails/sections/WorkloadsSection')),
+  nodes: lazy(() => import('../components/EksDetails/sections/NodesSection')),
+  automation: lazy(() => import('../components/EksDetails/sections/AutomationSection')),
+  security: lazy(() => import('../components/EksDetails/sections/SecuritySection')),
+};
 
-  // Initialize dashboard hook
-  const eksData = useEksDashboard({
-    clusterName,
-    region,
-    version,
-    accountId,
-    initialTab: tabParam || undefined,
-  });
+export const INVALID_LINK_NOTICE = 'That cluster link is invalid.';
 
-  const {
-    dashboard,
-    loading,
-    error,
-    activeTab,
-    setActiveTab,
-    isSyncing,
-    syncInBackground,
-    lastUpdateTimestamp,
-    getTimeSince
-  } = eksData;
+/** §13 rules for the link's parameters. */
+const CLUSTER_NAME = /^[0-9A-Za-z][A-Za-z0-9_-]{0,99}$/;
+const ACCOUNT_ID = /^[0-9]{1,12}$/;
+const DEMO_ACCOUNT_ID = /^demo-aws-[0-9A-Za-z-]+$/;
+const REGION = /^[a-z]{2}(-gov)?-[a-z]+-\d$/;
+const DEFAULT_REGION = 'us-east-1';
 
-  // Topbar Integration
-  useEffect(() => {
-    if (!clusterName) return;
+export interface ClusterLink {
+  clusterName: string;
+  accountId: string;
+  region: string;
+  /** describeCluster's version, which the fleet puts in the link; null when the link has none. */
+  version: string | null;
+}
 
-    setTitle(clusterName);
+/** The link's cluster, account and region (§13), or null when one is missing or malformed. */
+export function parseClusterLink(params: URLSearchParams, demo: boolean): ClusterLink | null {
+  const clusterName = params.get('name');
+  const accountId = params.get('accountIds');
+  const region = params.get('region') || DEFAULT_REGION;
+  if (!clusterName || !CLUSTER_NAME.test(clusterName)) return null;
+  if (!accountId || !(ACCOUNT_ID.test(accountId) || (demo && DEMO_ACCOUNT_ID.test(accountId)))) return null;
+  if (!REGION.test(region)) return null;
+  // A version isn't required: without one the page shows it as not reported rather than guess.
+  return { clusterName, accountId, region, version: parseVersionParam(params.get('version')) };
+}
 
-    setActions(
-      <div className="flex items-center gap-3">
-        <Link
-          to={`/cloudk8s?accountIds=${accountId}`}
-          className="w-9 h-9 bg-white border border-[rgba(0,0,0,0.12)] rounded-xl flex items-center justify-center text-[rgba(0,0,0,0.4)] hover:text-[rgba(0,0,0,0.88)] hover:border-[rgba(0,0,0,0.25)] transition-all"
-          title="Back to Clusters"
-        >
-          <i className="fas fa-arrow-left text-xs"></i>
-        </Link>
+const actionClass =
+  'inline-flex items-center gap-1.5 rounded-md border border-[rgba(0,0,0,0.2)] bg-white px-3 py-1.5 text-[12px] font-semibold '
+  + 'text-[rgba(0,0,0,0.88)] hover:bg-[rgba(0,0,0,0.04)] outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] focus-visible:ring-offset-2';
 
-        <div className="hidden md:flex flex-col items-end">
-          <div className="flex items-center gap-1.5 text-[10px] text-[rgba(0,0,0,0.35)] font-medium whitespace-nowrap">
-            <i className="fas fa-code-branch"></i> v{version} · <i className="fas fa-map-marker-alt"></i> {region}
-          </div>
-          <div className="text-[10px] text-[rgba(0,0,0,0.5)] font-semibold">
-            Synced: {getTimeSince(lastUpdateTimestamp)}
-          </div>
-        </div>
+const block = 'animate-pulse rounded-lg bg-[rgba(0,0,0,0.06)]';
 
-        <button
-          onClick={() => setShowIntegrationGuide(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-white text-[rgba(0,0,0,0.6)] text-xs font-bold rounded-xl border border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.03)] transition-all"
-        >
-          <i className="fas fa-book text-xs"></i>
-          <span>Guide</span>
-        </button>
+function PageSkeleton() {
+  return (
+    <div className="space-y-6" aria-busy="true">
+      <span className="sr-only">Loading cluster…</span>
+      <div className="grid grid-cols-4 gap-6">
+        {[0, 1, 2, 3].map((i) => <div key={i} className={`h-40 ${block}`} />)}
+      </div>
+      <div className={`h-96 ${block}`} />
+    </div>
+  );
+}
 
-        <button
-          onClick={syncInBackground}
-          disabled={isSyncing}
-          className="flex items-center gap-2 px-4 py-2 bg-[rgba(0,0,0,0.88)] text-white text-xs font-bold rounded-xl hover:bg-black transition-all disabled:opacity-50"
-        >
-          <i className={clsx('fas fa-sync-alt', isSyncing && 'animate-spin')}></i>
-          <span>{isSyncing ? 'Syncing…' : 'Sync Data'}</span>
+/** Section-shaped: a subtab bar, a row of tiles and a table (§15). */
+function SectionSkeleton() {
+  return (
+    <div className="space-y-3" aria-busy="true">
+      <span className="sr-only">Loading section…</span>
+      <div className={`h-8 w-72 ${block}`} />
+      <div className="grid grid-cols-3 gap-3">
+        {[0, 1, 2].map((i) => <div key={i} className={`h-24 ${block}`} />)}
+      </div>
+      <div className={`h-64 ${block}`} />
+    </div>
+  );
+}
+
+function SectionError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div role="alert" className="flex flex-col items-start gap-2 rounded-lg border border-[rgba(0,0,0,0.88)] bg-white p-4 text-[13px]">
+      <span className="flex items-center gap-2 font-semibold text-[rgba(0,0,0,0.88)]">
+        <Icon icon="mdi:alert-octagon" width={16} aria-hidden="true" />
+        This section couldn't be shown.
+      </span>
+      <span className="text-[rgba(0,0,0,0.6)]">The other sections still work. Try again, or open another section.</span>
+      <button type="button" onClick={onRetry} className={actionClass}>
+        <Icon icon="mdi:refresh" width={14} aria-hidden="true" />
+        Try again
+      </button>
+    </div>
+  );
+}
+
+function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div role="alert" className="flex items-start gap-3 rounded-lg border border-[rgba(0,0,0,0.88)] bg-white p-5">
+      <Icon icon="mdi:alert-octagon" width={18} aria-hidden="true" className="mt-0.5 shrink-0 text-[rgba(0,0,0,0.88)]" />
+      <div className="min-w-0 flex-1">
+        <h2 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">Couldn't load this cluster</h2>
+        <p className="mt-0.5 break-words text-[13px] text-[rgba(0,0,0,0.6)]">{message}</p>
+        <button type="button" onClick={onRetry} className={`mt-3 ${actionClass}`}>
+          <Icon icon="mdi:refresh" width={14} aria-hidden="true" />
+          Retry
         </button>
       </div>
-    );
-    return () => {
-      clearActions();
-      setTitle(null);
-    };
-  }, [setTitle, setActions, clearActions, isSyncing, syncInBackground, getTimeSince, lastUpdateTimestamp, clusterName, accountId, version, region]);
+    </div>
+  );
+}
 
-  // Handle invalid params
-  if (!clusterName || !accountId) {
-    return (
-      <main className="flex-1 flex items-center justify-center min-h-screen bg-white">
-        <div className="text-center p-8">
-          <div className="w-16 h-16 bg-[rgba(220,38,38,0.06)] rounded-xl flex items-center justify-center mx-auto mb-4 border border-[rgba(220,38,38,0.15)]">
-            <i className="fas fa-exclamation-triangle text-[#DC2626] text-2xl"></i>
-          </div>
-          <h3 className="text-[18px] font-semibold text-[rgba(0,0,0,0.88)] mb-2">Missing Parameters</h3>
-          <p className="text-[13px] text-[rgba(0,0,0,0.4)]">
-            Required parameters missing: {!clusterName && 'clusterName'} {!accountId && 'accountId'}
-          </p>
-        </div>
-      </main>
-    );
-  }
+/** One primary section: its chunk, a skeleton while it loads, and a boundary reset per tab. */
+function SectionPanel({ tab, ...props }: EksSectionProps & { tab: EksSectionId }) {
+  const [attempt, setAttempt] = useState(0);
+  const Section = SECTIONS[tab];
+  if (!Section) return null;
+  return (
+    // The shared boundary resets on pathname only, so the key resets it per tab and on Try again.
+    <ErrorBoundary key={`${tab}:${attempt}`} fallback={<SectionError onRetry={() => setAttempt((n) => n + 1)} />}>
+      <Suspense fallback={<SectionSkeleton />}>
+        <Section {...props} />
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+
+function ClusterPage({ link, debug }: { link: ClusterLink; debug: boolean }) {
+  const { clusterName, accountId, region, version } = link;
+  useK8sCacheIdentity();
+  const eksData = useEksDashboard({ clusterName, accountId, region, version });
+  const route = useEksSectionRoute();
+  const [guideLoaded, setGuideLoaded] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const openGuide = useCallback(() => {
+    setGuideLoaded(true);
+    setGuideOpen(true);
+  }, []);
+  const closeGuide = useCallback(() => setGuideOpen(false), []);
+
+  const { dashboard, loading, error, fetchDashboard } = eksData;
+  const retry = useCallback(() => { void fetchDashboard(false); }, [fetchDashboard]);
+  const clusterVersion = resolveClusterVersion(version, dashboard?.clusterOverview?.version);
 
   return (
-    <main className="eks-details-page flex-1 flex flex-col min-h-screen bg-white" style={{ fontFamily: "'Inter', sans-serif" }}>
-      <div className="p-6 space-y-4 w-full">
-        {/* Old Header Removed */}
+    <main className="flex min-h-screen flex-1 flex-col bg-white" style={{ fontFamily: "'Inter', sans-serif" }}>
+      <div className="w-full space-y-4 p-6">
+        <ClusterHeader
+          clusterName={clusterName}
+          accountId={accountId}
+          region={region}
+          version={clusterVersion}
+          isSyncing={eksData.isSyncing}
+          syncTimedOut={eksData.syncTimedOut}
+          lastUpdateTimestamp={eksData.lastUpdateTimestamp}
+          getTimeSince={eksData.getTimeSince}
+          onSync={eksData.syncInBackground}
+          onOpenGuide={openGuide}
+        />
 
-        {/* Loading State */}
-        {loading && !dashboard && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-4 gap-6">
-              {[1, 2, 3, 4].map(i => (
-                <div key={i} className="skeleton h-40 rounded-xl"></div>
-              ))}
-            </div>
-            <div className="skeleton h-96 rounded-xl"></div>
-          </div>
-        )}
+        {loading && !dashboard && <PageSkeleton />}
 
-        {/* Error State */}
-        {error && !loading && (
-          <div className="bg-[#ffebe9] border border-[rgba(255,129,130,0.4)] p-5 rounded-lg">
-            <div className="flex items-center gap-3">
-              <i className="fas fa-exclamation-circle text-[#cf222e] text-lg"></i>
-              <div>
-                <h3 className="text-sm font-semibold text-[#cf222e]">Error Loading Dashboard</h3>
-                <p className="text-[13px] text-[#57606a] mt-0.5">{error}</p>
-              </div>
-            </div>
-          </div>
-        )}
+        {error && !loading && <LoadError message={error} onRetry={retry} />}
 
-        {/* Dashboard Content */}
         {(!loading || dashboard) && !error && (
           <>
-            {/* Data Diagnostics — only when ?debug=true */}
-            {debugMode && dashboard && <EksDiagnosticsPanel dashboard={dashboard} />}
+            {debug && dashboard && <EksDiagnosticsPanel dashboard={dashboard} />}
 
-            {/* Summary Cards */}
-            <EksSummaryCards eksData={eksData} />
+            <EksSummaryCards eksData={eksData} clusterVersion={clusterVersion} />
 
-            {/* Tabs */}
-            <EksTabs activeTab={activeTab} onTabChange={setActiveTab} />
-
-            {/* Tab Content */}
-            <div className="tab-content">
-              <AnimatePresence mode="wait">
-                <motion.div key={activeTab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
-                  {activeTab === 'overview' && <EksOverviewTab eksData={eksData} />}
-                  {activeTab === 'cost' && <EksCostTab eksData={eksData} />}
-                  {activeTab === 'performance' && <EksPerformanceTab eksData={eksData} />}
-                  {activeTab === 'security' && <EksSecurityTab eksData={eksData} />}
-                  {activeTab === 'workloads' && <EksWorkloadsTab eksData={eksData} />}
-                  {activeTab === 'pods' && <EksPodsTab eksData={eksData} />}
-                  {activeTab === 'containers' && <EksContainersTab eksData={eksData} />}
-                  {activeTab === 'nodes' && <EksNodesTab eksData={eksData} />}
-                  {activeTab === 'resources' && <EksResourcesTab eksData={eksData} />}
-                  {activeTab === 'karpenter' && <EksKarpenterTab eksData={eksData} />}
-                  {activeTab === 'automation' && primaryAccountId && (
-                    <EksAutomationTab
-                      clusterName={clusterName}
-                      accountId={primaryAccountId}
-                      region={region}
-                    />
-                  )}
-                  {/* {activeTab === 'autoscaling' && <EksAutoscalingTab eksData={eksData} />} */}
-                </motion.div>
-              </AnimatePresence>
-            </div>
+            <SectionTabs
+              variant="primary"
+              label="Cluster sections"
+              items={route.registry}
+              selectedKey={route.tab}
+              onSelectionChange={(tab) => route.select(tab)}
+              // Today's tabs still read eks-details.css through this class (removed in item 31); the
+              // overrides drop the page-level min-height and tinted background it also sets.
+              panelClassName="eks-details-page !min-h-0 !bg-transparent"
+              renderPanel={(tab) => (
+                <SectionPanel tab={tab} clusterName={clusterName} eksData={eksData} route={route} />
+              )}
+            />
           </>
         )}
       </div>
 
-      {/* Integration Guide Modal */}
-      <EksIntegrationModal
-        isOpen={showIntegrationGuide}
-        onClose={() => setShowIntegrationGuide(false)}
-        clusterName={clusterName || undefined}
-        region={region}
-      />
+      {guideLoaded && (
+        <Suspense fallback={null}>
+          <EksIntegrationModal isOpen={guideOpen} onClose={closeGuide} clusterName={clusterName} region={region} />
+        </Suspense>
+      )}
     </main>
+  );
+}
+
+const EksDetailsPage: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const link = parseClusterLink(searchParams, isDemoMode());
+  if (!link) return <Navigate to="/cloudk8s" replace state={{ notice: INVALID_LINK_NOTICE }} />;
+  return (
+    <K8sCapabilitiesProvider accountId={link.accountId} provider="AWS">
+      <ClusterPage link={link} debug={searchParams.get('debug') === 'true'} />
+    </K8sCapabilitiesProvider>
   );
 };
 

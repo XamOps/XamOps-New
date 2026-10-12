@@ -41,6 +41,7 @@ import RouteChangeHandler from './components/Shared/RouteChangeHandler';
 import { CommandPalette } from './components/Shared/CommandPalette';
 import OnboardingModal from './components/OnboardingModal';
 import { apiFetch } from './utils/apiClient';
+import { pageKeyOf } from './utils/inPageNavigation';
 import { GooeyToaster } from 'goey-toast';
 import 'goey-toast/styles.css';
 
@@ -448,8 +449,10 @@ const AuthenticatedLayout: React.FC = () => {
                     {/* Permission gap alert: explains why data is missing when IAM policies are restricted */}
                     <PermissionGapBanner />
                     <AnimatePresence mode="wait" initial={false}>
+                        {/* A new key per navigation re-enters the page; in-page navigations
+                            (utils/inPageNavigation) keep their page's key so it stays mounted. */}
                         <motion.div
-                            key={location.key}
+                            key={pageKeyOf(location)}
                             className="flex-1 pt-0"
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}

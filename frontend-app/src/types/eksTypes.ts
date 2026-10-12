@@ -48,6 +48,11 @@ export interface ClusterOverview {
   memoryUsageBytes: number;
   memoryCapacityBytes: number;
   memoryUsagePercent: number;
+  /**
+   * The agent's API-server gitVersion when it reported one; otherwise the backend repeats the
+   * request's version or its own default here (read it through utils/k8sVersion).
+   */
+  version?: string | null;
 }
 
 export interface CostMetrics {

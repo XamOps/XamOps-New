@@ -40,7 +40,6 @@ import {
   PotentialSavings,
   QuickWin,
   KarpenterStatus,
-  TabType,
   NodeCost
 } from '../types/eksTypes';
 import { useEksDashboardCache } from '../contexts/EksDashboardCacheContext';
@@ -48,20 +47,23 @@ import { useEksDashboardCache } from '../contexts/EksDashboardCacheContext';
 interface UseEksDashboardParams {
   clusterName: string | null;
   region: string;
-  version: string;
+  /** The link's version; left out of the request when null, so no version is guessed. */
+  version: string | null;
   accountId: string | null;
-  initialTab?: TabType;
 }
 
-interface UseEksDashboardReturn {
+/** The `&version=` query part, or nothing when the version isn't known. */
+const versionParam = (version: string | null) => (version ? `&version=${encodeURIComponent(version)}` : '');
+
+export interface UseEksDashboardReturn {
   dashboard: EksDashboard | null;
   loading: boolean;
   isRefreshing: boolean;
   isSyncing: boolean;
+  /** The last sync stopped polling before new data arrived; reset when the next sync starts. */
+  syncTimedOut: boolean;
   error: string | null;
   lastUpdateTimestamp: number;
-  activeTab: TabType;
-  setActiveTab: (tab: TabType) => void;
   containerSearchQuery: string;
   setContainerSearchQuery: (query: string) => void;
   containerNamespaceFilter: string;
@@ -131,7 +133,6 @@ export const useEksDashboard = ({
   region,
   version,
   accountId,
-  initialTab,
 }: UseEksDashboardParams): UseEksDashboardReturn => {
   // Frontend cache context - persists data across navigation
   const dashboardCache = useEksDashboardCache();
@@ -140,9 +141,9 @@ export const useEksDashboard = ({
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncTimedOut, setSyncTimedOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdateTimestamp, setLastUpdateTimestamp] = useState(Date.now());
-  const [activeTab, setActiveTab] = useState<TabType>(initialTab || 'overview');
   const [containerSearchQuery, setContainerSearchQuery] = useState('');
   const [containerNamespaceFilter, setContainerNamespaceFilter] = useState('');
 
@@ -176,7 +177,7 @@ export const useEksDashboard = ({
 
     try {
       const data = await apiClient.get<EksDashboard>(
-        `/api/xamops/eks/${clusterName}/dashboard?accountId=${accountId}&region=${region}&version=${version}&forceRefresh=${forceRefresh}`
+        `/api/xamops/eks/${clusterName}/dashboard?accountId=${accountId}&region=${region}${versionParam(version)}&forceRefresh=${forceRefresh}`
       );
 
       setDashboard(data);
@@ -218,6 +219,7 @@ export const useEksDashboard = ({
     if (!accountId || !clusterName || isSyncing) return;
 
     setIsSyncing(true);
+    setSyncTimedOut(false);
     const previousSyncTime = lastUpdateTimestamp;
 
     try {
@@ -233,7 +235,7 @@ export const useEksDashboard = ({
       const pollForUpdate = async (): Promise<boolean> => {
         try {
           const data = await apiClient.get<EksDashboard>(
-            `/api/xamops/eks/${clusterName}/dashboard?accountId=${accountId}&region=${region}&version=${version}&forceRefresh=false`
+            `/api/xamops/eks/${clusterName}/dashboard?accountId=${accountId}&region=${region}${versionParam(version)}&forceRefresh=false`
           );
 
           if (data.lastSyncedAt) {
@@ -255,20 +257,20 @@ export const useEksDashboard = ({
       };
 
       // Poll until new data arrives or timeout
+      let updated = false;
       while (attempts < maxAttempts) {
         await new Promise(resolve => setTimeout(resolve, 3000));
         attempts++;
 
-        const updated = await pollForUpdate();
+        updated = await pollForUpdate();
         if (updated) {
           console.log(`Sync completed after ${attempts * 3} seconds`);
           break;
         }
       }
 
-      if (attempts >= maxAttempts) {
-        console.warn('Sync polling timeout - data may still be syncing');
-      }
+      // The backend may still be syncing; the page says so instead of failing silently.
+      if (!updated) setSyncTimedOut(true);
 
     } catch (err: any) {
       console.error('Error triggering background sync:', err);
@@ -891,10 +893,9 @@ export const useEksDashboard = ({
     loading,
     isRefreshing,
     isSyncing,
+    syncTimedOut,
     error,
     lastUpdateTimestamp,
-    activeTab,
-    setActiveTab,
     containerSearchQuery,
     setContainerSearchQuery,
     containerNamespaceFilter,
