@@ -73,6 +73,25 @@ class VerticalDecisionMapperTest {
     }
 
     @Test
+    @DisplayName("live pods that disagree are published as podsDisagree, beside current (review-2 SF2)")
+    void disagreeingPodsArePublished() {
+        WorkloadRef ref = WorkloadRef.of("prod-sim", "Deployment", "rightsized-worker");
+        ResourceEnvelope template = new ResourceEnvelope(100, 100, 128 * MI, 128 * MI);
+        WorkloadSnapshot agreeing = new WorkloadSnapshot(ref, 2, false, false, null, null, null, List.of(
+                new ContainerSnapshot("worker", template, ContainerUsageFixtures.usage("worker", 60, 64 * MI))));
+        WorkloadSnapshot disagreeing = new WorkloadSnapshot(ref, 2, false, false, null, null, null, List.of(
+                new ContainerSnapshot("worker", template, ContainerUsageFixtures.usage("worker", 60, 64 * MI),
+                        new ResourceEnvelope(40, 100, 64 * MI, 128 * MI))));
+
+        assertThat(VerticalDecisionMapper.toDto(agreeing, policy,
+                engine.decide(agreeing, policy, NodeCapacity.unbounded()), GATE).containers().get(0).podsDisagree())
+                .isFalse();
+        assertThat(VerticalDecisionMapper.toDto(disagreeing, policy,
+                engine.decide(disagreeing, policy, NodeCapacity.unbounded()), GATE).containers().get(0).podsDisagree())
+                .isTrue();
+    }
+
+    @Test
     @DisplayName("an unset resource maps to null, never to 0")
     void unsetMapsToNull() {
         WorkloadRef ref = WorkloadRef.of("dev-sim", "Deployment", "no-requests-sidecar-app");

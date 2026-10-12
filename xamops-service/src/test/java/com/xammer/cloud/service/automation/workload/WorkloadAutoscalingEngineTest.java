@@ -865,6 +865,36 @@ class WorkloadAutoscalingEngineTest {
     }
 
     @Test
+    @DisplayName("with disagreeing pods, the OOM guard judges against the smallest live request (review-2 SF2)")
+    void theOomGuardJudgesAgainstTheSmallestLivePod() {
+        // Three pods shrunk in place to 250Mi; one replaced at the template's 1 GiB; the two 250Mi
+        // pods are OOM-killed. Current is the template, so a raise for the pods being killed read as
+        // a decrease from 1 GiB, was nulled under OOM_RISK, and no raise was ever published.
+        WorkloadRef ref = WorkloadRef.of("prod-sim", "Deployment", "oom-after-partial");
+        ResourceEnvelope template = ReferenceWorkloads.burstable(500, null, 1024 * MI, null);
+        ContainerSnapshot measured = ReferenceWorkloads.container("app", template,
+                ReferenceWorkloads.usage("app", 400, 300 * MI, 0.0, 2, 1.0));
+        ContainerSnapshot disagreeing = new ContainerSnapshot("app", template, measured.usage(),
+                ReferenceWorkloads.burstable(500, null, 250 * MI, null));
+
+        ContainerDecision judgedOnTemplate = only(engine.decide(
+                ReferenceWorkloads.workload(ref, 3, List.of(measured)), recommend, NodeCapacity.unbounded()));
+        ContainerDecision judgedOnLivePods = only(engine.decide(
+                ReferenceWorkloads.workload(ref, 3, List.of(disagreeing)), recommend, NodeCapacity.unbounded()));
+
+        assertThat(disagreeing.oomGuardMemBytes()).isEqualTo(250 * MI);
+        assertThat(judgedOnTemplate.recommended() == null
+                || judgedOnTemplate.recommended().memRequestBytes() == 1024 * MI)
+                .as("against the template alone, the raise for the killed pods is dropped")
+                .isTrue();
+        assertThat(judgedOnLivePods.recommended()).isNotNull();
+        assertThat(judgedOnLivePods.recommended().memRequestBytes())
+                .as("a size above what the killed pods run with is published")
+                .isGreaterThan(250 * MI)
+                .isLessThan(1024 * MI);
+    }
+
+    @Test
     @DisplayName("every decision carries its provenance: percentile, window, coverage and source")
     void everyDecisionStatesItsBasis() {
         WorkloadDecision decision = engine.decide(

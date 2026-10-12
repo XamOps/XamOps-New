@@ -152,8 +152,12 @@ class ClusterWorkloadInventoryTest {
     void podsThatDisagreeFallBackToTheTemplate() {
         overrides.put("/api/v1/pods", "pods-live-state.json");
 
-        assertThat(workload("prod-sim", "rightsized-worker").containers().get(0).current())
+        ClusterWorkloadInventory.ContainerSpec worker = workload("prod-sim", "rightsized-worker").containers().get(0);
+        assertThat(worker.current())
                 .isEqualTo(new ResourceEnvelope(100, 100, 128 * MI, 128 * MI));
+        // Review-2 SF2: the disagreement is published, with the smallest value each field runs at.
+        assertThat(worker.podsDisagree()).isTrue();
+        assertThat(worker.smallestLive()).isEqualTo(new ResourceEnvelope(40, 200, 64 * MI, 128 * MI));
     }
 
     @Test

@@ -516,18 +516,31 @@ public class VerticalApplyService {
             if (container.memRequestMi() == null && container.memLimitMi() == null) {
                 return false;
             }
-            ResourceEnvelope current = workload.containers().stream()
+            ClusterWorkloadInventory.ContainerSpec spec = workload.containers().stream()
                     .filter(candidate -> candidate.name().equals(container.name()))
-                    .map(ClusterWorkloadInventory.ContainerSpec::current)
                     .findFirst()
                     .orElse(null);
-            if (current == null
-                    || !raises(container.memRequestMi(), current.memRequestBytes())
-                    || !raises(container.memLimitMi(), current.memLimitBytes())) {
+            if (spec == null) {
+                return false;
+            }
+            // When the live pods disagree, a raise is judged against the smallest size a live pod
+            // runs with, the same basis the engine's OOM guard and its cooldown exemption use.
+            ResourceEnvelope live = spec.smallestLive();
+            if (!raises(container.memRequestMi(), smaller(spec.current().memRequestBytes(),
+                    live == null ? null : live.memRequestBytes()))
+                    || !raises(container.memLimitMi(), smaller(spec.current().memLimitBytes(),
+                    live == null ? null : live.memLimitBytes()))) {
                 return false;
             }
         }
         return true;
+    }
+
+    private static Long smaller(Long a, Long b) {
+        if (a == null) {
+            return b;
+        }
+        return b == null ? a : Math.min(a, b);
     }
 
     /** A submitted MiB value that is absent, or strictly above a current value that exists. */

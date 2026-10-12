@@ -540,6 +540,10 @@ const gateEmptyState = (gateReasons: CodeView[]): GateCopy => {
 
 // ─── Container table (glossary 4.3) ──────────────────────────────────────────
 
+/** Review-2 SF2: said beside "now", because "now" is then not what every pod runs. */
+const PODS_DIFFER_TITLE =
+  "This container's pods don't all run the same size right now, for example after a partial change or a replaced pod. \"Now\" shows the workload's own size, which new pods start at.";
+
 const ContainerTable: React.FC<{ workload: WorkloadView }> = ({ workload }) => {
   const { containers } = workload;
   if (containers.length === 0) return null;
@@ -573,6 +577,11 @@ const ContainerTable: React.FC<{ workload: WorkloadView }> = ({ workload }) => {
             <tr key={c.name} className="border-b border-[rgba(0,0,0,0.04)] last:border-0 align-top">
               <td className="px-4 py-3 text-[12px] font-semibold text-[rgba(0,0,0,0.88)] whitespace-nowrap">
                 {c.name}
+                {c.podsDisagree && (
+                  <span className="ml-2">
+                    <Chip text="Pods differ" title={PODS_DIFFER_TITLE} />
+                  </span>
+                )}
               </td>
               <td className="px-4 py-3 whitespace-nowrap">
                 <ResourceCell current={c.current.cpuRequestM} recommended={c.recommended?.cpuRequestM ?? null} format={formatMillis} />

@@ -208,9 +208,12 @@ public final class WorkloadAutoscalingEngine {
                 current.memRequestBytes(), policy.memFloorBytes(), draft);
 
         // ---- OOM guard: a memory shortfall OOM-kills immediately and irreversibly, so a decrease
-        // is refused whatever the percentile says.
+        // is refused whatever the percentile says. Judged against the smallest request a live pod
+        // runs with (review-2 SF2): when the pods disagree, current is the template, and a raise for
+        // the pods being killed would otherwise read as a decrease from it and be dropped.
+        Long oomBasis = container.oomGuardMemBytes();
         if (usage.oomKillsInWindow() > 0 && draft.memTarget != null
-                && current.memRequestBytes() != null && draft.memTarget < current.memRequestBytes()) {
+                && oomBasis != null && draft.memTarget < oomBasis) {
             draft.memTarget = null;
             draft.reasons.add(ContainerReason.OOM_RISK);
         }
@@ -498,7 +501,8 @@ public final class WorkloadAutoscalingEngine {
         if (draft.memTarget == null || draft.container.usage().oomKillsInWindow() <= 0) {
             return false;
         }
-        Long currentMem = draft.container.current().memRequestBytes();
+        // The same basis as the OOM guard: a raise for the pods that are being killed.
+        Long currentMem = draft.container.oomGuardMemBytes();
         return currentMem == null || draft.memTarget > currentMem;
     }
 

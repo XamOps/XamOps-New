@@ -360,7 +360,8 @@ public class VerticalAutomationReadService {
                         workload.ref().describe());
                 return null;
             }
-            containers.add(new ContainerSnapshot(container.name(), container.current(), measured));
+            containers.add(new ContainerSnapshot(container.name(), container.current(), measured,
+                    container.smallestLive()));
         }
         return new WorkloadSnapshot(workload.ref(), workload.replicas(), workload.rolloutInProgress(),
                 workload.lockAnnotationActive(), workload.hpa(), workload.pdbMinAvailable(),

@@ -65,7 +65,8 @@
           "memLimitMi" : 250
         },
         "reasons" : [ "FLOOR_CLAMPED", "LIMIT_MOVED" ],
-        "upstreamVpa" : null
+        "upstreamVpa" : null,
+        "podsDisagree" : false
       } ],
       "lastAction" : null,
       "autoApplyEligible" : false,

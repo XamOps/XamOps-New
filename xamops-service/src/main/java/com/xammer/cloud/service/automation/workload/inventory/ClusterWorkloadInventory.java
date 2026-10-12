@@ -159,7 +159,8 @@ public class ClusterWorkloadInventory {
             try {
                 ResourceEnvelope declared = envelope(container.getResources());
                 containers.add(new ContainerSpec(container.getName(),
-                        current(ref, container.getName(), livePods, declared), resizePolicy(container)));
+                        current(ref, container.getName(), livePods, declared), resizePolicy(container),
+                        smallestLiveIfDisagreeing(container.getName(), livePods)));
             } catch (QuantityParseException unreadable) {
                 // Dropped, not defaulted: a fabricated baseline is the failure this engine exists to
                 // prevent, and the API server does not normally produce an unparseable quantity.
@@ -246,6 +247,40 @@ public class ClusterWorkloadInventory {
             }
         }
         return agreed == null ? declared : agreed;
+    }
+
+    /**
+     * When the live pods report different resources for this container, the smallest value per
+     * field among them; null when they agree or fewer than two report. This is what a pod that was
+     * resized down and is now OOM-killed actually runs with (review-2 SF2).
+     */
+    private static ResourceEnvelope smallestLiveIfDisagreeing(String containerName, List<Pod> livePods) {
+        List<ResourceEnvelope> reported = new ArrayList<>();
+        for (Pod pod : livePods) {
+            ResourceEnvelope observed = observedOn(pod, containerName);
+            if (observed != null) {
+                reported.add(observed);
+            }
+        }
+        if (reported.size() < 2 || reported.stream().distinct().count() == 1) {
+            return null;
+        }
+        return new ResourceEnvelope(
+                minOf(reported.stream().map(ResourceEnvelope::cpuRequestMillis).toList()),
+                minOf(reported.stream().map(ResourceEnvelope::cpuLimitMillis).toList()),
+                minOf(reported.stream().map(ResourceEnvelope::memRequestBytes).toList()),
+                minOf(reported.stream().map(ResourceEnvelope::memLimitBytes).toList()));
+    }
+
+    /** The smallest non-null value, or null when none is set. */
+    private static <T extends Comparable<T>> T minOf(List<T> values) {
+        T smallest = null;
+        for (T value : values) {
+            if (value != null && (smallest == null || value.compareTo(smallest) < 0)) {
+                smallest = value;
+            }
+        }
+        return smallest;
     }
 
     private static ResourceEnvelope observedOn(Pod pod, String containerName) {
@@ -746,7 +781,14 @@ public class ClusterWorkloadInventory {
      *                     zeros
      * @param resizePolicy {@code resourceName -> restartPolicy}, empty when none is declared
      */
-    public record ContainerSpec(String name, ResourceEnvelope current, Map<String, String> resizePolicy) {
+    /**
+     * @param current      what the container runs with: its live pods' agreed value, or the
+     *                     template when they disagree or none reports
+     * @param smallestLive when the live pods disagree, the smallest value per field among them; null
+     *                     otherwise. The OOM guard judges against it (review-2 SF2)
+     */
+    public record ContainerSpec(String name, ResourceEnvelope current, Map<String, String> resizePolicy,
+                                ResourceEnvelope smallestLive) {
 
         public ContainerSpec {
             if (name == null || name.isBlank()) {
@@ -758,6 +800,15 @@ public class ClusterWorkloadInventory {
                                 + " fabricated zero");
             }
             resizePolicy = resizePolicy == null ? Map.of() : Map.copyOf(resizePolicy);
+        }
+
+        /** A container whose live pods agree, or have not reported. */
+        public ContainerSpec(String name, ResourceEnvelope current, Map<String, String> resizePolicy) {
+            this(name, current, resizePolicy, null);
+        }
+
+        public boolean podsDisagree() {
+            return smallestLive != null;
         }
     }
 }

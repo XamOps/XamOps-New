@@ -78,7 +78,8 @@ public final class VerticalDecisionMapper {
                 decision.skipReason() == null ? null : decision.skipReason().name(),
                 findings(decision, upstream),
                 decision.containers().stream()
-                        .map(container -> container(container, targets.get(container.containerName())))
+                        .map(container -> container(container, targets.get(container.containerName()),
+                                podsDisagree(snapshot, container.containerName())))
                         .toList(),
                 null,                       // no action has ever been applied: no executor exists
                 decision.autoApplyEligible() && gate.isAutoApplyPermitted(),
@@ -140,14 +141,21 @@ public final class VerticalDecisionMapper {
     }
 
     private static VerticalWorkloadDto.ContainerDto container(ContainerDecision decision,
-                                                              UpstreamVpaReader.ContainerTarget vpa) {
+                                                              UpstreamVpaReader.ContainerTarget vpa,
+                                                              boolean podsDisagree) {
         return new VerticalWorkloadDto.ContainerDto(
                 decision.containerName(),
                 decision.qosClass().wireName(),
                 resources(decision.current()),
                 resources(decision.recommended()),
                 decision.reasons().stream().map(Enum::name).toList(),
-                upstreamVpa(vpa));
+                upstreamVpa(vpa),
+                podsDisagree);
+    }
+
+    private static boolean podsDisagree(WorkloadSnapshot snapshot, String containerName) {
+        return snapshot.containers().stream()
+                .anyMatch(container -> container.name().equals(containerName) && container.podsDisagree());
     }
 
     /** @return null when VPA has no target for this container — never a zero and never a copy of ours */

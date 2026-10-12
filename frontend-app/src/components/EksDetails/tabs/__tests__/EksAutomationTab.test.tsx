@@ -876,6 +876,19 @@ describe('EksAutomationTab', () => {
     ).toBeInTheDocument();
   });
 
+  it('flags a container whose pods disagree beside "now" (review-2 SF2)', async () => {
+    const base = workload();
+    resolveWith({
+      engine: engine(),
+      gateReasons: [],
+      workloads: [workload({ containers: [{ ...base.containers![0], podsDisagree: true }] })],
+    });
+    renderTab();
+
+    const chip = await screen.findByText('Pods differ');
+    expect(chip).toHaveAttribute('title', expect.stringContaining('new pods start at'));
+  });
+
   it('says "every running pod (N of M)" and lists the pods it left out (review-2 SF3)', async () => {
     resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
     const resized = (name: string) => ({

@@ -148,6 +148,7 @@ const adaptContainer = (
     : null,
   reasons: parseCodes(container.reasons),
   upstreamVpa: adaptUpstreamVpa(container, anomalies, where),
+  podsDisagree: container.podsDisagree === true,
 });
 
 const adaptProvenance = (workload: VerticalWorkloadWire): ProvenanceView | null => {

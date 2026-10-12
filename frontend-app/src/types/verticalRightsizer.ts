@@ -39,6 +39,11 @@ export interface VerticalContainerWire {
   recommended: VerticalResourcesWire | null;
   reasons: string[] | null;
   upstreamVpa: UpstreamVpaWire | null;
+  /**
+   * The live pods run different sizes for this container right now, so `current` is the workload's
+   * own size (what new pods start at), not what every pod runs. Absent from older builds.
+   */
+  podsDisagree?: boolean | null;
 }
 
 export interface VerticalWorkloadRefWire {
@@ -175,6 +180,8 @@ export interface ContainerView {
   recommended: ResourcesView | null;
   reasons: CodeView[];
   upstreamVpa: UpstreamVpaView | null;
+  /** The live pods run different sizes for this container right now. */
+  podsDisagree: boolean;
 }
 
 export interface ProvenanceView {

@@ -511,6 +511,26 @@ class VerticalApplyServiceTest {
     }
 
     @Test
+    @DisplayName("with disagreeing pods, a raise is judged against the smallest live size, as in the engine (SF2)")
+    void aRaiseIsJudgedAgainstTheSmallestLivePod() {
+        List<ApplyRequestDto.Container> raise =
+                List.of(new ApplyRequestDto.Container("api", null, 313L, null, 313L));
+        ClusterWorkloadInventory.Workload agreeing = workload();
+        ClusterWorkloadInventory.Workload disagreeing = new ClusterWorkloadInventory.Workload(REF, 3,
+                false, false, null, null,
+                List.of(new ClusterWorkloadInventory.ContainerSpec("api", GUARANTEED_1CPU_1GI, Map.of(),
+                        new ResourceEnvelope(1000, 1000, 262_144_000L, 262_144_000L))),
+                agreeing.pods());
+
+        assertThat(VerticalApplyService.isMemoryOnlyIncrease(raise, agreeing))
+                .as("313Mi is below the 1 GiB every pod runs")
+                .isFalse();
+        assertThat(VerticalApplyService.isMemoryOnlyIncrease(raise, disagreeing))
+                .as("313Mi is above the 250Mi the smallest pods run, which the OOM guard judges against")
+                .isTrue();
+    }
+
+    @Test
     @DisplayName("inside the cooldown, a body with any CPU field or any memory decrease is still refused")
     void onlyAMemoryRaiseIsExempt() {
         when(policyService.resolve(any(), any(), any())).thenReturn(METRICS.defaultsPolicy()
