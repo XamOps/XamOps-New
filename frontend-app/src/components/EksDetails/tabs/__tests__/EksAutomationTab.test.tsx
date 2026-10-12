@@ -74,11 +74,16 @@ const workload = (overrides: Partial<VerticalWorkloadWire> = {}): VerticalWorklo
   ...overrides,
 });
 
+/** Every fixture here is a current backend, which states that it checked the caller's write gates. */
 const resolveWith = (wire: VerticalEngineResponseWire) =>
-  mockedRead.mockResolvedValue({ kind: 'ok', view: adaptEngineResponse(wire) });
+  mockedRead.mockResolvedValue({ kind: 'ok', view: adaptEngineResponse({ writeGatesChecked: true, ...wire }) });
 
 const renderTab = () =>
   render(<EksAutomationTab clusterName="xamops-test-1" accountId="102227938259" region="ap-south-1" />);
+
+/** Glossary 7.1, the reason shown at the control for a read-only connection. */
+const READ_ONLY_SENTENCE =
+  'View only: this AWS account is connected read-only. Applying changes needs read-write access.';
 
 const container = (current: VerticalResourcesWire, recommended: VerticalResourcesWire | null, reasons: string[]) => ({
   name: 'c',
@@ -300,13 +305,83 @@ describe('EksAutomationTab', () => {
 
     const button = await screen.findByRole('button', { name: 'Apply overprovisioned-api' });
     expect(button).toBeDisabled();
-    expect(button).toHaveAttribute('title', 'Read-only connection');
+    expect(button).toHaveAttribute('title', READ_ONLY_SENTENCE);
     expect(screen.getByText('Why changes are off')).toBeInTheDocument();
+  });
+
+  it('never enables Apply on a payload that did not check the caller (a backend older than the frontend)', async () => {
+    // UAT, 2026-10-12: the frontend went live seven minutes before the backend, whose endpoint 1
+    // sent no write gates at all. "No gate" from a server that never looked enabled Apply for a user
+    // without the automation key, and every click came back 403 K8S_NO_USER_PERMISSION.
+    mockedRead.mockResolvedValue({
+      kind: 'ok',
+      view: adaptEngineResponse({ engine: engine(), gateReasons: [], workloads: [workload()] }),
+    });
+    renderTab();
+
+    const button = await screen.findByRole('button', { name: 'Apply overprovisioned-api' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('title', "Couldn't check whether you can change automation.");
+    expect(mockedApply).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['TAB_GRANT', "View only: you don't have permission to change automation.",
+      'Ask your XamOps administrator to allow automation changes for your user.'],
+    ['IMPERSONATION', "View only while you're signed in as another user.",
+      'Return to your own session to change automation.'],
+    ['ROLE', 'View only: your role can see automation but not change it.', null],
+    ['NO_PRINCIPAL', 'Sign in again to change automation.', null],
+  ])('words a NO_USER_PERMISSION gate by its %s detail, with the next step (glossary 7.2)', async (detail, reason, next) => {
+    resolveWith({
+      engine: engine(),
+      gateReasons: ['NO_USER_PERMISSION'],
+      gateDetails: { NO_USER_PERMISSION: detail },
+      workloads: [workload()],
+    });
+    renderTab();
+
+    const button = await screen.findByRole('button', { name: 'Apply overprovisioned-api' });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('title', reason);
+    expect(screen.getByText(reason)).toBeInTheDocument();
+    if (next) expect(screen.getByText(next)).toBeInTheDocument();
+  });
+
+  it('after a caller-level 403, shows the reason, greys every Apply and reads the gates again', async () => {
+    const second = workload({ ref: { namespace: 'team-a', kind: 'Deployment', name: 'idle-batch-listener' } });
+    resolveWith({ engine: engine(), gateReasons: [], workloads: [workload(), second] });
+    mockedApply.mockResolvedValue({
+      kind: 'refused',
+      code: { kind: 'known', code: 'NO_USER_PERMISSION', label: 'No permission to change automation' },
+      message: "You don't have permission to change automation. Ask your XamOps administrator to allow automation changes for your user.",
+      detail: 'TAB_GRANT',
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      "View only: you don't have permission to change automation. Ask your XamOps administrator to allow automation changes for your user.",
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply idle-batch-listener' })).toBeDisabled());
+    expect(screen.getByRole('button', { name: 'Apply overprovisioned-api' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Apply idle-batch-listener' })).toHaveAttribute(
+      'title',
+      "View only: you don't have permission to change automation.",
+    );
+    await waitFor(() => expect(mockedRead).toHaveBeenCalledTimes(2));
+    expect(mockedApply).toHaveBeenCalledTimes(1);
+    // The automatic re-read said "permitted" here, and Apply still stays greyed: the server has
+    // already refused this caller once. Only the user's Refresh hands the decision back to endpoint 1.
+    expect(screen.getByRole('button', { name: 'Apply idle-batch-listener' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Apply idle-batch-listener' })).toBeEnabled());
   });
 
   describe('manual apply gate', () => {
     const gateFor = (wire: VerticalEngineResponseWire) => {
-      const view = adaptEngineResponse(wire);
+      const view = adaptEngineResponse({ writeGatesChecked: true, ...wire });
       return manualApplyGate(view, view.workloads[0]);
     };
     const cases: { name: string; wire: VerticalEngineResponseWire; reason: string | null }[] = [
@@ -368,17 +443,27 @@ describe('EksAutomationTab', () => {
       {
         name: 'a read-only connection disables',
         wire: { engine: engine(), gateReasons: ['READ_ONLY_CONNECTION'], workloads: [workload()] },
-        reason: 'Read-only connection',
+        reason: READ_ONLY_SENTENCE,
       },
       {
-        name: 'no permission (including a Login-As session) disables',
+        name: 'no permission with no detail disables, in the TAB_GRANT words (glossary 7.2)',
         wire: { engine: engine(), gateReasons: ['NO_USER_PERMISSION'], workloads: [workload()] },
-        reason: 'No permission to change automation',
+        reason: "View only: you don't have permission to change automation.",
+      },
+      {
+        name: 'a Login-As session disables, in its own words',
+        wire: {
+          engine: engine(),
+          gateReasons: ['NO_USER_PERMISSION'],
+          gateDetails: { NO_USER_PERMISSION: 'IMPERSONATION' },
+          workloads: [workload()],
+        },
+        reason: "View only while you're signed in as another user.",
       },
       {
         name: 'demo disables, ahead of the connection',
         wire: { engine: engine(), gateReasons: ['READ_ONLY_CONNECTION', 'DEMO'], workloads: [workload()] },
-        reason: 'Demo workspace',
+        reason: "Demo workspace. Changes aren't saved.",
       },
       {
         name: 'a controller that is not ready disables',
@@ -831,10 +916,11 @@ describe('EksAutomationTab', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Apply overprovisioned-api' }));
 
-    const text = await screen.findByText(
-      'View only: this AWS account is connected read-only. Applying changes needs read-write access.',
-    );
+    const text = await screen.findByRole('alert');
+    expect(text).toHaveTextContent(READ_ONLY_SENTENCE);
     expect(text).toHaveAttribute('title', 'This AWS account is connected read-only.');
+    // A caller-level refusal holds for the whole page, so the control now says the same thing.
+    expect(screen.getByRole('button', { name: 'Apply overprovisioned-api' })).toBeDisabled();
   });
 
   it('explains a cooldown refusal from endpoint 3 in plain words', async () => {

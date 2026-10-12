@@ -107,13 +107,25 @@ export interface VerticalEngineResponseWire {
   engine: VerticalEngineWire;
   gateReasons: string[] | null;
   workloads: VerticalWorkloadWire[] | null;
+  /**
+   * For a gate whose rule has a finer name than its code, that name, keyed by the gate code:
+   * `{ NO_USER_PERMISSION: 'TAB_GRANT' }`. Absent from builds that predate it.
+   */
+  gateDetails?: Record<string, string | null> | null;
+  /**
+   * True only when `gateReasons` already includes the caller's write gates. Absent from a build
+   * that never evaluated them, which must not read as "permitted".
+   */
+  writeGatesChecked?: boolean | null;
 }
 
-/** A refusal body: `{ code, message, field? }`. */
+/** A refusal body: `{ code, message, field?, detail? }`. */
 export interface VerticalRefusalWire {
   code?: string | null;
   message?: string | null;
   field?: string | null;
+  /** Which permission rule refused (`TAB_GRANT`, `IMPERSONATION`, `ROLE`, `NO_PRINCIPAL`, `DEMO`). */
+  detail?: string | null;
 }
 
 // ─── View shape ──────────────────────────────────────────────────────────────
@@ -213,6 +225,8 @@ export interface WorkloadView {
 export interface ManualApplyGate {
   enabled: boolean;
   reason: string | null;
+  /** What the user can do about `reason`, when the glossary gives a next step. */
+  nextStep: string | null;
   changes: ApplyContainerRequest[];
 }
 
@@ -236,6 +250,10 @@ export interface EngineView {
 export interface VerticalEngineView {
   engine: EngineView;
   gateReasons: CodeView[];
+  /** Gate code (no `K8S_` prefix) to the permission rule's detail, e.g. `NO_USER_PERMISSION → TAB_GRANT`. */
+  gateDetails: Record<string, string>;
+  /** Whether the server evaluated this caller's write gates; Apply stays greyed when it did not. */
+  writeGatesChecked: boolean;
   workloads: WorkloadView[];
   /**
    * Backend contract violations found while adapting — currently only a `0` in a resources field.
@@ -341,5 +359,15 @@ export type ApplyResult =
   | { kind: 'writes-not-deployed' }
   /** A typed 404: the endpoint exists, this cluster is not registered here. A setup step. */
   | { kind: 'cluster-not-registered'; message: string }
-  | { kind: 'refused'; code: CodeView; message: string }
+  /** `detail` names the permission rule on a caller-level refusal, else null. */
+  | { kind: 'refused'; code: CodeView; message: string; detail: string | null }
   | { kind: 'error'; message: string };
+
+/**
+ * A caller-level refusal endpoint 3 answered with (demo, permission, read-only connection, account).
+ * It holds for every workload of this cluster, so it greys every Apply until the next read.
+ */
+export interface CallerRefusal {
+  code: string;
+  detail: string | null;
+}

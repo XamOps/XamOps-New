@@ -635,6 +635,56 @@ class VerticalApplyServiceTest {
     }
 
     @Test
+    @DisplayName("endpoint 1's gate and endpoint 3's refusal name the same rule for the same caller")
+    void theReadAndTheRefusalAgreeOnTheRule() {
+        // The UAT 403 of 2026-10-12: a user with tab rows but no automation key. Endpoint 3 answered
+        // K8S_NO_USER_PERMISSION with a message only the TAB_GRANT rule writes; endpoint 1 has to
+        // carry the same gate and the same detail, or the UI offers an Apply the server refuses.
+        for (String detail : List.of(AutomationWritePermission.Detail.TAB_GRANT,
+                AutomationWritePermission.Detail.IMPERSONATION, AutomationWritePermission.Detail.ROLE,
+                AutomationWritePermission.Detail.NO_PRINCIPAL)) {
+            when(writePermission.decide(any(), any())).thenReturn(new AutomationWritePermission.Decision(
+                    false, ReasonCode.NO_USER_PERMISSION, detail, "Refused by " + detail + ".",
+                    "K8S_NO_USER_PERMISSION"));
+
+            VerticalApplyService.WriteGates gates = service().callerWriteGates(principal(), readWriteAccount());
+            VerticalApplyService.ApplyRefusedException refusal = refuse(principal(), readWriteAccount(), body(true));
+
+            assertThat(gates.codes()).containsExactly("NO_USER_PERMISSION");
+            assertThat(gates.details()).containsExactly(org.assertj.core.api.Assertions.entry("NO_USER_PERMISSION", detail));
+            assertThat(refusal.code()).isEqualTo("K8S_" + gates.codes().get(0));
+            assertThat(refusal.detail()).as("the 403 body names the rule, not only the code").isEqualTo(detail);
+            assertThat(refusal.body().detail()).isEqualTo(detail);
+            assertThat(refusal.body().field()).isNull();
+        }
+
+        when(writePermission.decide(any(), any())).thenReturn(new AutomationWritePermission.Decision(
+                false, ReasonCode.DEMO, AutomationWritePermission.Detail.DEMO,
+                "This is the shared demo identity, so nothing is applied to a real cluster.", "K8S_DEMO"));
+        assertThat(service().callerWriteGates(principal(), readWriteAccount()).details())
+                .containsExactly(org.assertj.core.api.Assertions.entry("DEMO", "DEMO"));
+        assertThat(refuse(principal(), readWriteAccount(), body(true)).body().detail()).isEqualTo("DEMO");
+    }
+
+    @Test
+    @DisplayName("a permitted caller has no gate details, and a missing principal is NO_PRINCIPAL")
+    void gateDetailsForThePermittedAndTheAbsent() {
+        assertThat(service().callerWriteGates(principal(), readWriteAccount()).details()).isEmpty();
+
+        VerticalApplyService.WriteGates anonymous = service().callerWriteGates(null, readWriteAccount());
+        assertThat(anonymous.codes()).containsExactly("NO_USER_PERMISSION");
+        assertThat(anonymous.details())
+                .containsExactly(org.assertj.core.api.Assertions.entry("NO_USER_PERMISSION", "NO_PRINCIPAL"));
+
+        CloudAccount readOnly = readWriteAccount();
+        readOnly.setAccessType("read-only");
+        assertThat(service().callerWriteGates(principal(), readOnly).details())
+                .as("a read-only connection has no finer rule than its code")
+                .isEmpty();
+        assertThat(refuse(principal(), readOnly, body(true)).body().detail()).isNull();
+    }
+
+    @Test
     @DisplayName("an apply under RECOMMEND is accepted: endpoint 3 never requires AUTO")
     void anApplyDoesNotRequireAuto() {
         givenExecutorApplies();

@@ -13,6 +13,7 @@
 
 import type {
   ApplyContainerRequest,
+  CallerRefusal,
   CodeView,
   ContainerView,
   EngineView,
@@ -211,12 +212,28 @@ const adaptEngine = (wire: VerticalEngineResponseWire['engine']): EngineView => 
   lastCycleError: wire?.lastCycle?.error ?? null,
 });
 
+/** Gate code (prefix stripped) to its rule's detail; anything that is not a string pair is dropped. */
+const adaptGateDetails = (raw: VerticalEngineResponseWire['gateDetails']): Record<string, string> => {
+  const details: Record<string, string> = {};
+  if (!raw || typeof raw !== 'object') return details;
+  for (const [code, detail] of Object.entries(raw)) {
+    if (typeof detail === 'string' && detail.trim() !== '') {
+      details[code.trim().replace(/^K8S_/, '')] = detail.trim();
+    }
+  }
+  return details;
+};
+
 export const adaptEngineResponse = (wire: VerticalEngineResponseWire): VerticalEngineView => {
   const anomalies: string[] = [];
   const gateReasons = parseCodes(wire?.gateReasons);
   return {
     engine: adaptEngine(wire?.engine),
     gateReasons,
+    gateDetails: adaptGateDetails(wire?.gateDetails),
+    // Only an explicit true counts: a build that never evaluated the caller's write gates sends no
+    // flag, and its empty gateReasons must not read as "you may apply".
+    writeGatesChecked: wire?.writeGatesChecked === true,
     workloads: (wire?.workloads ?? []).map((w) => adaptWorkload(w, gateReasons, anomalies)),
     anomalies,
   };
@@ -565,10 +582,75 @@ export const reasonTitle = (code: CodeView, container?: ContainerView, workload?
   return `${sentence}${extra} Code: ${code.kind === 'known' ? code.code : code.raw}`;
 };
 
-// ─── Manual apply gate ───────────────────────────────────────────────────────
+// ─── Caller-level write gates (glossary 7.1, 7.2, 7.4) ───────────────────────
 
 /** The caller-level write gates, in the server's published refusal order. */
 const WRITE_GATES = ['DEMO', 'NO_USER_PERMISSION', 'READ_ONLY_CONNECTION'] as const;
+
+/**
+ * Refusal codes that are about the caller rather than the workload, so one of them holds for every
+ * workload on the page: the write gates, plus the account entitlement endpoint 3 re-asks.
+ */
+const CALLER_LEVEL = new Set<string>([...WRITE_GATES, 'NO_ACCOUNT_ACCESS']);
+
+export const isCallerLevelRefusal = (code: CodeView): boolean =>
+  code.kind === 'known' && CALLER_LEVEL.has(code.code);
+
+/** Glossary 7.3 `UNKNOWN`: the answer when the server did not say whether the caller may apply. */
+export const WRITE_GATES_NOT_CHECKED = "Couldn't check whether you can change automation.";
+
+export interface WriteGateText {
+  /** The reason shown at the control (exact glossary text). */
+  reason: string;
+  /** The next step, when the glossary gives one. */
+  nextStep: string | null;
+}
+
+const TAB_GRANT_TEXT: WriteGateText = {
+  reason: "View only: you don't have permission to change automation.",
+  nextStep: 'Ask your XamOps administrator to allow automation changes for your user.',
+};
+
+/** Glossary 7.2: one NO_USER_PERMISSION code, four rules, four different remedies. */
+const PERMISSION_TEXT: Record<string, WriteGateText> = {
+  TAB_GRANT: TAB_GRANT_TEXT,
+  ROLE: { reason: 'View only: your role can see automation but not change it.', nextStep: null },
+  IMPERSONATION: {
+    reason: "View only while you're signed in as another user.",
+    nextStep: 'Return to your own session to change automation.',
+  },
+  NO_PRINCIPAL: { reason: 'Sign in again to change automation.', nextStep: null },
+};
+
+const DEMO_TEXT: WriteGateText = { reason: "Demo workspace. Changes aren't saved.", nextStep: null };
+
+/**
+ * The sentence (and next step) for a caller-level gate or refusal, by its code and the permission
+ * rule's detail. A NO_USER_PERMISSION with no detail gets the TAB_GRANT wording, as glossary 7.2
+ * says to until the detail is served; a refusal's own message is the caller's fallback for that.
+ */
+export const writeGateText = (code: string, detail: string | null | undefined): WriteGateText | null => {
+  switch (code) {
+    case 'DEMO':
+      return DEMO_TEXT;
+    case 'NO_USER_PERMISSION':
+      if (detail === 'DEMO') return DEMO_TEXT;
+      if (detail === 'ACCOUNT') return { reason: "You don't have access to this AWS account.", nextStep: null };
+      return (detail && PERMISSION_TEXT[detail]) || TAB_GRANT_TEXT;
+    case 'READ_ONLY_CONNECTION':
+      return {
+        reason: 'View only: this AWS account is connected read-only. Applying changes needs read-write access.',
+        nextStep: null,
+      };
+    case 'NO_ACCOUNT_ACCESS':
+      return { reason: "You don't have access to this AWS account.", nextStep: null };
+    default:
+      return null;
+  }
+};
+
+// ─── Manual apply gate ───────────────────────────────────────────────────────
+
 const PATH_GATES = ['CLUSTER_ACCESS_NOT_CONFIGURED', 'CLUSTER_UNREACHABLE'] as const;
 
 const findGate = (gateReasons: CodeView[], code: string): CodeView | undefined =>
@@ -585,16 +667,39 @@ const label = (code: string): string => codeText(parseCode(code) ?? { kind: 'unk
  * covers a Login-As session — and a read-write connection), a ready controller, an execution path,
  * then the workload's own refusals (a skip reason, GitOps-managed persistence, the cooldown, and
  * requests the engine would be inventing). The first that fails is the reason shown.
+ *
+ * Two rules make the caller's part fail closed rather than open:
+ *  - `callerRefusal`, a caller-level refusal endpoint 3 already answered on this page, greys every
+ *    workload: it is about the user, not the row, and a second click would only be refused again;
+ *  - a payload that does not say `writeGatesChecked` never enables Apply, because "no write gate"
+ *    from a server that never looked is not "permitted". That is what a frontend deployed ahead of
+ *    its backend was shown on UAT on 2026-10-12, and every click came back 403.
  */
-export const manualApplyGate = (view: VerticalEngineView, workload: WorkloadView): ManualApplyGate => {
+export const manualApplyGate = (
+  view: VerticalEngineView,
+  workload: WorkloadView,
+  callerRefusal: CallerRefusal | null = null,
+): ManualApplyGate => {
   const changes = toApplyContainers(workload);
-  const blocked = (reason: string): ManualApplyGate => ({ enabled: false, reason, changes });
+  const blocked = (reason: string, nextStep: string | null = null): ManualApplyGate => ({
+    enabled: false,
+    reason,
+    nextStep,
+    changes,
+  });
   const { engine, gateReasons } = view;
 
-  for (const code of WRITE_GATES) {
-    const gate = findGate(gateReasons, code);
-    if (gate) return blocked(codeText(gate));
+  if (callerRefusal) {
+    const text = writeGateText(callerRefusal.code, callerRefusal.detail);
+    if (text) return blocked(text.reason, text.nextStep);
   }
+  for (const code of WRITE_GATES) {
+    if (findGate(gateReasons, code)) {
+      const text = writeGateText(code, view.gateDetails[code]);
+      return blocked(text!.reason, text!.nextStep);
+    }
+  }
+  if (!view.writeGatesChecked) return blocked(WRITE_GATES_NOT_CHECKED);
   if (!engine.enabled || !engine.ready || findGate(gateReasons, 'CONTROLLER_NOT_READY')) {
     return blocked(label('CONTROLLER_NOT_READY'));
   }
@@ -617,5 +722,5 @@ export const manualApplyGate = (view: VerticalEngineView, workload: WorkloadView
   );
   if (invented) return blocked(label('REQUESTS_UNSET'));
   if (changes.length === 0) return blocked('No change suggested');
-  return { enabled: true, reason: null, changes };
+  return { enabled: true, reason: null, nextStep: null, changes };
 };

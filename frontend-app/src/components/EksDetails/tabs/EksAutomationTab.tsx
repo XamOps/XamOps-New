@@ -35,6 +35,7 @@ import {
   windowWords,
   workloadStatus,
   workloadWindowHours,
+  writeGateText,
 } from '../../../api/verticalRightsizerAdapter';
 import useVerticalRightsizer from '../../../hooks/useVerticalRightsizer';
 import type {
@@ -245,7 +246,7 @@ const GATE_REFUSAL_TEXT: Record<string, string> = {
  * message (the engine holds and the cooldown) or in the message text (the body checks). The plain
  * sentence is shown; the server's own message goes in the tooltip.
  */
-const refusalText = (code: CodeView, message: string, hpaName: string | null): string => {
+const refusalText = (code: CodeView, message: string, hpaName: string | null, detail: string | null): string => {
   const raw = code.kind === 'known' ? code.code : code.raw.replace(/^K8S_/, '');
   if (raw === 'INVALID_POLICY') {
     const m = message ?? '';
@@ -270,7 +271,11 @@ const refusalText = (code: CodeView, message: string, hpaName: string | null): s
     if (/dryRun/.test(m)) return 'Not applied: choose a test run or a real resize.';
     return "Not applied: XamOps couldn't read the change. Refresh and try again.";
   }
-  if (raw === 'NO_USER_PERMISSION') return message || 'View only: you don\'t have permission to change automation.';
+  // Glossary 7.2: a permission refusal is worded by the rule that refused. A server that sends no
+  // detail gets its own message shown instead, which is what the glossary says to do until then.
+  if (raw === 'NO_USER_PERMISSION' && !detail && message) return message;
+  const caller = writeGateText(raw, detail);
+  if (caller) return caller.nextStep ? `${caller.reason} ${caller.nextStep}` : caller.reason;
   return GATE_REFUSAL_TEXT[raw] ?? (message || codeText(code));
 };
 
@@ -309,8 +314,8 @@ const ApplyReply: React.FC<{ reply: ApplyResult; hpaName: string | null }> = ({ 
   }
   if (reply.kind === 'refused') {
     return (
-      <p className="text-[12px] text-[rgba(0,0,0,0.6)]" title={reply.message}>
-        {refusalText(reply.code, reply.message, hpaName)}
+      <p role="alert" className="text-[12px] text-[rgba(0,0,0,0.6)]" title={reply.message}>
+        {refusalText(reply.code, reply.message, hpaName, reply.detail)}
       </p>
     );
   }
@@ -760,6 +765,9 @@ const WorkloadCard: React.FC<{
           {blockedReason && (
             <span className="text-[11px] text-[rgba(0,0,0,0.5)] text-right max-w-[220px]">{blockedReason}</span>
           )}
+          {blockedReason && gate.nextStep && (
+            <span className="text-[11px] text-[rgba(0,0,0,0.5)] text-right max-w-[220px]">{gate.nextStep}</span>
+          )}
         </div>
       </div>
 
@@ -794,7 +802,7 @@ const WorkloadCard: React.FC<{
 
 const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accountId, region }) => {
   const [dryRun, setDryRun] = useState(true);
-  const { loading, result, reload, applyingId, applyResults, apply } = useVerticalRightsizer({
+  const { loading, result, reload, applyingId, applyResults, callerRefusal, apply } = useVerticalRightsizer({
     clusterName,
     accountId,
     region,
@@ -960,7 +968,7 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
           <WorkloadCard
             key={w.id}
             workload={w}
-            gate={manualApplyGate(result.view, w)}
+            gate={manualApplyGate(result.view, w, callerRefusal)}
             dryRun={dryRun}
             applying={applyingId === w.id}
             reply={applyResults[w.id]}

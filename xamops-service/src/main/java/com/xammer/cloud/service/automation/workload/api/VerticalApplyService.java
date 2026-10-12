@@ -37,9 +37,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -221,22 +224,51 @@ public class VerticalApplyService {
      * before anybody clicks. They are computed by the same two predicates {@link #apply} enforces,
      * so the read cannot promise an apply the write would refuse. Entitlement is not repeated here:
      * the controller has already refused an unentitled caller, and {@code K8S_NO_ACCOUNT_ACCESS} is
-     * not a gate code.
+     * not a gate code. The codes of {@link #callerWriteGates}.
      */
     public List<String> writeGates(ClientUserDetails principal, CloudAccount account) {
+        return callerWriteGates(principal, account).codes();
+    }
+
+    /**
+     * {@link #writeGates} with the permission rule's {@link AutomationWritePermission.Detail} for
+     * each gate that has one — the same value {@link #apply} puts in a refusal's {@code detail} — so
+     * endpoint 1 can say <em>which</em> permission rule applies and the UI can show that rule's
+     * sentence and next step before anybody clicks.
+     */
+    public WriteGates callerWriteGates(ClientUserDetails principal, CloudAccount account) {
         List<String> gates = new ArrayList<>();
+        Map<String, String> details = new LinkedHashMap<>();
         if (principal == null) {
             gates.add(ReasonCode.NO_USER_PERMISSION.name());
+            details.put(ReasonCode.NO_USER_PERMISSION.name(), AutomationWritePermission.Detail.NO_PRINCIPAL);
         } else {
             AutomationWritePermission.Decision decision = writePermission.decide(principal, account);
             if (!decision.permitted() && decision.reason() != null) {
                 gates.add(decision.reason().name());
+                if (decision.detail() != null) {
+                    details.put(decision.reason().name(), decision.detail());
+                }
             }
         }
         if (account == null || !"read-write".equalsIgnoreCase(account.getAccessType())) {
             gates.add(ReasonCode.READ_ONLY_CONNECTION.name());
         }
-        return List.copyOf(gates);
+        return new WriteGates(gates, details);
+    }
+
+    /**
+     * The caller's write gates in the published order, and the permission rule's detail per gate.
+     *
+     * @param codes   shared gate codes without the {@code K8S_} prefix
+     * @param details gate code to {@link AutomationWritePermission.Detail}, for the gates that have one
+     */
+    public record WriteGates(List<String> codes, Map<String, String> details) {
+
+        public WriteGates {
+            codes = codes == null ? List.of() : List.copyOf(codes);
+            details = details == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(details));
+        }
     }
 
     // ---------------------------------------------------------------- gates
@@ -262,8 +294,11 @@ public class VerticalApplyService {
         if (!decision.permitted()) {
             logger.info("Vertical apply refused for user {}: {} ({})", principal.getId(),
                     decision.refusalCode(), decision.detail());
+            // The detail is on the wire as well as in the log: one K8S_NO_USER_PERMISSION covers a
+            // missing tab grant, a Login-As session, a BillOps role and a lost principal, and each
+            // has a different remedy.
             throw new ApplyRefusedException(HttpStatus.FORBIDDEN, decision.refusalCode(), null,
-                    decision.message());
+                    decision.message(), decision.detail());
         }
     }
 
@@ -594,12 +629,20 @@ public class VerticalApplyService {
         private final HttpStatus status;
         private final String code;
         private final String field;
+        private final String detail;
 
         public ApplyRefusedException(HttpStatus status, String code, String field, String message) {
+            this(status, code, field, message, null);
+        }
+
+        /** @param detail the rule's finer name ({@link AutomationWritePermission.Detail}), or null */
+        public ApplyRefusedException(HttpStatus status, String code, String field, String message,
+                                     String detail) {
             super(message);
             this.status = status;
             this.code = code;
             this.field = field;
+            this.detail = detail;
         }
 
         public HttpStatus status() {
@@ -615,8 +658,13 @@ public class VerticalApplyService {
             return field;
         }
 
+        /** Which permission rule refused, on a caller-level refusal, else null. */
+        public String detail() {
+            return detail;
+        }
+
         public RefusalDto body() {
-            return new RefusalDto(code, getMessage(), field);
+            return new RefusalDto(code, getMessage(), field, detail);
         }
     }
 }

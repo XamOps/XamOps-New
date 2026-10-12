@@ -133,6 +133,7 @@ describe('applyVerticalRecommendation', () => {
       kind: 'refused',
       code: { kind: 'known', code: 'READ_ONLY_CONNECTION', label: 'Read-only connection' },
       message: 'Connected read-only.',
+      detail: null,
     });
   });
 
