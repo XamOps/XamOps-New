@@ -316,7 +316,7 @@ public class VerticalAutomationReadService {
                 continue;
             }
 
-            WorkloadSnapshot snapshot = snapshot(workload, usage);
+            WorkloadSnapshot snapshot = snapshot(workload, usage, upstreamVpa);
             if (snapshot == null) {
                 workloads.add(VerticalDecisionMapper.notEvaluated(workload, policy,
                         ReasonCode.INSUFFICIENT_HISTORY.name(), usageProvider.sourceName(),
@@ -379,7 +379,8 @@ public class VerticalAutomationReadService {
      *         because a container measured by nobody must not receive a recommendation
      */
     private WorkloadSnapshot snapshot(ClusterWorkloadInventory.Workload workload,
-                                      Map<String, ContainerUsageAggregate> usage) {
+                                      Map<String, ContainerUsageAggregate> usage,
+                                      UpstreamVpaReader.View upstreamVpa) {
         List<ContainerSnapshot> containers = new ArrayList<>();
         for (ClusterWorkloadInventory.ContainerSpec container : workload.containers()) {
             ContainerUsageAggregate measured = usage.get(container.name());
@@ -394,6 +395,7 @@ public class VerticalAutomationReadService {
         return new WorkloadSnapshot(workload.ref(), workload.replicas(), workload.rolloutInProgress(),
                 workload.lockAnnotationActive(), workload.hpa(), workload.pdbMinAvailable(),
                 null,       // GitOps detection is deferred, so it stays unknown rather than false
+                upstreamVpa.modeFor(workload.ref()),
                 containers);
     }
 

@@ -154,6 +154,57 @@ public final class WorkloadPolicyDefaults {
     /** CPU usage at or below {@code max(1m, this fraction of the request)} counts as idle. */
     public static final double IDLE_CPU_FRACTION_OF_REQUEST = 0.01;
 
+    // ---------------------------------------------------------------- HPA thresholds (§3.4)
+
+    /**
+     * How long an HPA must dwell at its ceiling before D1 will raise it: <strong>30 minutes
+     * continuous</strong>. A shorter spike at the ceiling is the HPA doing its job, not a ceiling
+     * that is too low; the dwell is what distinguishes unmet demand from a brief burst.
+     */
+    public static final Duration HPA_CEILING_DWELL = Duration.ofMinutes(30);
+
+    /**
+     * The D2 look-back window for "the ceiling is far above anything ever used": <strong>168h /
+     * 7d</strong>. A lower is the conservative direction, so it needs a full week clean rather than
+     * the 24h a raise reads.
+     */
+    public static final Duration HPA_OVER_HIGH_LOOKBACK = Duration.ofHours(168);
+
+    /**
+     * D2 only lowers a ceiling whose observed peak sat at or below this fraction of
+     * {@code maxReplicas}: <strong>0.5</strong>. A max of 50 that never exceeded 6 is capacity
+     * hygiene; a max the workload came within half of is not over-high.
+     */
+    public static final double HPA_LOW_WATER_FRACTION = 0.5;
+
+    /**
+     * D2's replica headroom above the observed peak: {@code newMax = max(peak × 1.5, min + 1)}. The
+     * 1.5 keeps burst room above what was actually needed rather than trimming to the exact peak.
+     */
+    public static final double HPA_HEADROOM_REPLICA_FACTOR = 1.5;
+
+    /**
+     * D1's per-apply raise cap: at most <strong>+50% or +3 replicas, whichever is larger</strong>.
+     * One click can never multiply a ceiling; the cooldown gates the next move.
+     */
+    public static final double HPA_RAISE_CAP_FRACTION = 0.5;
+
+    /** The absolute floor of the D1 raise cap: a raise may always add at least this many replicas. */
+    public static final int HPA_RAISE_CAP_ABSOLUTE = 3;
+
+    /** The lower bound of the valid HPA target-utilisation band (D3a/D3b clamp): <strong>10%</strong>. */
+    public static final int HPA_TARGET_CLAMP_MIN = 10;
+
+    /** The upper bound of the valid HPA target-utilisation band (D3a/D3b clamp): <strong>90%</strong>. */
+    public static final int HPA_TARGET_CLAMP_MAX = 90;
+
+    /**
+     * The D3b flap guard: a target retune is refused if the HPA changed replicas more than this many
+     * times in the look-back window (<strong>6 changes/day</strong>). Retuning a flapping HPA
+     * amplifies the flap; instability, not responsiveness, is then the problem.
+     */
+    public static final int HPA_FLAP_CHANGES_PER_DAY = 6;
+
     /**
      * Namespaces XamOps will not rightsize, whatever a policy row says.
      *

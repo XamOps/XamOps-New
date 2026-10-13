@@ -21,11 +21,13 @@ import java.util.List;
  * schedule, and it proposed {@code minReplicas: 2} for a workload whose PDB demanded
  * {@code minAvailable: 3}. None of that is being ported.
  *
- * @param state                   always {@link State#NOT_EVALUATED} in this run
- * @param minReplicas             null until implemented
- * @param maxReplicas             null until implemented
- * @param targetCpuUtilizationPct null until implemented
- * @param reasons                 free-form, empty in this run
+ * @param state                   {@link State#NOT_EVALUATED} until the horizontal flag is on; then
+ *                                {@link State#NO_CHANGE} or {@link State#CHANGE}, mirroring the
+ *                                richer {@link HpaDecision}
+ * @param minReplicas             the proposed {@code minReplicas}, or null to leave it alone
+ * @param maxReplicas             the proposed {@code maxReplicas}, or null to leave it alone
+ * @param targetCpuUtilizationPct the proposed target, or null to leave it alone
+ * @param reasons                 why; the {@link HpaReason} names, as strings
  */
 public record HorizontalDecision(State state,
                                  Integer minReplicas,
@@ -34,7 +36,7 @@ public record HorizontalDecision(State state,
                                  List<String> reasons) {
 
     public enum State {
-        /** The horizontal rules are not implemented. The only state this run produces. */
+        /** The horizontal rules were not run (the master flag is off). */
         NOT_EVALUATED,
         NO_CHANGE,
         CHANGE
@@ -70,8 +72,8 @@ public record HorizontalDecision(State state,
      * {@code 200 × 50 / 144 ≈ 69%}. Co-adjustment requires writing the HPA, which this engine does
      * not yet own.
      */
-    public static HorizontalDecision change(int minReplicas, int maxReplicas, Integer targetCpuUtilizationPct,
-                                            List<String> reasons) {
+    public static HorizontalDecision change(Integer minReplicas, Integer maxReplicas,
+                                            Integer targetCpuUtilizationPct, List<String> reasons) {
         return new HorizontalDecision(State.CHANGE, minReplicas, maxReplicas, targetCpuUtilizationPct, reasons);
     }
 

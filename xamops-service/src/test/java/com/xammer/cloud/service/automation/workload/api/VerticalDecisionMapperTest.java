@@ -234,6 +234,28 @@ class VerticalDecisionMapperTest {
         assertThat(dto.horizontal().minReplicas()).isNull();
         assertThat(dto.horizontal().maxReplicas()).isNull();
         assertThat(dto.horizontal().targetCpuUtilizationPct()).isNull();
+        assertThat(dto.horizontal().autoApplyEligible())
+                .as("HPA has no auto tier this task; it is forced false at the mapper boundary")
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("with the horizontal flag on, the real HPA decision reaches the wire with its formula")
+    void withTheHorizontalFlagOnTheRealDecisionIsSurfaced() {
+        WorkloadAutoscalingProperties horizontalOn =
+                new WorkloadAutoscalingProperties(true, true, false, true);
+        WorkloadSnapshot snapshot = guaranteedOverprovisioned();   // no HPA, 2 replicas -> D4
+        WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded());
+
+        VerticalWorkloadDto dto = VerticalDecisionMapper.toDto(snapshot, policy, decision, horizontalOn);
+
+        assertThat(dto.horizontal().state()).isEqualTo("CHANGE");
+        assertThat(dto.horizontal().reasons()).contains("HPA_RECOMMENDED_NEW");
+        assertThat(dto.horizontal().minReplicas()).isEqualTo(2);
+        assertThat(dto.horizontal().formula()).isNotNull();
+        assertThat(dto.horizontal().autoApplyEligible())
+                .as("still forced false even with the flag on")
+                .isFalse();
     }
 
     @Test

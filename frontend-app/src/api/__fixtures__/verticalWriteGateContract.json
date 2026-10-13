@@ -84,7 +84,9 @@
         "minReplicas" : null,
         "maxReplicas" : null,
         "targetCpuUtilizationPct" : null,
-        "reasons" : [ ]
+        "reasons" : [ ],
+        "formula" : null,
+        "autoApplyEligible" : false
       }
     } ],
     "gateDetails" : {

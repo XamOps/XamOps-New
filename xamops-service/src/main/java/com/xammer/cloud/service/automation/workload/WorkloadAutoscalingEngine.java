@@ -46,6 +46,13 @@ import java.util.Locale;
  */
 public final class WorkloadAutoscalingEngine {
 
+    /**
+     * D3b (standalone target retune) is behind its own sub-flag, off even when HPA automation is on
+     * (owner decision Q4). As a pure-engine constant it is never emitted; turning it on is a
+     * deliberate code change gated by the flap guard, not a configuration toggle.
+     */
+    private static final boolean D3B_STANDALONE_RETUNE_ENABLED = false;
+
     private final Clock clock;
 
     public WorkloadAutoscalingEngine() {
@@ -69,7 +76,8 @@ public final class WorkloadAutoscalingEngine {
         SkipReason skip = gate(snapshot, policy, now);
         if (skip != null) {
             return new WorkloadDecision(snapshot.ref(), skip, EnumSet.noneOf(Finding.class), provenance,
-                    false, VerticalDecision.skipped(), HorizontalDecision.notEvaluated());
+                    false, VerticalDecision.skipped(), HorizontalDecision.notEvaluated(),
+                    HpaDecision.notEvaluated());
         }
 
         EnumSet<Finding> findings = EnumSet.noneOf(Finding.class);
@@ -79,9 +87,15 @@ public final class WorkloadAutoscalingEngine {
         }
 
         applyNodeCapacityCap(drafts, policy, capacity, findings);
+        for (Draft draft : drafts) {
+            // The CPU request the vertical engine would set if nothing froze it — captured before
+            // hysteresis/cooldown so D3a can co-adjust the HPA target to the request the operator
+            // would actually apply, not to a move hysteresis happens to suppress on this cycle.
+            draft.cpuRightsizedTarget = draft.cpuTarget;
+        }
         applyHysteresis(drafts, policy);
         applyCooldown(drafts, policy, now);
-        reconcile(drafts, snapshot, findings);
+        HpaDecision hpa = reconcile(drafts, snapshot, policy, findings, now);
 
         QosClass qosClass = snapshot.qosClass();
         List<ContainerDecision> decisions = new ArrayList<>();
@@ -97,7 +111,21 @@ public final class WorkloadAutoscalingEngine {
                         .allMatch(ContainerDecision::autoApplyEligible);
 
         return new WorkloadDecision(snapshot.ref(), null, findings, provenance, autoApply,
-                vertical, HorizontalDecision.notEvaluated());
+                vertical, horizontalFrom(hpa), hpa);
+    }
+
+    /**
+     * The {@link HorizontalDecision} that mirrors an {@link HpaDecision}, so the two halves of the
+     * decision stay in step. {@code targetCpuUtilizationPct} is the only target this release carries.
+     */
+    private static HorizontalDecision horizontalFrom(HpaDecision hpa) {
+        List<String> reasons = hpa.reasons().stream().map(Enum::name).toList();
+        return switch (hpa.state()) {
+            case NOT_EVALUATED -> HorizontalDecision.notEvaluated();
+            case NO_CHANGE -> HorizontalDecision.noChange(reasons);
+            case CHANGE -> HorizontalDecision.change(
+                    hpa.minReplicas(), hpa.maxReplicas(), hpa.targetUtilizationPct(), reasons);
+        };
     }
 
     // ------------------------------------------------------------------ gates
@@ -526,26 +554,79 @@ public final class WorkloadAutoscalingEngine {
      * which this engine does not yet own. See {@link HorizontalDecision#change} for the arithmetic
      * and where it lands.
      */
-    private void reconcile(List<Draft> drafts, WorkloadSnapshot snapshot, EnumSet<Finding> findings) {
+    private HpaDecision reconcile(List<Draft> drafts, WorkloadSnapshot snapshot, WorkloadPolicy policy,
+                                  EnumSet<Finding> findings, Instant now) {
+        // (0) The symmetric VPA rule. A mutating native VPA (or ownership we cannot read) owns the
+        // requests, so the vertical half refuses the whole workload before any HPA reasoning: no
+        // CPU or memory request is written anywhere. HPA bounds may still be tuned below — the two
+        // controllers write different resources, so a mutating VPA does not stop a bound tune.
+        HpaReason vpaRefusal = null;
+        if (snapshot.nativeVpaRefusesVertical()) {
+            vpaRefusal = snapshot.nativeVpaMode() == NativeVpaMode.UNREADABLE
+                    ? HpaReason.VPA_NOT_READABLE : HpaReason.VPA_MANAGED;
+            for (Draft draft : drafts) {
+                draft.cpuFrozen = true;
+                draft.memFrozen = true;
+                draft.cpuTarget = null;
+                draft.memTarget = null;
+            }
+        }
+
         HpaView hpa = snapshot.effectiveHpa();
+
+        // (D4) No HPA — recommend one only if the workload would benefit, never auto-create.
         if (hpa == null) {
-            return;
+            HpaDecision d4 = recommendNewHpa(snapshot, policy);
+            return vpaRefusal == null ? d4 : withLeadingReason(d4, vpaRefusal);
         }
-        if (!hpa.cpuResourceMetricPresent() && !hpa.memResourceMetricPresent()) {
-            return;
+
+        // The coexistence freeze (ships today), now with the D3a co-adjust lifting the CPU freeze
+        // where XamOps owns both the request and the HPA target.
+        boolean cpuManaged = hpa.cpuResourceMetricPresent();
+        boolean memManaged = hpa.memResourceMetricPresent();
+        List<HpaReason> reasons = new ArrayList<>();
+        if (vpaRefusal != null) {
+            // The vertical refusal is surfaced on the horizontal decision because it has no shared
+            // gate code and no vertical ContainerReason of its own (both contracts are pinned).
+            reasons.add(vpaRefusal);
         }
-        findings.add(Finding.HPA_COEXISTENCE);
+        Integer coAdjustedTarget = null;
+        String formula = null;
+
+        if (cpuManaged || memManaged) {
+            findings.add(Finding.HPA_COEXISTENCE);
+        }
+
         for (Draft draft : drafts) {
-            boolean guaranteed = QosRules.shapeOf(draft.container.current()) == QosRules.Shape.GUARANTEED_SHAPED;
-            if (hpa.cpuResourceMetricPresent()) {
+            boolean guaranteed =
+                    QosRules.shapeOf(draft.container.current()) == QosRules.Shape.GUARANTEED_SHAPED;
+
+            if (cpuManaged) {
+                // D3a: when the vertical pass would move the CPU request, record the HPA target
+                // co-adjustment that preserves request × targetUtil, so an apply can move both
+                // together later. The CPU request itself stays FROZEN here: the HPA write does not
+                // exist yet, and moving the request alone would silently shift the HPA set point —
+                // the measured php-apache failure. The freeze is lifted (H3) only once the engine
+                // can apply the matching target in the same action.
+                // No co-adjust while a mutating VPA owns the requests: XamOps is not rightsizing CPU.
+                CoAdjust coAdjust = vpaRefusal == null ? coAdjustTarget(draft, hpa) : null;
                 draft.cpuFrozen = true;
                 draft.cpuTarget = null;
                 draft.reasons.add(ContainerReason.HPA_CPU_MANAGED);
                 if (guaranteed) {
                     draft.reasons.add(ContainerReason.QOS_PRESERVED_NO_CHANGE);
                 }
+                if (coAdjust != null && coAdjust.clamped) {
+                    // The clamp binds (or the target would leave 10–90): no co-adjust is offered and
+                    // the freeze stands alone, exactly as before.
+                    reasons.add(HpaReason.CLAMP_BOUND);
+                } else if (coAdjust != null) {
+                    coAdjustedTarget = coAdjust.newTargetPct;
+                    formula = coAdjust.formula;
+                    reasons.add(HpaReason.TARGET_COADJUSTED);
+                }
             }
-            if (hpa.memResourceMetricPresent()) {
+            if (memManaged) {
                 draft.memFrozen = true;
                 draft.memTarget = null;
                 draft.reasons.add(ContainerReason.HPA_MEMORY_MANAGED);
@@ -554,6 +635,172 @@ public final class WorkloadAutoscalingEngine {
                 }
             }
         }
+
+        return decideHpaBounds(snapshot, hpa, policy, now, coAdjustedTarget, formula, reasons);
+    }
+
+    // ------------------------------------------------------------------ HPA decisions (D1–D4)
+
+    /** The vertical CPU draft for the first CPU-metric-affected container, with D3a arithmetic. */
+    private CoAdjust coAdjustTarget(Draft draft, HpaView hpa) {
+        Long newCpu = draft.cpuRightsizedTarget;
+        Integer oldCpu = draft.container.current().cpuRequestMillis();
+        Integer oldTarget = hpa.targetCpuUtilizationPct();
+        if (newCpu == null || oldCpu == null || oldTarget == null || newCpu == oldCpu.longValue()) {
+            return null;
+        }
+        // Preserve request × targetUtil: newTarget = round(oldReq × oldTarget / newReq).
+        long newTarget = Math.round((double) oldCpu * oldTarget / newCpu);
+        int clamped = (int) Math.max(WorkloadPolicyDefaults.HPA_TARGET_CLAMP_MIN,
+                Math.min(WorkloadPolicyDefaults.HPA_TARGET_CLAMP_MAX, newTarget));
+        boolean clampBinds = clamped != newTarget;
+        String formula = String.format(Locale.ROOT, "round(%dm × %d%% ÷ %dm) = %d%%",
+                oldCpu, oldTarget, newCpu, clamped);
+        return new CoAdjust(clamped, clampBinds, formula);
+    }
+
+    /** D1 (raise max) and D2 (lower an over-high max), plus D3b standalone retune (off by default). */
+    private HpaDecision decideHpaBounds(WorkloadSnapshot snapshot, HpaView hpa, WorkloadPolicy policy,
+                                        Instant now, Integer coAdjustedTarget, String coAdjustFormula,
+                                        List<HpaReason> reasons) {
+        // GitOps-owned HPAs are shown but never patched.
+        if (hpa.isGitopsManaged()) {
+            reasons.add(HpaReason.GITOPS_MANAGED);
+            return HpaDecision.noChange(reasons);
+        }
+
+        Integer currentMax = hpa.maxReplicas();
+        Integer currentReplicas = hpa.currentReplicas();
+        Integer currentMin = hpa.minReplicas();
+
+        // ---- D1: raise maxReplicas when pinned at the ceiling with unmet demand.
+        if (currentMax != null && currentReplicas != null
+                && hpa.dweltAtCeiling(WorkloadPolicyDefaults.HPA_CEILING_DWELL, now)
+                && hpa.currentMetricPct() != null && hpa.targetCpuUtilizationPct() != null
+                && hpa.currentMetricPct() > hpa.targetCpuUtilizationPct()) {
+
+            long wanted = (long) Math.ceil(
+                    (double) currentReplicas * hpa.currentMetricPct() / hpa.targetCpuUtilizationPct());
+            // The per-apply raise cap: +50% or +3, whichever is larger. One click can never multiply
+            // a ceiling, and the cooldown gates the next move. XamOps grants the capped step when
+            // demand is unmet rather than only the exact formula value, so the ceiling clears the
+            // current pressure with headroom to spare before the next cycle may raise again.
+            // Replica hysteresis: a formula that wants only one replica beyond the current ceiling
+            // is within normal HPA operation at the margin, not unmet demand worth raising the
+            // ceiling for. A raise needs the formula to want at least two beyond the current max.
+            if (wanted < currentMax + 2) {
+                reasons.add(HpaReason.WITHIN_REPLICA_HYSTERESIS);
+                return HpaDecision.noChange(reasons);
+            }
+            long capStep = Math.max(
+                    Math.round(currentMax * WorkloadPolicyDefaults.HPA_RAISE_CAP_FRACTION),
+                    WorkloadPolicyDefaults.HPA_RAISE_CAP_ABSOLUTE);
+            long newMax = currentMax + capStep;
+
+            boolean userCapped = false;
+            if (hpa.userMaxReplicasCeiling() != null && newMax > hpa.userMaxReplicasCeiling()) {
+                newMax = hpa.userMaxReplicasCeiling();
+                userCapped = true;
+            }
+            if (inCooldown(policy, now)) {
+                reasons.add(HpaReason.COOLDOWN);
+                return HpaDecision.noChange(reasons);
+            }
+            reasons.add(HpaReason.AT_MAX_UNMET_DEMAND);
+            if (userCapped) {
+                reasons.add(HpaReason.USER_MAX_RESPECTED);
+            }
+            String formula = String.format(Locale.ROOT,
+                    "ceil(%d × %d%% ÷ %d%%) = %d, capped +%d => %d",
+                    currentReplicas, hpa.currentMetricPct(), hpa.targetCpuUtilizationPct(),
+                    wanted, capStep, newMax);
+            return HpaDecision.change(null, (int) newMax, coAdjustedTarget, reasons,
+                    coAdjustFormula == null ? formula : formula + "; " + coAdjustFormula);
+        }
+
+        // ---- D2: lower an over-high max that the window never came near. Only considered when
+        // there is headroom to lower (max above min + 1) and D3a is not already the active change.
+        boolean roomToLower = currentMax != null && currentMin != null && currentMax > currentMin + 1;
+        if (roomToLower && !hpa.scalingLimited() && coAdjustedTarget == null) {
+            if (!hpa.historyReadable() || hpa.observedPeakDesiredReplicas() == null) {
+                // Never shrink below need on a guess.
+                reasons.add(HpaReason.BELOW_OBSERVED_NEED);
+            } else {
+                int peak = hpa.observedPeakDesiredReplicas();
+                boolean overHigh =
+                        peak <= currentMax * WorkloadPolicyDefaults.HPA_LOW_WATER_FRACTION;
+                if (overHigh) {
+                    long newMax = Math.max(
+                            Math.round(peak * WorkloadPolicyDefaults.HPA_HEADROOM_REPLICA_FACTOR),
+                            currentMin + 1);
+                    newMax = Math.max(newMax, peak); // never below observed need
+                    if (newMax < currentMax) {
+                        reasons.add(HpaReason.MAX_ABOVE_OBSERVED_PEAK);
+                        String formula = String.format(Locale.ROOT,
+                                "max(%d × %.1f, %d + 1) = %d (peak %d of %d)",
+                                peak, WorkloadPolicyDefaults.HPA_HEADROOM_REPLICA_FACTOR,
+                                currentMin, newMax, peak, currentMax);
+                        return HpaDecision.change(null, (int) newMax, coAdjustedTarget, reasons, formula);
+                    }
+                }
+            }
+        }
+
+        // ---- D3b: standalone retune, behind its own sub-flag (off even when HPA automation is on).
+        if (D3B_STANDALONE_RETUNE_ENABLED && coAdjustedTarget == null && hpa.replicaChangeCount() != null
+                && hpa.replicaChangeCount() > WorkloadPolicyDefaults.HPA_FLAP_CHANGES_PER_DAY) {
+            // Suppressed by the flap guard: retuning a flapping HPA amplifies the flap.
+            reasons.add(HpaReason.TARGET_RETUNED);
+            return HpaDecision.noChange(reasons);
+        }
+
+        // ---- D3a stood alone (a target move with no bound change).
+        if (coAdjustedTarget != null) {
+            return HpaDecision.change(null, null, coAdjustedTarget, reasons, coAdjustFormula);
+        }
+
+        return HpaDecision.noChange(reasons);
+    }
+
+    /**
+     * D4: recommend creating an HPA for a workload that has none but would benefit — recommend only,
+     * never auto-create. The two gates that the Go reference failed are enforced here: a proposed
+     * {@code minReplicas} below a PDB's {@code minAvailable} is refused ({@link HpaReason#PDB_FLOOR_BINDS}),
+     * and a single-replica workload is never offered one.
+     */
+    private HpaDecision recommendNewHpa(WorkloadSnapshot snapshot, WorkloadPolicy policy) {
+        if (snapshot.replicas() <= 1) {
+            return HpaDecision.noChange(List.of());
+        }
+        int proposedMin = 2;
+        int proposedMax = Math.max(proposedMin + 1, snapshot.replicas() * 2);
+        Integer pdbFloor = snapshot.pdbMinAvailable();
+        if (pdbFloor != null && proposedMin < pdbFloor) {
+            return HpaDecision.noChange(List.of(HpaReason.PDB_FLOOR_BINDS));
+        }
+        String formula = String.format(Locale.ROOT, "min %d / max %d / target 80%% (recommend only)",
+                proposedMin, proposedMax);
+        return HpaDecision.change(proposedMin, proposedMax, 80,
+                List.of(HpaReason.HPA_RECOMMENDED_NEW), formula);
+    }
+
+    /** The same decision with one reason prepended, preserving its state/numbers/formula. */
+    private static HpaDecision withLeadingReason(HpaDecision decision, HpaReason reason) {
+        List<HpaReason> reasons = new ArrayList<>();
+        reasons.add(reason);
+        reasons.addAll(decision.reasons());
+        return new HpaDecision(decision.state(), decision.minReplicas(), decision.maxReplicas(),
+                decision.targetUtilizationPct(), reasons, decision.formula());
+    }
+
+    private static boolean inCooldown(WorkloadPolicy policy, Instant now) {
+        Instant lastApplied = policy.lastAppliedAt();
+        return lastApplied != null && policy.cooldownMinutes() > 0
+                && !lastApplied.isBefore(now.minus(Duration.ofMinutes(policy.cooldownMinutes())));
+    }
+
+    /** The result of a D3a co-adjust: the clamped target, whether the clamp bound, and the formula. */
+    private record CoAdjust(int newTargetPct, boolean clamped, String formula) {
     }
 
     // ------------------------------------------------------------------ provenance
@@ -588,6 +835,8 @@ public final class WorkloadAutoscalingEngine {
         private final EnumSet<ContainerReason> reasons = EnumSet.noneOf(ContainerReason.class);
         private Long cpuTarget;
         private Long memTarget;
+        /** The CPU target before hysteresis, retained for the D3a co-adjust. */
+        private Long cpuRightsizedTarget;
         private boolean cpuFrozen;
         private boolean memFrozen;
 

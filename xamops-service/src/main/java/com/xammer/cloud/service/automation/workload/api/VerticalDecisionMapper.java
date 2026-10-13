@@ -97,7 +97,7 @@ public final class VerticalDecisionMapper {
                 lastAction,                 // the newest recorded action, or null when none exists
                 decision.autoApplyEligible() && gate.isAutoApplyPermitted(),
                 provenance(decision),
-                horizontal(decision));
+                horizontal(decision, gate));
     }
 
     /**
@@ -205,10 +205,23 @@ public final class VerticalDecisionMapper {
                 provenance.usageSource(), provenance.policySource().name());
     }
 
-    private static VerticalWorkloadDto.HorizontalDto horizontal(WorkloadDecision decision) {
-        var horizontal = decision.horizontal();
-        return new VerticalWorkloadDto.HorizontalDto(horizontal.state().name(),
-                horizontal.minReplicas(), horizontal.maxReplicas(),
-                horizontal.targetCpuUtilizationPct(), List.copyOf(horizontal.reasons()));
+    /**
+     * The HPA decision block, built from the real {@link com.xammer.cloud.service.automation.workload.HpaDecision}.
+     *
+     * <p>While the horizontal master flag is off the state is downgraded to {@code NOT_EVALUATED}
+     * with no numbers, so a UI built against the modelled contract keeps working. {@code autoApplyEligible}
+     * is always false — HPA has no auto tier this task.
+     */
+    private static VerticalWorkloadDto.HorizontalDto horizontal(WorkloadDecision decision,
+                                                                WorkloadAutoscalingProperties gate) {
+        var hpa = decision.hpa();
+        if (!gate.isHorizontalEnabled()) {
+            return new VerticalWorkloadDto.HorizontalDto(
+                    HorizontalDecision.State.NOT_EVALUATED.name(), null, null, null, List.of());
+        }
+        return new VerticalWorkloadDto.HorizontalDto(hpa.state().name(),
+                hpa.minReplicas(), hpa.maxReplicas(), hpa.targetUtilizationPct(),
+                hpa.reasons().stream().map(Enum::name).toList(),
+                hpa.formula(), false);
     }
 }
