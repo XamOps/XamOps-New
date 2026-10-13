@@ -13,10 +13,16 @@ import com.xammer.cloud.service.automation.workload.api.dto.ApplyRequestDto;
 import com.xammer.cloud.service.automation.workload.api.dto.ApplyResponseDto;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalEngineResponse;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalWorkloadDto;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 import java.time.Clock;
@@ -50,6 +56,9 @@ class AutomaticApplyServiceTest {
     private static final Clock FIXED =
             Clock.fixed(Instant.parse("2026-10-13T12:00:00Z"), ZoneOffset.UTC);
 
+    /** The 12-digit AWS account number the fixtures carry; it must never reach the logs. */
+    private static final String AWS_ACCOUNT_NUMBER = "102227938259";
+
     private AutoApplyProperties autoApplyProperties;
     private WorkloadAutoscalingProperties autoscalingProperties;
     private VerticalAutomationReadService readService;
@@ -57,6 +66,9 @@ class AutomaticApplyServiceTest {
     private KubernetesClusterConfigRepository clusterConfigRepository;
     private CloudAccountRepository cloudAccountRepository;
     private SystemActorResolver systemActorResolver;
+
+    private ListAppender<ILoggingEvent> logs;
+    private ch.qos.logback.classic.Logger serviceLogger;
 
     @BeforeEach
     void setUp() {
@@ -76,6 +88,29 @@ class AutomaticApplyServiceTest {
         when(readService.read(any(), any())).thenReturn(response(eligibleWorkload()));
         when(applyService.apply(any(), any(), any(), any(), any(), any()))
                 .thenReturn(accepted());
+
+        LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
+        serviceLogger = context.getLogger(AutomaticApplyService.class);
+        logs = new ListAppender<>();
+        logs.setContext(context);
+        logs.start();
+        serviceLogger.addAppender(logs);
+        serviceLogger.setLevel(Level.INFO);
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (serviceLogger != null && logs != null) {
+            serviceLogger.detachAppender(logs);
+        }
+    }
+
+    private String allLogText() {
+        StringBuilder joined = new StringBuilder();
+        for (ILoggingEvent event : logs.list) {
+            joined.append(event.getFormattedMessage()).append('\n');
+        }
+        return joined.toString();
     }
 
     // ---------------------------------------------------------------- the global kill switch
@@ -276,6 +311,84 @@ class AutomaticApplyServiceTest {
         service.runCycle();                 // reaches apply again because breaker never opened
 
         verify(applyService, times(4)).apply(any(), any(), any(), any(), any(), any());
+    }
+
+    // ---------------------------------------------------------------- observability (FEAT-003)
+
+    @Test
+    @DisplayName("an applied workload logs a per-decision line with correlationId and outcome")
+    void anAppliedWorkloadLogsAPerDecisionLine() {
+        service().runCycle();
+
+        assertThat(allLogText())
+                .contains("Auto-apply applied")
+                .contains("team-a/overprovisioned-api")
+                .contains("c0ffee")   // correlationId from the response
+                .contains("APPLIED"); // the result's terminal outcome
+    }
+
+    @Test
+    @DisplayName("every cycle ends with one summary line of its counts")
+    void everyCycleLogsASummaryLine() {
+        service().runCycle();
+
+        List<String> summaries = logs.list.stream()
+                .map(ILoggingEvent::getFormattedMessage)
+                .filter(line -> line.startsWith("Auto-apply cycle summary"))
+                .toList();
+        assertThat(summaries).hasSize(1);
+        assertThat(summaries.get(0))
+                .contains("1 scanned")
+                .contains("1 eligible")
+                .contains("1 applied")
+                .contains("0 skipped")
+                .contains("0 failed");
+    }
+
+    @Test
+    @DisplayName("a skipped cluster logs a concrete reason, not a bare skip")
+    void aSkippedClusterLogsAConcreteReason() {
+        when(readService.read(any(), any())).thenReturn(responseWithGate("CONTROLLER_NOT_READY"));
+
+        service().runCycle();
+
+        assertThat(allLogText())
+                .contains("Auto-apply skipped")
+                .contains("CONTROLLER_NOT_READY");
+    }
+
+    @Test
+    @DisplayName("a failed apply logs the refusal code / exception class in the per-decision line")
+    void aFailedApplyLogsItsCode() {
+        when(applyService.apply(any(), any(), any(), any(), any(), any()))
+                .thenThrow(new RuntimeException("the kubelet declined"));
+
+        service().runCycle();
+
+        assertThat(allLogText())
+                .contains("Auto-apply failed")
+                .contains("code RuntimeException");
+    }
+
+    @Test
+    @DisplayName("no log line ever contains the 12-digit AWS account number")
+    void noLogContainsTheAwsAccountNumber() {
+        // Exercise an applied, a skipped and a failed path so every log line is produced.
+        AutomaticApplyService applied = service();
+        applied.runCycle();
+
+        when(readService.read(any(), any())).thenReturn(responseWithGate("CONTROLLER_NOT_READY"));
+        service().runCycle();
+
+        when(readService.read(any(), any())).thenReturn(response(eligibleWorkload()));
+        when(applyService.apply(any(), any(), any(), any(), any(), any()))
+                .thenThrow(new RuntimeException("the kubelet declined"));
+        service().runCycle();
+
+        assertThat(allLogText())
+                .describedAs("logs must name clusters via describe(), never the account number")
+                .doesNotContain(AWS_ACCOUNT_NUMBER)
+                .contains("cluster xamops-test-1 (config 42, client 7)");
     }
 
     // ---------------------------------------------------------------- fixtures

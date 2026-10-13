@@ -160,51 +160,75 @@ public class AutomaticApplyService {
     /**
      * The body of one cycle, in a read-only transaction so {@code CloudAccount.client} and the read
      * service's own lazy reads resolve off the scheduled thread.
+     *
+     * <p>Observability (FEAT-003): each cluster produces exactly one structured per-decision log line
+     * (applied / skipped-with-reason / failed-with-code), tallied into a {@link CycleTally}, and the
+     * cycle ends with one summary line. No log ever carries the 12-digit AWS account number — every
+     * cluster is named through {@link ClusterTarget#describe()} or its config id.
      */
     @Transactional(readOnly = true)
     public void applyOnePerReadyCluster() {
+        CycleTally tally = new CycleTally();
         for (KubernetesClusterConfig config : clusterConfigRepository.findAll()) {
+            tally.scanned++;
             try {
-                applyOne(config);
+                tally.record(applyOne(config));
             } catch (RuntimeException clusterFailure) {
                 // One cluster's unexpected failure must not stop the others this cycle.
+                tally.record(Decision.ERRORED);
                 logger.warn("Auto-apply skipped cluster config {} after an unexpected error: {}",
                         config == null ? null : config.getId(), clusterFailure.getMessage());
             }
         }
+        logger.info("Auto-apply cycle summary: {} scanned, {} eligible, {} applied, {} skipped,"
+                        + " {} failed, {} circuit-broken",
+                tally.scanned, tally.eligible, tally.applied, tally.skipped, tally.failed,
+                circuitBroken.size());
     }
 
-    private void applyOne(KubernetesClusterConfig config) {
+    /**
+     * Handle one cluster and return the single decision that describes what happened to it. Each
+     * early return logs its concrete skip reason first, so a cluster is accounted for exactly once.
+     */
+    private Decision applyOne(KubernetesClusterConfig config) {
         Long clusterConfigId = config.getId();
         if (clusterConfigId == null) {
-            return;
+            logger.info("Auto-apply skipped a cluster config with no id");
+            return Decision.SKIPPED;
         }
         if (circuitBroken.contains(clusterConfigId)) {
-            return;
+            logger.info("Auto-apply skipped cluster config {}: reason circuit-broken", clusterConfigId);
+            return Decision.SKIPPED;
         }
         if (withinClusterCooldown(clusterConfigId)) {
-            return;
+            logger.info("Auto-apply skipped cluster config {}: reason cluster-cooldown", clusterConfigId);
+            return Decision.SKIPPED;
         }
 
         CloudAccount account = resolveAccount(config).orElse(null);
         if (account == null) {
-            return;
+            logger.info("Auto-apply skipped cluster config {}: reason no-cloud-account", clusterConfigId);
+            return Decision.SKIPPED;
         }
         // Read-only connections are skipped here: apply would refuse one, and tripping the breaker on
         // a connection that can never write is the wrong signal.
         if (!"read-write".equalsIgnoreCase(account.getAccessType())) {
-            return;
+            logger.info("Auto-apply skipped cluster config {}: reason read-only-connection", clusterConfigId);
+            return Decision.SKIPPED;
         }
         Long clientId = account.getClient() == null ? null : account.getClient().getId();
         if (clientId == null) {
-            return;
+            logger.info("Auto-apply skipped cluster config {}: reason no-client", clusterConfigId);
+            return Decision.SKIPPED;
         }
 
         // No primary automation-capable user (including a demo-only tenant, whose demo emails are
         // filtered out) means no identity that clears the write gate: skip rather than invent one.
         Optional<ClientUserDetails> actor = systemActorResolver.resolve(clientId);
         if (actor.isEmpty()) {
-            return;
+            logger.info("Auto-apply skipped cluster config {} (client {}): reason no-system-actor",
+                    clusterConfigId, clientId);
+            return Decision.SKIPPED;
         }
 
         ClusterTarget target = new ClusterTarget(clientId, clusterConfigId, account.getAwsAccountId(),
@@ -214,19 +238,23 @@ public class AutomaticApplyService {
         if (!clusterIsApplyable(read)) {
             // Not ready, access not configured, unreachable, or a read gate is set: these would be
             // refused downstream, so the loop does not attempt an apply or trip the breaker.
-            return;
+            logger.info("Auto-apply skipped {}: reason gate {}", target.describe(), gateReason(read));
+            return Decision.SKIPPED;
         }
 
         Optional<VerticalWorkloadDto> selected = selectWorkload(read);
         if (selected.isEmpty()) {
-            return;
+            logger.info("Auto-apply skipped {}: reason no-auto-eligible-workload", target.describe());
+            return Decision.SKIPPED;
         }
         VerticalWorkloadDto workload = selected.get();
 
         List<ApplyRequestDto.Container> body = applyBody(workload);
         if (body.isEmpty()) {
             // Eligible but nothing actually differs from current: nothing to apply this cycle.
-            return;
+            logger.info("Auto-apply skipped {} on {}: reason no-field-differs",
+                    workload.ref().namespace() + "/" + workload.ref().name(), target.describe());
+            return Decision.ELIGIBLE_NO_CHANGE;
         }
         ApplyRequestDto request = new ApplyRequestDto(body, "IN_PLACE", Boolean.FALSE);
         WorkloadRef ref = WorkloadRef.of(workload.ref().namespace(), workload.ref().kind(),
@@ -235,10 +263,23 @@ public class AutomaticApplyService {
         try {
             ApplyResponseDto response = applyService.apply(actor.get(), account, target, ref, request,
                     ActionTrigger.AUTO);
-            onApplySucceeded(clusterConfigId, ref, response);
+            onApplySucceeded(clusterConfigId, target, ref, response);
+            return Decision.APPLIED;
         } catch (RuntimeException applyFailure) {
-            onApplyFailed(clusterConfigId, ref, applyFailure);
+            onApplyFailed(clusterConfigId, target, ref, applyFailure);
+            return Decision.FAILED;
         }
+    }
+
+    /** The concrete gate reason the read carried, for the skip log. */
+    private static String gateReason(VerticalEngineResponse read) {
+        if (read == null || read.engine() == null) {
+            return "no-read";
+        }
+        if (!ACCESS_CONFIGURED.equals(read.engine().clusterAccess())) {
+            return "cluster-access-" + read.engine().clusterAccess();
+        }
+        return read.gateReasons().isEmpty() ? "unknown" : String.join(",", read.gateReasons());
     }
 
     // ---------------------------------------------------------------- limits
@@ -255,24 +296,69 @@ public class AutomaticApplyService {
         return clock.instant().isBefore(lastApplied.plus(Duration.ofMinutes(cooldownMinutes)));
     }
 
-    private void onApplySucceeded(Long clusterConfigId, WorkloadRef ref, ApplyResponseDto response) {
+    private void onApplySucceeded(Long clusterConfigId, ClusterTarget target, WorkloadRef ref,
+                                  ApplyResponseDto response) {
         consecutiveFailures.remove(clusterConfigId);
         lastAppliedByCluster.put(clusterConfigId, clock.instant());
-        logger.info("Auto-apply applied {} on cluster config {}: state {} outcome {}",
-                ref.describe(), clusterConfigId, response.state(),
+        logger.info("Auto-apply applied {} on {}: correlationId {} state {} outcome {}",
+                ref.describe(), target.describe(), response.correlationId(), response.state(),
                 response.result() == null ? "unknown" : response.result().terminal());
     }
 
-    private void onApplyFailed(Long clusterConfigId, WorkloadRef ref, RuntimeException failure) {
+    private void onApplyFailed(Long clusterConfigId, ClusterTarget target, WorkloadRef ref,
+                               RuntimeException failure) {
         int failures = consecutiveFailures.merge(clusterConfigId, 1, Integer::sum);
-        logger.warn("Auto-apply failed on {} of cluster config {} ({} consecutive): {}",
-                ref.describe(), clusterConfigId, failures, failure.getMessage());
+        logger.warn("Auto-apply failed {} on {} ({} consecutive): code {} {}",
+                ref.describe(), target.describe(), failures, failureCode(failure),
+                failure.getMessage());
         int threshold = autoApplyProperties.getCircuitBreakerThreshold();
         if (threshold > 0 && failures >= threshold) {
             circuitBroken.add(clusterConfigId);
-            logger.warn("Auto-apply circuit breaker opened for cluster config {} after {} consecutive"
+            logger.warn("Auto-apply circuit breaker opened for {} after {} consecutive"
                     + " failures; it will be skipped until the service restarts. Last reason: {}",
-                    clusterConfigId, failures, failure.getMessage());
+                    target.describe(), failures, failure.getMessage());
+        }
+    }
+
+    /**
+     * The failure's code for the structured log: a
+     * {@link VerticalApplyService.ApplyRefusedException}'s contract {@code code} when it carries one,
+     * otherwise the exception's simple class name.
+     */
+    private static String failureCode(RuntimeException failure) {
+        if (failure instanceof VerticalApplyService.ApplyRefusedException refused
+                && refused.code() != null) {
+            return refused.code();
+        }
+        return failure.getClass().getSimpleName();
+    }
+
+    /** The single outcome a cluster's turn produced, for the per-cycle tally. */
+    private enum Decision {
+        APPLIED, FAILED, SKIPPED, ELIGIBLE_NO_CHANGE, ERRORED
+    }
+
+    /** Per-cycle counts folded from each cluster's {@link Decision}, for the summary line. */
+    private static final class CycleTally {
+        private int scanned;
+        private int eligible;
+        private int applied;
+        private int skipped;
+        private int failed;
+
+        private void record(Decision decision) {
+            switch (decision) {
+                case APPLIED -> {
+                    eligible++;
+                    applied++;
+                }
+                case FAILED -> {
+                    eligible++;
+                    failed++;
+                }
+                case ELIGIBLE_NO_CHANGE -> eligible++;
+                case SKIPPED, ERRORED -> skipped++;
+            }
         }
     }
 
