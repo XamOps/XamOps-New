@@ -29,6 +29,7 @@ import {
   formatMillis,
   formatText,
   manualApplyGate,
+  modeChangeGate,
   modeText,
   reasonSentence,
   reasonTitle,
@@ -49,7 +50,9 @@ import type {
   EngineView,
   ManualApplyGate,
   MetricValue,
+  ModeResult,
   VerticalResourcesWire,
+  WorkloadModeValue,
   WorkloadView,
 } from '../../../types/verticalRightsizer';
 
@@ -879,16 +882,161 @@ const HowCalculated: React.FC<{ workload: WorkloadView }> = ({ workload }) => {
   );
 };
 
+// ─── Mode control (endpoint 2) ───────────────────────────────────────────────
+
+const MODE_OPTIONS: { value: WorkloadModeValue; label: string }[] = [
+  { value: 'OFF', label: 'Off' },
+  { value: 'RECOMMEND', label: 'Recommend' },
+  { value: 'AUTO', label: 'Automatic' },
+];
+
+/** The plain-language consequence of choosing Automatic. No emoji; greyscale only. */
+const AUTOMATIC_CONSEQUENCE =
+  'XamOps will apply eligible changes to this workload on its own, at most one per cluster every 15 minutes, in place with no restart. Turn off any time.';
+
+/** The outcome line for a mode change, in words. Only a saved change reads as done. */
+const modeResultText = (
+  reply: ModeResult,
+  refusalText: (code: CodeView, message: string, hpaName: string | null, detail: string | null) => string,
+): { text: string; alert: boolean } => {
+  switch (reply.kind) {
+    case 'saved':
+      return { text: `Mode set to ${modeText(reply.mode)}.`, alert: false };
+    case 'writes-not-deployed':
+      return { text: "Changing the mode isn't available in this environment yet.", alert: false };
+    case 'cluster-not-registered':
+      return { text: "This cluster isn't connected to XamOps yet.", alert: false };
+    case 'refused':
+      return { text: refusalText(reply.code, reply.message, null, reply.detail), alert: true };
+    default:
+      return { text: reply.message, alert: true };
+  }
+};
+
+/**
+ * The per-workload mode switch: Off / Recommend / Automatic, gated and greyed exactly like Apply
+ * through {@link modeChangeGate}. Choosing Automatic asks for confirmation first, because it starts
+ * unattended changes; Off and Recommend are set immediately.
+ */
+const ModeControl: React.FC<{
+  workload: WorkloadView;
+  gate: ManualApplyGate;
+  changing: boolean;
+  reply: ModeResult | undefined;
+  onSetMode: (mode: WorkloadModeValue) => void;
+}> = ({ workload, gate, changing, reply, onSetMode }) => {
+  const [confirmAuto, setConfirmAuto] = useState(false);
+  const current = (workload.policy?.mode ?? null) as WorkloadModeValue | null;
+  const disabled = !gate.enabled || changing;
+
+  // If the gate closes mid-flight, drop any pending Automatic confirmation.
+  useEffect(() => {
+    if (!gate.enabled) setConfirmAuto(false);
+  }, [gate.enabled]);
+
+  const choose = (mode: WorkloadModeValue) => {
+    if (mode === current) return;
+    if (mode === 'AUTO') {
+      setConfirmAuto(true);
+    } else {
+      onSetMode(mode);
+    }
+  };
+
+  const outcome = reply ? modeResultText(reply, refusalText) : null;
+
+  return (
+    <div className="px-6 py-3 border-t border-[rgba(0,0,0,0.06)]">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-[11px] font-semibold text-[rgba(0,0,0,0.7)]">Automation mode</span>
+        <div
+          role="group"
+          aria-label={`Automation mode for ${workload.ref.name}`}
+          className="inline-flex rounded-xl border border-[rgba(0,0,0,0.12)] overflow-hidden"
+        >
+          {MODE_OPTIONS.map((option) => {
+            const active = current === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => choose(option.value)}
+                disabled={disabled || active}
+                aria-pressed={active}
+                title={disabled && !active ? (gate.reason ?? undefined) : undefined}
+                className={
+                  'px-3 py-1.5 text-[11px] font-bold border-r border-[rgba(0,0,0,0.12)] last:border-r-0 transition-all ' +
+                  (active
+                    ? 'bg-[rgba(0,0,0,0.88)] text-white'
+                    : 'bg-white text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] disabled:text-[rgba(0,0,0,0.3)] disabled:cursor-not-allowed disabled:hover:bg-white')
+                }
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+        {changing && <span className="text-[11px] text-[rgba(0,0,0,0.5)]">Saving…</span>}
+      </div>
+
+      {confirmAuto && gate.enabled && !changing && (
+        <div
+          role="alertdialog"
+          aria-label={`Turn ${workload.ref.name} Automatic?`}
+          className="mt-2 p-3 rounded-xl border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.02)] space-y-2 max-w-[520px]"
+        >
+          <p className="text-[12px] font-semibold text-[rgba(0,0,0,0.88)]">
+            Turn {workload.ref.name} Automatic?
+          </p>
+          <p className="text-[11px] text-[rgba(0,0,0,0.6)]">{AUTOMATIC_CONSEQUENCE}</p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmAuto(false);
+                onSetMode('AUTO');
+              }}
+              className="px-4 py-1.5 text-[11px] font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.88)] text-white hover:bg-black transition-all"
+            >
+              Turn on Automatic
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmAuto(false)}
+              className="px-4 py-1.5 text-[11px] font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] transition-all"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {outcome && (
+        <p
+          {...(outcome.alert ? { role: 'alert' } : {})}
+          className="mt-1 text-[11px] text-[rgba(0,0,0,0.6)]"
+        >
+          {outcome.text}
+        </p>
+      )}
+    </div>
+  );
+};
+
 // ─── Workload card (glossary 4.2) ────────────────────────────────────────────
 
 const WorkloadCard: React.FC<{
   workload: WorkloadView;
   gate: ManualApplyGate;
+  modeGate: ManualApplyGate;
+  modeChanging: boolean;
+  modeReply: ModeResult | undefined;
+  onSetMode: (mode: WorkloadModeValue) => void;
   dryRun: boolean;
   applying: boolean;
   reply: ApplyResult | undefined;
   onApply: () => void;
-}> = ({ workload, gate, dryRun, applying, reply, onApply }) => {
+}> = ({ workload, gate, modeGate, modeChanging, modeReply, onSetMode, dryRun, applying, reply, onApply }) => {
   const [confirming, setConfirming] = useState(false);
   // A confirmation describes a real resize; it closes if the gate closes or this becomes a test run.
   useEffect(() => {
@@ -972,6 +1120,14 @@ const WorkloadCard: React.FC<{
         />
       )}
 
+      <ModeControl
+        workload={workload}
+        gate={modeGate}
+        changing={modeChanging}
+        reply={modeReply}
+        onSetMode={onSetMode}
+      />
+
       <ContainerTable workload={workload} />
 
       <WhyThisSuggestion workload={workload} />
@@ -991,7 +1147,18 @@ const WorkloadCard: React.FC<{
 
 const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accountId, region }) => {
   const [dryRun, setDryRun] = useState(true);
-  const { loading, result, reload, applyingIds, applyResults, callerRefusal, apply } = useVerticalRightsizer({
+  const {
+    loading,
+    result,
+    reload,
+    applyingIds,
+    applyResults,
+    modeChangingIds,
+    modeResults,
+    callerRefusal,
+    apply,
+    setMode,
+  } = useVerticalRightsizer({
     clusterName,
     accountId,
     region,
@@ -1155,6 +1322,12 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
             key={w.id}
             workload={w}
             gate={manualApplyGate(result.view, w, callerRefusal)}
+            modeGate={modeChangeGate(result.view, callerRefusal)}
+            modeChanging={modeChangingIds.has(w.id)}
+            modeReply={modeResults[w.id]}
+            onSetMode={(mode) => {
+              void setMode(w, mode);
+            }}
             dryRun={dryRun}
             applying={applyingIds.has(w.id)}
             reply={applyResults[w.id]}

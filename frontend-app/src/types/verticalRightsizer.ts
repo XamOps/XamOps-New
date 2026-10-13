@@ -395,3 +395,22 @@ export interface CallerRefusal {
   code: string;
   detail: string | null;
 }
+
+// ─── Mode change (endpoint 2) ─────────────────────────────────────────────────
+
+/** The per-workload policy modes the UI can set. */
+export type WorkloadModeValue = 'OFF' | 'RECOMMEND' | 'AUTO';
+
+/**
+ * The reply to a mode change on endpoint 2.
+ *
+ * `saved` is the state the server stored, echoed so the UI reflects the mode without a second read.
+ * Every other arm mirrors `ApplyResult`'s refusal / deployment states, so a mode change is gated and
+ * reported exactly like an apply.
+ */
+export type ModeResult =
+  | { kind: 'saved'; mode: string | null; policySource: string | null }
+  | { kind: 'writes-not-deployed' }
+  | { kind: 'cluster-not-registered'; message: string }
+  | { kind: 'refused'; code: CodeView; message: string; detail: string | null }
+  | { kind: 'error'; message: string };

@@ -374,6 +374,89 @@ class VerticalAutomationControllerTest {
         verifyNoInteractions(clusterConfigRepository, applyService);
     }
 
+    // ------------------------------------------------------------------ endpoint 2, mode
+
+    private static final String POLICY = "/xamops-test-cluster/workloads/team-a/Deployment/"
+            + "overprovisioned-api/policy";
+
+    @Test
+    @DisplayName("a saved mode is 200 echoing the mode and policySource the server stored")
+    void aSavedModeIsA200WithTheStoredState() throws Exception {
+        givenClusterConfigByPrimaryKey();
+        when(applyService.setMode(any(), any(), any(), any(), eq("AUTO")))
+                .thenReturn(new com.xammer.cloud.service.automation.workload.api.dto.PolicyResponseDto(
+                        "AUTO", "WORKLOAD_ROW"));
+
+        mvc().perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put(BASE + POLICY + QUERY)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"mode\":\"AUTO\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mode").value("AUTO"))
+                .andExpect(jsonPath("$.policySource").value("WORKLOAD_ROW"));
+    }
+
+    @Test
+    @DisplayName("a mode change runs the apply gates: every 403 answers with its exact contract code")
+    void aModeChangeIsGatedLikeAnApply() throws Exception {
+        givenClusterConfigByPrimaryKey();
+        for (String code : List.of("K8S_NO_USER_PERMISSION", "K8S_READ_ONLY_CONNECTION",
+                "K8S_CONTROLLER_NOT_READY", "K8S_DEMO")) {
+            doThrow(new VerticalApplyService.ApplyRefusedException(HttpStatus.FORBIDDEN, code, null,
+                    "Refused because " + code + "."))
+                    .when(applyService).setMode(any(), any(), any(), any(), any());
+
+            mvc().perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                            .put(BASE + POLICY + QUERY)
+                            .contentType(MediaType.APPLICATION_JSON).content("{\"mode\":\"AUTO\"}"))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value(code))
+                    .andExpect(jsonPath("$.field").doesNotExist());
+        }
+    }
+
+    @Test
+    @DisplayName("an invalid mode is 400 K8S_INVALID_POLICY naming the mode field")
+    void anInvalidModeIsA400NamingTheField() throws Exception {
+        givenClusterConfigByPrimaryKey();
+        doThrow(new VerticalApplyService.ApplyRefusedException(HttpStatus.BAD_REQUEST,
+                "K8S_INVALID_POLICY", "mode", "mode must be OFF, RECOMMEND or AUTO, got 'ON'."))
+                .when(applyService).setMode(any(), any(), any(), any(), any());
+
+        mvc().perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put(BASE + POLICY + QUERY)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"mode\":\"ON\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("K8S_INVALID_POLICY"))
+                .andExpect(jsonPath("$.field").value("mode"));
+    }
+
+    @Test
+    @DisplayName("a mode change to an unregistered cluster is 404 K8S_CLUSTER_NOT_REGISTERED")
+    void aModeChangeToAnUnregisteredClusterIsNotFound() throws Exception {
+        when(clusterConfigRepository.findByCloudAccountIdAndClusterName(any(), any()))
+                .thenReturn(Optional.empty());
+
+        mvc().perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put(BASE + POLICY + QUERY)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"mode\":\"AUTO\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("K8S_CLUSTER_NOT_REGISTERED"));
+
+        verifyNoInteractions(applyService);
+    }
+
+    @Test
+    @DisplayName("another tenant cannot change a mode, and no cluster lookup happens")
+    void anotherTenantCannotChangeMode() throws Exception {
+        mvc().perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put(BASE + "/xamops-test-cluster/workloads/team-a/Deployment/api/policy"
+                                + "?accountId=" + FOREIGN_ID + "&region=ap-south-1")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"mode\":\"AUTO\"}"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(clusterConfigRepository, applyService);
+    }
+
     private void givenClusterConfigByPrimaryKey() {
         when(clusterConfigRepository.findByCloudAccountIdAndClusterName(3L, "xamops-test-cluster"))
                 .thenReturn(Optional.of(clusterConfig()));

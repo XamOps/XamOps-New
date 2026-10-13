@@ -9,7 +9,11 @@ import {
   reasonSentence,
   workloadStatus,
 } from '../../../../api/verticalRightsizerAdapter';
-import { applyVerticalRecommendation, fetchVerticalEngine } from '../../../../api/verticalRightsizerApi';
+import {
+  applyVerticalRecommendation,
+  fetchVerticalEngine,
+  setVerticalWorkloadMode,
+} from '../../../../api/verticalRightsizerApi';
 import { formatIST } from '../../../../utils/timeUtils';
 import type {
   VerticalEngineResponseWire,
@@ -20,12 +24,15 @@ import type {
 vi.mock('../../../../api/verticalRightsizerApi', () => ({
   fetchVerticalEngine: vi.fn(),
   applyVerticalRecommendation: vi.fn(),
+  setVerticalWorkloadMode: vi.fn(),
   verticalReadUrl: vi.fn(),
   verticalApplyUrl: vi.fn(),
+  verticalPolicyUrl: vi.fn(),
 }));
 
 const mockedRead = fetchVerticalEngine as unknown as ReturnType<typeof vi.fn>;
 const mockedApply = applyVerticalRecommendation as unknown as ReturnType<typeof vi.fn>;
+const mockedSetMode = setVerticalWorkloadMode as unknown as ReturnType<typeof vi.fn>;
 
 const engine = (overrides: Partial<VerticalEngineResponseWire['engine']> = {}): VerticalEngineResponseWire['engine'] => ({
   enabled: true,
@@ -98,6 +105,7 @@ describe('EksAutomationTab', () => {
   beforeEach(() => {
     mockedRead.mockReset();
     mockedApply.mockReset();
+    mockedSetMode.mockReset();
   });
 
   it('disables Apply and states the blocking reason when applying is off in this environment', async () => {
@@ -1313,5 +1321,116 @@ describe('EksAutomationTab', () => {
     expect(
       await screen.findByText('Not applied: this workload was changed less than 60 minutes ago. Nothing was sent.'),
     ).toBeInTheDocument();
+  });
+
+  // ─── Mode control (endpoint 2) ─────────────────────────────────────────────
+
+  describe('the per-workload mode switch (endpoint 2)', () => {
+    it('shows the current mode as the pressed option, through the same write-gate wiring', async () => {
+      resolveWith({ engine: engine(), gateReasons: [], workloads: [workload({ policy: { mode: 'RECOMMEND', headroomPct: 25, percentile: 95, window: '72h', applyMethod: 'IN_PLACE' } })] });
+      renderTab();
+
+      const group = await screen.findByRole('group', { name: 'Automation mode for overprovisioned-api' });
+      const recommend = screen.getByRole('button', { name: 'Recommend' });
+      // The current mode is pressed and disabled; the others are enabled for a permitted caller.
+      expect(recommend).toHaveAttribute('aria-pressed', 'true');
+      expect(recommend).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Off' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Automatic' })).toBeEnabled();
+      expect(group).toBeInTheDocument();
+    });
+
+    it('switches to Recommend or Off immediately, with no confirmation', async () => {
+      resolveWith({ engine: engine(), gateReasons: [], workloads: [workload({ policy: { mode: 'AUTO', headroomPct: 25, percentile: 95, window: '72h', applyMethod: 'IN_PLACE' } })] });
+      mockedSetMode.mockResolvedValue({ kind: 'saved', mode: 'OFF', policySource: 'WORKLOAD_ROW' });
+      renderTab();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Off' }));
+
+      await waitFor(() => expect(mockedSetMode).toHaveBeenCalledTimes(1));
+      const [, ref, , , mode] = mockedSetMode.mock.calls[0];
+      expect(ref).toEqual({ namespace: 'team-a', kind: 'Deployment', name: 'overprovisioned-api' });
+      expect(mode).toBe('OFF');
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+    });
+
+    it('confirms before turning a workload Automatic, with the plain-language consequence', async () => {
+      resolveWith({ engine: engine(), gateReasons: [], workloads: [workload({ policy: { mode: 'RECOMMEND', headroomPct: 25, percentile: 95, window: '72h', applyMethod: 'IN_PLACE' } })] });
+      mockedSetMode.mockResolvedValue({ kind: 'saved', mode: 'AUTO', policySource: 'WORKLOAD_ROW' });
+      renderTab();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Automatic' }));
+
+      // Nothing is sent until the consequence is confirmed.
+      const dialog = await screen.findByRole('alertdialog', { name: 'Turn overprovisioned-api Automatic?' });
+      expect(mockedSetMode).not.toHaveBeenCalled();
+      expect(dialog.textContent).toContain(
+        'XamOps will apply eligible changes to this workload on its own, at most one per cluster every 15 minutes, in place with no restart. Turn off any time.',
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Turn on Automatic' }));
+      await waitFor(() => expect(mockedSetMode).toHaveBeenCalledTimes(1));
+      expect(mockedSetMode.mock.calls[0][4]).toBe('AUTO');
+      expect(await screen.findByText('Mode set to Apply automatically.')).toBeInTheDocument();
+    });
+
+    it('sends nothing when the Automatic confirmation is cancelled', async () => {
+      resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+      renderTab();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Automatic' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+      expect(mockedSetMode).not.toHaveBeenCalled();
+    });
+
+    it('greys the mode switch exactly like Apply for a read-only connection', async () => {
+      resolveWith({ engine: engine(), gateReasons: ['READ_ONLY_CONNECTION'], workloads: [workload()] });
+      renderTab();
+
+      await screen.findByRole('group', { name: 'Automation mode for overprovisioned-api' });
+      // Recommend is current (RECOMMEND), so it is disabled anyway; Off and Automatic are the ones a
+      // permitted caller could press, and the write gate must grey them.
+      expect(screen.getByRole('button', { name: 'Off' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Automatic' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Automatic' })).toHaveAttribute('title', READ_ONLY_SENTENCE);
+      fireEvent.click(screen.getByRole('button', { name: 'Automatic' }));
+      expect(mockedSetMode).not.toHaveBeenCalled();
+    });
+
+    it('greys the mode switch when the server never checked the caller (backend older than frontend)', async () => {
+      mockedRead.mockResolvedValue({
+        kind: 'ok',
+        view: adaptEngineResponse({ engine: engine(), gateReasons: [], workloads: [workload()] }),
+      });
+      renderTab();
+
+      await screen.findByRole('group', { name: 'Automation mode for overprovisioned-api' });
+      expect(screen.getByRole('button', { name: 'Automatic' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Automatic' })).toHaveAttribute(
+        'title',
+        "Couldn't check whether you can change automation.",
+      );
+    });
+
+    it('reports a refused mode change in plain words, and does not read as a success', async () => {
+      resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+      mockedSetMode.mockResolvedValue({
+        kind: 'refused',
+        code: { kind: 'known', code: 'NO_USER_PERMISSION', label: 'No permission to change automation' },
+        message: "You don't have permission to change automation.",
+        detail: 'TAB_GRANT',
+      });
+      renderTab();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Automatic' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Turn on Automatic' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        "View only: you don't have permission to change automation.",
+      );
+      expect(screen.queryByText(/Mode set to/)).toBeNull();
+    });
   });
 });

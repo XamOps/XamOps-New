@@ -16,10 +16,12 @@ import type {
   ApplyOutcomeWire,
   ApplyRequest,
   ApplyResult,
+  ModeResult,
   VerticalEngineResponseWire,
   VerticalReadResult,
   VerticalRefusalWire,
   VerticalWorkloadRefWire,
+  WorkloadModeValue,
 } from '../types/verticalRightsizer';
 
 const BASE = '/api/eks/automation/vertical';
@@ -36,6 +38,15 @@ export const verticalApplyUrl = (
   region: string,
 ): string =>
   `${BASE}/${seg(cluster)}/workloads/${seg(ref.namespace)}/${seg(ref.kind)}/${seg(ref.name)}/apply` +
+  `?accountId=${seg(accountId)}&region=${seg(region)}`;
+
+export const verticalPolicyUrl = (
+  cluster: string,
+  ref: VerticalWorkloadRefWire,
+  accountId: string,
+  region: string,
+): string =>
+  `${BASE}/${seg(cluster)}/workloads/${seg(ref.namespace)}/${seg(ref.kind)}/${seg(ref.name)}/policy` +
   `?accountId=${seg(accountId)}&region=${seg(region)}`;
 
 const readJson = async <T>(response: Response): Promise<T | null> => {
@@ -168,5 +179,66 @@ export const applyVerticalRecommendation = async (
   return {
     kind: 'error',
     message: refusalMessage(refusal, `The apply endpoint returned HTTP ${response.status}.`),
+  };
+};
+
+interface ModeSavedWire {
+  mode?: string | null;
+  policySource?: string | null;
+}
+
+/**
+ * Sets one workload's policy mode on endpoint 2.
+ *
+ * The server runs the same write gates as an apply — a mode change is itself an automation change,
+ * and arming `AUTO` needs the same permission as applying — so the reply is read with the identical
+ * code discipline: a `200` echoes the saved mode, a `403` / `400` carries a gate code that greys the
+ * control and explains why, and a `404` tells the two deployment states (cluster not registered vs.
+ * the write path not mapped) apart. Nothing here infers a success the server did not send.
+ */
+export const setVerticalWorkloadMode = async (
+  cluster: string,
+  ref: VerticalWorkloadRefWire,
+  accountId: string,
+  region: string,
+  mode: WorkloadModeValue,
+): Promise<ModeResult> => {
+  let response: Response;
+  try {
+    response = await apiClient.fetch(verticalPolicyUrl(cluster, ref, accountId, region), {
+      method: 'PUT',
+      body: JSON.stringify({ mode }),
+    });
+  } catch (e) {
+    return { kind: 'error', message: e instanceof Error ? e.message : 'The request could not be sent.' };
+  }
+
+  if (response.status === 404) {
+    const notFound = await readJson<VerticalRefusalWire>(response);
+    const code = parseCode(notFound?.code);
+    if (code) {
+      return {
+        kind: 'cluster-not-registered',
+        message: refusalMessage(notFound,
+          'This cluster is not registered with XamOps in this environment.'),
+      };
+    }
+    return { kind: 'writes-not-deployed' };
+  }
+
+  if (response.ok) {
+    const body = await readJson<ModeSavedWire>(response);
+    return { kind: 'saved', mode: body?.mode ?? null, policySource: body?.policySource ?? null };
+  }
+
+  const refusal = await readJson<VerticalRefusalWire>(response);
+  const code = parseCode(refusal?.code);
+  if (code && (response.status === 403 || response.status === 400)) {
+    const detail = typeof refusal?.detail === 'string' && refusal.detail.trim() !== '' ? refusal.detail.trim() : null;
+    return { kind: 'refused', code, message: refusalMessage(refusal, 'The mode change was refused.'), detail };
+  }
+  return {
+    kind: 'error',
+    message: refusalMessage(refusal, `The policy endpoint returned HTTP ${response.status}.`),
   };
 };

@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -165,6 +166,54 @@ public class VerticalAutomationController {
         ApplyResponseDto response = applyService.apply(principal, account, target,
                 WorkloadRef.of(namespace, kind, name), body);
         return ResponseEntity.accepted().body(response);
+    }
+
+    /**
+     * Endpoint 2 (mode only) — set one workload's policy mode to {@code OFF}, {@code RECOMMEND} or
+     * {@code AUTO}.
+     *
+     * <p>The published contract's endpoint 2 carries a full policy body; this release implements the
+     * <strong>mode</strong> field of it, because that is what arms the shipped auto-apply loop — a
+     * workload is only ever auto-applied when its stored mode is {@code AUTO}. The window /
+     * percentile / headroom editor is a later task, so a body field other than {@code mode} is
+     * ignored here rather than acted on.
+     *
+     * <p>A mode change <strong>is</strong> an automation change, so it answers {@code 200} only after
+     * passing the same write gates an apply does — see {@link VerticalApplyService#setMode}. Every
+     * refusal is the same typed body an apply produces, rendered by
+     * {@link #onApplyRefused(VerticalApplyService.ApplyRefusedException)}; setting {@code AUTO}
+     * specifically requires the same write permission as applying.
+     */
+    @PutMapping("/{cluster}/workloads/{namespace}/{kind}/{name}/policy")
+    public ResponseEntity<com.xammer.cloud.service.automation.workload.api.dto.PolicyResponseDto> setMode(
+            @AuthenticationPrincipal ClientUserDetails principal,
+            @PathVariable("cluster") String cluster,
+            @PathVariable("namespace") String namespace,
+            @PathVariable("kind") String kind,
+            @PathVariable("name") String name,
+            @RequestParam("accountId") String accountId,
+            @RequestParam("region") String region,
+            @RequestBody(required = false)
+            com.xammer.cloud.service.automation.workload.api.dto.PolicyRequestDto body) {
+        requireShape(cluster, CLUSTER_NAME, "cluster");
+        requireShape(namespace, K8S_NAME, "namespace");
+        requireShape(kind, K8S_KIND, "kind");
+        requireShape(name, K8S_NAME, "name");
+        requireShape(accountId, AWS_ACCOUNT_ID, "accountId");
+        requireShape(region, REGION, "region");
+
+        // Throws AccessDeniedException -> 403 if the caller is not entitled to this AWS account.
+        CloudAccount account = accessService.requireAwsAccess(principal, accountId);
+        KubernetesClusterConfig config = requireClusterConfig(account, cluster);
+
+        ClusterTarget target = new ClusterTarget(
+                account.getClient() == null ? null : account.getClient().getId(),
+                config.getId(), account.getAwsAccountId(), cluster, region);
+
+        com.xammer.cloud.service.automation.workload.api.dto.PolicyResponseDto response =
+                applyService.setMode(principal, account, target,
+                        WorkloadRef.of(namespace, kind, name), body == null ? null : body.mode());
+        return ResponseEntity.ok(response);
     }
 
     /**

@@ -276,6 +276,75 @@ class WorkloadPolicyServiceTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    // ---------------------------------------------------------------- setting the mode (endpoint 2)
+
+    @Test
+    @DisplayName("setMode on an existing row changes only the mode and returns the previous one")
+    void setModeOnlyChangesTheModeColumn() {
+        WorkloadVerticalPolicy row = bareRow();
+        row.setMode("RECOMMEND");
+        row.setPercentile(99);
+        row.setWindowHours(168);
+        row.setHeadroomPct(40);
+        when(repository.findByClusterConfigIdAndNamespaceAndWorkloadKindAndWorkloadName(
+                CLUSTER_CONFIG_ID, "team-a", "Deployment", "overprovisioned-api"))
+                .thenReturn(Optional.of(row));
+
+        WorkloadMode previous = service().setMode(5L, CLUSTER_CONFIG_ID, REF, WorkloadMode.AUTO,
+                WorkloadPolicyDefaults.policy());
+
+        assertThat(previous).isEqualTo(WorkloadMode.RECOMMEND);
+        ArgumentCaptor<WorkloadVerticalPolicy> saved =
+                ArgumentCaptor.forClass(WorkloadVerticalPolicy.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getMode()).isEqualTo("AUTO");
+        assertThat(saved.getValue().getPercentile())
+                .as("the window/percentile editor is a later task; setMode writes only the mode")
+                .isEqualTo(99);
+        assertThat(saved.getValue().getWindowHours()).isEqualTo(168);
+        assertThat(saved.getValue().getHeadroomPct()).isEqualTo(40);
+    }
+
+    @Test
+    @DisplayName("setMode on a workload with no row creates one with the configured defaults, mode applied")
+    void setModeCreatesARowFromTheDefaultsWhenAbsent() {
+        when(repository.findByClusterConfigIdAndNamespaceAndWorkloadKindAndWorkloadName(
+                CLUSTER_CONFIG_ID, "team-a", "Deployment", "overprovisioned-api"))
+                .thenReturn(Optional.empty());
+        // The environment's defaults endpoint 1 reports for a no-row workload: RECOMMEND, 72h.
+        WorkloadPolicy inForce = WorkloadPolicyDefaults.policy(WorkloadMode.RECOMMEND).withWindowHours(72);
+
+        WorkloadMode previous = service().setMode(5L, CLUSTER_CONFIG_ID, REF, WorkloadMode.AUTO, inForce);
+
+        assertThat(previous)
+                .as("the mode before the first row is the configured default endpoint 1 showed")
+                .isEqualTo(WorkloadMode.RECOMMEND);
+        ArgumentCaptor<WorkloadVerticalPolicy> saved =
+                ArgumentCaptor.forClass(WorkloadVerticalPolicy.class);
+        verify(repository).save(saved.capture());
+        WorkloadVerticalPolicy row = saved.getValue();
+        assertThat(row.getClientId()).isEqualTo(5L);
+        assertThat(row.getClusterConfigId()).isEqualTo(CLUSTER_CONFIG_ID);
+        assertThat(row.getMode()).isEqualTo("AUTO");
+        assertThat(row.getWindowHours())
+                .as("the created row carries the defaults in force, so other fields are not reset")
+                .isEqualTo(72);
+    }
+
+    @Test
+    @DisplayName("setMode needs its identifiers and a mode")
+    void setModeNeedsItsIdentifiers() {
+        WorkloadPolicyService service = new WorkloadPolicyService(repository);
+        WorkloadPolicy defaults = WorkloadPolicyDefaults.policy();
+
+        assertThatThrownBy(() -> service.setMode(5L, null, REF, WorkloadMode.AUTO, defaults))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.setMode(5L, CLUSTER_CONFIG_ID, null, WorkloadMode.AUTO, defaults))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.setMode(5L, CLUSTER_CONFIG_ID, REF, null, defaults))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     @Test
     @DisplayName("the protected-namespace set is a code constant, not a policy field")
     void protectedNamespacesAreNotPolicy() {

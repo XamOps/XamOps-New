@@ -19,6 +19,7 @@ import com.xammer.cloud.service.automation.workload.access.ClusterAccessProvider
 import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
 import com.xammer.cloud.service.automation.workload.api.dto.ApplyRequestDto;
 import com.xammer.cloud.service.automation.workload.api.dto.ApplyResponseDto;
+import com.xammer.cloud.service.automation.workload.api.dto.PolicyResponseDto;
 import com.xammer.cloud.service.automation.workload.api.dto.RefusalDto;
 import com.xammer.cloud.service.automation.workload.execute.ActionCommand;
 import com.xammer.cloud.service.automation.workload.execute.ActionSubmission;
@@ -284,6 +285,85 @@ public class VerticalApplyService {
 
         return ApplyResponseDto.of(command.correlationId(), submission.state().name(),
                 command.dryRun(), method.name(), proof);
+    }
+
+    /**
+     * Endpoint 2 (mode only): set one workload's policy mode to {@code OFF}, {@code RECOMMEND} or
+     * {@code AUTO}.
+     *
+     * <h2>A mode change is an automation change, so it runs the apply gates</h2>
+     *
+     * The first three gates of {@link #apply} run here, in the same order and through the same
+     * code — {@link #requirePermission} ({@link AutomationWritePermission}: demo, no-permission
+     * including a missing TAB_GRANT, a Login-As session, a non-XamOps role), then
+     * {@link #requireWriteConnection} (read-only connection), then {@link #requireControllerReady}.
+     * Setting {@code AUTO} therefore requires the <strong>same write permission as applying</strong>:
+     * a caller who could not apply a change cannot arm one to run unattended either. The cluster is
+     * never opened and no pod is touched; a mode change is a database write, so the per-workload
+     * holds, the cooldown and the body re-validation that only make sense for a resize are not run.
+     *
+     * <p>The new mode is validated against {@link WorkloadMode}; anything else is a
+     * {@code 400 K8S_INVALID_POLICY} naming the {@code mode} field, the same refusal shape a bad
+     * apply body gets. The write is {@link WorkloadPolicyService#setMode}, which changes only the
+     * {@code mode} column and leaves every other policy field at its stored or default value. The
+     * change is recorded as a {@link WorkloadActionRecorder#OUTCOME_POLICY_CHANGE} audit row, so the
+     * activity history shows who switched a workload to Automatic and when.
+     *
+     * @param modeValue the requested mode, case-insensitive; {@code OFF | RECOMMEND | AUTO}
+     * @return the saved mode and the policy source, so endpoint 1's state is reflected to the caller
+     */
+    public PolicyResponseDto setMode(ClientUserDetails principal, CloudAccount account,
+                                     ClusterTarget target, WorkloadRef ref, String modeValue) {
+        return setMode(principal, account, target, ref, modeValue, ActionTrigger.MANUAL);
+    }
+
+    /**
+     * The same mode change, naming who initiated it. The trigger only labels the recorded action;
+     * the gate order is identical for every caller.
+     */
+    public PolicyResponseDto setMode(ClientUserDetails principal, CloudAccount account,
+                                     ClusterTarget target, WorkloadRef ref, String modeValue,
+                                     ActionTrigger trigger) {
+        // The automation-change gates, in the published order, through the same checks as an apply.
+        requirePermission(principal, account);
+        requireWriteConnection(account);
+        requireControllerReady();
+
+        WorkloadMode newMode = requireMode(modeValue);
+
+        // The policy endpoint 1 reported for a workload with no row: the environment's configured
+        // defaults, so a first mode write records the operator's own view and not the bare OFF.
+        WorkloadPolicy inForce = policyService.resolve(target.clusterConfigId(), ref,
+                metricsProperties.defaultsPolicy());
+        WorkloadMode previous = policyService.setMode(target.clientId(), target.clusterConfigId(), ref,
+                newMode, inForce);
+
+        Instant at = clock.instant();
+        // The durable audit row, written from this same human path with the trigger labelling who
+        // asked. Recorded even when the mode did not change, so a deliberate re-confirm is auditable.
+        actionRecorder.recordPolicyChange(target.clientId(), target, ref, trigger,
+                previous.name(), newMode.name(), at);
+
+        logger.info("Vertical mode change for {} on {}: {} -> {} by {}", ref.describe(),
+                target.describe(), previous, newMode,
+                principal == null ? "unknown" : principal.getId());
+
+        // A mode write always leaves a stored row, so endpoint 1's policySource is WORKLOAD_ROW.
+        return new PolicyResponseDto(newMode.name(), WorkloadPolicy.Source.WORKLOAD_ROW.name());
+    }
+
+    /** The requested mode as a {@link WorkloadMode}, else a 400 naming the {@code mode} field. */
+    private static WorkloadMode requireMode(String modeValue) {
+        if (modeValue == null || modeValue.isBlank()) {
+            throw new ApplyRefusedException(HttpStatus.BAD_REQUEST, RefusalDto.INVALID_POLICY, "mode",
+                    "A mode change needs a mode: one of OFF, RECOMMEND or AUTO.");
+        }
+        try {
+            return WorkloadMode.valueOf(modeValue.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException unknown) {
+            throw new ApplyRefusedException(HttpStatus.BAD_REQUEST, RefusalDto.INVALID_POLICY, "mode",
+                    "mode must be OFF, RECOMMEND or AUTO, got '" + modeValue + "'.");
+        }
     }
 
     /** The registered cluster and the workload's identity: what two applies must not share at once. */

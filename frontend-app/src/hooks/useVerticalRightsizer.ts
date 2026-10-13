@@ -11,9 +11,20 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { applyVerticalRecommendation, fetchVerticalEngine } from '../api/verticalRightsizerApi';
+import {
+  applyVerticalRecommendation,
+  fetchVerticalEngine,
+  setVerticalWorkloadMode,
+} from '../api/verticalRightsizerApi';
 import { isCallerLevelRefusal, toApplyContainers } from '../api/verticalRightsizerAdapter';
-import type { ApplyResult, CallerRefusal, VerticalReadResult, WorkloadView } from '../types/verticalRightsizer';
+import type {
+  ApplyResult,
+  CallerRefusal,
+  ModeResult,
+  VerticalReadResult,
+  WorkloadModeValue,
+  WorkloadView,
+} from '../types/verticalRightsizer';
 
 export interface UseVerticalRightsizerArgs {
   clusterName: string | null;
@@ -33,9 +44,15 @@ export interface UseVerticalRightsizerState {
   applyingIds: ReadonlySet<string>;
   /** The last reply per workload id. Never a fabricated success. */
   applyResults: Record<string, ApplyResult>;
-  /** A caller-level refusal endpoint 3 answered since the last read, or null. */
+  /** The workload ids with a mode change in flight. */
+  modeChangingIds: ReadonlySet<string>;
+  /** The last mode-change reply per workload id. */
+  modeResults: Record<string, ModeResult>;
+  /** A caller-level refusal endpoint 2 or 3 answered since the last read, or null. */
   callerRefusal: CallerRefusal | null;
   apply: (workload: WorkloadView, dryRun: boolean) => Promise<ApplyResult | null>;
+  /** Sets one workload's policy mode through endpoint 2 and reloads so endpoint 1 reflects it. */
+  setMode: (workload: WorkloadView, mode: WorkloadModeValue) => Promise<ModeResult | null>;
 }
 
 export const useVerticalRightsizer = ({
@@ -47,6 +64,8 @@ export const useVerticalRightsizer = ({
   const [result, setResult] = useState<VerticalReadResult | null>(null);
   const [applyingIds, setApplyingIds] = useState<ReadonlySet<string>>(() => new Set());
   const [applyResults, setApplyResults] = useState<Record<string, ApplyResult>>({});
+  const [modeChangingIds, setModeChangingIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [modeResults, setModeResults] = useState<Record<string, ModeResult>>({});
   const [callerRefusal, setCallerRefusal] = useState<CallerRefusal | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   /** Set by a user's Refresh: the next read that checked the caller's gates replaces the refusal. */
@@ -133,7 +152,53 @@ export const useVerticalRightsizer = ({
     [clusterName, accountId, region],
   );
 
-  return { loading, result, reload, applyingIds, applyResults, callerRefusal, apply };
+  const setMode = useCallback(
+    async (workload: WorkloadView, mode: WorkloadModeValue): Promise<ModeResult | null> => {
+      if (!clusterName || !accountId || !region) return null;
+
+      setModeChangingIds((prev) => new Set(prev).add(workload.id));
+      try {
+        const reply = await setVerticalWorkloadMode(clusterName, workload.ref, accountId, region, mode);
+        if (mounted.current) {
+          setModeResults((prev) => ({ ...prev, [workload.id]: reply }));
+          // A caller-level refusal (demo, permission, read-only, account) is about the user, not the
+          // row: grey every control and re-read the page's gates, exactly as a refused apply does.
+          if (reply.kind === 'refused' && reply.code.kind === 'known' && isCallerLevelRefusal(reply.code)) {
+            setCallerRefusal({ code: reply.code.code, detail: reply.detail });
+          }
+          // A saved mode changes what endpoint 1 reports (mode, policySource, lastAction), so read
+          // again. A user-initiated read also clears a stale refusal once the gates are re-checked.
+          if (reply.kind === 'saved') {
+            clearRefusalOnRead.current = true;
+          }
+          setReloadToken((t) => t + 1);
+        }
+        return reply;
+      } finally {
+        if (mounted.current) {
+          setModeChangingIds((prev) => {
+            const next = new Set(prev);
+            next.delete(workload.id);
+            return next;
+          });
+        }
+      }
+    },
+    [clusterName, accountId, region],
+  );
+
+  return {
+    loading,
+    result,
+    reload,
+    applyingIds,
+    applyResults,
+    modeChangingIds,
+    modeResults,
+    callerRefusal,
+    apply,
+    setMode,
+  };
 };
 
 export default useVerticalRightsizer;

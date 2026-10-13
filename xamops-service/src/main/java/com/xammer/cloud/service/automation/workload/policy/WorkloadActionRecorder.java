@@ -92,6 +92,57 @@ public class WorkloadActionRecorder {
                 proof.restartFree());
     }
 
+    /**
+     * The {@code outcome} value recorded for a mode switch, so the audit history and the read
+     * endpoint's {@code lastAction} can tell a policy change apart from a resize.
+     *
+     * <p>Text, like every other {@code outcome}, so a new audit verb needs no migration — the same
+     * reason {@code trigger_source} and the resize outcomes are text.
+     */
+    public static final String OUTCOME_POLICY_CHANGE = "POLICY_CHANGE";
+
+    /**
+     * Records that a user switched a workload's policy mode through endpoint 2 — the durable audit
+     * row behind "who turned this workload Automatic, and when".
+     *
+     * <p>Written from the same tenant-scoped pair as a resize ({@code clientId} and
+     * {@code clusterConfigId}, never {@code cloud_account_id}). A mode change touches no pod, so
+     * there is no restart-free proof and no before/after resources: {@code outcome} is
+     * {@link #OUTCOME_POLICY_CHANGE}, {@code restartFree} is false (nothing was proved about any
+     * pod), the before/after JSON is left null and {@code detail} names the transition in words.
+     *
+     * @param trigger  who initiated the change; {@link ActionTrigger#MANUAL} for a user on endpoint 2
+     * @param previous the mode the workload had before this change
+     * @param next     the mode it has now
+     * @param at       the instant the change was recorded; the audit timeline's instant
+     */
+    @Transactional
+    public void recordPolicyChange(Long clientId, ClusterTarget target, WorkloadRef ref,
+                                   ActionTrigger trigger, String previous, String next, Instant at) {
+        if (target == null || ref == null || next == null || at == null) {
+            throw new IllegalArgumentException(
+                    "target, ref, next and at are mandatory to record a policy change");
+        }
+        ActionTrigger resolved = trigger == null ? ActionTrigger.MANUAL : trigger;
+
+        WorkloadVerticalAction row = new WorkloadVerticalAction();
+        row.setClientId(clientId == null ? target.clientId() : clientId);
+        row.setClusterConfigId(target.clusterConfigId());
+        row.setNamespace(ref.namespace());
+        row.setWorkloadKind(ref.kind());
+        row.setWorkloadName(ref.name());
+        row.setTriggerSource(resolved.name());
+        row.setDryRun(Boolean.FALSE);
+        row.setOutcome(OUTCOME_POLICY_CHANGE);
+        row.setRestartFree(Boolean.FALSE);
+        row.setDetail("Mode changed from " + previous + " to " + next + ".");
+        row.setAppliedAt(at);
+
+        repository.save(row);
+        logger.info("Recorded a {} policy change on {} of cluster config {}: {} -> {}",
+                resolved, ref.describe(), target.clusterConfigId(), previous, next);
+    }
+
     /** The numbers submitted, per container — the "before/requested" side of the record. */
     private static String submittedJson(List<ContainerApplyTarget> submitted) {
         if (submitted == null || submitted.isEmpty()) {

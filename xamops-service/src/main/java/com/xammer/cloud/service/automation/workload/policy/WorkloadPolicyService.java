@@ -125,6 +125,63 @@ public class WorkloadPolicyService {
                 clusterConfigId, appliedAt);
     }
 
+    /**
+     * Sets a workload's policy {@code mode}, upserting the row, and returns the mode it had before.
+     *
+     * <p>This is endpoint 2's mode-only write: it changes <strong>only</strong> the {@code mode}
+     * column and leaves every other policy field untouched. On an existing row the stored window,
+     * percentile, floors, bands and cooldown are preserved exactly; on a <em>new</em> row they are
+     * taken from {@code inForce} — the environment's configured defaults, the same policy endpoint 1
+     * reports and {@link #recordApplied} uses — so a workload switched to {@code RECOMMEND} or
+     * {@code AUTO} through the product carries the policy the operator was shown, not the bare Java
+     * defaults whose mode is {@code OFF}. The full window / percentile / headroom editor is a later
+     * task; this writes the mode and nothing else.
+     *
+     * <p>Tenant-scoped by {@code client_id} <em>and</em> {@code cluster_config_id}, the same
+     * unambiguous pair the rest of this table uses — never the overloaded {@code cloud_account_id}.
+     *
+     * <p>No migration: the {@code mode} column already exists on
+     * {@code vertical_workload_policy}.
+     *
+     * @param inForce the policy resolved for this workload, used only when a row has to be created;
+     *                null falls back to the bare defaults, whose mode is {@code OFF}
+     * @return the mode the workload had before this call — a stored row's mode, or {@code inForce}'s
+     *         (the configured default) when no row existed
+     */
+    @Transactional
+    public WorkloadMode setMode(Long clientId, Long clusterConfigId, WorkloadRef ref,
+                                WorkloadMode newMode, WorkloadPolicy inForce) {
+        if (clusterConfigId == null || ref == null || newMode == null) {
+            throw new IllegalArgumentException(
+                    "clusterConfigId, ref and newMode are mandatory to set a workload's mode");
+        }
+        Optional<WorkloadVerticalPolicy> existing = repository
+                .findByClusterConfigIdAndNamespaceAndWorkloadKindAndWorkloadName(
+                        clusterConfigId, ref.namespace(), ref.kind(), ref.name());
+        WorkloadMode previous;
+        WorkloadVerticalPolicy row;
+        if (existing.isPresent()) {
+            row = existing.get();
+            previous = modeOf(row);
+        } else {
+            row = newRow(clientId, clusterConfigId, ref, inForce);
+            // The mode the workload had before its first row is the default endpoint 1 reported.
+            previous = inForce == null ? WorkloadMode.OFF : inForce.mode();
+        }
+        if (row.getClientId() == null) {
+            row.setClientId(clientId);
+        }
+        row.setMode(newMode.name());
+        repository.save(row);
+        logger.info("Set vertical policy mode of {} on cluster config {} from {} to {}",
+                ref.describe(), clusterConfigId, previous, newMode);
+        return previous;
+    }
+
+    private static WorkloadMode modeOf(WorkloadVerticalPolicy row) {
+        return mode(row);
+    }
+
     private static WorkloadVerticalPolicy newRow(Long clientId, Long clusterConfigId, WorkloadRef ref,
                                                  WorkloadPolicy inForce) {
         WorkloadVerticalPolicy row = new WorkloadVerticalPolicy();

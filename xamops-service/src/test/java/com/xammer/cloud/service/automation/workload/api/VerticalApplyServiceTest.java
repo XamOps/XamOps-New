@@ -933,6 +933,115 @@ class VerticalApplyServiceTest {
                 .isEqualTo("102227938259");
     }
 
+    // ---------------------------------------------------------------- endpoint 2: mode switch
+
+    @Test
+    @DisplayName("a mode change runs the same gates as an apply, in the same order, before any write")
+    void aModeChangeRunsTheApplyGates() {
+        // No principal is 401 UNAUTHENTICATED, first.
+        assertThat(catchRefusal(() -> service().setMode(null, readWriteAccount(), TARGET, REF, "AUTO"))
+                .code()).isEqualTo("K8S_UNAUTHENTICATED");
+
+        // The write-permission predicate's refusal is passed through with its own code, including a
+        // Login-As session and a missing TAB_GRANT, both of which are NO_USER_PERMISSION.
+        for (String code : List.of("K8S_NO_USER_PERMISSION", "K8S_DEMO", "K8S_NO_ACCOUNT_ACCESS")) {
+            when(writePermission.decide(any(), any())).thenReturn(new AutomationWritePermission.Decision(
+                    false, null, AutomationWritePermission.Detail.ROLE, "Refused: " + code, code));
+            assertThat(catchRefusal(() -> service().setMode(principal(), readWriteAccount(), TARGET, REF, "AUTO"))
+                    .code()).isEqualTo(code);
+        }
+        when(writePermission.decide(any(), any()))
+                .thenReturn(new AutomationWritePermission.Decision(true, null, null, null, null));
+
+        // A read-only connection is refused before any write.
+        CloudAccount readOnly = readWriteAccount();
+        readOnly.setAccessType("read-only");
+        assertThat(catchRefusal(() -> service().setMode(principal(), readOnly, TARGET, REF, "AUTO"))
+                .code()).isEqualTo("K8S_READ_ONLY_CONNECTION");
+
+        // An unready controller is refused.
+        VerticalApplyService notReady = new VerticalApplyService(
+                new WorkloadAutoscalingProperties(true, false, true), writePermission, List.of(provider),
+                inventory, executor, policyService, actionRecorder, METRICS, FIXED);
+        assertThat(catchRefusal(() -> notReady.setMode(principal(), readWriteAccount(), TARGET, REF, "AUTO"))
+                .code()).isEqualTo("K8S_CONTROLLER_NOT_READY");
+
+        // None of the refused paths wrote anything.
+        verify(policyService, never()).setMode(any(), any(), any(), any(), any());
+        verify(actionRecorder, never()).recordPolicyChange(any(), any(), any(), any(), anyString(),
+                anyString(), any());
+    }
+
+    @Test
+    @DisplayName("setting AUTO requires the same write permission as applying")
+    void settingAutoRequiresTheApplyPermission() {
+        // The same TAB_GRANT caller endpoint 3 refuses: arming unattended changes must need the same
+        // permission as making a one-time change.
+        when(writePermission.decide(any(), any())).thenReturn(new AutomationWritePermission.Decision(
+                false, ReasonCode.NO_USER_PERMISSION, AutomationWritePermission.Detail.TAB_GRANT,
+                "You don't have permission to change automation.", "K8S_NO_USER_PERMISSION"));
+
+        VerticalApplyService.ApplyRefusedException refusal =
+                catchRefusal(() -> service().setMode(principal(), readWriteAccount(), TARGET, REF, "AUTO"));
+
+        assertThat(refusal.code()).isEqualTo("K8S_NO_USER_PERMISSION");
+        assertThat(refusal.detail()).isEqualTo(AutomationWritePermission.Detail.TAB_GRANT);
+        verify(policyService, never()).setMode(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a permitted write user's mode change is persisted and recorded as a POLICY_CHANGE")
+    void aPermittedModeChangeIsPersistedAndRecorded() {
+        when(policyService.setMode(org.mockito.ArgumentMatchers.eq(7L),
+                org.mockito.ArgumentMatchers.eq(42L), org.mockito.ArgumentMatchers.eq(REF),
+                org.mockito.ArgumentMatchers.eq(
+                        com.xammer.cloud.service.automation.workload.WorkloadMode.AUTO), any()))
+                .thenReturn(com.xammer.cloud.service.automation.workload.WorkloadMode.RECOMMEND);
+
+        com.xammer.cloud.service.automation.workload.api.dto.PolicyResponseDto response =
+                service().setMode(principal(), readWriteAccount(), TARGET, REF, "auto");
+
+        assertThat(response.mode()).isEqualTo("AUTO");
+        assertThat(response.policySource()).isEqualTo("WORKLOAD_ROW");
+        // The no-row fallback is the configured defaults endpoint 1 reports (RECOMMEND, 72h here).
+        verify(policyService).setMode(7L, 42L, REF,
+                com.xammer.cloud.service.automation.workload.WorkloadMode.AUTO, METRICS.defaultsPolicy());
+        // The durable audit row names the transition and the human trigger.
+        verify(actionRecorder).recordPolicyChange(org.mockito.ArgumentMatchers.eq(7L),
+                org.mockito.ArgumentMatchers.eq(TARGET), org.mockito.ArgumentMatchers.eq(REF),
+                org.mockito.ArgumentMatchers.eq(
+                        com.xammer.cloud.service.automation.workload.ActionTrigger.MANUAL),
+                org.mockito.ArgumentMatchers.eq("RECOMMEND"), org.mockito.ArgumentMatchers.eq("AUTO"),
+                org.mockito.ArgumentMatchers.eq(Instant.parse("2026-10-11T12:00:00Z")));
+    }
+
+    @Test
+    @DisplayName("an invalid or missing mode is 400 K8S_INVALID_POLICY naming the mode field, no write")
+    void anInvalidModeIsRejected() {
+        for (String bad : java.util.Arrays.asList("ON", "automatic", "", null)) {
+            VerticalApplyService.ApplyRefusedException refusal =
+                    catchRefusal(() -> service().setMode(principal(), readWriteAccount(), TARGET, REF, bad));
+            assertThat(refusal.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(refusal.code()).isEqualTo("K8S_INVALID_POLICY");
+            assertThat(refusal.field()).isEqualTo("mode");
+        }
+        verify(policyService, never()).setMode(any(), any(), any(), any(), any());
+        verify(actionRecorder, never()).recordPolicyChange(any(), any(), any(), any(), anyString(),
+                anyString(), any());
+    }
+
+    @Test
+    @DisplayName("switching a workload to RECOMMEND or OFF is accepted the same way, through the same gates")
+    void offAndRecommendAreAcceptedToo() {
+        when(policyService.setMode(any(), any(), any(), any(), any()))
+                .thenReturn(com.xammer.cloud.service.automation.workload.WorkloadMode.AUTO);
+
+        assertThat(service().setMode(principal(), readWriteAccount(), TARGET, REF, "RECOMMEND").mode())
+                .isEqualTo("RECOMMEND");
+        assertThat(service().setMode(principal(), readWriteAccount(), TARGET, REF, "OFF").mode())
+                .isEqualTo("OFF");
+    }
+
     // ---------------------------------------------------------------- fixtures
 
     private void givenExecutorApplies() {

@@ -752,3 +752,49 @@ export const manualApplyGate = (
   if (changes.length === 0) return blocked('No change suggested');
   return { enabled: true, reason: null, nextStep: null, changes };
 };
+
+/**
+ * Whether a user may change this workload's policy mode on endpoint 2.
+ *
+ * A mode change is an automation change, so it goes through the <strong>same caller-level write
+ * gates</strong> as a one-time apply, in the server's order and with the identical fail-closed
+ * rules: a `callerRefusal` already answered on the page greys it, the write gates
+ * (demo, permission — Login-As included — and a read-only connection) grey it, and a payload that
+ * never evaluated the caller's gates (`writeGatesChecked` absent) greys it rather than reading
+ * "no gate" as "permitted". It also needs the controller enabled and ready, because setting `AUTO`
+ * arms an unattended apply the server would otherwise refuse.
+ *
+ * <p>It deliberately does <strong>not</strong> consult the per-workload resize gates — the skip
+ * reason, the cooldown, GitOps persistence, or whether a real change is suggested — because those
+ * are about applying a specific resize, not about choosing whether XamOps may act on this workload
+ * at all. Switching a right-sized or cooling-down workload to Recommend or Off is always allowed.
+ * The result reuses {@link ManualApplyGate}'s shape (its `changes` is always empty here).
+ */
+export const modeChangeGate = (
+  view: VerticalEngineView,
+  callerRefusal: CallerRefusal | null = null,
+): ManualApplyGate => {
+  const blocked = (reason: string, nextStep: string | null = null): ManualApplyGate => ({
+    enabled: false,
+    reason,
+    nextStep,
+    changes: [],
+  });
+  const { engine, gateReasons } = view;
+
+  if (callerRefusal) {
+    const text = writeGateText(callerRefusal.code, callerRefusal.detail);
+    if (text) return blocked(text.reason, text.nextStep);
+  }
+  for (const code of WRITE_GATES) {
+    if (findGate(gateReasons, code)) {
+      const text = writeGateText(code, view.gateDetails[code]);
+      return blocked(text!.reason, text!.nextStep);
+    }
+  }
+  if (!view.writeGatesChecked) return blocked(WRITE_GATES_NOT_CHECKED);
+  if (!engine.enabled || !engine.ready || findGate(gateReasons, 'CONTROLLER_NOT_READY')) {
+    return blocked(label('CONTROLLER_NOT_READY'));
+  }
+  return { enabled: true, reason: null, nextStep: null, changes: [] };
+};
