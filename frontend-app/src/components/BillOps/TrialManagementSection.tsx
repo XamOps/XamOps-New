@@ -51,12 +51,19 @@ const TrialManagementSection: React.FC = () => {
   const [selectedDays, setSelectedDays] = useState<number>(30);
   const [customDays, setCustomDays] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+  /**
+   * Whether the extend that just succeeded was aimed at a tenant that was NOT on a trial.
+   * Captured at submit time because the dialog — and with it extendTarget — is gone by the
+   * time the success modal reads this.
+   */
+  const [extendPutBackOnTrial, setExtendPutBackOnTrial] = useState(false);
 
   const openExtend = (row: TrialAdminRow) => {
     clearMutationState();
     setFormError(null);
     setSelectedDays(30);
     setCustomDays('');
+    setExtendPutBackOnTrial(false);
     setExtendTarget(row);
   };
 
@@ -77,6 +84,16 @@ const TrialManagementSection: React.FC = () => {
     setExtendTarget(null);
   };
 
+  /**
+   * Same contract as closeExtend, for the convert confirmation: the failure is rendered
+   * inside that dialog, so dismissing it has to drop the message too or the error modal
+   * (gated on both dialogs being closed) would re-raise what was just dismissed.
+   */
+  const closeConvert = () => {
+    clearMutationState();
+    setConvertTarget(null);
+  };
+
   const resolveDays = (): number | null => {
     if (!customDays.trim()) return selectedDays;
     const parsed = Number(customDays.trim());
@@ -92,9 +109,13 @@ const TrialManagementSection: React.FC = () => {
       return;
     }
     const target = extendTarget;
+    const wasNotTrialGated = deriveTrialVerdict(target).state === 'NONE';
     setFormError(null);
     const ok = await extendTrial(target.clientId, days);
-    if (ok) setExtendTarget(null);
+    if (ok) {
+      setExtendPutBackOnTrial(wasNotTrialGated);
+      setExtendTarget(null);
+    }
   };
 
   const submitConvert = async () => {
@@ -109,10 +130,19 @@ const TrialManagementSection: React.FC = () => {
 
   const convertInFlight = !!convertTarget && mutatingClientId === convertTarget.clientId;
 
+  /**
+   * The backend's extend sets plan_type='TRIAL' unconditionally, so extending a tenant that
+   * was not trial-gated puts it back under enforcement. True only for those rows.
+   */
+  const extendReTrials = !!extendTarget && deriveTrialVerdict(extendTarget).state === 'NONE';
+
   const successMessage = (): string => {
     if (!lastResult) return '';
     if (lastResult.kind === 'extend') {
-      return `Trial extended. The tenant now runs until ${formatDate(lastResult.trialEndAt)} (${lastResult.daysRemaining} day${lastResult.daysRemaining === 1 ? '' : 's'} remaining).`;
+      const until = `The tenant now runs until ${formatDate(lastResult.trialEndAt)} (${lastResult.daysRemaining} day${lastResult.daysRemaining === 1 ? '' : 's'} remaining).`;
+      return extendPutBackOnTrial
+        ? `Trial extended. This tenant is back on a TRIAL plan and is trial-gated again — every user under it will be blocked with 402 once the trial ends. ${until}`
+        : `Trial extended. ${until}`;
     }
     return `Tenant ${lastResult.clientId} is now PAID and no longer trial-gated. No subscription or invoice record was created.`;
   };
@@ -275,6 +305,20 @@ const TrialManagementSection: React.FC = () => {
                 lapsed trial restarts from today.
               </p>
 
+              {/* Extending is the only way back from a conversion, so it stays available — but
+                  it rewrites plan_type to TRIAL, which puts a paid tenant back under gating. */}
+              {extendReTrials && (
+                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+                  <Icon icon="mdi:clock-alert-outline" width={14} className="flex-shrink-0 mt-0.5" />
+                  <span>
+                    This tenant is on a <strong>{extendTarget.planType ?? 'non-trial'}</strong> plan
+                    and is not trial-gated today. Extending puts it back on a <strong>TRIAL</strong> plan,
+                    so it is trial-gated again: every user under it will be blocked with 402 once the new
+                    end date passes.
+                  </span>
+                </div>
+              )}
+
               <div>
                 <p className="text-[10px] font-semibold text-[rgba(0,0,0,0.5)] uppercase tracking-wider mb-1.5">Extend by</p>
                 <div className="flex flex-wrap gap-2">
@@ -331,7 +375,7 @@ const TrialManagementSection: React.FC = () => {
         confirmLabel={convertInFlight ? 'Converting…' : 'Convert to paid'}
         confirmDisabled={convertInFlight}
         onConfirm={() => { void submitConvert(); }}
-        onCancel={() => setConvertTarget(null)}
+        onCancel={closeConvert}
         description={convertTarget ? (
           <span className="block space-y-2">
             <span className="block">
@@ -347,13 +391,22 @@ const TrialManagementSection: React.FC = () => {
             <span className="block">
               This cannot be undone from this screen.
             </span>
+            {/* Inline, like the extend dialog: a modal over this one would be a second
+                react-aria overlay, and ariaHideOutside would hide this still-visible dialog. */}
+            {mutationError && (
+              <span className="flex items-start gap-2 p-3 bg-rose-50 border border-rose-100 rounded-lg text-xs text-rose-600">
+                <Icon icon="mdi:alert-circle-outline" width={14} className="flex-shrink-0 mt-0.5" />
+                <span>{mutationError}</span>
+              </span>
+            )}
           </span>
         ) : undefined}
       />
 
-      {/* Convert failures have no dialog of their own to land in. */}
+      {/* Gated on both dialogs being closed for the same reason as the success modal: each
+          dialog renders its own failure inline. */}
       <NotificationModal
-        isOpen={!!mutationError && !extendTarget}
+        isOpen={!!mutationError && !extendTarget && !convertTarget}
         onClose={clearMutationState}
         type="error"
         title="Change not saved"

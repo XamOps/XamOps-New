@@ -49,6 +49,11 @@ const lapsedButActiveRow: TrialAdminRow = {
   planType: 'TRIAL', trialStatus: 'ACTIVE', trialEndAt: daysFromNow(-2), daysRemaining: 0,
 };
 
+const liveTrialRow: TrialAdminRow = {
+  clientId: 2, companyName: 'Northwind Co', email: 'billing@northwind.example',
+  planType: 'TRIAL', trialStatus: 'ACTIVE', trialEndAt: daysFromNow(9), daysRemaining: 9,
+};
+
 // Converted, yet the endpoint still reports a positive daysRemaining.
 const convertedRow: TrialAdminRow = {
   clientId: 5, companyName: 'Sigma Tech', email: 'billing@sigmatech.example',
@@ -192,5 +197,56 @@ describe('TrialManagementSection', () => {
 
     expect(screen.getByText(/later of today and the current end date/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '30 days' })).toBeInTheDocument();
+  });
+
+  it('warns that extending a paid tenant puts it back on a trial plan and under 402 gating', () => {
+    hookState.rows = [convertedRow];
+    render(<TrialManagementSection />);
+
+    fireEvent.click(within(rowFor('Sigma Tech')).getByRole('button', { name: /extend trial/i }));
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent(/not trial-gated today/i);
+    expect(dialog).toHaveTextContent(/puts it back on a TRIAL plan/i);
+    expect(dialog).toHaveTextContent(/blocked with 402 once the new end date passes/i);
+  });
+
+  it('does not warn about re-gating when the tenant is still on a live trial', () => {
+    hookState.rows = [liveTrialRow];
+    render(<TrialManagementSection />);
+
+    fireEvent.click(within(rowFor('Northwind Co')).getByRole('button', { name: /extend trial/i }));
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent(/later of today and the current end date/i);
+    expect(dialog).not.toHaveTextContent(/puts it back on a/i);
+    expect(dialog).not.toHaveTextContent(/not trial-gated today/i);
+  });
+
+  it('shows a failed convert inside its own confirmation, without a second overlay', async () => {
+    const message = 'That tenant no longer exists.';
+    hookState.rows = [expiredRow];
+    hookState.convertToPaid.mockImplementation(async () => false);
+
+    const { rerender } = render(<TrialManagementSection />);
+    fireEvent.click(within(rowFor('CloudBase Ltd')).getByRole('button', { name: /convert to paid/i }));
+
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Convert to paid' }));
+    await waitFor(() => expect(hookState.convertToPaid).toHaveBeenCalledWith(4));
+    hookState.mutationError = message;
+    rerender(<TrialManagementSection />);
+
+    // One overlay, and the failure is in it.
+    const dialogs = screen.getAllByRole('alertdialog');
+    expect(dialogs).toHaveLength(1);
+    expect(within(dialogs[0]).getByText(message)).toBeInTheDocument();
+    expect(screen.queryByText('Change not saved')).not.toBeInTheDocument();
+
+    // Dismissing the confirmation drops the message rather than re-raising it as a modal.
+    fireEvent.click(within(dialogs[0]).getByRole('button', { name: 'Cancel' }));
+
+    expect(hookState.clearMutationState).toHaveBeenCalled();
+    expect(screen.queryByText(message)).not.toBeInTheDocument();
+    expect(screen.queryByText('Change not saved')).not.toBeInTheDocument();
   });
 });
