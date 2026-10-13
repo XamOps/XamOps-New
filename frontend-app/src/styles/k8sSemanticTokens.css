@@ -34,4 +34,15 @@
   --k8s-series-allocatable: 235 235 235;
   /* Provisioned minus allocatable: what each node keeps for the system. */
   --k8s-series-overhead: 204 204 204;
+
+  /* HPA/VPA coexistence (FEAT-003). XamOps's own suggestion and the native VPA's share one hue so a
+   * reader sees them as "two views of the same thing"; the fill pattern tells them apart (XamOps
+   * dashed, native VPA hatched). Grey today, like every token above, so the page still reads black,
+   * white and grey until the owner's palette replaces the values. */
+  --k8s-hpa-suggestion: 102 102 102;
+  --k8s-vpa-native: 102 102 102;
+  /* A real coexistence conflict (a mutating VPA owns the requests). */
+  --k8s-coexist-conflict: 31 31 31;
+  /* An Off-mode VPA: present but changes no pods — never drawn as a warning. */
+  --k8s-coexist-off: 102 102 102;
 }

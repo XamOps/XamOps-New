@@ -1,0 +1,160 @@
+/**
+ * Typed client for the HPA automation endpoints (`/api/eks/automation/hpa/**`, FEAT-002).
+ *
+ * The read path reuses the vertical rightsizer endpoint (one `GET` per cluster carries the HPA
+ * decision in each workload's `horizontal` block), so only the **apply** lives here:
+ *
+ *   POST /api/eks/automation/hpa/{cluster}/{namespace}/{name}/apply?accountId=&region=
+ *
+ * `{name}` is the workload (Deployment) name; the backend resolves the HPA that targets it. Status
+ * codes are read off the response, because the two interesting ones are deployment states, not
+ * faults: a typed `404` is "this cluster is not registered here" and an untyped `404` is "the HPA
+ * write path is not mapped in this environment yet".
+ */
+
+import apiClient from '../utils/apiClient';
+import { parseCode } from './verticalRightsizerAdapter';
+import { verticalReadUrl } from './verticalRightsizerApi';
+import { adaptHpaPage } from './hpaAdapter';
+import type {
+  VerticalEngineResponseWire,
+  VerticalRefusalWire,
+  VerticalWorkloadRefWire,
+} from '../types/verticalRightsizer';
+import type {
+  HpaApplyRequest,
+  HpaApplyResponseWire,
+  HpaApplyResult,
+  HpaReadResult,
+  HpaRefusalWire,
+} from '../types/hpaAutomation';
+
+const BASE = '/api/eks/automation/hpa';
+
+const seg = (value: string): string => encodeURIComponent(value);
+
+/** The apply URL. `{name}` is the WORKLOAD name — the backend finds the HPA that targets it. */
+export const hpaApplyUrl = (
+  cluster: string,
+  ref: VerticalWorkloadRefWire,
+  accountId: string,
+  region: string,
+): string =>
+  `${BASE}/${seg(cluster)}/${seg(ref.namespace)}/${seg(ref.name)}/apply` +
+  `?accountId=${seg(accountId)}&region=${seg(region)}`;
+
+const readJson = async <T>(response: Response): Promise<T | null> => {
+  try {
+    const text = await response.text();
+    if (!text || text.trim() === '') return null;
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+};
+
+const refusalMessage = (body: HpaRefusalWire | null, fallback: string): string => {
+  const message = body?.message;
+  return message && message.trim() !== '' ? message : fallback;
+};
+
+/**
+ * Reads one cluster's HPA page. This is the vertical rightsizer read endpoint: a single `GET`
+ * carries each workload's HPA decision (`horizontal`), its native-VPA target (`upstreamVpa`) and the
+ * engine's gates, so the HPA page needs no endpoint of its own for reads. Read-only.
+ */
+export const fetchHpaPage = async (
+  cluster: string,
+  accountId: string,
+  region: string,
+): Promise<HpaReadResult> => {
+  let response: Response;
+  try {
+    response = await apiClient.fetch(verticalReadUrl(cluster, accountId, region), { method: 'GET' });
+  } catch (e) {
+    return { kind: 'error', message: e instanceof Error ? e.message : 'The request could not be sent.' };
+  }
+
+  if (response.status === 401) return { kind: 'unauthenticated' };
+
+  if (response.ok) {
+    const body = await readJson<VerticalEngineResponseWire>(response);
+    if (!body || !body.engine) {
+      return { kind: 'error', message: 'The engine returned no status.' };
+    }
+    return { kind: 'ok', view: adaptHpaPage(body) };
+  }
+
+  const refusal = await readJson<VerticalRefusalWire>(response);
+  if (response.status === 404) {
+    return {
+      kind: 'cluster-not-registered',
+      message: refusalMessage(refusal, 'This cluster is not registered with XamOps in this environment.'),
+    };
+  }
+  if (response.status === 403) {
+    const code = parseCode(refusal?.code);
+    if (code) {
+      return { kind: 'refused', code, message: refusalMessage(refusal, 'This cluster is not available.') };
+    }
+  }
+  return { kind: 'error', message: refusalMessage(refusal, `The engine returned HTTP ${response.status}.`) };
+};
+
+/**
+ * Submits one HPA tune (min / max / target). The direct execution path completes in the request and
+ * answers with `applied` echoing the bounds it set; a dry run never writes. Only a reply whose
+ * state is `ACCEPTED` with an `applied` block may be read as a real change — nothing here infers one.
+ */
+export const applyHpaRecommendation = async (
+  cluster: string,
+  ref: VerticalWorkloadRefWire,
+  accountId: string,
+  region: string,
+  request: HpaApplyRequest,
+): Promise<HpaApplyResult> => {
+  let response: Response;
+  try {
+    response = await apiClient.fetch(hpaApplyUrl(cluster, ref, accountId, region), {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  } catch (e) {
+    return { kind: 'error', message: e instanceof Error ? e.message : 'The request could not be sent.' };
+  }
+
+  if (response.status === 404) {
+    const notFound = await readJson<HpaRefusalWire>(response);
+    const code = parseCode(notFound?.code);
+    if (code) {
+      return {
+        kind: 'cluster-not-registered',
+        message: refusalMessage(notFound, 'This cluster is not registered with XamOps in this environment.'),
+      };
+    }
+    return { kind: 'writes-not-deployed' };
+  }
+
+  if (response.ok) {
+    const body = await readJson<HpaApplyResponseWire>(response);
+    return {
+      kind: 'submitted',
+      correlationId: body?.correlationId ?? null,
+      state: body?.state ?? null,
+      dryRun: body?.dryRun ?? null,
+      applied: body?.applied ?? null,
+    };
+  }
+
+  const refusal = await readJson<HpaRefusalWire>(response);
+  const code = parseCode(refusal?.code);
+  // 403 caller gates, 400 safety-rule / shape refusals, 409 another apply still running.
+  if (code && (response.status === 403 || response.status === 400 || response.status === 409)) {
+    const detail = typeof refusal?.detail === 'string' && refusal.detail.trim() !== '' ? refusal.detail.trim() : null;
+    return { kind: 'refused', code, message: refusalMessage(refusal, 'The apply was refused.'), detail };
+  }
+  return {
+    kind: 'error',
+    message: refusalMessage(refusal, `The HPA apply endpoint returned HTTP ${response.status}.`),
+  };
+};
