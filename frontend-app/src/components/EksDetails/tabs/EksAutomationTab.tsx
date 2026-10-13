@@ -17,6 +17,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { Icon } from '@iconify/react';
 import {
   COOLDOWN_MINUTES,
   DASH,
@@ -40,6 +41,11 @@ import {
   writeGateText,
 } from '../../../api/verticalRightsizerAdapter';
 import useVerticalRightsizer from '../../../hooks/useVerticalRightsizer';
+import { NowBanner } from '../../CloudK8s/shared/status/NowBanner';
+import { HowItWorks } from '../../CloudK8s/shared/status/HowItWorks';
+import { StatusChip } from '../../CloudK8s/shared/status/StatusChip';
+import { nowSentence } from '../../CloudK8s/shared/status/nowSentence';
+import type { Tone } from '../../CloudK8s/shared/status/statusTones';
 import type {
   ApplyContainerRequest,
   ApplyOutcomeWire,
@@ -55,6 +61,21 @@ import type {
   WorkloadModeValue,
   WorkloadView,
 } from '../../../types/verticalRightsizer';
+
+/**
+ * The tone and icon for a workload's status word (glossary §2.1). The status text from
+ * `workloadStatus` is matched by its leading words so a chip always carries the right colour, icon
+ * and label together — status is never colour alone.
+ */
+const workloadStatusTone = (status: string): { tone: Tone; icon: string } => {
+  if (status.startsWith('Needs more') || status.startsWith('Not running')) return { tone: 'bad', icon: 'mdi:speedometer' };
+  if (status === 'Over-provisioned') return { tone: 'warn', icon: 'mdi:arrow-collapse-down' };
+  if (status === 'Right-sized' || status.startsWith('Applied')) return { tone: 'good', icon: 'mdi:check-circle' };
+  if (status === 'Not enough data yet') return { tone: 'info', icon: 'mdi:progress-clock' };
+  if (status.startsWith('Skipped')) return { tone: 'off', icon: 'mdi:debug-step-over' };
+  // Left alone / Off and anything else: a neutral off tone with a label.
+  return { tone: 'off', icon: 'mdi:minus-circle-outline' };
+};
 
 interface EksAutomationTabProps {
   clusterName: string;
@@ -75,11 +96,11 @@ const Chip: React.FC<{ text: string; title?: string }> = ({ text, title }) => (
 
 const EmptyState: React.FC<{ icon: string; title: string; subtitle: string }> = ({ icon, title, subtitle }) => (
   <div className="flex flex-col items-center justify-center py-16 text-center">
-    <div className="w-14 h-14 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] rounded-lg flex items-center justify-center mb-4">
-      <i className={`${icon} text-[rgba(0,0,0,0.4)] text-xl`}></i>
+    <div className="w-14 h-14 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] rounded-lg flex items-center justify-center mb-4 dark:bg-[rgba(255,255,255,0.04)] dark:border-[rgba(255,255,255,0.08)]">
+      <Icon icon={icon} width={22} aria-hidden="true" className="text-[rgba(0,0,0,0.4)] dark:text-[rgba(255,255,255,0.4)]" />
     </div>
-    <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{title}</p>
-    <p className="text-[12px] text-[rgba(0,0,0,0.5)] mt-1 max-w-[460px]">{subtitle}</p>
+    <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]">{title}</p>
+    <p className="text-[12px] text-[rgba(0,0,0,0.5)] mt-1 max-w-[460px] dark:text-[rgba(255,255,255,0.5)]">{subtitle}</p>
   </div>
 );
 
@@ -479,43 +500,43 @@ interface GateCopy {
 
 const GATE_COPY: Record<string, GateCopy> = {
   CONTROLLER_NOT_READY: {
-    icon: 'fas fa-toggle-off',
+    icon: 'mdi:toggle-switch-off-outline',
     title: 'Workload rightsizing is off in this environment',
     subtitle: "XamOps hasn't analysed this cluster's workloads, and nothing was read from the cluster.",
   },
   CLUSTER_ACCESS_NOT_CONFIGURED: {
-    icon: 'fas fa-key',
+    icon: 'mdi:key',
     title: "XamOps can't sign in to this cluster",
     subtitle: "Create an EKS access entry for this account's XamOps role. The cluster setup guide shows how.",
   },
   CLUSTER_UNREACHABLE: {
-    icon: 'fas fa-plug',
+    icon: 'mdi:power-plug-outline',
     title: "XamOps can't reach this cluster's API server",
     subtitle: "Access is set up, but the endpoint didn't answer. That's expected for a private endpoint.",
   },
   NO_METRICS_SOURCE: {
-    icon: 'fas fa-chart-area',
+    icon: 'mdi:chart-areaspline',
     title: 'No usage data for this cluster',
     subtitle:
       "XamOps reads CPU and memory usage from Prometheus in the cluster and couldn't reach it. Nothing is estimated without it.",
   },
   READ_ONLY_CONNECTION: {
-    icon: 'fas fa-lock',
+    icon: 'mdi:lock-outline',
     title: 'View only: this account is connected read-only',
     subtitle: 'You can review every suggestion. Applying one needs read-write access.',
   },
   NO_USER_PERMISSION: {
-    icon: 'fas fa-user-lock',
+    icon: 'mdi:account-lock-outline',
     title: "View only: you can't change automation",
     subtitle: 'Ask your XamOps administrator to allow automation changes for your user.',
   },
   DEMO: {
-    icon: 'fas fa-flask',
+    icon: 'mdi:flask-outline',
     title: 'Demo workspace',
     subtitle: "Changes aren't saved.",
   },
   INSUFFICIENT_HISTORY: {
-    icon: 'fas fa-hourglass-half',
+    icon: 'mdi:timer-sand',
     title: 'Not enough usage data yet',
     subtitle:
       'XamOps needs at least half of the last measurement window of usage. This clears on its own as the workloads keep running.',
@@ -523,7 +544,7 @@ const GATE_COPY: Record<string, GateCopy> = {
 };
 
 const NO_WORKLOADS: GateCopy = {
-  icon: 'fas fa-cubes',
+  icon: 'mdi:cube-outline',
   title: 'No workloads to analyse',
   subtitle: 'XamOps found no Deployments or StatefulSets outside the system namespaces.',
 };
@@ -543,7 +564,7 @@ const gateEmptyState = (gateReasons: CodeView[]): GateCopy => {
   const unknown = gateReasons.find((r) => r.kind === 'unknown');
   if (unknown && unknown.kind === 'unknown') {
     return {
-      icon: 'fas fa-circle-info',
+      icon: 'mdi:information-outline',
       title: 'Nothing analysed',
       subtitle: `Other: ${unknown.raw}`,
     };
@@ -1060,13 +1081,17 @@ const WorkloadCard: React.FC<{
       <div className="flex flex-wrap items-start justify-between gap-4 px-6 py-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{workload.ref.name}</span>
+            <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]">{workload.ref.name}</span>
             <span
-              className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.8)] border-[rgba(0,0,0,0.16)]"
               aria-label={`Status: ${status.status}`}
               title={workload.skipReason ? `Code: ${workload.skipReason.kind === 'known' ? workload.skipReason.code : workload.skipReason.raw}` : undefined}
             >
-              {status.status}
+              <StatusChip
+                tone={workloadStatusTone(status.status).tone}
+                icon={workloadStatusTone(status.status).icon}
+                label={status.status}
+                weight="semibold"
+              />
             </span>
             {workload.findings.map((f) => (
               <Chip
@@ -1171,7 +1196,7 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
   if (!result) {
     return (
       <EmptyState
-        icon="fas fa-circle-info"
+        icon="mdi:information-outline"
         title="Nothing requested yet"
         subtitle="Workload rightsizing needs a cluster, an account and a region."
       />
@@ -1181,7 +1206,7 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
   if (result.kind === 'cluster-not-registered') {
     return (
       <EmptyState
-        icon="fas fa-link-slash"
+        icon="mdi:link-off"
         title="This cluster isn't connected to XamOps yet"
         subtitle="Install the XamOps agent from the cluster's setup guide, then reload."
       />
@@ -1190,7 +1215,7 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
 
   if (result.kind === 'unauthenticated') {
     return (
-      <EmptyState icon="fas fa-user-lock" title="Your session has expired" subtitle="Sign in again to see automation." />
+      <EmptyState icon="mdi:account-lock-outline" title="Your session has expired" subtitle="Sign in again to see automation." />
     );
   }
 
@@ -1198,7 +1223,7 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
     const copy = result.code.kind === 'known' ? GATE_COPY[result.code.code] : undefined;
     return (
       <EmptyState
-        icon={copy?.icon ?? 'fas fa-ban'}
+        icon={copy?.icon ?? 'mdi:cancel'}
         title={copy?.title ?? codeText(result.code)}
         subtitle={copy?.subtitle ?? result.message}
       />
@@ -1225,9 +1250,36 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
   const empty = gateEmptyState(gateReasons);
   const changes = changesStatus(result.view, callerRefusal);
 
+  // The "Now" sentence (glossary §3), built only from endpoint 1. `ready` is the number of
+  // over-provisioned workloads with a real suggestion; `needMore` is those that need more CPU or
+  // memory. Savings ($) come from BE-4, which isn't built, so no `readyMoney` is passed and that
+  // clause is honestly dropped — never a fabricated dollar figure. The "apply X first" clause needs
+  // BE-12 node room, also absent, so `needsRoom` is omitted.
+  const readyCount = workloads.filter((w) => workloadStatus(w).status === 'Over-provisioned').length;
+  const needMoreCount = workloads.filter((w) => workloadStatus(w).status.startsWith('Needs more')).length;
+  const now = nowSentence('workloads', {
+    analysed: workloads.length,
+    analysedAt: engine.lastCycleAt ? formatInstant(engine.lastCycleAt) : undefined,
+    ready: readyCount,
+    needsRoom: undefined,
+  });
+  // The 5-step flow (glossary §4), collapsed on the Workloads page. The chips come from endpoint 1
+  // only; steps that need BE-5/BE-11 history are left without a chip rather than invented.
+  const howChips = {
+    measure: engine.metricsReachable
+      ? { tone: 'good' as const, icon: 'mdi:check-circle', label: 'Up to date' }
+      : { tone: 'bad' as const, icon: 'mdi:alert-octagon-outline', label: 'No usage data' },
+    decide: { tone: 'info' as const, icon: 'mdi:scale-balance', label: `${readyCount + needMoreCount} suggestions` },
+    apply: engine.ready
+      ? { tone: 'warn' as const, icon: 'mdi:gesture-tap-button', label: 'Waiting for you' }
+      : { tone: 'off' as const, icon: 'mdi:minus-circle-outline', label: 'Applying is off here' },
+  };
+
   return (
     <div className="space-y-4">
-      <section className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] px-6 py-4">
+      <NowBanner sentence={now} />
+      <HowItWorks chips={howChips} collapsed summary={now.clauses.join(' ')} />
+      <section className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] px-6 py-4 dark:bg-[#141414] dark:border-[rgba(255,255,255,0.1)]">
         <h3 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">Workload rightsizing</h3>
         <p className="mt-1 text-[12px] text-[rgba(0,0,0,0.6)] max-w-[820px]">
           Sets each container&apos;s CPU and memory requests to what it actually uses, plus headroom, and can resize

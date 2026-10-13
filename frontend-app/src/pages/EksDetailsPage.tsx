@@ -12,6 +12,7 @@
 import React, { Suspense, lazy, useCallback, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { Navigate, useSearchParams } from 'react-router-dom';
+import { useTheme } from '../contexts/ThemeContext';
 import { useEksDashboard } from '../hooks/useEksDashboard';
 import { useEksSectionRoute } from '../hooks/useEksSectionRoute';
 import { useK8sCacheIdentity } from '../hooks/useK8sCacheIdentity';
@@ -168,8 +169,19 @@ function ClusterPage({ link, debug }: { link: ClusterLink; debug: boolean }) {
   const retry = useCallback(() => { void fetchDashboard(false); }, [fetchDashboard]);
   const clusterVersion = resolveClusterVersion(version, dashboard?.clusterOverview?.version);
 
+  // Dark mode is scoped to the CloudK8s subtree: ThemeContext tracks light/dark but adds no `.dark`
+  // class to the document (design open-decision §9.2), so the class is applied here on the page
+  // wrapper. Every v3 clarity/status/chart component carries its own `dark:` variants, so this one
+  // class is all the dark CloudK8s content needs; the rest of the app is unaffected.
+  const { theme } = useTheme();
+  const dark = theme === 'dark';
+
   return (
-    <main className="flex min-h-screen flex-1 flex-col bg-white" style={{ fontFamily: "'Inter', sans-serif" }}>
+    <main
+      className={`flex min-h-screen flex-1 flex-col ${dark ? 'dark bg-[#0d0d0d]' : 'bg-white'}`}
+      data-cloudk8s-theme={theme}
+      style={{ fontFamily: "'Inter', sans-serif" }}
+    >
       <div className="w-full space-y-4 p-6">
         <ClusterHeader
           clusterName={clusterName}

@@ -40,6 +40,8 @@ import { K8sDataTable, type ColumnDef } from '../../../CloudK8s/shared/K8sDataTa
 import { NotMonitoredPanel } from '../../../CloudK8s/shared/NotMonitoredPanel';
 import { SourceLabel, formatAgo } from '../../../CloudK8s/shared/SourceLabel';
 import { StatusMark, type StatusState } from '../../../CloudK8s/shared/StatusMark';
+import { NowBanner } from '../../../CloudK8s/shared/status/NowBanner';
+import { nowSentence } from '../../../CloudK8s/shared/status/nowSentence';
 import { bucketCounts, workloadBucket } from '../automation/verticalCopy';
 import type { EksSectionProps } from '../sectionTypes';
 
@@ -501,8 +503,20 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
   const needsMore = engine.buckets.find((b) => b.bucket === 'Needs more resources')?.count ?? 0;
   const overCount = engine.buckets.find((b) => b.bucket === 'Over-provisioned')?.count ?? 0;
 
+  // The "Now" sentence (glossary §3). `watching` is the number of workloads the Workload autoscaler
+  // analysed (endpoint 1); when the engine has no view yet it is left undefined so the banner shows
+  // the honest "couldn't read" clause. Savings ($) need BE-4 (not built), so no money clause is
+  // ever emitted here — never a fabricated figure.
+  const now = nowSentence('automation-overview', {
+    cluster: clusterName,
+    watching: vertical.view ? analysed : undefined,
+    ready: vertical.view ? overCount : undefined,
+    needMore: vertical.view ? needsMore : undefined,
+  });
+
   return (
     <div className="space-y-4" data-panel="overview-summary">
+      <NowBanner sentence={now} />
       <p className={secondary}>{`How ${clusterName} is doing right now: capacity, what pods reserve and use, what it costs, and what XamOps can improve.`}</p>
 
       {monitoring.state === 'M2' && (

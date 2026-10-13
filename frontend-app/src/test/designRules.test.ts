@@ -91,6 +91,8 @@ export const GUARDED_PATHS: readonly string[] = [
   PALETTE_FILE,
   'components/CloudK8s/shared/status/',
   'components/CloudK8s/shared/charts/',
+  // FEAT-003: the Workload autoscaler apply UI, re-skinned to bundled mdi:* icons (no Font Awesome).
+  'components/EksDetails/tabs/EksAutomationTab.tsx',
 ];
 
 const TAILWIND_PREFIX = '(?:text|bg|border|from|via|to|ring|fill|stroke|divide|outline|shadow|accent|decoration|placeholder|caret)';

@@ -18,6 +18,10 @@ import {
 import type { ActionId, CapabilitiesDto, Capability, ReadinessKey } from '../../../../types/k8sAutomation';
 import { AccessBanner } from '../../../CloudK8s/shared/AccessBanner';
 import { StatusMark } from '../../../CloudK8s/shared/StatusMark';
+import { NowBanner } from '../../../CloudK8s/shared/status/NowBanner';
+import { HowItWorks } from '../../../CloudK8s/shared/status/HowItWorks';
+import { FeatureMark } from '../../../CloudK8s/shared/status/FeatureMark';
+import { nowSentence } from '../../../CloudK8s/shared/status/nowSentence';
 import { CHECKING_ACCESS_TEXT, LockIcon, Remedies } from '../../../CloudK8s/shared/ReasonText';
 import { alsoNeedsLine, reasonCopy } from '../../../CloudK8s/shared/reasonCopy';
 import { formatAgo } from '../../../CloudK8s/shared/SourceLabel';
@@ -271,9 +275,29 @@ export interface OverviewPanelProps {
 
 export function OverviewPanel({ clusterName, workloadAutoscalerHref }: OverviewPanelProps) {
   const caps = useK8sCapabilities();
+  // The "Now" sentence is built per glossary §3. This page reads only capabilities, never the
+  // vertical engine (its own test asserts no fetch), so the workload counts (endpoint 1) are not
+  // available here: `watching` is left undefined and the banner shows the honest "couldn't read"
+  // clause instead of a fabricated number.
+  const now = nowSentence('automation-overview', { cluster: clusterName });
+  // The 5-step flow with static per-step state. Without endpoint 1/BE-5/BE-11 on this page the step
+  // chips are the honest "shown on the Workload autoscaler" states, so no cluster number is invented.
+  const howChips = {
+    apply: { tone: 'info' as const, icon: 'mdi:gesture-tap-button', label: 'Per workload', detail: 'See Workload autoscaler' },
+  };
   return (
     <div className="space-y-4">
       <AccessBanner capabilities={caps} cluster={clusterName} />
+      <NowBanner sentence={now} />
+      <div className="flex items-center gap-3">
+        <FeatureMark feature="workload" />
+      </div>
+      <HowItWorks
+        chips={howChips}
+        collapsed
+        summary="suggestions are decided per workload on the Workload autoscaler."
+        policiesHref={workloadAutoscalerHref}
+      />
       <AccessBlock caps={caps} clusterName={clusterName} />
       <TodayTable caps={caps} clusterName={clusterName} workloadAutoscalerHref={workloadAutoscalerHref} />
     </div>

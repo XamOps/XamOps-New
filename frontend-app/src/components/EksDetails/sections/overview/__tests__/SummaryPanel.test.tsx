@@ -297,4 +297,20 @@ describe('Overview › Summary, laid out like the cast.ai Dashboard (23b)', () =
     await waitFor(() => expect(sources.querySelector('[data-source-type="k8s-resources"]')).toHaveTextContent('Kubernetes resources'));
     expect(sources.querySelector('[data-source-type="kubescape-compliance"]')).toHaveTextContent('received, not shown');
   });
+
+  describe('v3 re-skin (FEAT-003)', () => {
+    it('opens with the Now banner naming the cluster once the engine loads, with no fabricated money', async () => {
+      renderPanel();
+      // The engine read (endpoint 1) resolves asynchronously; once it does the sentence names the
+      // cluster. Before it resolves the banner shows the honest "couldn't read" clause.
+      const banner = await waitFor(() => {
+        const el = document.querySelector('[data-now-banner]');
+        if (!el || !el.textContent?.includes(PROD)) throw new Error('banner not resolved');
+        return el;
+      });
+      expect(banner.textContent).toContain(PROD);
+      // Savings need BE-4 (not built), so a dollar figure never appears in the banner.
+      expect(banner.textContent).not.toMatch(/\$\d|\/mo/);
+    });
+  });
 });

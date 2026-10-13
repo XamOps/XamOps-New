@@ -1433,4 +1433,41 @@ describe('EksAutomationTab', () => {
       expect(screen.queryByText(/Mode set to/)).toBeNull();
     });
   });
+
+  describe('v3 re-skin (FEAT-003)', () => {
+    it('opens with the "Now" sentence built from endpoint 1, with no fabricated money', async () => {
+      resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+      renderTab();
+
+      // One over-provisioned workload analysed; the sentence states the count and the apply rule.
+      const banner = await waitFor(() => {
+        const el = document.querySelector('[data-now-banner]');
+        if (!el || !el.textContent?.includes('1 workloads analysed')) throw new Error('banner not resolved');
+        return el;
+      });
+      expect(banner.textContent).toContain('Nothing changes until you click Apply.');
+      // No savings endpoint (BE-4), so no "$/mo" ever appears in the banner.
+      expect(banner.textContent).not.toMatch(/\$\d|\/mo/);
+    });
+
+    it('renders the collapsed "How it works" flow', async () => {
+      resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+      const { container: page } = renderTab();
+
+      await screen.findByText('How the Workload autoscaler works');
+      expect(page.querySelector('[data-how-it-works]')).not.toBeNull();
+    });
+
+    it('carries the workload status as a coloured chip (icon + label), not colour alone', async () => {
+      resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
+      renderTab();
+
+      // The accessible wrapper still names the status, and the chip inside carries a tone + icon.
+      const wrapper = await screen.findByLabelText('Status: Over-provisioned');
+      const chip = wrapper.querySelector('[data-tone]')!;
+      expect(chip).not.toBeNull();
+      expect(chip.getAttribute('data-tone')).toBe('warn');
+      expect(chip.textContent).toContain('Over-provisioned');
+    });
+  });
 });

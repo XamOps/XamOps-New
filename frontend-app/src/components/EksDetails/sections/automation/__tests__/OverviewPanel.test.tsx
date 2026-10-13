@@ -170,4 +170,23 @@ describe('Automation › Overview (§9.1)', () => {
     expect(getCapabilities).toHaveBeenCalledTimes(1);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  describe('v3 re-skin (FEAT-003)', () => {
+    it('adds the Now banner, the How-it-works flow and the Workload-autoscaler feature mark', async () => {
+      await renderPanel(fixture('demo-aws-001'));
+      expect(document.querySelector('[data-now-banner]')).not.toBeNull();
+      expect(screen.getByText('How the Workload autoscaler works')).toBeInTheDocument();
+      // The feature accent reaches the page only through FeatureMark, paired with its name.
+      const marks = [...document.querySelectorAll('[data-feature="workload"]')];
+      expect(marks.length).toBeGreaterThan(0);
+    });
+
+    it('shows the honest "couldn\'t read workloads" clause, since this page reads no endpoint', async () => {
+      await renderPanel(fixture('demo-aws-001'));
+      const banner = document.querySelector('[data-now-banner]')!;
+      // No endpoint-1 read on this page, so a count is never invented.
+      expect(banner.textContent).toContain("couldn't read its workloads");
+      expect(banner.textContent).not.toMatch(/\$\d|\/mo/);
+    });
+  });
 });

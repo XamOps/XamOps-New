@@ -62,6 +62,7 @@ vi.mock('../../components/CloudK8s/CloudK8sIntegrations', () => ({ default: () =
 import EksDetailsPage, { INVALID_LINK_NOTICE, parseClusterLink } from '../EksDetailsPage';
 import CloudK8sPage from '../CloudK8sPage';
 import { TopbarProvider, useTopbar } from '../../contexts/TopbarContext';
+import { ThemeProvider } from '../../contexts/ThemeContext';
 import { K8sApiError } from '../../api/k8sAutomationApi';
 import { CONTRACT_BLOCK_MESSAGE } from '../../api/verticalRecommendationsAdapter';
 import { DEMO_MODE_KEY } from '../../demo/demoConfig';
@@ -120,17 +121,19 @@ function LocationProbe() {
 /** `withNav` adds the sidebar's cluster sections, as the layout renders them beside the page. */
 function renderAt(url: string, { withNav = false }: { withNav?: boolean } = {}) {
   return render(
-    <TopbarProvider>
-      <MemoryRouter initialEntries={[url]}>
-        <TopbarOutlet />
-        {withNav && <ClusterSectionsNav dark={false} />}
-        <Routes>
-          <Route path="/eks-details" element={<EksDetailsPage />} />
-          <Route path="/cloudk8s" element={<CloudK8sPage />} />
-        </Routes>
-        <LocationProbe />
-      </MemoryRouter>
-    </TopbarProvider>,
+    <ThemeProvider>
+      <TopbarProvider>
+        <MemoryRouter initialEntries={[url]}>
+          <TopbarOutlet />
+          {withNav && <ClusterSectionsNav dark={false} />}
+          <Routes>
+            <Route path="/eks-details" element={<EksDetailsPage />} />
+            <Route path="/cloudk8s" element={<CloudK8sPage />} />
+          </Routes>
+          <LocationProbe />
+        </MemoryRouter>
+      </TopbarProvider>
+    </ThemeProvider>,
   );
 }
 
