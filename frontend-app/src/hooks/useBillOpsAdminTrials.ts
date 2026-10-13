@@ -103,6 +103,8 @@ export const useBillOpsAdminTrials = (): UseBillOpsAdminTrialsReturn => {
   const [lastResult, setLastResult] = useState<TrialMutationResult | null>(null);
 
   const isMountedRef = useRef(true);
+  /** Whether a list call has ever succeeded — i.e. whether `rows` holds anything worth keeping. */
+  const hasLoadedRef = useRef(false);
 
   const refresh = useCallback(async () => {
     if (isMountedRef.current) {
@@ -119,7 +121,10 @@ export const useBillOpsAdminTrials = (): UseBillOpsAdminTrialsReturn => {
         const message = await extractError(response);
         if (isMountedRef.current) {
           setError(message);
-          setRows([]);
+          // Only blank the table when there is nothing to preserve. A transient failure on a
+          // post-mutation or manual refetch must not take away rows the operator is reading;
+          // the error renders above them instead.
+          if (!hasLoadedRef.current) setRows([]);
         }
         return;
       }
@@ -127,6 +132,7 @@ export const useBillOpsAdminTrials = (): UseBillOpsAdminTrialsReturn => {
       const data = await response.json();
       if (isMountedRef.current) {
         setRows(Array.isArray(data) ? sortRows(data) : []);
+        hasLoadedRef.current = true;
       }
     } catch (err) {
       console.error('Failed to load trial tenants:', err);
@@ -167,9 +173,12 @@ export const useBillOpsAdminTrials = (): UseBillOpsAdminTrialsReturn => {
       }
 
       const payload = await response.json().catch(() => null);
-      if (isMountedRef.current) setLastResult(toResult(payload));
 
+      // The refetch comes FIRST so the success result lands on a table that already shows the
+      // new dates, and so the success modal cannot be raised while the dialog that submitted
+      // the change is still on screen (see the section's success-modal gate).
       await refresh();
+      if (isMountedRef.current) setLastResult(toResult(payload));
       return true;
     } catch (err) {
       console.error('Trial mutation failed:', err);

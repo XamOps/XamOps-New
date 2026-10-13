@@ -123,6 +123,47 @@ describe('useBillOpsAdminTrials', () => {
     expect(result.current.rows).toEqual([]);
   });
 
+  it('reports a rejected list fetch — offline, DNS, or apiFetch’s deadline — as an error', async () => {
+    mockFetch.mockRejectedValue(new Error('Network request failed'));
+
+    const { result } = renderHook(() => useBillOpsAdminTrials());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.error).toBe('Network request failed');
+    expect(result.current.rows).toEqual([]);
+  });
+
+  it('reports a rejected mutation as a mutation error and stops the spinner', async () => {
+    const { result } = renderHook(() => useBillOpsAdminTrials());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    mockFetch.mockImplementation((url: string) =>
+      String(url).includes('/convert')
+        ? Promise.reject(new Error('Request timed out after 45000ms'))
+        : Promise.resolve(response(200, listBody)));
+
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.convertToPaid(135); });
+
+    expect(ok).toBe(false);
+    expect(result.current.mutationError).toBe('Request timed out after 45000ms');
+    expect(result.current.mutatingClientId).toBeNull();
+    // The failed mutation changed nothing, so the table the operator is reading stays put.
+    expect(result.current.rows.map(r => r.clientId)).toEqual([135, 7]);
+  });
+
+  it('keeps the last good rows when a refetch fails', async () => {
+    const { result } = renderHook(() => useBillOpsAdminTrials());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.rows).toHaveLength(2);
+
+    mockFetch.mockResolvedValue(response(500, null, ''));
+    await act(async () => { await result.current.refresh(); });
+
+    expect(result.current.error).toBe('HTTP 500');
+    expect(result.current.rows.map(r => r.clientId)).toEqual([135, 7]);
+  });
+
   it('reports a 404 on a mutation as a vanished tenant', async () => {
     const { result } = renderHook(() => useBillOpsAdminTrials());
     await waitFor(() => expect(result.current.loading).toBe(false));

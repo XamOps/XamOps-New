@@ -4,9 +4,18 @@ import type { TrialAdminRow } from '../../types/billopsAdminTrials';
 
 const NOW = new Date('2026-10-13T12:00:00');
 
-/** The backend's zone-less LocalDateTime.toString() shape. */
-const serverDate = (offsetDays: number) =>
-  new Date(NOW.getTime() + offsetDays * 86_400_000).toISOString().slice(0, 19);
+/**
+ * The backend's zone-less LocalDateTime.toString() shape, written in BROWSER-LOCAL time.
+ * toISOString() would convert to UTC and, since the parser reads a zone-less string as local,
+ * shift every offset by the runner's UTC offset — enough to move a few-hours case across the
+ * day boundary the rules key on.
+ */
+const serverDate = (offsetDays: number) => {
+  const d = new Date(NOW.getTime() + offsetDays * 86_400_000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    + `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
 
 const row = (over: Partial<TrialAdminRow>): TrialAdminRow => ({
   clientId: 135,
@@ -35,6 +44,11 @@ describe('deriveTrialVerdict', () => {
       'a single lapsed day is singular',
       row({ trialStatus: 'ACTIVE', trialEndAt: serverDate(-1), daysRemaining: 0 }),
       { state: 'EXPIRED', blocked: true, labelMatch: /lapsed 1 day ago/ },
+    ],
+    [
+      'a trial that lapsed hours ago never says "0 days ago"',
+      row({ trialStatus: 'ACTIVE', trialEndAt: serverDate(-3 / 24), daysRemaining: 0 }),
+      { state: 'EXPIRED', blocked: true, labelMatch: /^EXPIRED — lapsed less than a day ago$/ },
     ],
     [
       'PAID with a positive daysRemaining never claims days left',

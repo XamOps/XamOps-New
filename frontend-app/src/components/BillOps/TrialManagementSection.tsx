@@ -65,6 +65,18 @@ const TrialManagementSection: React.FC = () => {
     setConvertTarget(row);
   };
 
+  /**
+   * Every path that closes the extend dialog without submitting — Cancel, the × button, ESC,
+   * a backdrop click. It drops mutationError too: without that, dismissing a failed extend
+   * would immediately re-raise the message the operator just dismissed as a full-screen modal,
+   * because the error modal is gated on the dialog being closed.
+   */
+  const closeExtend = () => {
+    clearMutationState();
+    setFormError(null);
+    setExtendTarget(null);
+  };
+
   const resolveDays = (): number | null => {
     if (!customDays.trim()) return selectedDays;
     const parsed = Number(customDays.trim());
@@ -88,9 +100,14 @@ const TrialManagementSection: React.FC = () => {
   const submitConvert = async () => {
     if (!convertTarget) return;
     const target = convertTarget;
+    // The confirm control stays mounted for the whole round trip, so without this a second
+    // click sends a second POST. The writes are idempotent, but one click means one mutation.
+    if (mutatingClientId === target.clientId) return;
     const ok = await convertToPaid(target.clientId);
     if (ok) setConvertTarget(null);
   };
+
+  const convertInFlight = !!convertTarget && mutatingClientId === convertTarget.clientId;
 
   const successMessage = (): string => {
     if (!lastResult) return '';
@@ -222,15 +239,15 @@ const TrialManagementSection: React.FC = () => {
       ) : null}
 
       {/* ── Extend dialog ── */}
-      <DialogRoot isOpen={!!extendTarget} onClose={() => setExtendTarget(null)}>
+      <DialogRoot isOpen={!!extendTarget} onClose={closeExtend}>
         <DialogPanel
           title="Extend trial"
-          onClose={() => setExtendTarget(null)}
+          onClose={closeExtend}
           footer={
             <>
               <button
                 type="button"
-                onClick={() => setExtendTarget(null)}
+                onClick={closeExtend}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-[rgba(0,0,0,0.6)] bg-white border border-[rgba(0,0,0,0.12)] hover:bg-[rgba(0,0,0,0.03)] transition-colors"
               >
                 Cancel
@@ -311,7 +328,8 @@ const TrialManagementSection: React.FC = () => {
         isOpen={!!convertTarget}
         title="Convert this tenant to paid?"
         variant="danger"
-        confirmLabel="Convert to paid"
+        confirmLabel={convertInFlight ? 'Converting…' : 'Convert to paid'}
+        confirmDisabled={convertInFlight}
         onConfirm={() => { void submitConvert(); }}
         onCancel={() => setConvertTarget(null)}
         description={convertTarget ? (
@@ -342,8 +360,10 @@ const TrialManagementSection: React.FC = () => {
         message={mutationError ?? ''}
       />
 
+      {/* Gated on both dialogs being closed: two react-aria overlays at once means two focus
+          traps, and ariaHideOutside would hide the still-visible dialog from assistive tech. */}
       <NotificationModal
-        isOpen={!!lastResult}
+        isOpen={!!lastResult && !extendTarget && !convertTarget}
         onClose={clearMutationState}
         type="success"
         title={lastResult?.kind === 'convert' ? 'Converted to paid' : 'Trial extended'}

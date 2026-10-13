@@ -1,12 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react';
 import type { TrialAdminRow } from '../../../types/billopsAdminTrials';
 
+/**
+ * The hook is mocked, but statefully: the mocked `clearMutationState` nulls `mutationError`
+ * exactly as the real one does, so the tests can see whether a dismissed error can come back.
+ * The mutation functions live on the shared state too, so they are the same spies across
+ * renders and their call counts mean something.
+ */
 const hookState = vi.hoisted(() => ({
   rows: [] as TrialAdminRow[],
   loading: false,
   error: null as string | null,
   mutatingClientId: null as number | null,
+  mutationError: null as string | null,
+  refresh: vi.fn(),
+  extendTrial: vi.fn(),
+  convertToPaid: vi.fn(),
+  clearMutationState: vi.fn(),
 }));
 
 vi.mock('../../../hooks/useBillOpsAdminTrials', () => ({
@@ -15,12 +26,12 @@ vi.mock('../../../hooks/useBillOpsAdminTrials', () => ({
     loading: hookState.loading,
     error: hookState.error,
     mutatingClientId: hookState.mutatingClientId,
-    mutationError: null,
+    mutationError: hookState.mutationError,
     lastResult: null,
-    refresh: vi.fn(),
-    extendTrial: vi.fn(),
-    convertToPaid: vi.fn(),
-    clearMutationState: vi.fn(),
+    refresh: hookState.refresh,
+    extendTrial: hookState.extendTrial,
+    convertToPaid: hookState.convertToPaid,
+    clearMutationState: hookState.clearMutationState,
   }),
 }));
 
@@ -48,10 +59,15 @@ const rowFor = (name: string) => screen.getByText(name).closest('tr')!;
 
 describe('TrialManagementSection', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     hookState.rows = [];
     hookState.loading = false;
     hookState.error = null;
     hookState.mutatingClientId = null;
+    hookState.mutationError = null;
+    hookState.extendTrial.mockImplementation(async () => true);
+    hookState.convertToPaid.mockImplementation(async () => true);
+    hookState.clearMutationState.mockImplementation(() => { hookState.mutationError = null; });
   });
 
   it('flags a blocked tenant with the word EXPIRED', () => {
@@ -111,6 +127,61 @@ describe('TrialManagementSection', () => {
 
     expect(screen.getByText('You need BillOps admin rights to manage trials.')).toBeInTheDocument();
     expect(screen.getByText('Trial Management')).toBeInTheDocument();
+  });
+
+  it('does not re-raise a dismissed extend failure as a modal', async () => {
+    const message = 'The change could not be saved.';
+    hookState.rows = [lapsedButActiveRow];
+    hookState.extendTrial.mockImplementation(async () => false);
+
+    const { rerender } = render(<TrialManagementSection />);
+    fireEvent.click(within(rowFor('DataVault Inc')).getByRole('button', { name: /extend trial/i }));
+
+    // Submit, then let the hook report the failure the way it would.
+    const dialog = () => screen.getByRole('dialog');
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Extend trial' }));
+    await waitFor(() => expect(hookState.extendTrial).toHaveBeenCalledWith(3, 30));
+    hookState.mutationError = message;
+    rerender(<TrialManagementSection />);
+
+    // Inline in the dialog that submitted it — not as a modal on top of it.
+    expect(within(dialog()).getByText(message)).toBeInTheDocument();
+    expect(screen.queryByText('Change not saved')).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+
+    expect(hookState.clearMutationState).toHaveBeenCalled();
+    expect(screen.queryByText(message)).not.toBeInTheDocument();
+    expect(screen.queryByText('Change not saved')).not.toBeInTheDocument();
+  });
+
+  it('ignores a second convert confirmation while the first is in flight', async () => {
+    hookState.rows = [expiredRow];
+    // The POST stays pending, which is the whole window this test is about.
+    let settle: ((ok: boolean) => void) | undefined;
+    hookState.convertToPaid.mockImplementation(
+      () => new Promise<boolean>(resolve => { settle = resolve; }));
+
+    const { rerender } = render(<TrialManagementSection />);
+    fireEvent.click(within(rowFor('CloudBase Ltd')).getByRole('button', { name: /convert to paid/i }));
+
+    const confirm = within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Convert to paid' });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(hookState.convertToPaid).toHaveBeenCalledTimes(1));
+
+    // The POST is away: the hook now reports the tenant as mutating.
+    hookState.mutatingClientId = 4;
+    rerender(<TrialManagementSection />);
+
+    const inFlight = within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Converting…' });
+    expect(inFlight).toBeDisabled();
+    fireEvent.click(inFlight);
+
+    expect(hookState.convertToPaid).toHaveBeenCalledTimes(1);
+
+    // Let the POST finish so the dialog closes the way it would in production.
+    await act(async () => { settle!(true); });
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
   it('states in the extend dialog that the extension runs from the later of today and the end date', () => {

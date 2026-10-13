@@ -54,14 +54,18 @@ export const deriveTrialVerdict = (row: TrialAdminRow, now: Date = new Date()): 
 
   const endAt = parseServerDateTime(row.trialEndAt);
 
-  // 3. ACTIVE on paper, lapsed in fact.
+  // 3. ACTIVE on paper, lapsed in fact. The interval is floored to whole days, so a trial
+  //    that ended hours ago reads as 0 — the mirror image of rule 5's "less than a day left",
+  //    and exactly the row an operator opens this screen to rescue.
   if (endAt && endAt.getTime() < now.getTime()) {
     const lapsedDays = Math.floor((now.getTime() - endAt.getTime()) / 86_400_000);
     return {
       state: 'EXPIRED',
       blocked: true,
       converted: false,
-      label: `EXPIRED — lapsed ${plural(lapsedDays, 'day')} ago`,
+      label: lapsedDays > 0
+        ? `EXPIRED — lapsed ${plural(lapsedDays, 'day')} ago`
+        : 'EXPIRED — lapsed less than a day ago',
     };
   }
 

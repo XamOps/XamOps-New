@@ -34,6 +34,8 @@ interface AlertDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: Variant;
+  /** Blocks the confirm control, e.g. while the confirmed action is still in flight. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -66,6 +68,7 @@ export function AlertDialog({
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   variant = 'danger',
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: AlertDialogProps) {
@@ -109,8 +112,9 @@ export function AlertDialog({
                 </Button>
                 <Button
                   onPress={onConfirm}
+                  isDisabled={confirmDisabled}
                   autoFocus
-                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all outline-none focus-visible:ring-2 shadow-sm ${styles.confirmBtn}`}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all outline-none focus-visible:ring-2 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${styles.confirmBtn}`}
                 >
                   {confirmLabel}
                 </Button>
