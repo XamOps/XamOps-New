@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -38,7 +39,8 @@ import static org.assertj.core.api.Assertions.tuple;
  *       and (b) nothing uses the client large-object API or unlinks objects, and no file but
  *       {@code LegacyLobTextType.java} touches large objects at all ({@code lo_get},
  *       {@code lo_from_bytea}, {@code LargeObjectManager}, {@code getClob}, {@code setClob},
- *       {@code findLargeObjectText}).</li>
+ *       {@code findLargeObjectText}), except the {@code lo_get} reads of the ticket-chat search
+ *       queries named in {@code LARGE_OBJECT_READ_ALLOWLIST}.</li>
  * </ul>
  */
 class LobTextMappingGuardTest {
@@ -64,6 +66,42 @@ class LobTextMappingGuardTest {
     private static final Pattern LARGE_OBJECT_ACCESS =
             Pattern.compile("lo_get|lo_from_bytea|LargeObjectManager|getClob|setClob|findLargeObjectText");
     private static final Path LARGE_OBJECT_ACCESS_OWNER = Path.of("com/xammer/cloud/domain/type/LegacyLobTextType.java");
+
+    /**
+     * {@code <file name without .java>#<method>} of the {@code @Query} methods allowed to read a
+     * legacy large object with {@code lo_get}, keyed exactly like {@link #QUERY_ALLOWLIST}.
+     *
+     * <p>Exempt: the four BillOps ticket-chat search queries — {@code TicketRepository}'s
+     * {@code findTicketIdsByDescriptionContaining} and {@code findDescriptionMatches} over
+     * {@code ticket.description}, and {@code TicketReplyRepository}'s
+     * {@code findTicketIdsByReplyMessageContaining} and {@code findReplyMatches} over
+     * {@code ticket_reply.message}. Commit 249f6158f ("ticket chat search&page jump") added them.
+     *
+     * <p>They are read-only: every one is a plain {@code SELECT} under
+     * {@code @Transactional(readOnly = true)} that never creates, writes, truncates or unlinks a
+     * large object. They need {@code lo_get} because both columns are {@code @Lob} over a
+     * PostgreSQL {@code oid}, so the column holds a pointer into {@code pg_largeobject} rather
+     * than the text; a LIKE has to run against the decoded bytes
+     * ({@code lower(convert_from(lo_get(..), 'UTF8')) LIKE ..}) or it compares the OID number and
+     * silently matches nothing.
+     *
+     * <p>Before adding an entry: this exemption skips nothing but {@code lo_get}, and only on the
+     * lines of the named method's own {@code @Query}, so {@link #BANNED_TOKENS} and every
+     * write-side token stay banned here too. Add one only for a read-only {@code SELECT} that
+     * cannot avoid large-object access, that skips orphaned OIDs (an {@code EXISTS} over
+     * {@code pg_largeobject_metadata} — {@code lo_get} throws on a missing OID and aborts the
+     * whole scan), and that runs inside a transaction (PostgreSQL refuses to read a large object
+     * in auto-commit mode, and Spring Data does not wrap custom {@code @Query} methods).
+     * Anything that writes a large object belongs behind {@link LegacyLobTextType}, not here.
+     */
+    private static final Set<String> LARGE_OBJECT_READ_ALLOWLIST = Set.of(
+            "TicketRepository#findTicketIdsByDescriptionContaining",
+            "TicketRepository#findDescriptionMatches",
+            "TicketReplyRepository#findTicketIdsByReplyMessageContaining",
+            "TicketReplyRepository#findReplyMatches");
+
+    /** The one large-object token {@link #LARGE_OBJECT_READ_ALLOWLIST} can exempt: a read. */
+    private static final String ALLOWLISTED_LARGE_OBJECT_READ = "lo_get";
 
     private static final Path MAIN_SOURCES = Path.of("src/main/java");
     private static final Pattern QUERY_ANNOTATION = Pattern.compile("@(?:Query|NativeQuery)\\b");
@@ -136,6 +174,9 @@ class LobTextMappingGuardTest {
         for (Path file : mainSources()) {
             boolean owner = MAIN_SOURCES.relativize(file).equals(LARGE_OBJECT_ACCESS_OWNER);
             List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+            String fileName = file.getFileName().toString().replaceFirst("\\.java$", "");
+            Set<Integer> allowedReads =
+                    owner ? Set.<Integer>of() : allowedLargeObjectReadLines(fileName, lines);
             for (int i = 0; i < lines.size(); i++) {
                 if (isCommentLine(lines.get(i))) {
                     continue;
@@ -147,12 +188,38 @@ class LobTextMappingGuardTest {
                 }
                 Matcher access = LARGE_OBJECT_ACCESS.matcher(lines.get(i));
                 while (!owner && access.find()) {
+                    if (ALLOWLISTED_LARGE_OBJECT_READ.equals(access.group()) && allowedReads.contains(i + 1)) {
+                        continue;
+                    }
                     violations.add(MAIN_SOURCES.relativize(file) + ":" + (i + 1) + " uses " + access.group()
                             + " outside " + LARGE_OBJECT_ACCESS_OWNER.getFileName());
                 }
             }
         }
         assertThat(violations).isEmpty();
+    }
+
+    @Test
+    void theLargeObjectReadAllowlistExemptsOnlyTheNamedSearchQueries() {
+        List<String> query = List.of(
+                "    /** javadoc naming lo_get, with an apostrophe: the ticket's body. */",
+                "    @Transactional(readOnly = true)",
+                "    @Query(value = \"SELECT t.id FROM ticket t \"",
+                "        + \"WHERE lower(convert_from(lo_get(t.description), 'UTF8')) LIKE :term\",",
+                "        nativeQuery = true)",
+                "    List<Long> findTicketIdsByDescriptionContaining(@Param(\"term\") String term);");
+
+        assertThat(allowedLargeObjectReadLines("TicketRepository", query))
+                .as("the allowlisted query's own @Query lines are exempt")
+                .containsExactly(3, 4, 5);
+        assertThat(allowedLargeObjectReadLines("SomeOtherRepository", query))
+                .as("the same query in another file is not exempt")
+                .isEmpty();
+        assertThat(allowedLargeObjectReadLines("TicketRepository", List.of(
+                "    @Query(value = \"SELECT lo_get(t.description) FROM ticket t\", nativeQuery = true)",
+                "    List<byte[]> someNewLargeObjectRead();")))
+                .as("a new method in an allowlisted file is not exempt")
+                .isEmpty();
     }
 
     // ------------------------------------------------------------------ source scanning
@@ -201,6 +268,44 @@ class LobTextMappingGuardTest {
             }
         }
         throw new IllegalStateException("unbalanced parentheses after index " + open);
+    }
+
+    /**
+     * The 1-based line numbers covered by the {@code @Query} arguments of this file's methods in
+     * {@link #LARGE_OBJECT_READ_ALLOWLIST}. Comment lines are blanked rather than dropped so the
+     * line numbers still line up with the file and an apostrophe or stray paren in javadoc cannot
+     * derail {@link #matchingParen}.
+     */
+    private static Set<Integer> allowedLargeObjectReadLines(String fileName, List<String> lines) {
+        Set<Integer> allowed = new LinkedHashSet<>();
+        String code = String.join("\n", lines.stream().map(l -> isCommentLine(l) ? "" : l).toList());
+        Matcher m = QUERY_ANNOTATION.matcher(code);
+        while (m.find()) {
+            int open = skipWhitespace(code, m.end());
+            if (open >= code.length() || code.charAt(open) != '(') {
+                continue;
+            }
+            int close = matchingParen(code, open);
+            if (!LARGE_OBJECT_READ_ALLOWLIST.contains(fileName + "#" + methodNameAfter(code, close + 1))) {
+                continue;
+            }
+            int last = lineOf(code, close);
+            for (int line = lineOf(code, open); line <= last; line++) {
+                allowed.add(line);
+            }
+        }
+        return allowed;
+    }
+
+    /** The 1-based line of {@code index} in {@code code}. */
+    private static int lineOf(String code, int index) {
+        int line = 1;
+        for (int i = 0; i < index; i++) {
+            if (code.charAt(i) == '\n') {
+                line++;
+            }
+        }
+        return line;
     }
 
     /** The name of the method an annotation at {@code from} belongs to, skipping further annotations. */
