@@ -40,14 +40,22 @@ public class TrialAdminController {
 
     @GetMapping
     @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_SUPER_ADMIN')")
-    public ResponseEntity<List<Map<String, Object>>> listTrials() {
-        List<Client> trials = clientRepository.findByPlanType("TRIAL");
+    public ResponseEntity<List<Map<String, Object>>> listTrials(
+            // Converted tenants drop out of a plan_type='TRIAL' list the instant they are
+            // converted, so an operator who just clicked "convert" gets no confirmation row,
+            // no audit view of past conversions, and no way to put the tenant back on a trial.
+            // Opt-in so the default response stays exactly what it was.
+            @RequestParam(name = "includeConverted", defaultValue = "false") boolean includeConverted) {
+        List<Client> trials = includeConverted
+                ? clientRepository.findTrialOrFormerTrial("TRIAL")
+                : clientRepository.findByPlanType("TRIAL");
         List<Map<String, Object>> result = new ArrayList<>();
         for (Client c : trials) {
             Map<String, Object> row = new java.util.HashMap<>();
             row.put("clientId", c.getId());
             row.put("companyName", c.getName());
             row.put("email", c.getEmail());
+            row.put("planType", c.getPlanType());
             row.put("trialStatus", c.getTrialStatus());
             row.put("trialEndAt", c.getTrialEndAt() != null ? c.getTrialEndAt().toString() : null);
             row.put("daysRemaining", daysRemaining(c));
