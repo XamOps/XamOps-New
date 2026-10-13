@@ -1,6 +1,8 @@
 package com.xammer.cloud.service.automation.workload.api;
 
 import com.xammer.cloud.domain.KubernetesClusterConfig;
+import com.xammer.cloud.domain.WorkloadVerticalAction;
+import com.xammer.cloud.repository.WorkloadVerticalActionRepository;
 import com.xammer.cloud.service.automation.workload.ContainerSnapshot;
 import com.xammer.cloud.service.automation.workload.NodeCapacity;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingEngine;
@@ -99,6 +101,7 @@ public class VerticalAutomationReadService {
     private final ClusterWorkloadInventory inventory;
     private final UpstreamVpaReader vpaReader;
     private final WorkloadPolicyService policyService;
+    private final WorkloadVerticalActionRepository actionRepository;
     private final WorkloadAutoscalingEngine engine;
     private final Clock clock;
     private final LongSupplier nanoClock;
@@ -117,9 +120,10 @@ public class VerticalAutomationReadService {
                                          List<ClusterAccessProvider> accessProviders,
                                          ClusterWorkloadInventory inventory,
                                          UpstreamVpaReader vpaReader,
-                                         WorkloadPolicyService policyService) {
+                                         WorkloadPolicyService policyService,
+                                         WorkloadVerticalActionRepository actionRepository) {
         this(properties, metricsProperties, usageProvider, accessProviders, inventory, vpaReader,
-                policyService, Clock.systemUTC(), System::nanoTime);
+                policyService, actionRepository, Clock.systemUTC(), System::nanoTime);
     }
 
     /**
@@ -133,6 +137,7 @@ public class VerticalAutomationReadService {
                                   ClusterWorkloadInventory inventory,
                                   UpstreamVpaReader vpaReader,
                                   WorkloadPolicyService policyService,
+                                  WorkloadVerticalActionRepository actionRepository,
                                   Clock clock,
                                   LongSupplier nanoClock) {
         this.properties = properties;
@@ -141,6 +146,7 @@ public class VerticalAutomationReadService {
         this.inventory = inventory;
         this.vpaReader = vpaReader;
         this.policyService = policyService;
+        this.actionRepository = actionRepository;
         this.clock = clock;
         this.nanoClock = nanoClock;
         this.engine = new WorkloadAutoscalingEngine(clock);
@@ -289,6 +295,8 @@ public class VerticalAutomationReadService {
 
         UpstreamVpaReader.View upstreamVpa = vpaReader.read(access.client());
         Map<String, WorkloadPolicy> storedPolicies = policyService.resolveAll(target.clusterConfigId());
+        Map<String, VerticalWorkloadDto.LastActionDto> lastActions =
+                lastActions(target.clusterConfigId());
 
         List<VerticalWorkloadDto> workloads = new ArrayList<>();
         for (ClusterWorkloadInventory.Workload workload : cluster.workloads()) {
@@ -317,9 +325,29 @@ public class VerticalAutomationReadService {
             }
             WorkloadDecision decision = engine.decide(snapshot, policy, capacity);
             workloads.add(VerticalDecisionMapper.toDto(snapshot, policy, decision, properties,
-                    upstreamVpa));
+                    upstreamVpa, lastActions.get(WorkloadPolicyService.key(workload.ref()))));
         }
         return Evaluation.completed(at, workloads);
+    }
+
+    /**
+     * The newest recorded action per workload for one cluster, keyed the same way
+     * {@link #policyFor} keys policies, in a single pass. The repository returns rows newest-first,
+     * so the first row seen for a key is the one kept and later (older) rows are ignored.
+     *
+     * <p>{@code notEvaluated} workloads keep {@code lastAction} null regardless, because that path
+     * does not consult this map.
+     */
+    private Map<String, VerticalWorkloadDto.LastActionDto> lastActions(Long clusterConfigId) {
+        Map<String, VerticalWorkloadDto.LastActionDto> byKey = new java.util.HashMap<>();
+        for (WorkloadVerticalAction action
+                : actionRepository.findByClusterConfigIdOrderByAppliedAtDesc(clusterConfigId)) {
+            String key = WorkloadPolicyService.key(action.getNamespace(), action.getWorkloadKind(),
+                    action.getWorkloadName());
+            byKey.computeIfAbsent(key, ignored -> new VerticalWorkloadDto.LastActionDto(
+                    action.getAppliedAt(), action.getDryRun(), action.getOutcome()));
+        }
+        return byKey;
     }
 
     /**

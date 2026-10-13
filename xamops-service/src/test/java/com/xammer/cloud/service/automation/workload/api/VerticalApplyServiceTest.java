@@ -77,6 +77,7 @@ class VerticalApplyServiceTest {
     private ClusterWorkloadInventory inventory;
     private DirectInPlaceResizeExecutor executor;
     private WorkloadPolicyService policyService;
+    private com.xammer.cloud.service.automation.workload.policy.WorkloadActionRecorder actionRecorder;
     private FakeProvider provider;
 
     @BeforeEach
@@ -87,6 +88,7 @@ class VerticalApplyServiceTest {
         inventory = mock(ClusterWorkloadInventory.class);
         executor = mock(DirectInPlaceResizeExecutor.class);
         policyService = mock(WorkloadPolicyService.class);
+        actionRecorder = mock(com.xammer.cloud.service.automation.workload.policy.WorkloadActionRecorder.class);
         provider = new FakeProvider();
         when(inventory.read(any())).thenReturn(new ClusterWorkloadInventory.Inventory(
                 List.of(workload()), new NodeCapacity(1930, 3_454_423_040L)));
@@ -380,6 +382,53 @@ class VerticalApplyServiceTest {
                 .as("memory is published in whole MiB, the contract's unit")
                 .isEqualTo(250L);
         verify(policyService, never()).recordApplied(any(), any(), any(), any(), any());
+        verify(actionRecorder, never()).record(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean(),
+                any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a confirmed apply records a MANUAL action beside the cooldown stamp; a dry run records none")
+    void aConfirmedApplyRecordsAManualAction() {
+        givenExecutorApplies();
+
+        service().apply(principal(), readWriteAccount(), TARGET, REF, body(false));
+
+        verify(actionRecorder).record(org.mockito.ArgumentMatchers.eq(7L),
+                org.mockito.ArgumentMatchers.eq(TARGET), org.mockito.ArgumentMatchers.eq(REF),
+                org.mockito.ArgumentMatchers.eq(
+                        com.xammer.cloud.service.automation.workload.ActionTrigger.MANUAL),
+                org.mockito.ArgumentMatchers.eq(false), any(),
+                org.mockito.ArgumentMatchers.any(ResizeProof.class),
+                org.mockito.ArgumentMatchers.eq(Instant.parse("2026-10-11T12:00:00Z")));
+    }
+
+    @Test
+    @DisplayName("the AUTO overload labels the recorded action AUTO, with the gate order unchanged")
+    void theAutoTriggerLabelsTheAction() {
+        givenExecutorApplies();
+
+        service().apply(principal(), readWriteAccount(), TARGET, REF, body(false),
+                com.xammer.cloud.service.automation.workload.ActionTrigger.AUTO);
+
+        verify(actionRecorder).record(any(), any(), any(),
+                org.mockito.ArgumentMatchers.eq(
+                        com.xammer.cloud.service.automation.workload.ActionTrigger.AUTO),
+                org.mockito.ArgumentMatchers.eq(false), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a Deferred apply that changed no pod records no action, as it stamps no cooldown")
+    void anUnchangedApplyRecordsNoAction() {
+        when(executor.submit(any(), any(), any())).thenReturn(ActionSubmission.accepted("ignored"));
+        when(executor.proof(anyString())).thenReturn(Optional.of(new ResizeProof(
+                ResizeProof.Outcome.DEFERRED, "Deferred, and put back.", false, List.of(),
+                List.of(podProof(GUARANTEED_1CPU_1GI, new ResizeProof.Revert(
+                        ResizeProof.RevertState.REVERTED, "Put back."))))));
+
+        service().apply(principal(), readWriteAccount(), TARGET, REF, body(false));
+
+        verify(actionRecorder, never()).record(any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), any(), any(), any());
     }
 
     @Test
@@ -931,7 +980,7 @@ class VerticalApplyServiceTest {
 
     private VerticalApplyService service(WorkloadAutoscalingProperties properties) {
         return new VerticalApplyService(properties, writePermission, List.of(provider), inventory,
-                executor, policyService, METRICS, FIXED);
+                executor, policyService, actionRecorder, METRICS, FIXED);
     }
 
     private static ApplyRequestDto body(boolean dryRun) {

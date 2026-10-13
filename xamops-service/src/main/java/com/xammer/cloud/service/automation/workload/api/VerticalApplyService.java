@@ -2,6 +2,7 @@ package com.xammer.cloud.service.automation.workload.api;
 
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.service.automation.workload.ActionTrigger;
 import com.xammer.cloud.service.automation.workload.ApplyMethod;
 import com.xammer.cloud.service.automation.workload.HpaView;
 import com.xammer.cloud.service.automation.workload.QosRules;
@@ -25,6 +26,7 @@ import com.xammer.cloud.service.automation.workload.execute.ContainerApplyTarget
 import com.xammer.cloud.service.automation.workload.execute.DirectInPlaceResizeExecutor;
 import com.xammer.cloud.service.automation.workload.execute.ResizeProof;
 import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
+import com.xammer.cloud.service.automation.workload.policy.WorkloadActionRecorder;
 import com.xammer.cloud.service.automation.workload.policy.WorkloadPolicyService;
 import com.xammer.cloud.service.automation.workload.usage.VerticalMetricsProperties;
 import org.slf4j.Logger;
@@ -114,6 +116,7 @@ public class VerticalApplyService {
     private final ClusterWorkloadInventory inventory;
     private final DirectInPlaceResizeExecutor executor;
     private final WorkloadPolicyService policyService;
+    private final WorkloadActionRecorder actionRecorder;
     private final VerticalMetricsProperties metricsProperties;
     private final Clock clock;
     /**
@@ -129,9 +132,10 @@ public class VerticalApplyService {
                                ClusterWorkloadInventory inventory,
                                DirectInPlaceResizeExecutor executor,
                                WorkloadPolicyService policyService,
+                               WorkloadActionRecorder actionRecorder,
                                VerticalMetricsProperties metricsProperties) {
         this(properties, writePermission, accessProviders, inventory, executor, policyService,
-                metricsProperties, Clock.systemUTC());
+                actionRecorder, metricsProperties, Clock.systemUTC());
     }
 
     VerticalApplyService(WorkloadAutoscalingProperties properties,
@@ -140,6 +144,7 @@ public class VerticalApplyService {
                          ClusterWorkloadInventory inventory,
                          DirectInPlaceResizeExecutor executor,
                          WorkloadPolicyService policyService,
+                         WorkloadActionRecorder actionRecorder,
                          VerticalMetricsProperties metricsProperties,
                          Clock clock) {
         this.properties = properties;
@@ -147,6 +152,7 @@ public class VerticalApplyService {
         this.inventory = inventory;
         this.executor = executor;
         this.policyService = policyService;
+        this.actionRecorder = actionRecorder;
         this.metricsProperties = metricsProperties;
         this.clock = clock;
         List<ClusterAccessProvider> ordered = new ArrayList<>(
@@ -161,6 +167,23 @@ public class VerticalApplyService {
      */
     public ApplyResponseDto apply(ClientUserDetails principal, CloudAccount account,
                                   ClusterTarget target, WorkloadRef ref, ApplyRequestDto request) {
+        return apply(principal, account, target, ref, request, ActionTrigger.MANUAL);
+    }
+
+    /**
+     * The same apply, naming who initiated it.
+     *
+     * <p>The five-argument overload defaults the trigger to {@link ActionTrigger#MANUAL}, so
+     * {@code VerticalAutomationController} (endpoint 3) keeps calling the existing signature and
+     * records a {@code MANUAL} action, while FEAT-002's scheduled loop passes
+     * {@link ActionTrigger#AUTO} here. <strong>The gate order is identical for both</strong>: the
+     * trigger only labels the recorded action, it changes no check.
+     *
+     * @param trigger who initiated the apply; the recorded action's {@code trigger_source}
+     */
+    public ApplyResponseDto apply(ClientUserDetails principal, CloudAccount account,
+                                  ClusterTarget target, WorkloadRef ref, ApplyRequestDto request,
+                                  ActionTrigger trigger) {
         requirePermission(principal, account);
         requireWriteConnection(account);
         requireControllerReady();
@@ -201,7 +224,7 @@ public class VerticalApplyService {
                                 + " Nothing was sent; wait for it to finish, then refresh.");
             }
             try {
-                return applyLocked(target, workload, submitted, method, dryRun, access);
+                return applyLocked(target, workload, submitted, method, dryRun, access, trigger);
             } finally {
                 if (!dryRun) {
                     inFlight.remove(lock);
@@ -213,7 +236,7 @@ public class VerticalApplyService {
     private ApplyResponseDto applyLocked(ClusterTarget target,
                                          ClusterWorkloadInventory.Workload workload,
                                          List<ApplyRequestDto.Container> submitted, ApplyMethod method,
-                                         boolean dryRun, ClusterAccess access) {
+                                         boolean dryRun, ClusterAccess access, ActionTrigger trigger) {
         // The no-row case resolves to the environment's configured defaults -- the policy the
         // read endpoint reported -- so the row recordApplied creates carries that policy and
         // not the bare Java defaults, whose mode is OFF.
@@ -245,8 +268,14 @@ public class VerticalApplyService {
         // kubelet. A declined pod that was put back and proved back changed nothing, so it
         // starts no cooldown and the user can try again once there is room.
         if (!command.dryRun() && proof != null && proof.anyPodChanged()) {
+            Instant appliedAt = clock.instant();
             policyService.recordApplied(target.clientId(), target.clusterConfigId(),
-                    workload.ref(), policy, clock.instant());
+                    workload.ref(), policy, appliedAt);
+            // The durable audit row, written from this same human path with the trigger labelling
+            // who asked. A dry run or an apply that changed no pod records nothing, exactly as the
+            // cooldown stamp above does.
+            actionRecorder.record(target.clientId(), target, workload.ref(), trigger,
+                    command.dryRun(), targets, proof, appliedAt);
         }
 
         logger.info("Vertical apply {} for {} on {}: state {} outcome {}",

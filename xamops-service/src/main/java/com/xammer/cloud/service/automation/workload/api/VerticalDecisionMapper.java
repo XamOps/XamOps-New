@@ -50,7 +50,7 @@ public final class VerticalDecisionMapper {
     public static VerticalWorkloadDto toDto(WorkloadSnapshot snapshot, WorkloadPolicy policy,
                                             WorkloadDecision decision,
                                             WorkloadAutoscalingProperties gate) {
-        return toDto(snapshot, policy, decision, gate, UpstreamVpaReader.View.none());
+        return toDto(snapshot, policy, decision, gate, UpstreamVpaReader.View.none(), null);
     }
 
     /**
@@ -64,6 +64,19 @@ public final class VerticalDecisionMapper {
                                             WorkloadDecision decision,
                                             WorkloadAutoscalingProperties gate,
                                             UpstreamVpaReader.View upstream) {
+        return toDto(snapshot, policy, decision, gate, upstream, null);
+    }
+
+    /**
+     * @param lastAction the newest durable action recorded for this workload, or {@code null} when
+     *                   none has ever been applied. The read service loads it once per cluster; the
+     *                   {@code notEvaluated} path keeps it null.
+     */
+    public static VerticalWorkloadDto toDto(WorkloadSnapshot snapshot, WorkloadPolicy policy,
+                                            WorkloadDecision decision,
+                                            WorkloadAutoscalingProperties gate,
+                                            UpstreamVpaReader.View upstream,
+                                            VerticalWorkloadDto.LastActionDto lastAction) {
         Objects.requireNonNull(gate, "gate");
         Objects.requireNonNull(upstream, "upstream");
         Map<String, UpstreamVpaReader.ContainerTarget> targets = upstream.forWorkload(snapshot.ref());
@@ -81,7 +94,7 @@ public final class VerticalDecisionMapper {
                         .map(container -> container(container, targets.get(container.containerName()),
                                 podsDisagree(snapshot, container.containerName())))
                         .toList(),
-                null,                       // no action has ever been applied: no executor exists
+                lastAction,                 // the newest recorded action, or null when none exists
                 decision.autoApplyEligible() && gate.isAutoApplyPermitted(),
                 provenance(decision),
                 horizontal(decision));

@@ -259,12 +259,29 @@ class VerticalDecisionMapperTest {
     }
 
     @Test
-    @DisplayName("lastAction is null: nothing has ever been applied, because there is no executor")
+    @DisplayName("lastAction is null when none is supplied: no action has been recorded for the workload")
     void lastActionIsNull() {
         WorkloadSnapshot snapshot = guaranteedOverprovisioned();
         WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded());
 
         assertThat(VerticalDecisionMapper.toDto(snapshot, policy, decision, GATE).lastAction()).isNull();
+    }
+
+    @Test
+    @DisplayName("a supplied lastAction is emitted as the workload's lastAction, verbatim")
+    void aSuppliedLastActionIsEmitted() {
+        WorkloadSnapshot snapshot = guaranteedOverprovisioned();
+        WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded());
+        VerticalWorkloadDto.LastActionDto recorded = new VerticalWorkloadDto.LastActionDto(
+                java.time.Instant.parse("2026-10-13T05:00:00Z"), false, "APPLIED");
+
+        VerticalWorkloadDto dto = VerticalDecisionMapper.toDto(snapshot, policy, decision, GATE,
+                com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader.View.none(),
+                recorded);
+
+        assertThat(dto.lastAction()).isEqualTo(recorded);
+        assertThat(dto.lastAction().outcome()).isEqualTo("APPLIED");
+        assertThat(dto.lastAction().dryRun()).isFalse();
     }
 
     private static WorkloadSnapshot guaranteedOverprovisioned() {

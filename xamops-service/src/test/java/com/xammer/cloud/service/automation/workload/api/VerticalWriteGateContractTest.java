@@ -130,6 +130,7 @@ class VerticalWriteGateContractTest {
                 new WorkloadAutoscalingProperties(true, true, true), permission, List.of(),
                 mock(ClusterWorkloadInventory.class), mock(DirectInPlaceResizeExecutor.class),
                 mock(WorkloadPolicyService.class),
+                mock(com.xammer.cloud.service.automation.workload.policy.WorkloadActionRecorder.class),
                 VerticalReadServiceFixtures.metricsProperties("RECOMMEND", 72),
                 Clock.fixed(AT, ZoneOffset.UTC));
 

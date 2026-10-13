@@ -1,5 +1,6 @@
 package com.xammer.cloud.service.automation.workload.api;
 
+import com.xammer.cloud.repository.WorkloadVerticalActionRepository;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicy;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessProvider;
@@ -59,8 +60,15 @@ public final class VerticalReadServiceFixtures {
                                                         WorkloadPolicyService policyService,
                                                         LongSupplier nanoClock) {
         return new VerticalAutomationReadService(properties, metricsProperties, usageProvider,
-                accessProviders, inventory, vpaReader, policyService,
+                accessProviders, inventory, vpaReader, policyService, noActions(),
                 Clock.fixed(CYCLE_AT, ZoneOffset.UTC), nanoClock);
+    }
+
+    /** An action repository with no rows, so {@code lastAction} is null for every workload. */
+    public static WorkloadVerticalActionRepository noActions() {
+        WorkloadVerticalActionRepository actionRepository = mock(WorkloadVerticalActionRepository.class);
+        when(actionRepository.findByClusterConfigIdOrderByAppliedAtDesc(any())).thenReturn(List.of());
+        return actionRepository;
     }
 
     public static VerticalMetricsProperties metricsProperties(String defaultMode, int defaultWindowHours) {
