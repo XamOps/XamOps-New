@@ -419,5 +419,39 @@ export const demoBillopsClientAccounts = [
   { id: 4, accountName: 'CloudBase Azure East',     provider: 'Azure', accountIdentifier: 'sub-cloudbase-001'  },
 ];
 
+// ─── /api/billops/admin/trials  (trial management section) ───────────────────
+/**
+ * Mimics the backend's zone-less `LocalDateTime.toString()`, relative to now, so the demo
+ * cannot rot into a single state: a fixed 2026 date would read as "lapsed" forever.
+ */
+const trialDate = (offsetDays: number) =>
+  new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 19);
+
+/** Ids and names reuse demoBillopsClients so the page reads coherently. */
+export const demoBillopsAdminTrials = [
+  { clientId: 1, companyName: 'Apex Corp',        email: 'billing@apexcorp.example',  planType: 'TRIAL', trialStatus: 'ACTIVE',    trialEndAt: trialDate(12),  daysRemaining: 12 },
+  { clientId: 2, companyName: 'NexGen Solutions', email: 'billing@nexgen.example',    planType: 'TRIAL', trialStatus: 'ACTIVE',    trialEndAt: trialDate(3),   daysRemaining: 3  },
+  // ACTIVE on paper with an end date already past — the case the verdict util's rule 3 catches.
+  { clientId: 3, companyName: 'DataVault Inc',    email: 'billing@datavault.example', planType: 'TRIAL', trialStatus: 'ACTIVE',    trialEndAt: trialDate(-2),  daysRemaining: 0  },
+  { clientId: 4, companyName: 'CloudBase Ltd',    email: 'billing@cloudbase.example', planType: 'TRIAL', trialStatus: 'EXPIRED',   trialEndAt: trialDate(-20), daysRemaining: 0  },
+  { clientId: 5, companyName: 'Sigma Tech',       email: 'billing@sigmatech.example', planType: 'PAID',  trialStatus: 'CONVERTED', trialEndAt: trialDate(-45), daysRemaining: 0  },
+  { clientId: 6, companyName: 'Orbit Systems',    email: 'billing@orbitsys.example',  planType: 'PAID',  trialStatus: null,        trialEndAt: null,           daysRemaining: 0  },
+];
+
+// ─── POST /api/billops/admin/trials/{id}/extend ──────────────────────────────
+export const demoTrialExtendResult = {
+  clientId: 3,
+  trialStatus: 'ACTIVE',
+  trialEndAt: trialDate(30),
+  daysRemaining: 30,
+};
+
+// ─── POST /api/billops/admin/trials/{id}/convert ─────────────────────────────
+export const demoTrialConvertResult = {
+  clientId: 4,
+  planType: 'PAID',
+  trialStatus: 'CONVERTED',
+};
+
 // ─── Generic empty fallback ───────────────────────────────────────────────────
 export const demoGenericEmpty = {};

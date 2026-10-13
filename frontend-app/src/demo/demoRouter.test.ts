@@ -323,6 +323,48 @@ describe('demo router — CloudK8s capabilities (ROLE_XAMOPS)', () => {
   });
 });
 
+/**
+ * The trial section's hook sorts and maps the list, so the `{}` BillOps catch-all would throw
+ * rather than degrade. These assertions exist to keep the three trial routes above it.
+ */
+describe('demo router — trial management (ROLE_BILLOPS_ADMIN)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_BILLOPS_ADMIN');
+  });
+
+  it('answers the trial list with a non-empty array, not the generic {}', async () => {
+    const body = await readDemoBody('/api/billops/admin/trials?includeConverted=true');
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBeGreaterThan(0);
+    body.forEach((row: Record<string, unknown>) => {
+      expect(typeof row.clientId).toBe('number');
+      expect('planType' in row).toBe(true);
+    });
+  });
+
+  it('covers both the blocked and the converted case so every verdict branch renders', async () => {
+    const body = await readDemoBody('/api/billops/admin/trials?includeConverted=true');
+    expect(body.some((r: { trialStatus: string }) => r.trialStatus === 'EXPIRED')).toBe(true);
+    expect(body.some((r: { trialStatus: string }) => r.trialStatus === 'CONVERTED')).toBe(true);
+    expect(body.some((r: { planType: string }) => r.planType === 'PAID')).toBe(true);
+  });
+
+  it('answers extend with its own result rather than the list', async () => {
+    const body = await readDemoBody('/api/billops/admin/trials/3/extend');
+    expect(Array.isArray(body)).toBe(false);
+    expect(body.trialStatus).toBe('ACTIVE');
+    expect(typeof body.trialEndAt).toBe('string');
+  });
+
+  it('answers convert with its own result rather than the list', async () => {
+    const body = await readDemoBody('/api/billops/admin/trials/4/convert');
+    expect(Array.isArray(body)).toBe(false);
+    expect(body.planType).toBe('PAID');
+    expect(body.trialStatus).toBe('CONVERTED');
+  });
+});
+
 describe('demo router — AutoSpotting feature status', () => {
   beforeEach(() => {
     sessionStorage.setItem(DEMO_MODE_KEY, 'true');

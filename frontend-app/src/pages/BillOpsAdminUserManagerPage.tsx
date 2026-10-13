@@ -5,6 +5,7 @@ import { useTopbar } from '../contexts/TopbarContext';
 import { useBillOpsUserManager } from '../hooks/useBillOpsUserManager';
 import type { BillOpsUser, BillOpsRole } from '../types/billopsUserManager';
 import NotificationModal from '../components/Shared/NotificationModal';
+import TrialManagementSection from '../components/BillOps/TrialManagementSection';
 import { AlertDialog } from '../components/ui';
 import { XAMOPS_MODULES, normalizeAllowedTabs, selectAllXamTabs, toggleAllowedTab } from '../constants/xamopsTabs';
 import XamTabPermissionToggle from '../components/Shared/XamTabPermissionToggle';
@@ -354,6 +355,9 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
           ))}
         </div>
       )}
+
+      {/* ── Trial Management (tenant-level, keyed by clientId) ── */}
+      <TrialManagementSection />
 
       {/* ── Main Table Card ── */}
       <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl shadow-sm overflow-hidden">

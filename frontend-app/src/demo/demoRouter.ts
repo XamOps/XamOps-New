@@ -999,6 +999,17 @@ function routeBillopsAdmin(url: string): Response | null {
   if (url.includes('/api/billops/team/profile'))
     return makeResponse(billops.demoBillopsTeamProfile);
 
+  // Trial management — mutations before the list, because the list matcher is a prefix of both.
+  // apiFetch calls resolveDemoResponse(url) with no method, so a POST is only distinguishable
+  // by its URL suffix; keep the suffix checks. All three MUST stay above the final
+  // `/api/billops/` catch-all, which answers {} and would make the list hook's sort/map throw.
+  if (url.includes('/api/billops/admin/trials/') && url.includes('/extend'))
+    return makeResponse(billops.demoTrialExtendResult);
+  if (url.includes('/api/billops/admin/trials/') && url.includes('/convert'))
+    return makeResponse(billops.demoTrialConvertResult);
+  if (url.includes('/api/billops/admin/trials'))
+    return makeResponse(billops.demoBillopsAdminTrials);
+
   // Admin dashboard
   if (url.includes('/api/billops/dashboard/admin/top-spending-refresh'))
     return makeResponse(billops.demoBillopsTopSpending);

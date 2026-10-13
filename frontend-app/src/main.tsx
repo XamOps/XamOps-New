@@ -53,7 +53,14 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 
     // Trial expired: backend returns 402 TRIAL_EXPIRED on protected APIs.
     // Route the user to the expired screen (once) so they can contact sales.
-    if (response.status === 402 && !window.location.pathname.startsWith('/trial-expired')) {
+    //
+    // The trial-admin endpoints are exempt, for the same reason
+    // TrialEnforcementFilter.shouldNotFilter exempts /api/billops/admin/trials: they are how an
+    // admin rescues a lapsed tenant, so a 402 from one of them must stay a message on the page
+    // instead of yanking the admin off it mid-rescue.
+    if (response.status === 402
+        && !url.includes('/api/billops/admin/trials')
+        && !window.location.pathname.startsWith('/trial-expired')) {
       window.location.href = '/trial-expired';
     }
     return response;
