@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { toVerticalEngineView } from '../../../../../api/verticalRightsizerAdapter';
+import { toVerticalEngineView } from '../../../../../api/verticalRecommendationsAdapter';
 import { demoVerticalStatus } from '../../../../../demo/k8sAutomationMockData';
-import type { Resources, VerticalWorkload } from '../../../../../types/verticalRightsizer';
+import type { Resources, VerticalWorkload } from '../../../../../types/verticalRecommendations';
 import { bucketCounts, workloadBucket } from '../verticalCopy';
 
 const res = (cpu: number | null, mem: number | null): Resources => ({ cpuRequestM: cpu, memRequestMi: mem, cpuLimitM: null, memLimitMi: null });

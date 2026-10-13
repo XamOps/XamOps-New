@@ -8,15 +8,15 @@ vi.mock('../../../../../api/k8sAutomationApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../../api/k8sAutomationApi')>();
   return { ...actual, getCapabilities };
 });
-vi.mock('../../../../../api/verticalRightsizerApi', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../../../api/verticalRightsizerApi')>();
+vi.mock('../../../../../api/verticalRecommendationsApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../../api/verticalRecommendationsApi')>();
   return { ...actual, getVerticalStatus };
 });
 
 import { K8sApiError } from '../../../../../api/k8sAutomationApi';
 import { K8sCapabilitiesProvider } from '../../../../../hooks/useK8sCapabilities';
 import { useEksSectionRoute } from '../../../../../hooks/useEksSectionRoute';
-import { clearVerticalCacheForTests } from '../../../../../hooks/useVerticalRightsizer';
+import { clearVerticalCacheForTests } from '../../../../../hooks/useVerticalRecommendations';
 import type { UseEksDashboardReturn } from '../../../../../hooks/useEksDashboard';
 import { demoCapabilities, demoVerticalStatus } from '../../../../../demo/k8sAutomationMockData';
 import { demoEksDashboard } from '../../../../../demo/xamopsMockData';

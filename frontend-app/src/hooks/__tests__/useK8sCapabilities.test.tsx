@@ -8,7 +8,7 @@ vi.mock('../../api/k8sAutomationApi', async (importOriginal) => {
 });
 
 import { K8sApiError } from '../../api/k8sAutomationApi';
-import { CONTRACT_BLOCK_MESSAGE, toVerticalEngineView } from '../../api/verticalRightsizerAdapter';
+import { CONTRACT_BLOCK_MESSAGE, toVerticalEngineView } from '../../api/verticalRecommendationsAdapter';
 import {
   K8sCapabilitiesProvider,
   LOADING_CAPABILITY,
@@ -27,7 +27,7 @@ import {
   type Gate,
   type ReasonCode,
 } from '../../types/k8sAutomation';
-import type { VerticalStatusWire } from '../../types/verticalRightsizer';
+import type { VerticalStatusWire } from '../../types/verticalRecommendations';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 

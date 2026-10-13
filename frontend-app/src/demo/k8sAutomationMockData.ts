@@ -19,7 +19,7 @@ import type {
   K8sRefusal,
   ReadinessKey,
 } from '../types/k8sAutomation';
-import type { VerticalStatusWire, VerticalWorkloadWire } from '../types/verticalRightsizer';
+import type { VerticalStatusWire, VerticalWorkloadWire } from '../types/verticalRecommendations';
 import { READINESS_KEYS } from '../types/k8sAutomation';
 
 /** The §6.7 messages, as the server sends them while a key is not ready. */

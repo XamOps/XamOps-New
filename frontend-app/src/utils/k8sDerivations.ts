@@ -8,7 +8,7 @@
  */
 import type { CapabilitiesCluster } from '../types/k8sAutomation';
 import type { EksDashboard } from '../types/eksTypes';
-import type { Resources, VerticalWorkload } from '../types/verticalRightsizer';
+import type { Resources, VerticalWorkload } from '../types/verticalRecommendations';
 import { MEMORY_RATE_PER_GIB_HOUR, CPU_RATE_PER_VCPU_HOUR } from './k8sPricing';
 import { parseCpuMillicores, parseMemoryMiB, toNumber } from './k8sQuantities';
 

@@ -8,16 +8,16 @@ import {
   manualApplyGate,
   reasonSentence,
   workloadStatus,
-} from '../../../../api/workloadRightsizingAdapter';
-import { applyVerticalRecommendation, fetchVerticalEngine } from '../../../../api/workloadRightsizingApi';
+} from '../../../../api/verticalRightsizerAdapter';
+import { applyVerticalRecommendation, fetchVerticalEngine } from '../../../../api/verticalRightsizerApi';
 import { formatIST } from '../../../../utils/timeUtils';
 import type {
   VerticalEngineResponseWire,
   VerticalResourcesWire,
   VerticalWorkloadWire,
-} from '../../../../types/workloadRightsizing';
+} from '../../../../types/verticalRightsizer';
 
-vi.mock('../../../../api/workloadRightsizingApi', () => ({
+vi.mock('../../../../api/verticalRightsizerApi', () => ({
   fetchVerticalEngine: vi.fn(),
   applyVerticalRecommendation: vi.fn(),
   verticalReadUrl: vi.fn(),
@@ -126,7 +126,7 @@ describe('EksAutomationTab', () => {
     resolveWith({ engine: engine(), gateReasons: [], workloads: [workload()] });
     const { container: page } = renderTab();
 
-    expect(await screen.findByRole('heading', { name: 'Workload autoscaler' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Workload rightsizing' })).toBeInTheDocument();
     expect(screen.getByText(/nothing changes in the cluster until you press Apply/)).toBeInTheDocument();
     expect(screen.getByText('Can be applied')).toBeInTheDocument();
     expect(screen.getByText('Connected')).toBeInTheDocument();

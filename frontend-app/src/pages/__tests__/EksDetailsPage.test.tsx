@@ -63,7 +63,7 @@ import EksDetailsPage, { INVALID_LINK_NOTICE, parseClusterLink } from '../EksDet
 import CloudK8sPage from '../CloudK8sPage';
 import { TopbarProvider, useTopbar } from '../../contexts/TopbarContext';
 import { K8sApiError } from '../../api/k8sAutomationApi';
-import { CONTRACT_BLOCK_MESSAGE } from '../../api/verticalRightsizerAdapter';
+import { CONTRACT_BLOCK_MESSAGE } from '../../api/verticalRecommendationsAdapter';
 import { DEMO_MODE_KEY } from '../../demo/demoConfig';
 import { demoCapabilities } from '../../demo/k8sAutomationMockData';
 import { SYNC_TIMEOUT_TEXT, VERSION_NOT_REPORTED } from '../../components/EksDetails/ClusterHeader';

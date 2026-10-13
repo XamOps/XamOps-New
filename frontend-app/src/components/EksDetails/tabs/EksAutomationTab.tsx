@@ -35,8 +35,10 @@ import {
   windowWords,
   workloadStatus,
   workloadWindowHours,
-} from '../../../api/workloadRightsizingAdapter';
-import useVerticalRightsizer from '../../../hooks/useWorkloadRightsizing';
+  WRITE_GATES_NOT_CHECKED,
+  writeGateText,
+} from '../../../api/verticalRightsizerAdapter';
+import useVerticalRightsizer from '../../../hooks/useVerticalRightsizer';
 import type {
   ApplyContainerRequest,
   ApplyOutcomeWire,
@@ -47,8 +49,9 @@ import type {
   EngineView,
   ManualApplyGate,
   MetricValue,
+  VerticalResourcesWire,
   WorkloadView,
-} from '../../../types/workloadRightsizing';
+} from '../../../types/verticalRightsizer';
 
 interface EksAutomationTabProps {
   clusterName: string;
@@ -121,7 +124,8 @@ const ResourceCell: React.FC<{
  */
 const OUTCOME_TEXT: Record<string, string> = {
   APPLIED: 'Applied. Confirmed in every pod.',
-  PARTIALLY_APPLIED: 'Partly applied: it stopped at the first pod that failed. The pods below say which changed.',
+  // Each pod's line below shows what it ran before and runs now (review-2 SF7).
+  PARTIALLY_APPLIED: 'Partly applied: it stopped at the first pod that failed.',
   DRY_RUN: 'Test run passed. Nothing was sent to the cluster.',
   DEFERRED: "Not applied: the node doesn't have room right now. Kubernetes may apply it later.",
   INFEASIBLE: 'Not applied: the node can never fit this size.',
@@ -136,12 +140,105 @@ const OUTCOME_TEXT: Record<string, string> = {
 /** There is no Activity page on this branch, so "It will appear in Activity." is left out. */
 const NO_RESULT = 'No result reported yet.';
 
+const resourceWord = (insufficient: string | null | undefined): string | null =>
+  insufficient === 'cpu' ? 'CPU' : insufficient === 'memory' ? 'memory' : null;
+
+/**
+ * A declined resize that XamOps put back and proved back (review-1 S7). A patch was sent, so these
+ * never say "Nothing was changed"; they say what was done about it and what would let it through.
+ */
+const putBackText = (outcome: ApplyOutcomeWire): string | null => {
+  const resource = resourceWord(outcome.insufficient);
+  switch (outcome.terminal) {
+    case 'DEFERRED':
+      return `The node has no free ${resource ?? 'room'} for this increase, so XamOps put the pod back as it was. Free room on that node, for example by applying an over-provisioned workload there, or add a node.`;
+    case 'INFEASIBLE':
+      return `This size can never fit on the node${
+        resource ? `: it has less ${resource} in total than the pod would ask for` : ''
+      }, so XamOps put the pod back as it was. Choose a smaller size, or run the workload on a larger node.`;
+    case 'STUCK_IN_PROGRESS':
+      return 'The pod was still resizing when XamOps stopped waiting, so XamOps put it back as it was.';
+    case 'FAILED':
+      return "The new size wasn't confirmed, so XamOps put the pod back as it was.";
+    case 'PARTIALLY_APPLIED':
+      return 'Partly applied: it stopped at the first pod that failed, and put that pod back as it was. The pods below show what each one runs now.';
+    default:
+      return null;
+  }
+};
+
+/** A declined resize XamOps tried to put back and could not prove back. */
+const NOT_PUT_BACK =
+  "XamOps tried to put the pod back as it was and couldn't confirm it, so the new size may still be applied later. Check the pod before trying again.";
+
+/** What happened, said once, ahead of {@link NOT_PUT_BACK}. */
+const NOT_PUT_BACK_HEAD: Record<string, string> = {
+  DEFERRED: "Not applied: the node doesn't have room right now.",
+  INFEASIBLE: 'Not applied: the node can never fit this size.',
+  STUCK_IN_PROGRESS: 'Not confirmed: the pod was still resizing when XamOps stopped waiting.',
+  FAILED: 'Not applied.',
+  PARTIALLY_APPLIED: 'Partly applied: it stopped at the first pod that failed.',
+};
+
 const outcomeText = (outcome: ApplyOutcomeWire): string => {
   const terminal = outcome.terminal;
   if (terminal === null || terminal.trim() === '') return NO_RESULT;
-  const text = OUTCOME_TEXT[terminal];
+  if (outcome.reverted === true) {
+    const putBack = putBackText(outcome);
+    if (putBack) return putBack;
+  }
+  if (outcome.reverted === false && NOT_PUT_BACK_HEAD[terminal]) {
+    return `${NOT_PUT_BACK_HEAD[terminal]} ${NOT_PUT_BACK}`;
+  }
+  const text = terminal === 'APPLIED' ? appliedText(outcome) : OUTCOME_TEXT[terminal];
   if (!text) return `Other: ${terminal}`;
   return terminal === 'APPLIED' && outcome.restartFree === true ? `${text} No restart.` : text;
+};
+
+/** "N of M" when pods were left out, else null (review-2 SF3). */
+const runningShare = (outcome: ApplyOutcomeWire): string | null => {
+  const skipped = (outcome.skippedPods ?? []).length;
+  if (skipped === 0) return null;
+  const touched = (outcome.pods ?? []).length;
+  return `${touched} of ${touched + skipped}`;
+};
+
+/** Never "every pod" when some were not running: they start at the workload's own size later. */
+const appliedText = (outcome: ApplyOutcomeWire): string => {
+  const share = runningShare(outcome);
+  return share ? `Applied. Confirmed in every running pod (${share}).` : OUTCOME_TEXT.APPLIED;
+};
+
+const SKIPPED_POD_TEXT: Record<string, string> = {
+  TERMINATING: 'being deleted',
+  OLD_REVISION: 'from the previous version of the workload',
+};
+
+const skippedPodText = (pod: { phase: string | null; reason: string | null }): string => {
+  if (pod.reason && SKIPPED_POD_TEXT[pod.reason]) return SKIPPED_POD_TEXT[pod.reason];
+  return pod.phase ? `not running (${pod.phase})` : 'not running';
+};
+
+const OBSERVED_FIELDS: { key: keyof VerticalResourcesWire; label: string; format: (v: MetricValue) => string }[] = [
+  { key: 'cpuRequestM', label: 'CPU request', format: formatMillis },
+  { key: 'memRequestMi', label: 'memory request', format: formatMib },
+  { key: 'cpuLimitM', label: 'CPU limit', format: formatMillis },
+  { key: 'memLimitMi', label: 'memory limit', format: formatMib },
+];
+
+const metric = (value: number | null | undefined): MetricValue =>
+  value === null || value === undefined ? { kind: 'unset' } : { kind: 'value', value };
+
+/**
+ * What one container ran before and runs now, read from the pod's status (review-2 SF7): only the
+ * fields that moved, or "no change".
+ */
+const observedChange = (before: VerticalResourcesWire | null, after: VerticalResourcesWire | null): string => {
+  if (!before || !after) return 'not reported';
+  const moved = OBSERVED_FIELDS.filter((f) => (before[f.key] ?? null) !== (after[f.key] ?? null)).map(
+    (f) => `${f.label} ${shown(metric(before[f.key]), f.format)} → ${shown(metric(after[f.key]), f.format)}`,
+  );
+  return moved.length > 0 ? moved.join(' · ') : 'no change';
 };
 
 const CONTAINER_STATE_TEXT: Record<string, string> = {
@@ -156,8 +253,20 @@ const CONTAINER_STATE_TEXT: Record<string, string> = {
   FAILED: 'Failed',
 };
 
-const containerStateText = (state: string | null): string =>
-  state === null || state.trim() === '' ? DASH : (CONTAINER_STATE_TEXT[state] ?? `Other: ${state}`);
+const containerStateText = (state: string | null, reverted: boolean | null | undefined = null): string => {
+  if (state === null || state.trim() === '') return DASH;
+  // Once the pod is back as it was, it is no longer waiting or resizing.
+  if (reverted === true && ['DEFERRED', 'INFEASIBLE', 'STUCK_IN_PROGRESS', 'FAILED'].includes(state)) {
+    return 'Not applied: put back as it was';
+  }
+  return CONTAINER_STATE_TEXT[state] ?? `Other: ${state}`;
+};
+
+const POD_REVERT_TEXT: Record<string, string> = {
+  REVERTED: ' · put back as it was',
+  NOT_CONFIRMED: " · sent back, but it didn't confirm",
+  FAILED: " · couldn't be put back",
+};
 
 const SUBMISSION_TEXT: Record<string, string> = {
   ACCEPTED: 'Submitted',
@@ -168,35 +277,56 @@ const SUBMISSION_TEXT: Record<string, string> = {
 const submissionText = (state: string | null): string =>
   state === null || state.trim() === '' ? DASH : (SUBMISSION_TEXT[state] ?? `Other: ${state}`);
 
-/** The restart-free proof for one pod, in the numbers it was proved from (glossary 4.6). */
+/**
+ * The restart-free proof for one pod, in the numbers it was proved from (glossary 4.6), and what
+ * each container ran before and runs now, so a partial outcome shows which pods changed.
+ */
 const PodProof: React.FC<{ pod: ApplyPodProofWire }> = ({ pod }) => (
   <li className="text-[11px] text-[rgba(0,0,0,0.5)]">
-    {pod.podName}: {pod.samePod === true ? 'same pod' : 'pod replaced'}
-    {(pod.containers ?? []).map((c) => (
-      <span key={c.name}>
-        {c.containerIdBefore !== null && c.containerIdAfter !== null
-          ? c.containerIdBefore === c.containerIdAfter
-            ? ' · same container'
-            : ' · container replaced'
-          : ''}
-        {c.restartCountBefore !== null && c.restartCountAfter !== null && c.restartCountBefore !== c.restartCountAfter
-          ? ` · restarted (${c.restartCountBefore} → ${c.restartCountAfter})`
-          : ` · restarts ${formatCount(c.restartCountBefore)} → ${formatCount(c.restartCountAfter)}`}
-      </span>
-    ))}
-    {pod.ready === true ? ' · ready' : ' · not ready'}
+    <span data-testid="pod-proof-summary">
+      {pod.podName}: {pod.samePod === true ? 'same pod' : 'pod replaced'}
+      {(pod.containers ?? []).map((c) => (
+        <span key={c.name}>
+          {c.containerIdBefore !== null && c.containerIdAfter !== null
+            ? c.containerIdBefore === c.containerIdAfter
+              ? ' · same container'
+              : ' · container replaced'
+            : ''}
+          {c.restartCountBefore !== null && c.restartCountAfter !== null && c.restartCountBefore !== c.restartCountAfter
+            ? ` · restarted (${c.restartCountBefore} → ${c.restartCountAfter})`
+            : ` · restarts ${formatCount(c.restartCountBefore)} → ${formatCount(c.restartCountAfter)}`}
+        </span>
+      ))}
+      {pod.ready === true ? ' · ready' : ' · not ready'}
+      {pod.revert?.state ? (
+        <span title={pod.revert.detail ?? undefined}>{POD_REVERT_TEXT[pod.revert.state] ?? ` · ${pod.revert.state}`}</span>
+      ) : null}
+    </span>
+    {(pod.containers ?? []).length > 0 && (
+      <ul className="pl-3">
+        {(pod.containers ?? []).map((c) => (
+          <li key={c.name}>
+            {c.name}: {observedChange(c.observedBefore, c.observedAfter)}
+          </li>
+        ))}
+      </ul>
+    )}
   </li>
 );
 
 const ApplyOutcome: React.FC<{ outcome: ApplyOutcomeWire }> = ({ outcome }) => {
   const proven = outcome.terminal === 'APPLIED' && outcome.restartFree === true;
+  const share = runningShare(outcome);
+  const skipped = outcome.skippedPods ?? [];
   return (
     <div className="space-y-1">
       <p className="text-[12px] font-semibold text-[rgba(0,0,0,0.88)]" title={outcome.detail ?? undefined}>
         {outcomeText(outcome)}
       </p>
       <p className="text-[11px] text-[rgba(0,0,0,0.5)]">
-        {proven ? 'In place, no restart · proven in every pod' : 'In place · no restart-free proof'}
+        {proven
+          ? `In place, no restart · proven in every ${share ? `running pod (${share})` : 'pod'}`
+          : 'In place · no restart-free proof'}
       </p>
       {proven && (
         <p className="text-[11px] text-[rgba(0,0,0,0.5)]">
@@ -207,7 +337,7 @@ const ApplyOutcome: React.FC<{ outcome: ApplyOutcomeWire }> = ({ outcome }) => {
         <ul className="space-y-0.5">
           {(outcome.containers ?? []).map((c) => (
             <li key={c.name} className="text-[11px] text-[rgba(0,0,0,0.5)]" title={c.detail ?? undefined}>
-              {c.name}: {containerStateText(c.state)}
+              {c.name}: {containerStateText(c.state, outcome.reverted)}
               {c.restartExpected === true ? ' · restarts by its own setting' : ''}
             </li>
           ))}
@@ -219,6 +349,18 @@ const ApplyOutcome: React.FC<{ outcome: ApplyOutcomeWire }> = ({ outcome }) => {
             <PodProof key={pod.podName} pod={pod} />
           ))}
         </ul>
+      )}
+      {skipped.length > 0 && (
+        <div className="text-[11px] text-[rgba(0,0,0,0.5)]">
+          <p>Not resized. These pods run at the workload&apos;s own size:</p>
+          <ul className="space-y-0.5">
+            {skipped.map((pod) => (
+              <li key={pod.podName} title={pod.reason ? `Code: ${pod.reason}` : undefined}>
+                {pod.podName}: {skippedPodText(pod)}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
@@ -235,6 +377,8 @@ const GATE_REFUSAL_TEXT: Record<string, string> = {
     "XamOps can't reach this cluster's API server. Access is set up, but the endpoint didn't answer (for example, a private endpoint).",
   GITOPS_MANAGED:
     "Saving the change to the workload itself isn't available. Use in-place resize, which doesn't restart pods.",
+  APPLY_IN_PROGRESS:
+    'Not applied: another change to this workload is still running. Wait for it to finish, then refresh.',
   UNAUTHENTICATED: 'Your session has expired. Sign in again.',
   NO_ACCOUNT_ACCESS: "You don't have access to this AWS account.",
   INTERNAL: 'Something went wrong on our side. Nothing was changed. Try again in a minute.',
@@ -245,12 +389,13 @@ const GATE_REFUSAL_TEXT: Record<string, string> = {
  * message (the engine holds and the cooldown) or in the message text (the body checks). The plain
  * sentence is shown; the server's own message goes in the tooltip.
  */
-const refusalText = (code: CodeView, message: string, hpaName: string | null): string => {
+const refusalText = (code: CodeView, message: string, hpaName: string | null, detail: string | null): string => {
   const raw = code.kind === 'known' ? code.code : code.raw.replace(/^K8S_/, '');
   if (raw === 'INVALID_POLICY') {
     const m = message ?? '';
     const hpa = hpaName ? `the HPA ${hpaName}` : 'an HPA';
     if (m.startsWith('PROTECTED_NAMESPACE:')) return 'XamOps never resizes workloads in this namespace.';
+    if (m.startsWith('POLICY_OFF:')) return 'Not applied: rightsizing is off for this workload.';
     if (m.startsWith('SINGLE_REPLICA:'))
       return 'Not applied: it runs a single replica, so a problem during a resize would take it down.';
     if (m.startsWith('ROLLOUT_IN_PROGRESS:')) return 'Not applied: a rollout is in progress. Try again when it ends.';
@@ -270,7 +415,11 @@ const refusalText = (code: CodeView, message: string, hpaName: string | null): s
     if (/dryRun/.test(m)) return 'Not applied: choose a test run or a real resize.';
     return "Not applied: XamOps couldn't read the change. Refresh and try again.";
   }
-  if (raw === 'NO_USER_PERMISSION') return message || 'View only: you don\'t have permission to change automation.';
+  // Glossary 7.2: a permission refusal is worded by the rule that refused. A server that sends no
+  // detail gets its own message shown instead, which is what the glossary says to do until then.
+  if (raw === 'NO_USER_PERMISSION' && !detail && message) return message;
+  const caller = writeGateText(raw, detail);
+  if (caller) return caller.nextStep ? `${caller.reason} ${caller.nextStep}` : caller.reason;
   return GATE_REFUSAL_TEXT[raw] ?? (message || codeText(code));
 };
 
@@ -309,8 +458,8 @@ const ApplyReply: React.FC<{ reply: ApplyResult; hpaName: string | null }> = ({ 
   }
   if (reply.kind === 'refused') {
     return (
-      <p className="text-[12px] text-[rgba(0,0,0,0.6)]" title={reply.message}>
-        {refusalText(reply.code, reply.message, hpaName)}
+      <p role="alert" className="text-[12px] text-[rgba(0,0,0,0.6)]" title={reply.message}>
+        {refusalText(reply.code, reply.message, hpaName, reply.detail)}
       </p>
     );
   }
@@ -376,9 +525,17 @@ const NO_WORKLOADS: GateCopy = {
   subtitle: 'XamOps found no Deployments or StatefulSets outside the system namespaces.',
 };
 
+/**
+ * The caller's write gates say who may apply, not why the list is empty, so an empty cluster with
+ * only a write gate still reads "No workloads to analyse" (review-2 item 9).
+ */
+const CALLER_WRITE_GATES = new Set(['DEMO', 'NO_USER_PERMISSION', 'READ_ONLY_CONNECTION']);
+
 const gateEmptyState = (gateReasons: CodeView[]): GateCopy => {
   for (const reason of gateReasons) {
-    if (reason.kind === 'known' && GATE_COPY[reason.code]) return GATE_COPY[reason.code];
+    if (reason.kind === 'known' && !CALLER_WRITE_GATES.has(reason.code) && GATE_COPY[reason.code]) {
+      return GATE_COPY[reason.code];
+    }
   }
   const unknown = gateReasons.find((r) => r.kind === 'unknown');
   if (unknown && unknown.kind === 'unknown') {
@@ -392,6 +549,10 @@ const gateEmptyState = (gateReasons: CodeView[]): GateCopy => {
 };
 
 // ─── Container table (glossary 4.3) ──────────────────────────────────────────
+
+/** Review-2 SF2: said beside "now", because "now" is then not what every pod runs. */
+const PODS_DIFFER_TITLE =
+  "This container's pods don't all run the same size right now, for example after a partial change or a replaced pod. \"Now\" shows the workload's own size, which new pods start at.";
 
 const ContainerTable: React.FC<{ workload: WorkloadView }> = ({ workload }) => {
   const { containers } = workload;
@@ -426,6 +587,11 @@ const ContainerTable: React.FC<{ workload: WorkloadView }> = ({ workload }) => {
             <tr key={c.name} className="border-b border-[rgba(0,0,0,0.04)] last:border-0 align-top">
               <td className="px-4 py-3 text-[12px] font-semibold text-[rgba(0,0,0,0.88)] whitespace-nowrap">
                 {c.name}
+                {c.podsDisagree && (
+                  <span className="ml-2">
+                    <Chip text="Pods differ" title={PODS_DIFFER_TITLE} />
+                  </span>
+                )}
               </td>
               <td className="px-4 py-3 whitespace-nowrap">
                 <ResourceCell current={c.current.cpuRequestM} recommended={c.recommended?.cpuRequestM ?? null} format={formatMillis} />
@@ -595,6 +761,29 @@ const PATH_TEXT: Record<string, string> = {
   NONE: 'No way to send changes',
 };
 
+/**
+ * Glossary 4.1 "Changes", told the caller's write gates (review-2 SF6): "Can be applied" only when
+ * the environment allows applying, the server checked this caller, and no write gate applies.
+ */
+const changesStatus = (
+  view: { engine: EngineView; gateReasons: CodeView[]; gateDetails: Record<string, string>; writeGatesChecked: boolean },
+  callerRefusal: { code: string; detail: string | null } | null,
+): { value: string; title: string } => {
+  if (!view.engine.ready) {
+    return { value: 'Suggestions only', title: 'Applying is turned off in this XamOps environment.' };
+  }
+  const gate =
+    (callerRefusal && writeGateText(callerRefusal.code, callerRefusal.detail)) ??
+    view.gateReasons
+      .filter((g): g is Extract<CodeView, { kind: 'known' }> => g.kind === 'known' && CALLER_WRITE_GATES.has(g.code))
+      .map((g) => writeGateText(g.code, view.gateDetails[g.code]))
+      .find((text) => text !== null) ??
+    null;
+  if (gate) return { value: 'View only', title: gate.nextStep ? `${gate.reason} ${gate.nextStep}` : gate.reason };
+  if (!view.writeGatesChecked) return { value: 'Not checked', title: WRITE_GATES_NOT_CHECKED };
+  return { value: 'Can be applied', title: `Code: ready ${view.engine.ready}` };
+};
+
 const clusterAccessText = (engine: EngineView): string =>
   engine.clusterAccess === null ? 'Not checked' : (CLUSTER_ACCESS_TEXT[engine.clusterAccess] ?? `Other: ${engine.clusterAccess}`);
 
@@ -650,14 +839,19 @@ const HowCalculated: React.FC<{ workload: WorkloadView }> = ({ workload }) => {
             </li>
           ))}
         <li>The first 2 minutes after a container starts are ignored.</li>
+        {/* Review-2 item 11: name a source only when the payload names it. */}
         <li>
-          {p?.usageSource === 'prometheus-proxy' || p?.usageSource == null
+          {p?.usageSource === 'prometheus-proxy'
             ? 'Usage from Prometheus in your cluster, read through the Kubernetes API.'
-            : `Usage from ${p.usageSource}.`}
+            : p?.usageSource
+              ? `Usage from ${p.usageSource}.`
+              : `Usage source: ${DASH}`}
         </li>
         <li>
+          {/* There is no way to edit a workload's settings yet, so a stored row is one an apply
+              recorded: the settings in force then, not a choice someone saved. */}
           {p?.policySource === 'WORKLOAD_ROW'
-            ? 'Saved for this workload'
+            ? 'Settings recorded for this workload when a change was applied: the defaults in force then'
             : p?.policySource === 'DEFAULTS'
               ? 'XamOps defaults (not saved for this workload)'
               : `Settings: ${formatText(p?.policySource)}`}
@@ -760,6 +954,9 @@ const WorkloadCard: React.FC<{
           {blockedReason && (
             <span className="text-[11px] text-[rgba(0,0,0,0.5)] text-right max-w-[220px]">{blockedReason}</span>
           )}
+          {blockedReason && gate.nextStep && (
+            <span className="text-[11px] text-[rgba(0,0,0,0.5)] text-right max-w-[220px]">{gate.nextStep}</span>
+          )}
         </div>
       </div>
 
@@ -794,7 +991,7 @@ const WorkloadCard: React.FC<{
 
 const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accountId, region }) => {
   const [dryRun, setDryRun] = useState(true);
-  const { loading, result, reload, applyingId, applyResults, apply } = useVerticalRightsizer({
+  const { loading, result, reload, applyingIds, applyResults, callerRefusal, apply } = useVerticalRightsizer({
     clusterName,
     accountId,
     region,
@@ -859,11 +1056,12 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
 
   const { engine, gateReasons, workloads, anomalies } = result.view;
   const empty = gateEmptyState(gateReasons);
+  const changes = changesStatus(result.view, callerRefusal);
 
   return (
     <div className="space-y-4">
       <section className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] px-6 py-4">
-        <h3 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">Workload autoscaler</h3>
+        <h3 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">Workload rightsizing</h3>
         <p className="mt-1 text-[12px] text-[rgba(0,0,0,0.6)] max-w-[820px]">
           Sets each container&apos;s CPU and memory requests to what it actually uses, plus headroom, and can resize
           running pods without restarting them. XamOps only suggests: nothing changes in the cluster until you press
@@ -877,11 +1075,7 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
               value={engine.enabled ? 'On' : 'Off in this environment'}
               title={`Code: enabled ${engine.enabled}`}
             />
-            <StatusItem
-              label="Changes"
-              value={engine.ready ? 'Can be applied' : 'Suggestions only'}
-              title={engine.ready ? `Code: ready ${engine.ready}` : 'Applying is turned off in this XamOps environment.'}
-            />
+            <StatusItem label="Changes" value={changes.value} title={changes.title} />
             <StatusItem
               label="Cluster access"
               value={clusterAccessText(engine)}
@@ -960,9 +1154,9 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
           <WorkloadCard
             key={w.id}
             workload={w}
-            gate={manualApplyGate(result.view, w)}
+            gate={manualApplyGate(result.view, w, callerRefusal)}
             dryRun={dryRun}
-            applying={applyingId === w.id}
+            applying={applyingIds.has(w.id)}
             reply={applyResults[w.id]}
             onApply={() => {
               void apply(w, dryRun);

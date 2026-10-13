@@ -7,14 +7,14 @@ vi.mock('../../api/k8sAutomationApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/k8sAutomationApi')>();
   return { ...actual, getCapabilities };
 });
-vi.mock('../../api/verticalRightsizerApi', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../api/verticalRightsizerApi')>();
+vi.mock('../../api/verticalRecommendationsApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../api/verticalRecommendationsApi')>();
   return { ...actual, getVerticalStatus };
 });
 
 import { K8sApiError } from '../../api/k8sAutomationApi';
 import { K8sCapabilitiesProvider } from '../useK8sCapabilities';
-import { clearVerticalCacheForTests, useVerticalRightsizer } from '../useVerticalRightsizer';
+import { clearVerticalCacheForTests, useVerticalRecommendations } from '../useVerticalRecommendations';
 import { demoCapabilities, demoVerticalStatus } from '../../demo/k8sAutomationMockData';
 import type { CapabilitiesDto } from '../../types/k8sAutomation';
 
@@ -31,7 +31,7 @@ function renderRead(cluster = PROD) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <K8sCapabilitiesProvider accountId={ACCOUNT} demo>{children}</K8sCapabilitiesProvider>
   );
-  return renderHook(() => useVerticalRightsizer(cluster, ACCOUNT, 'us-east-1'), { wrapper });
+  return renderHook(() => useVerticalRecommendations(cluster, ACCOUNT, 'us-east-1'), { wrapper });
 }
 
 beforeEach(() => {
@@ -41,7 +41,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-describe('useVerticalRightsizer, reads (§11.2, NIT 3)', () => {
+describe('useVerticalRecommendations, reads (§11.2, NIT 3)', () => {
   it('makes no request while capabilities load', () => {
     getCapabilities.mockReturnValue(new Promise(() => {}));
     const { result } = renderRead();

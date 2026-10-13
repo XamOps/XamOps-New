@@ -17,14 +17,14 @@
 import { useMemo, type ReactNode } from 'react';
 import { Icon } from '@iconify/react';
 import { Link, useLocation } from 'react-router-dom';
-import { isUnknown } from '../../../../api/verticalRightsizerAdapter';
+import { isUnknown } from '../../../../api/verticalRecommendationsAdapter';
 import { useK8sCapabilities, type K8sCapabilitiesValue } from '../../../../hooks/useK8sCapabilities';
 import { EKS_SECTIONS, LEGACY_TAB_MAP } from '../../../../hooks/useEksSectionRoute';
 import { extractAlerts, SEV_ORDER, type EksAlertItem, type EksAlertSeverity } from '../../../../hooks/useEksAlertsData';
-import { useVerticalRightsizer, type VerticalRead } from '../../../../hooks/useVerticalRightsizer';
+import { useVerticalRecommendations, type VerticalRead } from '../../../../hooks/useVerticalRecommendations';
 import type { CapabilitiesCluster } from '../../../../types/k8sAutomation';
 import type { EksDashboard, EksSectionId, EksSubtabId } from '../../../../types/eksTypes';
-import type { Known, VerticalEngineView, VerticalWorkload } from '../../../../types/verticalRightsizer';
+import type { Known, VerticalEngineView, VerticalWorkload } from '../../../../types/verticalRecommendations';
 import {
   capacityTypeCounts, clusterCapacity, clusterCostSource, clusterNodes, freedCapacity, healthSignals, hpaStates, instanceTypeCounts,
   largestNodeAllocatable, monitoringState, nodeGroups, nodeProvisioners, notRunningWorkloads, podCounts, podPlacement,
@@ -426,7 +426,7 @@ function unusedLine(cpu: ResourceCapacity, memory: ResourceCapacity): string {
 export default function SummaryPanel({ clusterName, accountId, region, eksData, route, onOpenGuide }: EksSectionProps) {
   const location = useLocation();
   const caps = useK8sCapabilities();
-  const vertical = useVerticalRightsizer(clusterName, accountId, region);
+  const vertical = useVerticalRecommendations(clusterName, accountId, region);
   const dashboard = eksData.dashboard;
   const capsCluster = caps.forCluster(clusterName);
   const monitoring = monitoringState({ capabilitiesStatus: caps.status, cluster: capsCluster, dashboard });

@@ -2,8 +2,8 @@
  * The vertical engine's enums as text (docs/cloudk8s/ui-revamp-design.md §9.2). Unknown values,
  * which the contract allows (§5.2: the lists can grow), render as their own code.
  */
-import { isUnknown } from '../../../../api/verticalRightsizerAdapter';
-import type { Known, VerticalWorkload } from '../../../../types/verticalRightsizer';
+import { isUnknown } from '../../../../api/verticalRecommendationsAdapter';
+import type { Known, VerticalWorkload } from '../../../../types/verticalRecommendations';
 
 const text = <T extends string>(labels: Record<T, string>, value: Known<T>): string =>
   isUnknown(value) ? value.raw : labels[value] ?? value;

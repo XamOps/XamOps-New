@@ -10,7 +10,7 @@ vi.mock('../../../../../api/k8sAutomationApi', async (importOriginal) => {
 });
 
 import { K8sCapabilitiesProvider } from '../../../../../hooks/useK8sCapabilities';
-import { CONTRACT_BLOCK_MESSAGE } from '../../../../../api/verticalRightsizerAdapter';
+import { CONTRACT_BLOCK_MESSAGE } from '../../../../../api/verticalRecommendationsAdapter';
 import { DEMO_READINESS_MESSAGES, demoCapabilities } from '../../../../../demo/k8sAutomationMockData';
 import type { CapabilitiesDto } from '../../../../../types/k8sAutomation';
 import { OVERLAY_TEXT } from '../../../../CloudK8s/shared/AccessBanner';

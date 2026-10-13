@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toVerticalEngineView } from '../../api/verticalRightsizerAdapter';
+import { toVerticalEngineView } from '../../api/verticalRecommendationsAdapter';
 import { demoVerticalStatus } from '../../demo/k8sAutomationMockData';
 import { demoEksDashboard } from '../../demo/xamopsMockData';
 import type { EksDashboard } from '../../types/eksTypes';

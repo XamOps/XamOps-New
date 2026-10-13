@@ -10,7 +10,7 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { getCapabilities, isK8sApiError, type K8sApiError } from '../api/k8sAutomationApi';
-import { verticalGates, type VerticalGateInput } from '../api/verticalRightsizerAdapter';
+import { verticalGates, type VerticalGateInput } from '../api/verticalRecommendationsAdapter';
 import { isDemoMode } from '../demo/demoConfig';
 import {
   isNoUserPermissionDetail,

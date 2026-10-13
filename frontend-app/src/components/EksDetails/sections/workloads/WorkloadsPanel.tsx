@@ -11,8 +11,8 @@
  */
 import { useMemo } from 'react';
 import { Icon } from '@iconify/react';
-import { useVerticalRightsizer, type VerticalRead } from '../../../../hooks/useVerticalRightsizer';
-import type { VerticalWorkload } from '../../../../types/verticalRightsizer';
+import { useVerticalRecommendations, type VerticalRead } from '../../../../hooks/useVerticalRecommendations';
+import type { VerticalWorkload } from '../../../../types/verticalRecommendations';
 import {
   USAGE_TOP_PODS_ONLY, workloadKey, workloadRows, type WorkloadKind, type WorkloadRow,
 } from '../../../../utils/k8sDerivations';
@@ -109,7 +109,7 @@ const isReady = (row: WorkloadRow): boolean | null =>
 export default function WorkloadsPanel({ clusterName, accountId, region, eksData }: EksSectionProps) {
   const dashboard = eksData.dashboard;
   const caps = useK8sCapabilities();
-  const read = useVerticalRightsizer(clusterName, accountId, region);
+  const read = useVerticalRecommendations(clusterName, accountId, region);
   const rows = useMemo(() => workloadRows(dashboard), [dashboard]);
   const engine = useMemo(() => new Map((read.view?.workloads ?? []).map((w) => [workloadKey(w.ref.namespace, w.ref.kind, w.ref.name), w])), [read.view]);
 

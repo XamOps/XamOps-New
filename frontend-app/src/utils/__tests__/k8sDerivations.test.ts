@@ -25,10 +25,10 @@ import {
   workloadSavings,
   type ClusterPod,
 } from '../k8sDerivations';
-import { toVerticalEngineView } from '../../api/verticalRightsizerAdapter';
+import { toVerticalEngineView } from '../../api/verticalRecommendationsAdapter';
 import type { CapabilitiesCluster } from '../../types/k8sAutomation';
 import type { EksDashboard } from '../../types/eksTypes';
-import type { VerticalWorkloadWire } from '../../types/verticalRightsizer';
+import type { VerticalWorkloadWire } from '../../types/verticalRecommendations';
 
 const dash = (d: Record<string, unknown>) => d as unknown as EksDashboard;
 

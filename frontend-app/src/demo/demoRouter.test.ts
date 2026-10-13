@@ -5,7 +5,7 @@ import { demoCapabilities } from './k8sAutomationMockData';
 import { demoAccounts, demoK8sClusters } from './xamopsMockData';
 import { READINESS_KEYS } from '../types/k8sAutomation';
 import { isEmptyDashboard, nodeGroups, podCounts } from '../utils/k8sDerivations';
-import { toVerticalEngineView } from '../api/verticalRightsizerAdapter';
+import { toVerticalEngineView } from '../api/verticalRecommendationsAdapter';
 
 /**
  * The generic `/api/xamops/*` fallback answers `{}`, which is wrong for any
