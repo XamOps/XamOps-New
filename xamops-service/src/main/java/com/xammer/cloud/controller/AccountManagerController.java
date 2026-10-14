@@ -713,6 +713,18 @@ public class AccountManagerController {
             return ResponseEntity.badRequest().body(Map.of("message", "grafanaIp is required in the request body."));
         }
 
+        String grafanaDashboardUid = payload.get("grafanaDashboardUid");
+        if (grafanaDashboardUid == null || grafanaDashboardUid.trim().isEmpty()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("message", "grafanaDashboardUid is required in the request body."));
+        }
+
+        String grafanaDashboardSlug = payload.get("grafanaDashboardSlug");
+        if (grafanaDashboardSlug == null || grafanaDashboardSlug.trim().isEmpty()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("message", "grafanaDashboardSlug is required in the request body."));
+        }
+
         CloudAccount account = cloudAccountRepository
                 .findByAwsAccountIdOrGcpProjectIdOrAzureSubscriptionId(accountId, accountId, accountId)
                 .orElse(null);
@@ -722,7 +734,9 @@ public class AccountManagerController {
                     .body(Map.of("message", "Account not found with ID: " + accountId));
         }
 
-        account.setGrafanaIp(grafanaIp);
+        account.setGrafanaIp(grafanaIp.trim());
+        account.setGrafanaDashboardUid(grafanaDashboardUid.trim());
+        account.setGrafanaDashboardSlug(grafanaDashboardSlug.trim());
         cloudAccountRepository.save(account);
 
         return ResponseEntity.ok()
