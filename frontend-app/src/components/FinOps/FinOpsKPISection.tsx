@@ -287,7 +287,15 @@ const FinOpsKPISection: React.FC<FinOpsKPISectionProps> = ({ kpis, curAccountId 
         // Hidden at zero. That covers both "no reservations" and "perfectly utilised",
         // and the two are indistinguishable from the total alone — but a card reading
         // $0.00 forever on the many accounts with no commitments is pure clutter.
-        if (!cancelled) setUnusedCommitment(data && data.total > 0 ? data : null);
+        //
+        // `available !== false` rather than `=== true`: false means the report does not carry the
+        // columns this is measured from, so the figures are zero and mean nothing — "cannot say"
+        // outranks a non-zero total. An *absent* field means the source has no such concept, and
+        // must keep rendering: the insight cache holds payloads for three days in Redis and
+        // indefinitely in Postgres, so entries written before the flag existed legitimately lack it.
+        if (!cancelled) {
+          setUnusedCommitment(data && data.available !== false && data.total > 0 ? data : null);
+        }
       })
       .catch(() => {
         if (!cancelled) setUnusedCommitment(null);

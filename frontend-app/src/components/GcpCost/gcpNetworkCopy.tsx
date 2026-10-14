@@ -13,7 +13,7 @@ import type { DataTransferCopy } from '../Cost/DataTransferSection';
 export const GCP_NETWORK_COPY: DataTransferCopy = {
   subheading:
     'Network charges pulled out of every service they are billed under, read from the SKU on each ' +
-    'billing row. Expand a row for the route and the cost on one line.',
+    'billing row. Open a category to see the routes and costs behind it.',
 
   footnote:
     'Inbound data transfer is free on GCP — the charge sits on whatever processes it, which is why ' +

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { resolveDemoResponse } from './demoRouter';
 import { DEMO_MODE_KEY, DEMO_ROLE_KEY } from './demoConfig';
 import { demoCapabilities } from './k8sAutomationMockData';
-import { demoAccounts, demoK8sClusters } from './xamopsMockData';
+import { demoAccounts, demoChargeTypes, demoK8sClusters } from './xamopsMockData';
 import { READINESS_KEYS } from '../types/k8sAutomation';
 import { isEmptyDashboard, nodeGroups, podCounts } from '../utils/k8sDerivations';
 import { toVerticalEngineView } from '../api/verticalRecommendationsAdapter';
@@ -490,5 +490,67 @@ describe('demo router — vertical engine, endpoint 1 (ROLE_XAMOPS)', () => {
     const response = resolveDemoResponse(statusUrl('staging-eks-cluster'));
     expect(response?.status).toBe(404);
     expect((await response!.json()).code).toBe('K8S_CLUSTER_NOT_REGISTERED');
+  });
+});
+
+/**
+ * The Cost page's CUR sections have no Cost Explorer fallback, so an unmocked path 409s and the
+ * section hides itself. That is the right behaviour for anything genuinely unavailable and the
+ * wrong one for a section the demo is meant to show — these routes are what make the difference.
+ */
+describe('demo router — CUR insights (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+
+  it('answers the charge-type ledger with rows that sum to the invoice total', async () => {
+    const body = await readDemoBody('/api/xamops/cur-insights/charge-types/demo-aws-001');
+    expect(body).toEqual(demoChargeTypes);
+    // So the ledger shows "matches the total above" rather than the sub-cent explanation.
+    const total = body.reduce((sum: number, row: { cost: number }) => sum + row.cost, 0);
+    expect(Math.round(total * 100)).toBe(Math.round(18420.75 * 100));
+  });
+
+  it('answers one service with only that service\'s resources', async () => {
+    const body = await readDemoBody(
+      '/api/xamops/cur-insights/service-resources/demo-aws-001'
+        + '?service=Amazon%20Simple%20Storage%20Service&period=2026-08',
+    );
+
+    expect(body.resources.length).toBeGreaterThan(0);
+    for (const row of body.resources) {
+      expect(row.service).toBe('Amazon Simple Storage Service');
+    }
+    // The S3 figure in demoChargesByService, reached by derivation rather than by hand.
+    expect(Math.round(body.totalCost * 100)).toBe(Math.round(1920.25 * 100));
+    expect(body.groupCount).toBe(body.resources.length);
+  });
+
+  it('reports the amortized basis unavailable, with a reason', async () => {
+    // On purpose: the router ignores the query string, so ?basis=amortized would be served the
+    // unblended fixture — identical figures under a different label, which is the dishonesty the
+    // real guard exists to prevent. Reporting it unavailable also puts the
+    // disabled-with-an-explanation state in front of anyone looking at the demo.
+    const body = await readDemoBody('/api/xamops/cur-insights/capabilities/demo-aws-001');
+
+    expect(body.amortizedAvailable).toBe(false);
+    expect(body.amortizedDetail).not.toBe('');
+    // The unit column is fine, so its sentence stays empty and nothing renders for it.
+    expect(body.unitAvailable).toBe(true);
+    expect(body.unitDetail).toBe('');
+  });
+
+  it('introduces no cur-insights catch-all, so an unmocked CUR path answers nothing usable', async () => {
+    /*
+     * The three new branches are specific paths. A `cur-insights` catch-all would answer every
+     * future endpoint under the prefix with one of these fixtures — so a section the demo has no
+     * data for would render another section's figures instead of hiding itself.
+     *
+     * An unmocked one lands on the generic `/api/xamops/` fallback, whose empty object fails the
+     * shape check in every CUR fetcher and therefore reads as "no data" rather than as a payload.
+     */
+    const body = await readDemoBody('/api/xamops/cur-insights/savings-rate/demo-aws-001');
+    expect(body).toEqual({});
   });
 });

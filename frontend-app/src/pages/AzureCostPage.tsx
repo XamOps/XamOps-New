@@ -41,6 +41,7 @@ import {
 import { AZURE_NETWORK_COPY } from '../components/AzureCost/azureNetworkCopy';
 import {
   AZURE_CHARGES_COPY,
+  AZURE_CHARGE_TYPES_COPY,
   AZURE_RESOURCES_COPY,
 } from '../components/AzureCost/azureChargesCopy';
 import CostBudgetDashboard from '../components/Cost/CostBudgetDashboard';
@@ -50,6 +51,7 @@ import Toast from '../components/FinOps/Toast';
 import CostDetailTabs from '../components/Cost/CostDetailTabs';
 import DataTransferSection from '../components/Cost/DataTransferSection';
 import {
+  fetchAzureChargeTypes,
   fetchAzureChargesByService,
   fetchAzureNetworkCosts,
   fetchAzurePriceVsVolume,
@@ -242,12 +244,13 @@ const AzureCostPage: React.FC = () => {
               )}
             </RevealSection>
 
-            {/* What was billed, two ways, behind one switch in the card's own heading: the invoice at
-                meter grain, and the same spend per resource. The breakdown section below stops at
-                "Storage — ₹8,410"; this says which meter and which storage account that was.
-                "Charges by resource" needs a scope Cost Management will group by ResourceId and
-                reports as unavailable otherwise, which is why the two live behind a switch rather
-                than stacked as two sections. */}
+            {/* What was billed, at meter grain, in the invoice's own shape — and per resource, in a
+                panel that opens from the service row itself. The breakdown section below stops at
+                "Storage — ₹8,410"; this says which meter that was, and then which storage account.
+
+                Per-resource cost needs a scope Cost Management will group by ResourceId and reports
+                as unavailable otherwise, which the panel says in Azure's own terms rather than
+                AWS's. */}
             <RevealSection>
               <CostDetailTabs
                 accountId={selectedAccountId}
@@ -261,6 +264,18 @@ const AzureCostPage: React.FC = () => {
                 resourcesCopy={AZURE_RESOURCES_COPY}
                 changeFetcher={fetchAzurePriceVsVolume}
                 detailFetcher={fetchAzureResourceChange}
+                // Cost Management already returns AmortizedCost by its own choice, so a toggle here
+                // would be a control over a decision made upstream. Explicit null rather than
+                // omission, which would take the AWS default and render the control anyway.
+                capabilitiesFetcher={null}
+                // The ledger works: Cost Management groups by ChargeType, and nothing on this page
+                // has ever shown that split.
+                chargeTypesFetcher={fetchAzureChargeTypes}
+                chargeTypesCopy={AZURE_CHARGE_TYPES_COPY}
+                // Keep the account-wide fetcher and the panel's client-side filter: there is no
+                // scoped per-service Azure endpoint, and omitting this would send a subscription id
+                // to /cur-insights/service-resources, which 404s and would empty every panel.
+                scopedResourcesFetcher={null}
                 // Labels resolve through ResourceIdResolver, which arbitrates against the AWS
                 // inventory table — an ARM resource id would match nothing there and the control
                 // would appear to work while writing rows no page can read back. Same reason GCP

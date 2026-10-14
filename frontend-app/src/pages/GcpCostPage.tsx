@@ -38,6 +38,7 @@ import DataTransferSection from '../components/Cost/DataTransferSection';
 import CostDetailTabs from '../components/Cost/CostDetailTabs';
 import HistoricalTrendChart from '../components/Cost/HistoricalTrendChart';
 import {
+  fetchGcpChargeTypes,
   fetchGcpChargesByService,
   fetchGcpNetworkCosts,
   fetchGcpPriceVsVolume,
@@ -45,7 +46,11 @@ import {
   fetchGcpTopResources,
 } from '../api/gcpCostInsightsApi';
 import { GCP_NETWORK_COPY } from '../components/GcpCost/gcpNetworkCopy';
-import { GCP_CHARGES_COPY, GCP_RESOURCES_COPY } from '../components/GcpCost/gcpChargesCopy';
+import {
+  GCP_CHARGES_COPY,
+  GCP_CHARGE_TYPES_COPY,
+  GCP_RESOURCES_COPY,
+} from '../components/GcpCost/gcpChargesCopy';
 import { invalidateCurInsights } from '../hooks/useCurInsight';
 
 
@@ -317,11 +322,13 @@ const GcpCostPage: React.FC = () => {
               )}
             </RevealSection>
 
-            {/* What was billed, two ways, behind one switch in the card's own heading: the invoice
-                at SKU grain, and the same spend per resource. The breakdown section below stops at
-                one line — "Compute Engine", one total; this says which SKU and which instance that was.
-                "Charges by resource" needs GCP's detailed export and reports as unavailable on the
-                standard one, which is why the two live behind a switch rather than stacked. */}
+            {/* What was billed, at SKU grain, in the invoice's own shape — and per resource, in a
+                panel that opens from the service row itself. The breakdown section below stops at
+                one line: "Compute Engine", one total. This says which SKU that was, and then which
+                instance.
+
+                Per-resource cost needs GCP's detailed export and reports as unavailable on the
+                standard one, which the panel says in GCP's own terms rather than AWS's. */}
             <RevealSection>
               <CostDetailTabs
                 accountId={selectedAccountId}
@@ -335,6 +342,19 @@ const GcpCostPage: React.FC = () => {
                 resourcesCopy={GCP_RESOURCES_COPY}
                 changeFetcher={fetchGcpPriceVsVolume}
                 detailFetcher={fetchGcpResourceChange}
+                // No unblended/amortized distinction in the BigQuery export, so there is nothing
+                // to toggle. Explicit null rather than omission: omitting takes the AWS default,
+                // which would render an AWS basis control over figures that have no such basis.
+                capabilitiesFetcher={null}
+                // The ledger, though — the export has a cost type on every line and a credit type
+                // on every credit, and nothing on this page has ever shown that split.
+                chargeTypesFetcher={fetchGcpChargeTypes}
+                chargeTypesCopy={GCP_CHARGE_TYPES_COPY}
+                // Keep the account-wide fetcher and the panel's client-side filter: BigQuery's
+                // export has no scoped per-service equivalent on the backend, and omitting this
+                // would send a GCP project id to /cur-insights/service-resources, which 404s and
+                // would empty every service panel.
+                scopedResourcesFetcher={null}
                 // Labels resolve through ResourceIdResolver, which arbitrates against the AWS
                 // inventory table — a GCP resource id would match nothing there and the control
                 // would appear to work while writing rows no page can read back.

@@ -2798,10 +2798,10 @@ export function buildDemoFlexComputeCapacityResponse(
 }
 
 // ─── CUR Insights — Cost page sections that read the Cost and Usage Report ────
-// These three sections (Charges by service, Charges by resource, Data transfer & network
-// costs) call /api/xamops/cur-insights/* and have no Cost Explorer fallback, so in a
-// real account without a CUR they hide themselves. The demo has no CUR either, so
-// these fixtures stand in for one.
+// These sections (Charges by service, the per-service resource panel that opens from it,
+// and Data transfer & network costs) call /api/xamops/cur-insights/* and have no Cost
+// Explorer fallback, so in a real account without a CUR they hide themselves. The demo has
+// no CUR either, so these fixtures stand in for one.
 //
 // Reconciled to demoCostBreakdown (which sums to 18,420.75 = demoGranularKPI.mtdSpend):
 //   EC2 7,840 · RDS 3,680.50 · S3 1,920.25 · Lambda 1,240 · CloudFront 840 ·
@@ -2888,9 +2888,83 @@ export const demoTopResources = {
     { resourceId: '', name: '', service: 'AmazonCloudWatch', region: 'ap-south-1', instanceType: '', cost: 380.00 },
     { resourceId: '', name: '', service: 'Amazon Route 53', region: 'Global', instanceType: '', cost: 180.00 },
     { resourceId: '', name: '', service: 'AWS Support (Business)', region: 'Global', instanceType: '', cost: 0 },
+    // VPC and Data Transfer appeared in demoChargesByService with no resource rows at all, so the
+    // rows summed to 17,280.75 against the 18,420.75 declared below — and the per-service panel,
+    // which derives from these rows, would have told a viewer the report cannot break down a
+    // service showing $670 in the row they just clicked.
+    //
+    // One NAT row, not two: both NAT usage types in demoChargesByService carry the same gateway id
+    // in a real report, and the panel groups by resource — so this also demonstrates that grouping.
+    { resourceId: 'nat-0aa11bb22cc33dd44', name: 'prod-nat-a', service: 'Amazon Virtual Private Cloud', region: 'ap-south-1', instanceType: '', cost: 670.00 },
+    // Resource-less on purpose: regional and inter-region transfer bills to the account, not to a
+    // resource. Exercises the "Charges with no resource" block on the scoped path, in two regions,
+    // and matches demoChargesByService per region to the cent (245 + 205 = 450; 20).
+    { resourceId: '', name: '', service: 'AWS Data Transfer', region: 'ap-south-1', instanceType: '', cost: 450.00 },
+    { resourceId: '', name: '', service: 'AWS Data Transfer', region: 'us-east-1', instanceType: '', cost: 20.00 },
+    // Zero-total, so test coverage of "every service in the invoice resolves to a panel" holds
+    // without a special case for the two services whose totals are 0.
+    { resourceId: '', name: '', service: 'Refund', region: 'Global', instanceType: '', cost: 0 },
   ],
   totalCost: 18420.75,
+  // Above resources.length so the account-wide "showing the N costliest of M" footnote appears.
+  // Only reachable in demo through the GCP and Azure pages now: the AWS card takes the scoped
+  // per-service path, whose truncation note is driven by demoServiceResources instead.
   groupCount: 214,
+};
+
+// ─── /api/xamops/cur-insights/charge-types/{accountId} ────────────────────────
+// ChargeTypeAmount[]: { chargeType, cost }
+//
+// Sums to exactly 18,420.75, so the reconciliation ledger under the invoice tree shows its
+// "matches the total above" branch rather than the sub-cent-groups explanation. Two negative rows
+// so the credits-and-adjustments group is populated and the sign grouping is exercised;
+// DiscountedUsage and SavingsPlanCoveredUsage so the two labels most readers have never seen
+// spelled out are the ones on screen.
+export const demoChargeTypes = [
+  { chargeType: 'Usage', cost: 15980.75 },
+  { chargeType: 'DiscountedUsage', cost: 1240.00 },
+  { chargeType: 'SavingsPlanCoveredUsage', cost: 980.00 },
+  { chargeType: 'Tax', cost: 620.00 },
+  { chargeType: 'Credit', cost: -250.00 },
+  { chargeType: 'Refund', cost: -150.00 },
+];
+
+// ─── /api/xamops/cur-insights/capabilities/{accountId} ────────────────────────
+// ReportCapabilities: { amortizedAvailable, amortizedMissingColumns, unitAvailable,
+//                       amortizedDetail, unitDetail }
+//
+// The amortized basis is reported unavailable on purpose. demoRouter matches on a URL substring
+// and ignores the query string, so ?basis=amortized would be served the unblended fixture —
+// identical figures under a different label, which is precisely the dishonesty the real guard
+// exists to prevent. Reporting it unavailable with a reason also puts the
+// disabled-with-an-explanation state in front of anyone looking at the demo, which is the more
+// interesting of the two states to show.
+//
+// The rejected alternative was a second amortized charges fixture; to be honest it would have to
+// total something other than 18,420.75, which would make the card disagree with the Cost Breakdown
+// widget directly beneath it and turn correct behaviour into a demo that looks broken.
+export const demoReportCapabilities = {
+  amortizedAvailable: false,
+  amortizedMissingColumns: ['reservation_effective_cost'],
+  unitAvailable: true,
+  amortizedDetail: 'Demo data is unblended only, so the amortized basis is not available here.',
+  unitDetail: '',
+};
+
+/**
+ * One service's resources — /api/xamops/cur-insights/service-resources/{accountId}?service=…
+ *
+ * A function rather than a constant, because the endpoint is scoped. Derived from
+ * `demoTopResources` rather than hand-written so it cannot drift from it: S3's panel totals
+ * 1,920.25, the S3 figure in `demoChargesByService`, automatically.
+ */
+export const demoServiceResources = (service: string) => {
+  const resources = demoTopResources.resources.filter((r) => r.service === service);
+  return {
+    resources,
+    totalCost: resources.reduce((sum, r) => sum + r.cost, 0),
+    groupCount: resources.length,
+  };
 };
 
 // ─── /api/xamops/cur-insights/data-transfer/{accountId} ───────────────────────

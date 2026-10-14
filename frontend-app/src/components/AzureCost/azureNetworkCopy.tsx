@@ -15,7 +15,7 @@ import type { DataTransferCopy } from '../Cost/DataTransferSection';
 export const AZURE_NETWORK_COPY: DataTransferCopy = {
   subheading:
     'Network charges pulled out of every service they are billed under, read from the meter on each ' +
-    'billed line. Expand a row for the route and the cost on one line.',
+    'billed line. Open a category to see the routes and costs behind it.',
 
   footnote:
     'Every route here is inferred from the meter name and the billed region: Azure Cost Management ' +

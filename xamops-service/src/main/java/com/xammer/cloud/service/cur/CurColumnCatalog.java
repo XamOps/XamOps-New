@@ -66,6 +66,22 @@ class CurColumnCatalog {
     }
 
     /**
+     * False when the column list could not be read, so every "absent" answer above means
+     * "unknown" rather than "no".
+     *
+     * <p>Needed because {@link #columns} caches the empty set for {@link #FAILURE_TTL} on a failed
+     * probe, which makes "the column is absent" and "the catalog could not be read" byte-identical
+     * to every caller. The two have different remedies — the first means the export has to be
+     * recreated, the second means asking again in ten minutes — and telling someone to rebuild
+     * their export when the real answer is "try again shortly" costs them an afternoon.
+     *
+     * <p>A real report always has columns, so an empty set is only ever a failed probe.
+     */
+    boolean readable(CurSource source, CloudAccount account) {
+        return !columns(source, account).isEmpty();
+    }
+
+    /**
      * The subset of {@code candidates} the report carries, in the order given.
      *
      * <p>Order is the caller's preference order, so a COALESCE built from the result reads

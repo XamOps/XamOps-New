@@ -142,8 +142,19 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // paths only; there is no cur-insights catch-all so any unmocked one still 409s.
   if (url.includes('/api/xamops/cur-insights/charges-by-service'))
     return makeResponse(xamops.demoChargesByService);
+  // Before top-resources is not required — matching is url.includes and '/service-resources' does
+  // not contain '/top-resources' — but it keeps the two scoped reads together.
+  if (url.includes('/api/xamops/cur-insights/service-resources'))
+    // The only CUR branch that reads the query string, because the service *is* the request. Uses
+    // the router's own `param` helper rather than `new URL(...)`, which would make a router that is
+    // otherwise a pure function of its argument depend on `location`.
+    return makeResponse(xamops.demoServiceResources(param(url, 'service')));
   if (url.includes('/api/xamops/cur-insights/top-resources'))
     return makeResponse(xamops.demoTopResources);
+  if (url.includes('/api/xamops/cur-insights/charge-types'))
+    return makeResponse(xamops.demoChargeTypes);
+  if (url.includes('/api/xamops/cur-insights/capabilities'))
+    return makeResponse(xamops.demoReportCapabilities);
   if (url.includes('/api/xamops/cur-insights/data-transfer'))
     return makeResponse(xamops.demoDataTransferCosts);
 

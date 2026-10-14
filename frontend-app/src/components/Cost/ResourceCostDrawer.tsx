@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
-import type { ResourceChange, ResourceLineChange } from '../../api/curInsightsApi';
+import type { CostBasis, ResourceChange, ResourceLineChange } from '../../api/curInsightsApi';
 import { fetchResourceChange } from '../../api/curInsightsApi';
 import { useCurInsight } from '../../hooks/useCurInsight';
+import { lockPageScroll } from '../../utils/scrollLock';
 import { useMoneyIn } from './costCurrency';
 
 /**
@@ -73,6 +74,16 @@ interface ResourceCostDrawerProps {
    * clicked — two answers for "this resource" on adjacent surfaces, with nothing explaining the gap.
    */
   scope?: { service?: string; region?: string };
+  /**
+   * The basis the row that opened this panel was priced on. Omit for unblended.
+   *
+   * <p>This panel's own figures are always unblended, whatever the card above it is on, and that is
+   * deliberate rather than unfinished — see {@code BasisNote} for why. The prop exists so the
+   * difference is stated instead of being left as a discrepancy the reader finds by subtracting.
+   */
+  basis?: CostBasis;
+  /** That row's figure on that basis, so the difference can be named rather than implied. */
+  rowCost?: number;
 }
 
 /** Month names for the two periods being compared, from a `YYYY-MM` string. */
@@ -116,6 +127,8 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
   currency = 'USD',
   unavailableDetail,
   scope,
+  basis,
+  rowCost,
 }) => {
   const [tab, setTab] = useState<Tab>('change');
   const format = useMoneyIn(currency);
@@ -157,19 +170,16 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
     return () => window.removeEventListener('keydown', onKey);
   }, [resourceId, onClose]);
 
-  // The app scrolls a `.main-content-scroll` element, not <body>, so both need locking — otherwise the
-  // page behind the panel scrolls under the reader's wheel.
-  useEffect(() => {
-    const scroller = document.querySelector('.main-content-scroll') as HTMLElement | null;
-    if (resourceId) {
-      document.body.style.overflow = 'hidden';
-      if (scroller) scroller.style.overflow = 'hidden';
-    }
-    return () => {
-      document.body.style.overflow = '';
-      if (scroller) scroller.style.overflow = '';
-    };
-  }, [resourceId]);
+  /*
+   * Freeze the page behind the panel, through the shared counted lock.
+   *
+   * <p>This used to set `overflow: hidden` on <body> and the real scroll container directly, and
+   * clear both on close. That broke once this panel started opening *over* another one: this is now
+   * reached from the service resource list, which is itself a drawer holding the same lock, and a
+   * cleanup that cleared the style outright handed the scroll back while that list was still
+   * covering the page. The count means the last overlay to close is the one that restores it.
+   */
+  useEffect(() => (resourceId ? lockPageScroll() : undefined), [resourceId]);
 
   const heading = change?.name || resourceName || resourceId || '';
   const lines = useMemo(
@@ -191,7 +201,8 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="fixed inset-0 bg-black/30 z-50"
+            /* Above the service resource list, which opens this and stays behind it at z-50. */
+            className="fixed inset-0 bg-black/30 z-[60]"
             onClick={onClose}
           />
           <motion.aside
@@ -201,7 +212,14 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
             transition={{ duration: 0.2, ease: 'easeInOut' }}
             role="dialog"
             aria-label="Resource cost detail"
-            className="fixed right-0 top-0 h-full w-full max-w-2xl bg-white shadow-2xl z-50 flex flex-col"
+            /*
+             * Narrower than the resource list this opens over, deliberately — the sliver of that
+             * list left showing on the left is what says this sits on top of it rather than
+             * having replaced it. Scaled to the viewport for the same reason the list is (see
+             * ServiceResourcesDrawer), so the inset stays about the same at every window size
+             * instead of swallowing the list on a laptop and vanishing on a wide monitor.
+             */
+            className="fixed right-0 top-0 h-full w-full sm:w-[58vw] sm:max-w-[960px] bg-white shadow-2xl z-[60] flex flex-col"
           >
             {/* Header */}
             <div className="px-5 py-4 border-b border-[rgba(0,0,0,0.08)] flex items-start justify-between gap-4">
@@ -305,7 +323,14 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
               )}
 
               {!loading && change && tab === 'change' && (
-                <ChangeTab change={change} months={months} money={money} format={format} />
+                <ChangeTab
+                  change={change}
+                  months={months}
+                  money={money}
+                  format={format}
+                  basis={basis}
+                  rowCost={rowCost}
+                />
               )}
 
               {!loading && change && tab === 'breakdown' && (
@@ -336,7 +361,112 @@ interface TabProps {
   months: { current: string; prior: string };
   money: (v: number) => string;
   format: (v: number) => string;
+  /** The basis the row that opened the panel was on, and its figure on that basis. */
+  basis?: CostBasis;
+  rowCost?: number;
 }
+
+/**
+ * Why this panel's figures are unblended when the row that opened it was not.
+ *
+ * <p>Renders only on the amortized basis. The panel decomposes a change into rate and usage, and
+ * cost ÷ quantity is only a real unit rate on unblended cost: on a reserved instance the amortized
+ * cost comes from the reservation's effective rate while the quantity is instance-hours at
+ * on-demand grain, so the ratio is an accounting artefact — and because the price effect is the
+ * residual, the entire commitment treatment would be reported as "the rate changed". The panel
+ * would be stating, in its own words, that a reservation purchase was a price increase. It also
+ * preserves `priceEffect + volumeEffect == costChange`, which this panel renders visually.
+ *
+ * <p>Rendered *instead of* `ExcludedNote` rather than beside it. On the amortized basis a
+ * commitment-covered resource is exactly the case where `excludedCost` is large, so the two would
+ * stack as two notes in the identical treatment about the same gap — which is the shape the card's
+ * own amortized note was designed to avoid. The excluded figure is folded into the sentence below
+ * instead, so nothing is lost by the substitution.
+ */
+const BasisNote: React.FC<{
+  basis?: CostBasis;
+  rowCost?: number;
+  excludedCost?: number;
+  usageCost: number;
+  month: string;
+  format: (v: number) => string;
+}> = ({ basis, rowCost, excludedCost, usageCost, month, format }) => {
+  // Both props are optional because the fallback path (GCP, Azure, any caller without a basis)
+  // supplies neither, and the sentence interpolates rowCost — "the row you opened reads $NaN" is
+  // worse than silence.
+  if (basis !== 'amortized' || rowCost === undefined) return null;
+  const hasExcluded = excludedCost !== undefined && Math.abs(excludedCost) >= 0.01;
+
+  return (
+    <div className="flex items-start gap-2.5 px-3.5 py-3 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.07)] rounded-lg">
+      <Icon
+        icon="mdi:information-outline"
+        width={15}
+        className="text-[rgba(0,0,0,0.35)] flex-shrink-0 mt-0.5"
+      />
+      <div className="text-[11.5px] text-[rgba(0,0,0,0.55)] leading-relaxed">
+        <span className="font-medium text-black">
+          The row you opened reads {format(rowCost)} on the amortized basis.
+        </span>{' '}
+        The figures here are unblended — this panel separates a rate change from a usage change, and
+        only unblended cost divided by quantity is a real unit rate.{' '}
+        {hasExcluded
+          ? `${format(usageCost)} of ${month}'s spend is metered usage, which is what the figures above compare; the other ${format(
+              Math.abs(excludedCost as number),
+            )} is reserved or Savings Plan coverage, commitment fees, tax or credits, which carry no quantity to measure a rate against.`
+          : `The figures above cover ${month}'s metered usage.`}{' '}
+        The <span className="font-medium">Trend</span> tab shows every charge.
+      </div>
+    </div>
+  );
+};
+
+/**
+ * What this panel's figures leave out, and why.
+ *
+ * <p>The comparison counts usage rows only — they are the only ones carrying a quantity, and without a
+ * quantity there is no unit rate to split a change into price and volume. That is the right restriction
+ * for the arithmetic and the wrong one for a total: a Savings-Plan-covered instance bills almost
+ * entirely as `SavingsPlanCoveredUsage`, so the panel showed a few dollars where the row that opened it
+ * showed a few hundred. Two numbers for one resource, on screens one click apart, with nothing
+ * accounting for the difference — which reads as the product being wrong even when both figures are
+ * right.
+ *
+ * <p>So the gap is stated and added back. Rendered only when there is one, and only on the AWS report,
+ * which is the only source that reports it.
+ */
+const ExcludedNote: React.FC<{
+  excludedCost?: number;
+  usageCost: number;
+  month: string;
+  format: (v: number) => string;
+}> = ({ excludedCost, usageCost, month, format }) => {
+  if (excludedCost === undefined || Math.abs(excludedCost) < 0.01) return null;
+  const credit = excludedCost < 0;
+
+  return (
+    <div className="flex items-start gap-2.5 px-3.5 py-3 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.07)] rounded-lg">
+      <Icon
+        icon="mdi:information-outline"
+        width={15}
+        className="text-[rgba(0,0,0,0.35)] flex-shrink-0 mt-0.5"
+      />
+      <div className="text-[11.5px] text-[rgba(0,0,0,0.55)] leading-relaxed">
+        <span className="font-medium text-black">
+          {format(usageCost + excludedCost)} billed in total
+        </span>{' '}
+        for {month} — {format(usageCost)} of it as metered usage, which is what the figures above
+        compare, plus {format(Math.abs(excludedCost))}{' '}
+        {credit ? 'in credits and refunds' : 'in charges that carry no usage quantity'}
+        {credit
+          ? '.'
+          : ' — reserved or Savings Plan coverage, commitment fees, tax or support.'}{' '}
+        Those have no quantity to measure a rate against, so they cannot be split into usage and rate,
+        but they are on the bill. The <span className="font-medium">Trend</span> tab shows every charge.
+      </div>
+    </div>
+  );
+};
 
 /**
  * The headline: what it cost, what changed, and which of usage or rate drove it.
@@ -349,6 +479,8 @@ const ChangeTab: React.FC<TabProps & { change: ResourceChange }> = ({
   months,
   money,
   format,
+  basis,
+  rowCost,
 }) => {
   const usageDriven = Math.abs(change.volumeEffect) >= Math.abs(change.priceEffect);
   const isNew = change.priorCost === 0 && change.priorQuantity === 0;
@@ -380,6 +512,25 @@ const ChangeTab: React.FC<TabProps & { change: ResourceChange }> = ({
             </p>
           )}
         </div>
+
+        {/* One or the other, never both: see BasisNote. */}
+        {basis === 'amortized' && rowCost !== undefined ? (
+          <BasisNote
+            basis={basis}
+            rowCost={rowCost}
+            excludedCost={change.excludedCost}
+            usageCost={change.currentCost}
+            month={months.current}
+            format={format}
+          />
+        ) : (
+          <ExcludedNote
+            excludedCost={change.excludedCost}
+            usageCost={change.currentCost}
+            month={months.current}
+            format={format}
+          />
+        )}
 
         <div className="flex items-start gap-2.5 px-3.5 py-3 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.07)] rounded-lg">
           <Icon
@@ -418,6 +569,25 @@ const ChangeTab: React.FC<TabProps & { change: ResourceChange }> = ({
           {format(change.priorCost)} → <span className="font-semibold">{format(change.currentCost)}</span>
         </p>
       </div>
+
+      {/* One or the other, never both: see BasisNote. */}
+      {basis === 'amortized' && rowCost !== undefined ? (
+        <BasisNote
+          basis={basis}
+          rowCost={rowCost}
+          excludedCost={change.excludedCost}
+          usageCost={change.currentCost}
+          month={months.current}
+          format={format}
+        />
+      ) : (
+        <ExcludedNote
+          excludedCost={change.excludedCost}
+          usageCost={change.currentCost}
+          month={months.current}
+          format={format}
+        />
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <EffectCard

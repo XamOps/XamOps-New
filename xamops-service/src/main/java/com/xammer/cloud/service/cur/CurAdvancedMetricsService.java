@@ -42,6 +42,21 @@ public class CurAdvancedMetricsService {
     private static final int MAX_RESOURCES = 500;
 
     /**
+     * Ceiling on resources returned for ONE service.
+     *
+     * <p>Twice {@link #MAX_RESOURCES}, and that is not generosity: 500 was an account-wide cap, and
+     * a single large EC2 or EBS estate exceeds it on its own. At roughly 150 bytes of JSON per row —
+     * an ARN dominates — 1,000 rows is ~150KB, which gzip takes to about 25KB. The whole list has to
+     * be on the wire regardless of the cap because the panel's search and region filter run
+     * client-side.
+     *
+     * <p>Bytes scanned per scoped query: not yet measured. Worth one reading from the Athena console
+     * on the largest connected account, recorded here, so the next person changing this cap is
+     * arguing with a measurement rather than with a guess.
+     */
+    private static final int MAX_SERVICE_RESOURCES = 1000;
+
+    /**
      * How many offenders are listed inside one service.
      *
      * <p>Small on purpose. A flat list of every untagged resource is a wall rather than a
@@ -139,7 +154,23 @@ public class CurAdvancedMetricsService {
      */
     public SavingsRate getEffectiveSavingsRate(CurSource source, CloudAccount account,
                                                LocalDate start, LocalDate end) {
-        String amortized = amortizedCostExpr(source);
+        // Through basisExpr rather than amortizedCostExpr directly. Reaching the expression
+        // straight meant a trimmed export 502'd this endpoint while /capabilities was reporting
+        // the amortized basis unavailable — two endpoints disagreeing about one report is worse
+        // than either answer alone.
+        String amortized = basisExpr(source, account, CostBasis.AMORTIZED);
+        /*
+         * The denominator is guarded too, and refused rather than substituted.
+         *
+         * `pricing_public_on_demand_cost` is the list-price counterfactual the whole ratio is built
+         * on and is equally optional in a Data Export. Substituting 0 would make the denominator
+         * zero, the `onDemandCost > 0 ? ... : 0.0` branch below would return exactly 0%, and "you
+         * are saving nothing" is a measurement this report cannot make.
+         */
+        if (!columnCatalog.has(source, account, "pricing_public_on_demand_cost")) {
+            throw new ReportCannotAnswerException("the effective savings rate",
+                    List.of("pricing_public_on_demand_cost"));
+        }
         String onDemand = CurSql.numericExpr(source, "pricing_public_on_demand_cost");
 
         String sql = "SELECT SUM(" + amortized + ") AS amortized,"
@@ -192,6 +223,122 @@ public class CurAdvancedMetricsService {
                 + "'SavingsPlanUpfrontFee','SavingsPlanNegation') THEN 0"
                 + " ELSE " + unblended
                 + " END";
+    }
+
+    // ── Cost basis ──────────────────────────────────────────────────────────────
+
+    /**
+     * The line item types {@link #amortizedCostExpr} zeroes, so a charge-type breakdown on the
+     * amortized basis must not list them as real lines.
+     *
+     * <p>Derived from that expression and kept beside it, because the thing that can drift is the
+     * CASE rather than this list. A test asserts the two agree.
+     */
+    static final List<String> AMORTIZED_ZEROED_TYPES =
+            List.of("RIFee", "SavingsPlanRecurringFee", "SavingsPlanUpfrontFee", "SavingsPlanNegation");
+
+    /**
+     * The two columns {@link #amortizedCostExpr} names that a Data Export may not carry.
+     *
+     * <p>{@code line_item_line_item_type} is deliberately NOT in this list even though the
+     * expression is a CASE over it. That column is mandatory rather than optional in this codebase —
+     * thirteen call sites across the CUR layer name it unguarded, including the one backing the
+     * main Cost page's record-type grouping — so a report without it is already dark everywhere
+     * else, and guarding it in one of two places would make this list the kind of table that stops
+     * being read.
+     */
+    private static final List<String> AMORTIZED_COLUMNS =
+            List.of("reservation_effective_cost", "savings_plan_savings_plan_effective_cost");
+
+    /**
+     * The cost column for a basis, or a refusal.
+     *
+     * <p>{@link #amortizedCostExpr} names {@code reservation_effective_cost} and
+     * {@code savings_plan_savings_plan_effective_cost} and asks nothing about whether the table has
+     * them. Neither is guaranteed: a Data Export carries the column selection the customer chose,
+     * and Athena fails a query during ANALYSIS when it names a column the table lacks — so on a
+     * trimmed export the amortized basis would not degrade, it would 502 the whole card.
+     *
+     * <p>Refuses rather than falling back. Returning unblended cost to a caller that asked for
+     * amortized is a number labelled as something it is not, and the label is on screen.
+     */
+    private String basisExpr(CurSource source, CloudAccount account, CostBasis basis) {
+        if (basis == CostBasis.AMORTIZED) {
+            List<String> missing = missingAmortizedColumns(source, account);
+            if (!missing.isEmpty()) {
+                throw new ReportCannotAnswerException("the amortized cost basis", missing);
+            }
+            return amortizedCostExpr(source);
+        }
+        return CurSql.numericExpr(source, "line_item_unblended_cost");
+    }
+
+    /** Which of {@link #AMORTIZED_COLUMNS} this report does not have, in declaration order. */
+    private List<String> missingAmortizedColumns(CurSource source, CloudAccount account) {
+        return AMORTIZED_COLUMNS.stream()
+                .filter(column -> !columnCatalog.has(source, account, column))
+                .toList();
+    }
+
+    /**
+     * What this report can be asked, without asking it anything.
+     *
+     * <p>Answered entirely from {@link CurColumnCatalog}, which reads
+     * {@code information_schema.columns} — catalog metadata, so it scans zero bytes and is cached
+     * for six hours. One round trip at most, usually none.
+     *
+     * <p>Exists because the alternatives are worse. The capability cannot ride on
+     * {@code charges-by-service} or {@code charge-types}: both return bare arrays that the GCP and
+     * Azure API files type against, and making the AWS one an object would break that parity. Nor
+     * can the client discover it by trying — the failure mode of an unguarded amortized query is a
+     * 502 that takes the card down.
+     *
+     * <p>{@code unitAvailable} describes THIS card and no more. {@code pricing_unit} is still named
+     * unguarded by {@code transferCharges} and {@code transferFlows}, so {@code /data-transfer} can
+     * legitimately 502 on a report this probe calls usable. Widening the guard there is a separate
+     * change; claiming this flag covers it would be the inaccuracy.
+     */
+    public ReportCapabilities getReportCapabilities(CurSource source, CloudAccount account) {
+        /*
+         * Whether "absent" means "no" or "unknown".
+         *
+         * The catalog caches the empty set for ten minutes on a failed probe, so without this every
+         * flag would come back false and every sentence would tell the reader to recreate an export
+         * that is probably fine. The two cases get different wording because they have different
+         * remedies.
+         */
+        boolean readable = columnCatalog.readable(source, account);
+
+        List<String> missingAmortized = readable
+                ? missingAmortizedColumns(source, account)
+                : List.copyOf(AMORTIZED_COLUMNS);
+        boolean amortizedAvailable = readable && missingAmortized.isEmpty();
+        boolean unitAvailable = readable && columnCatalog.has(source, account, "pricing_unit");
+
+        String amortizedDetail;
+        if (amortizedAvailable) {
+            amortizedDetail = "";
+        } else if (readable) {
+            amortizedDetail = "This export does not carry " + String.join(" or ", missingAmortized)
+                    + ", so the amortized basis cannot be computed.";
+        } else {
+            amortizedDetail = "The report's column list could not be read, so we cannot tell whether"
+                    + " the amortized basis is available. The check is retried every few minutes.";
+        }
+
+        String unitDetail;
+        if (unitAvailable) {
+            unitDetail = "";
+        } else if (readable) {
+            unitDetail = "This export does not carry pricing_unit, so quantities are shown without"
+                    + " a unit.";
+        } else {
+            unitDetail = "The report's column list could not be read, so quantities are shown"
+                    + " without a unit until that check succeeds.";
+        }
+
+        return new ReportCapabilities(amortizedAvailable, missingAmortized, unitAvailable,
+                amortizedDetail, unitDetail);
     }
 
     // ── Price vs volume ─────────────────────────────────────────────────────────
@@ -287,7 +434,7 @@ public class CurAdvancedMetricsService {
         // Scoped to the row that opened this, not to the resource id alone. See scopePredicate.
         String scope = scopePredicate(resourceId, service, region);
 
-        Map<String, double[]> current = usageAndCostByLineItem(source, account, scope,
+        Map<String, LineAggregate> current = lineAggregates(source, account, scope,
                 currentStart, currentEnd);
         /*
          * The earlier month is optional.
@@ -302,18 +449,26 @@ public class CurAdvancedMetricsService {
          * entire cost as "used more", which is a statement about the report's age dressed up as a
          * statement about the infrastructure.
          */
-        Map<String, double[]> prior = comparePrior
-                ? usageAndCostByLineItem(source, account, scope, priorStart, priorEnd)
+        Map<String, LineAggregate> prior = comparePrior
+                ? lineAggregates(source, account, scope, priorStart, priorEnd)
                 : Map.of();
 
-        // Descriptors are carried alongside the figures so a usage type present in only one of the two
-        // months still renders with its unit and description rather than as a bare code.
+        /*
+         * Descriptors are carried alongside the figures so a usage type present in only one of the two
+         * months still renders with its unit and description rather than as a bare code.
+         *
+         * <p>They used to be two more queries of their own — one per month, each repeating the whole
+         * predicate at the same grain as the figures it described. Folded into those aggregates
+         * instead, which halves this endpoint's Athena round trips: it was issuing up to seven
+         * sequential queries, each with its own 60s ceiling, which is both slow on a click and the
+         * most likely way the panel times out at the proxy and reports itself unavailable.
+         *
+         * <p>Prior first, so that where the two months word a usage type differently the current
+         * month's wording wins — the same precedence as before.
+         */
         Map<String, String[]> descriptors = new LinkedHashMap<>();
-        if (comparePrior) {
-            descriptors.putAll(lineDescriptors(source, account, scope, priorStart, priorEnd));
-        }
-        // Current month last, so where the two disagree the newer wording wins.
-        descriptors.putAll(lineDescriptors(source, account, scope, currentStart, currentEnd));
+        prior.forEach((type, line) -> descriptors.put(type, new String[]{line.description(), line.unit()}));
+        current.forEach((type, line) -> descriptors.put(type, new String[]{line.description(), line.unit()}));
 
         Set<String> usageTypes = new java.util.LinkedHashSet<>(current.keySet());
         usageTypes.addAll(prior.keySet());
@@ -325,24 +480,25 @@ public class CurAdvancedMetricsService {
         double currentQty = 0;
 
         for (String usageType : usageTypes) {
-            double[] cur = current.getOrDefault(usageType, new double[]{0, 0});
-            double[] pri = prior.getOrDefault(usageType, new double[]{0, 0});
-            priorCost += pri[0];
-            currentCost += cur[0];
-            priorQty += pri[1];
-            currentQty += cur[1];
+            LineAggregate cur = current.getOrDefault(usageType, LineAggregate.EMPTY);
+            LineAggregate pri = prior.getOrDefault(usageType, LineAggregate.EMPTY);
+            priorCost += pri.cost();
+            currentCost += cur.cost();
+            priorQty += pri.quantity();
+            currentQty += cur.quantity();
 
             // Per line, the split is exact rather than indicative: one usage type bills in one unit, so
             // cost ÷ quantity is a real unit rate. That is the whole reason this breakdown exists — the
             // service-level split has to blend units and can only point at a direction.
-            PriceVolumeSplit.Effects effects = PriceVolumeSplit.of(pri[0], cur[0], pri[1], cur[1]);
+            PriceVolumeSplit.Effects effects =
+                    PriceVolumeSplit.of(pri.cost(), cur.cost(), pri.quantity(), cur.quantity());
             String[] descriptor = descriptors.getOrDefault(usageType, new String[]{"", ""});
             lines.add(new ResourceLineChange(
                     blankTo(descriptor[0], usageType),
                     usageType,
                     blankTo(descriptor[1], ""),
-                    pri[0], cur[0], cur[0] - pri[0],
-                    pri[1], cur[1],
+                    pri.cost(), cur.cost(), cur.cost() - pri.cost(),
+                    pri.quantity(), cur.quantity(),
                     effects.priceEffect(), effects.volumeEffect()));
         }
         lines.sort(Comparator.comparingDouble((ResourceLineChange l) -> -Math.abs(l.costChange())));
@@ -351,23 +507,60 @@ public class CurAdvancedMetricsService {
         ResourceIdentity identity = resourceIdentity(source, account, scope, currentStart, currentEnd,
                 comparePrior ? priorStart : currentStart, comparePrior ? priorEnd : currentEnd);
 
+        List<DailyCost> daily = dailyCost(source, account, scope, currentStart, currentEnd);
+        // What the resource was charged beyond its usage lines — see sumDaily. Zero on the common
+        // case, and the whole story on a reserved or Savings-Plan-covered one.
+        double excludedCost = sumDaily(daily) - currentCost;
+
+        logger.info("✅ [CUR] Resource change — {} usage types, current ${}, excluded ${},"
+                        + " {} days, comparePrior={} for {} in account {} ({} to {})",
+                lines.size(), currentCost, excludedCost, daily.size(), comparePrior,
+                resourceId, account.getAwsAccountId(), currentStart, currentEnd);
+
         return new ResourceChange(resourceId, identity.name(), identity.service(), identity.region(),
                 identity.instanceType(),
                 priorCost, currentCost, currentCost - priorCost,
                 priorQty, currentQty,
                 total.priceEffect(), total.volumeEffect(),
                 comparePrior,
+                excludedCost,
                 List.copyOf(lines),
-                dailyCost(source, account, scope, currentStart, currentEnd));
+                daily);
     }
 
-    /** Cost and usage per usage type for one resource over one period. */
-    private Map<String, double[]> usageAndCostByLineItem(CurSource source, CloudAccount account,
-                                                         String scope,
-                                                         LocalDate start, LocalDate end) {
+    /** One usage type's figures and wording inside one resource, for one period. */
+    private record LineAggregate(double cost, double quantity, String description, String unit) {
+        static final LineAggregate EMPTY = new LineAggregate(0, 0, "", "");
+    }
+
+    /**
+     * Cost, usage and wording per usage type for one resource over one period.
+     *
+     * <p>One query where there were two. The figures and the descriptors share the same predicate and
+     * the same {@code GROUP BY}, so asking separately was two scans of the same rows to assemble one
+     * table — and this endpoint is reached by a click, with every query serialised behind the last.
+     *
+     * <p>{@code pricing_unit} is guarded rather than selected outright. A Data Export is created with
+     * a column selection the customer chooses, and Athena fails a query during analysis when it names
+     * a column the table does not have — so one absent column took down the whole panel instead of
+     * leaving the unit blank. {@link CurColumnCatalog} answers from cached catalog metadata, which
+     * scans nothing. The same guard is why the unit can come back empty here and the caller treats
+     * that as "not stated" rather than as an error.
+     */
+    private Map<String, LineAggregate> lineAggregates(CurSource source, CloudAccount account,
+                                                      String scope,
+                                                      LocalDate start, LocalDate end) {
+        // A constant stands in for the absent column so the SELECT list and the row reader below keep
+        // the same shape either way.
+        String unitExpr = columnCatalog.has(source, account, "pricing_unit")
+                ? "MAX(pricing_unit)"
+                : "''";
+
         String sql = "SELECT line_item_usage_type AS usage_type,"
                 + " SUM(" + CurSql.numericExpr(source, "line_item_unblended_cost") + ") AS cost,"
-                + " SUM(" + CurSql.numericExpr(source, "line_item_usage_amount") + ") AS qty"
+                + " SUM(" + CurSql.numericExpr(source, "line_item_usage_amount") + ") AS qty,"
+                + " MAX(line_item_line_item_description) AS description,"
+                + " " + unitExpr + " AS unit"
                 + " FROM " + source.qualifiedTable()
                 + " WHERE " + accountPredicate(account)
                 + " AND " + scope
@@ -375,37 +568,45 @@ public class CurAdvancedMetricsService {
                 + " AND " + CurSql.usageDatePredicate(source, start, end)
                 // Usage lines only, matching the service-level comparison: a tax or credit row has a
                 // cost but no comparable quantity, and averaging it into a unit rate is meaningless.
+                //
+                // This is also why the lines here can sum to less than the resource's row in the table
+                // above, which counts every line item type. The caller reports that difference rather
+                // than letting two figures for the same resource disagree unexplained — see
+                // `excludedCost` on ResourceChange.
                 + " AND line_item_line_item_type = 'Usage'"
                 + " GROUP BY line_item_usage_type";
 
-        Map<String, double[]> byUsageType = new LinkedHashMap<>();
+        Map<String, LineAggregate> byUsageType = new LinkedHashMap<>();
         for (Map<String, String> row : athena.query(source, account, sql)) {
             String usageType = blankTo(row.get("usage_type"), "Other");
-            byUsageType.put(usageType, new double[]{parse(row.get("cost")), parse(row.get("qty"))});
+            byUsageType.put(usageType, new LineAggregate(
+                    parse(row.get("cost")),
+                    parse(row.get("qty")),
+                    blankTo(row.get("description"), ""),
+                    blankTo(row.get("unit"), "")));
         }
         return byUsageType;
     }
 
-    /** Description and unit per usage type, so a line reads as words rather than as a code. */
-    private Map<String, String[]> lineDescriptors(CurSource source, CloudAccount account,
-                                                  String scope, LocalDate start, LocalDate end) {
-        String sql = "SELECT line_item_usage_type AS usage_type,"
-                + " MAX(line_item_line_item_description) AS description,"
-                + " MAX(pricing_unit) AS unit"
-                + " FROM " + source.qualifiedTable()
-                + " WHERE " + accountPredicate(account)
-                + " AND " + scope
-                + " AND " + CurSql.partitionPredicate(source, start, end)
-                + " AND " + CurSql.usageDatePredicate(source, start, end)
-                + " AND line_item_line_item_type = 'Usage'"
-                + " GROUP BY line_item_usage_type";
-
-        Map<String, String[]> descriptors = new LinkedHashMap<>();
-        for (Map<String, String> row : athena.query(source, account, sql)) {
-            descriptors.put(blankTo(row.get("usage_type"), "Other"),
-                    new String[]{blankTo(row.get("description"), ""), blankTo(row.get("unit"), "")});
+/**
+     * Everything the resource was charged in the period, read off the daily series.
+     *
+     * <p>The companion figure to {@link #lineAggregates}, which is deliberately usage-only. Without it
+     * the panel's total and the resource row that opened it can differ by whatever the resource carried
+     * in discounted usage, Savings Plan coverage, tax or credits — two numbers for the same resource on
+     * adjacent surfaces with nothing on screen accounting for the gap. On a Savings-Plan-covered
+     * instance that gap is most of the cost.
+     *
+     * <p>Derived rather than queried: {@link #dailyCost} already runs over the same scope with no line
+     * item type filter at all, so its sum *is* the total charged. Asking Athena again for a number
+     * already on the wire would have put a sixth query on a click.
+     */
+    private static double sumDaily(List<DailyCost> daily) {
+        double total = 0;
+        for (DailyCost day : daily) {
+            total += day.cost();
         }
-        return descriptors;
+        return total;
     }
 
     /** What the resource is: name, service, region, instance type. */
@@ -437,7 +638,7 @@ public class CurAdvancedMetricsService {
         String sql = "SELECT" + nameSelect
                 + " MAX(product_product_name) AS service,"
                 + " MAX(product_region) AS region,"
-                + " MAX(product_instance_type) AS instance_type"
+                + " " + instanceTypeExpr(source, account) + " AS instance_type"
                 + " FROM " + source.qualifiedTable()
                 + " WHERE " + accountPredicate(account)
                 + " AND " + scope
@@ -520,7 +721,9 @@ public class CurAdvancedMetricsService {
     private String scopePredicate(String resourceId, String service, String region) {
         StringBuilder predicate = new StringBuilder(resourcePredicate(resourceId));
         if (service != null && !service.isBlank()) {
-            predicate.append(" AND product_product_name = ").append(literal(service));
+            // Delegated rather than inlined, so the scoped resource query and this drill-down cannot
+            // disagree about what "Other" means. The explanation lives on servicePredicate.
+            predicate.append(" AND ").append(servicePredicate(service));
         }
         if (region != null && !region.isBlank()) {
             // "Global" is this section's own word for a row the report gave no region, not a value the
@@ -530,6 +733,29 @@ public class CurAdvancedMetricsService {
                     : " AND product_region = " + literal(region));
         }
         return predicate.toString();
+    }
+
+    /**
+     * Restricts a query to one service, accepting this section's display word for "no service".
+     *
+     * <p>{@link #getTopResources} and {@link #getChargesByService} both map a blank
+     * {@code product_product_name} to {@code "Other"} before the row reaches the client, exactly as
+     * they map a blank region to {@code "Global"}. The client then echoes that word back here as the
+     * service it wants. Matching it literally finds nothing, so every unnamed-service row would open
+     * an empty panel — which is the bug fixed in {@link #scopePredicate}, in a new place.
+     *
+     * <p>Both forms are accepted rather than only the blank one, because a report is free to carry
+     * the literal string "Other" as a product name and that spend belongs in the same panel. One
+     * consequence, recorded rather than fixed: because {@code product_product_name} stays in the
+     * {@code GROUP BY}, a report carrying both the blank and the literal yields two groups for the
+     * same {@code (resource_id, region)} and the panel shows two rows with the same id. That is
+     * pre-existing in {@link #getTopResources} and is not made worse here.
+     */
+    private String servicePredicate(String service) {
+        return "Other".equals(service)
+                ? "(product_product_name IS NULL OR product_product_name = ''"
+                  + " OR product_product_name = 'Other')"
+                : "product_product_name = " + literal(service);
     }
 
     /**
@@ -559,17 +785,34 @@ public class CurAdvancedMetricsService {
      *
      * <p>Usable on the CURRENT month, unlike the period comparisons: it describes what has
      * been billed so far rather than comparing two spans of different length.
+     *
+     * @param basis which cost to sum. On {@link CostBasis#AMORTIZED} the four commitment fee types
+     *              sum to exactly zero and are dropped by the {@code HAVING} that is already
+     *              there — correct arithmetic, since the charge-type ledger drops the same groups,
+     *              and a disclosure gap the caller closes with one note rather than a totals bug
      */
     public List<ServiceCharge> getChargesByService(CurSource source, CloudAccount account,
-                                                   LocalDate start, LocalDate end) {
-        String cost = CurSql.numericExpr(source, "line_item_unblended_cost");
+                                                   LocalDate start, LocalDate end, CostBasis basis) {
+        String cost = basisExpr(source, account, basis);
         String qty = CurSql.numericExpr(source, "line_item_usage_amount");
+
+        /*
+         * `pricing_unit` is guarded, where it used to be named outright.
+         *
+         * A Data Export carries the column selection the customer chose, and Athena fails a query
+         * during analysis when it names a column the table lacks — so one absent column 502'd this
+         * entire card. A constant stands in so the SELECT list and the row reader below keep the
+         * same shape, the GROUP BY drops the column with it, and the client is told through
+         * ReportCapabilities.unitAvailable rather than left to wonder why every row has no unit.
+         */
+        boolean hasUnit = columnCatalog.has(source, account, "pricing_unit");
+        String unitExpr = hasUnit ? "pricing_unit" : "''";
 
         String sql = "SELECT product_product_name AS service,"
                 + " product_region AS region,"
                 + " line_item_line_item_description AS description,"
                 + " line_item_usage_type AS usage_type,"
-                + " pricing_unit AS unit,"
+                + " " + unitExpr + " AS unit,"
                 + " SUM(" + qty + ") AS quantity,"
                 + " SUM(" + cost + ") AS cost"
                 + " FROM " + source.qualifiedTable()
@@ -577,9 +820,11 @@ public class CurAdvancedMetricsService {
                 + " AND " + CurSql.partitionPredicate(source, start, end)
                 + " AND " + CurSql.usageDatePredicate(source, start, end)
                 + " GROUP BY product_product_name, product_region,"
-                + " line_item_line_item_description, line_item_usage_type, pricing_unit"
+                + " line_item_line_item_description, line_item_usage_type"
+                + (hasUnit ? ", pricing_unit" : "")
                 // A bill lists what was charged, so rows that net to nothing are dropped —
-                // but credits and refunds are negative and must survive the filter.
+                // but credits and refunds are negative and must survive the filter. Over the
+                // re-based expression, so both bases get the same treatment.
                 + " HAVING ABS(SUM(" + cost + ")) > 0.001"
                 + " ORDER BY cost DESC";
 
@@ -640,7 +885,7 @@ public class CurAdvancedMetricsService {
                 + nameInner
                 + " product_product_name AS service,"
                 + " product_region AS region,"
-                + " MAX(product_instance_type) AS instance_type,"
+                + " " + instanceTypeExpr(source, account) + " AS instance_type,"
                 + " SUM(" + cost + ") AS cost,"
                 + " SUM(SUM(" + cost + ")) OVER () AS total_cost,"
                 + " COUNT(*) OVER () AS group_count"
@@ -669,6 +914,96 @@ public class CurAdvancedMetricsService {
 
         logger.info("✅ [CUR] Top resources — {} of {} rows, ${} total for account {} ({} to {})",
                 resources.size(), groupCount, totalCost, account.getAwsAccountId(), start, end);
+        return new TopResources(resources, totalCost, groupCount);
+    }
+
+    /**
+     * One service's resources, ranked, with its own cap inside that service.
+     *
+     * <p>{@link #getTopResources} answers "the costliest resources in this account" and is capped at
+     * {@value #MAX_RESOURCES} groups across all of it. The resource panel was filtering that list
+     * client-side to one service, which is correct for the services at the top of the bill and wrong
+     * for every other one: a service whose resources all fall outside the account-wide 500 had none,
+     * and the panel apologised for resources sitting in the report, queryable.
+     *
+     * <p>Same {@link TopResources} shape, so the panel renders either source with one
+     * implementation. The window functions are unpartitioned inside the subquery, so
+     * {@code totalCost} and {@code groupCount} describe the whole service rather than the page —
+     * which is what lets the panel say "the 1,000 costliest of 3,412, and the rest are $812"
+     * truthfully instead of guessing.
+     *
+     * <p>Partition pruning is unchanged: {@code product_product_name} is not a partition column, so
+     * a scoped query reads the same partitions as the account-wide one. Six services opened is
+     * roughly six times the scan rather than one — bounded by distinct services actually opened,
+     * because {@code CurInsightCache} holds each answer for hours.
+     *
+     * @param service as the report names it, or the display word this section substitutes for a
+     *                report that named none — see {@link #servicePredicate}
+     */
+    public TopResources getServiceResources(CurSource source, CloudAccount account, String service,
+                                            LocalDate start, LocalDate end, CostBasis basis) {
+        String cost = basisExpr(source, account, basis);
+        String resourceId = "COALESCE(NULLIF(line_item_resource_id, ''), '')";
+
+        String nameExpr = tagColumns.resourceNameExpr(source, account).orElse(null);
+        String nameInner = nameExpr == null ? "" : " MAX(" + nameExpr + ") AS resource_name,";
+        String nameOuter = nameExpr == null ? "" : " resource_name,";
+
+        /*
+         * No HAVING, deliberately. getTopResources has none either, and the panel's reconciliation
+         * depends on it: a resource netting to zero is still a resource, and dropping rows here
+         * would widen the gap between the panel and the service total it opened from.
+         *
+         * `product_product_name` stays in the GROUP BY even though the predicate pins it to one
+         * value. It keeps the row shape identical to getTopResources, which is what lets the panel's
+         * reader and ResourceCost be unchanged, and it keeps blankTo(service, "Other") working for
+         * the blank-service case.
+         *
+         * Rows with an empty resource id survive: they are the service's tax, support and
+         * subscription charges, and the panel lists them in their own block precisely so its total
+         * can be reconciled against the header.
+         */
+        String sql = "SELECT resource_id," + nameOuter + " service, region, instance_type, cost,"
+                + " total_cost, group_count FROM ("
+                + "SELECT " + resourceId + " AS resource_id,"
+                + nameInner
+                + " product_product_name AS service,"
+                + " product_region AS region,"
+                + " " + instanceTypeExpr(source, account) + " AS instance_type,"
+                + " SUM(" + cost + ") AS cost,"
+                // Unpartitioned, so both describe the whole service rather than the returned page.
+                // Computed after the GROUP BY and before the LIMIT, which is the only ordering that
+                // works — summing the returned rows would understate by the tail.
+                + " SUM(SUM(" + cost + ")) OVER () AS total_cost,"
+                + " COUNT(*) OVER () AS group_count"
+                + " FROM " + source.qualifiedTable()
+                + " WHERE " + accountPredicate(account)
+                + " AND " + servicePredicate(service)
+                + " AND " + CurSql.partitionPredicate(source, start, end)
+                + " AND " + CurSql.usageDatePredicate(source, start, end)
+                + " GROUP BY " + resourceId + ", product_product_name, product_region"
+                + ") ORDER BY cost DESC LIMIT " + MAX_SERVICE_RESOURCES;
+
+        List<ResourceCost> resources = new ArrayList<>();
+        double totalCost = 0;
+        long groupCount = 0;
+        for (Map<String, String> row : athena.query(source, account, sql)) {
+            resources.add(new ResourceCost(
+                    blankTo(row.get("resource_id"), ""),
+                    blankTo(row.get("resource_name"), ""),
+                    blankTo(row.get("service"), "Other"),
+                    blankTo(row.get("region"), "Global"),
+                    blankTo(row.get("instance_type"), ""),
+                    parse(row.get("cost"))));
+            // Identical on every row — the windows are unpartitioned.
+            totalCost = parse(row.get("total_cost"));
+            groupCount = (long) parse(row.get("group_count"));
+        }
+
+        logger.info("✅ [CUR] Service resources — {} of {} rows, ${} total for {} in account {}"
+                        + " ({} to {}, {})",
+                resources.size(), groupCount, totalCost, service, account.getAwsAccountId(),
+                start, end, basis.wire());
         return new TopResources(resources, totalCost, groupCount);
     }
 
@@ -1305,6 +1640,25 @@ public class CurAdvancedMetricsService {
     }
 
     /**
+     * The resource's instance type, or a constant when the report has no such column.
+     *
+     * <p>Aggregated with {@code MAX} because it has to survive a grouping by resource, and a resource
+     * resized mid-month has two — either is a true statement about what it was.
+     *
+     * <p>Guarded for the same reason {@link #locationExpr} is: a Data Export carries the column
+     * selection the customer chose, and naming a column the table does not have fails the query during
+     * analysis. Three sections referenced this one unguarded — the resource table, the per-service
+     * resource query and the per-resource drill-down — so a trimmed export did not lose the
+     * instance-type chip, it lost all three outright. The catalog answers from cached metadata and
+     * scans nothing.
+     */
+    private String instanceTypeExpr(CurSource source, CloudAccount account) {
+        return columnCatalog.has(source, account, "product_instance_type")
+                ? "MAX(product_instance_type)"
+                : "''";
+    }
+
+    /**
      * Where traffic came from or went to, or null when this report cannot say.
      *
      * <p>Two columns can answer it and they differ in readability, not in meaning:
@@ -1336,11 +1690,23 @@ public class CurAdvancedMetricsService {
      * <p>The usual answer to "why doesn't the dashboard match my invoice": the gap is
      * almost always credits or tax, and until now nothing in the product could show
      * that.
+     *
+     * <p>{@code line_item_line_item_type} is named directly rather than guarded through
+     * {@link CurColumnCatalog}, because it is a mandatory column here rather than part of a Data
+     * Export's optional selection: thirteen call sites across the CUR layer already assume so —
+     * including {@code CurCostDataSource}'s record-type grouping, which backs the main Cost page
+     * breakdown — so guarding it in this one endpoint would buy a 422 for a configuration in which
+     * the rest of the Cost page is already dark.
+     *
+     * @param basis which cost to sum. On {@link CostBasis#AMORTIZED} the types that expression
+     *              zeroes are dropped rather than returned at {@code 0.00} — a zero whose truth is
+     *              "not applicable on this basis" is the one thing the house style forbids outright
      */
     public List<ChargeTypeAmount> getChargeTypeBreakdown(CurSource source, CloudAccount account,
-                                                         LocalDate start, LocalDate end) {
+                                                         LocalDate start, LocalDate end,
+                                                         CostBasis basis) {
         String sql = "SELECT line_item_line_item_type AS charge_type,"
-                + " SUM(" + CurSql.numericExpr(source, "line_item_unblended_cost") + ") AS cost"
+                + " SUM(" + basisExpr(source, account, basis) + ") AS cost"
                 + " FROM " + source.qualifiedTable()
                 + " WHERE " + accountPredicate(account)
                 + " AND " + CurSql.partitionPredicate(source, start, end)
@@ -1351,8 +1717,18 @@ public class CurAdvancedMetricsService {
         List<ChargeTypeAmount> result = new ArrayList<>();
         for (Map<String, String> row : athena.query(source, account, sql)) {
             String type = row.get("charge_type");
-            result.add(new ChargeTypeAmount(type == null || type.isBlank() ? "Unknown" : type,
-                    parse(row.get("cost"))));
+            String chargeType = type == null || type.isBlank() ? "Unknown" : type;
+            /*
+             * Filtered in Java rather than by adding a HAVING, deliberately: the set is a known
+             * constant of four strings that comes from amortizedCostExpr itself, so deriving it
+             * from the expression is exact — whereas HAVING ABS(SUM(...)) > 0.001 would also
+             * silently drop a genuinely sub-cent charge type on the unblended path and change
+             * behaviour this feature has no business changing.
+             */
+            if (basis == CostBasis.AMORTIZED && AMORTIZED_ZEROED_TYPES.contains(chargeType)) {
+                continue;
+            }
+            result.add(new ChargeTypeAmount(chargeType, parse(row.get("cost"))));
         }
         return result;
     }
@@ -1360,13 +1736,42 @@ public class CurAdvancedMetricsService {
     // ── Unused commitment ───────────────────────────────────────────────────────
 
     /**
+     * Every column this query names that a trimmed Data Export may not carry.
+     *
+     * <p>Both are required rather than either: the card's headline is their sum, and a sum missing
+     * one of its two terms understates waste while looking like a measurement.
+     *
+     * <p>{@code line_item_line_item_type}, which the {@code 'RIFee'} predicate also names, is not
+     * in the list — it is mandatory across the CUR layer rather than optional. See
+     * {@link #getChargeTypeBreakdown}.
+     */
+    private static final List<String> UNUSED_COMMITMENT_COLUMNS = List.of(
+            "reservation_unused_recurring_fee",
+            "reservation_unused_amortized_upfront_fee_for_billing_period");
+
+    /**
      * Money spent on reservations and Savings Plans that went unused.
      *
      * <p>A concrete, actionable number the coverage percentages on the RI/SP page
      * cannot give: "you wasted $X this month" rather than "you are 72% covered".
+     *
+     * <p>Both cost columns are guarded. They used to be named outright, so a trimmed export 502'd
+     * {@code /unused-commitment} and the FinOps card lost itself to a {@code .catch()} — a failure
+     * that looked like an outage and was a property of the export.
      */
     public UnusedCommitment getUnusedCommitment(CurSource source, CloudAccount account,
                                                 LocalDate start, LocalDate end) {
+        List<String> missing = UNUSED_COMMITMENT_COLUMNS.stream()
+                .filter(column -> !columnCatalog.has(source, account, column))
+                .toList();
+        if (!missing.isEmpty()) {
+            // No query at all, rather than one with a constant substituted: the answer would be a
+            // zero whose truth is "this report cannot say", and the card asserts the opposite.
+            logger.debug("[CUR] Unused commitment unavailable for source {} — missing {}",
+                    source.getId(), missing);
+            return new UnusedCommitment(0, 0, 0, false);
+        }
+
         String unusedRecurring = CurSql.numericExpr(source, "reservation_unused_recurring_fee");
         String unusedAmortized =
                 CurSql.numericExpr(source, "reservation_unused_amortized_upfront_fee_for_billing_period");
@@ -1381,11 +1786,11 @@ public class CurAdvancedMetricsService {
 
         List<Map<String, String>> rows = athena.query(source, account, sql);
         if (rows.isEmpty()) {
-            return new UnusedCommitment(0, 0, 0);
+            return new UnusedCommitment(0, 0, 0, true);
         }
         double recurring = parse(rows.get(0).get("unused_recurring"));
         double upfront = parse(rows.get(0).get("unused_upfront"));
-        return new UnusedCommitment(recurring, upfront, recurring + upfront);
+        return new UnusedCommitment(recurring, upfront, recurring + upfront, true);
     }
 
     // ── Container cost allocation ───────────────────────────────────────────────
@@ -1521,7 +1926,17 @@ public class CurAdvancedMetricsService {
      *                            still real, only the comparison is impossible.
      * @param lines        per usage type, largest movement first. This is the real depth: it separates
      *                     "the volume grew" from "the volume's rate changed" inside one resource.
-     * @param daily        the selected month's spend, day by day, so the shape of the change is visible
+     * @param excludedCost what the resource was charged that {@code lines} and {@code currentCost} do
+     *                     not cover, in the selected month. The per-line comparison is restricted to
+     *                     {@code Usage} rows because only those carry a quantity a unit rate can be
+     *                     computed from, so anything the resource carried as discounted usage, Savings
+     *                     Plan coverage, an RI fee, tax or a credit is real spend that this breakdown
+     *                     cannot decompose. Reported rather than dropped: without it the panel's total
+     *                     silently disagrees with the resource row that opened it, and on a
+     *                     commitment-covered instance the gap is most of the cost. Zero on the common
+     *                     case.
+     * @param daily        the selected month's spend, day by day, so the shape of the change is visible.
+     *                     Every line item type, which is what {@code excludedCost} is measured against.
      */
     public record ResourceChange(String resourceId, String name, String service, String region,
                                  String instanceType,
@@ -1529,6 +1944,7 @@ public class CurAdvancedMetricsService {
                                  double priorQuantity, double currentQuantity,
                                  double priceEffect, double volumeEffect,
                                  boolean comparisonAvailable,
+                                 double excludedCost,
                                  List<ResourceLineChange> lines,
                                  List<DailyCost> daily) {
     }
@@ -1695,8 +2111,46 @@ public class CurAdvancedMetricsService {
     public record ChargeTypeAmount(String chargeType, double cost) {
     }
 
-    /** Commitment spend that bought nothing. */
-    public record UnusedCommitment(double unusedRecurringFee, double unusedUpfrontFee, double total) {
+    /**
+     * Commitment spend that bought nothing.
+     *
+     * @param available false when the report does not carry every column in
+     *                  {@code UNUSED_COMMITMENT_COLUMNS}. The totals are then zero and mean
+     *                  nothing — which is the difference between "you wasted nothing" and "this
+     *                  report cannot say", and a card reading $0.00 wasted asserts the first.
+     */
+    public record UnusedCommitment(double unusedRecurringFee, double unusedUpfrontFee, double total,
+                                   boolean available) {
+    }
+
+    /**
+     * Which of this card's optional questions the report can answer.
+     *
+     * <p>One sentence per limitation rather than one sentence for all of them. Both flags can be
+     * false at once, and each has a different reader at a different place on screen: the basis
+     * toggle's {@code aria-describedby}, and a footnote under the quantity column. A single
+     * {@code detail} string would have to be either concatenated — so the toggle describes itself
+     * with a sentence about units — or prioritised, so one limitation goes unexplained. Each field
+     * is empty when its flag is true, and the UI renders nothing for an empty one.
+     *
+     * @param amortizedAvailable whether the amortized basis can be computed at all
+     * @param amortizedMissingColumns exactly which columns are absent, so the UI can say which —
+     *        "this export does not carry reservation_effective_cost" is actionable, "unavailable"
+     *        is not. Carries both candidate columns when the catalog itself could not be read,
+     *        because then nothing is known about either
+     * @param unitAvailable whether {@code pricing_unit} is present. False means every quantity
+     *        renders without a unit, which is indistinguishable from a blank unit on one line — so
+     *        the card states it once rather than leaving the reader to wonder about every row
+     * @param amortizedDetail why the amortized basis is unavailable, or "". Names the missing
+     *        columns when the catalog was readable, and says the column list could not be read when
+     *        it was not — different facts with different remedies
+     * @param unitDetail why quantities carry no unit, or "", on the same terms
+     */
+    public record ReportCapabilities(boolean amortizedAvailable,
+                                     List<String> amortizedMissingColumns,
+                                     boolean unitAvailable,
+                                     String amortizedDetail,
+                                     String unitDetail) {
     }
 
     /** Cost attributed to one EKS namespace on one node. */

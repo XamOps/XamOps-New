@@ -1,5 +1,6 @@
 import { apiFetch } from '../utils/apiClient';
 import type {
+  ChargeTypeAmount,
   DataTransferBreakdown,
   PriceVolumeChange,
   ResourceChange,
@@ -7,20 +8,6 @@ import type {
   ServiceCharge,
   TopResources,
 } from './curInsightsApi';
-
-/**
- * One line item type's share of the bill.
- *
- * Declared here rather than in `curInsightsApi` because AWS exposes the identical
- * `/cur-insights/charge-types` endpoint and has no frontend reading it yet. When it grows one,
- * this moves there and both import it.
- */
-export interface ChargeTypeAmount {
-  /** "Regular", "Tax", "Committed usage discount", "Sustained usage discount", "Free tier". */
-  chargeType: string;
-  /** Negative for credits, as the export records them, so the rows sum to the invoice. */
-  cost: number;
-}
 
 /**
  * The GCP billing export read through the same section contracts as the AWS report.

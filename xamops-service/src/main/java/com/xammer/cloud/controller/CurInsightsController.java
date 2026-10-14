@@ -3,13 +3,20 @@ package com.xammer.cloud.controller;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.CurSource;
 import com.xammer.cloud.repository.CloudAccountRepository;
+import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.security.CloudAccountAccessService;
+import com.xammer.cloud.service.cur.CostBasis;
 import com.xammer.cloud.service.cur.CurAdvancedMetricsService;
 import com.xammer.cloud.service.cur.CurInsightCache;
 import com.xammer.cloud.service.cur.CurSourceResolver;
+import com.xammer.cloud.service.cur.ReportCannotAnswerException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -37,6 +44,7 @@ public class CurInsightsController {
     private final CurSourceResolver curSourceResolver;
     private final CurAdvancedMetricsService metricsService;
     private final CurInsightCache insightCache;
+    private final CloudAccountAccessService accessService;
 
     /** The tags an owned resource is expected to carry. Shared with the inventory scan. */
     private final List<String> requiredTags;
@@ -45,11 +53,13 @@ public class CurInsightsController {
                                  CurSourceResolver curSourceResolver,
                                  CurAdvancedMetricsService metricsService,
                                  CurInsightCache insightCache,
+                                 CloudAccountAccessService accessService,
                                  @Value("${tagging.compliance.required-tags}") List<String> requiredTags) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.curSourceResolver = curSourceResolver;
         this.metricsService = metricsService;
         this.insightCache = insightCache;
+        this.accessService = accessService;
         this.requiredTags = requiredTags;
     }
 
@@ -70,9 +80,14 @@ public class CurInsightsController {
      */
     @GetMapping("/charges-by-service/{accountId}")
     public ResponseEntity<?> chargesByService(@PathVariable String accountId,
-                                              @RequestParam(required = false) String period) {
+                                              @RequestParam(required = false) String period,
+                                              @RequestParam(required = false) String basis) {
+        Optional<CostBasis> costBasis = basisOf(basis);
+        if (costBasis.isEmpty()) {
+            return invalidBasis(basis);
+        }
         return withSource(accountId, period, (source, account, start, end) ->
-                metricsService.getChargesByService(source, account, start, end));
+                metricsService.getChargesByService(source, account, start, end, costBasis.get()));
     }
 
     /**
@@ -188,9 +203,97 @@ public class CurInsightsController {
     /** Charge type split — usage vs tax vs credits vs refunds vs fees. */
     @GetMapping("/charge-types/{accountId}")
     public ResponseEntity<?> chargeTypes(@PathVariable String accountId,
-                                         @RequestParam(required = false) String period) {
+                                         @RequestParam(required = false) String period,
+                                         @RequestParam(required = false) String basis) {
+        Optional<CostBasis> costBasis = basisOf(basis);
+        if (costBasis.isEmpty()) {
+            return invalidBasis(basis);
+        }
         return withSource(accountId, period, (source, account, start, end) ->
-                metricsService.getChargeTypeBreakdown(source, account, start, end));
+                metricsService.getChargeTypeBreakdown(source, account, start, end, costBasis.get()));
+    }
+
+    /**
+     * One service's resources, ranked, capped inside that service.
+     *
+     * <p>{@code service} is declared optional and validated in the body rather than
+     * {@code @RequestParam String service}, which Spring would reject with its own
+     * MissingServletRequestParameterException body. The sentence a caller gets back — "this
+     * endpoint describes one service's resources, use /top-resources for the whole account" — is
+     * the useful half of that error, and only this method can write it.
+     *
+     * <p>Validation order on this handler: entitlement, then the basis, then this endpoint's own
+     * parameters, then the period inside {@link #withSource}. Entitlement first because the 400s
+     * below are about {@code service}, and which service names are rejected is the kind of thing a
+     * caller who holds no account should not be able to probe.
+     *
+     * <p>Not an invariant of every handler here, and deliberately so. {@link #chargesByService} and
+     * {@link #chargeTypes} parse the basis before entering {@code withSource}, where the entitlement
+     * check lives, so an unentitled caller sending {@code basis=amortised} gets the 400 rather than
+     * the 404. That is the same precedence {@link #resourceChange} uses for its blank-id 400 and for
+     * the same reason: the response is a pure function of the parameter, discloses nothing about the
+     * account, and is byte-identical for every caller — a malformed request is malformed for all of
+     * them.
+     */
+    @GetMapping("/service-resources/{accountId}")
+    public ResponseEntity<?> serviceResources(@PathVariable String accountId,
+                                              @RequestParam(required = false) String service,
+                                              @RequestParam(required = false) String period,
+                                              @RequestParam(required = false) String basis) {
+        // Checked here and again inside withSource, which costs one extra indexed lookup on the
+        // allowed path and buys the ordering above: a caller who holds no account cannot learn
+        // anything from the shape of this endpoint's 400s. A denied caller never reaches the
+        // second check, so nothing is logged twice.
+        ResponseEntity<?> denied = denyIfNotEntitled(accountId);
+        if (denied != null) {
+            return denied;
+        }
+        Optional<CostBasis> costBasis = basisOf(basis);
+        if (costBasis.isEmpty()) {
+            return invalidBasis(basis);
+        }
+        if (service == null || service.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "A service is required",
+                    "detail", "This endpoint describes one service's resources."
+                            + " Use /top-resources for the whole account."));
+        }
+        if (service.length() > MAX_SERVICE_NAME) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Service name too long",
+                    "detail", "A billing service name is at most " + MAX_SERVICE_NAME
+                            + " characters."));
+        }
+        return withSource(accountId, period, (source, account, start, end) ->
+                metricsService.getServiceResources(source, account, service, start, end,
+                        costBasis.get()));
+    }
+
+    /**
+     * Which of this card's optional questions the report can answer. Scans no data.
+     *
+     * <p>Deliberately NOT routed through {@link #withSource}: the answer already comes from the
+     * column catalog's own in-process cache — 6h on success, 10 min on failure, zero bytes scanned
+     * either way — so a second cache in front of it buys nothing and costs correctness.
+     * {@code CurInsightCache} would hold a 200 for 1h on the open month and 6h on a closed one,
+     * with stale-while-revalidate on top, so a permissions blip that made every flag false would
+     * disable the basis toggle and the unit footnote for hours after the catalog itself had
+     * recovered — defeating the whole point of that 10-minute failure TTL.
+     */
+    @GetMapping("/capabilities/{accountId}")
+    public ResponseEntity<?> capabilities(@PathVariable String accountId,
+                                          @RequestParam(required = false) String period) {
+        ResponseEntity<?> denied = denyIfNotEntitled(accountId);
+        if (denied != null) {
+            return denied;
+        }
+        Optional<YearMonth> target = parsePeriod(period);
+        if (target.isEmpty()) {
+            return invalidPeriod(period);
+        }
+        // runWithSource, not withSource: same 404 / 409 / 422 / 502 behaviour, no HTTP-tier cache.
+        return runWithSource(accountId, target.get(), (source, account, start, end) ->
+                metricsService.getReportCapabilities(source, account));
     }
 
     /** Reservation and Savings Plan spend that went unused. */
@@ -238,30 +341,32 @@ public class CurInsightsController {
         if (resourceId.isBlank()) {
             // The resource table groups charges that belong to no resource — tax, support — under one
             // heading. There is no per-resource story to tell about them, so the panel is not offered.
+            // Before the entitlement check on purpose: a malformed request is malformed for every
+            // caller, and answering 400 first keeps that response identical for all of them.
             return ResponseEntity.badRequest().body(Map.of(
                     "error", "A resource id is required",
                     "detail", "Charges that belong to no resource have no per-resource breakdown."));
         }
+        ResponseEntity<?> denied = denyIfNotEntitled(accountId);
+        if (denied != null) {
+            return denied;
+        }
+        Optional<YearMonth> target = parsePeriod(period);
+        if (target.isEmpty()) {
+            return invalidPeriod(period);
+        }
         return insightCache.getOrCompute(accountId,
-                () -> computeResourceChange(accountId, resourceId, service, region, period));
+                () -> computeResourceChange(accountId, resourceId, service, region, target.get()));
     }
 
     private ResponseEntity<?> computeResourceChange(String accountId, String resourceId,
-                                                    String service, String region, String period) {
+                                                    String service, String region, YearMonth current) {
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
         CloudAccount account = accounts.get(0);
 
-        YearMonth current;
-        try {
-            current = period != null && !period.isBlank() ? YearMonth.parse(period) : YearMonth.now();
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "error", "Invalid period",
-                    "detail", "Expected YYYY-MM, got '" + period + "'"));
-        }
         YearMonth prior = current.minusMonths(1);
 
         /*
@@ -309,17 +414,24 @@ public class CurInsightsController {
     @GetMapping("/price-vs-volume/{accountId}")
     public ResponseEntity<?> priceVsVolume(@PathVariable String accountId,
                                            @RequestParam(required = false) String period) {
-        return insightCache.getOrCompute(accountId, () -> computePriceVsVolume(accountId, period));
+        ResponseEntity<?> denied = denyIfNotEntitled(accountId);
+        if (denied != null) {
+            return denied;
+        }
+        Optional<YearMonth> target = parsePeriod(period);
+        if (target.isEmpty()) {
+            return invalidPeriod(period);
+        }
+        return insightCache.getOrCompute(accountId, () -> computePriceVsVolume(accountId, target.get()));
     }
 
-    private ResponseEntity<?> computePriceVsVolume(String accountId, String period) {
+    private ResponseEntity<?> computePriceVsVolume(String accountId, YearMonth current) {
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
         CloudAccount account = accounts.get(0);
 
-        YearMonth current = period != null ? YearMonth.parse(period) : YearMonth.now();
         YearMonth prior = current.minusMonths(1);
 
         Optional<CurSource> source = curSourceResolver.resolve(
@@ -350,33 +462,148 @@ public class CurInsightsController {
         Object run(CurSource source, CloudAccount account, LocalDate start, LocalDate end);
     }
 
+    /** Twice the longest real AWS product name. See {@link #serviceResources} for why it is bounded. */
+    private static final int MAX_SERVICE_NAME = 128;
+
     private ResponseEntity<?> withSource(String accountId, String period, SourceQuery query) {
+        ResponseEntity<?> denied = denyIfNotEntitled(accountId);
+        if (denied != null) {
+            return denied;
+        }
+        Optional<YearMonth> target = parsePeriod(period);
+        if (target.isEmpty()) {
+            return invalidPeriod(period);
+        }
         // Every section on the Cost and FinOps pages that reads the report comes through
         // here, so this one wrap is what stops them waiting on Athena per visit.
-        return insightCache.getOrCompute(accountId, () -> runWithSource(accountId, period, query));
+        return insightCache.getOrCompute(accountId, () -> runWithSource(accountId, target.get(), query));
     }
 
-    private ResponseEntity<?> runWithSource(String accountId, String period, SourceQuery query) {
+    private ResponseEntity<?> runWithSource(String accountId, YearMonth target, SourceQuery query) {
         List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
         if (accounts.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
         CloudAccount account = accounts.get(0);
 
-        YearMonth target = period != null ? YearMonth.parse(period) : YearMonth.now();
         LocalDate start = target.atDay(1);
         LocalDate end = endOf(target);
 
         Optional<CurSource> source = curSourceResolver.resolve(account, start, end);
         if (source.isEmpty()) {
-            return noCurSource(accountId);
+            // The two-argument form. `noCurSource(accountId)` sends a reader to connect a report
+            // that is already connected; the resolver's own sentence names the actual limit ("this
+            // report starts at 2026-09"), which is the difference between understanding an empty
+            // month and concluding the product is broken.
+            return noCurSource(accountId,
+                    curSourceResolver.describeCoverage(account, start, end, false).message());
         }
 
         try {
             return ResponseEntity.ok(query.run(source.get(), account, start, end));
+        } catch (ReportCannotAnswerException e) {
+            return cannotAnswer(accountId, e);
         } catch (Exception e) {
             return queryFailed(accountId, e);
         }
+    }
+
+    /**
+     * The requested month, or empty when the parameter is unusable.
+     *
+     * <p>Blank counts as absent-and-invalid: {@code ?period=} arrives as the empty string, which
+     * {@code YearMonth.parse} throws on just as readily as {@code 2026-13}.
+     *
+     * <p>Called from the handlers rather than from the compute methods below them. Those are the
+     * cache's compute suppliers, and a 400 decided there is a request-parameter check on a code
+     * path that also runs on {@code awsTaskExecutor} during a background refresh, where there is no
+     * request left to validate. Three call sites had three behaviours before this: one returned
+     * 400, the other two parsed outside their try and answered 500.
+     */
+    private Optional<YearMonth> parsePeriod(String period) {
+        if (period == null) {
+            return Optional.of(YearMonth.now());
+        }
+        if (period.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(YearMonth.parse(period));
+        } catch (RuntimeException e) {
+            return Optional.empty();
+        }
+    }
+
+    /** 400 naming the expected format and what arrived, so the caller can see which it got wrong. */
+    private ResponseEntity<Map<String, String>> invalidPeriod(String period) {
+        return ResponseEntity.badRequest().body(Map.of(
+                "error", "Invalid period",
+                "detail", "Expected YYYY-MM, got '" + period + "'"));
+    }
+
+    /**
+     * The requested cost basis, or empty when the value is not one of the two.
+     *
+     * <p>Outside {@link #withSource}, because an unparseable basis must never reach a query and
+     * {@code withSource} already has a return type that cannot carry a parse failure cleanly.
+     */
+    private Optional<CostBasis> basisOf(String raw) {
+        try {
+            return Optional.of(CostBasis.from(raw));
+        } catch (IllegalArgumentException e) {
+            return Optional.empty();
+        }
+    }
+
+    /** 400 listing both accepted values, mirroring {@link #invalidPeriod}. */
+    private ResponseEntity<Map<String, String>> invalidBasis(String raw) {
+        return ResponseEntity.badRequest().body(Map.of(
+                "error", "Invalid cost basis",
+                "detail", "Expected 'unblended' or 'amortized', got '" + raw + "'"));
+    }
+
+    /**
+     * Null when this caller may read this account, or the response to return instead.
+     *
+     * <p>Call this on the request thread, before {@code insightCache.getOrCompute} — from a
+     * handler, or from {@link #withSource}, which is the shared prologue for ten of them. Never
+     * from {@code runWithSource}, {@code computeResourceChange} or {@code computePriceVsVolume}:
+     * those are the cache's compute suppliers, and a check inside a supplier is wrong twice. It is
+     * skipped on every cache hit, since {@code getOrCompute} returns the stored json without
+     * calling the supplier and the key carries no client id — so tenant A's cached invoice would be
+     * served to tenant B. And it runs on {@code awsTaskExecutor} during a stale-while-revalidate
+     * refresh where there is no security context, so it would fail closed on a legitimate refresh
+     * and the 404 it returned would trip {@code refreshInBackground}'s {@code is4xxClientError()}
+     * branch and evict a good entry.
+     *
+     * <p>404 rather than 403 for "not yours", matching {@code AgentController}: unknown and
+     * not-yours give the identical answer, so the endpoint cannot be used to discover which account
+     * ids exist.
+     */
+    private ResponseEntity<?> denyIfNotEntitled(String accountId) {
+        try {
+            accessService.requireAwsAccess(currentCaller(), accountId);
+            return null;
+        } catch (AccessDeniedException denied) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    /**
+     * The authenticated principal, or null.
+     *
+     * <p>Read here rather than declared as {@code @AuthenticationPrincipal} on twelve handler
+     * signatures: one place to change, and a thirteenth endpoint added later inherits the guard
+     * instead of needing to remember it. A non-{@code ClientUserDetails} principal yields null,
+     * which {@code requireAwsAccess} rejects by failing closed — so the endpoint 404s rather than
+     * NPEs. Under impersonation {@code ImpersonationJwtFilter} installs a {@code ClientUserDetails}
+     * carrying the impersonated user's id, so the check evaluates the session the support engineer
+     * is actually looking at.
+     */
+    private ClientUserDetails currentCaller() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Object principal = authentication == null ? null : authentication.getPrincipal();
+        return principal instanceof ClientUserDetails caller ? caller : null;
     }
 
     /**
@@ -397,15 +624,17 @@ public class CurInsightsController {
         return month.atEndOfMonth();
     }
 
-    private ResponseEntity<Map<String, String>> noCurSource(String accountId) {
-        return noCurSource(accountId, null);
-    }
-
     /**
+     * 409 — no report covers the requested month.
+     *
+     * <p>Every caller now passes the resolver's reason; the one-argument overload that answered with
+     * the generic sentence alone is gone, because it was what made ten endpoints explain the same
+     * absence differently from the two that already knew better.
+     *
      * @param reason the resolver's own sentence, which names the actual limit — "this report starts at
      *               2026-09" is the difference between a reader understanding why a month is empty and
      *               concluding the product is broken. Falls back to the generic explanation when the
-     *               caller has no coverage detail to hand.
+     *               resolver has nothing specific to say.
      */
     private ResponseEntity<Map<String, String>> noCurSource(String accountId, String reason) {
         return ResponseEntity.status(409).body(Map.of(
@@ -413,6 +642,26 @@ public class CurInsightsController {
                 "detail", reason != null && !reason.isBlank() ? reason
                         : "These insights are derived from CUR columns that the Cost Explorer API"
                         + " does not expose, so there is no fallback. Connect a CUR for this account."));
+    }
+
+    /**
+     * 422 — the report is readable and this question cannot be put to it.
+     *
+     * <p>Not 409: that means "this account has no CUR" and the client hides the whole card on it.
+     * This is a readable report that cannot answer one specific question, and the card must stay so
+     * the control that recovers from it is still on screen.
+     *
+     * <p>Logged at INFO rather than WARN. It is a property of the export rather than a fault, and
+     * the UI prevents it being reached at all in the normal case.
+     */
+    private ResponseEntity<Map<String, Object>> cannotAnswer(String accountId,
+                                                             ReportCannotAnswerException e) {
+        logger.info("[CUR] Account {} asked for {}, which this report cannot answer — missing {}",
+                accountId, e.question(), e.missingColumns());
+        return ResponseEntity.unprocessableEntity().body(Map.of(
+                "error", "This report cannot answer " + e.question(),
+                "detail", String.valueOf(e.getMessage()),
+                "missingColumns", e.missingColumns()));
     }
 
     private ResponseEntity<Map<String, String>> queryFailed(String accountId, Exception e) {

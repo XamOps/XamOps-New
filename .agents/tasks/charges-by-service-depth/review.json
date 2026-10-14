@@ -1,0 +1,42 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "id": 1,
+      "label": "Orphaned Javadoc on locationExpr",
+      "severity": "NIT",
+      "blocking": false,
+      "confidence": "confirmed",
+      "file": "xamops-service/src/main/java/com/xammer/cloud/service/cur/CurAdvancedMetricsService.java:1641-1651",
+      "detail": "instanceTypeExpr's Javadoc was inserted between locationExpr's doc comment and locationExpr itself, so the 'Where traffic came from or went to' comment and its @param direction attach to nothing and locationExpr (:1669) is undocumented. Move the comment back down to the method it describes. Inherited from the parked base work rather than written in this build."
+    },
+    {
+      "id": 2,
+      "label": "Empty-month copy is basis-blind",
+      "severity": "NIT",
+      "blocking": false,
+      "confidence": "possible",
+      "file": "frontend-app/src/components/Cost/ChargesByServiceSection.tsx:563,647",
+      "detail": "On the amortized basis a month whose rows are all commitment fees nets to zero per group, is dropped by the HAVING, and the card asserts 'No charges found for {monthLabel}.' while the amortized note is suppressed by the same isEmpty gate. Check whether charges === [] is reachable on amortized for an account with fees and no covered usage; if so, say 'nothing is listed on this basis' there."
+    },
+    {
+      "id": 3,
+      "label": "Blocked-basis sentence sits under the popover",
+      "severity": "NIT",
+      "blocking": false,
+      "confidence": "confirmed",
+      "file": "frontend-app/src/components/Cost/CostBasisToggle.tsx:176-194",
+      "detail": "The aria-describedby paragraph and the explanation popover are both absolute top-full right-0, and the popover is opaque at z-20, so opening the explanation while amortized is blocked hides the sentence explaining why. Offset one of the two. Visual only; the accessible description path is unaffected."
+    },
+    {
+      "id": 4,
+      "label": "Ledger cache-key prefix exercised but not asserted",
+      "severity": "NIT",
+      "blocking": false,
+      "confidence": "confirmed",
+      "file": "frontend-app/src/components/Cost/__tests__/CostDetailTabs.providers.test.tsx:51-53",
+      "detail": "The table drives insightPrefix over gcp-/azure- but asserts nothing about the ledger's cache key, so round-3 MEDIUM #5's requested assertion is unpinned — even though the derivation at ChargesByServiceSection.tsx:915 is correct."
+    }
+  ],
+  "reviewDoc": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/charges-by-service-depth/code-review.md"
+}

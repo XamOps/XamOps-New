@@ -62,6 +62,28 @@ const isRecordWith =
     lists.every((field) => Array.isArray(body[field])) &&
     numbers.every((field) => typeof body[field] === 'number');
 
+/**
+ * Which cost a figure is computed from. Matches the backend enum's wire form.
+ *
+ * `unblended` is what AWS charged on the day and matches the invoice; `amortized` spreads a
+ * commitment across its term, which is the only basis on which two months are comparable.
+ */
+export type CostBasis = 'unblended' | 'amortized';
+
+/**
+ * Adds the basis to a query, unless it is the default.
+ *
+ * `basis=unblended` on the wire would be semantically identical and operationally expensive:
+ * `CurInsightCache` keys on the raw query string, so it would fork a second server-side entry and
+ * a second Athena scan for the same figures — which is exactly what the react-query no-suffix rule
+ * exists to prevent, arriving one layer down. `CostBasis.from(null)` is `UNBLENDED`, so omitting it
+ * says the same thing.
+ */
+const withBasis = (params: URLSearchParams, basis?: CostBasis): URLSearchParams => {
+  if (basis && basis !== 'unblended') params.set('basis', basis);
+  return params;
+};
+
 export interface SavingsRate {
   /** What was actually paid, with commitments spread across their term. */
   amortizedCost: number;
@@ -140,13 +162,99 @@ export interface ServiceCharge {
 export const fetchChargesByService = async (
   accountId: string,
   period?: string,
+  basis?: CostBasis,
 ): Promise<ServiceCharge[] | null> => {
-  const query = period ? `?period=${encodeURIComponent(period)}` : '';
+  const params = new URLSearchParams();
+  if (period) params.set('period', period);
+  withBasis(params, basis);
+  const query = params.toString();
   const res = await apiFetch(
-    `/api/xamops/cur-insights/charges-by-service/${encodeURIComponent(accountId)}${query}`,
+    `/api/xamops/cur-insights/charges-by-service/${encodeURIComponent(accountId)}${
+      query ? `?${query}` : ''
+    }`,
   );
   if (!res.ok) return null;
   return readShape<ServiceCharge[]>(res, isList);
+};
+
+/**
+ * One line item type's share of the bill.
+ *
+ * Declared here rather than in `gcpCostInsightsApi`, which carried it with a comment saying it
+ * would move the moment AWS grew a frontend for `/cur-insights/charge-types`. GCP and Azure now
+ * re-import it, the way they already do for `ServiceCharge` and `TopResources`.
+ */
+export interface ChargeTypeAmount {
+  /** Raw code: Usage, DiscountedUsage, Tax, Credit… Unmapped codes are shown verbatim. */
+  chargeType: string;
+  /** Negative for credits, refunds and SavingsPlanNegation, so the rows sum to the invoice. */
+  cost: number;
+}
+
+/**
+ * Spend split by line item type — the ledger that proves the invoice total adds up.
+ *
+ * On the amortized basis the commitment fee types are absent rather than zero: their cost is
+ * already inside reserved and Savings Plan usage, so listing them would count it twice.
+ *
+ * Null means "no report for this account" — the caller should omit the section.
+ */
+export const fetchChargeTypes = async (
+  accountId: string,
+  period?: string,
+  basis?: CostBasis,
+): Promise<ChargeTypeAmount[] | null> => {
+  const params = new URLSearchParams();
+  if (period) params.set('period', period);
+  withBasis(params, basis);
+  const query = params.toString();
+  const res = await apiFetch(
+    `/api/xamops/cur-insights/charge-types/${encodeURIComponent(accountId)}${
+      query ? `?${query}` : ''
+    }`,
+  );
+  if (!res.ok) return null;
+  return readShape<ChargeTypeAmount[]>(res, isList);
+};
+
+/**
+ * Which of the charges card's optional questions this report can answer.
+ *
+ * Each `*Detail` is written by the backend because only the backend knows which column is missing,
+ * and is empty when its flag is true — the UI renders nothing for an empty one.
+ */
+export interface ReportCapabilities {
+  amortizedAvailable: boolean;
+  /** Exactly which columns are absent, so the sentence can name them. */
+  amortizedMissingColumns: string[];
+  unitAvailable: boolean;
+  /** Why the amortized basis is unavailable, naming the columns. Empty when it is available. */
+  amortizedDetail: string;
+  /** Why quantities carry no unit. Empty when they do. */
+  unitDetail: string;
+}
+
+/**
+ * What the report can be asked, without asking it anything. Scans no data.
+ *
+ * Null means the probe itself failed, which is a different fact from "the report cannot do this" —
+ * the basis toggle says a different sentence for each.
+ *
+ * `isRecordWith` checks arrays and numbers only, so a 2xx body carrying the array and no booleans
+ * is accepted and reads as every flag false, i.e. "the report cannot do any of this". That
+ * degradation is benign and fails closed; extending the shared validator with a `booleans` list for
+ * one caller would be the larger change.
+ */
+export const fetchReportCapabilities = async (
+  accountId: string,
+  period?: string,
+): Promise<ReportCapabilities | null> => {
+  const query = period ? `?period=${encodeURIComponent(period)}` : '';
+  const res = await apiFetch(
+    `/api/xamops/cur-insights/capabilities/${encodeURIComponent(accountId)}${query}`,
+  );
+  if (!res.ok) return null;
+  return readShape<ReportCapabilities>(res, isRecordWith(['amortizedMissingColumns'], []));
 };
 
 /** Commitment spend that bought nothing. */
@@ -156,6 +264,15 @@ export interface UnusedCommitment {
   /** Amortised upfront portion not matched by usage. */
   unusedUpfrontFee: number;
   total: number;
+  /**
+   * False when the report does not carry the columns this is measured from, so the totals are zero
+   * and mean nothing — "this report cannot say" rather than "you wasted nothing".
+   *
+   * Optional because only AWS populates it: Azure declares its own `AzureUnusedCommitment` and does
+   * not share this interface, so the field is AWS-only by construction. Absent means "no such
+   * concept here", which must keep rendering — hence callers test `available !== false`.
+   */
+  available?: boolean;
 }
 
 /**
@@ -327,6 +444,37 @@ export const fetchTopResources = async (
   return readShape<TopResources>(res, isRecordWith(['resources'], ['totalCost']));
 };
 
+/**
+ * One service's resources, ranked, capped inside that service.
+ *
+ * Returns the same shape as `fetchTopResources`, so one panel renders either. The difference is
+ * what the figures mean: `totalCost` and `groupCount` here describe the service, not the account,
+ * which is what lets the panel state what it is not showing instead of guessing. The account-wide
+ * endpoint returns the costliest 500 groups in the whole account, so a service low down the bill
+ * had none of its resources in that list at all.
+ *
+ * Null means the report cannot answer — no report, or a 422 from the basis guard. That is not the
+ * same as an empty list, and the panel renders them differently.
+ */
+export const fetchServiceResources = async (
+  accountId: string,
+  service: string,
+  period?: string,
+  basis?: CostBasis,
+): Promise<TopResources | null> => {
+  // URLSearchParams, not a template literal: a service name is free text from the report, and
+  // "AWS Backup & Restore" concatenated raw would cut the query string in half at the & while
+  // "Route 53 Resolver + DNS Firewall" would lose the + to a space.
+  const params = new URLSearchParams({ service });
+  if (period) params.set('period', period);
+  withBasis(params, basis);
+  const res = await apiFetch(
+    `/api/xamops/cur-insights/service-resources/${encodeURIComponent(accountId)}?${params}`,
+  );
+  if (!res.ok) return null;
+  return readShape<TopResources>(res, isRecordWith(['resources'], ['totalCost']));
+};
+
 // ── One resource, in depth ───────────────────────────────────────────────────
 
 /**
@@ -380,6 +528,22 @@ export interface ResourceChange {
   currentQuantity: number;
   priceEffect: number;
   volumeEffect: number;
+  /**
+   * Spend in the selected month that the per-line comparison does not cover.
+   *
+   * <p>`currentCost` and `lines` count usage rows only, because those are the rows carrying a quantity
+   * a unit rate can be computed from. Anything the resource was charged as discounted usage, Savings
+   * Plan coverage, a reservation fee, tax or a credit is real spend this breakdown cannot decompose —
+   * and on a commitment-covered instance it is most of the cost.
+   *
+   * <p>Reported so the panel can reconcile itself against the resource row that opened it instead of
+   * quietly showing a smaller number. Zero on the common case.
+   *
+   * <p>Optional because only the AWS report sends it; GCP and Azure compute their equivalents without
+   * a usage-only restriction, so there is nothing excluded to report. Absent means "not applicable
+   * here", which is why the UI omits the note rather than rendering a zero.
+   */
+  excludedCost?: number;
   /**
    * False when the billing source does not reach the earlier month, so the prior figures and both
    * effects are zero and mean nothing.

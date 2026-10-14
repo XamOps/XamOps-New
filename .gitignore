@@ -157,3 +157,12 @@ id_ed25519.pub
 # watch site-packages and drowning in EMFILE "too many open files" errors.
 venv/
 .venv/
+
+# Git worktrees. Agent-driven work runs in .worktrees/<name> so it stays isolated
+# from the main checkout; committing that directory would pull a second working
+# copy (plus its target/ build output and .git pointer) into this repo.
+.worktrees/
+
+# Scratch files written during local debugging. The .tmp- prefix marks anything
+# throwaway — never meant to be committed.
+.tmp-*

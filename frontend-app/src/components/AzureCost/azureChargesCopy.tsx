@@ -1,5 +1,6 @@
 import type { ChargesByServiceCopy } from '../Cost/ChargesByServiceSection';
-import type { TopResourcesCopy } from '../Cost/TopResourcesSection';
+import type { ChargeTypeReconciliationCopy } from '../Cost/ChargeTypeReconciliation';
+import type { ServiceResourcesCopy } from '../Cost/ServiceResourcesDrawer';
 
 /**
  * What the invoice and resource panels say on Azure.
@@ -37,14 +38,14 @@ export const AZURE_CHARGES_COPY: ChargesByServiceCopy = {
   ),
 };
 
-export const AZURE_RESOURCES_COPY: TopResourcesCopy = {
+export const AZURE_RESOURCES_COPY: ServiceResourcesCopy = {
   unavailableTitle: 'Per-resource cost is not available',
 
   unavailableDetail: (
     <>
       This comes from a Cost Management query grouped by resource, and Azure would not group this
       subscription&apos;s spend that way. Which dimensions are available depends on the agreement
-      behind the subscription — the service, meter and region breakdown on the other tab is
+      behind the subscription — the service, meter and region breakdown behind this panel is
       unaffected.
     </>
   ),
@@ -70,4 +71,56 @@ export const AZURE_RESOURCES_COPY: TopResourcesCopy = {
       group.
     </>
   ),
+};
+
+/**
+ * What the reconciliation ledger says on Azure.
+ *
+ * <p>Azure's charge types arrive already humanised — `AzureCostInsightsService.readable` turns
+ * `UnusedReservation` into "Unused reservation" before the payload leaves the backend — so none of
+ * them reach the client as a raw code and the shared fall-through already renders a readable label.
+ * What is overridden here is therefore the *explanation* rather than the name, keyed on the strings
+ * that service actually emits. Anything it emits that is not listed falls through to its own label
+ * with no explanation, which is a better answer than a guess.
+ *
+ * <p>The figures are amortized by Azure's own choice — the Cost Management query asks for
+ * AmortizedCost, which is why this page has no basis toggle — so a reservation purchase appears as
+ * the part of it that applies to this month rather than whole.
+ */
+export const AZURE_CHARGE_TYPES_COPY: ChargeTypeReconciliationCopy = {
+  explanation: (
+    <>
+      Every line Cost Management returns carries a charge type. These are those types, summed — so
+      the figures below are the same money as the breakdown above, cut by what kind of charge it was
+      rather than by which service incurred it.
+    </>
+  ),
+
+  emptyHint: (
+    <>
+      Nothing was billed in this month, so there is nothing to reconcile. Cost Management refreshes
+      every few hours, so a month that has only just begun can also read as empty.
+    </>
+  ),
+
+  labels: {
+    Usage: { label: 'Usage', detail: 'What you used, at the rate you pay for it' },
+    Purchase: {
+      label: 'Purchase',
+      detail: 'A reservation, savings plan or Marketplace purchase, spread across the term it buys',
+    },
+    'Unused reservation': {
+      label: 'Unused reservation',
+      detail: 'Reservation capacity this month that no running resource matched',
+    },
+    'Unused savings plan': {
+      label: 'Unused savings plan',
+      detail: 'The hourly commitment this month that usage did not reach',
+    },
+    Refund: { label: 'Refund', detail: 'Money returned to you' },
+    'Rounding adjustment': {
+      label: 'Rounding',
+      detail: 'Sub-cent rounding across the invoice',
+    },
+  },
 };

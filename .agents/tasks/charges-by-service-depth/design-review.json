@@ -1,0 +1,172 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "reviewDoc": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/charges-by-service-depth/design-review.md",
+  "summary": {
+    "high": 2,
+    "medium": 7,
+    "nit": 11,
+    "total": 20
+  },
+  "findings": [
+    {
+      "id": 1,
+      "severity": "HIGH",
+      "title": "/charge-types still names line_item_line_item_type unguarded and the absent-column behaviour is unspecified",
+      "where": "design.md — \"Changed: getChargeTypeBreakdown\"; the optional-columns table row for line_item_line_item_type; the error-handling table (no row for this case)",
+      "problem": "CurAdvancedMetricsService.java:1424 and :1430 select and GROUP BY line_item_line_item_type directly. The design declares a report without that column supported (chargeTypeAvailable=false), guards it in getUnusedCommitment and via basisExpr, but leaves F1's own query unguarded — so /charge-types 502s on a trimmed Data Export. This violates the design's own invariant (\"A query never names a column the table lacks\") and leaves rule 8's 409/422/200-[] trichotomy unresolved for this case. Reachable from the UI: `available` is undefined while the probe is in flight or has failed (probeState 'unknown', which the design argues is routine), and undefined \"renders normally\". Whether the fetch is suppressed when available === false is also never stated.",
+      "fix": "Guard the column and throw ReportCannotAnswerException(\"the charge type breakdown\", List.of(\"line_item_line_item_type\")) -> 422; add the error-table row; state in ChargeTypeReconciliation's behaviour list that available === false renders the unavailable copy INSTEAD of the trigger so no query can ever be issued; add test 15a asserting the throw and that no query is issued."
+    },
+    {
+      "id": 2,
+      "severity": "HIGH",
+      "title": "ReportCapabilities' \"the column list could not be read\" sentences are unimplementable; CurColumnCatalog has no such signal and is not in Files touched",
+      "where": "design.md — paragraph after the ReportCapabilities record; error-handling table row for /capabilities; edge-case row for information_schema unreadable; CostBasisToggle's 'unavailable' row",
+      "problem": "CurColumnCatalog exposes only has(...) and present(...), both answered from columns(...), which caches Set.of() for 10 minutes on a failed probe. \"Catalog unreadable\" and \"column genuinely absent\" are byte-identical to every caller, so getReportCapabilities cannot write different sentences for them. CurColumnCatalog.java appears in neither the New nor the Modified file list, and test 8 does not cover the unreadable case, so nothing would catch it.",
+      "fix": "Add `boolean readable(CurSource, CloudAccount) { return !columns(source, account).isEmpty(); }` to CurColumnCatalog (an empty set is only ever a failed probe), add CurColumnCatalog.java to the Modified list, branch the three detail sentences on it, and add test 8a: catalog unreadable -> all flags false and all three details say the list could not be read. If the distinction is not worth the method, delete it from all three places."
+    },
+    {
+      "id": 3,
+      "severity": "MEDIUM",
+      "title": "Build order assigns tests to steps before the endpoints and parameters they exercise exist",
+      "where": "design.md — \"Build order\", steps 0 and 1",
+      "problem": "Step 1 claims tests 28, 29, 30 (/service-resources, built in step 5) and 32, 33 (the basis query parameter and basisOf, built in step 4). Step 0 claims test 35, which asserts 400 on six endpoints including service-resources (step 5) and capabilities (step 1). A coder following the steps writes tests that cannot compile or cannot pass.",
+      "fix": "Re-assign: step 0 -> 31, 35 (charges-by-service, charge-types, price-vs-volume, resource-change only), 37a-37c. Step 1 -> 1-9, 30 (/capabilities only), 31, 34, 35 (+capabilities), 36, 37, 37d. Step 4 -> add 32, 33. Step 5 -> add 28, 29, 30 (+/service-resources), 35 (+service-resources). State the rule in the preamble: a test lands in the step that introduces the surface it calls."
+    },
+    {
+      "id": 4,
+      "severity": "MEDIUM",
+      "title": "ChargeTypeReconciliation's fetcher snippet does not compile under strict mode, and undefined vs null is unspecified",
+      "where": "design.md — \"New file: ChargeTypeReconciliation.tsx\", props block and ledgerKey snippet",
+      "problem": "fetcher is typed `((...) => ...) | null` and optional, then invoked as `fetcher(a, p, basis)`. frontend-app/tsconfig.json has strict: true and npm run build runs tsc, so this is TS2722/TS18048 and fails `npx tsc --noEmit` (build step 6). Separately, the behaviour list specifies fetcher === null renders nothing but says nothing about the prop being omitted, which is what a direct consumer passes — unlike every sibling component on this card, which defaults its fetcher.",
+      "fix": "Default it: `fetcher = fetchChargeTypes`, then `const read = fetcher ?? null;`, pass `read && expanded ? accountId : null` to useCurInsight, call through `read`, and `if (!read) return null;` so null and undefined behave alike. Amend test 49 to cover both fetcher={null} and the prop omitted."
+    },
+    {
+      "id": 5,
+      "severity": "MEDIUM",
+      "title": "ChargeTypeReconciliation's insightName value is never specified, so F1's cache key loses the provider discriminator the design requires elsewhere",
+      "where": "design.md — ChargeTypeReconciliation props (insightName?: string) and the ChargesByServiceSection bullet that renders it",
+      "problem": "The design states the convention twice (for the capability probe and in the invariants discussion) — keys are derived from insightName \"so two providers never share one cache entry for the same account id\" — then leaves it unset for the one three-provider feature in the change, where GCP, Azure and AWS all render the component. A coder defaulting insightName = 'charge-types' puts all three in one namespace.",
+      "fix": "At the call site pass insightName={`${insightName}:charge-types`} (insightName is already `${insightPrefix}charges-by-service`), default it to 'charge-types' in the component with a comment that the parent always overrides, and add to test 66 that the GCP shape's ledger key carries the gcp- prefix."
+    },
+    {
+      "id": 6,
+      "severity": "MEDIUM",
+      "title": "How the card derives `capabilities` from useCurInsight is unspecified; the obvious reading sticks on 'checking' forever after a thrown probe",
+      "where": "design.md — CostBasisToggle's probeState block; the ChargesByServiceSection capability-probe bullet",
+      "problem": "probeState keys only off `capabilities`: undefined -> 'checking', null -> 'unknown'. useCurInsight is useQuery with retry: false, which reports data === undefined AND isError === true when the query function throws (network failure). fetchReportCapabilities returns null only on a non-2xx, so the null path covers 409/422/502 but not a throw. If the card passes `data` straight through, a dropped connection renders \"Checking what this report can be asked…\" for the life of the tab — the exact failure the four-state table exists to rule out. The file's own convention (`isError ? null : (data ?? null)`) handles it, but the design never says to apply it.",
+      "fix": "Specify the derivation beside the probe-state table: undefined only while capsPending, null when capsError, otherwise caps ?? null. Add a third row to table-driven test 53a: the hook erroring resolves to 'unknown', not 'checking'."
+    },
+    {
+      "id": 7,
+      "severity": "MEDIUM",
+      "title": "BasisNote and ExcludedNote will both render on the amortized basis in the common case — the \"two notices for one toggle\" shape decision 2 rejected on the tree",
+      "where": "design.md — decision 2; \"ResourceCostDrawer.tsx — changes\"; test 71",
+      "problem": "ExcludedNote fires whenever |excludedCost| >= 0.01, and excludedCost = sumDaily(daily) - currentCost with lineAggregates restricted to line_item_line_item_type = 'Usage'. The code's own comment says that gap is \"most of the cost\" on a Savings-Plan-covered instance — which is exactly the resource a reader opens on the amortized basis. So the common amortized path stacks two notes in the identical bordered treatment, each explaining a different reason the panel's figures differ from the row that opened it. Decision 2 rejected this shape on the invoice tree (\"Two separate notices for one toggle reads as two problems\") and did not apply the reasoning here. Placement is also unspecified: ExcludedNote renders twice in the file (ResourceCostDrawer.tsx:437 and :482, once per tab); the design says only \"above its figures\".",
+      "fix": "Render BasisNote IN PLACE OF ExcludedNote when basis === 'amortized' && rowCost !== undefined, with its sentence extended to name the excluded charges when |excludedCost| >= 0.01; state that it sits exactly where ExcludedNote does, in both tabs; amend test 71 to assert the two are mutually exclusive rather than independent."
+    },
+    {
+      "id": 8,
+      "severity": "MEDIUM",
+      "title": "The optional-columns table is incomplete about pricing_unit and line_item_line_item_type, so /capabilities would call a report usable while three other sections 502",
+      "where": "design.md — \"Optional columns and the flag each maps to\"; \"Deliberately not guarded\"; \"Explicitly out of scope\"",
+      "problem": "pricing_unit is also named unguarded at CurAdvancedMetricsService.java:1155, :1166 (transferCharges) and :1252-:1253 (transferFlows) — /data-transfer, rendered directly beneath this card. line_item_line_item_type is also named unguarded at :249 (usageAndCostByService -> /price-vs-volume, the other tab of this card), :429 (lineAggregates -> /resource-change, the nested drawer) and CurCostDataSource.java:311. So the card reports unitAvailable / chargeTypeAvailable to the client while four other queries on the same two surfaces still fail at Athena analysis time — the same inconsistency used to justify pulling getEffectiveSavingsRate into scope, and the design's own warning about a table that stops being read.",
+      "fix": "Either guard them (transferCharges/transferFlows take the MAX(pricing_unit)/'' substitution lineAggregates already uses at :408; the two 'Usage' predicates degrade or refuse), or name all five sites in \"Explicitly out of scope\" and state the consequence: capabilities.unitAvailable and capabilities.chargeTypeAvailable describe this card only, and /data-transfer, /price-vs-volume and /resource-change keep 502-ing on those reports."
+    },
+    {
+      "id": 9,
+      "severity": "MEDIUM",
+      "title": "The vitest harness is unspecified while the Java one is specified in detail, and three tests depend on query-cache identity",
+      "where": "design.md — \"Test matrix — vitest\", tests 41-82",
+      "problem": "The Java preamble specifies the delegating CurInsightCache mock, the lenient() reason and the entitlement stubbing \"so no test invents its own\". The vitest half gets no harness, yet ~45 cases render components whose hooks are useQuery and therefore need a QueryClientProvider; src/components/Cost/__tests__/ does not exist and the repo has exactly one precedent (src/hooks/useScripts.test.tsx) and no shared helper. Tests 49a, 61 and 65 all measure cache hits under useCurInsight's staleTime of 30 minutes, so a client shared across cases makes them pass or fail for reasons unrelated to the code.",
+      "fix": "Specify a renderWithQuery helper in the vitest preamble — a fresh QueryClient per test with { retry: false, gcTime: 0 } — add it to the New frontend-app file list, and note that ServiceResourcesDrawer tests also need useLabels / useResourceLabelMap satisfied and that it renders through createPortal."
+    },
+    {
+      "id": 10,
+      "severity": "NIT",
+      "title": "The $2,254-vs-$934 figures cited for endOf are not in the code",
+      "where": "design.md — controller section, test 36, manual-verification section",
+      "problem": "CurInsightsController.endOf's comment records $1,107 against $2,367 with a $1,260 difference. The $76.42-vs-$86.01 citation is real (scopePredicate's javadoc); this one is not.",
+      "fix": "Use $1,107 vs $2,367 in all three places so the coder looking for the comment finds it."
+    },
+    {
+      "id": 11,
+      "severity": "NIT",
+      "title": "basisOf(String) has no signature and no error-rendering sibling",
+      "where": "design.md — controller change 1",
+      "problem": "parsePeriod is specified as Optional<YearMonth> with a companion invalidPeriod(period). basisOf is named only as \"a basisOf(String) helper the handlers call\", with the 400 body given but no return type — and a helper returning CostBasis cannot also return the 400.",
+      "fix": "Mirror the period pair: private Optional<CostBasis> basisOf(String raw) plus private ResponseEntity<Map<String,String>> invalidBasis(String raw), so both parameters are validated the same way in the same place."
+    },
+    {
+      "id": 12,
+      "severity": "NIT",
+      "title": "Validation ordering in the handlers is unspecified",
+      "where": "design.md — controller section; input validation summary; error-handling table",
+      "problem": "denyIfNotEntitled, parsePeriod, basisOf and the service non-blank / <=128 checks all return different statuses, and no precedence is stated except for resourceChange's resourceId.isBlank(). It decides whether an unentitled caller sending basis=amortised gets 400 or 404.",
+      "fix": "State the order once — denyIfNotEntitled, then parsePeriod, then basisOf, then endpoint parameters — and note that entitlement first is what keeps the endpoint from being an existence oracle."
+    },
+    {
+      "id": 13,
+      "severity": "NIT",
+      "title": "denyIfNotEntitled's javadoc contradicts its own chosen call site",
+      "where": "design.md — the denyIfNotEntitled snippet and \"The three call sites…\" paragraph",
+      "problem": "The javadoc says \"Call this from an HTTP handler, BEFORE insightCache.getOrCompute\", and the chosen sites are withSource(...), resourceChange(...), priceVsVolume(...), capabilities(...). withSource is a private plumbing helper, not a handler — which is where the guard belongs, but the wording tells the next reader to move it.",
+      "fix": "Reword: \"Call this on the request thread, before insightCache.getOrCompute — from a handler, or from withSource, which is the shared prologue for ten of them.\""
+    },
+    {
+      "id": 14,
+      "severity": "NIT",
+      "title": "Tests 68 and 75 are not assigned to any build step",
+      "where": "design.md — \"Build order\" steps 0-5",
+      "problem": "Every numbered test is accounted for except 68 (CostDetailTabs still renders exactly two tabs) and 75 (an unmocked /cur-insights/* path still falls through).",
+      "fix": "68 -> step 3 (the decision-1 regression guard, and step 3 is where the ledger lands in the card); 75 -> step 3, beside 72."
+    },
+    {
+      "id": 15,
+      "severity": "NIT",
+      "title": "BasisNote's prop is `format` but the sentence interpolates `money`",
+      "where": "design.md — ResourceCostDrawer.tsx changes",
+      "problem": "The component type is { basis?, rowCost?, format: (v: number) => string } and the copy reads \"The row you opened reads {money(rowCost)}\". ExcludedNote uses format.",
+      "fix": "Use format in the sentence."
+    },
+    {
+      "id": 16,
+      "severity": "NIT",
+      "title": "ChargesByServiceSection's default for scopedResourcesFetcher is not stated",
+      "where": "design.md — ChargesByServiceSection new-props block",
+      "problem": "The two new fetchers are explicitly given AWS defaults in the destructuring; the third is not mentioned, so inside the component it can be undefined, while basisEnabled/ledgerEnabled use !== null and the drawer uses Boolean(scopedFetcher). Three nullability conventions for three sibling props.",
+      "fix": "Say that scopedResourcesFetcher is deliberately NOT defaulted here because CostDetailTabs defaults it, and that the drawer's Boolean(...) is what makes undefined and null behave alike."
+    },
+    {
+      "id": 17,
+      "severity": "NIT",
+      "title": "The demoTopResources groupCount rationale no longer holds for AWS",
+      "where": "design.md — Demo mode, demoTopResources paragraph",
+      "problem": "\"groupCount stays at 214, which is what keeps the account-wide fallback's truncation note visible in demo mode.\" After F3 the AWS demo card takes the scoped path (CostDetailTabs defaults scopedResourcesFetcher, and demoServiceResources sets groupCount to the match count), so that note is reachable in demo only through the GCP and Azure pages.",
+      "fix": "Say so, or say the 214 is kept simply because nothing requires changing it."
+    },
+    {
+      "id": 18,
+      "severity": "NIT",
+      "title": "fetchReportCapabilities' shape check does not validate the flags",
+      "where": "design.md — curInsightsApi.ts, fetchReportCapabilities",
+      "problem": "isRecordWith(lists, numbers) checks arrays and numbers only (curInsightsApi.ts:58), so isRecordWith(['amortizedMissingColumns'], []) accepts a 2xx body carrying the array and no booleans — which then reads as every flag false, i.e. \"the report cannot do any of this\".",
+      "fix": "Note the degradation, or extend isRecordWith with a booleans list."
+    },
+    {
+      "id": 19,
+      "severity": "NIT",
+      "title": "Test 36 pins a private method through a controller test with no stated mechanism",
+      "where": "design.md — test 36",
+      "problem": "endOf is private, so CurInsightsControllerTest can only observe it through the LocalDate end handed to the mocked service.",
+      "fix": "Name the mechanism: an ArgumentCaptor<LocalDate> on metricsService.getChargesByService(...), asserted equal to YearMonth.now().atEndOfMonth()."
+    },
+    {
+      "id": 20,
+      "severity": "NIT",
+      "title": "Duplicate rows for service='Other' are not in the edge-case table",
+      "where": "design.md — Edge cases, \"A report that genuinely carries Other as a product name\"",
+      "problem": "getServiceResources keeps product_product_name in the GROUP BY (correctly, for row-shape parity) and servicePredicate('Other') matches NULL, '' and the literal 'Other'. A report carrying both forms yields two groups for the same (resource_id, region), both relabelled \"Other\" by blankTo — two rows with the same id in the panel. Pre-existing in getTopResources and not acknowledged.",
+      "fix": "Add \"…and a resource billed under both forms appears as two rows with the same id\" to that edge-case row."
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import type { ChargesByServiceCopy } from '../Cost/ChargesByServiceSection';
-import type { TopResourcesCopy } from '../Cost/TopResourcesSection';
+import type { ChargeTypeReconciliationCopy } from '../Cost/ChargeTypeReconciliation';
+import type { ServiceResourcesCopy } from '../Cost/ServiceResourcesDrawer';
 
 /**
  * What the invoice and resource panels say on GCP.
@@ -33,14 +34,14 @@ export const GCP_CHARGES_COPY: ChargesByServiceCopy = {
   ),
 };
 
-export const GCP_RESOURCES_COPY: TopResourcesCopy = {
+export const GCP_RESOURCES_COPY: ServiceResourcesCopy = {
   unavailableTitle: 'Per-resource cost is not available',
 
   unavailableDetail: (
     <>
       This project uses GCP&apos;s standard billing export, which records no resource name. Switching
       the export to <strong>detailed usage cost</strong> adds it from the next billing period — the
-      service and SKU breakdown on the other tab works either way.
+      service and SKU breakdown behind this panel works either way.
     </>
   ),
 
@@ -63,4 +64,52 @@ export const GCP_RESOURCES_COPY: TopResourcesCopy = {
       as its last path segment. A row with no name is a charge the export attributes to no resource.
     </>
   ),
+};
+
+/**
+ * What the reconciliation ledger says on GCP.
+ *
+ * <p>The AWS defaults name AWS charge types and the Cost and Usage Report. GCP's export records its
+ * own set in `cost_type` and `credits.type`, and the backend passes them through as it finds them,
+ * so only the codes it emits raw are overridden here — anything else falls through to its own code,
+ * which is a better answer than a guess.
+ */
+export const GCP_CHARGE_TYPES_COPY: ChargeTypeReconciliationCopy = {
+  explanation: (
+    <>
+      Every line in the billing export carries a cost type, and credits carry a discount type. These
+      are those types, summed — so the figures below are the same money as the breakdown above, cut
+      by what kind of charge it was rather than by which service incurred it.
+    </>
+  ),
+
+  emptyHint: <>Nothing was billed in this month, so there is nothing to reconcile.</>,
+
+  labels: {
+    Regular: { label: 'Usage', detail: 'What you used, at the rate you pay for it' },
+    'Committed usage discount': {
+      label: 'Committed use discount',
+      detail: 'The discount earned by committing to a level of usage for one or three years',
+    },
+    'Sustained usage discount': {
+      label: 'Sustained use discount',
+      detail: 'An automatic discount for running a workload for most of the month',
+    },
+    'Free tier': {
+      label: 'Free tier',
+      detail: 'Usage inside the monthly free allowance, credited back',
+    },
+    Tax: { label: 'Tax', detail: 'Tax on the charges above' },
+    Adjustment: {
+      label: 'Adjustment',
+      detail: 'A correction Google applied to a previously billed charge',
+    },
+    // The export's `rounding_error` cost type, which the backend's readable() renders this way.
+    'Rounding error': {
+      label: 'Rounding',
+      detail: 'Sub-cent rounding across the invoice',
+    },
+    Discount: { label: 'Discount', detail: 'A negotiated discount applied to this bill' },
+    Promotion: { label: 'Promotion', detail: 'Promotional credit applied to this bill' },
+  },
 };

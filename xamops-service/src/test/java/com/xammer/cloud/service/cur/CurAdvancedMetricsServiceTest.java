@@ -6,6 +6,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -15,10 +17,13 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -72,6 +77,7 @@ class CurAdvancedMetricsServiceTest {
     @Test
     @DisplayName("Savings rate is amortized cost against public on-demand cost")
     void savingsRateUsesAmortizedNumerator() {
+        everyColumnPresent();
         when(athena.query(any(), any(), anyString())).thenReturn(List.of(Map.of(
                 "amortized", "700.0", "on_demand", "1000.0", "unblended", "650.0")));
 
@@ -86,6 +92,7 @@ class CurAdvancedMetricsServiceTest {
     @Test
     @DisplayName("Savings rate ignores tax and credits, which have no on-demand counterpart")
     void savingsRateRestrictsToUsageLines() {
+        everyColumnPresent();
         when(athena.query(any(), any(), contains("line_item_line_item_type IN ("
                 + "'Usage','DiscountedUsage','SavingsPlanCoveredUsage','SavingsPlanNegation')")))
                 .thenReturn(List.of());
@@ -100,10 +107,148 @@ class CurAdvancedMetricsServiceTest {
     @Test
     @DisplayName("Zero on-demand cost yields a zero rate rather than a division by zero")
     void savingsRateHandlesZeroDenominator() {
+        everyColumnPresent();
         when(athena.query(any(), any(), anyString())).thenReturn(List.of(Map.of(
                 "amortized", "50.0", "on_demand", "0", "unblended", "50.0")));
 
         assertEquals(0.0, service.getEffectiveSavingsRate(source, account, start, end).rate(), 0.0001);
+    }
+
+    @Test
+    @DisplayName("Savings rate refuses a trimmed export rather than 502-ing on a missing column")
+    void savingsRateRefusesWithoutTheCommitmentColumn() {
+        // Regression: this method reached amortizedCostExpr directly, so a report without the
+        // column failed in Athena's analysis phase — a 502 — while /capabilities was telling the
+        // same client the amortized basis was unavailable.
+        presentExcept("reservation_effective_cost");
+
+        ReportCannotAnswerException thrown = assertThrows(ReportCannotAnswerException.class,
+                () -> service.getEffectiveSavingsRate(source, account, start, end));
+
+        assertEquals("the amortized cost basis", thrown.question());
+        assertEquals(List.of("reservation_effective_cost"), thrown.missingColumns());
+        verifyNoInteractions(athena);
+    }
+
+    @Test
+    @DisplayName("Savings rate refuses without the list-price column rather than reporting 0%")
+    void savingsRateRefusesWithoutTheOnDemandColumn() {
+        // Substituting 0 would zero the denominator and the existing branch would return exactly
+        // 0% — "you are saving nothing", which is a measurement this report cannot make.
+        presentExcept("pricing_public_on_demand_cost");
+
+        ReportCannotAnswerException thrown = assertThrows(ReportCannotAnswerException.class,
+                () -> service.getEffectiveSavingsRate(source, account, start, end));
+
+        assertEquals("the effective savings rate", thrown.question());
+        assertEquals(List.of("pricing_public_on_demand_cost"), thrown.missingColumns());
+        verifyNoInteractions(athena);
+    }
+
+    // ── Cost basis and capabilities ─────────────────────────────────────────────
+
+    @Test
+    @DisplayName("The amortized basis uses the CASE expression when both commitment columns exist")
+    void amortizedBasisUsesTheCaseExpression() {
+        everyColumnPresent();
+        when(athena.query(any(), any(), contains("'DiscountedUsage' THEN reservation_effective_cost")))
+                .thenReturn(List.of());
+
+        // Matching the stub is the assertion: an unblended SUM would not match it.
+        assertTrue(service.getChargesByService(source, account, start, end, CostBasis.AMORTIZED)
+                .isEmpty());
+    }
+
+    @Test
+    @DisplayName("The amortized basis refuses when reservation_effective_cost is absent")
+    void amortizedBasisRefusesWithoutReservationEffectiveCost() {
+        presentExcept("reservation_effective_cost");
+
+        ReportCannotAnswerException thrown = assertThrows(ReportCannotAnswerException.class,
+                () -> service.getChargesByService(source, account, start, end, CostBasis.AMORTIZED));
+
+        // Never a silent unblended downgrade: the basis is on screen beside the figure.
+        assertEquals("the amortized cost basis", thrown.question());
+        assertEquals(List.of("reservation_effective_cost"), thrown.missingColumns());
+        verifyNoInteractions(athena);
+    }
+
+    @Test
+    @DisplayName("The amortized basis refuses when the Savings Plan column is absent")
+    void amortizedBasisRefusesWithoutTheSavingsPlanColumn() {
+        presentExcept("savings_plan_savings_plan_effective_cost");
+
+        ReportCannotAnswerException thrown = assertThrows(ReportCannotAnswerException.class,
+                () -> service.getChargeTypeBreakdown(source, account, start, end, CostBasis.AMORTIZED));
+
+        assertEquals(List.of("savings_plan_savings_plan_effective_cost"), thrown.missingColumns());
+        verifyNoInteractions(athena);
+    }
+
+    @Test
+    @DisplayName("Capabilities name the absent columns, and say nothing about the ones that are there")
+    void capabilitiesNameTheMissingColumns() {
+        when(columnCatalog.readable(any(), any())).thenReturn(true);
+        when(columnCatalog.has(any(), any(), anyString())).thenAnswer(invocation ->
+                "pricing_unit".equals(invocation.getArgument(2, String.class)));
+
+        CurAdvancedMetricsService.ReportCapabilities capabilities =
+                service.getReportCapabilities(source, account);
+
+        assertTrue(!capabilities.amortizedAvailable());
+        assertEquals(List.of("reservation_effective_cost", "savings_plan_savings_plan_effective_cost"),
+                capabilities.amortizedMissingColumns());
+        assertTrue(capabilities.amortizedDetail().contains("reservation_effective_cost"), 
+                capabilities.amortizedDetail());
+        assertTrue(capabilities.amortizedDetail().contains("savings_plan_savings_plan_effective_cost"),
+                capabilities.amortizedDetail());
+        // One sentence per limitation: the unit is available, so its sentence is empty rather than
+        // carrying an explanation the reader has no use for.
+        assertTrue(capabilities.unitAvailable());
+        assertEquals("", capabilities.unitDetail());
+    }
+
+    @Test
+    @DisplayName("An unreadable catalog says so, rather than telling the reader to recreate an export")
+    void capabilitiesDistinguishUnreadableFromAbsent() {
+        // columns(...) caches the empty set for ten minutes on a failed probe, so without this
+        // branch "the column is absent" and "we could not look" are the same answer — and their
+        // remedies are "recreate the export" and "try again in ten minutes".
+        when(columnCatalog.readable(any(), any())).thenReturn(false);
+
+        CurAdvancedMetricsService.ReportCapabilities capabilities =
+                service.getReportCapabilities(source, account);
+
+        assertTrue(!capabilities.amortizedAvailable());
+        assertTrue(!capabilities.unitAvailable());
+        assertTrue(capabilities.amortizedDetail().contains("could not be read"),
+                capabilities.amortizedDetail());
+        assertTrue(capabilities.unitDetail().contains("could not be read"), capabilities.unitDetail());
+        // Textually distinct from the absent-column wording, which names a column instead.
+        assertTrue(!capabilities.amortizedDetail().contains("does not carry"),
+                capabilities.amortizedDetail());
+        // Nothing is known about either column, so both are reported unknown rather than one.
+        assertEquals(2, capabilities.amortizedMissingColumns().size());
+        verifyNoInteractions(athena);
+    }
+
+    @Test
+    @DisplayName("Capabilities are answered from the catalog alone, scanning no data")
+    void capabilitiesAskTheCatalogAndNotAthena() {
+        when(columnCatalog.readable(any(), any())).thenReturn(true);
+        when(columnCatalog.has(any(), any(), anyString())).thenReturn(true);
+
+        service.getReportCapabilities(source, account);
+
+        // The catalog is itself a mock here, so verifyNoInteractions(athena) alone would be
+        // vacuous — nothing in this test could reach Athena whatever the method did. These two
+        // verifications are what pin that the answer comes from the column list. The genuine
+        // zero-bytes-scanned property belongs to CurColumnCatalog, which reads information_schema
+        // and has its own caching.
+        verify(columnCatalog).has(source, account, "reservation_effective_cost");
+        verify(columnCatalog).has(source, account, "savings_plan_savings_plan_effective_cost");
+        verify(columnCatalog).has(source, account, "pricing_unit");
+        verifyNoInteractions(athena);
     }
 
     @Test
@@ -153,6 +298,7 @@ class CurAdvancedMetricsServiceTest {
     @Test
     @DisplayName("Unused commitment sums both the recurring and amortized upfront waste")
     void unusedCommitmentSumsBothComponents() {
+        everyColumnPresent();
         when(athena.query(any(), any(), anyString())).thenReturn(List.of(Map.of(
                 "unused_recurring", "120.0", "unused_upfront", "80.0")));
 
@@ -160,6 +306,27 @@ class CurAdvancedMetricsServiceTest {
                 service.getUnusedCommitment(source, account, start, end);
 
         assertEquals(200.0, unused.total(), 0.0001);
+        assertTrue(unused.available());
+    }
+
+    @ParameterizedTest(name = "without {0}")
+    @ValueSource(strings = {"reservation_unused_recurring_fee",
+            "reservation_unused_amortized_upfront_fee_for_billing_period"})
+    @DisplayName("Unused commitment reports it cannot say, rather than 502-ing on a trimmed export")
+    void unusedCommitmentDegradesWithoutEitherColumn(String absent) {
+        // Regression: both columns were named outright, so a Data Export without either 502'd the
+        // endpoint and the FinOps card lost itself to a .catch(). Both are required rather than
+        // either, because the card's headline is their sum and a sum missing one term understates
+        // waste while looking like a measurement.
+        presentExcept(absent);
+
+        CurAdvancedMetricsService.UnusedCommitment unused =
+                service.getUnusedCommitment(source, account, start, end);
+
+        assertTrue(!unused.available());
+        assertEquals(0.0, unused.total(), 0.0001);
+        // No query at all: a zero here would read as "you wasted nothing".
+        verifyNoInteractions(athena);
     }
 
     @Test
@@ -208,6 +375,310 @@ class CurAdvancedMetricsServiceTest {
 
         assertEquals("", top.resources().get(0).name());
         assertEquals("i-089ccf1b5a839880a", top.resources().get(0).resourceId());
+    }
+
+    // ── Charges by service ──────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("Charges by service substitutes a constant when the report has no pricing_unit")
+    void chargesByServiceDegradesWithoutTheUnitColumn() {
+        // Regression for a latent 502: the column was selected and grouped by outright, so a Data
+        // Export without it took down this entire card rather than leaving one column blank.
+        presentExcept("pricing_unit");
+        when(athena.query(any(), any(), anyString())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(2, String.class);
+            assertTrue(sql.contains("'' AS unit"), sql);
+            assertTrue(!sql.contains("pricing_unit"),
+                    "no pricing_unit reference should survive when the report has none:\n" + sql);
+            return List.of(Map.of("service", "Amazon Simple Storage Service", "region", "ap-south-1",
+                    "description", "storage", "usage_type", "APS3-TimedStorage-ByteHrs",
+                    "quantity", "47210", "cost", "1180.25"));
+        });
+
+        List<CurAdvancedMetricsService.ServiceCharge> charges =
+                service.getChargesByService(source, account, start, end, CostBasis.UNBLENDED);
+
+        // The row reader keeps its shape either way, so the unit is simply blank.
+        assertEquals("", charges.get(0).unit());
+        assertEquals(1180.25, charges.get(0).cost(), 0.0001);
+    }
+
+    @Test
+    @DisplayName("Charges by service filters on the absolute total, so a credit row survives")
+    void chargesByServiceKeepsCredits() {
+        everyColumnPresent();
+        when(athena.query(any(), any(), contains("HAVING ABS(SUM("))).thenReturn(List.of(
+                Map.of("service", "Refund", "region", "", "description", "Service credit",
+                        "usage_type", "Credit", "unit", "", "quantity", "1", "cost", "-250.00")));
+
+        List<CurAdvancedMetricsService.ServiceCharge> charges =
+                service.getChargesByService(source, account, start, end, CostBasis.UNBLENDED);
+
+        // HAVING SUM(cost) > 0.001 would have dropped this row and the card would no longer
+        // reconcile to the invoice.
+        assertEquals(-250.00, charges.get(0).cost(), 0.0001);
+    }
+
+    @Test
+    @DisplayName("On the amortized basis the HAVING is built over the amortized expression too")
+    void chargesByServiceFiltersOnTheSameExpressionItSelects() {
+        everyColumnPresent();
+        when(athena.query(any(), any(), anyString())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(2, String.class);
+            int having = sql.indexOf("HAVING ABS(SUM(");
+            assertTrue(having > 0, sql);
+            // Filtering unblended cost while selecting amortized would drop the wrong rows — and
+            // would keep the four fee groups that must net to zero on this basis.
+            assertTrue(sql.substring(having).contains("'DiscountedUsage' THEN reservation_effective_cost"),
+                    "the HAVING must re-use the amortized expression:\n" + sql);
+            return List.of();
+        });
+
+        service.getChargesByService(source, account, start, end, CostBasis.AMORTIZED);
+    }
+
+    @Test
+    @DisplayName("A row with no service or region keeps this section's own words for them")
+    void chargesByServiceLabelsBlanks() {
+        everyColumnPresent();
+        when(athena.query(any(), any(), anyString())).thenReturn(List.of(
+                Map.of("service", "", "region", "", "description", "", "usage_type", "Tax",
+                        "unit", "", "quantity", "1", "cost", "620.00")));
+
+        CurAdvancedMetricsService.ServiceCharge charge =
+                service.getChargesByService(source, account, start, end, CostBasis.UNBLENDED).get(0);
+
+        assertEquals("Other", charge.service());
+        assertEquals("Global", charge.region());
+        // Description is blank on tax rows, so the usage type is the next most specific thing.
+        assertEquals("Tax", charge.description());
+    }
+
+    // ── Charge type breakdown ───────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("Charge types keep negative rows and name an unlabelled type Unknown")
+    void chargeTypesKeepCreditsAndLabelBlanks() {
+        // No catalog stub: the unblended basis names only mandatory columns, so this path never
+        // asks the catalog anything. MockitoExtension is strict, and that is the point.
+        when(athena.query(any(), any(), anyString())).thenReturn(List.of(
+                Map.of("charge_type", "Usage", "cost", "15980.75"),
+                Map.of("charge_type", "Credit", "cost", "-250.00"),
+                Map.of("charge_type", "", "cost", "12.00")));
+
+        List<CurAdvancedMetricsService.ChargeTypeAmount> types =
+                service.getChargeTypeBreakdown(source, account, start, end, CostBasis.UNBLENDED);
+
+        assertEquals(3, types.size());
+        assertEquals(-250.00, types.get(1).cost(), 0.0001);
+        assertEquals("Unknown", types.get(2).chargeType());
+    }
+
+    @Test
+    @DisplayName("On the amortized basis the zeroed fee types are omitted, not returned at 0.00")
+    void chargeTypesOmitTheZeroedFeesOnTheAmortizedBasis() {
+        everyColumnPresent();
+        when(athena.query(any(), any(), anyString())).thenReturn(List.of(
+                Map.of("charge_type", "Usage", "cost", "15980.75"),
+                Map.of("charge_type", "RIFee", "cost", "0"),
+                Map.of("charge_type", "SavingsPlanRecurringFee", "cost", "0"),
+                Map.of("charge_type", "SavingsPlanUpfrontFee", "cost", "0"),
+                Map.of("charge_type", "SavingsPlanNegation", "cost", "0"),
+                Map.of("charge_type", "Tax", "cost", "620.00")));
+
+        List<CurAdvancedMetricsService.ChargeTypeAmount> types =
+                service.getChargeTypeBreakdown(source, account, start, end, CostBasis.AMORTIZED);
+
+        // A $0.00 row is a zero whose truth is "not applicable on this basis", which is the one
+        // thing the house style forbids outright.
+        assertEquals(List.of("Usage", "Tax"),
+                types.stream().map(CurAdvancedMetricsService.ChargeTypeAmount::chargeType).toList());
+    }
+
+    @Test
+    @DisplayName("The zeroed-type constant matches the expression it is derived from")
+    void amortizedZeroedTypesMatchTheExpression() {
+        // The constant exists so the ledger can say which types it is not listing. It is derived
+        // from amortizedCostExpr's CASE, and this is what stops the two drifting apart — the
+        // expression is the thing that can change.
+        String expr = CurAdvancedMetricsService.amortizedCostExpr(source);
+        assertEquals(List.of("RIFee", "SavingsPlanRecurringFee", "SavingsPlanUpfrontFee",
+                "SavingsPlanNegation"), CurAdvancedMetricsService.AMORTIZED_ZEROED_TYPES);
+        for (String type : CurAdvancedMetricsService.AMORTIZED_ZEROED_TYPES) {
+            assertTrue(expr.contains("'" + type + "'"), type + " is not zeroed by:\n" + expr);
+        }
+    }
+
+    // ── One service's resources ─────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("A service name containing a quote is escaped rather than closing the string")
+    void serviceResourcesEscapesTheServiceName() {
+        everyColumnPresent();
+        when(tagColumns.resourceNameExpr(any(), any())).thenReturn(Optional.empty());
+        when(athena.query(any(), any(), contains("product_product_name = 'Acme''s Service'")))
+                .thenReturn(List.of());
+
+        // The service name arrives from a query parameter; one that terminated the string early
+        // would be an injection into the tenant's own billing data.
+        service.getServiceResources(source, account, "Acme's Service", start, end, CostBasis.UNBLENDED);
+    }
+
+    @Test
+    @DisplayName("service=Other matches the blank the display word stands for, and the literal")
+    void serviceResourcesInvertsTheOtherDisplayWord() {
+        everyColumnPresent();
+        when(tagColumns.resourceNameExpr(any(), any())).thenReturn(Optional.empty());
+        when(athena.query(any(), any(), anyString())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(2, String.class);
+            // "Other" is this class's own word for a row the report gave no product name. Matching
+            // it literally finds nothing, so every unnamed-service row would open an empty panel.
+            assertTrue(sql.contains("(product_product_name IS NULL OR product_product_name = ''"
+                    + " OR product_product_name = 'Other')"), sql);
+            return List.of();
+        });
+
+        service.getServiceResources(source, account, "Other", start, end, CostBasis.UNBLENDED);
+    }
+
+    @Test
+    @DisplayName("The drill-down inverts it the same way, because it delegates to one predicate")
+    void resourceChangeInvertsTheOtherDisplayWordToo() {
+        everyColumnPresent();
+        when(tagColumns.resourceNameExpr(any(), any())).thenReturn(Optional.empty());
+        when(athena.query(any(), any(), anyString())).thenAnswer(invocation -> {
+            assertTrue(invocation.getArgument(2, String.class)
+                    .contains("(product_product_name IS NULL OR product_product_name = ''"
+                            + " OR product_product_name = 'Other')"),
+                    invocation.getArgument(2, String.class));
+            return List.of();
+        });
+
+        // One assertion site, both paths: scopePredicate now calls servicePredicate, so the
+        // scoped resource query and the drill-down cannot disagree about what "Other" means.
+        service.getResourceChange(source, account, "i-0abc", "Other", "ap-south-1",
+                start, end, start.minusMonths(1), end.minusMonths(1), false);
+    }
+
+    @Test
+    @DisplayName("Both window functions sit inside the subquery, with the cap outside it")
+    void serviceResourcesComputesTotalsBeforeTheLimit() {
+        everyColumnPresent();
+        when(tagColumns.resourceNameExpr(any(), any())).thenReturn(Optional.empty());
+        when(athena.query(any(), any(), anyString())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(2, String.class);
+            assertTrue(sql.contains(") OVER () AS total_cost"), sql);
+            assertTrue(sql.contains("COUNT(*) OVER () AS group_count"), sql);
+            // Unpartitioned and before the LIMIT is the only ordering that works: summing the
+            // returned rows would understate the service total by the truncated tail.
+            int closingParen = sql.lastIndexOf(") ORDER BY cost DESC LIMIT ");
+            assertTrue(closingParen > sql.indexOf("OVER () AS total_cost"), sql);
+            // Built from the constant, so changing the cap does not need this test edited.
+            assertTrue(sql.endsWith(") ORDER BY cost DESC LIMIT 1000"), sql);
+            return List.of();
+        });
+
+        service.getServiceResources(source, account, "AWS Lambda", start, end, CostBasis.UNBLENDED);
+    }
+
+    @Test
+    @DisplayName("The service total comes from the window columns, not from summing the page")
+    void serviceResourcesReadsTotalsFromTheWindows() {
+        everyColumnPresent();
+        when(tagColumns.resourceNameExpr(any(), any())).thenReturn(Optional.empty());
+        when(athena.query(any(), any(), anyString())).thenReturn(List.of(
+                Map.of("resource_id", "i-0abc", "service", "AWS Lambda", "region", "ap-south-1",
+                        "instance_type", "", "cost", "10.0",
+                        "total_cost", "500.0", "group_count", "300"),
+                Map.of("resource_id", "i-0def", "service", "AWS Lambda", "region", "ap-south-1",
+                        "instance_type", "", "cost", "20.0",
+                        "total_cost", "500.0", "group_count", "300")));
+
+        CurAdvancedMetricsService.TopResources result =
+                service.getServiceResources(source, account, "AWS Lambda", start, end,
+                        CostBasis.UNBLENDED);
+
+        // 500 and 300, not 30 and 2 — which is what lets the panel say what it is not showing.
+        assertEquals(500.0, result.totalCost(), 0.0001);
+        assertEquals(300L, result.groupCount());
+        assertEquals(2, result.resources().size());
+    }
+
+    @Test
+    @DisplayName("A charge belonging to no resource survives with an empty id")
+    void serviceResourcesKeepsResourcelessCharges() {
+        everyColumnPresent();
+        when(tagColumns.resourceNameExpr(any(), any())).thenReturn(Optional.empty());
+        when(athena.query(any(), any(), anyString())).thenReturn(List.of(
+                Map.of("resource_id", "", "service", "AWS Data Transfer", "region", "ap-south-1",
+                        "instance_type", "", "cost", "450.0",
+                        "total_cost", "470.0", "group_count", "2")));
+
+        CurAdvancedMetricsService.TopResources result =
+                service.getServiceResources(source, account, "AWS Data Transfer", start, end,
+                        CostBasis.UNBLENDED);
+
+        // They are the service's tax, support and subscription charges, and the panel lists them
+        // in their own block precisely so its total can be reconciled against the header.
+        assertEquals("", result.resources().get(0).resourceId());
+        assertEquals(450.0, result.resources().get(0).cost(), 0.0001);
+    }
+
+    @Test
+    @DisplayName("Without product_instance_type the column is a constant and every chip is empty")
+    void serviceResourcesDegradesWithoutTheInstanceTypeColumn() {
+        presentExcept("product_instance_type");
+        when(tagColumns.resourceNameExpr(any(), any())).thenReturn(Optional.empty());
+        when(athena.query(any(), any(), anyString())).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(2, String.class);
+            assertTrue(sql.contains("'' AS instance_type"), sql);
+            assertTrue(!sql.contains("MAX(product_instance_type)"), sql);
+            return List.of(Map.of("resource_id", "i-0abc", "service", "Amazon Elastic Compute Cloud",
+                    "region", "ap-south-1", "cost", "32.03",
+                    "total_cost", "32.03", "group_count", "1"));
+        });
+
+        CurAdvancedMetricsService.TopResources result =
+                service.getServiceResources(source, account, "Amazon Elastic Compute Cloud",
+                        start, end, CostBasis.UNBLENDED);
+
+        assertEquals("", result.resources().get(0).instanceType());
+    }
+
+    @Test
+    @DisplayName("Without a Name-tag column no name column is built and rows come back unnamed")
+    void serviceResourcesOmitsTheNameColumnWhenAbsent() {
+        everyColumnPresent();
+        when(tagColumns.resourceNameExpr(any(), any())).thenReturn(Optional.empty());
+        when(athena.query(any(), any(), anyString())).thenAnswer(invocation -> {
+            // Selecting a column the table does not have fails the whole query during analysis, so
+            // the absent case must leave it out of the SQL rather than select null.
+            assertTrue(!invocation.getArgument(2, String.class).contains("resource_name"),
+                    "no name column should be referenced when the report has none");
+            return List.of(Map.of("resource_id", "arn:aws:s3:::xammer-prod-logs",
+                    "service", "Amazon Simple Storage Service", "region", "ap-south-1",
+                    "instance_type", "", "cost", "540.0",
+                    "total_cost", "1920.25", "group_count", "3"));
+        });
+
+        CurAdvancedMetricsService.TopResources result =
+                service.getServiceResources(source, account, "Amazon Simple Storage Service",
+                        start, end, CostBasis.UNBLENDED);
+
+        assertEquals("", result.resources().get(0).name());
+    }
+
+    @Test
+    @DisplayName("The amortized expression is threaded into the scoped SUM and its window")
+    void serviceResourcesThreadsTheAmortizedExpression() {
+        everyColumnPresent();
+        when(tagColumns.resourceNameExpr(any(), any())).thenReturn(Optional.empty());
+        when(athena.query(any(), any(), contains(
+                "SUM(SUM(CASE WHEN line_item_line_item_type = 'DiscountedUsage'")))
+                .thenReturn(List.of());
+
+        service.getServiceResources(source, account, "Amazon Relational Database Service",
+                start, end, CostBasis.AMORTIZED);
     }
 
     // ── Data transfer ───────────────────────────────────────────────────────────
@@ -473,6 +944,22 @@ class CurAdvancedMetricsServiceTest {
 
         assertEquals(100.0, coverage.concentrationCost(), 0.0001);
         assertEquals(20, coverage.concentrationHead());
+    }
+
+    /**
+     * A report carrying every optional column this class asks about.
+     *
+     * <p>Stubbed per test rather than in {@code setUp}: {@code MockitoExtension} is strict about
+     * unused stubs, so a test whose path never reaches the catalog must not declare it.
+     */
+    private void everyColumnPresent() {
+        when(columnCatalog.has(any(), any(), anyString())).thenReturn(true);
+    }
+
+    /** A trimmed Data Export: every optional column except the named one. */
+    private void presentExcept(String absent) {
+        when(columnCatalog.has(any(), any(), anyString())).thenAnswer(invocation ->
+                !absent.equals(invocation.getArgument(2, String.class)));
     }
 
     /** One untagged resource row, at a given global rank. */

@@ -1,12 +1,12 @@
 import { apiFetch } from '../utils/apiClient';
 import type {
+  ChargeTypeAmount,
   DataTransferBreakdown,
   PriceVolumeChange,
   ResourceChange,
   ServiceCharge,
   TopResources,
 } from './curInsightsApi';
-import type { ChargeTypeAmount } from './gcpCostInsightsApi';
 
 /**
  * The Azure Cost Management dimensions the Azure cost page never read.
