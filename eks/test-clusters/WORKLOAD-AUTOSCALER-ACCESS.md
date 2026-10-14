@@ -10,9 +10,12 @@ access entry → Kubernetes group → ClusterRole.
 **The IAM role is granted `eks:DescribeCluster` and `eks:ListClusters` and nothing else.** It holds
 no `pods/resize` permission, because AWS has no such permission — in-place resize is a Kubernetes
 API call. The authority to mutate anything inside the cluster comes from
-`xamops-workload-autoscaler-rbac.yaml` alone, and that ClusterRole grants exactly one write verb on
-exactly one subresource (`patch` on `pods/resize`) plus `create` on `events` for the audit trail. It
-grants no access to Secret objects and no `patch` on `apps/deployments`.
+`xamops-workload-autoscaler-rbac.yaml` alone, and that ClusterRole grants exactly two write verbs:
+`patch` on `pods/resize` (the vertical in-place resize) and `patch` on
+`autoscaling/horizontalpodautoscalers` (the HPA apply path, scoped by `fieldManager=xamops-hpa` to
+`spec.{min,max}Replicas` and the one CPU target), plus `create` on `events` for the audit trail. It
+grants no `update` (full replace) or `create` on HPAs, no access to Secret objects and no `patch` on
+`apps/deployments`.
 
 | Thing | Value |
 |---|---|
@@ -211,6 +214,10 @@ K="kubectl --kubeconfig /tmp/wa-proof.kubeconfig"
 $K get pods -A
 $K auth can-i get pods --all-namespaces                   # yes
 $K auth can-i patch pods --subresource=resize -A          # yes
+$K auth can-i get   hpa  --all-namespaces                 # yes
+$K auth can-i patch hpa  --all-namespaces                 # yes (the HPA apply path)
+$K auth can-i create hpa --all-namespaces                 # MUST print: no (D4 create is a separate grant)
+$K auth can-i update hpa --all-namespaces                 # MUST print: no (strategic-merge patch only)
 $K auth can-i create events --all-namespaces              # yes
 $K auth can-i get secrets --all-namespaces                # MUST print: no
 $K auth can-i patch deployments --all-namespaces          # MUST print: no

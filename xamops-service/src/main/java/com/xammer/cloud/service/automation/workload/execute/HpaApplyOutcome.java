@@ -72,7 +72,10 @@ public record HpaApplyOutcome(String correlationId,
     }
 
     public static HpaApplyOutcome failed(HpaActionCommand command, String detail) {
-        return new HpaApplyOutcome(command.correlationId(), SubmitState.ACCEPTED, Terminal.FAILED,
+        // A failed patch is NOT a durable accept: reporting ACCEPTED made an API-server-rejected
+        // patch indistinguishable from a legitimately pending QUEUED submission, and dropped the
+        // reason. REFUSED is the honest submit state -- nothing is pending -- matching expired().
+        return new HpaApplyOutcome(command.correlationId(), SubmitState.REFUSED, Terminal.FAILED,
                 command.dryRun(), null, null, null, detail);
     }
 

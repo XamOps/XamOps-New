@@ -382,6 +382,39 @@ class HpaApplyServiceTest {
     }
 
     @Test
+    @DisplayName("a failed executor outcome surfaces as a failure with the detail, NOT 202 ACCEPTED (Defect 3)")
+    void aFailedApplyIsReportedAsFailed() {
+        // The API server refused the patch: the executor returns a FAILED outcome carrying the
+        // reason. The old code answered 202 {state:ACCEPTED, applied:null} and dropped the detail,
+        // making a rejected patch indistinguishable from a pending QUEUED submission.
+        String detail = "The API server refused the patch of HPA team-b/php-apache: HTTP 403.";
+        org.mockito.Mockito.doReturn(HpaApplyOutcome.failed(command(null, 8, null, false), detail))
+                .when(executor).submit(any(), any(), any());
+
+        VerticalApplyService.ApplyRefusedException refusal =
+                refuse(principal(), readWriteAccount(), body(false));
+
+        assertThat(refusal.status()).isEqualTo(HttpStatus.BAD_GATEWAY);
+        assertThat(refusal.code()).isEqualTo("K8S_APPLY_FAILED");
+        assertThat(refusal.getMessage()).isEqualTo(detail);
+        // A failed apply never records last_applied_at (there is no landed change to cool down).
+        verify(policyService, never()).recordApplied(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a genuinely QUEUED submission still answers 202 ACCEPTED (pending, not failed)")
+    void aQueuedSubmissionIsStillAccepted() {
+        org.mockito.Mockito.doReturn(HpaApplyOutcome.queued(command(null, 8, null, false)))
+                .when(executor).submit(any(), any(), any());
+
+        HpaApplyResponseDto response = service().apply(principal(), readWriteAccount(), TARGET, REF,
+                body(false));
+
+        assertThat(response.state()).isEqualTo("ACCEPTED");
+        assertThat(response.applied()).isNull();
+    }
+
+    @Test
     @DisplayName("a second apply inside the cooldown is refused with COOLDOWN; a raise is NOT exempt")
     void aSecondApplyInsideTheCooldownIsRefused() {
         when(policyService.resolve(any(), any(), any())).thenReturn(METRICS.defaultsPolicy()

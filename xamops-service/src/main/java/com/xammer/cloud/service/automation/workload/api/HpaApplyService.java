@@ -214,13 +214,37 @@ public class HpaApplyService {
     }
 
     private static HpaApplyResponseDto toResponse(HpaApplyOutcome outcome) {
-        if (outcome.terminal() == HpaApplyOutcome.Terminal.APPLIED) {
-            return HpaApplyResponseDto.accepted(outcome.correlationId(), outcome.submitState().name(),
-                    outcome.dryRun(), outcome.minReplicas(), outcome.maxReplicas(),
-                    outcome.targetUtilizationPct());
+        switch (outcome.terminal()) {
+            case APPLIED:
+                // A landed patch (or a dry-run rehearsal that would have landed).
+                return HpaApplyResponseDto.accepted(outcome.correlationId(),
+                        outcome.submitState().name(), outcome.dryRun(), outcome.minReplicas(),
+                        outcome.maxReplicas(), outcome.targetUtilizationPct());
+            case QUEUED:
+                // A genuinely pending submission (the agent path): the applied result arrives later,
+                // so 202 ACCEPTED is correct here and only here.
+                return HpaApplyResponseDto.of(outcome.correlationId(), outcome.submitState().name(),
+                        outcome.dryRun());
+            case FAILED:
+                // The patch was rejected by the API server or its outcome could not be confirmed.
+                // This is NOT a pending accept: surface it as a failure carrying the reason, never
+                // as 202 ACCEPTED with a dropped detail (the Defect-3 bug).
+                throw new VerticalApplyService.ApplyRefusedException(HttpStatus.BAD_GATEWAY,
+                        "K8S_APPLY_FAILED", null,
+                        outcome.detail() == null ? "The HPA patch failed." : outcome.detail());
+            case EXPIRED:
+                throw new VerticalApplyService.ApplyRefusedException(HttpStatus.CONFLICT,
+                        "K8S_COMMAND_EXPIRED", null,
+                        outcome.detail() == null ? "The apply command expired before it was applied."
+                                : outcome.detail());
+            case REFUSED:
+            default:
+                // A post-submit refusal (the HPA vanished, or a lost optimistic race): nothing was
+                // written, and the reason must reach the caller rather than be dropped.
+                throw new VerticalApplyService.ApplyRefusedException(HttpStatus.CONFLICT,
+                        "K8S_APPLY_REFUSED", null,
+                        outcome.detail() == null ? "The HPA apply was refused." : outcome.detail());
         }
-        return HpaApplyResponseDto.of(outcome.correlationId(), outcome.submitState().name(),
-                outcome.dryRun());
     }
 
     // ---------------------------------------------------------------- gates

@@ -1,0 +1,73 @@
+{
+  "apiVersion": "autoscaling/v2",
+  "kind": "HorizontalPodAutoscalerList",
+  "metadata": {
+    "resourceVersion": "1"
+  },
+  "items": [
+    {
+      "apiVersion": "autoscaling/v2",
+      "kind": "HorizontalPodAutoscaler",
+      "metadata": {
+        "name": "php-apache",
+        "namespace": "team-b",
+        "uid": "hpa-1",
+        "annotations": {
+          "argocd.argoproj.io/instance": "team-b-apps"
+        },
+        "managedFields": [
+          {
+            "manager": "argocd-application-controller",
+            "operation": "Apply",
+            "apiVersion": "autoscaling/v2"
+          }
+        ]
+      },
+      "spec": {
+        "scaleTargetRef": {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "name": "php-apache"
+        },
+        "minReplicas": 1,
+        "maxReplicas": 5,
+        "metrics": [
+          {
+            "type": "Resource",
+            "resource": {
+              "name": "cpu",
+              "target": {
+                "type": "Utilization",
+                "averageUtilization": 50
+              }
+            }
+          }
+        ]
+      },
+      "status": {
+        "currentReplicas": 5,
+        "desiredReplicas": 5,
+        "lastScaleTime": "2026-10-09T09:00:00Z",
+        "currentMetrics": [
+          {
+            "type": "Resource",
+            "resource": {
+              "name": "cpu",
+              "current": {
+                "averageUtilization": 72
+              }
+            }
+          }
+        ],
+        "conditions": [
+          {
+            "type": "ScalingLimited",
+            "status": "True",
+            "reason": "TooManyReplicas",
+            "lastTransitionTime": "2026-10-09T09:00:00Z"
+          }
+        ]
+      }
+    }
+  ]
+}
