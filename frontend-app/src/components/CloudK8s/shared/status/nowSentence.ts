@@ -14,7 +14,15 @@
  */
 import type { Tone } from './statusTones';
 
-export type NowPage = 'automation-overview' | 'workloads' | 'workload-detail' | 'policies';
+export type NowPage =
+  | 'automation-overview'
+  | 'workloads'
+  | 'workload-detail'
+  | 'policies'
+  | 'hpa'
+  | 'vpa'
+  | 'node-autoscaler'
+  | 'activity';
 
 export interface NowChip {
   tone: Tone;
@@ -135,6 +143,71 @@ export interface PoliciesInputs {
   automatic?: number;
   /** How many a rule on the page leaves alone (a skip reason, an HPA, unset requests). */
   leftAlone?: number;
+}
+
+/**
+ * Automation › HPA (glossary-additions §3 "Node autoscaler, HPA, VPA, Activity…": say when an HPA is
+ * at its maximum). The HPAs and their live numbers come from the XamOps agent; XamOps's decisions and
+ * the conflicts from endpoint 1. How long an HPA has been at its maximum needs its history (Phase 2),
+ * so that clause is left out rather than guessed.
+ */
+export interface HpaInputs {
+  cluster: string;
+  /** The HPAs the XamOps agent reported. `undefined` = it reported no HPA list. */
+  hpas?: ReadonlyArray<{ name: string; namespace: string }>;
+  /** HPAs running their maximum, with CPU now and its target when the agent reported both. */
+  atMax?: ReadonlyArray<{ name: string; max: number; cpuNowPct?: number; cpuTargetPct?: number }>;
+  /** HPAs whose ScalingActive condition is False. */
+  notScaling?: readonly string[];
+  /** XamOps's HPA decisions (endpoint 1). `undefined` = endpoint 1 failed. */
+  engine?: { evaluated: boolean; suggestions: number };
+  /** Workloads whose CPU XamOps leaves to their HPA (HPA_CPU_MANAGED). */
+  cpuLeftToHpa?: readonly string[];
+  /** HPA workloads whose pods a Kubernetes VPA also changes. `undefined` = endpoint 1 failed. */
+  conflicts?: number;
+}
+
+/** Automation › VPA (say whether any VPA changes pods), from endpoint 1. */
+export interface VpaInputs {
+  /** Analysed workloads a Kubernetes VPA targets. `undefined` = endpoint 1 failed. */
+  vpas?: number;
+  /** Of those, the ones whose VPA changes pods (VPA_MANAGED). */
+  changingPods?: number;
+  /** Of those, the ones in Off mode. */
+  off?: number;
+  /** Workloads whose VPA XamOps can't read (VPA_NOT_READABLE). */
+  unreadable?: number;
+  /** CPU per pod within 20% of XamOps's, over the workloads both size. */
+  agreement?: { agree: number; compared: number };
+}
+
+/** Automation › Node autoscaler (say who changes the node count, requested and used, idle nodes). */
+export interface NodeAutoscalerInputs {
+  cluster: string;
+  /** Who adds and removes nodes, from the XamOps agent's data. `undefined` = it reported nothing. */
+  provisioners?: { karpenter: boolean; clusterAutoscaler: boolean };
+  /** The nodes the XamOps agent reported, by capacity type. */
+  nodes?: { total: number; onDemand: number; spot: number; unknown: number };
+  /** CPU requested and used, % of what the nodes give pods. */
+  cpu?: { requestedPct?: number; usedPct?: number };
+  /** Pods waiting for a node. */
+  waiting?: number;
+  /** Idle nodes, as the automation agent reported them. `undefined` = not reported. */
+  idle?: number;
+  /** The automation agent. `undefined` = not checked. */
+  automationAgent?: 'installed' | 'stale' | 'not-installed';
+}
+
+/** Automation › Activity (give what XamOps did today, by result), over each workload's latest change. */
+export interface ActivityInputs {
+  /** Workloads with a recorded latest change. `undefined` = endpoint 1 failed. */
+  recorded?: number;
+  /** Today's latest changes, by result. */
+  today?: { applied: number; deferred: number; refused: number; failed: number; testRuns: number };
+  /** Workloads whose latest change was applied live and is in place now. */
+  inPlace?: readonly string[];
+  /** Workloads whose latest change detected a restart. */
+  restarted?: readonly string[];
 }
 
 const CHIP_GOOD = (label: string): NowChip => ({ tone: 'good', icon: 'mdi:check-circle', label });
@@ -341,13 +414,236 @@ export function policiesSentence(inputs: PoliciesInputs): NowSentence {
   return { clauses, chips: chips.slice(0, 5) };
 }
 
+const count = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
+
+/** "a", "a and b", "a, b and c". */
+const listWords = (names: readonly string[]): string =>
+  names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+
+/** Automation › HPA: how many HPAs, which is at its maximum, what XamOps suggests, conflicts. */
+export function hpaSentence(inputs: HpaInputs): NowSentence {
+  const clauses: string[] = [];
+  const chips: NowChip[] = [];
+  const { hpas } = inputs;
+
+  if (hpas === undefined) {
+    clauses.push("XamOps couldn't read this cluster's HPAs just now.");
+  } else if (hpas.length === 0) {
+    clauses.push(`No HPAs on ${inputs.cluster}.`);
+  } else if (hpas.length === 1) {
+    clauses.push(`1 HPA on ${inputs.cluster}: ${hpas[0].name} in ${hpas[0].namespace}.`);
+  } else {
+    clauses.push(`${hpas.length} HPAs on ${inputs.cluster}.`);
+  }
+
+  const atMax = hpas === undefined ? [] : inputs.atMax ?? [];
+  if (atMax.length === 1) {
+    const h = atMax[0];
+    const wants = h.cpuNowPct !== undefined && h.cpuTargetPct !== undefined && h.cpuNowPct > h.cpuTargetPct
+      ? `, with CPU at ${h.cpuNowPct}% against a ${h.cpuTargetPct}% target, so it would add pods if it could`
+      : '';
+    clauses.push(`${h.name} is at its maximum of ${count(h.max, 'replica')}${wants}.`);
+    chips.push({ tone: 'warn', icon: 'mdi:arrow-collapse-up', label: `${h.name}: at its maximum` });
+  } else if (atMax.length > 1) {
+    clauses.push(`${atMax.length} are at their maximum: ${listWords(atMax.map((h) => h.name))}.`);
+    chips.push({ tone: 'warn', icon: 'mdi:arrow-collapse-up', label: `${atMax.length} at their maximum` });
+  }
+
+  const notScaling = hpas === undefined ? [] : inputs.notScaling ?? [];
+  if (notScaling.length > 0) {
+    clauses.push(`${listWords(notScaling)} ${notScaling.length === 1 ? "isn't" : "aren't"} scaling: Kubernetes can't read the metric.`);
+    chips.push({ tone: 'bad', icon: 'mdi:alert-octagon-outline', label: `${notScaling.length} not scaling` });
+  }
+
+  if (inputs.engine === undefined) {
+    clauses.push("XamOps couldn't read its HPA decisions just now.");
+  } else if (!inputs.engine.evaluated) {
+    clauses.push('XamOps HPA suggestions are off in this environment.');
+  } else if (inputs.engine.suggestions > 0) {
+    clauses.push(`XamOps suggests a change to ${count(inputs.engine.suggestions, 'HPA')}. Nothing changes until you click Apply.`);
+    chips.push({ tone: 'warn', icon: 'mdi:lightbulb-on-outline', label: count(inputs.engine.suggestions, 'suggestion') });
+  } else {
+    clauses.push('XamOps suggests no HPA change.');
+  }
+
+  const cpu = inputs.cpuLeftToHpa ?? [];
+  if (cpu.length === 1) clauses.push(`XamOps leaves ${cpu[0]}'s CPU alone because its HPA scales on it.`);
+  else if (cpu.length > 1) clauses.push(`XamOps leaves CPU alone on ${cpu.length} workloads whose HPA scales on it.`);
+
+  if (inputs.conflicts !== undefined) {
+    if (inputs.conflicts > 0) {
+      clauses.push(`${count(inputs.conflicts, 'conflict')} with XamOps: a Kubernetes VPA also changes ${inputs.conflicts === 1 ? 'its' : 'their'} pods.`);
+      chips.push({ tone: 'bad', icon: 'mdi:alert-octagon-outline', label: count(inputs.conflicts, 'conflict') });
+    } else {
+      chips.push(CHIP_GOOD('No conflicts with XamOps'));
+    }
+  }
+
+  return { clauses, chips: chips.slice(0, 5) };
+}
+
+/** Automation › VPA: how many VPAs, whether any changes pods, and how far they agree with XamOps. */
+export function vpaSentence(inputs: VpaInputs): NowSentence {
+  const clauses: string[] = [];
+  const chips: NowChip[] = [];
+  const n = inputs.vpas;
+
+  if (n === undefined) {
+    clauses.push("XamOps couldn't read the Kubernetes VPAs just now.");
+    return { clauses, chips };
+  }
+
+  const unreadable = inputs.unreadable ?? 0;
+  if (n === 0) {
+    if (unreadable === 0) clauses.push('No Kubernetes VPA targets a workload XamOps analyses.');
+  } else {
+    const allOff = inputs.off !== undefined && inputs.off === n ? ', all Off' : '';
+    clauses.push(`${count(n, 'analysed workload')} ${n === 1 ? 'has' : 'have'} a Kubernetes VPA${allOff}.`);
+  }
+
+  if (inputs.changingPods !== undefined && n > 0) {
+    if (inputs.changingPods > 0) {
+      const k = inputs.changingPods;
+      clauses.push(`${k} of them ${k === 1 ? 'changes' : 'change'} pods, so XamOps leaves ${k === 1 ? 'that workload' : 'those workloads'} alone.`);
+      chips.push({ tone: 'bad', icon: 'mdi:alert-octagon-outline', label: `${count(k, 'VPA')} ${k === 1 ? 'changes' : 'change'} pods` });
+    } else {
+      clauses.push(`None of them changes pods, so nothing conflicts with XamOps.`);
+      chips.push(CHIP_GOOD('No conflicts'));
+    }
+  }
+
+  if (unreadable > 0) {
+    clauses.push(`XamOps can't read the VPA for ${count(unreadable, 'workload')}, so it leaves ${unreadable === 1 ? 'its' : 'their'} requests alone.`);
+    chips.push({ tone: 'warn', icon: 'mdi:eye-off-outline', label: `${unreadable} not readable` });
+  }
+
+  if (inputs.agreement && inputs.agreement.compared > 0) {
+    const { agree, compared } = inputs.agreement;
+    clauses.push(`On CPU the VPA agrees with XamOps within 20% for ${agree} of the ${count(compared, 'workload')} both size.`);
+  }
+
+  return { clauses, chips: chips.slice(0, 5) };
+}
+
+/** Automation › Node autoscaler: who changes the node count, how full the nodes are, what waits. */
+export function nodeAutoscalerSentence(inputs: NodeAutoscalerInputs): NowSentence {
+  const clauses: string[] = [];
+  const chips: NowChip[] = [];
+  const p = inputs.provisioners;
+
+  if (p === undefined) {
+    clauses.push("XamOps couldn't read who changes the node count just now.");
+  } else {
+    if (p.karpenter && p.clusterAutoscaler) {
+      clauses.push(`Karpenter and the Cluster Autoscaler are both installed on ${inputs.cluster}, so they can fight over the same nodes.`);
+    } else if (p.karpenter) {
+      clauses.push(`Karpenter adds and removes nodes on ${inputs.cluster}.`);
+    } else if (p.clusterAutoscaler) {
+      clauses.push(`The Cluster Autoscaler adds and removes nodes on ${inputs.cluster}.`);
+    } else {
+      clauses.push(`Nothing adds or removes nodes on ${inputs.cluster} today.`);
+    }
+    chips.push({ tone: p.karpenter ? 'good' : 'off', icon: p.karpenter ? 'mdi:check-circle' : 'mdi:minus-circle-outline', label: `Karpenter: ${p.karpenter ? 'installed' : 'not installed'}` });
+    chips.push({
+      tone: p.clusterAutoscaler ? 'good' : 'off',
+      icon: p.clusterAutoscaler ? 'mdi:check-circle' : 'mdi:minus-circle-outline',
+      label: `Cluster Autoscaler: ${p.clusterAutoscaler ? 'installed' : 'not installed'}`,
+    });
+  }
+
+  const nodes = inputs.nodes;
+  if (nodes && nodes.total > 0) {
+    const kinds = [`${nodes.onDemand} on-demand`, `${nodes.spot} Spot`];
+    if (nodes.unknown > 0) kinds.push(`${nodes.unknown} with no capacity type`);
+    clauses.push(`${count(nodes.total, 'node')}: ${kinds.join(', ')}.`);
+  }
+
+  const cpu = inputs.cpu;
+  if (cpu?.requestedPct !== undefined) {
+    const used = cpu.usedPct !== undefined ? ` and use ${Math.round(cpu.usedPct)}%` : '';
+    clauses.push(`Pods reserve ${Math.round(cpu.requestedPct)}% of the nodes' CPU${used}.`);
+  }
+
+  if (inputs.idle !== undefined) {
+    clauses.push(inputs.idle === 0 ? 'No node is idle.' : `${count(inputs.idle, 'node')} ${inputs.idle === 1 ? 'is' : 'are'} idle.`);
+  }
+
+  if (inputs.waiting !== undefined && inputs.waiting > 0) {
+    clauses.push(`${count(inputs.waiting, 'pod')} ${inputs.waiting === 1 ? 'waits' : 'wait'} for a node.`);
+  }
+
+  if (inputs.automationAgent === 'installed') chips.push(CHIP_GOOD('Automation agent: installed'));
+  else if (inputs.automationAgent === 'stale') chips.push({ tone: 'warn', icon: 'mdi:clock-alert-outline', label: 'Automation agent: no recent report' });
+  else if (inputs.automationAgent === 'not-installed') chips.push({ tone: 'off', icon: 'mdi:minus-circle-outline', label: 'Automation agent: not installed' });
+
+  if (inputs.waiting !== undefined && inputs.waiting > 0) {
+    chips.push({ tone: 'bad', icon: 'mdi:alert-octagon-outline', label: `${count(inputs.waiting, 'pod')} waiting for a node` });
+  }
+
+  return { clauses, chips: chips.slice(0, 5) };
+}
+
+/** Automation › Activity: what XamOps did today, by result, from each workload's latest change. */
+export function activitySentence(inputs: ActivityInputs): NowSentence {
+  const clauses: string[] = [];
+  const chips: NowChip[] = [];
+
+  if (inputs.recorded === undefined) {
+    clauses.push("XamOps couldn't read its recorded changes just now.");
+    return { clauses, chips };
+  }
+  if (inputs.recorded === 0) {
+    clauses.push("XamOps hasn't recorded a change on this cluster yet.");
+    return { clauses, chips };
+  }
+
+  const t = inputs.today;
+  if (t) {
+    const parts: string[] = [];
+    if (t.applied > 0) parts.push(`${t.applied} applied`);
+    if (t.deferred > 0) parts.push(`${t.deferred} deferred`);
+    if (t.refused > 0) parts.push(`${t.refused} refused`);
+    if (t.failed > 0) parts.push(`${t.failed} failed`);
+    if (t.testRuns > 0) parts.push(count(t.testRuns, 'test run'));
+    clauses.push(parts.length > 0 ? `Today, by each workload's latest change: ${listWords(parts)}.` : "No workload's latest change is from today.");
+    if (t.applied > 0) chips.push(CHIP_GOOD(`${t.applied} applied today`));
+    if (t.deferred > 0) chips.push(CHIP_WARN(`${t.deferred} deferred today`));
+    if (t.refused + t.failed > 0) chips.push({ tone: 'bad', icon: 'mdi:alert-octagon-outline', label: `${t.refused + t.failed} refused or failed today` });
+  }
+
+  const inPlace = inputs.inPlace ?? [];
+  if (inPlace.length > 0) {
+    clauses.push(`${listWords(inPlace)} ${inPlace.length === 1 ? 'is' : 'are'} in place now.`);
+  }
+
+  const restarted = inputs.restarted ?? [];
+  if (restarted.length > 0) {
+    clauses.push(`Restart detected: ${listWords(restarted)}.`);
+    chips.push({ tone: 'bad', icon: 'mdi:alert-octagon-outline', label: `Restart detected: ${restarted.length}` });
+  }
+
+  return { clauses, chips: chips.slice(0, 5) };
+}
+
 export function nowSentence(page: 'automation-overview', inputs: AutomationOverviewInputs): NowSentence;
 export function nowSentence(page: 'workloads', inputs: WorkloadsInputs): NowSentence;
 export function nowSentence(page: 'workload-detail', inputs: WorkloadDetailInputs): NowSentence;
 export function nowSentence(page: 'policies', inputs: PoliciesInputs): NowSentence;
+export function nowSentence(page: 'hpa', inputs: HpaInputs): NowSentence;
+export function nowSentence(page: 'vpa', inputs: VpaInputs): NowSentence;
+export function nowSentence(page: 'node-autoscaler', inputs: NodeAutoscalerInputs): NowSentence;
+export function nowSentence(page: 'activity', inputs: ActivityInputs): NowSentence;
 export function nowSentence(
   page: NowPage,
-  inputs: AutomationOverviewInputs | WorkloadsInputs | WorkloadDetailInputs | PoliciesInputs,
+  inputs:
+    | AutomationOverviewInputs
+    | WorkloadsInputs
+    | WorkloadDetailInputs
+    | PoliciesInputs
+    | HpaInputs
+    | VpaInputs
+    | NodeAutoscalerInputs
+    | ActivityInputs,
 ): NowSentence {
   switch (page) {
     case 'automation-overview':
@@ -358,5 +654,13 @@ export function nowSentence(
       return workloadDetailSentence(inputs as WorkloadDetailInputs);
     case 'policies':
       return policiesSentence(inputs as PoliciesInputs);
+    case 'hpa':
+      return hpaSentence(inputs as HpaInputs);
+    case 'vpa':
+      return vpaSentence(inputs as VpaInputs);
+    case 'node-autoscaler':
+      return nodeAutoscalerSentence(inputs as NodeAutoscalerInputs);
+    case 'activity':
+      return activitySentence(inputs as ActivityInputs);
   }
 }

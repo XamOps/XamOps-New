@@ -64,15 +64,17 @@ export const EKS_SECTIONS: SectionRegistry<EksSectionId, EksSubtabId> = [
     ] },
   { id: 'automation', label: 'Automation', icon: 'mdi:robot-outline', defaultSub: 'overview',
     // The v3 Automation tree (automation-v2 design §3.1): Workload autoscaler › Workloads hosts the
-    // realtime branch's Workload rightsizing cards, and Policies is the rules they use; HPA and VPA
-    // are main's combined Pod autoscaler page, split. Node autoscaler and Activity register with
-    // their pages.
+    // realtime branch's Workload rightsizing cards, and Policies is the rules they use; Node
+    // autoscaler is one page for now (UI v3 plan §1 deviation 1); HPA and VPA are main's combined
+    // Pod autoscaler page, split; Activity is what XamOps changed.
     subs: [
       { id: 'overview', label: 'Overview' },
       { id: 'workload-autoscaler', label: 'Workloads', group: 'Workload autoscaler' },
       { id: 'workload-autoscaler-policies', label: 'Policies', group: 'Workload autoscaler' },
+      { id: 'node-autoscaler', label: 'Node autoscaler' },
       { id: 'hpa', label: 'HPA' },
       { id: 'vpa', label: 'VPA' },
+      { id: 'activity', label: 'Activity' },
     ] },
   { id: 'security', label: 'Security', icon: 'mdi:shield-outline', defaultSub: 'vulnerabilities',
     subs: [{ id: 'vulnerabilities', label: 'Vulnerabilities' }] },

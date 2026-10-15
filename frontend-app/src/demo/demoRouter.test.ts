@@ -491,6 +491,64 @@ describe('demo router — vertical engine, endpoint 1 (ROLE_XAMOPS)', () => {
     expect(response?.status).toBe(404);
     expect((await response!.json()).code).toBe('K8S_CLUSTER_NOT_REGISTERED');
   });
+
+  it.each(['GET', 'POST'])('refuses the HPA apply with 403 K8S_DEMO (%s)', async (method) => {
+    const response = resolveDemoResponse('/api/eks/automation/hpa/prod-eks-cluster/production/worker/apply?accountId=demo-aws-001&region=us-east-1', method);
+    expect(response?.status).toBe(403);
+    expect((await response!.json()).code).toBe('K8S_DEMO');
+  });
+});
+
+/** Automation › Node autoscaler reads the automation agent's three endpoints; none may reach the backend. */
+describe('demo router — node automation reads (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+
+  const base = (cluster: string) => `/api/eks/autoscaling/${cluster}`;
+  const q = '?accountId=demo-aws-001&region=us-east-1';
+
+  it('answers prod with node automation on, in the backend shapes', async () => {
+    const dashboard = await readDemoBody(`${base('prod-eks-cluster')}${q}`);
+    expect(dashboard.autoscalingEnabled).toBe(true);
+    expect(dashboard.agentStatus).toMatchObject({ mode: 'full', agentVersion: '1.0.0-autoscaler' });
+    expect(typeof dashboard.agentStatus.lastSyncAt).toBe('string');
+    // Fields nothing measures stay absent (types/k8sAutomation.ts §10.3).
+    expect(JSON.stringify(dashboard)).not.toMatch(/costSavedThisWeek|nodesSavedToday|lastRebalanceSavingsPercent/);
+    const fleet = await readDemoBody(`${base('prod-eks-cluster')}/node-fleet?accountId=demo-aws-001`);
+    expect(fleet).toMatchObject({ totalNodes: 6, onDemandNodes: 3, spotNodes: 3, idleNodes: [], interruptedNodes: [] });
+    expect(typeof fleet.collectedAt).toBe('string');
+    expect(await readDemoBody(`${base('prod-eks-cluster')}/rebalance-status?accountId=demo-aws-001`)).toEqual({
+      status: 'idle',
+      message: 'No rebalance has been run yet',
+    });
+  });
+
+  it('answers eu with node automation off', async () => {
+    const dashboard = await readDemoBody(`${base('eu-eks-cluster')}${q}`);
+    expect(dashboard.autoscalingEnabled).toBe(false);
+    expect(dashboard.agentStatus).toMatchObject({ mode: 'disabled', lastSyncAt: null });
+  });
+
+  it.each(['', '/node-fleet', '/rebalance-status'])('answers any other cluster 404 K8S_CLUSTER_NOT_REGISTERED (%s)', async (path) => {
+    const response = resolveDemoResponse(`${base('staging-eks-cluster')}${path}${q}`);
+    expect(response?.status).toBe(404);
+    expect((await response!.json()).code).toBe('K8S_CLUSTER_NOT_REGISTERED');
+  });
+
+  it.each([
+    ['PUT', '/enabled'],
+    ['PUT', '/mode'],
+    ['PUT', '/node-optimizer'],
+    ['PUT', '/rebalancer'],
+    ['POST', '/rebalance'],
+    ['DELETE', '/node-templates/t1'],
+  ])('refuses the node automation write %s %s with 403 K8S_DEMO, never a read fixture', async (method, path) => {
+    const response = resolveDemoResponse(`${base('prod-eks-cluster')}${path}${q}`, method);
+    expect(response?.status).toBe(403);
+    expect((await response!.json()).code).toBe('K8S_DEMO');
+  });
 });
 
 /**

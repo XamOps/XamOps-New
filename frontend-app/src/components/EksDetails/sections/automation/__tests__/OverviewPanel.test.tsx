@@ -337,14 +337,14 @@ describe('Automation › Overview (§9.1)', () => {
     });
 
     it('builds the feature cards from real sources, each with its next step', async () => {
-      const hrefs = { workloadAutoscaler: '/w', hpa: '/h', vpa: '/v', nodeAutoscaler: '/n', nodeAutoscalerLabel: 'Open Nodes' };
+      const hrefs = { workloadAutoscaler: '/w', hpa: '/h', vpa: '/v', nodeAutoscaler: '/n' };
       await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { hrefs, eksData: DASHBOARD });
       const cards = () => Object.fromEntries([...document.querySelectorAll<HTMLElement>('[data-feature-card]')].map((c) => [c.dataset.featureCard, c]));
       await waitFor(() => expect(cards().workload).toHaveTextContent('On: you apply suggestions'));
       expect(cards().hpa).toHaveTextContent('1 HPA, at their maximum');
       expect(cards().vpa).toHaveTextContent('No VPAs found');
       expect(within(cards().workload).getByRole('link', { name: 'Open Workloads' })).toHaveAttribute('href', '/w');
-      expect(within(cards().node).getByRole('link', { name: 'Open Nodes' })).toHaveAttribute('href', '/n');
+      expect(within(cards().node).getByRole('link', { name: 'Open Node autoscaler' })).toHaveAttribute('href', '/n');
     });
 
     it('compares requested, used and suggested by namespace, with a memory toggle', async () => {

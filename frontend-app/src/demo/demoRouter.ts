@@ -519,6 +519,9 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // refused by path, so a method-blind lookup can never answer a write with a read fixture (§16, P7).
   if (/\/api\/eks\/automation\/vertical\/[^/?]+\/workloads\/.+\/(policy|apply)(\?|$)/.test(url))
     return makeResponse(k8sAutomation.DEMO_WRITE_REFUSED, 403);
+  // The HPA apply (Automation › HPA), refused by path the same way.
+  if (/\/api\/eks\/automation\/hpa\/[^/?]+\/[^/?]+\/[^/?]+\/apply(\?|$)/.test(url))
+    return makeResponse(k8sAutomation.DEMO_WRITE_REFUSED, 403);
 
   // Vertical engine, endpoint 1 (plan P7): an unrouted engine path would reach the real backend.
   {
@@ -528,6 +531,25 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
       return status ? makeResponse(status) : makeResponse(k8sAutomation.DEMO_CLUSTER_NOT_REGISTERED, 404);
     }
   }
+
+  // Node automation reads (Automation › Node autoscaler): the dashboard, the node fleet report and
+  // the rebalance status. Matched by exact path, so no write under /api/eks/autoscaling/ can be
+  // answered with a read fixture.
+  {
+    const node = /\/api\/eks\/autoscaling\/([^/?]+)(?:\/(node-fleet|rebalance-status))?(\?|$)/.exec(url);
+    if (node) {
+      const cluster = decodeURIComponent(node[1]);
+      const body = node[2] === 'node-fleet'
+        ? k8sAutomation.demoNodeFleet(cluster)
+        : node[2] === 'rebalance-status'
+          ? k8sAutomation.demoRebalanceStatus(cluster)
+          : k8sAutomation.demoAutomationDashboard(cluster);
+      return body ? makeResponse(body) : makeResponse(k8sAutomation.DEMO_CLUSTER_NOT_REGISTERED, 404);
+    }
+  }
+  // Anything else under the prefix (the node automation writes) is refused, never sent (§16, P7).
+  if (url.includes('/api/eks/autoscaling/'))
+    return makeResponse(k8sAutomation.DEMO_WRITE_REFUSED, 403);
 
   // K8s clusters (CloudK8s page)
   if (url.includes('/api/xamops/k8s/'))

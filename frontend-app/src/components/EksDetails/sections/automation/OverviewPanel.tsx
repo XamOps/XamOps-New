@@ -470,7 +470,7 @@ function FeatureCards({
       <FeatureCard
         feature="node"
         status={nodeAutoscalerStatus(caps.status, capsCluster, dashboard)}
-        link={{ href: hrefs.nodeAutoscaler, label: hrefs.nodeAutoscalerLabel ?? 'Open Nodes' }}
+        link={{ href: hrefs.nodeAutoscaler, label: hrefs.nodeAutoscalerLabel ?? 'Open Node autoscaler' }}
       />
     </section>
   );
@@ -547,7 +547,7 @@ export interface OverviewHrefs {
   policies?: string;
   hpa?: string;
   vpa?: string;
-  /** The Node autoscaler card's next step: the Nodes section until FEAT-003 registers Node autoscaler. */
+  /** Automation › Node autoscaler, the Node autoscaler card's next step. */
   nodeAutoscaler?: string;
   nodeAutoscalerLabel?: string;
 }

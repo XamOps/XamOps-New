@@ -13,6 +13,8 @@ import MiniBar from '../MiniBar';
 import TimeStrip from '../TimeStrip';
 import LanesTimeline from '../LanesTimeline';
 import SeriesLegend from '../SeriesLegend';
+import RangeBar, { rangeBarText } from '../RangeBar';
+import Bars, { logDomain } from '../Bars';
 import { SERIES, MONEY, HATCH } from '../chartTokens';
 
 describe('chartTokens (design-delta §2.2)', () => {
@@ -193,5 +195,85 @@ describe('LanesTimeline', () => {
       <LanesTimeline lanes={[{ name: 'w', feature: 'node', entries: [] }]} noHistoryBefore={0.2} />,
     );
     expect(container.querySelector('[data-no-history]')).toBeTruthy();
+  });
+});
+
+describe('RangeBar', () => {
+  it('reads "now 5 of 1–5" and places the band and the marker on the scale', () => {
+    const { container } = render(<RangeBar min={1} max={5} current={5} width={106} />);
+    const svg = container.querySelector('svg[data-range-bar]')!;
+    expect(svg.getAttribute('role')).toBe('img');
+    expect(svg.getAttribute('aria-label')).toBe('now 5 of 1–5');
+    expect(rangeBarText({ min: 1, max: 5, current: 5 })).toBe('now 5 of 1–5');
+    // Scale 0..5 over 100 px (3 px padding each side): 1 → 23, 5 → 103.
+    const band = container.querySelector('[data-range-band]')!;
+    expect(band.getAttribute('x')).toBe('23.00');
+    expect(band.getAttribute('width')).toBe('80.00');
+    expect(container.querySelector('[data-range-current]')!.getAttribute('cx')).toBe('103.00');
+    // Colour only through the series classes: bounds grey, the marker "used".
+    expect(band.getAttribute('class')).toBe(SERIES.capacity.fillClass);
+    expect(container.querySelector('[data-range-current]')!.getAttribute('class')).toBe(SERIES.used.fillClass);
+  });
+
+  it("draws XamOps's suggested bounds as ticks and says so", () => {
+    const { container } = render(<RangeBar min={1} max={5} current={5} suggestedMax={8} />);
+    expect(container.querySelector('[data-range-suggested="max"]')!.getAttribute('class')).toBe(SERIES.suggested.fillClass);
+    expect(container.querySelector('[data-range-suggested="min"]')).toBeNull();
+    expect(container.querySelector('svg')!.getAttribute('aria-label')).toBe('now 5 of 1–5, XamOps suggests 1–8');
+  });
+
+  it('draws only a dash, never a guessed range, when a bound is unknown', () => {
+    const { container } = render(<RangeBar min={null} max={5} current={3} />);
+    expect(container.querySelector('svg')).toBeNull();
+    expect(container.querySelector('[data-range-bar="empty"]')!.textContent).toContain('—');
+    expect(container.textContent).toContain('now 3 of bounds not reported');
+  });
+
+  it('keeps the marker off when replicas now are unknown', () => {
+    const { container } = render(<RangeBar min={2} max={10} current={null} />);
+    expect(container.querySelector('[data-range-current]')).toBeNull();
+    expect(container.querySelector('svg')!.getAttribute('aria-label')).toBe('now — of 2–10');
+  });
+});
+
+describe('Bars on a log scale', () => {
+  it('spans powers of ten around the values', () => {
+    expect(logDomain([25, 63, 1000])).toEqual({ domain: [10, 1000], ticks: [10, 100, 1000] });
+    expect(logDomain([10, 10])).toEqual({ domain: [10, 100], ticks: [10, 100] });
+    expect(logDomain([null, 0, -3])).toBeNull();
+  });
+
+  it('marks the chart log and declares the hatch its VPA series fills with', () => {
+    const { container } = render(
+      <Bars
+        mode="grouped"
+        scale="log"
+        width={420}
+        xKey="w"
+        data={[{ w: 'a', now: 100, xamops: 25, vpa: 0 }, { w: 'b', now: 1000, xamops: null, vpa: 78 }]}
+        bars={[
+          { dataKey: 'now', kind: 'requested', name: 'Request now' },
+          { dataKey: 'xamops', kind: 'suggested', name: 'XamOps suggests' },
+          { dataKey: 'vpa', kind: 'suggested', name: 'Kubernetes VPA suggests', hatch: 'suggested' },
+        ]}
+        ariaLabel="per pod"
+      />,
+    );
+    expect(container.querySelector('[data-bars]')!.getAttribute('data-bars-scale')).toBe('log');
+    // The hatch is this chart's own pattern, and the VPA bar fills with it.
+    const hatched = container.querySelector('.recharts-surface path[fill^="url(#k8s-hatch-suggested-"]')!;
+    const id = /^url\(#([\w-]+)\)$/.exec(hatched.getAttribute('fill')!)![1];
+    expect(container.querySelector(`.recharts-surface pattern#${id}`)).not.toBeNull();
+  });
+});
+
+describe('SeriesLegend hatched swatch', () => {
+  it('draws a hatched swatch for a hatched series, in its own SVG', () => {
+    const { container } = render(<SeriesLegend items={[{ label: 'Kubernetes VPA suggests', kind: 'suggested', hatch: 'suggested' }]} />);
+    const rect = container.querySelector('rect')!;
+    const id = /^url\(#(k8s-legend-hatch-suggested-[\w-]+)\)$/.exec(rect.getAttribute('fill') ?? '')?.[1];
+    expect(id).toBeTruthy();
+    expect(rect.getAttribute('stroke')).toBe(SERIES.suggested.color);
+    expect(container.querySelector(`svg pattern#${id}`)).not.toBeNull();
   });
 });

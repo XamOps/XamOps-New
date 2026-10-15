@@ -13,6 +13,9 @@
  *   clusters. `staging-eks-cluster` has no entry, so it reads as unregistered.
  */
 import type {
+  AutomationDashboardDto,
+  AutomationNodeFleet,
+  AutomationRebalanceStatus,
   CapabilitiesCluster,
   CapabilitiesDto,
   CapabilitiesReadiness,
@@ -238,4 +241,69 @@ export function demoVerticalStatus(cluster: string, now: number = Date.now()): V
       }),
     ],
   };
+}
+
+// ── Node automation reads (/api/eks/autoscaling/**), for Automation › Node autoscaler ──────────
+// The shapes the backend serves (EksAutoscalingService): the dashboard with every policy at its
+// default, the node fleet report and the rebalance status. prod runs node automation in analysis
+// (capabilities: ANALYSIS); eu has it off. Only the reads are answered: the page sends no write.
+
+const DEMO_NODE_CLUSTERS = ['prod-eks-cluster', 'eu-eks-cluster'] as const;
+
+const isNodeCluster = (cluster: string): cluster is (typeof DEMO_NODE_CLUSTERS)[number] =>
+  (DEMO_NODE_CLUSTERS as readonly string[]).includes(cluster);
+
+/** `GET /api/eks/autoscaling/{cluster}`: every section, node automation on (prod) or off (eu). */
+export function demoAutomationDashboard(cluster: string, now: number = Date.now()): AutomationDashboardDto | null {
+  if (!isNodeCluster(cluster)) return null;
+  const on = cluster === 'prod-eks-cluster';
+  return {
+    autoscalingEnabled: on,
+    policySource: 'default',
+    agentPolicyBlockedBy: null,
+    agentStatus: on
+      ? { mode: 'full', agentVersion: '1.0.0-autoscaler', lastSyncAt: ago(now, 40) }
+      : { mode: 'disabled', agentVersion: '1.0.0-autoscaler', lastSyncAt: null },
+    kpis: null,
+    scaleOutPolicy: {
+      enabled: true, headroomCpuPercent: 10, headroomMemoryPercent: 10, minCpuCores: 2, maxCpuCores: 32,
+      minRamMib: 4096, maxRamMib: 65536, nodeReadinessTimeoutMinutes: 15,
+    },
+    evictorPolicy: {
+      enabled: true, analyseOnly: true, aggressiveMode: false, nodeCycleIntervalSeconds: 60, nodeGracePeriodMinutes: 5,
+      targetUtilizationCpu: 80, targetUtilizationMemory: 80,
+    },
+    workloadRightsizerPolicy: { enabled: true, applyMode: 'deferred' },
+    hpaManagerPolicy: { enabled: false, analyseOnly: true, defaultMinReplicas: 1, defaultMaxReplicas: 10, defaultTargetCpuPct: 80 },
+    vpaManagerPolicy: { enabled: true, analyseOnly: true, updateMode: 'Off' },
+    nodeOptimizerPolicy: {
+      enabled: false, idleCpuThresholdPct: 20, idleMemThresholdPct: 20, autoCordonIdleNodes: false, autoDrainIdleNodes: false,
+      handleSpotInterruptions: true, spotRatioTargetPct: 0, karpenterEnabled: false, maxParallelDrains: 1,
+    },
+    nodeTemplates: [],
+    rebalancer: {
+      enabled: true, gracefulDraining: true, drainTimeoutMinutes: 20, scheduleEnabled: false, scheduleCron: '0 2 * * 0',
+      lastRebalanceAt: null, lastRebalanceDuration: 0, status: 'idle',
+    },
+    safetyGuards: {
+      respectPodDisruptionBudgets: true, protectSingleReplicas: true, protectStatefulSets: true, protectCriticalNamespaces: true,
+      criticalNamespaces: ['kube-system', 'kube-public', 'kube-node-lease'],
+    },
+    recentEvents: [],
+    recentChanges: [],
+  };
+}
+
+/** `GET …/node-fleet`: prod's six nodes (3 on-demand, 3 Spot), none idle; eu's three, none idle. */
+export function demoNodeFleet(cluster: string, now: number = Date.now()): AutomationNodeFleet | null {
+  if (!isNodeCluster(cluster)) return null;
+  return cluster === 'prod-eks-cluster'
+    ? { totalNodes: 6, onDemandNodes: 3, spotNodes: 3, idleNodes: [], interruptedNodes: [], collectedAt: ago(now, 55) }
+    : { totalNodes: 3, onDemandNodes: 3, spotNodes: 0, idleNodes: [], interruptedNodes: [], collectedAt: ago(now, 2 * 60 + 48) };
+}
+
+/** `GET …/rebalance-status`: what the backend serves before any rebalance has run. */
+export function demoRebalanceStatus(cluster: string): AutomationRebalanceStatus | null {
+  if (!isNodeCluster(cluster)) return null;
+  return { status: 'idle', message: 'No rebalance has been run yet' };
 }

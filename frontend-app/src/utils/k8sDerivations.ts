@@ -88,6 +88,8 @@ export interface ClusterNode {
   capacityMemMi: number | null;
   allocatableCpuM: number | null;
   allocatableMemMi: number | null;
+  /** How many pods the node accepts (its allocatable pods); null when the node doesn't say. */
+  allocatablePods: number | null;
   kubeletVersion: string | null;
   internalIp: string | null;
   age: string | null;
@@ -129,6 +131,12 @@ function nodeReady(node: AnyRecord): boolean | null {
   return null;
 }
 
+/** A whole count above zero ("58" or 58), else null: a node never accepts 0 pods by design. */
+function positiveCount(value: unknown): number | null {
+  const n = toNumber(value);
+  return n !== null && Number.isInteger(n) && n > 0 ? n : null;
+}
+
 function toClusterNode(node: AnyRecord): ClusterNode | null {
   const name = text(node.name) ?? text(node.nodeName);
   if (!name) return null;
@@ -157,6 +165,7 @@ function toClusterNode(node: AnyRecord): ClusterNode | null {
     capacityMemMi: typeof node.capacityMemory === 'string' ? parseMemoryMiB(node.capacityMemory) : null,
     allocatableCpuM: typeof node.allocatableCpu === 'string' ? parseCpuMillicores(node.allocatableCpu) : null,
     allocatableMemMi: typeof node.allocatableMemory === 'string' ? parseMemoryMiB(node.allocatableMemory) : null,
+    allocatablePods: positiveCount(node.allocatablePods),
     kubeletVersion: text(node.kubeletVersion),
     internalIp: text(node.internalIp),
     age: text(node.age),

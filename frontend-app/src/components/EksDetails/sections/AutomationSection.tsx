@@ -3,15 +3,19 @@
  * Routes every registered Automation sub to its page: Overview is what automation can do, is doing
  * and has done on this cluster; Workload autoscaler › Workloads reads endpoint 1 once and hosts the
  * Workload rightsizing cards with their own gating (the workload detail is `?workload=` on the same
- * page); Workload autoscaler › Policies is the rules XamOps uses, read-only; HPA and VPA are main's
- * combined Pod autoscaler page, split into one page each.
+ * page); Workload autoscaler › Policies is the rules XamOps uses, read-only; Node autoscaler is who
+ * changes the node count and what node autoscaling would do, read-only; HPA (with its `?hpa=`
+ * detail) and VPA are main's combined Pod autoscaler page, split into one page each; Activity is
+ * what XamOps changed.
  */
 import { SectionSubPanel } from './SectionSubPanel';
 import OverviewPanel from './automation/OverviewPanel';
 import WorkloadsPage from './automation/workload/WorkloadsPage';
 import PoliciesPage from './automation/workload/PoliciesPage';
+import NodeAutoscalerPage from './automation/node/NodeAutoscalerPage';
 import HpaPage from './automation/hpa/HpaPage';
 import VpaPage from './automation/vpa/VpaPage';
+import ActivityPage from './automation/activity/ActivityPage';
 import type { EksSectionProps } from './sectionTypes';
 
 export default function AutomationSection({ clusterName, accountId, region, route, eksData }: EksSectionProps) {
@@ -35,9 +39,8 @@ export default function AutomationSection({ clusterName, accountId, region, rout
                   policies: policiesHref,
                   hpa: route.hrefFor('automation', 'hpa'),
                   vpa: route.hrefFor('automation', 'vpa'),
-                  // Node autoscaler registers with its page (FEAT-003); until then its card points at Nodes.
-                  nodeAutoscaler: route.hrefFor('nodes', 'nodes'),
-                  nodeAutoscalerLabel: 'Open Nodes',
+                  nodeAutoscaler: route.hrefFor('automation', 'node-autoscaler'),
+                  nodeAutoscalerLabel: 'Open Node autoscaler',
                 }}
               />
             );
@@ -53,10 +56,14 @@ export default function AutomationSection({ clusterName, accountId, region, rout
             );
           case 'workload-autoscaler-policies':
             return <PoliciesPage clusterName={clusterName} accountId={accountId} region={region} workloadsHref={workloadsHref} />;
+          case 'node-autoscaler':
+            return <NodeAutoscalerPage clusterName={clusterName} accountId={accountId} region={region} eksData={eksData} />;
           case 'hpa':
             return <HpaPage clusterName={clusterName} accountId={accountId} region={region} eksData={eksData} />;
           case 'vpa':
             return <VpaPage clusterName={clusterName} accountId={accountId} region={region} eksData={eksData} />;
+          case 'activity':
+            return <ActivityPage clusterName={clusterName} accountId={accountId} region={region} eksData={eksData} />;
           default:
             return null;
         }

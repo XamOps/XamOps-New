@@ -14,6 +14,7 @@ import {
   MEM_FLOOR,
   codeText,
   findingSentence,
+  formatInstant,
   formatMemoryMi,
   formatMib,
   formatMillis,
@@ -36,10 +37,31 @@ import type {
   VerticalEngineView,
   WorkloadView,
 } from '../../../../types/verticalRightsizer';
-import type { HpaPageView } from '../../../../types/hpaAutomation';
+import type { HpaPageView, HpaWorkloadView } from '../../../../types/hpaAutomation';
 import type { EksDashboard } from '../../../../types/eksTypes';
-import type { CapabilitiesCluster } from '../../../../types/k8sAutomation';
-import { clusterPods, hpaStates, nodeProvisioners, sumRequests } from '../../../../utils/k8sDerivations';
+import type {
+  AgentStatus,
+  AutomationDashboardDto,
+  AutomationNodeFleet,
+  AutomationRebalanceStatus,
+  CapabilitiesCluster,
+} from '../../../../types/k8sAutomation';
+import {
+  capacityTypeCounts,
+  clusterCapacity,
+  clusterNodes,
+  clusterPods,
+  clusterRequestTotals,
+  hpaStates,
+  hpasFor,
+  isEmptyDashboard,
+  nodeGroups,
+  nodeProvisioners,
+  nodeRows,
+  podPlacement,
+  sumRequests,
+  type NodeRow,
+} from '../../../../utils/k8sDerivations';
 import { toNumber } from '../../../../utils/k8sQuantities';
 import { formatIST } from '../../../../utils/timeUtils';
 import type { Lane } from '../../../CloudK8s/shared/charts/LanesTimeline';
@@ -1038,3 +1060,866 @@ export function nodeAutoscalerStatus(
       return { tone: 'off', icon: 'mdi:minus-circle-outline', label: 'Not running on this cluster', lines: [...lines, "The automation agent isn't installed"] };
   }
 }
+
+// ─── HPA list and detail (UI v3 plan §2 "HPA"; glossary §13) ─────────────────
+
+/** A condition an HPA reports, as the XamOps agent read it. */
+export interface HpaConditionView {
+  type: string;
+  status: string;
+  reason: string | null;
+  message: string | null;
+}
+
+/** One HPA as the XamOps agent reported it. A number it didn't report is null, never 0. */
+export interface AgentHpa {
+  namespace: string;
+  name: string;
+  targetKind: string | null;
+  targetName: string | null;
+  min: number | null;
+  max: number | null;
+  current: number | null;
+  desired: number | null;
+  /** Its CPU utilization target, % of request; null when the agent read no CPU utilization target. */
+  cpuTargetPct: number | null;
+  /** CPU use now, % of request; null when Kubernetes reported no reading. */
+  cpuNowPct: number | null;
+  conditions: HpaConditionView[];
+}
+
+const textOf = (value: unknown): string | null => (typeof value === 'string' && value.trim() !== '' ? value : null);
+
+/** The first value that is a number (0 included). */
+const firstNumber = (...values: unknown[]): number | null => {
+  for (const v of values) {
+    const n = toNumber(v);
+    if (n !== null) return n;
+  }
+  return null;
+};
+
+/** The first value above 0: a CPU target of 0 is "none", not a target. */
+const firstPositive = (...values: unknown[]): number | null => {
+  for (const v of values) {
+    const n = toNumber(v);
+    if (n !== null && n > 0) return n;
+  }
+  return null;
+};
+
+/**
+ * The HPAs the XamOps agent reported (`k8sHpas`), or null when it reported no HPA list at all (not
+ * the same as none). Both spellings are read: the agent's `cpuTargetPct` / `currentCpuPct` and the
+ * older `targetCPUUtilization` / `currentCPUUtilization`.
+ */
+export function agentHpas(dashboard: EksDashboard | null | undefined): AgentHpa[] | null {
+  const raw = dashboard?.k8sHpas;
+  if (!Array.isArray(raw)) return null;
+  return raw.flatMap((entry): AgentHpa[] => {
+    if (!entry || typeof entry !== 'object') return [];
+    const h = entry as Record<string, unknown>;
+    const name = textOf(h.name);
+    if (!name) return [];
+    const conditions = Array.isArray(h.conditions)
+      ? h.conditions.flatMap((c): HpaConditionView[] => {
+        if (!c || typeof c !== 'object') return [];
+        const r = c as Record<string, unknown>;
+        const type = textOf(r.type);
+        return type ? [{ type, status: textOf(r.status) ?? 'Unknown', reason: textOf(r.reason), message: textOf(r.message) }] : [];
+      })
+      : [];
+    return [{
+      namespace: textOf(h.namespace) ?? 'default',
+      name,
+      targetKind: textOf(h.targetKind),
+      targetName: textOf(h.targetName) ?? textOf(h.targetRef),
+      min: firstNumber(h.minReplicas),
+      max: firstNumber(h.maxReplicas),
+      current: firstNumber(h.currentReplicas),
+      desired: firstNumber(h.desiredReplicas),
+      cpuTargetPct: firstPositive(h.cpuTargetPct, h.targetCPUUtilization, h.targetCPUPercent),
+      cpuNowPct: firstNumber(h.currentCpuPct, h.currentCPUUtilization),
+      conditions,
+    }];
+  });
+}
+
+export type HpaFlagKey = 'not-scaling' | 'cant-scale' | 'fixed-size' | 'at-max' | 'at-min' | 'scaling';
+
+export interface HpaFlag {
+  key: HpaFlagKey;
+  tone: Tone;
+  icon: string;
+  label: string;
+  detail?: string;
+}
+
+const conditionOf = (h: AgentHpa, type: string): HpaConditionView | undefined => h.conditions.find((c) => c.type === type);
+
+/** One condition in plain words (glossary §13.2); anything else is its raw reason and message. */
+export function hpaConditionText(c: HpaConditionView): string {
+  const message = c.message ? ` · ${c.message}` : '';
+  if (c.type === 'AbleToScale') {
+    if (c.status === 'True') {
+      if (c.reason === 'ScaleDownStabilized') return 'Can scale: yes · holding off a scale-down: recent readings asked for more';
+      if (c.reason === 'ScaleUpStabilized') return 'Can scale: yes · holding off a scale-up for now';
+      if (c.reason === 'ReadyForNewScale' || c.reason === 'SucceededRescale' || c.reason === 'SucceededGetScale' || c.reason === null) return 'Can scale: yes';
+    }
+    if (c.status === 'False') return `Can scale: no${message}`;
+  }
+  if (c.type === 'ScalingActive') {
+    if (c.status === 'True' && (c.reason === 'ValidMetricFound' || c.reason === null)) return 'Reading its metric: yes';
+    if (c.status === 'False') return `Reading its metric: no${message}`;
+  }
+  if (c.type === 'ScalingLimited') {
+    if (c.status === 'True' && c.reason === 'TooManyReplicas') return 'Held at a limit: yes, the maximum';
+    if (c.status === 'True' && c.reason === 'TooFewReplicas') return 'Held at a limit: yes, the minimum';
+    if (c.status === 'False') return 'Held at a limit: no';
+  }
+  return `${c.type} ${c.status}${c.reason ? `: ${c.reason}` : ''}${message}`;
+}
+
+/**
+ * Every flag that holds for an HPA, the first one first (glossary §13.1, first match): not scaling
+ * (ScalingActive False), can't scale (AbleToScale False), fixed size (min = max, so it is at both
+ * limits by design), at its maximum, at its minimum (unless CPU is above target), else scaling.
+ * Empty when the agent didn't report the replica numbers: nothing is flagged on a guess.
+ */
+export function hpaFlags(h: AgentHpa): HpaFlag[] {
+  const flags: HpaFlag[] = [];
+  const active = conditionOf(h, 'ScalingActive');
+  if (active?.status === 'False') {
+    flags.push({ key: 'not-scaling', tone: 'bad', icon: 'mdi:alert-octagon-outline', label: 'Not scaling', detail: hpaConditionText(active) });
+  }
+  const able = conditionOf(h, 'AbleToScale');
+  if (able?.status === 'False') {
+    flags.push({ key: 'cant-scale', tone: 'bad', icon: 'mdi:alert-octagon-outline', label: "Can't scale", detail: hpaConditionText(able) });
+  }
+  const { min, max, current } = h;
+  if (min !== null && max !== null && min === max) {
+    flags.push({ key: 'fixed-size', tone: 'off', icon: 'mdi:lock-outline', label: 'Fixed size', detail: `Minimum and maximum are both ${max}, so it never scales` });
+  } else {
+    if (current !== null && max !== null && current >= max) {
+      flags.push({ key: 'at-max', tone: 'warn', icon: 'mdi:arrow-collapse-up', label: 'At its maximum' });
+    }
+    const aboveTarget = h.cpuNowPct !== null && h.cpuTargetPct !== null && h.cpuNowPct > h.cpuTargetPct;
+    if (current !== null && min !== null && current <= min && !aboveTarget) {
+      flags.push({ key: 'at-min', tone: 'info', icon: 'mdi:arrow-collapse-down', label: 'At its minimum' });
+    }
+  }
+  if (flags.length === 0 && current !== null && min !== null && max !== null) {
+    flags.push({ key: 'scaling', tone: 'good', icon: 'mdi:check-circle', label: 'Scaling normally' });
+  }
+  return flags;
+}
+
+/** One HPA row: the agent's live HPA joined with endpoint 1's decision for the workload it scales. */
+export interface HpaRow {
+  /** `<namespace>/<HPA name>`: the `?hpa=` value. */
+  id: string;
+  namespace: string;
+  name: string;
+  /** What it scales; null when neither the agent nor endpoint 1 says. */
+  target: { kind: string; name: string } | null;
+  /** The agent's HPA; null when the agent didn't report it. */
+  live: AgentHpa | null;
+  /** Endpoint 1's view of the workload it scales; null when endpoint 1 doesn't analyse that workload. */
+  workload: HpaWorkloadView | null;
+  /** The first flag that holds; null when the agent didn't report the HPA's numbers. */
+  flag: HpaFlag | null;
+  /** The other flags that hold, shown as tags. */
+  tags: HpaFlag[];
+}
+
+/**
+ * The HPAs on the cluster, each with the workload endpoint 1 analysed for it. The join is the
+ * agent's scale target (namespace, kind and name, `hpasFor`), else the HPA name endpoint 1 reports
+ * for the workload. HPAs only endpoint 1 knows (the agent didn't report them) stay, with no live
+ * numbers; HPAs endpoint 1 doesn't analyse stay, with no decision.
+ */
+export function hpaRows(engine: HpaPageView | null, dashboard: EksDashboard | null | undefined): HpaRow[] {
+  const live = agentHpas(dashboard) ?? [];
+  const keyOf = (namespace: string, name: string) => `${namespace}/${name}`;
+  const liveByKey = new Map(live.map((h) => [keyOf(h.namespace, h.name), h]));
+  const workloadByKey = new Map<string, HpaWorkloadView>();
+  const workloads = engine?.workloads ?? [];
+  for (const w of workloads) {
+    const keys = hpasFor(dashboard, w.ref).flatMap((h) => {
+      const name = textOf(h.name);
+      return name ? [keyOf(textOf(h.namespace) ?? 'default', name)] : [];
+    });
+    if (keys.length === 0 && w.hpaName) keys.push(keyOf(w.ref.namespace, w.hpaName));
+    for (const key of keys) if (liveByKey.has(key) && !workloadByKey.has(key)) workloadByKey.set(key, w);
+  }
+
+  const rows: HpaRow[] = live.map((h) => {
+    const id = keyOf(h.namespace, h.name);
+    const workload = workloadByKey.get(id) ?? null;
+    const flags = hpaFlags(h);
+    const target = h.targetName
+      ? { kind: h.targetKind ?? workload?.ref.kind ?? 'Deployment', name: h.targetName }
+      : workload ? { kind: workload.ref.kind, name: workload.ref.name } : null;
+    return { id, namespace: h.namespace, name: h.name, target, live: h, workload, flag: flags[0] ?? null, tags: flags.slice(1) };
+  });
+
+  const joined = new Set(workloadByKey.values());
+  for (const w of workloads) {
+    if (!w.hpaPresent || joined.has(w)) continue;
+    const name = w.hpaName ?? w.ref.name;
+    const id = keyOf(w.ref.namespace, name);
+    if (rows.some((r) => r.id === id)) continue;
+    rows.push({ id, namespace: w.ref.namespace, name, target: { kind: w.ref.kind, name: w.ref.name }, live: null, workload: w, flag: null, tags: [] });
+  }
+  return rows.sort((a, b) => a.namespace.localeCompare(b.namespace) || a.name.localeCompare(b.name));
+}
+
+/** Workloads with no HPA that endpoint 1 says one would help (D4); XamOps never creates one. */
+export const hpaCandidates = (engine: HpaPageView | null): HpaWorkloadView[] =>
+  (engine?.hpaWorkloads ?? []).filter((w) => !w.hpaPresent);
+
+export const rowHasFlag = (row: HpaRow, key: HpaFlagKey): boolean => row.flag?.key === key || row.tags.some((t) => t.key === key);
+
+export interface HpaKpis {
+  /** HPAs on the cluster. */
+  total: number;
+  /** At their maximum / minimum; null when the agent reported no HPA list. */
+  atMax: number | null;
+  atMin: number | null;
+  /** HPA workloads a Kubernetes VPA also changes; null when endpoint 1 didn't answer. */
+  conflicts: number | null;
+}
+
+export function hpaKpis(rows: readonly HpaRow[], agentReported: boolean, engineRead: boolean): HpaKpis {
+  return {
+    total: rows.length,
+    atMax: agentReported ? rows.filter((r) => rowHasFlag(r, 'at-max')).length : null,
+    atMin: agentReported ? rows.filter((r) => rowHasFlag(r, 'at-min')).length : null,
+    conflicts: engineRead ? rows.filter((r) => r.workload?.vpaCoexistence.kind === 'managed').length : null,
+  };
+}
+
+/** What the HPA itself asks for now, by its own formula, and how it was worked out. */
+export interface HpaWants {
+  /** ceil(current × now ÷ target), or current within Kubernetes' 10% tolerance. */
+  wants: number;
+  /** The same, held between its minimum and maximum: what it can actually run. */
+  capped: number;
+  formula: string;
+}
+
+/**
+ * "The HPA wants about <n>" (glossary §13): only when the agent reported its CPU utilization target,
+ * its CPU use now and its replicas. The agent reads only the HPA's CPU utilization metric, so the
+ * text says that another metric could ask for more.
+ */
+export function hpaWants(h: AgentHpa): HpaWants | null {
+  const { current, cpuNowPct, cpuTargetPct, min, max } = h;
+  if (current === null || current <= 0 || cpuNowPct === null || cpuTargetPct === null || cpuTargetPct <= 0) return null;
+  const ratio = cpuNowPct / cpuTargetPct;
+  const tolerated = Math.abs(ratio - 1) <= 0.1;
+  const wants = tolerated ? current : Math.ceil(Number((current * ratio).toFixed(6)));
+  const capped = Math.min(max ?? wants, Math.max(min ?? wants, wants));
+  const formula = [
+    `Its own formula: ${current} × ${cpuNowPct}% ÷ ${cpuTargetPct}%, rounded up.`,
+    tolerated ? ` That is within Kubernetes' 10% tolerance, so it stays at ${current}.` : '',
+    max !== null ? ` Capped at ${max}.` : '',
+    ' If the HPA also scales on another metric, Kubernetes uses whichever asks for more.',
+  ].join('');
+  return { wants, capped, formula };
+}
+
+/** One "Works with XamOps" check (glossary §13.3). */
+export interface WorksCheck {
+  id: 'cpu' | 'vpa' | 'pdb';
+  tone: Tone;
+  icon: string;
+  label: string;
+  detail?: string;
+}
+
+export function hpaWorksChecks(row: HpaRow): WorksCheck[] {
+  const checks: WorksCheck[] = [];
+  if (row.live?.cpuTargetPct !== null && row.live?.cpuTargetPct !== undefined) {
+    checks.push({
+      id: 'cpu',
+      tone: 'good',
+      icon: 'mdi:check-circle',
+      label: 'Workload autoscaler leaves CPU alone',
+      detail: "This HPA scales on CPU, so XamOps doesn't change the workload's CPU request.",
+    });
+  } else {
+    checks.push({
+      id: 'cpu',
+      tone: 'off',
+      icon: 'mdi:help-circle-outline',
+      label: 'What it scales on: not reported',
+      detail: "The XamOps agent didn't report a CPU target for this HPA. XamOps leaves an HPA's resource alone either way.",
+    });
+  }
+  const kind = row.workload?.vpaCoexistence.kind;
+  if (!row.workload) {
+    checks.push({ id: 'vpa', tone: 'off', icon: 'mdi:help-circle-outline', label: 'Kubernetes VPA: not checked', detail: "XamOps doesn't analyse the workload this HPA scales." });
+  } else if (kind === 'managed') {
+    checks.push({ id: 'vpa', tone: 'bad', icon: 'mdi:alert-octagon-outline', label: 'A Kubernetes VPA also changes these pods', detail: 'Two autoscalers on one resource undo each other.' });
+  } else if (kind === 'unreadable') {
+    checks.push({ id: 'vpa', tone: 'warn', icon: 'mdi:eye-off-outline', label: "XamOps can't read the VPAs here", detail: "So it leaves this workload's requests alone." });
+  } else if (kind === 'off') {
+    checks.push({ id: 'vpa', tone: 'good', icon: 'mdi:check-circle', label: 'No Kubernetes VPA changes these pods', detail: "A VPA targets it in Off mode, which doesn't change pods." });
+  } else {
+    checks.push({ id: 'vpa', tone: 'good', icon: 'mdi:check-circle', label: 'No Kubernetes VPA changes these pods' });
+  }
+  if (row.workload?.decision.reasons.some((r) => r.kind === 'known' && r.code === 'PDB_FLOOR_BINDS')) {
+    checks.push({
+      id: 'pdb',
+      tone: 'warn',
+      icon: 'mdi:shield-alert-outline',
+      label: 'A disruption budget needs more than the minimum',
+      detail: 'At the minimum, no pod could be moved, so XamOps keeps the minimum.',
+    });
+  }
+  return checks;
+}
+
+const HPA_PARAM = new RegExp(`^(${DNS})/(${DNS})$`);
+
+/** `<namespace>/<HPA name>`, or null when the value is malformed. */
+export function parseHpaParam(raw: string): { namespace: string; name: string } | null {
+  const m = HPA_PARAM.exec(raw);
+  return m ? { namespace: m[1], name: m[2] } : null;
+}
+
+// ─── VPA (UI v3 plan §2 "VPA"; glossary §14) ─────────────────────────────────
+
+/** One resource per pod: the request now, what XamOps suggests and what the Kubernetes VPA suggests. */
+export interface PerPodSizes {
+  now: number | null;
+  xamops: number | null;
+  vpa: number | null;
+}
+
+export interface VpaRowView {
+  id: string;
+  /** Endpoint 1's HPA/VPA view of the workload: its coexistence verdict and VPA targets. */
+  hpa: HpaWorkloadView;
+  /** Endpoint 1's Workload autoscaler view of the same workload; null when it isn't in that view. */
+  workload: WorkloadView | null;
+  cpu: PerPodSizes;
+  memory: PerPodSizes;
+  /** Why XamOps doesn't size it, when it doesn't. */
+  skipped: string | null;
+  /** The VPA reported no target for any container. */
+  noTarget: boolean;
+  /** CPU per pod: the VPA within 20% of XamOps; null when either side is unknown. */
+  agrees: boolean | null;
+  /** The CPU comparison in words (glossary §14 "Comparison"). */
+  compare: { tone: Tone; icon: string; label: string } | null;
+}
+
+const SKIP_REASON_SHORT = (w: WorkloadView): string => {
+  const skip = knownCode(w.skipReason);
+  if (skip && SKIP_SHORT[skip]) return SKIP_SHORT[skip];
+  return w.skipReason ? codeText(w.skipReason) : 'rightsizing off';
+};
+
+function vpaPerPod(hpa: HpaWorkloadView, resource: Resource): number | null {
+  if (hpa.nativeVpa.length === 0) return null;
+  let total = 0;
+  for (const t of hpa.nativeVpa) {
+    const v = resource === 'cpu' ? t.cpuRequestM : t.memRequestMi;
+    if (v === null) return null;
+    total += v;
+  }
+  return total;
+}
+
+/** "No VPA suggestion": a fact only when the workload runs no pod to measure. */
+export function noVpaSuggestionText(hpa: HpaWorkloadView): string {
+  return hpa.replicas === 0 ? 'No VPA suggestion: no running pod to measure' : 'No VPA suggestion reported';
+}
+
+/**
+ * The workloads a Kubernetes VPA touches (endpoint 1), with CPU and memory per pod side by side:
+ * the request now, XamOps's suggestion (its current request when it suggests no change; none when it
+ * skips the workload) and the VPA's target. CPU agrees when the VPA is within 20% of XamOps.
+ */
+export function vpaRows(hpaView: HpaPageView, vertical: VerticalEngineView | null): VpaRowView[] {
+  const byId = new Map((vertical?.workloads ?? []).map((w) => [w.id, w]));
+  return hpaView.vpaWorkloads.map((hpa): VpaRowView => {
+    const workload = byId.get(hpa.id) ?? null;
+    const status = workload ? workloadStatusChip(workload).key : null;
+    const skipped = workload && (status === 'skipped' || status === 'off' || status === 'left-alone-managed') ? SKIP_REASON_SHORT(workload) : null;
+    const sizes = (resource: Resource): PerPodSizes => {
+      const pair = workload ? podRequests(workload, resource) : { now: null, suggested: null };
+      return { now: pair.now, xamops: skipped ? null : pair.suggested, vpa: vpaPerPod(hpa, resource) };
+    };
+    const cpu = sizes('cpu');
+    const memory = sizes('memory');
+    const noTarget = hpa.nativeVpa.length === 0;
+    let agrees: boolean | null = null;
+    let compare: VpaRowView['compare'] = null;
+    if (skipped) {
+      compare = { tone: 'off', icon: 'mdi:debug-step-over', label: `XamOps skips it: ${skipped}` };
+    } else if (noTarget) {
+      compare = { tone: 'off', icon: 'mdi:minus-circle-outline', label: noVpaSuggestionText(hpa) };
+    } else if (cpu.xamops !== null && cpu.vpa !== null && cpu.xamops > 0) {
+      agrees = Math.abs(cpu.vpa - cpu.xamops) <= 0.2 * cpu.xamops;
+      if (Math.abs(cpu.vpa - cpu.xamops) < 1) compare = { tone: 'good', icon: 'mdi:check-circle', label: 'CPU: same as XamOps' };
+      else if (agrees) compare = { tone: 'good', icon: 'mdi:check-circle', label: 'CPU: within 20% of XamOps' };
+      else compare = { tone: 'info', icon: 'mdi:compare-vertical', label: `CPU: VPA suggests ${cpu.vpa > cpu.xamops ? 'more' : 'less'} than XamOps` };
+    }
+    return { id: hpa.id, hpa, workload, cpu, memory, skipped, noTarget, agrees, compare };
+  });
+}
+
+/** The coexistence chip (UI v3 plan §2 "VPA"): a VPA that changes pods is a conflict. */
+export const VPA_CONFLICT_CHIPS: Record<'managed' | 'unreadable' | 'off' | 'none', { tone: Tone; icon: string }> = {
+  managed: { tone: 'bad', icon: 'mdi:alert-octagon-outline' },
+  unreadable: { tone: 'warn', icon: 'mdi:eye-off-outline' },
+  off: { tone: 'info', icon: 'mdi:information-outline' },
+  none: { tone: 'off', icon: 'mdi:minus-circle-outline' },
+};
+
+export interface VpaKpis {
+  vpas: number;
+  changingPods: number;
+  unreadable: number;
+  off: number;
+  conflicts: number;
+  agreement: { agree: number; compared: number };
+}
+
+export function vpaKpis(rows: readonly VpaRowView[]): VpaKpis {
+  const kind = (k: string) => rows.filter((r) => r.hpa.vpaCoexistence.kind === k).length;
+  const compared = rows.filter((r) => r.agrees !== null);
+  return {
+    vpas: rows.length,
+    changingPods: kind('managed'),
+    unreadable: kind('unreadable'),
+    off: kind('off'),
+    conflicts: kind('managed') + kind('unreadable'),
+    agreement: { agree: compared.filter((r) => r.agrees === true).length, compared: compared.length },
+  };
+}
+
+// ─── Node autoscaler (UI v3 plan §2 "Node autoscaler"; glossary §12) ─────────
+
+/** One line of "Who changes the node count on this cluster" (glossary §12.1). */
+export interface NodeChangerLine {
+  id: string;
+  tone: Tone;
+  icon: string;
+  label: string;
+  detail?: string;
+}
+
+const CLUSTER_AUTOSCALER = /(^|-)cluster-autoscaler($|-)/;
+
+function clusterAutoscalerDeployment(dashboard: EksDashboard): { namespace: string; name: string; image: string | null } | null {
+  const raw = Array.isArray(dashboard.k8sDeployments) && dashboard.k8sDeployments.length > 0
+    ? dashboard.k8sDeployments
+    : (dashboard.workloadHealth as unknown as { deployments?: unknown[] } | undefined)?.deployments ?? [];
+  for (const entry of raw as unknown[]) {
+    if (!entry || typeof entry !== 'object') continue;
+    const d = entry as Record<string, unknown>;
+    const name = textOf(d.name);
+    if (!name || !CLUSTER_AUTOSCALER.test(name)) continue;
+    const images = Array.isArray(d.images) ? d.images.filter((i): i is string => typeof i === 'string') : [];
+    return { namespace: textOf(d.namespace) ?? 'default', name, image: images[0] ?? null };
+  }
+  return null;
+}
+
+/** The image's tag ("v1.30.0" from "registry.k8s.io/autoscaling/cluster-autoscaler:v1.30.0"). */
+const imageTag = (image: string | null): string | null => {
+  if (!image) return null;
+  const at = image.lastIndexOf(':');
+  return at > image.lastIndexOf('/') ? image.slice(at + 1) : null;
+};
+
+/**
+ * Who adds and removes nodes, from the XamOps agent's data (labels, Deployments and Karpenter's own
+ * report). Null when the agent hasn't reported this cluster, so nothing is claimed either way.
+ */
+export function nodeChangers(dashboard: EksDashboard | null | undefined, clusterName: string): NodeChangerLine[] | null {
+  if (!dashboard || isEmptyDashboard(dashboard)) return null;
+  const p = nodeProvisioners(dashboard);
+  const lines: NodeChangerLine[] = [];
+  if (p.karpenter === 'reported') {
+    const pools = dashboard.karpenter?.nodePools?.length ?? 0;
+    lines.push({ id: 'karpenter', tone: 'good', icon: 'mdi:check-circle', label: `Karpenter: installed (${pools} ${plural(pools, 'NodePool')})` });
+  } else if (p.karpenter === 'labels') {
+    lines.push({ id: 'karpenter', tone: 'good', icon: 'mdi:check-circle', label: 'Karpenter: installed', detail: 'Nodes carry its NodePool label.' });
+  } else {
+    lines.push({ id: 'karpenter', tone: 'off', icon: 'mdi:minus-circle-outline', label: 'Karpenter: not installed' });
+  }
+  const ca = clusterAutoscalerDeployment(dashboard);
+  if (ca) {
+    const tag = imageTag(ca.image);
+    lines.push({ id: 'cluster-autoscaler', tone: 'good', icon: 'mdi:check-circle', label: `Cluster Autoscaler: installed (${ca.namespace}/${ca.name}${tag ? `, ${tag}` : ''})` });
+  } else {
+    lines.push({ id: 'cluster-autoscaler', tone: 'off', icon: 'mdi:minus-circle-outline', label: 'Cluster Autoscaler: not installed' });
+  }
+  if (p.karpenter && ca) {
+    lines.push({ id: 'both', tone: 'warn', icon: 'mdi:alert-outline', label: 'Karpenter and the Cluster Autoscaler are both installed, so they can fight over the same nodes.' });
+  }
+  for (const g of nodeGroups(dashboard).filter((x) => x.type === 'Managed node group')) {
+    const kinds = [g.onDemand > 0 ? `${g.onDemand} on-demand` : null, g.spot > 0 ? `${g.spot} Spot` : null].filter((x): x is string => !!x).join(', ');
+    lines.push({
+      id: `node-group:${g.name}`,
+      tone: 'info',
+      icon: 'mdi:server',
+      label: `Node group ${g.name}: EKS managed · ${g.instanceTypes.join(', ') || 'instance type not reported'}${kinds ? `, ${kinds}` : ''} · ${g.nodes} ${plural(g.nodes, 'node')} now`,
+      detail: !p.karpenter && !ca ? 'Without an autoscaler, EKS keeps it at the desired count.' : undefined,
+    });
+  }
+  if (!p.karpenter && !ca) {
+    lines.push({ id: 'none', tone: 'off', icon: 'mdi:minus-circle-outline', label: `Nothing adds or removes nodes on ${clusterName} today.` });
+  }
+  return lines;
+}
+
+/** The automation agent's install state, from capabilities: what "Remove empty nodes" and the rest need. */
+export type AutomationAgentState = 'installed' | 'stale' | 'not-installed' | 'unknown';
+
+export function automationAgentState(capsStatus: 'loading' | 'ready' | 'error', cluster: CapabilitiesCluster | null): AutomationAgentState {
+  if (capsStatus !== 'ready' || !cluster) return 'unknown';
+  const status: AgentStatus | undefined = cluster.automationAgent?.status;
+  if (status === 'CONNECTED') return 'installed';
+  if (status === 'STALE') return 'stale';
+  if (status === 'NOT_INSTALLED') return 'not-installed';
+  return 'unknown';
+}
+
+/** The automation agent line (glossary §12.1), with what its dashboard says when it answered. */
+export function automationAgentLine(
+  capsStatus: 'loading' | 'ready' | 'error',
+  cluster: CapabilitiesCluster | null,
+  dashboard: { kind: 'ok'; data: AutomationDashboardDto } | { kind: 'error'; message: string } | { kind: 'loading' },
+): NodeChangerLine {
+  if (capsStatus === 'loading') return { id: 'automation-agent', tone: 'off', icon: 'mdi:progress-clock', label: 'XamOps automation agent: checking' };
+  if (capsStatus === 'error') {
+    return { id: 'automation-agent', tone: 'off', icon: 'mdi:help-circle-outline', label: 'XamOps automation agent: not checked', detail: "XamOps couldn't read this cluster's capabilities." };
+  }
+  if (!cluster) {
+    return { id: 'automation-agent', tone: 'off', icon: 'mdi:help-circle-outline', label: 'XamOps automation agent: not checked', detail: "This cluster isn't in XamOps's capabilities for the account." };
+  }
+  const agent = cluster.automationAgent;
+  const seen = agent?.lastSeenAt ? formatInstant(agent.lastSeenAt) : null;
+  const settings = dashboard.kind === 'error'
+    ? `XamOps couldn't read its node automation settings: ${dashboard.message}`
+    : dashboard.kind === 'ok' && dashboard.data.agentStatus?.mode
+      ? `Node automation mode: ${dashboard.data.agentStatus.mode}.`
+      : undefined;
+  switch (agent?.status) {
+    case 'CONNECTED':
+      return {
+        id: 'automation-agent', tone: 'good', icon: 'mdi:check-circle',
+        label: `XamOps automation agent: installed (${agent.version ?? 'version not reported'}${seen ? `, last report ${seen}` : ''})`,
+        detail: settings,
+      };
+    case 'STALE':
+      return {
+        id: 'automation-agent', tone: 'warn', icon: 'mdi:clock-alert-outline',
+        label: `XamOps automation agent: installed, but its last report is older than 15 minutes${seen ? ` (${seen})` : ''}.`,
+        detail: settings,
+      };
+    case 'UNKNOWN':
+      return { id: 'automation-agent', tone: 'off', icon: 'mdi:help-circle-outline', label: 'XamOps automation agent: not checked', detail: settings };
+    default:
+      return {
+        id: 'automation-agent', tone: 'off', icon: 'mdi:minus-circle-outline',
+        label: 'XamOps automation agent: not installed. It is the part of XamOps that empties and packs nodes.',
+      };
+  }
+}
+
+/** The Node autoscaler KPIs, each from its own source; null where that source didn't report. */
+export interface NodeKpis {
+  nodes: number;
+  ready: number;
+  capacity: { onDemand: number; spot: number; unknown: number };
+  /** Pending pods without a node; null without the agent's pods. */
+  waiting: number | null;
+  /** The largest waiting pod's ask, for the sub-line. */
+  biggestWaiting: { name: string; namespace: string; cpuM: number; memMi: number } | null;
+  cpu: { requestedM: number; allocatableM: number | null; requestedPct: number | null; usedPct: number | null };
+  memory: { requestedMi: number; allocatableMi: number | null; requestedPct: number | null };
+}
+
+export function nodeKpis(dashboard: EksDashboard | null | undefined): NodeKpis {
+  const nodes = clusterNodes(dashboard);
+  const totals = clusterRequestTotals(dashboard);
+  const capacity = clusterCapacity(dashboard);
+  const placement = podPlacement(dashboard);
+  const waitingPods = clusterPods(dashboard).filter((p) => p.phase === 'Pending' && !p.nodeName);
+  const biggest = [...waitingPods].sort((a, b) => sumRequests(b.containers).cpuRequestM - sumRequests(a.containers).cpuRequestM)[0];
+  const usedPct = capacity.cpu.used !== null && capacity.cpu.allocatable ? (capacity.cpu.used / capacity.cpu.allocatable) * 100 : null;
+  return {
+    nodes: nodes.length,
+    ready: nodes.filter((n) => n.ready === true).length,
+    capacity: capacityTypeCounts(nodes),
+    waiting: placement ? placement.waiting : null,
+    biggestWaiting: biggest
+      ? { name: biggest.name, namespace: biggest.namespace, cpuM: sumRequests(biggest.containers).cpuRequestM, memMi: sumRequests(biggest.containers).memRequestMi }
+      : null,
+    cpu: { requestedM: totals.cpuRequestM, allocatableM: totals.cpuAllocatableM, requestedPct: totals.cpuRequestedPct, usedPct },
+    memory: { requestedMi: totals.memRequestMi, allocatableMi: totals.memAllocatableMi, requestedPct: totals.memRequestedPct },
+  };
+}
+
+/** Per node, requested and allocatable CPU (vCPU) and pods, for the two node charts. */
+export interface NodeBarRow {
+  node: string;
+  requestedCpu: number;
+  allocatableCpu: number | null;
+  cpuRequestedPct: number | null;
+  pods: number;
+  allocatablePods: number | null;
+}
+
+export function nodeBarRows(dashboard: EksDashboard | null | undefined): NodeBarRow[] {
+  return nodeRows(dashboard)
+    .map((n: NodeRow) => ({
+      node: n.name,
+      requestedCpu: Number((n.cpuRequestM / 1000).toFixed(3)),
+      allocatableCpu: n.allocatableCpuM === null ? null : Number((n.allocatableCpuM / 1000).toFixed(3)),
+      cpuRequestedPct: n.cpuRequestedPct,
+      pods: n.pods,
+      allocatablePods: n.allocatablePods,
+    }))
+    .sort((a, b) => (b.cpuRequestedPct ?? -1) - (a.cpuRequestedPct ?? -1) || a.node.localeCompare(b.node));
+}
+
+/** The idle nodes the automation agent reported; null when it didn't (not installed, or no report). */
+export function idleNodeCount(agent: AutomationAgentState, fleet: AutomationNodeFleet | null): number | null {
+  if (agent !== 'installed' && agent !== 'stale') return null;
+  if (!fleet || !fleet.collectedAt || !Array.isArray(fleet.idleNodes)) return null;
+  return fleet.idleNodes.length;
+}
+
+/** The last rebalance in words (`rebalance-status`). */
+export function rebalanceText(status: AutomationRebalanceStatus | null): string {
+  if (!status) return 'Not reported';
+  const message = textOf(status.message);
+  switch (status.status) {
+    case 'idle':
+      return message ?? 'No rebalance is running';
+    case 'running':
+      return 'A rebalance is running now';
+    case 'completed':
+      return message ? `The last rebalance completed: ${message}` : 'The last rebalance completed';
+    case 'failed':
+      return message ? `The last rebalance failed: ${message}` : 'The last rebalance failed';
+    default:
+      return message ? `Not known: ${message}` : 'Not known';
+  }
+}
+
+/** One row of "What node autoscaling would do now" (glossary §12.2). */
+export interface NodeLever {
+  id: 'scale-up' | 'remove-empty' | 'bin-packing' | 'rebalancing' | 'spot';
+  name: string;
+  line: string;
+  /** What it would do on the cluster as it is now, from the source named in `source`. */
+  verdict: string;
+  source: string;
+  /** Why it isn't available yet. */
+  reason: string;
+}
+
+export interface NodeLeverInputs {
+  agent: AutomationAgentState;
+  /** Who changes the node count; null when the agent's data is missing. */
+  provisioners: { karpenter: boolean; clusterAutoscaler: boolean } | null;
+  kpis: NodeKpis;
+  idle: number | null;
+  /** Capabilities readiness messages, when the automation agent's parts aren't ready. */
+  readiness?: Partial<Record<'node-optimizer-actions' | 'evictor-live' | 'rebalancer', string | null>>;
+}
+
+const AGENT_MISSING = "Needs the automation agent, which isn't installed on this cluster.";
+const NOT_BUILT = 'Not built in XamOps yet.';
+
+/**
+ * The five parts of node autoscaling, each with what it would do now and why it isn't available
+ * yet: XamOps doesn't add nodes (not built), the parts that empty and pack nodes need the
+ * automation agent, rebalancing needs something that brings up replacement nodes.
+ */
+export function nodeLevers({ agent, provisioners, kpis, idle, readiness = {} }: NodeLeverInputs): NodeLever[] {
+  const agentReason = (key: 'node-optimizer-actions' | 'evictor-live' | 'rebalancer') =>
+    agent === 'installed' || agent === 'stale' ? (readiness[key] ?? NOT_BUILT) : agent === 'unknown' ? "XamOps couldn't check the automation agent." : AGENT_MISSING;
+  const waiting = kpis.waiting;
+  const big = kpis.biggestWaiting;
+  const scaleUp = waiting === null
+    ? 'Not known: the XamOps agent reported no pods.'
+    : waiting === 0
+      ? 'No pod is waiting.'
+      : `${waiting} ${plural(waiting, 'pod')} ${waiting === 1 ? 'is' : 'are'} waiting.${big ? ` The largest, ${big.namespace}/${big.name}, asks for ${formatVcpu(big.cpuM)} and ${formatMemory(big.memMi)}.` : ''}`;
+  const { onDemand, spot, unknown } = kpis.capacity;
+  const total = onDemand + spot + unknown;
+  const spotVerdict = total === 0
+    ? 'Not known: the XamOps agent reported no nodes.'
+    : spot === 0 && unknown === 0
+      ? `All ${total} ${plural(total, 'node')} are on-demand.`
+      : `${spot} of ${total} ${plural(total, 'node')} ${spot === 1 ? 'is' : 'are'} Spot${unknown > 0 ? `, ${unknown} with no capacity type` : ''}.`;
+  const replaces = provisioners && (provisioners.karpenter || provisioners.clusterAutoscaler);
+  return [
+    {
+      id: 'scale-up',
+      name: 'Scale up for waiting pods',
+      line: "Add a node when a pod can't be scheduled.",
+      verdict: scaleUp,
+      source: 'Pod status, from the XamOps agent',
+      reason: "XamOps doesn't add nodes. Not built in XamOps yet.",
+    },
+    {
+      id: 'remove-empty',
+      name: 'Remove empty nodes',
+      line: 'Empty idle nodes so they can be removed.',
+      verdict: idle === null ? "Not known: the automation agent hasn't reported idle nodes." : idle === 0 ? 'No node is idle.' : `${idle} ${plural(idle, 'node')} ${idle === 1 ? 'is' : 'are'} idle.`,
+      source: "The automation agent's node report",
+      reason: agentReason('node-optimizer-actions'),
+    },
+    {
+      id: 'bin-packing',
+      name: 'Bin-packing',
+      line: 'Move pods off a node when they all fit elsewhere.',
+      verdict: agent === 'installed' || agent === 'stale' ? "Not shown yet: the automation agent's fit check isn't read here." : "Not known: the fit check runs in the automation agent.",
+      source: 'Fit check by the automation agent',
+      reason: agentReason('evictor-live'),
+    },
+    {
+      id: 'rebalancing',
+      name: 'Rebalancing',
+      line: 'Swap nodes for a cheaper or better-fitting set.',
+      verdict: provisioners === null
+        ? "Not known: the XamOps agent hasn't reported who adds nodes."
+        : replaces ? 'Something here can bring up replacement nodes.' : 'Not useful here: nothing would bring up replacement nodes (no Karpenter or Cluster Autoscaler).',
+      source: 'Detection above',
+      reason: provisioners !== null && !replaces ? 'No node provisioner detected.' : agentReason('rebalancer'),
+    },
+    {
+      id: 'spot',
+      name: 'Spot handling',
+      line: 'Run suitable nodes on Spot capacity.',
+      verdict: spotVerdict,
+      source: 'Node capacity-type labels, from the XamOps agent',
+      reason: NOT_BUILT,
+    },
+  ];
+}
+
+// ─── Activity: each workload's latest change (UI v3 plan §2 "Activity") ──────
+
+export type ActivitySource = 'workload' | 'hpa';
+
+export type ResultGroup = 'applied' | 'test-run' | 'deferred' | 'refused-failed' | 'mode-change' | 'other';
+
+/** One workload's latest recorded change (endpoint 1 `lastAction`). */
+export interface LatestChangeRow {
+  id: string;
+  source: ActivitySource;
+  workload: WorkloadView;
+  /** Epoch ms; null when the time is missing or unreadable. */
+  at: number | null;
+  atRaw: string | null;
+  action: 'Resize' | 'Mode change';
+  result: ActionResult;
+  group: ResultGroup;
+  /** False for a test run. */
+  live: boolean;
+}
+
+export function resultGroup(result: ActionResult): ResultGroup {
+  switch (result.key) {
+    case 'applied':
+    case 'applied-put-back':
+    case 'partly-applied':
+      return 'applied';
+    case 'test-run':
+      return 'test-run';
+    case 'deferred':
+    case 'not-confirmed':
+      return 'deferred';
+    case 'refused':
+    case 'failed':
+    case 'infeasible':
+    case 'expired':
+      return 'refused-failed';
+    case 'mode-change':
+      return 'mode-change';
+    default:
+      return 'other';
+  }
+}
+
+export const RESULT_GROUP_LABELS: Record<ResultGroup, string> = {
+  applied: 'Applied',
+  'test-run': 'Test run',
+  deferred: 'Deferred',
+  'refused-failed': 'Refused or failed',
+  'mode-change': 'Mode changed',
+  other: 'Other',
+};
+
+/**
+ * Every workload's latest recorded change, newest first (an unreadable time last). Endpoint 1
+ * records the Workload autoscaler's changes only, so every row's source is the Workload autoscaler.
+ */
+export function latestChangeRows(workloads: readonly WorkloadView[]): LatestChangeRow[] {
+  return workloads
+    .flatMap((w): LatestChangeRow[] => {
+      const a = w.lastAction;
+      if (!a) return [];
+      const result = actionResult(a.outcome, a.dryRun);
+      if (!result) return [];
+      return [{
+        id: w.id,
+        source: 'workload',
+        workload: w,
+        at: instantMs(a.at),
+        atRaw: a.at,
+        action: a.outcome === POLICY_CHANGE ? 'Mode change' : 'Resize',
+        result,
+        group: resultGroup(result),
+        live: a.dryRun !== true && result.key !== 'test-run',
+      }];
+    })
+    .sort((a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity) || a.id.localeCompare(b.id));
+}
+
+export interface ActivityKpis {
+  /** Latest change applied live, in full or in part. */
+  applied: number;
+  testRuns: number;
+  refusedOrFailed: number;
+  /** Latest change applied live in full: in place unless something outside XamOps changed it since. */
+  inPlace: number;
+}
+
+export function activityKpis(rows: readonly LatestChangeRow[]): ActivityKpis {
+  return {
+    applied: rows.filter((r) => r.group === 'applied' && r.live).length,
+    testRuns: rows.filter((r) => r.group === 'test-run').length,
+    refusedOrFailed: rows.filter((r) => r.group === 'refused-failed').length,
+    inPlace: rows.filter((r) => r.live && r.result.key === 'applied').length,
+  };
+}
+
+const istDay = (ms: number): string => new Date(ms).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' });
+
+/** Today's (IST) latest changes, by result. */
+export function todayByResult(rows: readonly LatestChangeRow[], now: number): { applied: number; deferred: number; refused: number; failed: number; testRuns: number } {
+  const today = rows.filter((r) => r.at !== null && istDay(r.at) === istDay(now));
+  return {
+    applied: today.filter((r) => r.group === 'applied' && r.live).length,
+    deferred: today.filter((r) => r.group === 'deferred').length,
+    refused: today.filter((r) => r.result.key === 'refused').length,
+    failed: today.filter((r) => r.group === 'refused-failed' && r.result.key !== 'refused').length,
+    testRuns: today.filter((r) => r.group === 'test-run').length,
+  };
+}
+
+/** The Kubernetes event reasons that are about scaling, resizing or eviction. */
+export const SCALING_EVENT_REASON = /Resize|Scal|Evict|Rescale/;

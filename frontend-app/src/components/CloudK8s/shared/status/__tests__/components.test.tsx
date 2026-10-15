@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import StatusChip from '../StatusChip';
 import Delta from '../Delta';
 import KpiCard from '../KpiCard';
-import FeatureMark, { featureIcon, featureName } from '../FeatureMark';
+import FeatureMark, { FeatureDot, featureIcon, featureName } from '../FeatureMark';
 import StepIndicator from '../StepIndicator';
 import NowBanner from '../NowBanner';
 import HowItWorks from '../HowItWorks';
@@ -83,6 +83,14 @@ describe('FeatureMark', () => {
     expect(container.querySelector('.text-feature-workload')).toBeTruthy();
     expect(featureName('hpa')).toBe('HPA');
     expect(featureIcon('vpa')).toBe('mdi:compare-vertical');
+  });
+
+  it('FeatureDot is the accent as a decorative dot, for use next to the feature name', () => {
+    const { container } = render(<FeatureDot feature="hpa" />);
+    const dot = container.querySelector('[data-feature-dot="hpa"]')!;
+    expect(dot.getAttribute('aria-hidden')).toBe('true');
+    expect(dot.className).toContain('bg-feature-hpa');
+    expect(dot.textContent).toBe('');
   });
 });
 

@@ -29,6 +29,7 @@ import Sparkline from '../Sparkline';
 import MiniBar from '../MiniBar';
 import TimeStrip from '../TimeStrip';
 import LanesTimeline from '../LanesTimeline';
+import RangeBar from '../RangeBar';
 import { SERIES } from '../chartTokens';
 
 import CapacityDonut from '../../CapacityDonut';
@@ -38,7 +39,7 @@ import StatusChip from '../../status/StatusChip';
 import KpiCard from '../../status/KpiCard';
 import StepIndicator from '../../status/StepIndicator';
 import ApplyStepper from '../../status/ApplyStepper';
-import FeatureMark from '../../status/FeatureMark';
+import FeatureMark, { FeatureDot } from '../../status/FeatureMark';
 import { deriveLifecycle } from '../../status/lifecycle';
 import SeriesLegend from '../SeriesLegend';
 import type { ApplyOutcomeWire } from '../../../../../types/workloadRightsizing';
@@ -255,6 +256,26 @@ function AllComponents() {
         />
       ))}
 
+      {/* Grouped bars on a log scale with the suggested series, solid (XamOps) and hatched (the Kubernetes VPA). */}
+      <Bars
+        mode="grouped"
+        scale="log"
+        width={420}
+        xKey="w"
+        data={[{ w: 'a', now: 100, xamops: 25, vpa: 30, lim: 200 }, { w: 'b', now: 1000, xamops: 63, vpa: null, lim: 2000 }]}
+        bars={[
+          { dataKey: 'now', kind: 'requested', name: 'Request now' },
+          { dataKey: 'xamops', kind: 'suggested', name: 'XamOps suggests' },
+          { dataKey: 'vpa', kind: 'suggested', name: 'Kubernetes VPA suggests', hatch: 'suggested' },
+          { dataKey: 'lim', kind: 'limit', name: 'Limit' },
+        ]}
+        ariaLabel="CPU per pod, log scale"
+      />
+      <RangeBar min={1} max={5} current={5} suggestedMin={2} suggestedMax={8} />
+      <RangeBar min={null} max={5} current={3} />
+      <FeatureDot feature="workload" />
+      <FeatureDot feature="hpa" />
+
       <Sparkline values={[10, 12, 9, 15]} kind="used" ariaLabel="use sparkline" />
       <MiniBar value={3} max={5} kind="requested" secondary={{ value: 2, kind: 'used' }} tick={{ value: 2.5, kind: 'suggested' }} />
       <MiniBar value={4} max={10} kind="saved" money />
@@ -291,6 +312,7 @@ function AllComponents() {
         items={[
           { label: 'Requested', kind: 'requested' }, { label: 'Used', kind: 'used' }, { label: 'Suggested', kind: 'suggested' },
           { label: 'Limit', kind: 'limit' }, { label: 'Capacity', kind: 'capacity' }, { label: 'Freed', kind: 'saved', money: true },
+          { label: 'Kubernetes VPA suggests', kind: 'suggested', hatch: 'suggested' },
         ]}
       />
       <ChartCard title="CPU and memory over time" source="Usage feed (planned)." state={{ kind: 'history-pending', from: 'Prometheus in your cluster.' }} />

@@ -73,6 +73,15 @@ export interface FeatureMarkProps {
   className?: string;
 }
 
+/**
+ * A feature's small accent dot, for wayfinding next to the feature's name (a filter chip, an
+ * Activity row's source). Decorative: the caller always shows the name beside it, so the dot is
+ * never the only signal.
+ */
+export function FeatureDot({ feature, className = '' }: { feature: Feature; className?: string }) {
+  return <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${FEATURES[feature].rule} ${className}`} aria-hidden="true" data-feature-dot={feature} />;
+}
+
 export function FeatureMark({ feature, title, rule = true, className = '' }: FeatureMarkProps) {
   const f = FEATURES[feature];
   return (

@@ -197,8 +197,10 @@ describe('ClusterSectionsNav: Automation groups at the third level (automation-v
       ['overview', 'Overview'],
       ['workload-autoscaler', 'Workloads'],
       ['workload-autoscaler-policies', 'Policies'],
+      ['node-autoscaler', 'Node autoscaler'],
       ['hpa', 'HPA'],
       ['vpa', 'VPA'],
+      ['activity', 'Activity'],
     ]);
     expect(subLinks().filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.dataset.sub)).toEqual(['workload-autoscaler']);
     expect(sectionLink('automation')).toHaveAttribute('aria-current', 'page');
@@ -207,7 +209,7 @@ describe('ClusterSectionsNav: Automation groups at the third level (automation-v
     expect(group.closest('li')!.contains(leaf)).toBe(true);
     expect(order()).toEqual([
       ALL_CLUSTERS_LABEL, 'overview', 'cost', 'workloads', 'nodes', 'automation',
-      'overview', 'group:workload-autoscaler', 'workload-autoscaler', 'workload-autoscaler-policies', 'hpa', 'vpa', 'security',
+      'overview', 'group:workload-autoscaler', 'workload-autoscaler', 'workload-autoscaler-policies', 'node-autoscaler', 'hpa', 'vpa', 'activity', 'security',
     ]);
     // At 220 px a label may wrap, never truncate.
     for (const a of [group, leaf]) {
@@ -220,7 +222,7 @@ describe('ClusterSectionsNav: Automation groups at the third level (automation-v
     renderAt(`${BASE}&tab=automation&sub=hpa`);
     expect(groupLinks().map((a) => a.textContent)).toEqual(['Workload autoscaler']);
     expect(nav().querySelector('a[data-sub="workload-autoscaler"]')).toBeNull();
-    expect(subLinks().map((a) => a.dataset.sub)).toEqual(['overview', 'hpa', 'vpa']);
+    expect(subLinks().map((a) => a.dataset.sub)).toEqual(['overview', 'node-autoscaler', 'hpa', 'vpa', 'activity']);
     expect(subLinks().filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.dataset.sub)).toEqual(['hpa']);
   });
 

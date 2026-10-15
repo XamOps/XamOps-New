@@ -100,7 +100,7 @@ describe('resolveSectionRoute', () => {
       'cost:cluster',
       'workloads:workloads,pods,containers,resources',
       'nodes:nodes,node-groups,karpenter,utilization',
-      'automation:overview,workload-autoscaler,workload-autoscaler-policies,hpa,vpa',
+      'automation:overview,workload-autoscaler,workload-autoscaler-policies,node-autoscaler,hpa,vpa,activity',
       'security:vulnerabilities',
     ]);
     for (const s of EKS_SECTIONS) expect(s.subs.some((x) => x.id === s.defaultSub)).toBe(true);
@@ -112,8 +112,10 @@ describe('resolveSectionRoute', () => {
       ['overview', 'Overview', null],
       ['workload-autoscaler', 'Workloads', 'Workload autoscaler'],
       ['workload-autoscaler-policies', 'Policies', 'Workload autoscaler'],
+      ['node-autoscaler', 'Node autoscaler', null],
       ['hpa', 'HPA', null],
       ['vpa', 'VPA', null],
+      ['activity', 'Activity', null],
     ]);
   });
 
@@ -280,8 +282,10 @@ describe('sectionNavEntries (Addendum 1, J-2..J-4)', () => {
     expect(automation.subs.map((s) => [s.id, s.label, s.current])).toEqual([
       ['overview', 'Overview', false],
       ['group:workload-autoscaler', 'Workload autoscaler', true],
+      ['node-autoscaler', 'Node autoscaler', false],
       ['hpa', 'HPA', false],
       ['vpa', 'VPA', false],
+      ['activity', 'Activity', false],
     ]);
     const group = automation.subs[1];
     expect(group.children!.map((c) => [c.id, c.label, c.current])).toEqual([
