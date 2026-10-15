@@ -6,8 +6,11 @@ import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CloudAccountAccessService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
@@ -21,6 +24,7 @@ import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 @Component
 public class CloudShellSocketHandler extends TextWebSocketHandler {
@@ -33,6 +37,23 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
     private final AwsConfig awsConfig;
     private final CloudAccountRepository cloudAccountRepository;
     private final CloudAccountAccessService accountAccessService;
+
+    /**
+     * Container image the shell runs in. Configurable so the public demo image can be
+     * swapped for an image you own, pinned by digest, without a code change.
+     */
+    @Value("${cloudshell.image:shivam777707/xamops-shell:fixed-08-Dec}")
+    private String shellImage;
+
+    /**
+     * Default region the shell's AWS CLI targets. The AssumeRole credentials are global,
+     * so this only sets AWS_DEFAULT_REGION inside the container; the user can still
+     * {@code aws --region ...} anywhere.
+     */
+    @Value("${cloudshell.aws.default-region:us-east-1}")
+    private String defaultAwsRegion;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private final Map<String, Process> sessions = new ConcurrentHashMap<>();
     private final Map<String, Thread> outputThreads = new ConcurrentHashMap<>();
@@ -148,6 +169,19 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
             String provider = account.getProvider();
             log.info("Identified Provider: {}", provider);
 
+            // Preflight: the shell is a Docker container on this host. If the daemon is
+            // unreachable or the image is missing, fail here with a precise message
+            // instead of letting `docker run` exit immediately and surfacing a generic
+            // "Session ended" in the terminal.
+            String preflightError = dockerPreflight();
+            if (preflightError != null) {
+                log.warn("CloudShell Docker preflight failed: {}", preflightError);
+                sendMessageSafe(session,
+                        "\r\n\u001B[1;31mCloudShell is unavailable.\u001B[0m\r\n" + preflightError + "\r\n");
+                session.close(CloseStatus.SERVICE_RESTARTED);
+                return;
+            }
+
             ProcessBuilder pb;
             if ("AWS".equalsIgnoreCase(provider)) {
                 pb = setupAwsProcess(session.getId(), account);
@@ -187,6 +221,72 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
                 log.error("Failed to send error message to client", ex);
             }
         }
+    }
+
+    /**
+     * Verifies the Docker runtime is usable before we try to launch a shell.
+     *
+     * <p>Two things can make {@code docker run} fail instantly: the daemon is not running
+     * (or this process cannot reach its socket), and the shell image is not present and
+     * cannot be pulled. Both produced the same late, generic "Session ended" in the UI.
+     * Checking here lets us return the actual reason while the socket is still open.
+     *
+     * @return a human-readable error if the runtime is not ready, or {@code null} if OK.
+     */
+    private String dockerPreflight() {
+        // 1) Is the daemon reachable? `docker info` exits non-zero if it is not.
+        try {
+            Process info = new ProcessBuilder("docker", "info", "--format", "{{.ServerVersion}}")
+                    .redirectErrorStream(true)
+                    .start();
+            if (!info.waitFor(10, TimeUnit.SECONDS)) {
+                info.destroyForcibly();
+                return "The Docker daemon did not respond within 10s on the backend host.";
+            }
+            if (info.exitValue() != 0) {
+                return "The Docker daemon is not reachable on the backend host. "
+                        + "Ensure Docker is installed and running, and that this service can reach the Docker socket.";
+            }
+        } catch (IOException e) {
+            return "Docker is not installed on the backend host (could not execute `docker`).";
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return "Interrupted while checking the Docker daemon.";
+        }
+
+        // 2) Is the shell image available? Check locally first, then try a pull so a fresh
+        //    host self-heals on first use instead of failing.
+        try {
+            Process inspect = new ProcessBuilder("docker", "image", "inspect", shellImage)
+                    .redirectErrorStream(true)
+                    .start();
+            boolean done = inspect.waitFor(10, TimeUnit.SECONDS);
+            if (done && inspect.exitValue() == 0) {
+                return null; // image present
+            }
+            if (!done) {
+                inspect.destroyForcibly();
+            }
+
+            log.info("Shell image {} not present locally; attempting pull", shellImage);
+            Process pull = new ProcessBuilder("docker", "pull", shellImage)
+                    .redirectErrorStream(true)
+                    .start();
+            if (!pull.waitFor(120, TimeUnit.SECONDS)) {
+                pull.destroyForcibly();
+                return "The shell image '" + shellImage + "' is not present and the pull timed out.";
+            }
+            if (pull.exitValue() != 0) {
+                return "The shell image '" + shellImage + "' could not be pulled. "
+                        + "Check the image name and registry access on the backend host.";
+            }
+        } catch (IOException e) {
+            return "Could not verify the shell image '" + shellImage + "': " + e.getMessage();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return "Interrupted while verifying the shell image.";
+        }
+        return null;
     }
 
     private CloudAccount findAccount(String id) {
@@ -262,22 +362,38 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
 
         log.info("AWS Role Assumed Successfully. Credentials obtained.");
 
+        // `-t` allocates a PTY. Without it interactive tools (vim, top, less) and in
+        // particular `aws ssm start-session` — the supported way to reach any EC2
+        // instance without SSH keys or a public IP — do not work, because they require a
+        // terminal. Credentials are passed as env vars, never baked into the image.
         String bashCommand = "export TMOUT=1800 && " +
                 "echo '' && " +
                 "echo 'Authenticated to AWS Account' && " +
+                "echo 'Tip: aws ssm start-session --target <instance-id> to open a shell on any SSM-managed EC2.' && " +
                 "echo '' && " +
                 "exec /bin/bash -i";
 
         return new ProcessBuilder(
-                "docker", "run", "--rm", "-i",
+                "docker", "run", "--rm", "-i", "-t",
+                "--name", containerName(sessionId),
                 "--memory=512m", "--cpus=0.5",
                 "-e", "AWS_ACCESS_KEY_ID=" + assumeRole.credentials().accessKeyId(),
                 "-e", "AWS_SECRET_ACCESS_KEY=" + assumeRole.credentials().secretAccessKey(),
                 "-e", "AWS_SESSION_TOKEN=" + assumeRole.credentials().sessionToken(),
-                "-e", "AWS_DEFAULT_REGION=us-east-1",
+                "-e", "AWS_DEFAULT_REGION=" + defaultAwsRegion,
+                "-e", "AWS_REGION=" + defaultAwsRegion,
+                "-e", "TERM=xterm-256color",
                 "-e", "TMOUT=1800",
-                "shivam777707/xamops-shell:fixed-08-Dec",
+                shellImage,
                 "/bin/bash", "-c", bashCommand);
+    }
+
+    /**
+     * Deterministic, DNS-safe container name derived from the WebSocket session id, so a
+     * resize message can target this session's container with {@code docker exec}.
+     */
+    private String containerName(String sessionId) {
+        return "xamops-shell-" + sessionId.replaceAll("[^a-zA-Z0-9_.-]", "");
     }
 
     private ProcessBuilder setupGcpProcess(String sessionId, CloudAccount account) {
@@ -423,14 +539,24 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
 
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
+        String payload = message.getPayload();
+
+        // Resize control frames arrive as JSON ({"type":"resize","cols":..,"rows":..}).
+        // The PTY inside the container must be told the new size or output wraps wrong and
+        // full-screen tools (vim, aws ssm start-session) render incorrectly. Keystrokes are
+        // raw text and are forwarded to the process stdin unchanged.
+        if (payload.startsWith("{") && payload.contains("\"type\"")) {
+            if (handleControlMessage(session, payload)) {
+                return;
+            }
+        }
+
         Process process = sessions.get(session.getId());
         if (process != null && process.isAlive()) {
             try {
                 OutputStream os = process.getOutputStream();
-                os.write(message.getPayload().getBytes());
+                os.write(payload.getBytes());
                 os.flush();
-                // log.debug("Wrote {} bytes to process for session {}",
-                // message.getPayload().length(), session.getId());
             } catch (IOException e) {
                 log.error("Failed to write to process for session {}", session.getId(), e);
             }
@@ -439,11 +565,56 @@ public class CloudShellSocketHandler extends TextWebSocketHandler {
         }
     }
 
+    /**
+     * Applies a resize control frame to the session's container PTY.
+     *
+     * @return true if the payload was a recognised control frame (and must not be
+     *         forwarded to stdin), false if it should be treated as ordinary input.
+     */
+    private boolean handleControlMessage(WebSocketSession session, String payload) {
+        try {
+            JsonNode node = objectMapper.readTree(payload);
+            if (!"resize".equals(node.path("type").asText())) {
+                return false;
+            }
+            int cols = node.path("cols").asInt(0);
+            int rows = node.path("rows").asInt(0);
+            // Sanity-bound the values; a caller-supplied size goes into a command line.
+            if (cols < 1 || cols > 1000 || rows < 1 || rows > 1000) {
+                return true; // recognised but ignored
+            }
+            String container = containerName(session.getId());
+            // `stty` on the container's controlling TTY updates the window size, which the
+            // shell and child processes pick up via SIGWINCH.
+            new ProcessBuilder("docker", "exec", container,
+                    "stty", "cols", Integer.toString(cols), "rows", Integer.toString(rows))
+                    .redirectErrorStream(true)
+                    .start();
+            return true;
+        } catch (IOException e) {
+            // Not valid JSON, or exec failed — treat as ordinary input rather than losing it.
+            log.debug("Resize control frame handling failed for session {}: {}",
+                    session.getId(), e.getMessage());
+            return false;
+        }
+    }
+
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
         Process process = sessions.get(session.getId());
         if (process != null) {
             process.destroy();
+        }
+        // Named containers run with --rm, so a clean exit removes them. If the client
+        // vanished without the process noticing (half-open socket), the container can
+        // linger and block a reconnect that reuses the name — force-remove to be safe.
+        try {
+            new ProcessBuilder("docker", "rm", "-f", containerName(session.getId()))
+                    .redirectErrorStream(true)
+                    .start();
+        } catch (IOException e) {
+            log.debug("Best-effort container cleanup failed for session {}: {}",
+                    session.getId(), e.getMessage());
         }
         sessions.remove(session.getId());
         outputThreads.remove(session.getId());

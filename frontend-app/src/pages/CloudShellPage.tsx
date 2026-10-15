@@ -119,6 +119,17 @@ const CloudShellPage: React.FC = () => {
   }, []);
 
   /**
+   * Send a resize control frame to the backend so the container PTY matches the xterm
+   * viewport. The backend recognises {"type":"resize",...} and applies it via stty.
+   */
+  const sendResize = useCallback((tabId: string, cols: number, rows: number) => {
+    const socket = socketInstancesRef.current.get(tabId);
+    if (socket && socket.readyState === WebSocket.OPEN && cols > 0 && rows > 0) {
+      socket.send(JSON.stringify({ type: 'resize', cols, rows }));
+    }
+  }, []);
+
+  /**
    * Initialize WebSocket connection for a tab
    */
   const initWebSocketForTab = useCallback(
@@ -140,6 +151,13 @@ const CloudShellPage: React.FC = () => {
           return;
         }
         updateTabStatus(tabId, 'connected');
+        // Tell the backend PTY our size so output wraps correctly and full-screen tools
+        // (vim, aws ssm start-session) render properly from the first keystroke.
+        const fitAddon = fitAddonInstancesRef.current.get(tabId);
+        if (fitAddon) {
+          fitAddon.fit();
+          sendResize(tabId, terminal.cols, terminal.rows);
+        }
       };
 
       socket.onmessage = (event) => {
@@ -199,13 +217,9 @@ const CloudShellPage: React.FC = () => {
     (accountId: string) => {
       if (!terminalContainerRef.current || !mountedRef.current) return null;
 
-      // Prevent duplicate tabs for the same account
-      const existingTab = tabs.find(t => t.accountId === accountId);
-      if (existingTab) {
-        setActiveTabId(existingTab.id);
-        return existingTab.id;
-      }
-
+      // Each click of "+" opens a genuinely new terminal session for the account, like
+      // AWS/GCP CloudShell. (We intentionally do NOT dedupe to a single tab per account —
+      // that made the "+" button look broken because it just re-focused the one tab.)
       tabCounterRef.current += 1;
       const tabId = `tab-${Date.now()}-${tabCounterRef.current}`;
 
@@ -415,11 +429,12 @@ const CloudShellPage: React.FC = () => {
         const term = terminalInstancesRef.current.get(tabId);
         if (fitAddon && term) {
           fitAddon.fit();
+          sendResize(tabId, term.cols, term.rows);
           term.focus();
         }
       }, 50);
     }
-  }, []);
+  }, [sendResize]);
 
   /**
    * Reconnect an existing tab by re-establishing its WebSocket.
@@ -466,8 +481,10 @@ const CloudShellPage: React.FC = () => {
     const handleResize = () => {
       if (activeTabId) {
         const fitAddon = fitAddonInstancesRef.current.get(activeTabId);
-        if (fitAddon) {
+        const term = terminalInstancesRef.current.get(activeTabId);
+        if (fitAddon && term) {
           fitAddon.fit();
+          sendResize(activeTabId, term.cols, term.rows);
         }
       }
     };
@@ -488,7 +505,7 @@ const CloudShellPage: React.FC = () => {
         resizeObserver.disconnect();
       }
     };
-  }, [activeTabId]);
+  }, [activeTabId, sendResize]);
 
   /**
    * Synchronous cleanup on unmount using useLayoutEffect
