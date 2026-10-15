@@ -17,7 +17,9 @@ import java.util.Set;
  * @param provenance        where the numbers came from
  * @param autoApplyEligible whether anything here may be applied without a human naming the numbers
  * @param vertical          per-container decisions
- * @param horizontal        modelled; {@code NOT_EVALUATED} this run
+ * @param horizontal        the horizontal state, kept in step with {@link #hpa}
+ * @param hpa               the HPA bounds / target decision (D1–D4); the rich horizontal half,
+ *                          carrying reasons and the formula the read path surfaces
  */
 public record WorkloadDecision(WorkloadRef ref,
                                SkipReason skipReason,
@@ -25,7 +27,8 @@ public record WorkloadDecision(WorkloadRef ref,
                                Provenance provenance,
                                boolean autoApplyEligible,
                                VerticalDecision vertical,
-                               HorizontalDecision horizontal) {
+                               HorizontalDecision horizontal,
+                               HpaDecision hpa) {
 
     public WorkloadDecision {
         if (ref == null) {
@@ -39,6 +42,9 @@ public record WorkloadDecision(WorkloadRef ref,
         }
         if (horizontal == null) {
             throw new IllegalArgumentException("horizontal is mandatory");
+        }
+        if (hpa == null) {
+            throw new IllegalArgumentException("hpa is mandatory");
         }
         findings = findings == null || findings.isEmpty()
                 ? Set.of()

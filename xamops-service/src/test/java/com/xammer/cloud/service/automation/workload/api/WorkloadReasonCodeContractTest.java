@@ -2,6 +2,7 @@ package com.xammer.cloud.service.automation.workload.api;
 
 import com.xammer.cloud.service.automation.workload.ContainerReason;
 import com.xammer.cloud.service.automation.workload.Finding;
+import com.xammer.cloud.service.automation.workload.HpaReason;
 import com.xammer.cloud.service.automation.workload.SkipReason;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessException;
 import com.xammer.cloud.service.automation.workload.usage.UsageUnavailableException;
@@ -109,5 +110,30 @@ class WorkloadReasonCodeContractTest {
         assertThat(SHARED_CODES)
                 .as("the only name shared between the gate codes and the skip reasons")
                 .contains("INSUFFICIENT_HISTORY");
+    }
+
+    @Test
+    @DisplayName("HpaReason is a separate vocabulary, pinned verbatim and in order — not a shared gate code")
+    void hpaReasonsAreVerbatimAndNotGateCodes() {
+        // The HPA refusals live in their own enum, NOT in the nine shared gate codes. A rename or a
+        // reorder is a breaking change to the wire contract, so they are pinned as literal strings
+        // exactly like the gate codes above. GITOPS_MANAGED, VPA_NOT_READABLE and VPA_MANAGED are
+        // deliberately spelled the same as the concepts the shared/VPA layers use — same meaning,
+        // the horizontal scope — but none of them is added to ReasonCode.
+        assertThat(Arrays.stream(HpaReason.values()).map(Enum::name))
+                .containsExactly("AT_MAX_UNMET_DEMAND", "MAX_ABOVE_OBSERVED_PEAK", "TARGET_COADJUSTED",
+                        "TARGET_RETUNED", "HPA_RECOMMENDED_NEW", "WITHIN_REPLICA_HYSTERESIS", "COOLDOWN",
+                        "GITOPS_MANAGED", "PDB_FLOOR_BINDS", "USER_MAX_RESPECTED", "BELOW_OBSERVED_NEED",
+                        "CLAMP_BOUND", "VPA_MANAGED", "HPA_NOT_READABLE", "VPA_NOT_READABLE");
+
+        // And the shared gate set stays exactly nine: the HPA codes did not leak into it.
+        assertThat(ReasonCode.values()).hasSize(9);
+        for (HpaReason reason : HpaReason.values()) {
+            if (!"GITOPS_MANAGED".equals(reason.name())) {
+                assertThat(SHARED_CODES)
+                        .as("HpaReason.%s must not be a shared gate code", reason)
+                        .doesNotContain(reason.name());
+            }
+        }
     }
 }

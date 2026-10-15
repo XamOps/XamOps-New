@@ -55,8 +55,13 @@ export const EKS_SECTIONS: SectionRegistry<EksSectionId, EksSubtabId> = [
       { id: 'utilization', label: 'Utilization' },
     ] },
   { id: 'automation', label: 'Automation', icon: 'mdi:robot-outline', defaultSub: 'overview',
-    // Workload autoscaler hosts the realtime branch's Workload rightsizing tab (Addendum 1 Part B).
-    subs: [{ id: 'overview', label: 'Overview' }, { id: 'workload-autoscaling', label: 'Workload autoscaler' }] },
+    // Workload autoscaler hosts the realtime branch's Workload rightsizing tab (Addendum 1 Part B);
+    // Pod autoscaler (FEAT-003) is the HPA recommend+apply page and the VPA coexistence view.
+    subs: [
+      { id: 'overview', label: 'Overview' },
+      { id: 'workload-autoscaling', label: 'Workload autoscaler' },
+      { id: 'pod-autoscaling', label: 'Pod autoscaler' },
+    ] },
   { id: 'security', label: 'Security', icon: 'mdi:shield-outline', defaultSub: 'vulnerabilities',
     subs: [{ id: 'vulnerabilities', label: 'Vulnerabilities' }] },
 ];

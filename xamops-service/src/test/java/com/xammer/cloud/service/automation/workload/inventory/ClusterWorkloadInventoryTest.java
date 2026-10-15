@@ -376,6 +376,62 @@ class ClusterWorkloadInventoryTest {
     }
 
     @Test
+    @DisplayName("the production read path enriches the HPA-decision fields D1 keys off (Defect 1)")
+    void hpaDecisionFieldsArePopulatedOnTheRealReadPath() {
+        // Defect 1: hpaFor used to build HpaView with the 11-field constructor, so scalingLimited,
+        // atLimitSince, currentMetricPct and gitopsManaged were ALWAYS absent in production and D1 /
+        // the GitOps gate were dead. The fixture is the live php-apache: pinned 5/5,
+        // ScalingLimited=True TooManyReplicas, cpu 72%/50%.
+        overrides.put("/apis/autoscaling/v2/horizontalpodautoscalers", "hpas-pinned.json");
+
+        var hpa = workload("team-b", "php-apache").hpa();
+
+        assertThat(hpa).isNotNull();
+        assertThat(hpa.scalingLimited())
+                .as("read from status.conditions ScalingLimited=True TooManyReplicas")
+                .isTrue();
+        assertThat(hpa.atLimitSince())
+                .as("the condition's lastTransitionTime")
+                .isEqualTo(Instant.parse("2026-10-09T09:00:00Z"));
+        assertThat(hpa.currentMetricPct())
+                .as("read from status.currentMetrics cpu averageUtilization (72%)")
+                .isEqualTo(72);
+        assertThat(hpa.currentReplicas()).isEqualTo(5);
+        assertThat(hpa.maxReplicas()).isEqualTo(5);
+        assertThat(hpa.targetCpuUtilizationPct()).isEqualTo(50);
+        assertThat(hpa.isGitopsManaged())
+                .as("no GitOps owner markers on this HPA, so it is patchable")
+                .isFalse();
+        assertThat(hpa.historyReadable())
+                .as("this read path has no kube-state-metrics history source, so D2 degrades safely")
+                .isFalse();
+        assertThat(hpa.observedPeakDesiredReplicas()).isNull();
+        assertThat(hpa.userMaxReplicasCeiling()).isNull();
+
+        // The whole point: with these fields populated, D1 can now judge the HPA pinned at its
+        // ceiling with unmet demand -- which it could never do before.
+        assertThat(hpa.dweltAtCeiling(WorkloadPolicyDefaults.HPA_CEILING_DWELL,
+                Instant.parse("2026-10-13T09:00:00Z")))
+                .as("4 days pinned clears the 30-minute dwell")
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("GitOps ownership is detected on the real read path and fails CLOSED (Defect 1)")
+    void gitopsOwnershipIsDetectedAndFailsClosed() {
+        // An Argo CD-owned HPA carries argocd.argoproj.io/instance and an argocd managedFields
+        // manager. Before the fix gitopsManaged was always null (fail-OPEN): XamOps would have
+        // PATCHED a GitOps-owned HPA. Now it reads as managed, so the apply path refuses.
+        overrides.put("/apis/autoscaling/v2/horizontalpodautoscalers", "hpas-gitops.json");
+
+        var hpa = workload("team-b", "php-apache").hpa();
+
+        assertThat(hpa.isGitopsManaged())
+                .as("Argo CD owns it: the gate must refuse, not patch")
+                .isTrue();
+    }
+
+    @Test
     @DisplayName("a PDB attaches by selector; a percentage minAvailable reads as null, not as a number")
     void pdbMinAvailableIsRead() {
         assertThat(workload("team-b", "pdb-guarded-web").pdbMinAvailable()).isEqualTo(2);

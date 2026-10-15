@@ -19,6 +19,9 @@ import java.util.List;
  *                             horizontal half, which must not propose {@code minReplicas} below it
  * @param gitopsManaged        whether Argo CD or Flux owns the template; null when not yet detected
  *                             (detection is deferred, so it is null in this run)
+ * @param nativeVpaMode        how a native VPA coexists with this workload — the input to the
+ *                             symmetric VPA rule. Never null; {@link NativeVpaMode#NONE} when no VPA
+ *                             targets it. Sourced from {@code UpstreamVpaReader}.
  * @param containers           every container, sidecars included and distinct
  */
 public record WorkloadSnapshot(WorkloadRef ref,
@@ -28,12 +31,26 @@ public record WorkloadSnapshot(WorkloadRef ref,
                                HpaView hpa,
                                Integer pdbMinAvailable,
                                Boolean gitopsManaged,
+                               NativeVpaMode nativeVpaMode,
                                List<ContainerSnapshot> containers) {
+
+    /**
+     * The eight-field shape the vertical spine shipped with, before native-VPA coexistence became
+     * symmetric. {@code nativeVpaMode} defaults to {@link NativeVpaMode#NONE}, so a caller that does
+     * not read VPA ownership behaves exactly as before.
+     */
+    public WorkloadSnapshot(WorkloadRef ref, int replicas, boolean rolloutInProgress,
+                            boolean lockAnnotationActive, HpaView hpa, Integer pdbMinAvailable,
+                            Boolean gitopsManaged, List<ContainerSnapshot> containers) {
+        this(ref, replicas, rolloutInProgress, lockAnnotationActive, hpa, pdbMinAvailable,
+                gitopsManaged, NativeVpaMode.NONE, containers);
+    }
 
     public WorkloadSnapshot {
         if (ref == null) {
             throw new IllegalArgumentException("ref is mandatory");
         }
+        nativeVpaMode = nativeVpaMode == null ? NativeVpaMode.NONE : nativeVpaMode;
         if (replicas < 0) {
             throw new IllegalArgumentException("replicas cannot be negative");
         }
@@ -50,6 +67,11 @@ public record WorkloadSnapshot(WorkloadRef ref,
     /** The HPA only if it genuinely targets this workload: same namespace, same kind, same name. */
     public HpaView effectiveHpa() {
         return hpa != null && hpa.targets(ref) ? hpa : null;
+    }
+
+    /** Whether a native VPA ownership state makes the vertical half refuse this workload. */
+    public boolean nativeVpaRefusesVertical() {
+        return nativeVpaMode != null && nativeVpaMode.refusesVertical();
     }
 
     public List<ResourceEnvelope> currentEnvelopes() {

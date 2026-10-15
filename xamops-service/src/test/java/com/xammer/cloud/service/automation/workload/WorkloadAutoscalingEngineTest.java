@@ -779,8 +779,8 @@ class WorkloadAutoscalingEngineTest {
     // ============================================================ 14. the horizontal half
 
     @Test
-    @DisplayName("14: the horizontal half is NOT_EVALUATED for every fixture, always")
-    void theHorizontalHalfIsNeverEvaluated() {
+    @DisplayName("14: every fixture carries a real HPA decision, and the horizontal half mirrors it")
+    void everyFixtureCarriesAnHpaDecisionThatTheHorizontalHalfMirrors() {
         List<WorkloadSnapshot> everyFixture = List.of(
                 ReferenceWorkloads.overprovisionedApi(),
                 ReferenceWorkloads.overprovisionedApiAfterApply(),
@@ -804,13 +804,293 @@ class WorkloadAutoscalingEngineTest {
 
         for (WorkloadSnapshot snapshot : everyFixture) {
             WorkloadDecision decision = engine.decide(snapshot, recommend, NodeCapacity.t3Medium());
-            assertThat(decision.horizontal().state())
+            // The two halves never disagree about state: the horizontal half is derived from the HPA
+            // decision, so an apply built from one cannot contradict the other.
+            assertThat(decision.hpa().horizontalState())
                     .as("%s", snapshot.ref().describe())
-                    .isEqualTo(HorizontalDecision.State.NOT_EVALUATED);
-            assertThat(decision.horizontal().minReplicas()).isNull();
-            assertThat(decision.horizontal().maxReplicas()).isNull();
-            assertThat(decision.horizontal().targetCpuUtilizationPct()).isNull();
+                    .isEqualTo(decision.horizontal().state());
+            // A gated workload (single-replica, protected ns) carries NOT_EVALUATED; everything else
+            // ran the rules and is NO_CHANGE or CHANGE, never NOT_EVALUATED.
+            if (decision.skipped()) {
+                assertThat(decision.hpa().state()).isEqualTo(HpaDecision.State.NOT_EVALUATED);
+            } else {
+                assertThat(decision.hpa().state()).isNotEqualTo(HpaDecision.State.NOT_EVALUATED);
+            }
         }
+    }
+
+    @Test
+    @DisplayName("14b: a skipped workload is NOT_EVALUATED on both halves")
+    void aSkippedWorkloadIsNotEvaluatedHorizontally() {
+        WorkloadDecision decision = engine.decide(
+                ReferenceWorkloads.loadGenerator(), recommend, NodeCapacity.unbounded());
+
+        assertThat(decision.skipReason()).isEqualTo(SkipReason.SINGLE_REPLICA);
+        assertThat(decision.hpa().state()).isEqualTo(HpaDecision.State.NOT_EVALUATED);
+        assertThat(decision.horizontal().state()).isEqualTo(HorizontalDecision.State.NOT_EVALUATED);
+    }
+
+    // ============================================================ 15. HPA decisions (D1–D4)
+
+    private HpaView phpApacheStuckHpa() {
+        // php-apache: min1/max5, pinned 5/5, 64% vs 50% target, ScalingLimited=True TooManyReplicas,
+        // dwelt the full 30 minutes.
+        WorkloadRef ref = WorkloadRef.of("team-b", "Deployment", "php-apache");
+        return HpaView.cpuHpa("php-apache", ref, 50, 1, 5)
+                .withCurrentReplicas(5)
+                .withScalingLimited(true, ReferenceWorkloads.NOW.minus(Duration.ofMinutes(30)), 64);
+    }
+
+    private WorkloadSnapshot phpApacheWith(HpaView hpa, long cpuP95Millis, long memP95Bytes) {
+        WorkloadRef ref = WorkloadRef.of("team-b", "Deployment", "php-apache");
+        return new WorkloadSnapshot(ref, 5, false, false, hpa, null, null, List.of(
+                ReferenceWorkloads.container("php-apache",
+                        ReferenceWorkloads.burstable(200, null, 64 * MI, null),
+                        ReferenceWorkloads.usage("php-apache", cpuP95Millis, memP95Bytes))));
+    }
+
+    @Test
+    @DisplayName("15a: D1 raises maxReplicas 5 -> 8 with AT_MAX_UNMET_DEMAND")
+    void d1RaisesTheCeilingAtMaxWithUnmetDemand() {
+        // The vertical demand here would raise CPU (320m -> 400m), but CPU is HPA-managed and frozen,
+        // so there is no co-adjust and the decision is purely the D1 raise.
+        WorkloadDecision decision = engine.decide(
+                phpApacheWith(phpApacheStuckHpa(), 320, 400 * MI), recommend, NodeCapacity.unbounded());
+
+        HpaDecision hpa = decision.hpa();
+        assertThat(hpa.state()).isEqualTo(HpaDecision.State.CHANGE);
+        assertThat(hpa.reasons()).contains(HpaReason.AT_MAX_UNMET_DEMAND);
+        assertThat(hpa.maxReplicas())
+                .as("ceil(5 × 64 ÷ 50) = 7, capped to +3 => 8")
+                .isEqualTo(8);
+        assertThat(hpa.minReplicas()).isNull();
+        assertThat(hpa.formula()).contains("ceil(5");
+    }
+
+    @Test
+    @DisplayName("15a-i: a user-set ceiling caps the D1 raise, with USER_MAX_RESPECTED")
+    void d1RespectsAUserSetCeiling() {
+        HpaView capped = phpApacheStuckHpa().withUserMaxReplicasCeiling(7);
+        WorkloadDecision decision = engine.decide(
+                phpApacheWith(capped, 320, 400 * MI), recommend, NodeCapacity.unbounded());
+
+        HpaDecision hpa = decision.hpa();
+        assertThat(hpa.maxReplicas()).isEqualTo(7);
+        assertThat(hpa.reasons()).contains(HpaReason.AT_MAX_UNMET_DEMAND, HpaReason.USER_MAX_RESPECTED);
+    }
+
+    @Test
+    @DisplayName("15a-ii: a raise within one replica of the current max is held by hysteresis")
+    void d1WithinReplicaHysteresisHolds() {
+        // currentMetric just over target, so the wanted ceiling rounds to the current max + 0: held.
+        HpaView barely = HpaView.cpuHpa("php-apache",
+                WorkloadRef.of("team-b", "Deployment", "php-apache"), 50, 1, 5)
+                .withCurrentReplicas(5)
+                .withScalingLimited(true, ReferenceWorkloads.NOW.minus(Duration.ofMinutes(30)), 51);
+        WorkloadDecision decision = engine.decide(
+                phpApacheWith(barely, 320, 400 * MI), recommend, NodeCapacity.unbounded());
+
+        HpaDecision hpa = decision.hpa();
+        assertThat(hpa.state()).isEqualTo(HpaDecision.State.NO_CHANGE);
+        assertThat(hpa.reasons()).contains(HpaReason.WITHIN_REPLICA_HYSTERESIS);
+    }
+
+    @Test
+    @DisplayName("15a-iii: a D1 raise inside the cooldown window is held with COOLDOWN")
+    void d1IsHeldInsideTheCooldown() {
+        WorkloadPolicy justApplied = recommend.withLastAppliedAt(
+                ReferenceWorkloads.NOW.minus(Duration.ofMinutes(5)));
+        WorkloadDecision decision = engine.decide(
+                phpApacheWith(phpApacheStuckHpa(), 320, 400 * MI), justApplied, NodeCapacity.unbounded());
+
+        assertThat(decision.hpa().state()).isEqualTo(HpaDecision.State.NO_CHANGE);
+        assertThat(decision.hpa().reasons()).contains(HpaReason.COOLDOWN);
+    }
+
+    @Test
+    @DisplayName("15a-iv: a GitOps-owned HPA is shown but never changed")
+    void aGitopsOwnedHpaIsNeverPatched() {
+        HpaView owned = phpApacheStuckHpa().withGitopsManaged(true);
+        WorkloadDecision decision = engine.decide(
+                phpApacheWith(owned, 320, 400 * MI), recommend, NodeCapacity.unbounded());
+
+        assertThat(decision.hpa().state()).isEqualTo(HpaDecision.State.NO_CHANGE);
+        assertThat(decision.hpa().reasons()).contains(HpaReason.GITOPS_MANAGED);
+        assertThat(decision.hpa().maxReplicas()).isNull();
+    }
+
+    @Test
+    @DisplayName("15b: D3a co-adjusts the target 50 -> 69 when the CPU request would move 200 -> 144")
+    void d3aCoAdjustsTheTargetWhenTheRequestMoves() {
+        // p95 115m -> 115 × 1.25 = 144m: the measured php-apache decrease. CPU stays FROZEN (the HPA
+        // write does not exist yet), but the decision carries the co-adjusted target that preserves
+        // request × target: round(200 × 50 ÷ 144) = 69.
+        WorkloadDecision decision = engine.decide(
+                ReferenceWorkloads.phpApache(115, 40 * MI), recommend, NodeCapacity.unbounded());
+
+        ContainerDecision php = only(decision);
+        assertThat(php.reasons())
+                .as("the CPU request stays frozen until the HPA target can be applied with it")
+                .contains(ContainerReason.HPA_CPU_MANAGED);
+
+        HpaDecision hpa = decision.hpa();
+        assertThat(hpa.reasons()).contains(HpaReason.TARGET_COADJUSTED);
+        assertThat(hpa.targetUtilizationPct())
+                .as("round(200 × 50 ÷ 144) = 69")
+                .isEqualTo(69);
+        assertThat(hpa.formula()).contains("144m");
+    }
+
+    @Test
+    @DisplayName("15b-i: when the co-adjusted target would leave 10–90, the freeze stands (CLAMP_BOUND)")
+    void d3aClampBindsFallsBackToTheFreeze() {
+        // A tiny new request would drive the target far above 90. request 200m@50%, p95 10m -> 13m
+        // -> target round(200 × 50 ÷ 25) with the floor; the clamp binds and the freeze stands.
+        WorkloadRef ref = WorkloadRef.of("team-b", "Deployment", "php-apache");
+        HpaView hpa = HpaView.cpuHpa("php-apache", ref, 50, 1, 5).withCurrentReplicas(3);
+        WorkloadSnapshot snapshot = new WorkloadSnapshot(ref, 3, false, false, hpa, null, null, List.of(
+                ReferenceWorkloads.container("php-apache",
+                        ReferenceWorkloads.burstable(200, null, 64 * MI, null),
+                        ReferenceWorkloads.usage("php-apache", 10, 40 * MI))));
+
+        WorkloadDecision decision = engine.decide(snapshot, recommend, NodeCapacity.unbounded());
+
+        assertThat(only(decision).reasons()).contains(ContainerReason.HPA_CPU_MANAGED);
+        assertThat(decision.hpa().reasons()).contains(HpaReason.CLAMP_BOUND);
+        assertThat(decision.hpa().reasons()).doesNotContain(HpaReason.TARGET_COADJUSTED);
+        assertThat(decision.hpa().targetUtilizationPct()).isNull();
+    }
+
+    @Test
+    @DisplayName("15c: D2 lowers an over-high max 50 -> 9 with MAX_ABOVE_OBSERVED_PEAK")
+    void d2LowersAnOverHighCeiling() {
+        WorkloadRef ref = WorkloadRef.of("team-b", "Deployment", "quiet-web");
+        HpaView hpa = HpaView.cpuHpa("quiet-web", ref, 50, 2, 50)
+                .withCurrentReplicas(3)
+                .withHistory(6, 2, true);           // peak 6, well under 50 × 0.5
+        // Request already matches the rightsized target (144m ≈ 115m × 1.25), so there is no CPU
+        // move to co-adjust — this case isolates D2.
+        WorkloadSnapshot snapshot = new WorkloadSnapshot(ref, 3, false, false, hpa, null, null, List.of(
+                ReferenceWorkloads.container("web",
+                        ReferenceWorkloads.burstable(144, null, 64 * MI, null),
+                        ReferenceWorkloads.usage("web", 115, 40 * MI))));
+
+        HpaDecision decision = engine.decide(snapshot, recommend, NodeCapacity.unbounded()).hpa();
+
+        assertThat(decision.state()).isEqualTo(HpaDecision.State.CHANGE);
+        assertThat(decision.reasons()).contains(HpaReason.MAX_ABOVE_OBSERVED_PEAK);
+        assertThat(decision.maxReplicas())
+                .as("max(6 × 1.5, 2 + 1) = 9")
+                .isEqualTo(9);
+    }
+
+    @Test
+    @DisplayName("15c-i: an unreadable look-back refuses the lower with BELOW_OBSERVED_NEED")
+    void d2RefusesToLowerOnUnreadableHistory() {
+        WorkloadRef ref = WorkloadRef.of("team-b", "Deployment", "quiet-web");
+        HpaView hpa = HpaView.cpuHpa("quiet-web", ref, 50, 2, 50)
+                .withCurrentReplicas(3)
+                .withHistory(null, null, false);    // history unreadable
+        // Request already matches the rightsized target, so D2 (not D3a) is the decision under test.
+        WorkloadSnapshot snapshot = new WorkloadSnapshot(ref, 3, false, false, hpa, null, null, List.of(
+                ReferenceWorkloads.container("web",
+                        ReferenceWorkloads.burstable(144, null, 64 * MI, null),
+                        ReferenceWorkloads.usage("web", 115, 40 * MI))));
+
+        HpaDecision decision = engine.decide(snapshot, recommend, NodeCapacity.unbounded()).hpa();
+
+        assertThat(decision.state()).isEqualTo(HpaDecision.State.NO_CHANGE);
+        assertThat(decision.reasons()).contains(HpaReason.BELOW_OBSERVED_NEED);
+        assertThat(decision.maxReplicas()).isNull();
+    }
+
+    @Test
+    @DisplayName("15d: D4 recommends a new HPA for a pinned workload, recommend-only")
+    void d4RecommendsANewHpa() {
+        WorkloadRef ref = WorkloadRef.of("team-a", "Deployment", "manual-web");
+        WorkloadSnapshot snapshot = new WorkloadSnapshot(ref, 4, false, false, null, null, null, List.of(
+                ReferenceWorkloads.container("web",
+                        ReferenceWorkloads.burstable(200, null, 64 * MI, null),
+                        ReferenceWorkloads.usage("web", 115, 40 * MI))));
+
+        HpaDecision decision = engine.decide(snapshot, recommend, NodeCapacity.unbounded()).hpa();
+
+        assertThat(decision.state()).isEqualTo(HpaDecision.State.CHANGE);
+        assertThat(decision.reasons()).contains(HpaReason.HPA_RECOMMENDED_NEW);
+        assertThat(decision.minReplicas()).isEqualTo(2);
+        assertThat(decision.maxReplicas()).isGreaterThanOrEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("15d-i: D4 proposing minReplicas 2 under a PDB minAvailable 3 is refused PDB_FLOOR_BINDS")
+    void d4IsRefusedByAPdbFloor() {
+        WorkloadRef ref = WorkloadRef.of("team-a", "Deployment", "pdb-web");
+        WorkloadSnapshot snapshot = new WorkloadSnapshot(ref, 4, false, false, null, 3, null, List.of(
+                ReferenceWorkloads.container("web",
+                        ReferenceWorkloads.burstable(200, null, 64 * MI, null),
+                        ReferenceWorkloads.usage("web", 115, 40 * MI))));
+
+        HpaDecision decision = engine.decide(snapshot, recommend, NodeCapacity.unbounded()).hpa();
+
+        assertThat(decision.state()).isEqualTo(HpaDecision.State.NO_CHANGE);
+        assertThat(decision.reasons()).contains(HpaReason.PDB_FLOOR_BINDS);
+    }
+
+    // ============================================================ 16. the four-controller matrix
+
+    @Test
+    @DisplayName("16: a CPU HPA + a mutating native VPA + a vertical policy -> vertical VPA_MANAGED, "
+            + "HPA still tunes bounds, no CPU request written")
+    void theMatrixLetsHpaTuneWhileVpaFreezesVertical() {
+        HpaView hpa = phpApacheStuckHpa();
+        WorkloadRef ref = WorkloadRef.of("team-b", "Deployment", "php-apache");
+        WorkloadSnapshot snapshot = new WorkloadSnapshot(ref, 5, false, false, hpa, null, null,
+                NativeVpaMode.MUTATING, List.of(
+                        ReferenceWorkloads.container("php-apache",
+                                ReferenceWorkloads.burstable(200, null, 64 * MI, null),
+                                ReferenceWorkloads.usage("php-apache", 320, 400 * MI))));
+
+        WorkloadDecision decision = engine.decide(snapshot, recommend, NodeCapacity.unbounded());
+
+        // Vertical refuses the whole workload: no request is written anywhere.
+        ContainerDecision php = only(decision);
+        assertThat(php.recommended() == null
+                || (php.recommended().cpuRequestMillis().equals(php.current().cpuRequestMillis())
+                    && php.recommended().memRequestBytes().equals(php.current().memRequestBytes())))
+                .as("no CPU or memory request is written when a mutating VPA owns the workload")
+                .isTrue();
+
+        HpaDecision hpaDecision = decision.hpa();
+        assertThat(hpaDecision.reasons()).contains(HpaReason.VPA_MANAGED);
+        // The HPA still tunes its bounds: the D1 raise is unaffected by the VPA.
+        assertThat(hpaDecision.state()).isEqualTo(HpaDecision.State.CHANGE);
+        assertThat(hpaDecision.maxReplicas()).isEqualTo(8);
+    }
+
+    @Test
+    @DisplayName("16b: an Off-mode native VPA produces no VPA_MANAGED — it is shown, not fought")
+    void anOffModeVpaDoesNotRefuseVertical() {
+        WorkloadRef ref = WorkloadRef.of("prod-sim", "Deployment", "rightsized-worker");
+        WorkloadSnapshot base = ReferenceWorkloads.rightsizedWorker();
+        WorkloadSnapshot withOffVpa = new WorkloadSnapshot(ref, base.replicas(), false, false,
+                null, null, null, NativeVpaMode.OFF, base.containers());
+
+        WorkloadDecision decision = engine.decide(withOffVpa, recommend, NodeCapacity.unbounded());
+
+        assertThat(decision.hpa().reasons()).doesNotContain(HpaReason.VPA_MANAGED);
+    }
+
+    @Test
+    @DisplayName("16c: unreadable VPA ownership fails closed with VPA_NOT_READABLE")
+    void unreadableVpaOwnershipFailsClosed() {
+        WorkloadRef ref = WorkloadRef.of("prod-sim", "Deployment", "rightsized-worker");
+        WorkloadSnapshot base = ReferenceWorkloads.rightsizedWorker();
+        WorkloadSnapshot unreadable = new WorkloadSnapshot(ref, base.replicas(), false, false,
+                null, null, null, NativeVpaMode.UNREADABLE, base.containers());
+
+        WorkloadDecision decision = engine.decide(unreadable, recommend, NodeCapacity.unbounded());
+
+        assertThat(decision.hpa().reasons()).contains(HpaReason.VPA_NOT_READABLE);
     }
 
     // ============================================================ remaining gates and invariants

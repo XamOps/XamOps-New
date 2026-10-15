@@ -557,7 +557,7 @@ class VerticalAutomationReadServiceTest {
         when(vpaReader.read(any())).thenReturn(new UpstreamVpaReader.View(
                 Map.of(UpstreamVpaReader.key(API),
                         Map.of("idler", new UpstreamVpaReader.ContainerTarget(26, 262144000L, null))),
-                true));
+                Map.of(), true));
         VerticalAutomationReadService service = VerticalReadServiceFixtures.service(
                 new WorkloadAutoscalingProperties(true, true),
                 VerticalReadServiceFixtures.metricsProperties("RECOMMEND", 24),

@@ -1,0 +1,76 @@
+{
+  "apiVersion": "autoscaling/v2",
+  "kind": "HorizontalPodAutoscalerList",
+  "metadata": {
+    "resourceVersion": "1"
+  },
+  "items": [
+    {
+      "apiVersion": "autoscaling/v2",
+      "kind": "HorizontalPodAutoscaler",
+      "metadata": {
+        "name": "php-apache",
+        "namespace": "team-b",
+        "uid": "hpa-1"
+      },
+      "spec": {
+        "scaleTargetRef": {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "name": "php-apache"
+        },
+        "minReplicas": 1,
+        "maxReplicas": 5,
+        "metrics": [
+          {
+            "type": "Resource",
+            "resource": {
+              "name": "cpu",
+              "target": {
+                "type": "Utilization",
+                "averageUtilization": 50
+              }
+            }
+          }
+        ]
+      },
+      "status": {
+        "currentReplicas": 5,
+        "desiredReplicas": 5,
+        "lastScaleTime": "2026-10-09T09:00:00Z",
+        "currentMetrics": [
+          {
+            "type": "Resource",
+            "resource": {
+              "name": "cpu",
+              "current": {
+                "averageUtilization": 72,
+                "averageValue": "144m"
+              }
+            }
+          }
+        ],
+        "conditions": [
+          {
+            "type": "AbleToScale",
+            "status": "True",
+            "reason": "ReadyForNewScale",
+            "lastTransitionTime": "2026-10-09T09:00:00Z"
+          },
+          {
+            "type": "ScalingActive",
+            "status": "True",
+            "reason": "ValidMetricFound",
+            "lastTransitionTime": "2026-10-09T09:00:00Z"
+          },
+          {
+            "type": "ScalingLimited",
+            "status": "True",
+            "reason": "TooManyReplicas",
+            "lastTransitionTime": "2026-10-09T09:00:00Z"
+          }
+        ]
+      }
+    }
+  ]
+}

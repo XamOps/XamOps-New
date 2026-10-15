@@ -33,9 +33,17 @@ public class WorkloadAutoscalingProperties {
      */
     public static final String READINESS_KEY = "xamops.k8s.automation.readiness.vertical-rightsizing";
 
+    /**
+     * The horizontal (HPA) master switch, parallel to {@link #ENABLED_KEY}. While false the read
+     * path emits {@code NOT_EVALUATED} for every HPA decision, so the engine's real decisions stay
+     * invisible until the feature is deliberately turned on — UAT only.
+     */
+    public static final String HORIZONTAL_ENABLED_KEY = "xamops.automation.horizontal.enabled";
+
     private final boolean enabled;
     private final boolean ready;
     private final boolean executorPresent;
+    private final boolean horizontalEnabled;
 
     /**
      * The production binding.
@@ -49,19 +57,26 @@ public class WorkloadAutoscalingProperties {
     public WorkloadAutoscalingProperties(
             @Value("${" + ENABLED_KEY + ":false}") boolean enabled,
             @Value("${" + READINESS_KEY + ":false}") boolean ready,
+            @Value("${" + HORIZONTAL_ENABLED_KEY + ":false}") boolean horizontalEnabled,
             ObjectProvider<WorkloadActionExecutor> executors) {
-        this(enabled, ready, executors.stream().findAny().isPresent());
+        this(enabled, ready, executors.stream().findAny().isPresent(), horizontalEnabled);
     }
 
-    /** No executor: the shape every test that is not about the executor wants. */
+    /** No executor, horizontal off: the shape every test that is not about those wants. */
     public WorkloadAutoscalingProperties(boolean enabled, boolean ready) {
-        this(enabled, ready, false);
+        this(enabled, ready, false, false);
     }
 
     public WorkloadAutoscalingProperties(boolean enabled, boolean ready, boolean executorPresent) {
+        this(enabled, ready, executorPresent, false);
+    }
+
+    public WorkloadAutoscalingProperties(boolean enabled, boolean ready, boolean executorPresent,
+                                         boolean horizontalEnabled) {
         this.enabled = enabled;
         this.ready = ready;
         this.executorPresent = executorPresent;
+        this.horizontalEnabled = horizontalEnabled;
     }
 
     /** Whether the engine may evaluate at all. */
@@ -101,5 +116,13 @@ public class WorkloadAutoscalingProperties {
      */
     public boolean isAutoApplyPermitted() {
         return enabled && ready && executorPresent;
+    }
+
+    /**
+     * Whether the HPA (horizontal) decisions are surfaced on the read path. While false the mapper
+     * downgrades every HPA decision to {@code NOT_EVALUATED}, so a UI built today keeps working.
+     */
+    public boolean isHorizontalEnabled() {
+        return horizontalEnabled;
     }
 }

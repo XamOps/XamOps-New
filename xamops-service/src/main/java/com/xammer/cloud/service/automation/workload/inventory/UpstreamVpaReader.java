@@ -1,8 +1,10 @@
 package com.xammer.cloud.service.automation.workload.inventory;
 
+import com.xammer.cloud.service.automation.workload.NativeVpaMode;
 import com.xammer.cloud.service.automation.workload.Quantities;
 import com.xammer.cloud.service.automation.workload.QuantityParseException;
 import com.xammer.cloud.service.automation.workload.WorkloadRef;
+import java.util.Set;
 import io.fabric8.kubernetes.api.model.GenericKubernetesResource;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClientException;
@@ -69,6 +71,7 @@ public class UpstreamVpaReader {
         }
 
         Map<String, Map<String, ContainerTarget>> byWorkload = new LinkedHashMap<>();
+        Map<String, NativeVpaMode> modeByWorkload = new LinkedHashMap<>();
         for (GenericKubernetesResource vpa : objects) {
             String namespace = vpa.getMetadata() == null ? null : vpa.getMetadata().getNamespace();
             Map<String, Object> spec = nested(vpa.getAdditionalProperties(), "spec");
@@ -78,13 +81,46 @@ public class UpstreamVpaReader {
             if (namespace == null || kind == null || name == null) {
                 continue;
             }
+            String workloadKey = key(namespace, kind, name);
+            // The most mutating mode across every VPA that targets a workload wins: if any one of
+            // them changes pods, the workload is managed.
+            modeByWorkload.merge(workloadKey, modeOf(spec), UpstreamVpaReader::moreMutating);
             Map<String, ContainerTarget> targets = targets(vpa);
             if (!targets.isEmpty()) {
-                byWorkload.put(key(namespace, kind, name), targets);
+                byWorkload.put(workloadKey, targets);
             }
         }
-        return new View(byWorkload, true);
+        return new View(byWorkload, modeByWorkload, true);
     }
+
+    /**
+     * {@code spec.updateMode} as the engine's coexistence vocabulary. An absent {@code updateMode}
+     * reads as {@code Auto} — the VPA default and the fail-closed reading: absence is not safety.
+     */
+    private static NativeVpaMode modeOf(Map<String, Object> spec) {
+        Map<String, Object> updatePolicy = nested(spec, "updatePolicy");
+        String updateMode = string(updatePolicy, "updateMode");
+        if (updateMode == null) {
+            return NativeVpaMode.MUTATING;
+        }
+        if ("Off".equalsIgnoreCase(updateMode)) {
+            return NativeVpaMode.OFF;
+        }
+        if (MUTATING_MODES.contains(updateMode)) {
+            return NativeVpaMode.MUTATING;
+        }
+        // An unrecognised mode is treated as hostile: unknown ownership is hostile ownership.
+        return NativeVpaMode.MUTATING;
+    }
+
+    private static NativeVpaMode moreMutating(NativeVpaMode a, NativeVpaMode b) {
+        return a == NativeVpaMode.MUTATING || b == NativeVpaMode.MUTATING
+                ? NativeVpaMode.MUTATING : a;
+    }
+
+    /** The native VPA modes that change pod requests, so XamOps-vertical must refuse the workload. */
+    private static final Set<String> MUTATING_MODES =
+            Set.of("Initial", "Recreate", "Auto", "InPlaceOrRecreate");
 
     /** {@code status.recommendation.containerRecommendations[].target}, per container. */
     private Map<String, ContainerTarget> targets(GenericKubernetesResource vpa) {
@@ -185,23 +221,40 @@ public class UpstreamVpaReader {
      * @param readable   false when the optional ClusterRole rule was not granted, or the CRD is
      *                   absent; every {@code upstreamVpa} is then null and the finding is published
      */
-    public record View(Map<String, Map<String, ContainerTarget>> byWorkload, boolean readable) {
+    public record View(Map<String, Map<String, ContainerTarget>> byWorkload,
+                       Map<String, NativeVpaMode> modeByWorkload,
+                       boolean readable) {
 
         public View {
             byWorkload = byWorkload == null ? Map.of() : Map.copyOf(byWorkload);
+            modeByWorkload = modeByWorkload == null ? Map.of() : Map.copyOf(modeByWorkload);
         }
 
         public static View notReadable() {
-            return new View(Map.of(), false);
+            return new View(Map.of(), Map.of(), false);
         }
 
         /** The honest default when no VPA read was attempted: readable, with nothing to show. */
         public static View none() {
-            return new View(Map.of(), true);
+            return new View(Map.of(), Map.of(), true);
         }
 
         public Map<String, ContainerTarget> forWorkload(WorkloadRef ref) {
             return byWorkload.getOrDefault(key(ref), Map.of());
+        }
+
+        /**
+         * How a native VPA coexists with {@code ref} — the input to the symmetric VPA rule.
+         *
+         * <p>{@link NativeVpaMode#UNREADABLE} when the read was refused (fail closed),
+         * {@link NativeVpaMode#NONE} when no VPA targets the workload, else the most mutating mode
+         * among the VPAs that do.
+         */
+        public NativeVpaMode modeFor(WorkloadRef ref) {
+            if (!readable) {
+                return NativeVpaMode.UNREADABLE;
+            }
+            return modeByWorkload.getOrDefault(key(ref), NativeVpaMode.NONE);
         }
     }
 

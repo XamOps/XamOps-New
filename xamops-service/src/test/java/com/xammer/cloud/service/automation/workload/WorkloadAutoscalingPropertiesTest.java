@@ -88,6 +88,9 @@ class WorkloadAutoscalingPropertiesTest {
             assertThat(activeValues(contents, WorkloadAutoscalingProperties.READINESS_KEY))
                     .as("%s must declare the readiness key exactly once, as %s", profile, expected)
                     .containsExactly(expected);
+            assertThat(activeValues(contents, WorkloadAutoscalingProperties.HORIZONTAL_ENABLED_KEY))
+                    .as("%s must declare the horizontal switch exactly once, as %s", profile, expected)
+                    .containsExactly(expected);
         }
     }
 
@@ -103,6 +106,8 @@ class WorkloadAutoscalingPropertiesTest {
                     return activeValues(contents, WorkloadAutoscalingProperties.ENABLED_KEY)
                             .contains("true")
                             || activeValues(contents, WorkloadAutoscalingProperties.READINESS_KEY)
+                            .contains("true")
+                            || activeValues(contents, WorkloadAutoscalingProperties.HORIZONTAL_ENABLED_KEY)
                             .contains("true");
                 })
                 .toList();
@@ -120,6 +125,21 @@ class WorkloadAutoscalingPropertiesTest {
         assertThat(WorkloadAutoscalingProperties.READINESS_KEY)
                 .as("the platform-wide readiness namespace, so one flag flips the UI and the engine")
                 .isEqualTo("xamops.k8s.automation.readiness.vertical-rightsizing");
+        assertThat(WorkloadAutoscalingProperties.HORIZONTAL_ENABLED_KEY)
+                .as("the HPA master switch, parallel to the vertical one")
+                .isEqualTo("xamops.automation.horizontal.enabled");
+    }
+
+    @Test
+    @DisplayName("the horizontal switch defaults off and is independent of the vertical flags")
+    void theHorizontalSwitchDefaultsOff() {
+        assertThat(new WorkloadAutoscalingProperties(true, true).isHorizontalEnabled())
+                .as("the two- and three-argument shapes mean 'horizontal off'")
+                .isFalse();
+        assertThat(new WorkloadAutoscalingProperties(true, true, true).isHorizontalEnabled()).isFalse();
+        assertThat(new WorkloadAutoscalingProperties(false, false, false, true).isHorizontalEnabled())
+                .as("horizontal can be on while the vertical flags are off")
+                .isTrue();
     }
 
     /** The values of every uncommented declaration of {@code key}. */

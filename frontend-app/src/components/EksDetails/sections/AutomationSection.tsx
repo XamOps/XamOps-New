@@ -4,6 +4,7 @@
  * copy (implementation plan, Addendum 1 Part B). FEAT-005 replaces it with the full Automation pages.
  */
 import EksAutomationTab from '../tabs/EksAutomationTab';
+import EksHpaTab from '../tabs/EksHpaTab';
 import { SectionSubPanel } from './SectionSubPanel';
 import OverviewPanel from './automation/OverviewPanel';
 import type { EksSectionProps } from './sectionTypes';
@@ -16,6 +17,7 @@ export default function AutomationSection({ clusterName, accountId, region, rout
       renderPanel={(sub) => {
         if (sub === 'overview') return <OverviewPanel clusterName={clusterName} workloadAutoscalerHref={route.hrefFor('automation', 'workload-autoscaling')} />;
         if (sub === 'workload-autoscaling') return <EksAutomationTab clusterName={clusterName} accountId={accountId} region={region} />;
+        if (sub === 'pod-autoscaling') return <EksHpaTab clusterName={clusterName} accountId={accountId} region={region} />;
         return null;
       }}
     />

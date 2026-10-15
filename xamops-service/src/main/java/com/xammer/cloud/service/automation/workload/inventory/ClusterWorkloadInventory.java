@@ -12,6 +12,7 @@ import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.ContainerResizePolicy;
 import io.fabric8.kubernetes.api.model.ContainerStatus;
 import io.fabric8.kubernetes.api.model.HasMetadata;
+import io.fabric8.kubernetes.api.model.ManagedFieldsEntry;
 import io.fabric8.kubernetes.api.model.Node;
 import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.api.model.OwnerReference;
@@ -23,7 +24,9 @@ import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.apps.ReplicaSet;
 import io.fabric8.kubernetes.api.model.apps.StatefulSet;
 import io.fabric8.kubernetes.api.model.autoscaling.v2.HorizontalPodAutoscaler;
+import io.fabric8.kubernetes.api.model.autoscaling.v2.HorizontalPodAutoscalerCondition;
 import io.fabric8.kubernetes.api.model.autoscaling.v2.MetricSpec;
+import io.fabric8.kubernetes.api.model.autoscaling.v2.MetricStatus;
 import io.fabric8.kubernetes.api.model.policy.v1.PodDisruptionBudget;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import org.slf4j.Logger;
@@ -609,10 +612,141 @@ public class ClusterWorkloadInventory {
                     targetCpuUtilization(hpa),
                     lastScaleTime(hpa));
             if (view.targets(ref)) {
-                return view;
+                return enrich(view, hpa);
             }
         }
         return null;
+    }
+
+    /**
+     * Populates the HPA-decision fields the engine keys off from the facts the live HPA object
+     * actually carries, so D1/D2 and the GitOps gate are not dead on the real read path.
+     *
+     * <p>Each field is sourced honestly or left as the enricher's safe default:
+     * <ul>
+     *   <li>{@code scalingLimited} / {@code atLimitSince} — the {@code ScalingLimited=True} with
+     *       reason {@code TooManyReplicas} condition and its {@code lastTransitionTime}. Without it
+     *       D1 cannot judge the HPA pinned at its ceiling.</li>
+     *   <li>{@code currentMetricPct} — the CPU {@code Resource} entry in {@code status.currentMetrics}
+     *       ({@code averageUtilization}). D1 compares it against the target.</li>
+     *   <li>{@code gitopsManaged} — {@link #gitopsManaged(HorizontalPodAutoscaler)}, fail-CLOSED: an
+     *       unreadable owner reads as managed so a GitOps-owned HPA is refused, never patched.</li>
+     *   <li>{@code observedPeakDesiredReplicas} / {@code replicaChangeCount} — left null with
+     *       {@code historyReadable = false}: this read path has no kube-state-metrics history source,
+     *       so D2's lower degrades to {@code BELOW_OBSERVED_NEED} (never shrinks below a need it
+     *       cannot see) rather than firing on a guess. D1 does not depend on history.</li>
+     *   <li>{@code userMaxReplicasCeiling} — left null: an operator-set per-workload ceiling has no
+     *       source in the inventory read yet, so no ceiling binds.</li>
+     * </ul>
+     */
+    private static HpaView enrich(HpaView view, HorizontalPodAutoscaler hpa) {
+        ScalingLimit limit = scalingLimit(hpa);
+        return view
+                .withScalingLimited(limit.limited(), limit.since(), currentCpuMetricPct(hpa))
+                .withHistory(null, null, false)
+                .withGitopsManaged(gitopsManaged(hpa));
+    }
+
+    /**
+     * The HPA's {@code ScalingLimited} condition when it is {@code True} with reason
+     * {@code TooManyReplicas} — the HPA pinned at its ceiling — with the condition's
+     * {@code lastTransitionTime} as "since". Any other state is "not limited".
+     */
+    private static ScalingLimit scalingLimit(HorizontalPodAutoscaler hpa) {
+        if (hpa.getStatus() == null || hpa.getStatus().getConditions() == null) {
+            return ScalingLimit.NOT_LIMITED;
+        }
+        for (HorizontalPodAutoscalerCondition condition : hpa.getStatus().getConditions()) {
+            if ("ScalingLimited".equals(condition.getType())
+                    && "True".equalsIgnoreCase(condition.getStatus())
+                    && "TooManyReplicas".equals(condition.getReason())) {
+                return new ScalingLimit(true, parseInstant(condition.getLastTransitionTime()));
+            }
+        }
+        return ScalingLimit.NOT_LIMITED;
+    }
+
+    /**
+     * Observed CPU utilisation from {@code status.currentMetrics}: the {@code Resource: cpu} entry's
+     * {@code current.averageUtilization}. Null when no such metric is reported yet.
+     */
+    private static Integer currentCpuMetricPct(HorizontalPodAutoscaler hpa) {
+        if (hpa.getStatus() == null || hpa.getStatus().getCurrentMetrics() == null) {
+            return null;
+        }
+        for (MetricStatus metric : hpa.getStatus().getCurrentMetrics()) {
+            if ("Resource".equals(metric.getType()) && metric.getResource() != null
+                    && CPU.equals(metric.getResource().getName())
+                    && metric.getResource().getCurrent() != null) {
+                return metric.getResource().getCurrent().getAverageUtilization();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Whether a GitOps controller owns this HPA — Argo CD, Flux or Helm — detected from the standard
+     * ownership markers the controllers stamp: labels/annotations and the field-manager on
+     * {@code managedFields}. <strong>Fail-closed:</strong> when the metadata itself is unreadable the
+     * answer is {@code true} (treat as managed, so the apply path refuses rather than patches
+     * something a GitOps controller would revert), per the approved fail-closed rule.
+     */
+    static Boolean gitopsManaged(HorizontalPodAutoscaler hpa) {
+        ObjectMeta metadata = hpa.getMetadata();
+        if (metadata == null) {
+            // Unreadable ownership is treated as hostile ownership: refuse, do not patch.
+            return Boolean.TRUE;
+        }
+        Map<String, String> annotations = metadata.getAnnotations();
+        if (annotations != null) {
+            if (annotations.containsKey("argocd.argoproj.io/instance")
+                    || annotations.keySet().stream().anyMatch(k -> k.startsWith("argocd.argoproj.io/"))
+                    || annotations.keySet().stream()
+                            .anyMatch(k -> k.startsWith("kustomize.toolkit.fluxcd.io/"))
+                    || annotations.containsKey("meta.helm.sh/release-name")) {
+                return Boolean.TRUE;
+            }
+        }
+        Map<String, String> labels = metadata.getLabels();
+        if (labels != null) {
+            String managedBy = labels.get("app.kubernetes.io/managed-by");
+            if (managedBy != null && GITOPS_MANAGERS.contains(managedBy.toLowerCase(Locale.ROOT))) {
+                return Boolean.TRUE;
+            }
+            if (labels.keySet().stream().anyMatch(k -> k.startsWith("kustomize.toolkit.fluxcd.io/"))
+                    || labels.containsKey("argocd.argoproj.io/instance")) {
+                return Boolean.TRUE;
+            }
+        }
+        if (metadata.getManagedFields() != null) {
+            for (ManagedFieldsEntry entry : metadata.getManagedFields()) {
+                String manager = entry.getManager();
+                if (manager != null && GITOPS_MANAGERS.contains(manager.toLowerCase(Locale.ROOT))) {
+                    return Boolean.TRUE;
+                }
+            }
+        }
+        return Boolean.FALSE;
+    }
+
+    private static final Set<String> GITOPS_MANAGERS = Set.of("helm", "argocd", "argocd-application-controller",
+            "argo-cd", "flux", "kustomize-controller", "helm-controller");
+
+    private static Instant parseInstant(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(value);
+        } catch (RuntimeException notAnInstant) {
+            logger.debug("Unparseable HPA condition timestamp '{}'; treating as unknown", value);
+            return null;
+        }
+    }
+
+    /** The HPA's {@code ScalingLimited=True TooManyReplicas} state and when it began, if at all. */
+    private record ScalingLimit(boolean limited, Instant since) {
+        static final ScalingLimit NOT_LIMITED = new ScalingLimit(false, null);
     }
 
     private static boolean resourceMetricPresent(HorizontalPodAutoscaler hpa, String resource) {

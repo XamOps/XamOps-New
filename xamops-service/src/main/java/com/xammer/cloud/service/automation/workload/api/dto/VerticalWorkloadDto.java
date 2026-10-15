@@ -111,11 +111,28 @@ public record VerticalWorkloadDto(WorkloadRefDto ref,
                                 Double sampleCoverage, String usageSource, String policySource) {
     }
 
+    /**
+     * The HPA decision, shaped for the UI.
+     *
+     * <p>{@code null} on {@code minReplicas} / {@code maxReplicas} / {@code targetCpuUtilizationPct}
+     * means "leave that field alone"; a diff against the current HPA is what an apply patches.
+     *
+     * @param formula            the human-readable derivation, e.g.
+     *                           {@code "ceil(5 × 64% ÷ 50%) = 7, capped to 8"}, or null
+     * @param autoApplyEligible  always false — HPA has no auto tier this task, forced at the mapper
+     */
     public record HorizontalDto(String state, Integer minReplicas, Integer maxReplicas,
-                                Integer targetCpuUtilizationPct, List<String> reasons) {
+                                Integer targetCpuUtilizationPct, List<String> reasons,
+                                String formula, boolean autoApplyEligible) {
 
         public HorizontalDto {
             reasons = reasons == null ? List.of() : List.copyOf(reasons);
+        }
+
+        /** The pre-HPA shape (no formula, never auto-appliable), for the modelled / not-evaluated path. */
+        public HorizontalDto(String state, Integer minReplicas, Integer maxReplicas,
+                             Integer targetCpuUtilizationPct, List<String> reasons) {
+            this(state, minReplicas, maxReplicas, targetCpuUtilizationPct, reasons, null, false);
         }
     }
 }

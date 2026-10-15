@@ -364,7 +364,7 @@ export type EksSubtabId =
   | 'cluster' | 'namespaces' | 'workloads' | 'nodes'
   | 'pods' | 'containers' | 'resources'
   | 'node-groups' | 'karpenter' | 'utilization'
-  | 'overview' | 'workload-autoscaling' | 'node-autoscaling' | 'rebalancing' | 'guardrails' | 'activity'
+  | 'overview' | 'workload-autoscaling' | 'pod-autoscaling' | 'node-autoscaling' | 'rebalancing' | 'guardrails' | 'activity'
   | 'vulnerabilities' | 'compliance' | 'runtime'
   | 'connections' | 'install';
 

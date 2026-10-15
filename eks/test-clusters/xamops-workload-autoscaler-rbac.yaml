@@ -28,16 +28,22 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets", "statefulsets"]
     verbs: ["get", "list", "watch"]
-  # HPA awareness: the engine must not fight a horizontal autoscaler on the same workload.
+  # HPA awareness + apply: the engine must not fight a horizontal autoscaler on the same workload,
+  # AND the HPA apply-by-click path PATCHes the HPA's bounds / CPU target. `patch` is the only write
+  # verb the apply path needs — HpaPatchClient issues a strategic-merge PATCH scoped to
+  # spec.{min,max}Replicas and the one Resource: cpu target, under fieldManager=xamops-hpa, so no
+  # `update` (full replace) and no `create` are granted here. D4 (create a new HPA) is a separate,
+  # higher-trust grant and is deliberately NOT included.
   - apiGroups: ["autoscaling"]
     resources: ["horizontalpodautoscalers"]
-    verbs: ["get", "list", "watch"]
+    verbs: ["get", "list", "watch", "patch"]
   # PDB awareness: a disruption budget with zero allowed disruptions blocks a restart-based apply.
   - apiGroups: ["policy"]
     resources: ["poddisruptionbudgets"]
     verbs: ["get", "list", "watch"]
 
-  # --- the only mutation: in-place pod resource resize (K8s 1.33+ resize subresource) ---
+  # --- vertical mutation: in-place pod resource resize (K8s 1.33+ resize subresource) ---
+  # (The horizontal mutation — PATCH on horizontalpodautoscalers — is granted on the HPA rule above.)
   - apiGroups: [""]
     resources: ["pods/resize"]
     verbs: ["patch"]
