@@ -30,6 +30,7 @@ jobs:
       autoscaler: ${{ steps.diff.outputs.autoscaler }}
       forecast:   ${{ steps.diff.outputs.forecast }}
       routing:    ${{ steps.diff.outputs.routing }}
+      onboarding: ${{ steps.diff.outputs.onboarding }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -89,6 +90,17 @@ jobs:
             echo "routing=true" >> "$GITHUB_OUTPUT"
           else
             echo "routing=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Same test-only pattern as "routing": ReadWriteTemplateContractTest and
+          # GcpOnboardingScriptTest (in xamops-build-test) read the CloudFormation templates
+          # and the GCP onboarding scripts, so an edit to them alone must still run the
+          # xamops-service suite. Only xamops-build-test reads this output, so a template-
+          # or script-only edit does not rebuild or redeploy xamops-service.
+          if echo "$CHANGED" | grep -qE "^(cloudformation|scripts/gcp)/"; then
+            echo "onboarding=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "onboarding=false" >> "$GITHUB_OUTPUT"
           fi
 
           if echo "$CHANGED" | grep -q "^frontend-app/"; then
@@ -372,7 +384,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     # "routing": RoutingContractTest also pins the gateway nginx, frontend nginx and Vite files.
-    if: needs.changes.outputs.xamops == 'true' || needs.changes.outputs.routing == 'true'
+    # "onboarding": ReadWriteTemplateContractTest and GcpOnboardingScriptTest pin cloudformation/
+    # and scripts/gcp/.
+    if: needs.changes.outputs.xamops == 'true' || needs.changes.outputs.routing == 'true' || needs.changes.outputs.onboarding == 'true'
     steps:
       - uses: actions/checkout@v4
         with:
