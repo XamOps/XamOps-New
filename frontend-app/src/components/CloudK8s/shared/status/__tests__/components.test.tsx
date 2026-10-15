@@ -93,6 +93,27 @@ describe('StepIndicator', () => {
     expect(container.querySelectorAll('[aria-hidden="true"]').length).toBeGreaterThanOrEqual(5);
     expect(screen.getByText('Applying')).toBeTruthy();
   });
+
+  it('full form: every stage with its icon, label and line, the current one marked', () => {
+    const states = deriveLifecycle({ measured: true, hasSuggestion: true, applyProgress: 'APPLIED', appliedOpen: true, hasCooldown: true, cooldownEnded: false });
+    const { container } = render(
+      <StepIndicator variant="full" states={states} details={{ watching: 'Next change allowed at 5:13 PM IST' }} />,
+    );
+    const stages = [...container.querySelectorAll('[data-stage]')];
+    expect(stages.map((s) => s.getAttribute('data-stage-status'))).toEqual(['done', 'done', 'done', 'done', 'current']);
+    for (const s of stages) expect(s.querySelector('svg[aria-hidden="true"]')).toBeTruthy();
+    expect(container.querySelector('[aria-current="step"]')?.getAttribute('data-stage')).toBe('watching');
+    expect(screen.getByText('Next change allowed at 5:13 PM IST')).toBeTruthy();
+    // A stage without a line shows its status word, never nothing.
+    expect(stages[0].textContent).toContain('Done');
+  });
+
+  it('a stage list with nothing current still carries an icon with its label', () => {
+    const states = deriveLifecycle({ measured: true, hasSuggestion: false }).map((s) => ({ ...s, status: 'todo' as const, tone: 'off' as const }));
+    const { container } = render(<StepIndicator states={states} label="Not sized: 1 replica" />);
+    expect(screen.getByText('Not sized: 1 replica')).toBeTruthy();
+    expect(container.querySelectorAll('svg[aria-hidden="true"]').length).toBe(1);
+  });
 });
 
 describe('NowBanner', () => {

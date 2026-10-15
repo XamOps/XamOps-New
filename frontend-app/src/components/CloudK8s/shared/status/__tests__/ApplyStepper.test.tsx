@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import ApplyStepper, { buildApplySteps } from '../ApplyStepper';
 import type { ApplyOutcomeWire } from '../../../../../types/workloadRightsizing';
+import type { ApplyOutcomeWire as VerticalOutcome } from '../../../../../types/verticalRightsizer';
 
 const pod = (name: string, ready: boolean): NonNullable<ApplyOutcomeWire['pods']>[number] => ({
   podName: name,
@@ -63,7 +64,70 @@ describe('buildApplySteps (glossary §6)', () => {
   });
 });
 
+describe('buildApplySteps: the put-back proof (pods[].revert, fix S7)', () => {
+  const declined = (terminal: string, state: string, reverted: boolean, detail: string | null = null): VerticalOutcome => ({
+    method: 'DIRECT',
+    terminal,
+    detail: 'OutOfcpu on ip-172-31-9-125',
+    restartFree: true,
+    containers: null,
+    reverted,
+    insufficient: 'cpu',
+    pods: [{
+      podName: 'throttled-encoder-8b999cc87-mcw8q', uidBefore: 'u1', uidAfter: 'u1', samePod: true, ready: true,
+      containers: [{
+        name: 'encoder', containerIdBefore: 'c1', containerIdAfter: 'c1', restartCountBefore: 0, restartCountAfter: 0,
+        observedBefore: { cpuRequestM: 10, memRequestMi: 64, cpuLimitM: 50, memLimitMi: 128 },
+        observedAfter: { cpuRequestM: 10, memRequestMi: 64, cpuLimitM: 50, memLimitMi: 128 },
+      }],
+      changed: false,
+      revert: { state, detail },
+    }],
+  });
+
+  // Today's throttled-encoder: deferred for CPU, put back and proved back.
+  it('REVERTED: "So XamOps put the pod back", and nothing changed', () => {
+    const steps = buildApplySteps(declined('DEFERRED', 'REVERTED', true));
+    expect(steps.find((s) => s.key === 'deferred')!.title).toBe('Kubernetes deferred this: the node has no free CPU');
+    const back = steps.find((s) => s.key === 'revert-0')!;
+    expect(back).toMatchObject({ tone: 'warn', title: 'So XamOps put the pod back' });
+    expect(back.detail).toBe('Back to 10m CPU, 64Mi memory, and the pod confirmed it: nothing is pending. No restart.');
+    expect(last(steps)).toMatchObject({ key: 'result', title: 'Result: not applied. Nothing changed.', banded: true });
+    expect(last(steps).detail).toContain('Make room on its node, then apply again.');
+  });
+
+  it.each([
+    ['NOT_CONFIRMED', 'warn', "XamOps sent the pod back, but it didn't confirm"],
+    ['FAILED', 'bad', "XamOps couldn't put the pod back"],
+  ])('%s: the new size may still be applied later, and "Nothing changed" is never said', (state, tone, title) => {
+    const steps = buildApplySteps(declined('DEFERRED', state, false, 'the API server refused the patch'));
+    const back = steps.find((s) => s.key === 'revert-0')!;
+    expect(back).toMatchObject({ tone, title });
+    expect(back.detail).toContain('may still be applied later');
+    expect(last(steps)).toMatchObject({ key: 'result', title: 'Result: not applied yet.' });
+    expect(steps.some((s) => s.title.includes('Nothing changed'))).toBe(false);
+  });
+
+  it('an infeasible size that was put back still closes as not applied', () => {
+    const steps = buildApplySteps(declined('INFEASIBLE', 'REVERTED', true));
+    expect(steps.map((s) => s.key)).toEqual(['checks', 'pod-0', 'infeasible', 'revert-0', 'result']);
+    expect(last(steps)).toMatchObject({ tone: 'bad', title: 'Result: not applied. Nothing changed.' });
+  });
+
+  it('says "Resizing" for a pod Kubernetes has not confirmed, never "Resized"', () => {
+    const steps = buildApplySteps(outcome('DEFERRED', [pod('throttled-encoder-x', false)]));
+    expect(steps.find((s) => s.key === 'pod-0')!.title).toBe('Resizing pod 1 of 1, the test pod');
+  });
+});
+
 describe('ApplyStepper render', () => {
+  it('labels the result chip, so the outcome is never an icon alone', () => {
+    render(<ApplyStepper outcome={outcome('DEFERRED', [pod('throttled-encoder-x', false)])} />);
+    const chip = document.querySelector('[data-result-tone] [data-tone]')!;
+    expect(chip.textContent).toBe('Not applied: Kubernetes deferred it');
+    expect(chip.querySelector('svg[aria-hidden="true"]')).toBeTruthy();
+  });
+
   it('renders each step and the live subline', () => {
     render(<ApplyStepper outcome={outcome('APPLIED', [pod('idle-batch-listener-x', true)])} live />);
     expect(screen.getByText('Apply progress')).toBeTruthy();

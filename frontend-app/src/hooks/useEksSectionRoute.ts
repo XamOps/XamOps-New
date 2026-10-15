@@ -64,11 +64,13 @@ export const EKS_SECTIONS: SectionRegistry<EksSectionId, EksSubtabId> = [
     ] },
   { id: 'automation', label: 'Automation', icon: 'mdi:robot-outline', defaultSub: 'overview',
     // The v3 Automation tree (automation-v2 design §3.1): Workload autoscaler › Workloads hosts the
-    // realtime branch's Workload rightsizing tab (Addendum 1 Part B); HPA and VPA are main's combined
-    // Pod autoscaler page, split. Policies, Node autoscaler and Activity register with their pages.
+    // realtime branch's Workload rightsizing cards, and Policies is the rules they use; HPA and VPA
+    // are main's combined Pod autoscaler page, split. Node autoscaler and Activity register with
+    // their pages.
     subs: [
       { id: 'overview', label: 'Overview' },
       { id: 'workload-autoscaler', label: 'Workloads', group: 'Workload autoscaler' },
+      { id: 'workload-autoscaler-policies', label: 'Policies', group: 'Workload autoscaler' },
       { id: 'hpa', label: 'HPA' },
       { id: 'vpa', label: 'VPA' },
     ] },

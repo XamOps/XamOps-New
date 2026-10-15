@@ -32,6 +32,8 @@ export interface BarsProps {
   height?: number;
   width?: number;
   ariaLabel?: string;
+  /** 'capacity' rows: the width of the row labels (e.g. workload names), in px. */
+  categoryWidth?: number;
 }
 
 function fillFor(bar: BarSeries): { fill: string; fillOpacity: number; stroke: string; strokeWidth: number } {
@@ -50,7 +52,7 @@ function fillFor(bar: BarSeries): { fill: string; fillOpacity: number; stroke: s
   return { fill: s.color, fillOpacity: 1, stroke: s.color, strokeWidth: 0 };
 }
 
-export function Bars({ mode, data, bars, xKey, height = 220, width, ariaLabel }: BarsProps) {
+export function Bars({ mode, data, bars, xKey, height = 220, width, ariaLabel, categoryWidth = 90 }: BarsProps) {
   const horizontal = mode === 'capacity';
 
   const chart = (
@@ -67,7 +69,7 @@ export function Bars({ mode, data, bars, xKey, height = 220, width, ariaLabel }:
       {horizontal ? (
         <>
           <XAxis type="number" stroke="currentColor" strokeOpacity={0.4} tick={{ fontSize: 11 }} />
-          <YAxis type="category" dataKey={xKey} stroke="currentColor" strokeOpacity={0.4} tick={{ fontSize: 11 }} width={90} />
+          <YAxis type="category" dataKey={xKey} stroke="currentColor" strokeOpacity={0.4} tick={{ fontSize: 11 }} width={categoryWidth} />
         </>
       ) : (
         <>

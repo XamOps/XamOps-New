@@ -314,8 +314,8 @@ export const toApplyContainers = (workload: WorkloadView): ApplyContainerRequest
 // ("Code: FLOOR_CLAMPED") so support can match a screen to a log; they are never visible text.
 
 /** Values the payload does not carry yet (glossary rule 8): the engine's defaults. */
-const CPU_FLOOR = '25m';
-const MEM_FLOOR = '250Mi';
+export const CPU_FLOOR = '25m';
+export const MEM_FLOOR = '250Mi';
 export const COOLDOWN_MINUTES = 60;
 
 /** Glossary 6.4: below 48 hours in hours, from 48 hours up in whole days. */

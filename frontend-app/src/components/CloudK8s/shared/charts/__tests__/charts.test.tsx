@@ -12,6 +12,7 @@ import Sparkline from '../Sparkline';
 import MiniBar from '../MiniBar';
 import TimeStrip from '../TimeStrip';
 import LanesTimeline from '../LanesTimeline';
+import SeriesLegend from '../SeriesLegend';
 import { SERIES, MONEY, HATCH } from '../chartTokens';
 
 describe('chartTokens (design-delta §2.2)', () => {
@@ -30,9 +31,9 @@ describe('chartTokens (design-delta §2.2)', () => {
     expect(MONEY.saved.fillOpacity).toBe(0.24);
   });
 
-  it('every series colour is a bare var(--k8s-series-…)', () => {
+  it('every series colour is rgb(var(--k8s-series-…)): the tokens are channel triples, which paint black bare', () => {
     for (const s of Object.values(SERIES)) {
-      expect(s.color).toMatch(/^var\(--k8s-series-/);
+      expect(s.color).toMatch(/^rgb\(var\(--k8s-series-[a-z-]+\)\)$/);
     }
   });
 
@@ -68,6 +69,25 @@ describe('ChartCard empty / partial states (glossary §10)', () => {
   it('no-suggestions shows the exact copy', () => {
     render(<ChartCard title="t" source="s" state={{ kind: 'no-suggestions' }} />);
     expect(screen.getByText('No change suggested for any workload.')).toBeTruthy();
+  });
+
+  it('history-pending says "History arrives with the usage feed" and names where it will come from', () => {
+    const { container } = render(
+      <ChartCard title="CPU and memory over time" source="s" state={{ kind: 'history-pending', from: 'It will come from Prometheus in your cluster.' }}>
+        <svg data-testid="never-drawn" />
+      </ChartCard>,
+    );
+    expect(EMPTY_COPY.historyPending).toBe('History arrives with the usage feed');
+    expect(container.querySelector('[data-empty="history-pending"]')?.textContent).toContain('History arrives with the usage feed');
+    expect(screen.getByText('It will come from Prometheus in your cluster.')).toBeTruthy();
+    // No fake points: the chart itself is not drawn.
+    expect(screen.queryByTestId('never-drawn')).toBeNull();
+  });
+
+  it('unavailable shows its reason and keeps the card and its source', () => {
+    const { container } = render(<ChartCard title="Cost per day" source="Prices (planned)." state={{ kind: 'unavailable', reason: "Needs CPU and memory prices, which XamOps doesn't read yet." }} />);
+    expect(container.querySelector('[data-empty="unavailable"]')?.textContent).toBe("Needs CPU and memory prices, which XamOps doesn't read yet.");
+    expect(container.querySelector('[data-chart-source]')?.textContent).toContain('Prices (planned).');
   });
 
   it('renders a table slot under the chart', () => {
@@ -139,6 +159,16 @@ describe('TimeStrip', () => {
   });
 });
 
+describe('SeriesLegend', () => {
+  it('names every series beside a swatch in its token colour', () => {
+    const { container } = render(
+      <SeriesLegend items={[{ label: 'Requested', kind: 'requested' }, { label: 'CPU freed', kind: 'saved', money: true }]} />,
+    );
+    expect([...container.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Requested', 'CPU freed']);
+    expect([...container.querySelectorAll('rect')].map((r) => r.getAttribute('fill'))).toEqual([SERIES.requested.color, MONEY.saved.color]);
+  });
+});
+
 describe('LanesTimeline', () => {
   it('draws one lane per workload with a feature source dot and the outcome markers', () => {
     const { container } = render(
@@ -155,7 +185,7 @@ describe('LanesTimeline', () => {
     expect(container.querySelectorAll('[data-feature-dot]').length).toBe(2);
     // The source dots carry the feature accent; the markers carry status tones.
     const dot = container.querySelector('[data-feature-dot="workload"]')!;
-    expect(dot.getAttribute('fill')).toBe('var(--k8s-feature-workload)');
+    expect(dot.getAttribute('fill')).toBe('rgb(var(--k8s-feature-workload))');
   });
 
   it('hatches the no-history block before the cluster existed', () => {

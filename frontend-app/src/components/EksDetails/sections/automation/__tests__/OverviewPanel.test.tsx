@@ -8,16 +8,97 @@ vi.mock('../../../../../api/k8sAutomationApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../../api/k8sAutomationApi')>();
   return { ...actual, getCapabilities };
 });
+vi.mock('../../../../../utils/apiClient', () => ({ default: { fetch: vi.fn() } }));
 
+import apiClient from '../../../../../utils/apiClient';
 import { K8sCapabilitiesProvider } from '../../../../../hooks/useK8sCapabilities';
 import { CONTRACT_BLOCK_MESSAGE } from '../../../../../api/verticalRecommendationsAdapter';
 import { DEMO_READINESS_MESSAGES, demoCapabilities } from '../../../../../demo/k8sAutomationMockData';
 import type { CapabilitiesDto } from '../../../../../types/k8sAutomation';
+import type { VerticalEngineResponseWire, VerticalWorkloadWire } from '../../../../../types/verticalRightsizer';
+import type { UseEksDashboardReturn } from '../../../../../hooks/useEksDashboard';
 import { OVERLAY_TEXT } from '../../../../CloudK8s/shared/AccessBanner';
-import { NOT_TURNED_ON_TEXT, OverviewPanel, TODAY_ROWS, WORKLOAD_AUTOSCALER_LINK } from '../OverviewPanel';
+import { NOT_TURNED_ON_TEXT, OverviewPanel, TODAY_ROWS, WORKLOAD_AUTOSCALER_LINK, type OverviewHrefs } from '../OverviewPanel';
+
+const mockedFetch = apiClient.fetch as unknown as ReturnType<typeof vi.fn>;
 
 const READ_ONLY_TEXT = 'Read-only connection. Automation changes need read-write access.';
 const DEMO_TEXT = "Demo workspace. Changes aren't saved.";
+
+const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
+const res = (cpuRequestM: number | null, memRequestMi: number | null) => ({ cpuRequestM, memRequestMi, cpuLimitM: null, memLimitMi: null });
+
+function wire(name: string, namespace: string, over: Partial<VerticalWorkloadWire> = {}): VerticalWorkloadWire {
+  return {
+    ref: { namespace, kind: 'Deployment', name },
+    policy: { mode: 'RECOMMEND', headroomPct: 25, percentile: 95, window: '24h', applyMethod: 'IN_PLACE' },
+    replicas: 2,
+    hpa: { present: false, name: null },
+    gitopsManaged: false,
+    skipReason: null,
+    findings: [],
+    containers: [],
+    lastAction: null,
+    autoApplyEligible: false,
+    provenance: { percentile: 95, windowHours: 24, windowStart: null, windowEnd: null, sampleCoverage: 0.94, usageSource: 'prometheus-proxy', policySource: 'DEFAULTS' },
+    horizontal: null,
+    ...over,
+  };
+}
+
+/** Three workloads like xamops-test-1's: one to shrink, one throttled, one applied 17 minutes ago. */
+const ENDPOINT_1: VerticalEngineResponseWire = {
+  engine: {
+    enabled: true,
+    ready: true,
+    clusterAccess: 'CONFIGURED',
+    executionPath: 'DIRECT',
+    executionPathDetail: { direct: { available: true, reason: null }, agent: null },
+    metricsSource: { reachable: true, name: 'prometheus-proxy' },
+    lastCycle: { at: iso(5 * 60_000), evaluated: 3, error: null },
+  },
+  gateReasons: [],
+  writeGatesChecked: true,
+  workloads: [
+    wire('overprovisioned-api', 'team-a', {
+      containers: [{ name: 'api', qosClass: 'Burstable', current: res(1000, 1024), recommended: res(25, 256), reasons: [], upstreamVpa: null }],
+    }),
+    wire('throttled-encoder', 'prod-sim', {
+      findings: ['THROTTLED'],
+      containers: [{ name: 'encoder', qosClass: 'Burstable', current: res(10, 64), recommended: res(63, 64), reasons: ['DEMAND_CENSORED_BY_LIMIT'], upstreamVpa: null }],
+    }),
+    wire('idle-batch-listener', 'dev-sim', {
+      replicas: 3,
+      containers: [{ name: 'sleeper', qosClass: 'Burstable', current: res(25, 128), recommended: null, reasons: ['COOLDOWN'], upstreamVpa: null }],
+      lastAction: { at: iso(17 * 60_000), dryRun: false, outcome: 'APPLIED' },
+    }),
+  ],
+};
+
+const DASHBOARD = {
+  dashboard: {
+    k8sPods: [
+      { name: 'api-1', namespace: 'team-a', phase: 'Running', containers: [{ name: 'api', cpuRequest: '1000m', memoryRequest: '1Gi' }] },
+      { name: 'api-2', namespace: 'team-a', phase: 'Running', containers: [{ name: 'api', cpuRequest: '1000m', memoryRequest: '1Gi' }] },
+    ],
+    namespaceUtilization: [{ namespace: 'team-a', cpuUsageMillicores: 40, memoryUsageMB: 300 }],
+    k8sHpas: [{ name: 'php-apache', namespace: 'team-b', minReplicas: 1, maxReplicas: 5, currentReplicas: 5 }],
+  },
+} as unknown as UseEksDashboardReturn;
+
+const json = (status: number, body: unknown): Response =>
+  ({ status, ok: status >= 200 && status < 300, text: async () => (body === null ? '' : JSON.stringify(body)) }) as unknown as Response;
+
+/** Serves endpoint 1; anything else is a test failure. */
+function serve(status = 200, body: unknown = ENDPOINT_1) {
+  mockedFetch.mockImplementation(async (url: string) => {
+    if (!String(url).startsWith('/api/eks/automation/vertical/')) throw new Error(`unexpected request ${url}`);
+    return json(status, body);
+  });
+}
+
+const endpointOneGets = () =>
+  mockedFetch.mock.calls.filter(([url, init]) => String(url).startsWith('/api/eks/automation/vertical/') && (init?.method ?? 'GET') === 'GET');
 
 function fixture(accountId: 'demo-aws-001' | 'demo-aws-002', edit?: (dto: CapabilitiesDto) => void): CapabilitiesDto {
   const dto = demoCapabilities(accountId)!;
@@ -25,12 +106,16 @@ function fixture(accountId: 'demo-aws-001' | 'demo-aws-002', edit?: (dto: Capabi
   return dto;
 }
 
-async function renderPanel(dto: CapabilitiesDto, cluster = 'prod-eks-cluster', workloadAutoscalerHref?: string) {
+async function renderPanel(
+  dto: CapabilitiesDto,
+  cluster = 'prod-eks-cluster',
+  { hrefs, eksData }: { hrefs?: OverviewHrefs; eksData?: UseEksDashboardReturn } = {},
+) {
   getCapabilities.mockResolvedValue(dto);
   render(
     <MemoryRouter initialEntries={[`/eks-details?name=${cluster}&tab=automation&sub=overview`]}>
       <K8sCapabilitiesProvider accountId={dto.accountId} demo>
-        <OverviewPanel clusterName={cluster} workloadAutoscalerHref={workloadAutoscalerHref} />
+        <OverviewPanel clusterName={cluster} accountId={dto.accountId} region="us-east-1" eksData={eksData} hrefs={hrefs} />
       </K8sCapabilitiesProvider>
     </MemoryRouter>,
   );
@@ -52,8 +137,23 @@ const accessValue = (term: string) => {
   return dt.nextElementSibling as HTMLElement;
 };
 
+const card = (title: string) => {
+  const heading = screen.getByRole('heading', { name: title });
+  return heading.closest('section') as HTMLElement;
+};
+
+const kpi = (label: string) => {
+  const el = [...document.querySelectorAll<HTMLElement>('[data-kpi-tone]')].find((k) => k.textContent?.includes(label.toUpperCase()) || k.textContent?.includes(label));
+  if (!el) throw new Error(`no KPI ${label}`);
+  return el;
+};
+
 describe('Automation › Overview (§9.1)', () => {
-  beforeEach(() => getCapabilities.mockReset());
+  beforeEach(() => {
+    getCapabilities.mockReset();
+    mockedFetch.mockReset();
+    serve();
+  });
   afterEach(() => vi.restoreAllMocks());
 
   it('lists every §9.1 capability in order', async () => {
@@ -135,7 +235,7 @@ describe('Automation › Overview (§9.1)', () => {
 
   it('points the workloads row at the hosted Workload autoscaler, not the contract block (review S2)', async () => {
     const href = '/eks-details?name=prod-eks-cluster&tab=automation&sub=workload-autoscaler';
-    const table = await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', href);
+    const table = await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { hrefs: { workloadAutoscaler: href } });
     const workload = rowOf(table, 'workload-rightsizing');
     expect(workload).not.toHaveTextContent(CONTRACT_BLOCK_MESSAGE);
     expect(workload).toHaveTextContent('Decided per workload in Automation › Workload autoscaler');
@@ -164,29 +264,138 @@ describe('Automation › Overview (§9.1)', () => {
     expect(within(agent).getByRole('link', { name: 'Set up monitoring' })).toBeInTheDocument();
   });
 
-  it('makes no automation-agent or vertical-engine request', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    await renderPanel(fixture('demo-aws-001'));
+  it('reads endpoint 1 exactly once (one GET), and makes no other request', async () => {
+    await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { eksData: DASHBOARD });
+    await screen.findByText(/XamOps is watching 3 workloads/);
     expect(getCapabilities).toHaveBeenCalledTimes(1);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+    expect(endpointOneGets()).toHaveLength(1);
+    expect(String(mockedFetch.mock.calls[0][0])).toBe('/api/eks/automation/vertical/prod-eks-cluster?accountId=demo-aws-001&region=us-east-1');
   });
 
-  describe('v3 re-skin (FEAT-003)', () => {
-    it('adds the Now banner, the How-it-works flow and the Workload-autoscaler feature mark', async () => {
+  describe('v3 visuals from endpoint 1, the agent and capabilities (FEAT-002)', () => {
+    it('adds the Now banner, the How-it-works flow and the feature marks', async () => {
       await renderPanel(fixture('demo-aws-001'));
       expect(document.querySelector('[data-now-banner]')).not.toBeNull();
       expect(screen.getByText('How the Workload autoscaler works')).toBeInTheDocument();
       // The feature accent reaches the page only through FeatureMark, paired with its name.
-      const marks = [...document.querySelectorAll('[data-feature="workload"]')];
-      expect(marks.length).toBeGreaterThan(0);
+      for (const f of ['workload', 'hpa', 'vpa', 'node']) {
+        expect(document.querySelectorAll(`[data-feature="${f}"]`).length, f).toBeGreaterThan(0);
+      }
     });
 
-    it('shows the honest "couldn\'t read workloads" clause, since this page reads no endpoint', async () => {
+    it('fills the Now sentence from endpoint 1, in freed capacity and never in dollars', async () => {
       await renderPanel(fixture('demo-aws-001'));
+      const banner = await waitFor(() => {
+        const el = document.querySelector('[data-now-banner]')!;
+        expect(el.textContent).toContain('XamOps is watching 3 workloads on prod-eks-cluster.');
+        return el;
+      });
+      expect(banner.textContent).toContain('1 can be resized now, freeing 1.95 vCPU and 1.5 GiB.');
+      expect(banner.textContent).toContain('1 needs more CPU.');
+      expect(banner.textContent).toContain('Nothing changes until you click Apply.');
+      expect(banner.textContent).toMatch(/Last change: .+, idle-batch-listener: applied\./);
+      expect(banner.textContent).not.toMatch(/\$/);
+    });
+
+    it('shows the KPIs from the fixture: saving now, can save, needs more, changes in 7 days', async () => {
+      await renderPanel(fixture('demo-aws-001'));
+      await waitFor(() => expect(document.querySelector('[data-overview-kpis]')).not.toBeNull());
+      const saving = kpi('Saving now');
+      expect(saving).toHaveTextContent('1');
+      expect(saving).toHaveTextContent('recorded once the activity feed is on');
+      expect(kpi('Can save now')).toHaveTextContent('1.95 vCPU');
+      expect(kpi('Can save now')).toHaveTextContent('1.5 GiB memory');
+      expect(kpi('Needs more')).toHaveTextContent('+0.11 vCPU added if applied');
+      const changes = kpi('Changes, last 7 days');
+      expect(changes).toHaveTextContent('latest change per workload');
+      expect(changes).toHaveTextContent('Applied: 1');
+    });
+
+    it('lights How it works from this cluster: suggestions waiting, the confirmed change and the wait', async () => {
+      await renderPanel(fixture('demo-aws-001'));
+      await waitFor(() => expect(document.querySelector('[data-how-step="decide"]')).toHaveTextContent('2 suggestions'));
+      expect(document.querySelector('[data-how-step="measure"]')).toHaveTextContent('Up to date');
+      expect(document.querySelector('[data-how-step="apply"]')).toHaveTextContent('Waiting for you');
+      expect(document.querySelector('[data-how-step="verify"]')).toHaveTextContent('confirmed');
+      expect(document.querySelector('[data-how-step="watch"]')).toHaveTextContent(/Until /);
+    });
+
+    it('links How it works to Policies in place', async () => {
+      const policies = '/eks-details?name=prod-eks-cluster&tab=automation&sub=workload-autoscaler-policies';
+      await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { hrefs: { policies } });
+      expect(screen.getByRole('link', { name: 'Exact rules: Workload autoscaler › Policies' })).toHaveAttribute('href', policies);
+    });
+
+    it('places each workload\'s latest change on the 7-day timeline, saying it shows only the latest', async () => {
+      await renderPanel(fixture('demo-aws-001'));
+      await waitFor(() => expect(document.querySelector('[data-lanes-timeline]')).not.toBeNull());
+      const timeline = card('What automation did, last 7 days');
+      expect(timeline).toHaveTextContent('Shows only the latest change XamOps recorded for each workload.');
+      expect(timeline.querySelectorAll('[data-lane]')).toHaveLength(1);
+      expect(within(timeline).getByRole('rowheader', { name: 'idle-batch-listener', hidden: true })).toBeInTheDocument();
+    });
+
+    it('builds the feature cards from real sources, each with its next step', async () => {
+      const hrefs = { workloadAutoscaler: '/w', hpa: '/h', vpa: '/v', nodeAutoscaler: '/n', nodeAutoscalerLabel: 'Open Nodes' };
+      await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { hrefs, eksData: DASHBOARD });
+      const cards = () => Object.fromEntries([...document.querySelectorAll<HTMLElement>('[data-feature-card]')].map((c) => [c.dataset.featureCard, c]));
+      await waitFor(() => expect(cards().workload).toHaveTextContent('On: you apply suggestions'));
+      expect(cards().hpa).toHaveTextContent('1 HPA, at their maximum');
+      expect(cards().vpa).toHaveTextContent('No VPAs found');
+      expect(within(cards().workload).getByRole('link', { name: 'Open Workloads' })).toHaveAttribute('href', '/w');
+      expect(within(cards().node).getByRole('link', { name: 'Open Nodes' })).toHaveAttribute('href', '/n');
+    });
+
+    it('compares requested, used and suggested by namespace, with a memory toggle', async () => {
+      const user = userEvent.setup();
+      await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { eksData: DASHBOARD });
+      await waitFor(() => expect(screen.getByRole('heading', { name: 'CPU by namespace: requested, used and suggested' })).toBeInTheDocument());
+      const chart = card('CPU by namespace: requested, used and suggested');
+      const teamA = within(chart).getByRole('rowheader', { name: 'team-a', hidden: true }).closest('tr')!;
+      // 2 × 1000m requested, 40m used, and 2 × 25m with the suggestion applied.
+      expect([...teamA.querySelectorAll('td')].map((td) => td.textContent)).toEqual(['2.00 vCPU', '0.04 vCPU', '0.05 vCPU']);
+      await user.click(within(chart).getByRole('button', { name: 'Memory' }));
+      expect(screen.getByRole('heading', { name: 'Memory by namespace: requested, used and suggested' })).toBeInTheDocument();
+    });
+
+    it('shows the honest empty states: no agent pods, and history waiting for the usage feed', async () => {
+      await renderPanel(fixture('demo-aws-001'));
+      await waitFor(() => expect(card('CPU by namespace: requested, used and suggested')).toHaveTextContent("The XamOps agent hasn't reported this cluster's pods"));
+      const overTime = card('CPU and memory over time');
+      expect(overTime).toHaveTextContent('History arrives with the usage feed');
+      expect(overTime.querySelector('svg.recharts-surface')).toBeNull();
+    });
+
+    it('when endpoint 1 fails: each endpoint-1 panel says so, and capabilities still render', async () => {
+      const user = userEvent.setup();
+      serve(500, { code: 'K8S_INTERNAL', message: 'Something went wrong on our side.' });
+      const table = await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { eksData: DASHBOARD });
+      await waitFor(() => expect(document.querySelector('[data-read-failure]')).not.toBeNull());
       const banner = document.querySelector('[data-now-banner]')!;
-      // No endpoint-1 read on this page, so a count is never invented.
+      // No endpoint-1 answer, so a count is never invented.
       expect(banner.textContent).toContain("couldn't read its workloads");
-      expect(banner.textContent).not.toMatch(/\$\d|\/mo/);
+      expect(banner.textContent).not.toMatch(/\d+ workloads|\$/);
+      expect(document.querySelector('[data-read-failure]')).toHaveTextContent('Something went wrong on our side.');
+      expect(document.querySelector('[data-overview-kpis]')).toBeNull();
+      expect(card('What automation did, last 7 days')).toHaveTextContent("Couldn't read the Workload autoscaler, so there is nothing to place.");
+      expect(card('CPU by namespace: requested, used and suggested')).toHaveTextContent("Couldn't read the Workload autoscaler, so the analysed namespaces aren't known.");
+      expect(document.querySelector('[data-feature-card="workload"]')).toHaveTextContent('Not checked');
+      // The agent's HPAs don't depend on endpoint 1.
+      expect(document.querySelector('[data-feature-card="hpa"]')).toHaveTextContent('1 HPA, at their maximum');
+      expect(rowOf(table, 'workload-rightsizing')).toHaveTextContent('Recommendations');
+
+      serve();
+      await user.click(within(document.querySelector<HTMLElement>('[data-read-failure]')!).getByRole('button', { name: 'Retry' }));
+      await screen.findByText(/XamOps is watching 3 workloads/);
+      expect(endpointOneGets()).toHaveLength(2);
+    });
+
+    it("names an unreachable cluster on the Workload autoscaler card", async () => {
+      serve(403, { code: 'K8S_CLUSTER_UNREACHABLE', message: "The cluster's API server didn't answer." });
+      await renderPanel(fixture('demo-aws-001'));
+      await waitFor(() => expect(document.querySelector('[data-feature-card="workload"]')).toHaveTextContent("Can't reach the cluster"));
+      expect(document.querySelector('[data-read-failure]')).toHaveTextContent("XamOps can't reach this cluster's API server");
     });
   });
 });

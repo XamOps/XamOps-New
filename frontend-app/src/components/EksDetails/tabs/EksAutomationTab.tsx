@@ -40,7 +40,7 @@ import {
   WRITE_GATES_NOT_CHECKED,
   writeGateText,
 } from '../../../api/verticalRightsizerAdapter';
-import useVerticalRightsizer from '../../../hooks/useVerticalRightsizer';
+import useVerticalRightsizer, { type UseVerticalRightsizerState } from '../../../hooks/useVerticalRightsizer';
 import { NowBanner } from '../../CloudK8s/shared/status/NowBanner';
 import { HowItWorks } from '../../CloudK8s/shared/status/HowItWorks';
 import { StatusChip } from '../../CloudK8s/shared/status/StatusChip';
@@ -81,6 +81,14 @@ interface EksAutomationTabProps {
   clusterName: string;
   accountId: string;
   region: string;
+  /**
+   * A host page's own read and apply state (Automation › Workload autoscaler › Workloads). When it is
+   * given, this tab reads, applies and switches modes through it: its own hook gets no cluster, so
+   * endpoint 1 is never read twice, and the host page shows the Now banner and How it works.
+   */
+  controller?: UseVerticalRightsizerState;
+  /** Show only this workload's card (the workload detail page), by its `namespace/kind/name` id. */
+  onlyWorkloadId?: string;
 }
 
 // ─── Helpers, following the EksResourcesTab patterns in grey only ─────────────
@@ -1170,8 +1178,14 @@ const WorkloadCard: React.FC<{
 
 // ─── Tab ─────────────────────────────────────────────────────────────────────
 
-const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accountId, region }) => {
+const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accountId, region, controller, onlyWorkloadId }) => {
   const [dryRun, setDryRun] = useState(true);
+  // With a host controller this hook gets no cluster, so it never fetches; the host's state is used.
+  const own = useVerticalRightsizer({
+    clusterName: controller ? null : clusterName,
+    accountId,
+    region,
+  });
   const {
     loading,
     result,
@@ -1183,11 +1197,9 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
     callerRefusal,
     apply,
     setMode,
-  } = useVerticalRightsizer({
-    clusterName,
-    accountId,
-    region,
-  });
+  } = controller ?? own;
+  /** The host page already shows the Now banner and How it works. */
+  const hostOwnsHeader = controller !== undefined;
 
   if (loading && !result) {
     return <div className="skeleton h-64 rounded-xl"></div>;
@@ -1275,10 +1287,12 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
       : { tone: 'off' as const, icon: 'mdi:minus-circle-outline', label: 'Applying is off here' },
   };
 
+  const shownWorkloads = onlyWorkloadId === undefined ? workloads : workloads.filter((w) => w.id === onlyWorkloadId);
+
   return (
     <div className="space-y-4">
-      <NowBanner sentence={now} />
-      <HowItWorks chips={howChips} collapsed summary={now.clauses.join(' ')} />
+      {!hostOwnsHeader && <NowBanner sentence={now} />}
+      {!hostOwnsHeader && <HowItWorks chips={howChips} collapsed summary={now.clauses.join(' ')} />}
       <section className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] px-6 py-4 dark:bg-[#141414] dark:border-[rgba(255,255,255,0.1)]">
         <h3 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">Workload rightsizing</h3>
         <p className="mt-1 text-[12px] text-[rgba(0,0,0,0.6)] max-w-[820px]">
@@ -1369,7 +1383,7 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
           <EmptyState icon={empty.icon} title={empty.title} subtitle={empty.subtitle} />
         </section>
       ) : (
-        workloads.map((w) => (
+        shownWorkloads.map((w) => (
           <WorkloadCard
             key={w.id}
             workload={w}

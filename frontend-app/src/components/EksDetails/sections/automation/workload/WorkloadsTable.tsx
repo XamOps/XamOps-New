@@ -1,0 +1,218 @@
+/**
+ * Workload autoscaler › Workloads, the at-a-glance table (UI v3 plan §2; design-delta §3.1): one row
+ * per workload endpoint 1 analysed, with its status chip, one pod's CPU and memory request now and
+ * suggested, what the suggestion frees or adds across its pods, a mini-bar of the request against
+ * the suggestion, and its lifecycle stage. The 3-day sparkline waits for the usage feed and says so.
+ * Filters (status, namespace, text) are client-side; the row name opens the workload's detail.
+ */
+import { useId, useMemo, useState } from 'react';
+import { formatMib, formatMillis, DASH } from '../../../../../api/verticalRightsizerAdapter';
+import type { ApplyResult, WorkloadView } from '../../../../../types/verticalRightsizer';
+import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
+import { StepIndicator } from '../../../../CloudK8s/shared/status/StepIndicator';
+import { Delta } from '../../../../CloudK8s/shared/status/Delta';
+import { MiniBar } from '../../../../CloudK8s/shared/charts/MiniBar';
+import { Sparkline } from '../../../../CloudK8s/shared/charts/Sparkline';
+import { EMPTY_COPY } from '../../../../CloudK8s/shared/charts/ChartCard';
+import type { WorkloadStatusKey } from '../../../../CloudK8s/shared/status/statusTones';
+import {
+  addedPart,
+  formatMemory,
+  formatVcpu,
+  freedPart,
+  podRequests,
+  workloadChange,
+  workloadLifecycle,
+  workloadStatusChip,
+  type RequestPair,
+} from '../automationDerivations';
+import { CARD, CONTROL, FAINT, INK, InPageLink, MUTED, RULE } from '../automationUi';
+
+/** The status filter's groups, in the glossary's bucket order. */
+const STATUS_FILTERS: ReadonlyArray<{ value: string; label: string; keys: readonly WorkloadStatusKey[] }> = [
+  { value: 'over-provisioned', label: 'Over-provisioned', keys: ['over-provisioned'] },
+  { value: 'needs-more', label: 'Needs more', keys: ['needs-more'] },
+  { value: 'right-sized', label: 'Right-sized', keys: ['right-sized'] },
+  { value: 'left-alone', label: 'Left alone', keys: ['left-alone-recently', 'left-alone-managed', 'applied-watching'] },
+  { value: 'not-enough-data', label: 'Not enough data yet', keys: ['not-enough-data'] },
+  { value: 'skipped', label: 'Skipped or off', keys: ['skipped', 'off', 'not-running'] },
+];
+
+export interface WorkloadsTableProps {
+  workloads: readonly WorkloadView[];
+  /** The detail link for a workload (`?workload=<ns>/<Kind>/<name>`). */
+  detailHref: (workload: WorkloadView) => string;
+  /** Workload ids with an apply in flight, and this session's replies (with when each arrived). */
+  applyingIds: ReadonlySet<string>;
+  applyResults: Record<string, ApplyResult>;
+  replyAt: Record<string, number>;
+  now: number;
+}
+
+/** "1000m → 25m", "80m · no change", "Not set". */
+function pairText(pair: RequestPair, format: (v: number) => string): string {
+  if (pair.now === null) return pair.suggested === null ? 'Not set' : `Not set → ${format(pair.suggested)}`;
+  if (pair.suggested === null || pair.suggested === pair.now) return `${format(pair.now)} · no change`;
+  return `${format(pair.now)} → ${format(pair.suggested)}`;
+}
+
+const millis = (v: number) => formatMillis({ kind: 'value', value: v });
+const mib = (v: number) => formatMib({ kind: 'value', value: v });
+
+const UNKNOWN_TITLE: Record<string, string> = {
+  'replicas-unknown': "XamOps didn't get this workload's replica count, so the total isn't known.",
+  'pods-differ': "This workload's pods run different sizes right now, so the total isn't known.",
+};
+
+function FreedCell({ workload }: { workload: WorkloadView }) {
+  const change = workloadChange(workload);
+  const { cpuM, memMi } = change.total;
+  if (cpuM === null || memMi === null) {
+    return (
+      <span className={`text-[12px] ${FAINT}`} title={change.totalUnknown ? UNKNOWN_TITLE[change.totalUnknown] : "One side of a request is unset, so the change isn't known."}>
+        {DASH}
+      </span>
+    );
+  }
+  const freedCpu = freedPart(cpuM) ?? 0;
+  const freedMem = freedPart(memMi) ?? 0;
+  const addCpu = addedPart(cpuM) ?? 0;
+  const addMem = addedPart(memMi) ?? 0;
+  if (freedCpu + freedMem + addCpu + addMem === 0) return <span className={`text-[12px] ${FAINT}`}>No change</span>;
+  const join = (cpu: number, mem: number) => [cpu > 0 ? formatVcpu(cpu) : null, mem > 0 ? formatMemory(mem) : null].filter(Boolean).join(' · ');
+  return (
+    <span className="inline-flex flex-col gap-0.5">
+      {freedCpu + freedMem > 0 && <Delta direction="saved" amount={join(freedCpu, freedMem)} suffix="freed" />}
+      {addCpu + addMem > 0 && <Delta direction="extra" amount={`+${join(addCpu, addMem)}`} suffix="more" />}
+    </span>
+  );
+}
+
+export function WorkloadsTable({ workloads, detailHref, applyingIds, applyResults, replyAt, now }: WorkloadsTableProps) {
+  const [status, setStatus] = useState('all');
+  const [namespace, setNamespace] = useState('all');
+  const [query, setQuery] = useState('');
+  const ids = { status: useId(), namespace: useId(), query: useId(), caption: useId() };
+
+  const namespaces = useMemo(() => [...new Set(workloads.map((w) => w.ref.namespace))].sort(), [workloads]);
+  const rows = useMemo(() => {
+    const filter = STATUS_FILTERS.find((f) => f.value === status);
+    const q = query.trim().toLowerCase();
+    return workloads.filter((w) => {
+      if (filter && !filter.keys.includes(workloadStatusChip(w).key)) return false;
+      if (namespace !== 'all' && w.ref.namespace !== namespace) return false;
+      if (q && !`${w.ref.name} ${w.ref.namespace} ${w.ref.kind}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [workloads, status, namespace, query]);
+
+  return (
+    <section className={CARD} aria-labelledby={ids.caption}>
+      <div className="flex flex-wrap items-end justify-between gap-3 px-4 pt-3">
+        <div>
+          <h3 id={ids.caption} className={`text-[13px] font-semibold ${INK}`}>Workloads at a glance</h3>
+          <p className={`mt-0.5 text-[12px] ${MUTED}`}>
+            Requests are per pod. Freed and more are across every pod. Source: Workload autoscaler (endpoint 1).
+          </p>
+        </div>
+        <div className="flex flex-wrap items-end gap-2">
+          <label htmlFor={ids.status} className={`flex flex-col gap-0.5 text-[11px] font-semibold ${MUTED}`}>
+            Status
+            <select id={ids.status} value={status} onChange={(e) => setStatus(e.target.value)} className={CONTROL}>
+              <option value="all">All statuses</option>
+              {STATUS_FILTERS.map((f) => (
+                <option key={f.value} value={f.value}>{f.label}</option>
+              ))}
+            </select>
+          </label>
+          <label htmlFor={ids.namespace} className={`flex flex-col gap-0.5 text-[11px] font-semibold ${MUTED}`}>
+            Namespace
+            <select id={ids.namespace} value={namespace} onChange={(e) => setNamespace(e.target.value)} className={CONTROL}>
+              <option value="all">All namespaces</option>
+              {namespaces.map((ns) => (
+                <option key={ns} value={ns}>{ns}</option>
+              ))}
+            </select>
+          </label>
+          <label htmlFor={ids.query} className={`flex flex-col gap-0.5 text-[11px] font-semibold ${MUTED}`}>
+            Search
+            <input
+              id={ids.query}
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Workload or namespace"
+              className={CONTROL}
+            />
+          </label>
+        </div>
+      </div>
+      <p className={`px-4 pt-2 text-[11px] ${FAINT}`} aria-live="polite">
+        Showing {rows.length} of {workloads.length} {workloads.length === 1 ? 'workload' : 'workloads'}
+      </p>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full border-collapse text-left text-[12px]" aria-labelledby={ids.caption}>
+          <thead>
+            <tr className={`border-y ${RULE} bg-[rgba(0,0,0,0.02)] text-[11px] dark:bg-[rgba(255,255,255,0.03)] ${MUTED}`}>
+              <th scope="col" className="px-4 py-2 font-semibold">Workload</th>
+              <th scope="col" className="px-4 py-2 font-semibold">Status</th>
+              <th scope="col" className="px-4 py-2 font-semibold" title="m = millicores. 1000m = 1 vCPU.">CPU request (now → suggested)</th>
+              <th scope="col" className="px-4 py-2 font-semibold">Memory request (now → suggested)</th>
+              <th scope="col" className="px-4 py-2 font-semibold">Freed or more</th>
+              <th scope="col" className="px-4 py-2 font-semibold">CPU request vs suggestion</th>
+              <th scope="col" className="px-4 py-2 font-semibold">Stage</th>
+              <th scope="col" className="px-4 py-2 font-semibold">
+                Last 3 days
+                <span className={`block font-normal ${FAINT}`}>{EMPTY_COPY.historyPending}</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[rgba(0,0,0,0.06)] dark:divide-[rgba(255,255,255,0.08)]">
+            {rows.map((w) => {
+              const chip = workloadStatusChip(w);
+              const cpu = podRequests(w, 'cpu');
+              const mem = podRequests(w, 'memory');
+              const life = workloadLifecycle(w, { applying: applyingIds.has(w.id), reply: applyResults[w.id], replyAt: replyAt[w.id], now });
+              const barMax = Math.max(cpu.now ?? 0, cpu.suggested ?? 0);
+              return (
+                <tr key={w.id} data-workload-row={w.id} className="align-top">
+                  <th scope="row" className="px-4 py-2.5 font-normal">
+                    <InPageLink to={detailHref(w)} aria-label={`Open ${w.ref.name}`}>{w.ref.name}</InPageLink>
+                    <span className={`block text-[11px] ${FAINT}`}>{w.ref.kind} · {w.ref.namespace}</span>
+                  </th>
+                  <td className="px-4 py-2.5">
+                    <span title={chip.detail || undefined}>
+                      <StatusChip tone={chip.tone} icon={chip.icon} label={chip.label} />
+                    </span>
+                  </td>
+                  <td className={`whitespace-nowrap px-4 py-2.5 tabular-nums ${INK}`}>{pairText(cpu, millis)}</td>
+                  <td className={`whitespace-nowrap px-4 py-2.5 tabular-nums ${INK}`}>{pairText(mem, mib)}</td>
+                  <td className="whitespace-nowrap px-4 py-2.5"><FreedCell workload={w} /></td>
+                  <td className="px-4 py-2.5">
+                    <MiniBar
+                      value={cpu.now}
+                      max={barMax}
+                      kind="requested"
+                      tick={cpu.suggested !== null && cpu.now !== null ? { value: cpu.suggested, kind: 'suggested' } : null}
+                    />
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <StepIndicator states={life.states} label={life.label} />
+                  </td>
+                  <td className="px-4 py-2.5" title={`${EMPTY_COPY.historyPending}: the busiest pod's use, from Prometheus in your cluster.`}>
+                    <Sparkline values={[]} emptyText={DASH} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {rows.length === 0 && (
+          <p className={`px-4 py-6 text-center text-[12px] ${MUTED}`}>No workload matches these filters.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export default WorkloadsTable;

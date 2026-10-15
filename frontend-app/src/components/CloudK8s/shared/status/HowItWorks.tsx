@@ -9,6 +9,7 @@
  * collapsed variant is used on the Workloads page.
  */
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import type { Tone } from './statusTones';
 import StatusChip from './StatusChip';
@@ -35,8 +36,13 @@ export interface HowStepChip {
 export interface HowItWorksProps {
   /** The chip under each step, keyed by step. */
   chips: Partial<Record<HowStepKey, HowStepChip>>;
-  /** The Policies link target (the source line is a link to the exact rules). */
+  /**
+   * The Policies link target (the source line is a link to the exact rules). It is a router link,
+   * so a caller that passes it renders this inside a Router.
+   */
   policiesHref?: string;
+  /** Navigation state for the Policies link, e.g. `inPageState(location)` to keep the page mounted. */
+  policiesLinkState?: unknown;
   /** Start collapsed (the Workloads page); shows a one-line summary and a Show toggle. */
   collapsed?: boolean;
   /** The one-line summary used in the collapsed state ("Now: {summary}"). */
@@ -54,7 +60,7 @@ function highlightStep(chips: HowItWorksProps['chips']): number {
   return HOW_STEPS.findIndex((s) => chips[s.key]?.tone === 'info');
 }
 
-export function HowItWorks({ chips, policiesHref, collapsed = false, summary, className = '' }: HowItWorksProps) {
+export function HowItWorks({ chips, policiesHref, policiesLinkState, collapsed = false, summary, className = '' }: HowItWorksProps) {
   const [open, setOpen] = useState(!collapsed);
   const highlight = highlightStep(chips);
 
@@ -64,9 +70,13 @@ export function HowItWorks({ chips, policiesHref, collapsed = false, summary, cl
         How the Workload autoscaler works
       </h3>
       {policiesHref && (
-        <a href={policiesHref} className="text-[12px] text-[rgba(0,0,0,0.6)] underline dark:text-[rgba(255,255,255,0.6)]">
+        <Link
+          to={policiesHref}
+          state={policiesLinkState}
+          className="text-[12px] text-[rgba(0,0,0,0.6)] underline outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.6)] dark:focus-visible:ring-[rgba(255,255,255,0.92)]"
+        >
           Exact rules: Workload autoscaler › Policies
-        </a>
+        </Link>
       )}
     </div>
   );

@@ -9,6 +9,11 @@
  * `stroke`/`fill` props. The plain-SVG primitives instead take the Tailwind class names below
  * (`stroke-series-used`), which the guard allows anywhere under charts/.
  *
+ * The tokens hold bare "R G B" channel triples (so Tailwind's opacity modifiers work), which are not
+ * colours on their own: `fill="var(--k8s-…)"` paints black in a browser. Every colour string here is
+ * therefore `rgb(var(--k8s-…))`, the same form tailwind.config.js uses, and still follows the theme
+ * (light under :root, dark under .dark).
+ *
  * One meaning per colour, one line style per series (§2.1 rule 1):
  *   requested — solid 1.8 px, 16% fill;
  *   used      — solid 2.2 px, 26% fill;
@@ -42,12 +47,12 @@ export interface SeriesStyle {
 }
 
 /**
- * The series table. `color` is a bare `var(--k8s-series-…)` so a recharts element inherits the
+ * The series table. `color` is `rgb(var(--k8s-series-…))` so a recharts element inherits the
  * theme's value (light under :root, dark under .dark) without a component ever naming the hue.
  */
 export const SERIES: Record<SeriesKind, SeriesStyle> = {
   capacity: {
-    color: 'var(--k8s-series-capacity)',
+    color: 'rgb(var(--k8s-series-capacity))',
     strokeClass: 'stroke-series-capacity',
     fillClass: 'fill-series-capacity',
     strokeWidth: 1.5,
@@ -55,7 +60,7 @@ export const SERIES: Record<SeriesKind, SeriesStyle> = {
     fillOpacityDark: 0.3,
   },
   requested: {
-    color: 'var(--k8s-series-requested)',
+    color: 'rgb(var(--k8s-series-requested))',
     strokeClass: 'stroke-series-requested',
     fillClass: 'fill-series-requested',
     strokeWidth: 1.8,
@@ -63,7 +68,7 @@ export const SERIES: Record<SeriesKind, SeriesStyle> = {
     fillOpacityDark: 0.22,
   },
   used: {
-    color: 'var(--k8s-series-used)',
+    color: 'rgb(var(--k8s-series-used))',
     strokeClass: 'stroke-series-used',
     fillClass: 'fill-series-used',
     strokeWidth: 2.2,
@@ -71,7 +76,7 @@ export const SERIES: Record<SeriesKind, SeriesStyle> = {
     fillOpacityDark: 0.3,
   },
   suggested: {
-    color: 'var(--k8s-series-suggested)',
+    color: 'rgb(var(--k8s-series-suggested))',
     strokeClass: 'stroke-series-suggested',
     fillClass: 'fill-series-suggested',
     strokeWidth: 1.8,
@@ -80,7 +85,7 @@ export const SERIES: Record<SeriesKind, SeriesStyle> = {
     fillOpacityDark: 0.14,
   },
   limit: {
-    color: 'var(--k8s-series-limit)',
+    color: 'rgb(var(--k8s-series-limit))',
     strokeClass: 'stroke-series-limit',
     fillClass: 'fill-series-limit',
     strokeWidth: 1.5,
@@ -92,7 +97,7 @@ export const SERIES: Record<SeriesKind, SeriesStyle> = {
 
 export interface MoneyStyle {
   /**
-   * The money colour as a bare `var(--k8s-money-…)`. The design-rule guard only lets the
+   * The money colour as `rgb(var(--k8s-money-…))`. The design-rule guard only lets the
    * `fill-money-*` / `stroke-money-*` CLASSES live in the status components, so a chart passes this
    * raw var as an inline `fill`/`stroke` instead (raw `var(--k8s-…)` is allowed in this file).
    */
@@ -105,12 +110,12 @@ export interface MoneyStyle {
 /** Money saved is the freed band; money extra is "costs more" (§2.2). */
 export const MONEY: Record<MoneyKind, MoneyStyle> = {
   saved: {
-    color: 'var(--k8s-money-saved)',
+    color: 'rgb(var(--k8s-money-saved))',
     fillOpacity: 0.24,
     fillOpacityDark: 0.28,
   },
   extra: {
-    color: 'var(--k8s-money-extra)',
+    color: 'rgb(var(--k8s-money-extra))',
     fillOpacity: 0.16,
     fillOpacityDark: 0.2,
   },
@@ -125,23 +130,23 @@ export type HatchKind = 'suggested' | 'noHistory' | 'notInEffect' | 'freed';
 
 export interface HatchStyle {
   id: string;
-  /** The hatch lines' colour, as a bare `var(--k8s-…)` applied inline (raw var allowed here). */
+  /** The hatch lines' colour, as `rgb(var(--k8s-…))` applied inline (raw var allowed here). */
   stroke: string;
 }
 
 export const HATCH: Record<HatchKind, HatchStyle> = {
   // Kubernetes VPA suggestion: the suggested hue, hatched (same meaning, different source).
-  suggested: { id: 'k8s-hatch-suggested', stroke: 'var(--k8s-series-suggested)' },
+  suggested: { id: 'k8s-hatch-suggested', stroke: 'rgb(var(--k8s-series-suggested))' },
   // "No history" / "no data before" block: neutral capacity grey.
-  noHistory: { id: 'k8s-hatch-no-history', stroke: 'var(--k8s-series-capacity)' },
+  noHistory: { id: 'k8s-hatch-no-history', stroke: 'rgb(var(--k8s-series-capacity))' },
   // "Declared, not in effect": the limit hue, hatched.
-  notInEffect: { id: 'k8s-hatch-not-in-effect', stroke: 'var(--k8s-series-limit)' },
+  notInEffect: { id: 'k8s-hatch-not-in-effect', stroke: 'rgb(var(--k8s-series-limit))' },
   // Freed request band: the money-saved hue, hatched.
-  freed: { id: 'k8s-hatch-freed', stroke: 'var(--k8s-money-saved)' },
+  freed: { id: 'k8s-hatch-freed', stroke: 'rgb(var(--k8s-money-saved))' },
 };
 
 /**
- * Status tone colours as bare `var(--k8s-status-…)`, for the one in-plot place a chart draws a
+ * Status tone colours as `rgb(var(--k8s-status-…))`, for the one in-plot place a chart draws a
  * status tone: the LanesTimeline outcome dots (design-delta §2.1 "timeline markers", §3.1). The
  * design-rule guard only lets the `fill-status-*` CLASSES live in the status components, so the
  * timeline reads these raw vars from here (raw `var(--k8s-…)` is allowed in this file) and passes
@@ -150,25 +155,25 @@ export const HATCH: Record<HatchKind, HatchStyle> = {
 export type SeriesTone = 'good' | 'warn' | 'bad' | 'info' | 'off';
 
 export const TONE_COLOR: Record<SeriesTone, string> = {
-  good: 'var(--k8s-status-good)',
-  warn: 'var(--k8s-status-warn)',
-  bad: 'var(--k8s-status-bad)',
-  info: 'var(--k8s-status-info)',
-  off: 'var(--k8s-status-off)',
+  good: 'rgb(var(--k8s-status-good))',
+  warn: 'rgb(var(--k8s-status-warn))',
+  bad: 'rgb(var(--k8s-status-bad))',
+  info: 'rgb(var(--k8s-status-info))',
+  off: 'rgb(var(--k8s-status-off))',
 };
 
 /**
- * Feature accent colours as bare `var(--k8s-feature-…)`, for the LanesTimeline source dots — the
+ * Feature accent colours as `rgb(var(--k8s-feature-…))`, for the LanesTimeline source dots — the
  * only place a feature accent appears inside a plot area (§2.7 check 4). Read from here so the raw
  * var stays in this one file.
  */
 export type FeatureAccent = 'workload' | 'node' | 'hpa' | 'vpa';
 
 export const FEATURE_COLOR: Record<FeatureAccent, string> = {
-  workload: 'var(--k8s-feature-workload)',
-  node: 'var(--k8s-feature-node)',
-  hpa: 'var(--k8s-feature-hpa)',
-  vpa: 'var(--k8s-feature-vpa)',
+  workload: 'rgb(var(--k8s-feature-workload))',
+  node: 'rgb(var(--k8s-feature-node))',
+  hpa: 'rgb(var(--k8s-feature-hpa))',
+  vpa: 'rgb(var(--k8s-feature-vpa))',
 };
 
 /** Resolve a series style, or throw at build time if an unknown kind is passed. */

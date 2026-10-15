@@ -73,6 +73,20 @@ export const RESULT_TONES: Record<ResultKey, ToneIcon> = {
   expired: { tone: 'off', icon: 'mdi:timer-off-outline' },
 };
 
+/** The visible wording of each result (glossary §2.2), the label that travels with its tone and icon. */
+export const RESULT_LABELS: Record<ResultKey, string> = {
+  applied: 'Applied',
+  'applied-put-back': 'Applied, put back',
+  'test-run': 'Test run passed',
+  deferred: 'Not applied: Kubernetes deferred it',
+  infeasible: 'Not applied: the node can never fit this size',
+  'partly-applied': 'Partly applied',
+  refused: 'Refused: nothing was sent',
+  failed: 'Failed',
+  'not-confirmed': 'Not confirmed: still resizing',
+  expired: 'Expired: nothing was sent',
+};
+
 /** Feature status (glossary §2.3): tone only; the icon is the feature accent's own icon (§11). */
 export type FeatureStatusKey =
   | 'on-apply'

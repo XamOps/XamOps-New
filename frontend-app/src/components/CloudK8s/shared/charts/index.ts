@@ -23,3 +23,5 @@ export { TimeStrip } from './TimeStrip';
 export type { TimeStripProps, TimeStripSegment } from './TimeStrip';
 export { LanesTimeline } from './LanesTimeline';
 export type { LanesTimelineProps, Lane, LaneEntry } from './LanesTimeline';
+export { SeriesLegend } from './SeriesLegend';
+export type { SeriesLegendProps, LegendItem } from './SeriesLegend';

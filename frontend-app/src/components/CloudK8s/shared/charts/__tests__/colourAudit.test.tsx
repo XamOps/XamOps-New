@@ -40,6 +40,7 @@ import StepIndicator from '../../status/StepIndicator';
 import ApplyStepper from '../../status/ApplyStepper';
 import FeatureMark from '../../status/FeatureMark';
 import { deriveLifecycle } from '../../status/lifecycle';
+import SeriesLegend from '../SeriesLegend';
 import type { ApplyOutcomeWire } from '../../../../../types/workloadRightsizing';
 
 // ─── Token / grey recognisers ─────────────────────────────────────────────────
@@ -277,8 +278,23 @@ function AllComponents() {
       <KpiCard tone="good" icon="mdi:cash" label="Saving now" value="$42/mo"><span>in place</span></KpiCard>
       <KpiCard tone="warn" icon="mdi:cash" label="Can save now" value="$9/mo" />
       <StepIndicator states={life} />
+      <StepIndicator states={life} variant="full" details={{ applying: 'Applying now' }} />
       <ApplyStepper outcome={outcome('APPLIED', [pod('idle-batch-listener-x', true)])} />
       <ApplyStepper outcome={outcome('DEFERRED', [pod('throttled-encoder-x', false)])} />
+      <ApplyStepper
+        outcome={{
+          ...outcome('DEFERRED', [{ ...pod('throttled-encoder-y', true), revert: { state: 'REVERTED', detail: null } } as NonNullable<ApplyOutcomeWire['pods']>[number]]),
+          reverted: true,
+        } as ApplyOutcomeWire}
+      />
+      <SeriesLegend
+        items={[
+          { label: 'Requested', kind: 'requested' }, { label: 'Used', kind: 'used' }, { label: 'Suggested', kind: 'suggested' },
+          { label: 'Limit', kind: 'limit' }, { label: 'Capacity', kind: 'capacity' }, { label: 'Freed', kind: 'saved', money: true },
+        ]}
+      />
+      <ChartCard title="CPU and memory over time" source="Usage feed (planned)." state={{ kind: 'history-pending', from: 'Prometheus in your cluster.' }} />
+      <ChartCard title="Cost per day" source="Prices (planned)." state={{ kind: 'unavailable', reason: "Needs prices XamOps doesn't read yet." }} />
       {(['workload', 'node', 'hpa', 'vpa'] as const).map((f) => (
         <FeatureMark key={f} feature={f} />
       ))}
@@ -307,6 +323,18 @@ describe('colour audit (design-delta §2.7)', () => {
         const { container } = renderInTheme(theme);
         const findings = colourViolations(container);
         expect(findings.map((f) => `${f.tag} ${f.where}=${f.value}`)).toEqual([]);
+      });
+
+      it('1c. a token colour in an attribute is rgb(var(--k8s-…)): the tokens are R G B triples, so a bare var() paints black', () => {
+        const { container } = renderInTheme(theme);
+        const bare: string[] = [];
+        container.querySelectorAll('*').forEach((el) => {
+          for (const attr of COLOUR_ATTRS) {
+            const v = el.getAttribute(attr);
+            if (v && /^\s*var\(--k8s-/.test(v)) bare.push(`${el.tagName} @${attr}=${v}`);
+          }
+        });
+        expect(bare).toEqual([]);
       });
 
       it('1b. no recharts default colour is emitted', () => {

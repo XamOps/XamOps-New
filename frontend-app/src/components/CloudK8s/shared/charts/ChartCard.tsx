@@ -6,7 +6,10 @@
  *   - the empty / partial states of glossary §10 "Empty and partial charts":
  *       · history shorter than the window — a hatched block with "No data before {time}" copy;
  *       · Activity not deployed — the "XamOps starts recording…" copy, card kept, no fake points;
- *       · no suggestions — "No change suggested for any workload.".
+ *       · no suggestions — "No change suggested for any workload.";
+ *       · history not served yet — "History arrives with the usage feed", with the source it will
+ *         come from (UI v3 plan §2: every time-series chart until the usage feed ships);
+ *       · not available — a chart XamOps can't draw yet, with the reason in plain words.
  *
  * The chrome is greyscale: no colour reaches this component. Colour only appears in the chart the
  * caller passes as `children`, through chartTokens.
@@ -19,13 +22,19 @@ export type ChartEmptyState =
   | { kind: 'ok' }
   | { kind: 'history-short'; before: string; note?: string }
   | { kind: 'activity-off' }
-  | { kind: 'no-suggestions' };
+  | { kind: 'no-suggestions' }
+  /** A time series XamOps doesn't serve yet; `from` names where its points will come from. */
+  | { kind: 'history-pending'; from: string }
+  /** Nothing to draw, and why, e.g. "Needs CPU and memory prices, which XamOps doesn't read yet." */
+  | { kind: 'unavailable'; reason: string };
 
 /** Exact copy, glossary §10 "Empty and partial charts". */
 export const EMPTY_COPY = {
   activityOff:
     'XamOps starts recording changes when Activity is turned on. Until then this shows nothing.',
   noSuggestions: 'No change suggested for any workload.',
+  /** UI v3 plan §2: the empty state of every time-series chart until the usage feed ships. */
+  historyPending: 'History arrives with the usage feed',
 } as const;
 
 export interface ChartCardProps {
@@ -68,11 +77,11 @@ function HatchBlock({ before, note }: { before: string; note?: string }) {
   );
 }
 
-function EmptyNote({ icon, children }: { icon: string; children: ReactNode }) {
+function EmptyNote({ icon, kind = '', children }: { icon: string; kind?: string; children: ReactNode }) {
   return (
     <div
       className="flex min-h-[120px] flex-col items-center justify-center gap-2 rounded-md border border-dashed border-[rgba(0,0,0,0.14)] px-4 text-center dark:border-[rgba(255,255,255,0.16)]"
-      data-empty=""
+      data-empty={kind}
     >
       <Icon icon={icon} width={22} aria-hidden="true" className="text-[rgba(0,0,0,0.4)] dark:text-[rgba(255,255,255,0.4)]" />
       <p className="max-w-sm text-[12px] text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]">{children}</p>
@@ -98,6 +107,17 @@ export function ChartCard({ title, source, subline, state = { kind: 'ok' }, chil
         {state.kind === 'history-short' && <HatchBlock before={state.before} note={state.note} />}
         {state.kind === 'activity-off' && <EmptyNote icon="mdi:record-circle-outline">{EMPTY_COPY.activityOff}</EmptyNote>}
         {state.kind === 'no-suggestions' && <EmptyNote icon="mdi:lightbulb-off-outline">{EMPTY_COPY.noSuggestions}</EmptyNote>}
+        {state.kind === 'history-pending' && (
+          <EmptyNote icon="mdi:chart-timeline-variant" kind="history-pending">
+            <span className="block font-semibold text-[rgba(0,0,0,0.72)] dark:text-[rgba(255,255,255,0.8)]">{EMPTY_COPY.historyPending}</span>
+            <span className="mt-0.5 block">{state.from}</span>
+          </EmptyNote>
+        )}
+        {state.kind === 'unavailable' && (
+          <EmptyNote icon="mdi:information-outline" kind="unavailable">
+            {state.reason}
+          </EmptyNote>
+        )}
       </div>
 
       {table && <div className="mt-3">{table}</div>}

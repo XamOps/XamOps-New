@@ -100,7 +100,7 @@ describe('resolveSectionRoute', () => {
       'cost:cluster',
       'workloads:workloads,pods,containers,resources',
       'nodes:nodes,node-groups,karpenter,utilization',
-      'automation:overview,workload-autoscaler,hpa,vpa',
+      'automation:overview,workload-autoscaler,workload-autoscaler-policies,hpa,vpa',
       'security:vulnerabilities',
     ]);
     for (const s of EKS_SECTIONS) expect(s.subs.some((x) => x.id === s.defaultSub)).toBe(true);
@@ -111,6 +111,7 @@ describe('resolveSectionRoute', () => {
     expect(automation.subs.map((s) => [s.id, s.label, s.group ?? null])).toEqual([
       ['overview', 'Overview', null],
       ['workload-autoscaler', 'Workloads', 'Workload autoscaler'],
+      ['workload-autoscaler-policies', 'Policies', 'Workload autoscaler'],
       ['hpa', 'HPA', null],
       ['vpa', 'VPA', null],
     ]);
@@ -283,7 +284,10 @@ describe('sectionNavEntries (Addendum 1, J-2..J-4)', () => {
       ['vpa', 'VPA', false],
     ]);
     const group = automation.subs[1];
-    expect(group.children!.map((c) => [c.id, c.label, c.current])).toEqual([['workload-autoscaler', 'Workloads', true]]);
+    expect(group.children!.map((c) => [c.id, c.label, c.current])).toEqual([
+      ['workload-autoscaler', 'Workloads', true],
+      ['workload-autoscaler-policies', 'Policies', false],
+    ]);
     expect(group.href).toBe(group.children![0].href);
     expect(resolve(searchOf(group.href))).toEqual({ tab: 'automation', sub: 'workload-autoscaler', corrected: null });
     for (const leaf of automation.subs.filter((s) => s !== group)) {
@@ -296,7 +300,7 @@ describe('sectionNavEntries (Addendum 1, J-2..J-4)', () => {
     const automation = automationOf(`${BASE}&tab=automation&sub=hpa`);
     const group = automation.subs.find((s) => s.id === 'group:workload-autoscaler')!;
     expect(group.current).toBe(false);
-    expect(group.children!.map((c) => c.current)).toEqual([false]);
+    expect(group.children!.map((c) => c.current)).toEqual([false, false]);
     expect(automation.subs.filter((s) => s.current).map((s) => s.id)).toEqual(['hpa']);
   });
 

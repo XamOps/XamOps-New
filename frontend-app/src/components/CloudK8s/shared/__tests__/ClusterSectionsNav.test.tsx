@@ -196,6 +196,7 @@ describe('ClusterSectionsNav: Automation groups at the third level (automation-v
     expect(subLinks().map((a) => [a.dataset.sub, a.textContent])).toEqual([
       ['overview', 'Overview'],
       ['workload-autoscaler', 'Workloads'],
+      ['workload-autoscaler-policies', 'Policies'],
       ['hpa', 'HPA'],
       ['vpa', 'VPA'],
     ]);
@@ -206,7 +207,7 @@ describe('ClusterSectionsNav: Automation groups at the third level (automation-v
     expect(group.closest('li')!.contains(leaf)).toBe(true);
     expect(order()).toEqual([
       ALL_CLUSTERS_LABEL, 'overview', 'cost', 'workloads', 'nodes', 'automation',
-      'overview', 'group:workload-autoscaler', 'workload-autoscaler', 'hpa', 'vpa', 'security',
+      'overview', 'group:workload-autoscaler', 'workload-autoscaler', 'workload-autoscaler-policies', 'hpa', 'vpa', 'security',
     ]);
     // At 220 px a label may wrap, never truncate.
     for (const a of [group, leaf]) {
