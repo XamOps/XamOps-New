@@ -63,7 +63,6 @@ public class CurCostDataSource {
      * and accepted difference between the two paths.
      */
     private static final Map<String, String> GROUP_BY_COLUMNS = Map.of(
-            "SERVICE", "product_product_name",
             "REGION", "product_region",
             "USAGE_TYPE", "line_item_usage_type",
             "INSTANCE_TYPE", "product_instance_type",
@@ -85,9 +84,29 @@ public class CurCostDataSource {
     }
 
     private final CurAthenaQueryService athena;
+    private final CurColumnCatalog columnCatalog;
 
-    public CurCostDataSource(CurAthenaQueryService athena) {
+    public CurCostDataSource(CurAthenaQueryService athena, CurColumnCatalog columnCatalog) {
         this.athena = athena;
+        this.columnCatalog = columnCatalog;
+    }
+
+    /**
+     * The column that carries the service display name, guarded against the CUR 2.0 rename.
+     *
+     * <p>Legacy CUR and a CSV export carry {@code product_product_name}; a CUR 2.0 Data Export
+     * renamed it to {@code product_servicecode}, and the CloudFormation export this product ships
+     * selects the new name. Athena fails a query during analysis when it names a column the table
+     * lacks, so an unguarded {@code product_product_name} 502'd a Parquet-Data-Export-backed account
+     * on every SERVICE grouping. Same precedent as the optional-column guard in the metrics service.
+     *
+     * <p>{@code product_product_name} stays the default so a CSV CUR that carries it is byte-identical
+     * to before this change.
+     */
+    private String serviceNameColumn(CurSource source, CloudAccount account) {
+        return columnCatalog.has(source, account, "product_product_name")
+                ? "product_product_name"
+                : "product_servicecode";
     }
 
     /**
@@ -97,7 +116,7 @@ public class CurCostDataSource {
     public List<CostDto> getCostBreakdown(CurSource source, CloudAccount account, String groupBy,
                                           String tagKey, LocalDate start, LocalDate end) {
 
-        String groupColumn = resolveGroupColumn(groupBy, tagKey);
+        String groupColumn = resolveGroupColumn(source, account, groupBy, tagKey);
 
         String sql = "SELECT " + groupColumn + " AS grp,"
                 + " SUM(" + cost(source) + ") AS cost"
@@ -243,7 +262,7 @@ public class CurCostDataSource {
                 + " WHERE " + accountPredicate(account)
                 + " AND " + partitionPredicate(source, start, end)
                 + " AND " + usageDatePredicate(source, start, end)
-                + dimensionFilter("product_product_name", serviceName)
+                + dimensionFilter(serviceNameColumn(source, account), serviceName)
                 + dimensionFilter("product_region", regionName)
                 + " GROUP BY date_format(" + usageDateExpr(source) + ", '%Y-%m-%d')"
                 + " ORDER BY day";
@@ -269,13 +288,14 @@ public class CurCostDataSource {
      */
     public List<ServiceRegionCost> getCostByServiceAndRegion(CurSource source, CloudAccount account,
                                                              LocalDate start, LocalDate end) {
-        String sql = "SELECT product_product_name AS svc, product_region AS rgn,"
+        String svc = serviceNameColumn(source, account);
+        String sql = "SELECT " + svc + " AS svc, product_region AS rgn,"
                 + " SUM(" + cost(source) + ") AS cost"
                 + " FROM " + source.qualifiedTable()
                 + " WHERE " + accountPredicate(account)
                 + " AND " + partitionPredicate(source, start, end)
                 + " AND " + usageDatePredicate(source, start, end)
-                + " GROUP BY product_product_name, product_region"
+                + " GROUP BY " + svc + ", product_region"
                 + " HAVING SUM(" + cost(source) + ") > 0.01"
                 + " ORDER BY cost DESC";
 
@@ -353,7 +373,8 @@ public class CurCostDataSource {
      * than escaped, because it lands in an identifier position where quoting does
      * not make arbitrary input safe.
      */
-    private String resolveGroupColumn(String groupBy, String tagKey) {
+    private String resolveGroupColumn(CurSource source, CloudAccount account, String groupBy,
+                                      String tagKey) {
         if ("TAG".equalsIgnoreCase(groupBy)) {
             if (tagKey == null || !tagKey.matches("[A-Za-z0-9_:\\-]{1,128}")) {
                 throw new IllegalArgumentException("Invalid cost allocation tag key: " + tagKey);
@@ -361,6 +382,12 @@ public class CurCostDataSource {
             // AWS lowercases and underscores tag keys when building CUR columns:
             // "Environment" becomes resource_tags_user_environment.
             return "resource_tags_user_" + tagKey.toLowerCase().replaceAll("[^a-z0-9]", "_");
+        }
+
+        // SERVICE is resolved against the catalog rather than the static map: CUR 2.0 renamed
+        // the service-name column, so the column depends on the report. See serviceNameColumn.
+        if ("SERVICE".equalsIgnoreCase(groupBy)) {
+            return serviceNameColumn(source, account);
         }
 
         String column = groupBy == null ? null : GROUP_BY_COLUMNS.get(groupBy.toUpperCase());
