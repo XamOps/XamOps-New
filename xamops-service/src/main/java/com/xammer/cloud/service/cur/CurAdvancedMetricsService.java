@@ -405,7 +405,7 @@ public class CurAdvancedMetricsService {
         }
 
         return new ReportCapabilities(amortizedAvailable, missingAmortized, unitAvailable,
-                amortizedDetail, unitDetail);
+                amortizedDetail, unitDetail, source.getEarliestBillingPeriod());
     }
 
     // ── Price vs volume ─────────────────────────────────────────────────────────
@@ -2331,12 +2331,16 @@ public class CurAdvancedMetricsService {
      *        columns when the catalog was readable, and says the column list could not be read when
      *        it was not — different facts with different remedies
      * @param unitDetail why quantities carry no unit, or "", on the same terms
+     * @param earliestBillingPeriod how far back the report goes, as {@code YYYY-MM}, or null/blank
+     *        when that is not known yet. Carried so the frontend can offer only the month-pairs the
+     *        report can actually answer rather than letting the reader pick one it has to refuse
      */
     public record ReportCapabilities(boolean amortizedAvailable,
                                      List<String> amortizedMissingColumns,
                                      boolean unitAvailable,
                                      String amortizedDetail,
-                                     String unitDetail) {
+                                     String unitDetail,
+                                     String earliestBillingPeriod) {
     }
 
     /** Cost attributed to one EKS namespace on one node. */

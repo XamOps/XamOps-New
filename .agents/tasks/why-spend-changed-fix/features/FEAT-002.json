@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-002",
+  "type": "fix",
+  "description": "Fix 3 (independent of FEAT-001): harden the latent CUR 2.0 column mismatch. The CloudFormation CUR 2.0 Data Export (cloudformation/xamops-cur-export-nested.yaml) exports product_servicecode (CUR 2.0 renamed product_product_name to product_servicecode), but CurAdvancedMetricsService and CurCostDataSource query product_product_name unguarded in every service-grouping method, so a Parquet-Data-Export-backed account would 502 on every CUR-insights tab. Guard product_product_name via the existing CurColumnCatalog mechanism (same precedent as pricing_unit) and fall back to product_servicecode when product_product_name is absent, at ALL call sites. Keep product_product_name as the preferred/default column so CSV-CUR accounts that carry it are unaffected. Do not change any split math or the usage-quantity query.",
+  "status": "pending",
+  "steps": [
+    "Add a private helper to CurAdvancedMetricsService mirroring the pricing_unit guard: `private String serviceNameColumn(CurSource source, CloudAccount account) { return columnCatalog.has(source, account, \"product_product_name\") ? \"product_product_name\" : \"product_servicecode\"; }`.",
+    "In every CurAdvancedMetricsService method that references product_product_name, resolve the column ONCE at the top (`String svc = serviceNameColumn(source, account);`) and substitute it in SELECT, GROUP BY, the service filter/predicate, and any window PARTITION BY so SELECT and GROUP BY always agree. Call sites (grep for product_product_name): usageAndCostByService (~454-464), getTopResources (~706), getServiceResources + the 'Other' display-word predicate (~816-825, 878-891), the resource-change SQL (~953-963 and ~1037-1051), the untagged/tag-coverage SQL and its window partitions (~1377, 1399, 1409-1412), and transferCharges/transferFlows SELECT+GROUP BY (~1586-1599, 1680-1704). File: xamops-service/src/main/java/com/xammer/cloud/service/cur/CurAdvancedMetricsService.java.",
+    "Apply the identical guard in CurCostDataSource: the SERVICE dimension mapping (line ~66), dimensionFilter(\"product_product_name\", ...) (line ~246), and the `product_product_name AS svc` SELECT + GROUP BY (lines ~272-278). Use the same catalog-backed resolution (inject/obtain CurColumnCatalog if not already available in this class, following how the metrics service holds it). File: xamops-service/src/main/java/com/xammer/cloud/service/cur/CurCostDataSource.java.",
+    "Tests: in CurAdvancedMetricsServiceTest make the two price-vs-volume tests exercise the default column by stubbing columnCatalog.has(...)=>true (add everyColumnPresent() or an equivalent `when(...).thenReturn(true)`), keeping their anyString() athena stubs. Add serviceGroupingFallsBackToProductServicecodeWhenProductNameAbsent: use presentExcept(\"product_product_name\"), capture SQL with `when(athena.query(any(), any(), contains(\"product_servicecode\")))` and assert the query groups by product_servicecode and does NOT reference product_product_name, driven through a service-grouping method (getPriceVsVolume or getChargesByService). File: xamops-service/src/test/java/com/xammer/cloud/service/cur/CurAdvancedMetricsServiceTest.java.",
+    "If CurCostDataSource has a test that asserts product_product_name literally, update it to the catalog-guarded shape (default path still selects product_product_name under everyColumnPresent-equivalent stubbing)."
+  ],
+  "acceptance_criteria": [
+    "`mvn -q -pl xamops-service test -Dtest=CurAdvancedMetricsServiceTest` passes, including the new fallback test and the existing SQL-assertion tests (which keep selecting product_product_name because has(...) is stubbed true).",
+    "When CurColumnCatalog reports product_product_name absent and product_servicecode present, every service-grouping query uses product_servicecode in SELECT and GROUP BY and references no product_product_name.",
+    "When product_product_name is present (CSV CUR), queries are byte-identical to before this change.",
+    "No change to split math, cost expressions, or the usage-quantity query."
+  ],
+  "verification": [
+    "cd into the worktree root and run `mvn -q -pl xamops-service test -Dtest=CurAdvancedMetricsServiceTest`",
+    "cd into the worktree root and run the full module build `mvn -q -pl xamops-service -am test` to confirm no other cur tests regressed"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

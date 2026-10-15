@@ -1,0 +1,7 @@
+{
+  "task_id": "why-spend-changed-fix",
+  "task_description": "Fix the empty 'Why spend changed' (price-vs-volume) tab on the AWS Cost Management page. Three defects: (1) only offer comparison month-pairs the CUR can answer and default to the newest covered pair by surfacing earliest_billing_period to the frontend; (2) make the banner honest by returning a distinguishable 422 coverage reason from the backend and threading it through the frontend instead of collapsing every non-OK to null; (3) harden the latent CUR 2.0 column mismatch by guarding product_product_name via CurColumnCatalog and falling back to product_servicecode. Do not change the split math or the usage-quantity query.",
+  "status": "pending",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}

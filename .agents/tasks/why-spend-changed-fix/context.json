@@ -1,0 +1,30 @@
+{
+  "project_type": "Multi-module Maven backend (Spring Boot) + Vite/React (TypeScript) frontend, in one repo. The feature lives in the xamops-service module and the frontend-app app.",
+  "language": "Java (backend), TypeScript/React (frontend)",
+  "build_system": "Maven multi-module reactor rooted at pom.xml (modules: service-registry, permissions-common, xamops-service, billops, media-ops-service, api-gateway). No mvnw wrapper; use system mvn. xamops-service/pom.xml defines surefire property surefire.excludedGroups=containers, so a plain `mvn test` runs unit tests and skips the container-tagged integration tests. Frontend is Vite + tsc, scripts in frontend-app/package.json.",
+  "test_framework": "Backend: JUnit 5 + Mockito (MockitoExtension, strict stubs). Frontend: vitest.",
+  "build_command": "Backend: `mvn -q -pl xamops-service -am test` from the worktree root (-am builds upstream modules it depends on). Frontend: `npm run build` in frontend-app (runs `tsc && vite build`).",
+  "test_command": "Backend narrow iteration: `mvn -q -pl xamops-service test -Dtest=CurInsightsControllerTest,CurAdvancedMetricsServiceTest`. Full module: `mvn -q -pl xamops-service -am test`. Frontend: `npm run test` in frontend-app (vitest run).",
+  "verification_instructions": "After backend edits run the named -Dtest classes, then the full `mvn -q -pl xamops-service -am test`. After frontend edits run `npm run build` (typecheck is part of it via tsc) and `npm run test` in frontend-app. There is no CI config to mirror in-repo beyond these; CONTRIBUTING.md only concerns .vscode Java paths. Clean up any temp files before finishing.",
+  "snapshot_or_generated_files": "frontend-app `npm run build` runs `icons:bundle` (scripts/generate-icon-bundle.mjs) then tsc then vite build; no generated artifact needs to be committed for this change. null otherwise.",
+  "environment_constraints": "Work ONLY inside the worktree /Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/why-spend-changed-fix. Use `git -C <worktree>` for git. Never edit the main checkout at /Users/admin/Desktop/xam-latest/XamOps-New. Relative paths resolve to the parent workspace, so always use absolute worktree paths. Commit locally on branch fix/why-spend-changed; never push.",
+  "contribution_requirements": "No AGENTS.md in the repo. CONTRIBUTING.md: do not commit machine-specific absolute Java paths into .vscode/settings.json. Match existing code style and the patterns already in the touched files: the pricing_unit optional-column fallback via CurColumnCatalog, and the existing coverage/message()/noCurSource()/cannotAnswer() plumbing in CurInsightsController. Do not add new libraries. Keep changes minimal and cohesive; no unrelated refactors.",
+  "key_patterns": "BACKEND CONTRACT (decided): the price-vs-volume date-coverage failure returns HTTP 422 (readable report, this question unanswerable), NOT 409 (no CUR at all). The controller already draws this exact line: noCurSource(...) => 409 and the client hides the card; ReportCannotAnswerException => cannotAnswer(...) => 422 and the card stays. Distinguish at the controller on CurSourceResolver.Coverage.reason(): when it equals \"RANGE_BEFORE_START\" return 422 with body {error, detail=coverage.message(), reason:\"RANGE_BEFORE_START\", earliestBillingPeriod:coverage.earliestBillingPeriod()}; every other empty reason stays on noCurSource => 409. The existing test noSourceExplainsTheActualLimit uses reason \"STARTS_LATER\" so it keeps hitting 409. OPTIONAL-COLUMN GUARD (Fix 3 precedent): columnCatalog.has(source, account, \"pricing_unit\") ? \"pricing_unit\" : \"''\" — resolve a column expression ONCE and reuse it in SELECT and GROUP BY so they always agree. Apply the same shape for the service-name column: has(...,\"product_product_name\") ? \"product_product_name\" : \"product_servicecode\". Keep product_product_name as the default so CSV-CUR accounts (which carry it) are unaffected. CurSource is a Lombok @Data class, so getEarliestBillingPeriod() exists. Mockito strict stubs: tests calling everyColumnPresent() stub has(...)=>true (so the default product_product_name path is exercised and existing SQL assertions still hold); presentExcept(col) returns true for all but col.",
+  "relevant_files": [
+    "xamops-service/src/main/java/com/xammer/cloud/controller/CurInsightsController.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/cur/CurSourceResolver.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/cur/ReportCannotAnswerException.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/cur/CurAdvancedMetricsService.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/cur/CurCostDataSource.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/cur/CurColumnCatalog.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/cur/CurSql.java",
+    "xamops-service/src/main/java/com/xammer/cloud/domain/CurSource.java",
+    "xamops-service/src/test/java/com/xammer/cloud/controller/CurInsightsControllerTest.java",
+    "xamops-service/src/test/java/com/xammer/cloud/service/cur/CurAdvancedMetricsServiceTest.java",
+    "frontend-app/src/api/curInsightsApi.ts",
+    "frontend-app/src/components/Cost/PriceVsVolumeSection.tsx",
+    "frontend-app/src/hooks/useCurInsight.ts",
+    "cloudformation/xamops-cur-export-nested.yaml"
+  ],
+  "directory_structure": "xamops-service/src/main/java/com/xammer/cloud/{controller,service/cur,domain} holds the backend controller, the CUR service layer (CurAdvancedMetricsService + helpers CurSql, CurColumnCatalog, CurSourceResolver, CurCostDataSource), and the CurSource Lombok entity. xamops-service/src/test/java/com/xammer/cloud/{controller,service/cur} holds CurInsightsControllerTest and the cur service tests. frontend-app/src/{api,components/Cost,hooks} holds curInsightsApi.ts, PriceVsVolumeSection.tsx, and useCurInsight.ts. cloudformation/xamops-cur-export-nested.yaml is the CUR 2.0 export that selects product_servicecode (not product_product_name) and documents the rename in a comment."
+}
