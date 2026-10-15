@@ -487,7 +487,8 @@ class CurInsightsControllerTest {
                         Map.of("i-0abc", List.of("i-0abc")),
                         Map.of("i-0abc", List.of("i-0abc")),
                         Map.of("i-0abc", new ResourceIdResolver.CanonicalResource(
-                                "i-0abc", "EC2 Instance", "prod-web-01", "ap-south-1")),
+                                "i-0abc", "EC2 Instance", "prod-web-01", "ap-south-1",
+                                "arn:aws:ec2:ap-south-1:123456789012:instance/i-0abc")),
                         Set.of()));
 
         ResponseEntity<?> response = controller.resourceIdentities(ACCOUNT_ID, "i-0abc");

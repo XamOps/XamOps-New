@@ -112,9 +112,10 @@ public class ResourceIdResolver {
      * @param resourceType the UI-facing type ("EC2 Instance"), matching CloudListService
      * @param resourceName the resource's name, or null where AWS reports none
      * @param region       the region, or null for global resources
+     * @param arn          the full ARN from the inventory row, or null when the row has none
      */
     public record CanonicalResource(String resourceId, String resourceType,
-                                    String resourceName, String region) {
+                                    String resourceName, String region, String arn) {
     }
 
     /**
@@ -153,7 +154,8 @@ public class ResourceIdResolver {
             AwsCloudResource row = byIdentifier.get(raw);
             if (row != null) {
                 resolved.put(raw, new CanonicalResource(
-                        row.getResourceId(), row.getDisplayType(), row.getName(), row.getRegion()));
+                        row.getResourceId(), row.getDisplayType(), row.getName(), row.getRegion(),
+                        row.getArn()));
             }
         }
 
@@ -332,7 +334,8 @@ public class ResourceIdResolver {
                     .toList();
             pricing.put(id, usable);
             resolved.put(id, new CanonicalResource(
-                    row.getResourceId(), row.getDisplayType(), row.getName(), row.getRegion()));
+                    row.getResourceId(), row.getDisplayType(), row.getName(), row.getRegion(),
+                    row.getArn()));
             if (usable.isEmpty()) {
                 ambiguous.add(id);
                 if (firstCollision == null) firstCollision = id;

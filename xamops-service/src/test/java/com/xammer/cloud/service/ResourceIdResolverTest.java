@@ -146,6 +146,40 @@ class ResourceIdResolverTest {
         verifyNoMoreInteractions(resourceRepo);
     }
 
+    @Test
+    @DisplayName("CanonicalResource carries the inventory row's ARN alongside its short id")
+    void resolvedCarriesTheInventoryArn() {
+        AwsCloudResource volume = row("vol-0aa1122334455667",
+                "arn:aws:ec2:ap-south-1:605134457560:volume/vol-0aa1122334455667",
+                AwsCloudResource.STATUS_ACTIVE);
+        answer(volume);
+
+        ResourceIdResolver.CanonicalResource canonical = resolver.resolve(ACCOUNT,
+                        List.of("vol-0aa1122334455667"))
+                .get("vol-0aa1122334455667");
+
+        // The short id is untouched; the ARN now rides alongside it so ARN-keyed consumers can
+        // match a short-id resource.
+        assertEquals("vol-0aa1122334455667", canonical.resourceId());
+        assertEquals("arn:aws:ec2:ap-south-1:605134457560:volume/vol-0aa1122334455667",
+                canonical.arn());
+    }
+
+    @Test
+    @DisplayName("A row with no ARN resolves to a null arn component without error")
+    void resolvedToleratesANullArn() {
+        AwsCloudResource volume = row("vol-0aa1122334455667", null,
+                AwsCloudResource.STATUS_ACTIVE);
+        answer(volume);
+
+        ResourceIdResolver.CanonicalResource canonical = resolver.resolve(ACCOUNT,
+                        List.of("vol-0aa1122334455667"))
+                .get("vol-0aa1122334455667");
+
+        assertEquals("vol-0aa1122334455667", canonical.resourceId());
+        assertNull(canonical.arn());
+    }
+
     // ── The second read, and the collision it exists to find ────────────────
 
     @Test

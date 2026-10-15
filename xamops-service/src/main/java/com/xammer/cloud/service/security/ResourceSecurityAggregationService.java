@@ -114,6 +114,13 @@ public class ResourceSecurityAggregationService {
             if (canonical != null) {
                 matched = true;
                 shortIdCandidate = canonical.resourceId();
+                // A short-id resource (S3/EC2/EBS) has no ARN in hand, but the inventory row does.
+                // Carry it so the ARN-keyed products (Security Center, ComplianceOps) can match.
+                // When the raw id already is an ARN we keep it verbatim; the inventory ARN stays a
+                // fallback used only for short ids, and is null-safe when the row has none.
+                if (arnCandidate == null && canonical.arn() != null) {
+                    arnCandidate = canonical.arn();
+                }
             }
         } catch (RuntimeException e) {
             logger.warn("[resource-security] Could not resolve resource {} for account {}: {}",

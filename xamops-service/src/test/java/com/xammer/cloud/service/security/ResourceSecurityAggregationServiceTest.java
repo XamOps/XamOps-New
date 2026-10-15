@@ -34,6 +34,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -48,6 +49,9 @@ class ResourceSecurityAggregationServiceTest {
     private static final long ROW_ID = 42L;
     private static final String ARN = "arn:aws:ec2:ap-south-1:123456789012:instance/i-0abc";
     private static final String SHORT_ID = "i-0abc";
+    // A genuine short-id resource whose findings live in the DB under a full ARN.
+    private static final String BUCKET_ID = "xrms-document-bucket";
+    private static final String BUCKET_ARN = "arn:aws:s3:::xrms-document-bucket";
 
     @Mock private CloudAccountRepository cloudAccountRepository;
     @Mock private ResourceIdResolver idResolver;
@@ -68,7 +72,8 @@ class ResourceSecurityAggregationServiceTest {
         lenient().when(cloudAccountRepository.findByAwsAccountId(AWS_ID))
                 .thenReturn(List.of(account));
         lenient().when(idResolver.resolve(eq(ROW_ID), any())).thenReturn(
-                Map.of(ARN, new CanonicalResource(SHORT_ID, "EC2 Instance", "prod-web-01", "ap-south-1")));
+                Map.of(ARN, new CanonicalResource(SHORT_ID, "EC2 Instance", "prod-web-01",
+                        "ap-south-1", ARN)));
     }
 
     @Test
@@ -149,6 +154,53 @@ class ResourceSecurityAggregationServiceTest {
     }
 
     @Test
+    @DisplayName("A short-id resource derives its inventory ARN and matches ARN-keyed findings")
+    void aShortIdDerivesItsArnAndMatchesSecurityCenter() {
+        // The drawer holds a bare bucket name; the inventory row carries the full ARN.
+        lenient().when(idResolver.resolve(eq(ROW_ID), any())).thenReturn(
+                Map.of(BUCKET_ID, new CanonicalResource(BUCKET_ID, "S3 Bucket",
+                        "xrms-document-bucket", "ap-south-1", BUCKET_ARN)));
+        // The finding exists in the DB keyed by the full ARN — not the short id.
+        CloudSecurityFinding row = finding("Public bucket", "CRITICAL", BUCKET_ARN);
+        when(securityFindingRepository.findByResource(ROW_ID, BUCKET_ARN))
+                .thenReturn(List.of(row));
+
+        ResponseEntity<Object> response = service.aggregate(AWS_ID, BUCKET_ID, null);
+        ResourceSecurityFindings body = (ResourceSecurityFindings) response.getBody();
+
+        assertNotNull(body);
+        assertTrue(body.isMatched());
+        // (b) the derived ARN is what reached the repository.
+        verify(securityFindingRepository).findByResource(ROW_ID, BUCKET_ARN);
+        // (c) the finding stored under that ARN comes back in a non-empty group.
+        ResourceSecurityGroup security = group(body, "SECURITY_CENTER");
+        assertNotNull(security);
+        assertFalse(security.getFindings().isEmpty());
+        assertEquals("Public bucket", security.getFindings().get(0).getTitle());
+        // The deep link carries the derived ARN the rows were read under.
+        assertEquals(BUCKET_ARN, security.getFindings().get(0).getDeepLink().getQuery().get("resource"));
+    }
+
+    @Test
+    @DisplayName("A resolved row with no ARN leaves ARN-keyed products empty without an NPE")
+    void aResolvedRowWithoutArnDoesNotMatchArnKeyedProducts() {
+        lenient().when(idResolver.resolve(eq(ROW_ID), any())).thenReturn(
+                Map.of(BUCKET_ID, new CanonicalResource(BUCKET_ID, "S3 Bucket",
+                        "xrms-document-bucket", "ap-south-1", null)));
+        when(performanceInsightsService.getInsights(eq(AWS_ID), any(), eq(false)))
+                .thenReturn(List.of(insight("Underutilised instance", InsightSeverity.CRITICAL, BUCKET_ID)));
+
+        ResponseEntity<Object> response = service.aggregate(AWS_ID, BUCKET_ID, null);
+        ResourceSecurityFindings body = (ResourceSecurityFindings) response.getBody();
+
+        assertNotNull(body);
+        assertTrue(body.isMatched());
+        // The ARN-keyed products contribute nothing (no ARN to read under) and are dropped.
+        assertEquals(1, body.getGroups().size());
+        assertEquals("PERFORMANCE", body.getGroups().get(0).getProduct());
+    }
+
+    @Test
     @DisplayName("An unknown account is a 404")
     void unknownAccountIsNotFound() {
         when(cloudAccountRepository.findByAwsAccountId("000000000000")).thenReturn(List.of());
@@ -171,10 +223,14 @@ class ResourceSecurityAggregationServiceTest {
     }
 
     private CloudSecurityFinding finding(String title, String severity) {
+        return finding(title, severity, ARN);
+    }
+
+    private CloudSecurityFinding finding(String title, String severity, String resourceArn) {
         CloudSecurityFinding f = new CloudSecurityFinding();
         f.setTitle(title);
         f.setSeverity(severity);
-        f.setResourceArn(ARN);
+        f.setResourceArn(resourceArn);
         return f;
     }
 
