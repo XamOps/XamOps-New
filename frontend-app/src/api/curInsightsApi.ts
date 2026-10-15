@@ -803,6 +803,68 @@ export const fetchResourceCosts = async (
   return readShape<ResourceCostsResponse>(res, isRecordWith(['costs'], ['totalCost']));
 };
 
+// ── A resource's security, compliance and performance findings ───────────────
+
+/** Where a finding row navigates to: a product page path plus the query that filters it. */
+export interface SecurityDeepLink {
+  path: string;
+  query: Record<string, string>;
+}
+
+/** One finding against the resource, with where to go to see it in full. */
+export interface ResourceSecurityFinding {
+  title: string;
+  /** Normalised severity: CRITICAL | HIGH | MEDIUM | LOW | INFORMATIONAL. */
+  severity: string;
+  /** Optional extra context shown under the title. */
+  detail?: string;
+  deepLink: SecurityDeepLink;
+}
+
+/** One product's findings for the resource, already sorted most-severe-first by the server. */
+export interface ResourceSecurityGroup {
+  /** Stable product code: SECURITY_CENTER | COMPLIANCEOPS | PERFORMANCE. */
+  product: string;
+  label: string;
+  route: string;
+  findings: ResourceSecurityFinding[];
+}
+
+/**
+ * Every SecOps finding that references one resource, grouped by product.
+ *
+ * `errors` carries one entry per product whose read failed, so a single surface being down shows
+ * as a line in the tab rather than failing the whole request.
+ */
+export interface ResourceSecurityFindings {
+  resourceId: string;
+  matched: boolean;
+  groups: ResourceSecurityGroup[];
+  errors: { product: string; message: string }[];
+}
+
+/**
+ * What Security Center, ComplianceOps and Performance Insights know about one resource.
+ *
+ * Null means the request could not be read at all (no account, a transient failure) — the tab
+ * renders its own "unavailable" state for that, distinct from a 200 with empty `groups`.
+ */
+export const fetchResourceSecurity = async (
+  accountId: string,
+  resourceId: string,
+  region?: string,
+  period?: string,
+): Promise<ResourceSecurityFindings | null> => {
+  const params = new URLSearchParams({ resourceId });
+  if (region) params.set('region', region);
+  if (period) params.set('period', period);
+  const res = await apiFetch(
+    `/api/xamops/cur-insights/resource-security/${encodeURIComponent(accountId)}?${params}`,
+  );
+  if (!res.ok) return null;
+  return readShape<ResourceSecurityFindings>(res, isRecordWith(['groups', 'errors']));
+};
+
 // ── Tag coverage and cost allocation ─────────────────────────────────────────
 
 /** One required tag's share of the bill. */

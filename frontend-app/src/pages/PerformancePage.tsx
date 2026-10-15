@@ -16,9 +16,11 @@
  * - POST /api/xamops/metrics/insights/bulk-archive
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
+import { useSearchParams } from 'react-router-dom';
+import { performanceInsightMatchesResource } from '../components/Cost/resourceSecurityDeepLink';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { usePerformanceData } from '../hooks/usePerformanceData';
@@ -52,6 +54,20 @@ const PerformancePage: React.FC = () => {
     requestBulkArchive,
     cancelBulkArchive,
   } = usePerformanceData({ selectedAccountId });
+
+  /**
+   * Optional deep-link focus from the Cost drawer's Security & Alerts tab: `?resource=<id>`.
+   *
+   * <p>Additive and read-only — absent, the page behaves exactly as before. Performance insights
+   * carry the inventory short id, which is the same id the aggregator deep-links on, so this is an
+   * exact match.
+   */
+  const [params] = useSearchParams();
+  const resource = params.get('resource');
+  const focusedInsights = useMemo(
+    () => filteredInsights.filter((i) => performanceInsightMatchesResource(i.resourceId, resource)),
+    [filteredInsights, resource],
+  );
 
   // Topbar Integration
   const { setActions, clearActions } = useTopbar();
@@ -251,7 +267,7 @@ const PerformancePage: React.FC = () => {
                   )}
 
                   {/* Table */}
-                  {!isLoading && filteredInsights.length > 0 && (
+                  {!isLoading && focusedInsights.length > 0 && (
                     <div className="overflow-x-auto rounded-xl border border-[rgba(0,0,0,0.12)]">
                       <table className="w-full text-sm">
                         <thead className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
@@ -265,7 +281,7 @@ const PerformancePage: React.FC = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredInsights.map((insight, idx) => (
+                          {focusedInsights.map((insight, idx) => (
                             <tr
                               key={insight.id}
                               className={`border-t border-[rgba(0,0,0,0.04)] transition-colors ${
@@ -309,7 +325,7 @@ const PerformancePage: React.FC = () => {
                   )}
 
                   {/* Empty */}
-                  {!isLoading && filteredInsights.length === 0 && (
+                  {!isLoading && focusedInsights.length === 0 && (
                     <div className="flex flex-col items-center py-16">
                       <div className="w-14 h-14 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] rounded-xl flex items-center justify-center mb-3">
                         <Icon icon="mdi:magnify" width={24} className="text-[rgba(0,0,0,0.3)]" />

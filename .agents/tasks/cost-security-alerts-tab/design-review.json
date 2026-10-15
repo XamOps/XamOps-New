@@ -1,0 +1,54 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "MEDIUM",
+      "title": "Security Center deep-link focus only verified for the live projection, not the merged /security/findings payload SecurityPage renders",
+      "where": "design.md ambiguity (b) row 1, acceptance criterion 6, Product coverage item 1; destination SecurityPage.tsx + useSecurityData.ts",
+      "problem": "The design asserts the deep-link /security?resource=<arn> will focus the clicked finding by filtering finding.resourceId === resource. But SecurityPage renders the merged /api/xamops/security/findings payload (Prowler + describe-based + live). Only the live projection (SecurityFindingProjectionService.asSecurityFindings) is verified to set resourceId to the ARN; Prowler/describe-based rows' resourceId form is unverified, so the deep-link may land on /security but fail to isolate the finding.",
+      "fix": "Trace /api/xamops/security/findings (SecurityController -> SecurityService.getComprehensiveSecurityFindings and the Prowler mapping) and confirm what resourceId holds for non-live rows. If not the ARN, make the destination filter ARN-tolerant (e.g. resource.endsWith(':'+finding.resourceId) || resource.endsWith('/'+finding.resourceId)) or restrict the ARN deep-link to rows known to carry the ARN. Stop asserting focus works until the cross-source resourceId form is pinned with file/line evidence."
+    },
+    {
+      "id": 2,
+      "severity": "MEDIUM",
+      "title": "ComplianceOps deep-link param is the ARN candidate, not the uid the aggregator matched on, so the destination filter can fail to re-match",
+      "where": "design.md ambiguity (b) row 4, acceptance criterion 8, Product coverage item 4, response-shape notes",
+      "problem": "ComplianceControl.resources[].uid is Prowler's resource_uid (ARN or provider id, by the design's own admission). The aggregator matches on arnCandidate and the client re-filters resources[].uid === resource. If the emitted uid differs byte-for-byte from the arnCandidate used as the param, the client filter misses even for rows that were emitted.",
+      "fix": "Set deepLink.query.resource to the exact ref.uid() string the aggregator matched on (not arnCandidate), so the destination filter resources[].uid === resource is guaranteed to re-match. State this in Product coverage item 4 and the response-shape notes."
+    },
+    {
+      "id": 3,
+      "severity": "NIT",
+      "title": "PerformanceInsightDto.getSeverity() is an enum, but SecuritySeverity.normalize takes a String",
+      "where": "design.md Product coverage item 6, NFR 14",
+      "problem": "PerformanceInsightDto.severity is enum InsightSeverity{CRITICAL,WARNING,WEAK_WARNING}; normalize(String) needs a String.",
+      "fix": "Write SecuritySeverity.normalize(insight.getSeverity().name()) so an implementer does not pass an enum to a String parameter."
+    },
+    {
+      "id": 4,
+      "severity": "NIT",
+      "title": "Residual line-number drift in a few citations",
+      "where": "design.md Baseline/reuse table and NFR-15 table",
+      "problem": "A handful of :line anchors are 1-2 lines off against the worktree (ResourceIdResolver record/resolve/index; CloudAccount awsAccountId field at :25 not :24), despite the claim all were re-pinned.",
+      "fix": "Re-pin the ResourceIdResolver and CloudAccount field anchors."
+    },
+    {
+      "id": 5,
+      "severity": "NIT",
+      "title": "Aggregator entitlement boundary not stated explicitly",
+      "where": "design.md NFR 15, Backend design aggregate() steps",
+      "problem": "The design implies but never states that the aggregator operates on an already-entitled, already-resolved CloudAccount, so no product read is reachable for an unentitled account.",
+      "fix": "Add one sentence asserting denyIfNotEntitled fully covers the account before getOrCompute runs the supplier, and the aggregator reuses that resolved CloudAccount for all three product id forms."
+    },
+    {
+      "id": 6,
+      "severity": "NIT",
+      "title": "ComplianceOps resource_uid == CUR ARN equivalence assumed, not proven for all resource types",
+      "where": "design.md ambiguity (c), Product coverage item 4",
+      "problem": "ResourceRef.uid comes from Prowler resource_uid, assumed to equal a CUR ARN; true for most AWS types but unproven in general.",
+      "fix": "Record that the ComplianceOps match is best-effort (not guaranteed per resource type) so a later implementer does not treat a non-focusing type as a bug."
+    }
+  ],
+  "reviewDoc": "/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/.agents/tasks/cost-security-alerts-tab/design-review.md"
+}

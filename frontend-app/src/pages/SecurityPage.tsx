@@ -1,6 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
+import { useSearchParams } from 'react-router-dom';
+import { securityFindingMatchesResource } from '../components/Cost/resourceSecurityDeepLink';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useSecurityData } from '../hooks/useSecurityData';
@@ -49,6 +51,23 @@ const SecurityPage: React.FC = () => {
   const { setActions, clearActions } = useTopbar();
   const [activeTab, setActiveTab] = useTabState<ActiveTab>('findings');
 
+  /**
+   * Optional deep-link focus from the Cost drawer's Security & Alerts tab: `?resource=<arn>`.
+   *
+   * <p>Additive and read-only — absent, the page behaves exactly as before. The match is
+   * ARN-tolerant because `/security/findings` merges three sources: only the live projection sets
+   * `resourceId` to the ARN, while Prowler and describe-based rows carry a resource NAME. So a
+   * finding focuses when its `resourceId` equals the param, or the param (an ARN) ends with the
+   * finding's shorter id as its `:`- or `/`-delimited tail.
+   */
+  const [params] = useSearchParams();
+  const resource = params.get('resource');
+  const matchesResource = useMemo(
+    () => (finding: { resourceId: string }) =>
+      securityFindingMatchesResource(finding.resourceId, resource),
+    [resource],
+  );
+
   useEffect(() => {
     // Scoped to the findings tab on purpose. Both actions operate on the compliance scan —
     // "Export Report" writes findings to Excel and "Refresh Scan" re-runs Prowler — so on the
@@ -93,6 +112,12 @@ const SecurityPage: React.FC = () => {
     { id: 'identity', label: 'Identity & Access', icon: 'mdi:account-key-outline' },
   ];
 
+  // The compliance-filtered findings narrowed to the deep-linked resource, when one is present.
+  const focusedFindings = useMemo(
+    () => filteredFindings.filter(matchesResource),
+    [filteredFindings, matchesResource],
+  );
+
   return (
     <main className="flex-1 flex flex-col min-h-screen bg-white">
       <SecurityProwlerBanner prowlerStatus={prowlerStatus} />
@@ -131,13 +156,13 @@ const SecurityPage: React.FC = () => {
 
         {selectedAccountId && activeTab === 'findings' && (
           <SecurityKPICards
-            totalFindings={filteredFindings.length}
+            totalFindings={focusedFindings.length}
             severityCounts={severityCounts}
             isLoading={isLoading}
           />
         )}
 
-        {selectedAccountId && activeTab === 'findings' && !isLoading && filteredFindings.length > 0 && (
+        {selectedAccountId && activeTab === 'findings' && !isLoading && focusedFindings.length > 0 && (
           <SecurityComplianceFilter
             selectedCompliance={selectedCompliance}
             complianceFrameworks={complianceFrameworks}
@@ -157,20 +182,20 @@ const SecurityPage: React.FC = () => {
             </motion.div>
           )}
 
-          {selectedAccountId && activeTab === 'findings' && !isLoading && filteredFindings.length === 0 && (
+          {selectedAccountId && activeTab === 'findings' && !isLoading && focusedFindings.length === 0 && (
             <motion.div key="empty" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18, ease: 'easeOut' }}>
               <SecurityEmptyState onRefresh={() => loadFindings(true)} />
             </motion.div>
           )}
 
-          {selectedAccountId && activeTab === 'findings' && !isLoading && filteredFindings.length > 0 && (
+          {selectedAccountId && activeTab === 'findings' && !isLoading && focusedFindings.length > 0 && (
             <motion.div key="findings" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}>
               <div className="space-y-4">
                 {SEVERITY_LEVELS.map((severity, idx) => (
                   <div key={severity} style={{ animation: `fadeInUp 0.3s ease ${idx * 0.06}s both` }}>
                     <SecurityFindingsSection
                       severity={severity}
-                      findings={getFindingsBySeverity(severity)}
+                      findings={getFindingsBySeverity(severity).filter(matchesResource)}
                       isOpen={openSeverities.includes(severity)}
                       onToggle={() => toggleSeverity(severity)}
                       onResolve={resolveFinding}

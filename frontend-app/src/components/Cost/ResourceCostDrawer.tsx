@@ -11,6 +11,10 @@ import ResourceConnectivityTab, {
   awsConnectivity,
   type ConnectivityFetchers,
 } from './ResourceConnectivityTab';
+import ResourceSecurityTab, {
+  awsSecurity,
+  type SecurityFetchers,
+} from './ResourceSecurityTab';
 
 /**
  * One resource, in depth, in a panel over the page.
@@ -46,7 +50,7 @@ import ResourceConnectivityTab, {
  * field-identical, so there is one implementation of this panel rather than three that drift.
  */
 
-type Tab = 'change' | 'breakdown' | 'trend' | 'connectivity';
+type Tab = 'change' | 'breakdown' | 'trend' | 'connectivity' | 'security';
 
 interface ResourceCostDrawerProps {
   /** The resource to describe, or null when the panel is closed. */
@@ -102,6 +106,14 @@ interface ResourceCostDrawerProps {
    * already off for GCP.
    */
   connectivity?: ConnectivityFetchers | null;
+  /**
+   * Where the Security &amp; Alerts tab reads from, or `null` to omit the tab entirely.
+   *
+   * <p>Defaulted to the AWS fetcher, like every other fetcher here, so `null` and an omitted prop
+   * cannot mean two different things. GCP and Azure pass `null`: per-resource security findings are
+   * AWS-only in v1 (Security Center, ComplianceOps and Performance Insights all read AWS surfaces).
+   */
+  security?: SecurityFetchers | null;
 }
 
 /** Month names for the two periods being compared, from a `YYYY-MM` string. */
@@ -148,9 +160,11 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
   basis,
   rowCost,
   connectivity = awsConnectivity,
+  security = awsSecurity,
 }) => {
   const [tab, setTab] = useState<Tab>('change');
   const connectivityActive = tab === 'connectivity';
+  const securityActive = tab === 'security';
   /*
    * Mounted on first selection, kept mounted after that, so the focus trail and the scroll
    * position of a long peer list survive a glance at Trend.
@@ -160,6 +174,8 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
    * resource's trail — synchronously, rather than one render later as an effect would.
    */
   const everConnectivity = useRef(false);
+  /** The same mount-once-then-keep latch as Connectivity, for the Security tab's body. */
+  const everSecurity = useRef(false);
   /*
    * Latched during render, which costs one extra read in one case, measured and accepted.
    *
@@ -174,6 +190,7 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
    * render on every selection of the tab.
    */
   if (connectivityActive) everConnectivity.current = true;
+  if (securityActive) everSecurity.current = true;
   const format = useMoneyIn(currency);
   // Signed, with the sign outside the amount, so a column of changes scans as +/− rather than having
   // the minus buried inside the currency symbol.
@@ -206,6 +223,7 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
     // mount from the previous one. The `key` below is what discards the trail itself, which is
     // why this is tidiness rather than the guard.
     everConnectivity.current = false;
+    everSecurity.current = false;
   }, [resourceId]);
 
   useEffect(() => {
@@ -324,6 +342,9 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
                   // read "(0)" for every resource the topology does not know, which looks like
                   // "no connections" before anything has been read.
                   ...(connectivity ? [{ key: 'connectivity' as Tab, label: 'Connectivity' }] : []),
+                  // After Connectivity: what SecOps knows about this resource. Omitted when the
+                  // provider passes null, the same way Connectivity is.
+                  ...(security ? [{ key: 'security' as Tab, label: 'Security & Alerts' }] : []),
                 ]
               ).map((t) => (
                 <button
@@ -423,6 +444,24 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
                     currency={currency}
                     connectivity={connectivity}
                     change={change}
+                  />
+                </div>
+              )}
+
+              {/* Gated on neither `loading` nor `change`, like Connectivity: this answer does not
+                  come from the resource-change payload, so gating on either would hide a working
+                  tab for a resource whose CUR comparison cannot be read. */}
+              {security && everSecurity.current && resourceId && (
+                <div hidden={!securityActive}>
+                  <ResourceSecurityTab
+                    key={resourceId}
+                    active={securityActive}
+                    accountId={accountId}
+                    resourceId={resourceId}
+                    resourceName={resourceName}
+                    period={period}
+                    region={scope?.region && scope.region !== 'Global' ? scope.region : undefined}
+                    security={security}
                   />
                 </div>
               )}

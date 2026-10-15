@@ -351,6 +351,9 @@ const GcpCostPage: React.FC = () => {
                 // same reason `labels` is already off here. Explicit null rather than omission,
                 // which takes the AWS default.
                 connectivity={null}
+                // Per-resource security findings are AWS-only in v1 (Security Center,
+                // ComplianceOps and Performance all read AWS surfaces). Explicit null omits the tab.
+                security={null}
                 capabilitiesFetcher={null}
                 // The ledger, though — the export has a cost type on every line and a credit type
                 // on every credit, and nothing on this page has ever shown that split.

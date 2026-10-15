@@ -124,6 +124,9 @@ const drawer = (
     insightName="resource-change"
     scope={{ service: 'Amazon Elastic Compute Cloud', region: 'ap-south-1' }}
     connectivity={connectivity}
+    // These tests isolate the Connectivity tab's placement and absence; the Security & Alerts
+    // tab is covered by its own specs, so omit it here to keep the asserted tab list focused.
+    security={null}
   />
 );
 

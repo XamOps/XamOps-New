@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
+import { useSearchParams } from 'react-router-dom';
+import { complianceControlMatchesResource } from '../components/Cost/resourceSecurityDeepLink';
 import { useAccounts } from '../contexts/AccountContext';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useComplianceOps, type CloudProvider } from '../hooks/useComplianceOps';
@@ -63,6 +65,21 @@ const ComplianceOpsPage: React.FC = () => {
     loadReport,
     triggerScan,
   } = useComplianceOps({ accountId: selectedAccountId, provider });
+
+  /**
+   * Optional deep-link focus from the Cost drawer's Security & Alerts tab: `?resource=<uid>`.
+   *
+   * <p>Additive and read-only — absent, the page behaves exactly as before. The param is the exact
+   * `ResourceRef.uid` the aggregator matched on, so this re-matches byte-for-byte.
+   */
+  const [params] = useSearchParams();
+  const resource = params.get('resource');
+  const focusedControls = useMemo(
+    () => filteredControls.filter(
+      (c) => complianceControlMatchesResource(c.resources.map((r) => r.uid), resource),
+    ),
+    [filteredControls, resource],
+  );
 
   const { setActions, clearActions } = useTopbar();
   const [selected, setSelected] = useState<ComplianceControl | null>(null);
@@ -367,12 +384,12 @@ const ComplianceOpsPage: React.FC = () => {
               resetFilters={resetFilters}
               services={services}
               frameworkOptions={frameworkOptions}
-              resultCount={filteredControls.length}
+              resultCount={focusedControls.length}
               totalCount={controls.length}
             />
 
             <ComplianceControlsTable
-              controls={filteredControls}
+              controls={focusedControls}
               onSelect={setSelected}
               onResetFilters={resetFilters}
             />

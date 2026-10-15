@@ -19,6 +19,7 @@ import ChargesByServiceSection, { type ChargesByServiceCopy } from './ChargesByS
 import { type ChargeTypeReconciliationCopy } from './ChargeTypeReconciliation';
 import { type ServiceResourcesCopy } from './ServiceResourcesDrawer';
 import { type ConnectivityFetchers } from './ResourceConnectivityTab';
+import { awsSecurity, type SecurityFetchers } from './ResourceSecurityTab';
 import PriceVsVolumeSection from './PriceVsVolumeSection';
 
 /**
@@ -147,6 +148,13 @@ interface CostDetailTabsProps {
    */
   connectivity?: ConnectivityFetchers | null;
   /**
+   * Where the per-resource panel's Security &amp; Alerts tab reads from, or `null` to omit it.
+   *
+   * <p>Defaults to the AWS fetcher. Both provider pages pass `null` explicitly — per-resource
+   * security findings are AWS-only in v1 — for the same reason they pass `connectivity={null}`.
+   */
+  security?: SecurityFetchers | null;
+  /**
    * Where the basis capability probe reads from. Defaults to the AWS report.
    *
    * <p>Pass `null` for a billing source with no unblended/amortized distinction, which suppresses
@@ -202,6 +210,7 @@ const CostDetailTabs: React.FC<CostDetailTabsProps> = ({
   changeFetcher,
   detailFetcher,
   connectivity,
+  security = awsSecurity,
   capabilitiesFetcher = fetchReportCapabilities,
   chargeTypesFetcher = fetchChargeTypes,
   scopedResourcesFetcher = fetchServiceResources,
@@ -302,6 +311,7 @@ const CostDetailTabs: React.FC<CostDetailTabsProps> = ({
           labels={labels}
           detailFetcher={detailFetcher}
           connectivity={connectivity}
+          security={security}
           /* The basis toggle, the reconciliation ledger and the scoped per-service query. Two
              independent gates: a provider with no cost basis still wants the ledger. */
           capabilitiesFetcher={capabilitiesFetcher}

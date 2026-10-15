@@ -273,6 +273,9 @@ const AzureCostPage: React.FC = () => {
                 // same reason `labels` is already off here. Explicit null rather than omission,
                 // which takes the AWS default.
                 connectivity={null}
+                // Per-resource security findings are AWS-only in v1 (Security Center,
+                // ComplianceOps and Performance all read AWS surfaces). Explicit null omits the tab.
+                security={null}
                 capabilitiesFetcher={null}
                 // The ledger works: Cost Management groups by ChargeType, and nothing on this page
                 // has ever shown that split.

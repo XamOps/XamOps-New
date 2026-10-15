@@ -12,6 +12,7 @@ import {
 import { CostCurrencyContext, useMoney, useMoneyIn } from './costCurrency';
 import ResourceCostDrawer from './ResourceCostDrawer';
 import type { ConnectivityFetchers } from './ResourceConnectivityTab';
+import type { SecurityFetchers } from './ResourceSecurityTab';
 import { useCurInsight } from '../../hooks/useCurInsight';
 import { shortenId } from '../../utils/shortenId';
 import {
@@ -199,6 +200,13 @@ interface ServiceResourcesDrawerProps {
    */
   connectivity?: ConnectivityFetchers | null;
   /**
+   * Where the per-resource panel's Security &amp; Alerts tab reads from, or `null` to omit it.
+   *
+   * <p>A pass-through, like `connectivity`: configured by whichever page wires the card up, owned
+   * by the panel the resource row opens.
+   */
+  security?: SecurityFetchers | null;
+  /**
    * Whether rows offer the label control.
    *
    * <p>Off for GCP. Labels are stored against a resource id and reconciled through
@@ -321,6 +329,7 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
   basis,
   detailFetcher,
   connectivity,
+  security,
   insightName = 'top-resources',
   currency = 'USD',
   labels = true,
@@ -949,6 +958,7 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
             basis={basis}
             rowCost={detail?.cost}
             connectivity={connectivity}
+            security={security}
           />
         </React.Fragment>
       )}

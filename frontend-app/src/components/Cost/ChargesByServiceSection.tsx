@@ -20,6 +20,7 @@ import ChargeTypeReconciliation, {
 } from './ChargeTypeReconciliation';
 import CostBasisToggle from './CostBasisToggle';
 import type { ConnectivityFetchers } from './ResourceConnectivityTab';
+import type { SecurityFetchers } from './ResourceSecurityTab';
 import ServiceResourcesDrawer, {
   type ServiceResourcesCopy,
   type ServiceSelection,
@@ -174,6 +175,8 @@ interface ChargesByServiceSectionProps {
   labels?: boolean;
   /** Where the panel's per-resource drill-down's Connectivity tab reads from. Null omits it. */
   connectivity?: ConnectivityFetchers | null;
+  /** Where the panel's per-resource drill-down's Security & Alerts tab reads from. Null omits it. */
+  security?: SecurityFetchers | null;
   /** Where the panel's per-resource drill-down reads from. */
   detailFetcher?: (
     accountId: string,
@@ -354,6 +357,7 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
   labels = true,
   detailFetcher,
   connectivity,
+  security,
   capabilitiesFetcher = fetchReportCapabilities,
   chargeTypesFetcher = fetchChargeTypes,
   scopedResourcesFetcher,
@@ -943,6 +947,7 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
           basis={basis}
           detailFetcher={detailFetcher}
           connectivity={connectivity}
+          security={security}
           insightName={resourcesInsightName}
           currency={currency}
           labels={labels}

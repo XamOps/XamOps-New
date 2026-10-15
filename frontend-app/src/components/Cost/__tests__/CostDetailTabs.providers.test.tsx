@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 import type { ServiceCharge, TopResources } from '../../../api/curInsightsApi';
 import CostDetailTabs from '../CostDetailTabs';
 import { renderWithQuery } from './renderWithQuery';
@@ -102,6 +103,7 @@ describe.each([
         chargeTypesFetcher={null}
         scopedResourcesFetcher={null}
         connectivity={null}
+        security={null}
         labels={false}
       />,
     );
@@ -112,11 +114,13 @@ describe.each([
     );
 
     // Scoped to the drawer's own strip: the card above it has a tablist too, and this assertion
-    // is about the drawer's four-versus-three.
+    // is about the drawer's three-versus-five.
     const strip = await screen.findByRole('tablist', { name: 'Resource detail' });
     expect(within(strip).getAllByRole('tab').map((tab) => tab.textContent))
       .toEqual(['Change', 'Breakdown', 'Trend']);
     expect(screen.queryByRole('tab', { name: 'Connectivity' })).not.toBeInTheDocument();
+    // Security & Alerts is omitted for the same reason, since both pages pass `security={null}`.
+    expect(screen.queryByRole('tab', { name: 'Security & Alerts' })).not.toBeInTheDocument();
   });
 });
 
@@ -163,5 +167,36 @@ describe('AWS-shaped props', () => {
       ),
     );
     expect(accountWide).not.toHaveBeenCalled();
+  });
+
+  it('renders the Security & Alerts tab from the defaults, after Connectivity', async () => {
+    // CostPage takes the defaults, so both Connectivity and Security & Alerts render. The order
+    // matters: Security & Alerts is the fifth tab, placed immediately after Connectivity.
+    renderWithQuery(
+      <MemoryRouter>
+        <CostDetailTabs
+          accountId="123456789012"
+          chargesFetcher={() => Promise.resolve(CHARGES)}
+          // AWS takes the scoped resource path by default; stub it so the resource row renders
+          // without a real network read (the account-wide fetcher is unused on this path).
+          scopedResourcesFetcher={() => Promise.resolve(RESOURCES)}
+          resourcesFetcher={() => Promise.resolve(RESOURCES)}
+          detailFetcher={() => Promise.resolve(null)}
+          // Connectivity would otherwise fire a topology read on mount; the Security tab is the
+          // subject here and needs no stub (its body only mounts once selected).
+          connectivity={null}
+          capabilitiesFetcher={null}
+          chargeTypesFetcher={() => Promise.resolve([])}
+          labels={false}
+        />
+      </MemoryRouter>,
+    );
+    await screen.findByText('Amazon Simple Storage Service');
+    await openTheService();
+    await userEvent.click(await screen.findByRole('button', { name: /xammer-prod-assets/ }));
+
+    const strip = await screen.findByRole('tablist', { name: 'Resource detail' });
+    expect(within(strip).getAllByRole('tab').map((tab) => tab.textContent))
+      .toEqual(['Change', 'Breakdown', 'Trend', 'Security & Alerts']);
   });
 });

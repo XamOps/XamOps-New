@@ -72,6 +72,7 @@ class CurInsightsControllerTest {
     @Mock private CurInsightCache insightCache;
     @Mock private CloudAccountAccessService accessService;
     @Mock private ResourceIdResolver idResolver;
+    @Mock private com.xammer.cloud.service.security.ResourceSecurityAggregationService resourceSecurityAggregationService;
 
     private CurInsightsController controller;
     private CloudAccount account;
@@ -80,7 +81,8 @@ class CurInsightsControllerTest {
     @BeforeEach
     void setUp() {
         controller = new CurInsightsController(cloudAccountRepository, curSourceResolver,
-                metricsService, insightCache, accessService, idResolver, List.of("cost-center"));
+                metricsService, insightCache, accessService, idResolver,
+                resourceSecurityAggregationService, List.of("cost-center"));
 
         Client client = new Client();
         client.setId(7L);

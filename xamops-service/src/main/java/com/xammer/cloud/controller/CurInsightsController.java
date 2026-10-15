@@ -6,6 +6,7 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CloudAccountAccessService;
 import com.xammer.cloud.service.ResourceIdResolver;
+import com.xammer.cloud.service.security.ResourceSecurityAggregationService;
 import com.xammer.cloud.service.cur.CostBasis;
 import com.xammer.cloud.service.cur.CurAdvancedMetricsService;
 import com.xammer.cloud.service.cur.CurInsightCache;
@@ -68,12 +69,20 @@ public class CurInsightsController {
     /** The tags an owned resource is expected to carry. Shared with the inventory scan. */
     private final List<String> requiredTags;
 
+    /**
+     * Reads what every SecOps surface knows about one resource, for the drawer's Security &amp;
+     * Alerts tab. Invoked inside the cache's compute supplier, below the entitlement check — so it
+     * only ever runs for an account the caller already holds.
+     */
+    private final ResourceSecurityAggregationService resourceSecurityAggregationService;
+
     public CurInsightsController(CloudAccountRepository cloudAccountRepository,
                                  CurSourceResolver curSourceResolver,
                                  CurAdvancedMetricsService metricsService,
                                  CurInsightCache insightCache,
                                  CloudAccountAccessService accessService,
                                  ResourceIdResolver idResolver,
+                                 ResourceSecurityAggregationService resourceSecurityAggregationService,
                                  @Value("${tagging.compliance.required-tags}") List<String> requiredTags) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.curSourceResolver = curSourceResolver;
@@ -81,6 +90,7 @@ public class CurInsightsController {
         this.insightCache = insightCache;
         this.accessService = accessService;
         this.idResolver = idResolver;
+        this.resourceSecurityAggregationService = resourceSecurityAggregationService;
         this.requiredTags = requiredTags;
     }
 
@@ -378,6 +388,47 @@ public class CurInsightsController {
         }
         return insightCache.getOrCompute(accountId,
                 () -> computeResourceChange(accountId, resourceId, service, region, target.get()));
+    }
+
+    /**
+     * Every security, compliance and performance finding that references one resource.
+     *
+     * <p>Serves the resource drawer's "Security &amp; Alerts" tab. Modelled on {@link #resourceChange}:
+     * the blank-id 400 comes before entitlement because a malformed request is malformed for every
+     * caller; {@link #denyIfNotEntitled} then fully covers the account on the request thread, before
+     * {@code insightCache.getOrCompute} runs the aggregator — so no product read is ever reachable
+     * for an account the caller does not hold.
+     *
+     * <p>The aggregator isolates each product in its own try/catch, so one surface being down is an
+     * {@code errors[]} entry rather than a 500 for the whole response.
+     */
+    @GetMapping("/resource-security/{accountId}")
+    public ResponseEntity<?> resourceSecurity(@PathVariable String accountId,
+                                              @RequestParam String resourceId,
+                                              @RequestParam(required = false) String region,
+                                              @RequestParam(required = false) String period) {
+        if (resourceId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "A resource id is required",
+                    "detail", "Charges that belong to no resource have no security findings."));
+        }
+        if (resourceId.length() > ResourceSecurityAggregationService.MAX_RESOURCE_ID_CHARS) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Resource id too long",
+                    "detail", "A resource identifier is at most "
+                            + ResourceSecurityAggregationService.MAX_RESOURCE_ID_CHARS
+                            + " characters."));
+        }
+        ResponseEntity<?> denied = denyIfNotEntitled(accountId);
+        if (denied != null) {
+            return denied;
+        }
+        Optional<YearMonth> target = parsePeriod(period);
+        if (target.isEmpty()) {
+            return invalidPeriod(period);
+        }
+        return insightCache.getOrCompute(accountId,
+                () -> resourceSecurityAggregationService.aggregate(accountId, resourceId, region));
     }
 
     private ResponseEntity<?> computeResourceChange(String accountId, String resourceId,
