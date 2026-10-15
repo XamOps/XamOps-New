@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { GraphElement } from '../../../types/cloudmap';
 import {
+  CFLOW,
   buildConnectivityFlow,
   buildConnectivityIndex,
+  compactConnectivityFlow,
   locate,
 } from '../Connectivity/connectivityFlowModel';
 
@@ -137,5 +139,115 @@ describe('buildConnectivityFlow peers', () => {
     expect(flow.selectedResource).toBe('i-web');
     expect(flow.resources.find((resource) => resource.selected)?.label).toBe('prod-web-01');
     expect(flow.peers.some((peer) => peer.id === 'i-web')).toBe(false);
+  });
+});
+
+/**
+ * The compact placement the cost drawer draws from.
+ *
+ * <p>`buildConnectivityFlow` centres a six-column canvas, so on the measured instance in this
+ * account (18 connections, 16 of them SSM session rows) the focus card sits ~560px down an
+ * ~1,120px peer stack. The drawer draws a subset of those peers in two columns, so the rows have
+ * to close up — and because that is arithmetic rather than styling, it is checked here.
+ */
+describe('compactConnectivityFlow', () => {
+  const CARD_W = 300;
+  const CARD_H = 84;
+  const peersOf = (id: string) => flowFor(id).peers;
+
+  const compact = (count: number, hidden = 0) => compactConnectivityFlow({
+    peers: peersOf('i-web').slice(0, count),
+    hidden,
+    focusW: CARD_W,
+    focusH: CARD_H,
+    peerW: CARD_W,
+    peerH: CARD_H,
+  });
+
+  it('puts the focus at the origin column and the peers one gap to its right', () => {
+    const placed = compact(3);
+
+    expect(placed.focus.x).toBe(0);
+    expect(placed.peers.every((peer) => peer.x === CARD_W + CFLOW.COL_GAP)).toBe(true);
+    expect(placed.trunkX).toBe(CARD_W + CFLOW.TRUNK_OFFSET);
+  });
+
+  it('closes the peers up to one row pitch, in the model\'s own order', () => {
+    const source = peersOf('i-web').slice(0, 4);
+    const placed = compactConnectivityFlow({
+      peers: source, hidden: 0, focusW: CARD_W, focusH: CARD_H, peerW: CARD_W, peerH: CARD_H,
+    });
+
+    expect(placed.peers.map((peer) => peer.id)).toEqual(source.map((peer) => peer.id));
+    expect(placed.peers.map((peer) => peer.y))
+      .toEqual([0, CARD_H + CFLOW.ROW_GAP, 2 * (CARD_H + CFLOW.ROW_GAP), 3 * (CARD_H + CFLOW.ROW_GAP)]);
+    expect(placed.peers.every((peer) => peer.w === CARD_W && peer.h === CARD_H)).toBe(true);
+    // Fields the drawer renders survive the re-stack; it reads relation and derived off these.
+    expect(placed.peers.every((peer) => typeof peer.relation === 'string')).toBe(true);
+  });
+
+  it('adds the folded row last in the column, and only when something is folded', () => {
+    expect(compact(2).more).toBeNull();
+
+    const placed = compact(2, 16);
+    expect(placed.more).toEqual({
+      hidden: 16,
+      x: CARD_W + CFLOW.COL_GAP,
+      y: 2 * (CARD_H + CFLOW.ROW_GAP),
+      w: CARD_W,
+      h: CFLOW.MORE_H,
+    });
+  });
+
+  it('centres the focus on the stack it is pointing at', () => {
+    const placed = compact(3);
+    const stackBottom = 2 * (CARD_H + CFLOW.ROW_GAP) + CARD_H;
+
+    expect(placed.focus.y).toBeCloseTo((stackBottom - CARD_H) / 2);
+    expect(placed.focus.y + placed.focus.h / 2).toBeCloseTo(stackBottom / 2);
+  });
+
+  it('shifts the stack down rather than placing the focus above the origin', () => {
+    // One short peer against a tall focus: centring alone would put the focus at a negative y and
+    // the drawer would clip the card that says which resource this is.
+    const placed = compactConnectivityFlow({
+      peers: peersOf('i-web').slice(0, 1),
+      hidden: 0,
+      focusW: CARD_W, focusH: 120, peerW: CARD_W, peerH: 40,
+    });
+
+    expect(placed.focus.y).toBe(0);
+    expect(placed.peers[0].y).toBe((120 - 40) / 2);
+    expect(placed.peers.every((peer) => peer.y >= 0)).toBe(true);
+    expect(placed.height).toBe(120);
+  });
+
+  it('claims exactly the box it draws', () => {
+    const placed = compact(2, 4);
+
+    expect(placed.width).toBe(CARD_W + CFLOW.COL_GAP + CARD_W);
+    expect(placed.height).toBe(2 * (CARD_H + CFLOW.ROW_GAP) + CFLOW.MORE_H);
+  });
+
+  it('claims no second column when there is nothing to put in it', () => {
+    const placed = compactConnectivityFlow({
+      peers: [], hidden: 0, focusW: CARD_W, focusH: CARD_H, peerW: CARD_W, peerH: CARD_H,
+    });
+
+    expect(placed.peers).toEqual([]);
+    expect(placed.more).toBeNull();
+    expect(placed.width).toBe(CARD_W);
+    expect(placed.height).toBe(CARD_H);
+    expect(placed.focus).toEqual({ x: 0, y: 0, w: CARD_W, h: CARD_H });
+  });
+
+  it('defaults to the canvas\'s own card sizes', () => {
+    const placed = compactConnectivityFlow({ peers: peersOf('i-web').slice(0, 2), hidden: 0 });
+
+    expect(placed.focus.w).toBe(CFLOW.RESOURCE_W);
+    expect(placed.focus.h).toBe(CFLOW.RESOURCE_H);
+    expect(placed.peers[0].w).toBe(CFLOW.PEER_W);
+    expect(placed.peers[1].y).toBe(CFLOW.PEER_H + CFLOW.ROW_GAP);
+    expect(placed.width).toBe(CFLOW.RESOURCE_W + CFLOW.COL_GAP + CFLOW.PEER_W);
   });
 });

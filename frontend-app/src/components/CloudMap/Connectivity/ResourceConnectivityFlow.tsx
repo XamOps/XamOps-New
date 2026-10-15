@@ -3,8 +3,18 @@ import { Icon } from '@iconify/react';
 import type { GraphElement, NodeData } from '../../../types/cloudmap';
 import { shortenId as shorten } from '../../../utils/shortenId';
 // Moved out rather than copied, so the compact flow in the cost drawer and this canvas share one
-// glyph table and one tooltip builder.
-import { TypeIcon, hoverText } from './connectivityView';
+// glyph table, one tooltip builder, one card shell and chip, one more-row affordance, one edge
+// palette with the component that draws it, and one legend naming those colours.
+import {
+  EdgeLegend,
+  FlowEdge,
+  MoreButton,
+  StateChip,
+  TypeIcon,
+  hoverText,
+  nodeClass,
+  peerCardClass,
+} from './connectivityView';
 import {
   CCOLS,
   CFLOW,
@@ -15,7 +25,6 @@ import {
   buildConnectivityIndex,
   detailsOf,
   firstConnectivityBranch,
-  flowEdge,
   locate,
   trunkFor,
   type ConnectivityFlow,
@@ -62,11 +71,6 @@ const MIN_ZOOM = 0.3;
 const MAX_ZOOM = 1.8;
 /** Ceiling for automatic fit. Above this a two-node flow reads as a diagram of nothing. */
 const FIT_MAX_ZOOM = 1.1;
-
-const ACCENT = '#4285F4';
-const EDGE_IDLE = '#d7dae0';
-/** Connections are a different kind of edge from containment, so a different colour. */
-const EDGE_LINK = '#8b5cf6';
 
 const DOT_COLOR = '#d1d5db';
 const DOT_SPACING = 28;
@@ -796,66 +800,64 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
               aria-hidden="true"
             >
               {flow.regions.map((r) => (
-                <path
+                <FlowEdge
                   key={`e-acc-${r.region}`}
-                  d={flowEdge(accountRight, accountMid, r.x, r.y + r.h / 2, regionTrunk)}
-                  fill="none" stroke={r.selected ? ACCENT : EDGE_IDLE}
-                  strokeWidth={r.selected ? 1.8 : 1.2}
+                  x1={accountRight} y1={accountMid} x2={r.x} y2={r.y + r.h / 2}
+                  trunkX={regionTrunk} kind="contains" selected={r.selected}
                 />
               ))}
               {flow.regionMore && (
-                <path
-                  d={flowEdge(accountRight, accountMid, flow.regionMore.x,
-                    flow.regionMore.y + flow.regionMore.h / 2, regionTrunk)}
-                  fill="none" stroke={EDGE_IDLE} strokeWidth={1.2} strokeDasharray="3 3"
+                <FlowEdge
+                  x1={accountRight} y1={accountMid}
+                  x2={flow.regionMore.x} y2={flow.regionMore.y + flow.regionMore.h / 2}
+                  trunkX={regionTrunk} kind="contains" dashed
                 />
               )}
 
               {openRegionNode && flow.vpcs.map((v) => (
-                <path
+                <FlowEdge
                   key={`e-reg-${v.id}`}
-                  d={flowEdge(openRegionNode.x + openRegionNode.w,
-                    openRegionNode.y + openRegionNode.h / 2, v.x, v.y + v.h / 2, vpcTrunk)}
-                  fill="none" stroke={v.selected ? ACCENT : EDGE_IDLE}
-                  strokeWidth={v.selected ? 1.8 : 1.2}
+                  x1={openRegionNode.x + openRegionNode.w}
+                  y1={openRegionNode.y + openRegionNode.h / 2}
+                  x2={v.x} y2={v.y + v.h / 2}
+                  trunkX={vpcTrunk} kind="contains" selected={v.selected}
                 />
               ))}
               {openRegionNode && flow.vpcMore && (
-                <path
-                  d={flowEdge(openRegionNode.x + openRegionNode.w,
-                    openRegionNode.y + openRegionNode.h / 2, flow.vpcMore.x,
-                    flow.vpcMore.y + flow.vpcMore.h / 2, vpcTrunk)}
-                  fill="none" stroke={EDGE_IDLE} strokeWidth={1.2} strokeDasharray="3 3"
+                <FlowEdge
+                  x1={openRegionNode.x + openRegionNode.w}
+                  y1={openRegionNode.y + openRegionNode.h / 2}
+                  x2={flow.vpcMore.x} y2={flow.vpcMore.y + flow.vpcMore.h / 2}
+                  trunkX={vpcTrunk} kind="contains" dashed
                 />
               )}
 
               {openVpcNode && flow.subnets.map((s) => (
-                <path
+                <FlowEdge
                   key={`e-vpc-${s.id}`}
-                  d={flowEdge(openVpcNode.x + openVpcNode.w, openVpcNode.y + openVpcNode.h / 2,
-                    s.x, s.y + s.h / 2, subnetTrunk)}
-                  fill="none" stroke={s.selected ? ACCENT : EDGE_IDLE}
-                  strokeWidth={s.selected ? 1.8 : 1.2}
+                  x1={openVpcNode.x + openVpcNode.w} y1={openVpcNode.y + openVpcNode.h / 2}
+                  x2={s.x} y2={s.y + s.h / 2}
+                  trunkX={subnetTrunk} kind="contains" selected={s.selected}
                 />
               ))}
 
               {openSubnetNode && flow.services.map((s) => (
-                <path
+                <FlowEdge
                   key={`e-sub-${s.type}`}
-                  d={flowEdge(openSubnetNode.x + openSubnetNode.w,
-                    openSubnetNode.y + openSubnetNode.h / 2, s.x, s.y + s.h / 2, serviceTrunk)}
-                  fill="none" stroke={s.selected ? ACCENT : EDGE_IDLE}
-                  strokeWidth={s.selected ? 1.8 : 1.2}
+                  x1={openSubnetNode.x + openSubnetNode.w}
+                  y1={openSubnetNode.y + openSubnetNode.h / 2}
+                  x2={s.x} y2={s.y + s.h / 2}
+                  trunkX={serviceTrunk} kind="contains" selected={s.selected}
                 />
               ))}
 
               {openServiceNode && flow.resources.map((r) => (
-                <path
+                <FlowEdge
                   key={`e-svc-${r.id}`}
-                  d={flowEdge(openServiceNode.x + openServiceNode.w,
-                    openServiceNode.y + openServiceNode.h / 2, r.x, r.y + r.h / 2, resourceTrunk)}
-                  fill="none" stroke={r.selected ? ACCENT : EDGE_IDLE}
-                  strokeWidth={r.selected ? 1.8 : 1.2}
+                  x1={openServiceNode.x + openServiceNode.w}
+                  y1={openServiceNode.y + openServiceNode.h / 2}
+                  x2={r.x} y2={r.y + r.h / 2}
+                  trunkX={resourceTrunk} kind="contains" selected={r.selected}
                 />
               ))}
 
@@ -864,12 +866,12 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
                   and one palette for both invites reading them as the same thing. Dashed when
                   the relationship was inferred from a detail rather than stated as an edge. */}
               {openResourceNode && flow.peers.map((p) => (
-                <path
+                <FlowEdge
                   key={`e-peer-${p.id}-${p.relation}`}
-                  d={flowEdge(openResourceNode.x + openResourceNode.w,
-                    openResourceNode.y + openResourceNode.h / 2, p.x, p.y + p.h / 2, peerTrunk)}
-                  fill="none" stroke={EDGE_LINK} strokeWidth={1.5}
-                  strokeDasharray={p.derived || p.external ? '4 3' : undefined}
+                  x1={openResourceNode.x + openResourceNode.w}
+                  y1={openResourceNode.y + openResourceNode.h / 2}
+                  x2={p.x} y2={p.y + p.h / 2}
+                  trunkX={peerTrunk} kind="connects" dashed={p.derived || p.external}
                 />
               ))}
             </svg>
@@ -1102,13 +1104,8 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
               <div
                 key={`${p.id}-${p.relation}`}
                 className={[
-                  'absolute rounded-lg bg-white flex items-center transition-all',
-                  copied === p.id
-                    ? 'border-[1.5px] border-emerald-500'
-                    : p.derived || p.external
-                      ? 'border border-dashed border-[#c4b5fd]'
-                      : 'border border-[#ddd6fe]',
-                  'shadow-[0_1px_3px_rgba(0,0,0,0.05)]',
+                  'absolute flex items-center transition-all',
+                  peerCardClass({ dashed: p.derived || p.external, confirmed: copied === p.id }),
                 ].join(' ')}
                 style={{ left: p.x, top: p.y, width: p.w, height: p.h }}
               >
@@ -1213,20 +1210,7 @@ const ResourceConnectivityFlow: React.FC<ResourceConnectivityFlowProps> = ({
 
         {/* Legend, so the two edge colours and the dashes are not a puzzle. */}
         {!emptySearch && (
-          <div className="absolute bottom-2.5 left-3 flex items-center gap-3 text-[10px] text-[rgba(0,0,0,0.45)] bg-white/80 backdrop-blur-sm px-2.5 py-1 rounded-md pointer-events-none">
-            <span className="flex items-center gap-1.5">
-              <span className="w-4 h-0 border-t-[1.5px]" style={{ borderColor: ACCENT }} />
-              contains
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-4 h-0 border-t-[1.5px]" style={{ borderColor: EDGE_LINK }} />
-              connects to
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-4 h-0 border-t-[1.5px] border-dashed" style={{ borderColor: EDGE_LINK }} />
-              inferred
-            </span>
-          </div>
+          <EdgeLegend className="absolute bottom-2.5 left-3 flex items-center gap-3 text-[10px] text-[rgba(0,0,0,0.45)] bg-white/80 backdrop-blur-sm px-2.5 py-1 rounded-md pointer-events-none" />
         )}
       </div>
     </Shell>
@@ -1278,36 +1262,6 @@ const IconBtn: React.FC<{
   </button>
 );
 
-const nodeClass = (selected: boolean): string =>
-  [
-    'absolute rounded-lg bg-white px-3 py-2 text-left transition-all',
-    'flex items-center gap-2.5 outline-none',
-    selected
-      ? 'border-[1.5px] border-[#4285F4] shadow-[0_2px_10px_rgba(66,133,244,0.18)]'
-      : 'border border-[rgba(0,0,0,0.13)] shadow-[0_1px_3px_rgba(0,0,0,0.05)]'
-        + ' hover:border-[rgba(0,0,0,0.3)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)]',
-    'focus-visible:ring-2 focus-visible:ring-[#4285F4] focus-visible:ring-offset-1',
-  ].join(' ');
-
-/** Running/available in green, stopped/failed in red, anything else neutral. */
-const StateChip: React.FC<{ state: string }> = ({ state }) => {
-  const s = state.toLowerCase();
-  const good = /run|avail|active|in-use|inuse|healthy|enabled|attached/.test(s);
-  const bad = /stop|fail|error|terminat|unhealth|delet|expir|disabled/.test(s);
-  return (
-    <span
-      className={[
-        'text-[9px] px-1 py-[1px] rounded font-medium',
-        good ? 'bg-emerald-50 text-emerald-700'
-          : bad ? 'bg-red-50 text-red-700'
-            : 'bg-[rgba(0,0,0,0.05)] text-[rgba(0,0,0,0.55)]',
-      ].join(' ')}
-    >
-      {state}
-    </span>
-  );
-};
-
 /** One containment node — a VPC or a subnet. */
 const TreeNode: React.FC<{
   node: { x: number; y: number; w: number; h: number };
@@ -1339,22 +1293,6 @@ const TreeNode: React.FC<{
     </div>
     <Icon icon={selected ? 'mdi:chevron-down' : 'mdi:chevron-right'} width={13}
       className="text-[rgba(0,0,0,0.3)] flex-shrink-0" />
-  </button>
-);
-
-const MoreButton: React.FC<{
-  row: { x: number; y: number; w: number; h: number; hidden: number };
-  onClick: () => void;
-  noun: string;
-}> = ({ row, onClick, noun }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className="absolute rounded-lg border border-dashed border-[rgba(0,0,0,0.18)] bg-[rgba(0,0,0,0.015)] text-[11px] font-semibold text-[rgba(0,0,0,0.5)] hover:bg-[rgba(0,0,0,0.04)] hover:text-[rgba(0,0,0,0.75)] transition-colors flex items-center justify-center gap-1.5 outline-none focus-visible:ring-2 focus-visible:ring-[#4285F4]"
-    style={{ left: row.x, top: row.y, width: row.w, height: row.h }}
-  >
-    <Icon icon="mdi:plus-circle-outline" width={12} />
-    Show {row.hidden} more {row.hidden === 1 ? noun : `${noun}s`}
   </button>
 );
 

@@ -1,0 +1,18 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "label": "Finalize now gated on a valid rate",
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "detail": "The Finalize button is disabled until chosenRate parses to > 1; if the live-rate feed fails and the draft has no prior rate, the field stays empty and the admin must type a rate before finalizing. This is the intended feature behavior but changes the old 'finalize always worked with no rate' path. Confirm it is acceptable that a draft can no longer be finalized without an explicit rate."
+    },
+    {
+      "label": "1-arg overload self-invocation bypasses proxy",
+      "severity": "non-blocking",
+      "confidence": "confirmed",
+      "detail": "finalizeInvoice(Long) delegates to the annotated 2-arg method via this, bypassing the Spring proxy, so a future caller of the 1-arg version would get no @Transactional/@CacheEvict. Not a live issue since the controller calls the 2-arg method directly; worth a note if other callers are added later."
+    }
+  ],
+  "reviewDoc": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/finalize-exchange-rate/review.md"
+}

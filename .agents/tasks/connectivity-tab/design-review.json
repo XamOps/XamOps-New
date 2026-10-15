@@ -1,139 +1,140 @@
 {
   "verdict": "CHANGES_REQUESTED",
   "reviewDoc": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/connectivity-tab/design-review.md",
-  "counts": {
+  "summary": {
     "high": 3,
-    "medium": 7,
-    "nit": 6
+    "medium": 6,
+    "nit": 7,
+    "total": 16
   },
   "findings": [
     {
       "id": 1,
       "severity": "HIGH",
-      "title": "LIMIT MAX_LOOKUP_IDS can truncate the batch and under-price peers",
-      "where": "§6.5 SQL; §6.4 response notes; criterion 22",
-      "problem": "The IN list carries up to two candidates per requested id (resource_id and arn), so GROUP BY line_item_resource_id can return up to 200 groups against LIMIT 100. ORDER BY cost DESC drops the cheapest, while the unpartitioned totalCost/groupCount windows still describe all groups, so costs, pricedCount and totalCost become mutually inconsistent. §6.4's claim that the page is the whole set is false.",
-      "fix": "Emit `LIMIT curIds.size()` (the candidate count) instead of MAX_LOOKUP_IDS; restate the §6.4 bullet; change criterion 22 to assert the LIMIT equals the candidate-list size and add a test where one requested id has two candidates that both return a CUR group."
+      "title": "Poisoning detection cannot see collisions outside the request, so a wrong cost can be attributed",
+      "location": "design.md §5.2 point 3, §6.6 algorithm steps 2-3, §9.4 invariant row 2, criterion 25d",
+      "problem": "The join's central soundness claim is that an identifier claimed by two ACTIVE rows with distinct ARNs is poisoned and never used. The stated algorithm reads the inventory once, via rowsFor(cloudAccountId, requestedIds), and that query (WHERE cloudAccountId = :id AND (arn IN :ids OR resourceId IN :ids), verified in AwsCloudResourceRepository) returns only rows matching a requested id. A second resource sharing the first resource's short id is absent from the result set unless that short id is itself requested, so step 3 sees one claimant and emits the colliding short id as a candidate. Requesting arn:aws:rds:...:db:prod alone therefore puts 'prod' into the IN list, and any CUR row written under the bare id 'prod' for a different resource is summed into this one. §5.2's own example ('requesting the two ARNs of the xammer-prod pair prices both correctly') works only because both ARNs are in one request, which hides the gap.",
+      "fix": "Add a second inventory read between steps 2 and 3 and build the poison index from the union: rows = rowsFor(acct, requestedIds); claimants = rowsFor(acct, rows.map(getResourceId).filter(non-blank)); poisonIndex over rows UNION claimants. One extra chunked call to the same repository method, index-served once the NFR-1 migration lands (which that makes required, not optional). State that ARNs need no second pass because uq_aws_cloud_resource_cloudacct_arn makes an ARN single-claimant by construction. Add AwsCloudResourceRepository to §6.2's file table if a dedicated count query is preferred. Extend criterion 25d: request only arn:aws:rds:...:db:prod with a second ACTIVE row sharing resource_id='prod'; assert 'prod' is absent from allCandidates(), the ARN still prices, and the id is NOT in ambiguous."
     },
     {
       "id": 2,
       "severity": "HIGH",
-      "title": "A requested id that is itself a poisoned short identifier gets an arbitrary resource's cost",
-      "where": "§6.6 algorithm steps 3-5; §5.2 'Why the matching is sound' point 3",
-      "problem": "Step 4 drops the poisoned candidate but still resolves the requested id to 'the row it resolves to' using index's ACTIVE-wins tie-break, which §5.2 point 4 itself calls wrong for two different resources. The surviving candidate is then one of the two resources' unique ARNs, picked arbitrarily, so a confident but possibly wrong cost is rendered - exactly what FR-11 forbids. Reachable on the inventory-plane path, where peer ids ARE resource_id, and present in the demo fixtures (RDS db:xammer-prod vs EKS cluster/xammer-prod).",
-      "fix": "Apply the poison check to the requested id before the row lookup: if the requested id is itself claimed by two rows with different ARNs, emit no candidates and list it in `ambiguous`; do not fall through to a row. Add an acceptance criterion for curIdentifiers(acct, [\"shared\"]) returning no candidates and listing it ambiguous."
+      "title": "A tombstone never poisons yet still supplies its short id, so a live resource absorbs a deleted resource's charges",
+      "location": "design.md §5.2 point 3 (four-bullet asymmetry), §6.6 steps 3 and 4b, criterion 25e bullet 1, §9.4 invariant row 3",
+      "problem": "The design holds that a DELETED row never poisons an identifier because a resource that no longer exists cannot be the one being asked about, and simultaneously that a DELETED row may supply candidates because a resource deleted mid-month still carries that month's CUR rows. The second statement is the counter-example to the first: if the deleted resource has CUR rows under the shared short id, a live resource sharing that id is priced with them. Criterion 25e bullet 1 asserts this as correct ('price the ACTIVE row's identifiers', plural, including the colliding short id). Result: a wrong figure, which FR-11 and §9.4 forbid. Example: live RDS db:prod (ACTIVE) plus an S3 bucket 'prod' deleted on the 9th -> the bucket's month-to-date spend lands on the RDS row.",
+      "fix": "Split the rule by what it governs. In §6.6 step 3: (a) an identifier claimed by >= 2 rows with distinct ARNs, ANY status, is dropped from every candidate list and never reaches the IN predicate; (b) a REQUESTED id is reported in ambiguous only when >= 2 of its claimants are ACTIVE, which preserves the no-false-apology goal; (c) a tombstone that is the only claimant still supplies both identifiers, so mid-month-delete pricing keeps working. Rewrite criterion 25e bullet 1: ACTIVE row A plus distinct-ARN DELETED row B sharing resource_id='prod' -> A prices from its ARN only, 'prod' is absent from the IN list, A is not in ambiguous. Bullets 2-4 stand."
     },
     {
       "id": 3,
       "severity": "HIGH",
-      "title": "A failed /resource-identities call renders the benign 'not in the topology' state, permanently",
-      "where": "§8.3 candidate loop; §8.5 state 2 and the 'identities lands in 1a' sentence; §9.2 rows 5-6; §9.3",
-      "problem": "readShape in curInsightsApi.ts never throws - it returns null for any body that fails the shape predicate, including 404/409/502/400. So a failed identities query resolves successfully with data === null, isError is false, candidates is [], and §8.5's ordering renders state 2 ('This resource is not in the account topology') with no retry control, made permanent by useCurInsight's retry: false. The 400-specific console.warn is also unimplementable because readShape discards res.status.",
-      "fix": "Give fetchResourceIdentities a throwing contract (throw on non-2xx with the status in the message, throw on unexpected shape) and type ConnectivityFetchers.identities as Promise<ResourceIdentities>; additionally require identity !== null for state 2 and route a settled null to state 1a. Add a criterion: a rejecting identities fetcher renders state 1a with Try again and never the 'not in the topology' sentence."
+      "title": "A poisoned requested id renders state 2 (no retry) for a resource that is in the topology",
+      "location": "design.md §6.3 ResourceIdentities response shape, §6.6 step 4a and step 5, §8.3 rootNodeId, §8.5 state 2, criterion 25b",
+      "problem": "nodeIdCandidates comes from CurIdentifiers.byRequestedId, and step 4a gives a poisoned requested id NO candidates (criterion 25b confirms an empty list). In §8.3 that makes both match passes iterate an empty array, so rootNodeId is null and §8.5 renders state 2, 'This resource is not in the account topology', the one state with no retry control. The statement is false and unrecoverable: ResourceIdentities carries only (identities, requested, resolved) with no ambiguous field, so the client cannot tell 'the server refused to resolve this' from 'no candidate matched a node'. It is reachable because the drawer's resourceId is a CUR id, which for every bare-id type is exactly the short form poisoning operates on, and the demo fixtures already contain the collision (db:xammer-prod vs cluster/xammer-prod). This is the same false-benign-state failure §14 item 1 and §15 finding 3 were written to eliminate, arriving by a path neither covers.",
+      "fix": "Pick one and state it. (a) Preferred: add ambiguous: string[] to ResourceIdentities (the field already exists on CurIdentifiers, so it is one line in ResourceCostJoin.identities) and add a sixth unavailable state between 1a and 2 -- 'More than one live resource in this account is called <id>, so XamOps cannot say which one this row is. The other tabs are unaffected.' -- with no retry. (b) Alternative: emit the requested id as its own nodeIdCandidates entry even when poisoned, on the stated ground that matching a node attaches no money (FR-11 constrains the cost predicate only); if chosen, say so explicitly and decide in one sentence whether rooting on a possibly-wrong node is acceptable given the header and the FR-4 focus id. Either way add a criterion: an identity entry with an empty nodeIdCandidates renders neither state 2 nor a blank screen."
     },
     {
       "id": 4,
       "severity": "MEDIUM",
-      "title": "Three sections give three different rules for membership of `ambiguous`",
-      "where": "§5.2 point 3; §6.6 step 5; criterion 26; §8.5 rendering table",
-      "problem": "§5.2 says both colliding ids are ambiguous and neither is priced, then says each keeps its unique ARN so the common case prices. §6.6 step 5 lists an id as ambiguous only when its candidate set is empty. Criterion 26 says both ids appear in ambiguous. The three cannot all hold, and the difference is user-visible: `ambiguous` renders as 'cost not attributable to this resource alone' instead of a figure.",
-      "fix": "Adopt the narrow rule - an id is ambiguous iff it ends up with no usable candidate - and rewrite §5.2 point 3's last two sentences and criterion 26 to match, alongside the new criterion from finding 2."
+      "title": "The cost query has no gating condition, so first open issues two Athena queries",
+      "location": "design.md §8.6 (CUR queries use 'active ? accountId : null'), §8.5, FR-10, NFR-1, criterion 5",
+      "problem": "The only stated enable condition for the costs query is active ? accountId : null. While the graph query is in flight, flow is null and peers is empty, so sent is [focusCostId] and the enabled query runs: one Athena query for the focus alone. When the graph lands, sent changes, the key changes (§8.6 puts the id set in the key) and a second query runs for the real peer set. That contradicts FR-10 ('one batch cost query per rendered peer set'), NFR-1 ('one Athena query per focus change') and criterion 5 ('called exactly once per focus'), and the wasted query is a full single-month partition scan. §8.5 implies the right behaviour ('costs load separately and later') without specifying a mechanism.",
+      "fix": "State the costs query's enable condition in §8.6 beside the other two, derived from the settled flag §8.5 already defines: const costsReady = active && settled && focusId !== null && flow !== null; then useCurInsight(costKey, costsReady ? accountId : null, period, ...). Extend criterion 5: with the identity resolving before the graph, the cost fetcher is still called exactly once."
     },
     {
       "id": 5,
       "severity": "MEDIUM",
-      "title": "The cache key needs a resolved period but the handler builds it from the raw, unvalidated parameter",
-      "where": "§6.4 handler sketch and the 'period is written explicitly and resolved' bullet",
-      "problem": "parsePeriod (which defaults null to now and rejects blank/2026-13) runs inside withSource, after costsCacheKey would have been called with the raw string. So the key builder must either re-implement parsePeriod - two resolutions of 'now', which can straddle a month boundary - or write an unresolved value into the key, defeating isOpenMonth, which parses period= back off it.",
-      "fix": "Make withSourceKeyed take Function<YearMonth, String> keySuffix rather than a precomputed String, so the suffix is built from the same resolved YearMonth the query uses; correct §6.4's stated validation order to note period is still parsed inside withSourceKeyed before anything is cached or queried."
+      "title": "costsLoading excludes the no-peer case, so a peerless focus card claims 'no cost attributable' while its cost is in flight",
+      "location": "design.md §8.5 (costsLoading includes peerIds.length > 0), §8.4 focus-card cost, §8.5 blank-cost table, FR-8",
+      "problem": "The focus card's figure comes from the same batch response as the peers' (FR-4) and state 3a still renders the focus card, but costsLoading is false whenever peerIds.length === 0. For a resource with no connections the money slot therefore has no placeholder while the query runs, and the rule 'id absent from costs and ambiguous -> no cost attributable' fires against data === undefined. This is the 'in flight is not failure' error FR-8 and §8.5 eliminate on the graph axis, repeated on the cost axis.",
+      "fix": "Drop the peer-count clause and gate on the same condition as the query: const costsLoading = costsReady && costsQuery.isPending. State the rendering rule as: a row (focus or peer) renders the blank sentence only once the costs query has SETTLED and its sent id is absent from both costs and ambiguous. Criterion: while the costs query is pending on a zero-peer resource, the focus card shows the pricing placeholder and the string 'no cost attributable' appears nowhere."
     },
     {
       "id": 6,
       "severity": "MEDIUM",
-      "title": "The withSource -> withSourceKeyed refactor does break existing tests; the constructor change breaks one more",
-      "where": "§6.4 'the ten existing callers ... gain nothing to re-test'; §6.2; §11; criterion 33",
-      "problem": "CurInsightsControllerTest stubs the two-argument getOrCompute (lenient().when(insightCache.getOrCompute(anyString(), any()))) and verifies it at line ~365. If withSource delegates to withSourceKeyed, all ten endpoints invoke the three-argument overload, which is unstubbed and returns null - the test class comment says that breaks every test. Injecting ResourceIdResolver also changes the controller constructor the test calls directly, so criterion 33 cannot pass untouched.",
-      "fix": "Either (a) preferred: do not delegate - leave withSource on the two-argument method and let withSourceKeyed duplicate the ~8-line prologue; or (b) add CurInsightsControllerTest to §6.2's file table (new mock + constructor argument, re-stub the three-argument getOrCompute, update the verify). The constructor change is unavoidable in both, so list it either way."
+      "title": "The graph useQuery's staleTime and retry are unspecified; project defaults contradict NFR-1 and double the cold-read wait",
+      "location": "design.md §8.6 (direct useQuery with only an enabled option), NFR-1, §8.8 (the 110 s derivation)",
+      "problem": "lib/queryClient.ts sets staleTime: 5 * 60 * 1000 and retry: 1 app-wide (verified). The CUR queries escape both because useCurInsight overrides them; the graph query is a bare useQuery and inherits them. Two stated properties then fail: NFR-1 and §8.6 promise one graph request per account and region per 30-minute stale window (it would be 5 minutes, six times the vpcId=ALL builds NFR-1 is costed against); and §8.8 derives 110 s so a cold scan fails deterministically from a client-side abort, but retry: 1 retries that abort, so the reader waits ~220 s before state 1a under a sentence promising 'up to a minute', and a second account scan starts on a backend that already failed to finish one.",
+      "fix": "Declare the options where the query is declared: useQuery({ queryKey: ['cost-connectivity','graph', accountId ?? '', region ?? ''], queryFn: ..., enabled: active && Boolean(accountId), staleTime: 30 * 60 * 1000, retry: false }) -- with comments naming the two defaults being overridden (5 min, retry 1) so the override is not removed later as noise."
     },
     {
       "id": 7,
       "severity": "MEDIUM",
-      "title": "The 120 s client timeout is not the client's own choice - Spring's async timeout is exactly 120 s in prod",
-      "where": "§8.8 'nothing upstream shortens it'; §12.2 item 6",
-      "problem": "/cloudmap/graph returns a CompletableFuture, so spring.mvc.async.request-timeout applies: application.properties:246 = 120000, application-prod.properties declares 125000 then 120000 (last wins, 120 s), application-preprod.properties declares 120000 then 125000 (125 s). nginx does allow 300 s but is not the binding limit. A cold scan over 120 s races the service's 503 against the client's abort, and §12.2 item 6's remedy of raising the client timeout cannot work alone.",
-      "fix": "Correct §8.8 to name spring.mvc.async.request-timeout as the real ceiling (and note the duplicated declarations), set the client timeout just below it (e.g. 110_000) so failure is deterministic and client-side, and rewrite §12.2 item 6's remedy as raising the server async timeout and the client together, or warming the topology."
+      "title": "Two sections disagree on what a non-array graph body does",
+      "location": "design.md §8.8 (fetcher returns [] for a non-array body, 'treated as state 1a by the caller') vs §8.5 state 1a and §9.2 row 2",
+      "problem": "§8.8 has the fetcher resolve [] for a non-array body; §8.5 and §9.2 both require that case to render state 1a with a Try again control and a console.warn. If the fetcher resolves [], the query is isSuccess with data.length === 0 and the ordering block reaches elements.length === 0 -> state 1b with a Reload topology control. No channel exists for the caller to learn the body was malformed, so 'treated as state 1a by the caller' is not expressible and an implementer must pick between two different sentences and two different controls.",
+      "fix": "Throw on a non-array body and keep [] for a genuinely empty array: const body = await response.json().catch(() => null); if (!Array.isArray(body)) { console.warn('[cloudmap] Unexpected graph body from', url); throw new Error('cloudmap/graph: unexpected shape'); } return body; -- then delete §8.8's last sentence. A 200 carrying HTML is a malformed answer (1a); an empty array is the backend's own collapsed-failure path (1b). The split stays clean."
     },
     {
       "id": 8,
       "severity": "MEDIUM",
-      "title": "Which id is sent for the focus resource is unspecified, and the obvious reading discards a known-priceable id",
-      "where": "FR-4; criterion 5; §8.7; §5.4 Group C consequence (a)",
-      "problem": "'The focus id' reads either as the matched graph node id or as the drawer's own CUR resourceId. For Group C types the difference decides whether the focus card shows a cost at all: a load balancer's describe-path node id (my-lb) matches nothing, while the drawer's CUR id is the ARN and prices correctly. The accepted gap in §5.4 only exists under one of the two readings.",
-      "fix": "State the rule: the focus id is the drawer's own CUR resourceId while the trail is empty, and the peer's graph node id after a re-root; peers always travel as graph node ids. Amend §5.4 consequence (a) and criterion 5 accordingly. Still one batch query, one extra id."
+      "title": "join can return a requested id whose summed cost is zero, which renders $0.00",
+      "location": "design.md §6.7 (join sums every owning candidate), §6.5 (HAVING ABS(SUM(cost)) > 0.001), FR-3, §8.5 blank-cost table, §9.4 ('No missing cost ever renders as $0.00')",
+      "problem": "The HAVING drops a GROUP that nets to zero; it cannot drop a REQUESTED ID that nets to zero across two surviving groups -- exactly the case §6.7 relies on ('rows written under a bare id early in the month and under an ARN later'). A charge under one form and an offsetting credit under the other (+X and -X, each above the threshold) sums to ~0. The client's rule keys on ABSENCE from costs, so a present-and-zero entry renders $0.00, the one figure FR-3 forbids, and pricedCount disagrees because it counts only ids that received a non-zero figure.",
+      "fix": "Drop it in join, where the arithmetic lives, so the client rule stays 'absence implies sentence': if (Math.abs(summed) <= 0.001) continue; // not added to costs, not counted in pricedCount -- with the same comment as the HAVING. Add a unit criterion beside 22a: one requested id with two candidate groups of +5.00 and -5.00 returns no costs entry, pricedCount 0, and is not listed in ambiguous."
     },
     {
       "id": 9,
       "severity": "MEDIUM",
-      "title": "A payload with nodes but no resource nodes falls into state 2 - another false benign state",
-      "where": "§8.5 states 1b / 2 / 3b; §9.2",
-      "problem": "CloudMapService catches createNode per-resource and addVpcAndSubnetNodes runs first, so a payload can be non-empty while containing only VPC/subnet scaffolding. Those are all CONTAINER_TYPES, so resourceCount is 0, nothing matches, and the tab renders 'This resource is not in the account topology' with no retry - for a scan failure. Same class of error state 3b was added to prevent.",
-      "fix": "Treat `elements.length === 0 || index.resourceCount === 0` as state 1b (reload control), evaluated ahead of state 2, and add a criterion: a payload containing only VPC and Subnet nodes renders state 1b, not state 2."
+      "title": "The trail reset is an effect, so the first render after a resource change shows the previous resource's flow",
+      "location": "design.md §8.6 (everActive 'cannot inherit the previous one's trail'), §8.7 (useEffect on resourceId), §8.9 item 3, criterion 18",
+      "problem": "ResourceCostDrawer stays mounted across resourceId changes (verified: only the portal content is gated on resourceId, and tab is already reset in useEffect(..., [resourceId])). Effects run after render, and a child's effects run before the parent's, so on the render in which resourceId changes, tab is still 'connectivity', everActive.current is still true and trail still holds the previous resource's hops: the body renders the previous resource's flow and keys its cost query off the previous focus before the reset lands. The stated guarantee is false for one commit, and criterion 18 asserts post-effect state so it would pass anyway.",
+      "fix": "Make the reset structural rather than an effect: render <ResourceConnectivityTab key={resourceId} active={active} ... /> inside the <div hidden={!active}> wrapper, which discards trail, expanded and scroll position synchronously, and drop everActive from the resourceId effect. Extend criterion 18: on the first render after resourceId changes, the tab body renders no peer row belonging to the previous resource and the cost fetcher is not called with the previous focus id."
     },
     {
       "id": 10,
-      "severity": "MEDIUM",
-      "title": "The shared fetchCloudMapGraph changes Cloud Map page behaviour, which §13 forbids",
-      "where": "§8.2 useCloudMap row; §8.8; §13",
-      "problem": "useCloudMap's two call sites have different, load-bearing error semantics: fetchOne counts failures and returns [] (driving the 'N of M VPCs' messages), while loadGraph throws new Error('HTTP error! status: N') whose message is rendered verbatim in graphError. §8.8 specifies the shared fetcher throws on !ok but not what the error carries, so a naive swap changes user-visible copy on another page.",
-      "fix": "Pin the thrown message to `HTTP error! status: ${response.status}` with a comment saying why, and record in §8.2 that each call site keeps its own timeoutMs (240 s cold / 60 s warm), forceRefresh and handling. Simpler alternative: leave useCloudMap untouched and let only the new tab use the new module, which keeps §13 honest."
+      "severity": "NIT",
+      "title": "Sort and dedupe placement relative to the trim is stated in three places and assembled in none",
+      "location": "design.md §8.4 (drop from the end of the rendered order), §8.6 (sorted and deduplicated before the request is built), §8.7 (trimmed, then sorted, then keyed)",
+      "problem": "Only §8.7's ordering is consistent with §8.4 -- sorting first would destroy the rendered order the trim is defined against -- and the three statements leave an implementer to reconcile them.",
+      "fix": "Say it once, on trimCostIds: it consumes and returns MODEL order, and the caller sorts and dedupes 'sent' afterwards; note that sorting cannot change join(',').length so the total-length measurement is unaffected, and that the count limit applies after dedupe so a duplicate cannot consume one of the 100 slots."
     },
     {
       "id": 11,
       "severity": "NIT",
-      "title": "FR-7 says four unavailable states and then describes five",
-      "where": "FR-7; §8.5",
-      "problem": "The heading and first sentence say four; the last sentence adds a fifth; §8.5 implements 1a, 1b, 2, 3a, 3b.",
-      "fix": "Retitle FR-7 'Five unavailable states, each with its own sentence' and list all five."
+      "title": "The ResourceConnectivityFlow / shorten refactor has no coverage and no acceptance criterion",
+      "location": "design.md §8.2 (moving TypeIcon, hueFor, hoverText; extracting shorten), §13 ('no behaviour change, no visual change')",
+      "problem": "All three helpers are module-private in a 1,400-line component (verified: shorten(id, max = 34) at ResourceConnectivityFlow.tsx:132, shorten(id, max = 72) at ServiceResourcesDrawer.tsx:242), and there is no test file for ResourceConnectivityFlow or connectivityFlowModel (components/CloudMap has only layout, canvasTheme and cardStyle tests). Nothing asserts §13's promise.",
+      "fix": "Either add one smoke criterion -- a render of ResourceConnectivityFlow over demoCloudMapGraph produces the same peer rows, glyph types and title strings as before the move -- or state explicitly that the move is covered by the type-checker alone and accept that."
     },
     {
       "id": 12,
       "severity": "NIT",
-      "title": "ConnectivityFetchers.graph cannot express what §8.8 says the tab sends",
-      "where": "§7.1; §8.8",
-      "problem": "The prop is typed (accountId, region?) => Promise<GraphElement[]>, while fetchCloudMapGraph takes an args object and the tab is specified to pass vpcId: 'ALL' and timeoutMs. The default value must therefore be an adapter, which the design never shows, leaving it open where vpcId and timeoutMs live.",
-      "fix": "Show the default bundle explicitly, e.g. graph: (accountId, region) => fetchCloudMapGraph({ accountId, vpcId: 'ALL', region, timeoutMs: 110_000 })."
+      "title": "The cache-key length warning is specified twice, differently",
+      "location": "design.md §9.1 table ('WARN once per key') vs §9.1 prose ('One logger.warn guarded on key.length() > 255, inside store')",
+      "problem": "Once-per-key needs a Set, which is new state in a shared service; the prose describes an unconditional guarded warn. The two are different changes to CurInsightCache.",
+      "fix": "Keep the unconditional guarded warn and delete 'once per key'. Add a comment beside the literal 255 pointing at §12.2 item 4, since that item says the live column width is unverified per environment."
     },
     {
       "id": 13,
       "severity": "NIT",
-      "title": "Criterion 4 gives the identities call a parameter it does not have",
-      "where": "§4 criterion 4; §6.3; §7.1",
-      "problem": "The criterion reads 'the identity fetcher exactly once, with the drawer's resourceId and the row's region', but /resource-identities takes only accountId and ids, and the fetcher signature has no region.",
-      "fix": "Split the criterion: the graph fetcher is called once with the row's region; the identity fetcher is called once with [resourceId]."
+      "title": "The assembled cache key is shorter than §6.4 estimates",
+      "location": "design.md §6.4 ('roughly ... ~200 characters'), §12.2 item 4 ('that margin is thin')",
+      "problem": "PREFIX (13) + account (12) + '::' + 'resource-costs/' + account + '?period=YYYY-MM' + '&basis=unblended' + '&ids=' + 64 hex is ~154 characters against varchar(255), not ~200, so the follow-up's urgency is overstated.",
+      "fix": "Replace the estimate with the arithmetic; keep criterion 25c's suffix assertion as the guard."
     },
     {
       "id": 14,
       "severity": "NIT",
-      "title": "§8.1 names React 18; the repo is on React 19",
-      "where": "§8.1",
-      "problem": "frontend-app/package.json pins react ^19.2.3 (react-query ^5.100.5). The react-query reasoning in §8.5 is correct either way.",
-      "fix": "Change the locked stack line to 'React 19 + TypeScript'."
+      "title": "Peer order is alphabetical by relation, not by label",
+      "location": "design.md §8.3 and §8.4 ('declared before inferred, then alphabetical')",
+      "problem": "The model sorts Number(a.derived) - Number(b.derived) || a.relation.localeCompare(b.relation) (connectivityFlowModel.ts:1250). It matters because §8.4 justifies dropping from the end of that order as keeping the more informative half of the list.",
+      "fix": "Name the field: 'declared before inferred, then alphabetical by relation'."
     },
     {
       "id": 15,
       "severity": "NIT",
-      "title": "State 3b's premise is narrower than §8.5 implies, because linkCount counts inferred links",
-      "where": "§8.5 state 3b",
-      "problem": "linkCount is linkedRelations.size, populated by link() for declared edges, detail-inferred edges and expanded egress alike. A failed createAllEdges on a payload whose details still yield inferences gives linkCount > 0, so a peerless resource lands in 3a - the unfounded claim 3b exists to avoid.",
-      "fix": "Add one sentence noting linkCount includes inferred links, so 3b catches the total-edge-failure case while 3a remains reachable on a partial one - an accepted limit, not a missed case."
+      "title": "The identity answer is keyed by period, which it does not depend on",
+      "location": "design.md §8.6 (identities via useCurInsight), §6.3 (endpoint takes no period)",
+      "problem": "useCurInsight puts period ?? 'current' in the query key (verified), so changing the month on the cost page refetches an identity answer that cannot have changed.",
+      "fix": "Either note the harmless extra ~10 ms read, or pass period: undefined for that one query and say why."
     },
     {
       "id": 16,
       "severity": "NIT",
-      "title": "The keyed getOrCompute overload's null / no-request path is unspecified",
-      "where": "§6.4",
-      "problem": "keyForCurrentRequest returns the whole key, not a suffix, and returns null outside a request so caching is skipped. The design says the two-argument method delegates 'with the request-derived suffix' without saying how that suffix is derived or what the overload does with a null one.",
-      "fix": "State that keyForCurrentRequest splits into a nullable suffixForCurrentRequest() plus key assembly, and that the overload returns compute.get() uncached on a null suffix, preserving today's no-request behaviour. Moot if finding 6(a) is taken."
+      "title": "The resource-change skeleton still renders above the connectivity body",
+      "location": "design.md §8.9 items 1 and 2, ResourceCostDrawer.tsx (the '{loading && <five pulse bars>}' block)",
+      "problem": "§8.9 removes the 'No detail available' apology from the connectivity path and says the body is not gated on loading, but the skeleton block above it is untouched, so selecting Connectivity while the resource-change query is in flight renders five grey bars above a working flow.",
+      "fix": "Apply the same shape as item 1: {loading && tab !== 'connectivity' && ...}."
     }
   ]
 }

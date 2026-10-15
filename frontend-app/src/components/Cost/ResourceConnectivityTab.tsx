@@ -5,11 +5,23 @@ import type { GraphElement } from '../../types/cloudmap';
 import {
   buildConnectivityFlow,
   buildConnectivityIndex,
+  compactConnectivityFlow,
+  detailOf,
+  fieldOf,
   labelOf,
   locate,
   type PeerFlowNode,
 } from '../CloudMap/Connectivity/connectivityFlowModel';
-import { TypeIcon, hoverText } from '../CloudMap/Connectivity/connectivityView';
+import {
+  EdgeLegend,
+  FlowEdge,
+  MoreButton,
+  StateChip,
+  TypeIcon,
+  hoverText,
+  nodeClass,
+  peerCardClass,
+} from '../CloudMap/Connectivity/connectivityView';
 import { fetchCloudMapGraph } from '../../api/cloudMapGraphApi';
 import {
   fetchResourceCosts,
@@ -51,6 +63,19 @@ import { shortenId } from '../../utils/shortenId';
 
 /** Rendered peers before the reader asks for the rest. Also what bounds the priced set. */
 const VISIBLE_PEERS = 25;
+
+/**
+ * One flow card: wider and taller than the Cloud Map's 264 × 52 peer card, on purpose.
+ *
+ * <p>Width is the budgeted dimension. Two columns at 300 plus the model's own 84px `COL_GAP` is
+ * 684px, inside a `sm:max-w-[960px]` drawer whose `p-5` body leaves up to 920px — so every tab
+ * keeps the same width and the other three are untouched. Height is free, because the drawer body
+ * already scrolls vertically, and 84px is what four lines need: relation, label, meta and money.
+ * "cost not attributable to this resource alone" is ~210px at 11px and does not fit a right-hand
+ * slot in a 264px card, which is why the money is a line of its own rather than a column.
+ */
+const CARD_W = 300;
+const CARD_H = 84;
 
 /**
  * How long a topology read stays fresh.
@@ -172,6 +197,15 @@ const ResourceConnectivityTab: React.FC<ResourceConnectivityTabProps> = ({
    * the next.
    */
   const [expanded, setExpanded] = useState(false);
+  /**
+   * Whether the inferred tail has been unfolded for the CURRENT focus.
+   *
+   * Reset on every hop for the same reason `expanded` is: the measured
+   * `xamops-prod-db-redis` has 18 connections of which 16 are SSM session rows, so carrying the
+   * reveal across a hop would open another resource's tail unasked and push its two paying peers
+   * off the top of the panel. One-way per focus, mirroring the Cloud Map's own `showAll*`.
+   */
+  const [showInferred, setShowInferred] = useState(false);
 
   /*
    * A namespace of its own, never ['cloudmap','graph',…].
@@ -277,6 +311,33 @@ const ResourceConnectivityTab: React.FC<ResourceConnectivityTabProps> = ({
   const shown = expanded ? peers : peers.slice(0, VISIBLE_PEERS);
 
   /*
+   * The fold: stated connections are drawn, the inferred tail stands behind one row until asked
+   * for. Both halves come from the model's own `derived` flag, and the split is over `shown` so
+   * the fold can never reveal a row the cap already dropped.
+   */
+  const stated = shown.filter((peer) => !peer.derived);
+  const inferred = shown.filter((peer) => peer.derived);
+  const drawn = showInferred ? shown : stated;
+  const hiddenInferred = showInferred ? 0 : inferred.length;
+  /*
+   * Re-packed rather than placed by `buildConnectivityFlow`: that function centres a six-column
+   * canvas, so on the real 18-peer focus the resource card sits ~560px down an ~1,120px stack.
+   * This view draws a subset — the inferred tail folded away — whose rows have to close up.
+   */
+  const placed = useMemo(
+    () => compactConnectivityFlow({
+      peers: drawn,
+      hidden: hiddenInferred,
+      focusW: CARD_W,
+      focusH: CARD_H,
+      peerW: CARD_W,
+      peerH: CARD_H,
+    }),
+    // Keyed on what is drawn rather than on the array, which is a new one every render.
+    [drawn.map((peer) => `${peer.relation}\u0000${peer.id}`).join(','), hiddenInferred],
+  );
+
+  /*
    * While the trail is empty the focus is the drawer's own resource, and the drawer's resourceId is
    * a CUR id by construction — the resource table read it out of line_item_resource_id. Sending
    * that rather than rootNodeId is what lets a load balancer price its own focus card on an account
@@ -284,8 +345,15 @@ const ResourceConnectivityTab: React.FC<ResourceConnectivityTabProps> = ({
    * id is all there is.
    */
   const focusCostId = trail.length === 0 ? resourceId : (focusId ?? resourceId);
-  // Byte-identical. No bareId, no unscope, no transform of any kind: a peer id's only correct form
-  // on this path is the form the graph gave it.
+  /*
+   * Byte-identical. No bareId, no unscope, no transform of any kind: a peer id's only correct form
+   * on this path is the form the graph gave it.
+   *
+   * Derived from `shown`, never from `drawn`: the inferred fold is presentation, so it must not
+   * change which ids are priced, the cost cache key, or what the trim banner counts — and
+   * unfolding then shows figures that were already fetched rather than issuing a second Athena
+   * scan for rows the reader was looking at the count of a moment ago.
+   */
   const peerCostIds = shown.filter((peer) => !peer.external).map((peer) => peer.id);
   const { sent, sentPeerCount, totalPeerCount } = useMemo(
     () => trimCostIds(focusCostId, peerCostIds),
@@ -345,6 +413,7 @@ const ResourceConnectivityTab: React.FC<ResourceConnectivityTabProps> = ({
     if (peer.external || !locate(index, peer.id)) return;
     setTrail((walked) => [...walked, peer.id]);
     setExpanded(false);
+    setShowInferred(false);
   };
 
   const rootLabel = rootNodeId
@@ -437,9 +506,16 @@ const ResourceConnectivityTab: React.FC<ResourceConnectivityTabProps> = ({
     );
   }
 
-  const stated = shown.filter((peer) => !peer.derived);
-  const inferred = shown.filter((peer) => peer.derived);
   const focusCost = costOf(focusCostId);
+  /*
+   * The breakdown beside the count, over every peer rather than the rendered ones: "18" and
+   * "2 stated · 16 inferred" have to add up, and on a 150-peer security group the rendered
+   * slice would make them disagree.
+   */
+  const statedCount = peers.filter((peer) => !peer.derived).length;
+  const inferredCount = peers.length - statedCount;
+  /** What the focus card puts beside its own name. The state is a chip, so it is not in here. */
+  const focusMeta = [focus?.type, ...(focus?.facts ?? [])].filter(Boolean).join(' · ');
   /*
    * Only when there is a difference to explain, and only against a figure that exists. The Change
    * tab compares metered usage alone, because a unit rate needs a quantity; this figure is every
@@ -464,7 +540,11 @@ const ResourceConnectivityTab: React.FC<ResourceConnectivityTabProps> = ({
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <button
               type="button"
-              onClick={() => { setTrail((walked) => walked.slice(0, -1)); setExpanded(false); }}
+              onClick={() => {
+                setTrail((walked) => walked.slice(0, -1));
+                setExpanded(false);
+                setShowInferred(false);
+              }}
               className="px-2 py-1 text-[11.5px] font-medium rounded-lg border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.04)] transition-colors"
             >
               Back
@@ -472,7 +552,7 @@ const ResourceConnectivityTab: React.FC<ResourceConnectivityTabProps> = ({
             {trail.length > 1 && (
               <button
                 type="button"
-                onClick={() => { setTrail([]); setExpanded(false); }}
+                onClick={() => { setTrail([]); setExpanded(false); setShowInferred(false); }}
                 className="px-2 py-1 text-[11.5px] font-medium rounded-lg border border-[rgba(0,0,0,0.12)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.04)] transition-colors"
               >
                 Back to {rootLabel}
@@ -492,46 +572,7 @@ const ResourceConnectivityTab: React.FC<ResourceConnectivityTabProps> = ({
         ))}
       </p>
 
-      {/* Focus card */}
-      <div className="rounded-xl border border-[rgba(0,0,0,0.12)] shadow-sm p-3.5">
-        <div className="grid grid-cols-[1fr_auto] gap-3 items-start">
-          <div className="flex items-start gap-2.5 min-w-0">
-            <TypeIcon type={focus?.type ?? 'Resource'} />
-            <div className="min-w-0">
-              <p className="text-[13px] font-semibold text-black truncate"
-                title={hoverText(focusLabel, focus?.type, ...(focus?.facts ?? []))}>
-                {focusLabel}
-              </p>
-              <p className="text-[11.5px] text-[rgba(0,0,0,0.5)] truncate">
-                {[focus?.type, focus?.state, ...(focus?.facts ?? [])]
-                  .filter(Boolean).join(' · ')}
-              </p>
-              <p className="text-[10.5px] text-[rgba(0,0,0,0.35)] font-mono truncate mt-0.5"
-                title={focusCostId}>
-                {shortenId(focusCostId, 56)}
-              </p>
-            </div>
-          </div>
-          <MoneySlot
-            cost={focusCost}
-            loading={costsLoading}
-            failed={costsFailed}
-            ambiguous={isAmbiguous(focusCostId)}
-            format={format}
-          />
-        </div>
-        {focus?.warnings?.map((warning) => (
-          <p key={warning} className="text-[11px] text-[#B45309] mt-2">{warning}</p>
-        ))}
-        {differsFromChangeTab && change && (
-          <p className="text-[11px] text-[rgba(0,0,0,0.5)] mt-2 leading-relaxed">
-            {format(focusCost as number)} for {monthLabel}, every charge type — the{' '}
-            <span className="font-medium">Change</span> tab compares metered usage only
-            ({format(change.currentCost)}), which is why the two differ.
-          </p>
-        )}
-      </div>
-
+      {/* Above the flow, because the sentence points downward at the figures it is about. */}
       {costsFailed && (
         <p className="text-[11.5px] text-[rgba(0,0,0,0.5)] px-3.5 py-2.5 rounded-xl border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.02)]">
           The costs for {monthLabel} could not be read, so no figures are shown below. The
@@ -539,25 +580,23 @@ const ResourceConnectivityTab: React.FC<ResourceConnectivityTabProps> = ({
         </p>
       )}
 
-      {peers.length === 0 ? (
-        /*
-         * State 3a — in the topology, nothing references it, in a graph that does have edges
-         * elsewhere. Rendered here rather than as an early return because where the resource sits
-         * is still an answer, and the focus card above is still worth showing.
-         */
-        <p className="text-[12px] text-[rgba(0,0,0,0.55)] leading-relaxed">
-          <span className="font-medium text-black">
-            Nothing else in this account references {focusLabel}.
-          </span>{' '}
-          The topology is built from relationships AWS states and from each resource&apos;s own
-          details, so a genuinely isolated resource has none — an unattached volume and a bucket
-          nothing names are the common cases.
-        </p>
-      ) : (
-        <div>
+      {/*
+        The flow: the focus at the left, what it connects to in a column at the right, in the
+        Cloud Map's own visual language and from its own geometry. 684px of it inside a body up to
+        920px wide — which is why there is no pan/zoom here. The Cloud Map needs one for six
+        columns across a full page; two columns in a dialog that already scrolls vertically would
+        only fight the reader.
+      */}
+      <div>
+        {peers.length > 0 && (
           <div className="flex items-baseline justify-between gap-3">
             <p className="text-[11px] uppercase tracking-wide text-[rgba(0,0,0,0.4)] font-medium">
               Connected to ({peers.length})
+              {inferredCount > 0 && (
+                <span className="ml-1.5 normal-case tracking-normal text-[rgba(0,0,0,0.3)]">
+                  {statedCount} stated · {inferredCount} inferred
+                </span>
+              )}
             </p>
             {peers.length > VISIBLE_PEERS && (
               <button
@@ -570,21 +609,101 @@ const ResourceConnectivityTab: React.FC<ResourceConnectivityTabProps> = ({
               </button>
             )}
           </div>
+        )}
 
-          {sentPeerCount < totalPeerCount && (
-            <p className="text-[11px] text-[rgba(0,0,0,0.45)] mt-1">
-              Costs shown for the first {sentPeerCount} of {totalPeerCount} connections — more than
-              that does not fit one request.
-            </p>
-          )}
+        {peers.length > 0 && sentPeerCount < totalPeerCount && (
+          <p className="text-[11px] text-[rgba(0,0,0,0.45)] mt-1">
+            Costs shown for the first {sentPeerCount} of {totalPeerCount} connections — more than
+            that does not fit one request.
+          </p>
+        )}
 
-          {/* The rail is what makes the list read as branching off the focus card. Pure CSS
-              borders: no SVG, no absolute positioning, nothing to lay out. */}
-          <div className="mt-2 border-l border-[rgba(0,0,0,0.12)] pl-3 space-y-3">
-            {stated.length > 0 && (
-              <PeerGroup
-                title="Stated"
-                peers={stated}
+        {/* Native horizontal scroll, for the `w-full` phone case alone: at 684px the second
+            column is past the right edge of a phone-width drawer, and the fix is a scrollbar
+            rather than a wider drawer that would move the other three tabs. */}
+        <div className="mt-2 overflow-x-auto">
+          <div
+            role="group"
+            aria-label={`What ${focusLabel} connects to`}
+            className="relative"
+            style={{ width: placed.width, height: placed.height }}
+          >
+            {/* Edges under the cards, so a card's shadow sits on top of its own connector. */}
+            <svg
+              width={placed.width}
+              height={placed.height}
+              viewBox={`0 0 ${placed.width} ${placed.height}`}
+              className="absolute inset-0 pointer-events-none"
+              aria-hidden="true"
+            >
+              {placed.peers.map((peer) => (
+                <FlowEdge
+                  key={`e-${peer.relation}-${peer.id}`}
+                  x1={placed.focus.x + placed.focus.w}
+                  y1={placed.focus.y + placed.focus.h / 2}
+                  x2={peer.x}
+                  y2={peer.y + peer.h / 2}
+                  trunkX={placed.trunkX}
+                  kind="connects"
+                  dashed={peer.derived || peer.external}
+                />
+              ))}
+              {placed.more && (
+                <FlowEdge
+                  x1={placed.focus.x + placed.focus.w}
+                  y1={placed.focus.y + placed.focus.h / 2}
+                  x2={placed.more.x}
+                  y2={placed.more.y + placed.more.h / 2}
+                  trunkX={placed.trunkX}
+                  kind="contains"
+                  dashed
+                />
+              )}
+            </svg>
+
+            {/* The focus. `aria-current` rather than a colour alone: which resource the rest of
+                the panel is about is the one thing a reader must not have to infer. */}
+            <div
+              aria-current="true"
+              aria-label={`Showing ${focusLabel}`}
+              className={nodeClass(true)}
+              style={{
+                left: placed.focus.x,
+                top: placed.focus.y,
+                width: placed.focus.w,
+                height: placed.focus.h,
+              }}
+            >
+              <TypeIcon type={focus?.type ?? 'Resource'} />
+              <div className="min-w-0 flex-1">
+                <p className="text-[12.5px] font-semibold text-black truncate leading-tight"
+                  title={hoverText(focusLabel, focusMeta, focusCostId)}>
+                  {focusLabel}
+                </p>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  {focus?.state && <StateChip state={focus.state} />}
+                  <p className="text-[10px] text-[rgba(0,0,0,0.45)] truncate">{focusMeta}</p>
+                </div>
+                <p className="text-[9.5px] text-[rgba(0,0,0,0.3)] font-mono truncate"
+                  title={focusCostId}>
+                  {shortenId(focusCostId, 40)}
+                </p>
+                <div className="mt-0.5">
+                  <MoneySlot
+                    cost={focusCost}
+                    loading={costsLoading}
+                    failed={costsFailed}
+                    ambiguous={isAmbiguous(focusCostId)}
+                    format={format}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {placed.peers.map((peer) => (
+              <PeerCard
+                key={`${peer.relation}-${peer.id}`}
+                peer={peer}
                 index={index}
                 costOf={costOf}
                 isAmbiguous={isAmbiguous}
@@ -593,22 +712,51 @@ const ResourceConnectivityTab: React.FC<ResourceConnectivityTabProps> = ({
                 format={format}
                 onFollow={followPeer}
               />
-            )}
-            {inferred.length > 0 && (
-              <PeerGroup
-                title="Inferred from details"
-                peers={inferred}
-                index={index}
-                costOf={costOf}
-                isAmbiguous={isAmbiguous}
-                costsLoading={costsLoading}
-                costsFailed={costsFailed}
-                format={format}
-                onFollow={followPeer}
+            ))}
+
+            {placed.more && (
+              <MoreButton
+                row={placed.more}
+                onClick={() => setShowInferred(true)}
+                noun="inferred connection"
+                expanded={showInferred}
               />
             )}
           </div>
         </div>
+
+        {peers.length > 0 && (
+          <EdgeLegend className="flex items-center gap-3 text-[10px] text-[rgba(0,0,0,0.45)] mt-2" />
+        )}
+      </div>
+
+      {/* The focus card's prose, below the geometry rather than inside it: an 84px card cannot
+          hold a three-line sentence, and the sentence is the honest part. */}
+      {focus?.warnings?.map((warning) => (
+        <p key={warning} className="text-[11px] text-[#B45309]">{warning}</p>
+      ))}
+      {differsFromChangeTab && change && (
+        <p className="text-[11px] text-[rgba(0,0,0,0.5)] leading-relaxed">
+          {format(focusCost as number)} for {monthLabel}, every charge type — the{' '}
+          <span className="font-medium">Change</span> tab compares metered usage only
+          ({format(change.currentCost)}), which is why the two differ.
+        </p>
+      )}
+
+      {peers.length === 0 && (
+        /*
+         * State 3a — in the topology, nothing references it, in a graph that does have edges
+         * elsewhere. Rendered beside the flow rather than as an early return because where the
+         * resource sits is still an answer, and its own card is still worth showing.
+         */
+        <p className="text-[12px] text-[rgba(0,0,0,0.55)] leading-relaxed">
+          <span className="font-medium text-black">
+            Nothing else in this account references {focusLabel}.
+          </span>{' '}
+          The topology is built from relationships AWS states and from each resource&apos;s own
+          details, so a genuinely isolated resource has none — an unattached volume and a bucket
+          nothing names are the common cases.
+        </p>
       )}
 
       <p className="text-[11px] text-[rgba(0,0,0,0.4)] leading-relaxed">
@@ -642,10 +790,17 @@ const breadcrumb = (flow: ReturnType<typeof buildConnectivityFlow> | null): stri
   return parts;
 };
 
-/** One group of peers, with the model's own wording for each relationship. */
-const PeerGroup: React.FC<{
-  title: string;
-  peers: PeerFlowNode[];
+/**
+ * One connection, placed where the model put it, with the model's own wording for the
+ * relationship and this tab's money on the bottom line.
+ *
+ * <p>Followable peers are real `<button>`s and everything else is a plain `<div>` — never a
+ * disabled button. A disabled button still answers `getByRole('button', { name })` and still
+ * reads as a control to a screen reader, and "this peer is not something you can open" is the
+ * fact being reported.
+ */
+const PeerCard: React.FC<{
+  peer: PeerFlowNode;
   index: ReturnType<typeof buildConnectivityIndex>;
   costOf: (id: string) => number | null;
   isAmbiguous: (id: string) => boolean;
@@ -653,95 +808,83 @@ const PeerGroup: React.FC<{
   costsFailed: boolean;
   format: (v: number) => string;
   onFollow: (peer: PeerFlowNode) => void;
-}> = ({ title, peers, index, costOf, isAmbiguous, costsLoading, costsFailed, format, onFollow }) => (
-  <div>
-    <p className="text-[10.5px] uppercase tracking-wide text-[rgba(0,0,0,0.35)] font-medium mb-1">
-      {title}
-    </p>
-    <ul className="space-y-1">
-      {peers.map((peer) => {
-        // A row is a button only when following it would land somewhere: a container — including
-        // a load balancer's non-parent subnet — and an id with no node both locate to null.
-        const followable = !peer.external && Boolean(locate(index, peer.id));
-        const lines = [
-          `${peer.outbound ? '' : '← '}${peer.relation}`,
-          peer.label,
-          [peer.type, peer.location, peer.peerCount > 0 && `${peer.peerCount} connections`,
-            peer.derived && 'inferred']
-            .filter(Boolean).join(' · '),
-          peer.id,
-        ];
-        const body = (
-          <div className="grid grid-cols-[1fr_auto] gap-3 items-start w-full text-left">
-            <div className="flex items-start gap-2.5 min-w-0">
-              <TypeIcon type={peer.type} />
-              <div className="min-w-0">
-                <p className="text-[12.5px] text-black truncate">
-                  {/* Direction is carried by the model's own relation wording as well as by the
-                      arrow, so nothing depends on the glyph. The space is explicit because an
-                      accessible name concatenates adjacent inline text without one. */}
-                  <span className="text-[rgba(0,0,0,0.45)] uppercase tracking-wide text-[10.5px] mr-1.5">
-                    {peer.outbound ? '' : '← '}{peer.relation}
-                  </span>{' '}
-                  <span className="font-medium">{peer.label}</span>
-                </p>
-                <p className="text-[11px] text-[rgba(0,0,0,0.45)] truncate">
-                  {[peer.type, peer.location, peer.derived && 'inferred']
-                    .filter(Boolean).join(' · ')}
-                </p>
-                <p className="text-[10px] text-[rgba(0,0,0,0.3)] font-mono truncate">
-                  {shortenId(peer.id, 56)}
-                </p>
-              </div>
-            </div>
-            {/* An external peer has no node and therefore no id to price, which is a different
-                fact from a resource whose cost cannot be attributed — so it gets no money slot
-                at all rather than an empty one. */}
-            {peer.external ? (
-              <span className="text-[11px] text-[rgba(0,0,0,0.35)] whitespace-nowrap">
-                Not drawn on the map
-              </span>
-            ) : (
-              <MoneySlot
-                cost={costOf(peer.id)}
-                loading={costsLoading}
-                failed={costsFailed}
-                ambiguous={isAmbiguous(peer.id)}
-                format={format}
-              />
-            )}
-          </div>
-        );
+}> = ({ peer, index, costOf, isAmbiguous, costsLoading, costsFailed, format, onFollow }) => {
+  // A card is a button only when following it would land somewhere: a container — including a
+  // load balancer's non-parent subnet — and an id with no node both locate to null.
+  const followable = !peer.external && Boolean(locate(index, peer.id));
+  const relationLine = `${peer.outbound ? '' : '← '}${peer.relation}`;
+  const metaLine = [
+    peer.type,
+    peer.location,
+    // Over one, not over zero: the connection the reader is looking at is one of them, and
+    // "1 connections" is both wrong and the count of nothing new.
+    peer.peerCount > 1 && `${peer.peerCount} connections`,
+    peer.derived && 'inferred',
+  ].filter(Boolean).join(' · ');
+  /*
+   * A peer's state is not on `PeerFlowNode` — it is on the graph node, read through the model's
+   * own field and detail readers so the chip here says exactly what the Cloud Map's chip says.
+   * An external peer has no node, so it has no chip, which is correct: there is nothing to report.
+   */
+  const node = index.byId.get(peer.id);
+  const state = node ? (fieldOf(node, 'state') || detailOf(node, 'State', 'Status')) : '';
+  // The tooltip carries the lines the 300px card truncates, plus the id it has no room to show.
+  const title = hoverText(relationLine, peer.label, metaLine, peer.id);
+  const className = [
+    'absolute flex items-center gap-2.5 px-3 py-2 text-left transition-all',
+    peerCardClass({ dashed: peer.derived || peer.external }),
+    followable
+      ? 'hover:bg-[#f5f3ff] outline-none focus-visible:ring-2 focus-visible:ring-[#8b5cf6]'
+      : '',
+  ].join(' ');
+  const style = { left: peer.x, top: peer.y, width: peer.w, height: peer.h };
 
-        return (
-          <li key={`${peer.relation}-${peer.id}`} className="relative">
-            {followable ? (
-              <button
-                type="button"
-                onClick={() => onFollow(peer)}
-                title={hoverText(...lines)}
-                className={`w-full px-2 py-1.5 rounded-lg border ${peer.derived
-                  ? 'border-dashed border-[rgba(0,0,0,0.12)]'
-                  : 'border-[rgba(0,0,0,0.12)]'} hover:border-[#4285F4] hover:bg-[rgba(66,133,244,0.04)] transition-colors`}
-              >
-                {body}
-              </button>
-            ) : (
-              <div
-                title={hoverText(...lines)}
-                className={`px-2 py-1.5 rounded-lg border ${peer.derived
-                  ? 'border-dashed border-[rgba(0,0,0,0.12)]'
-                  : 'border-[rgba(0,0,0,0.12)]'}`}
-              >
-                {body}
-              </div>
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  </div>
-);
+  const body = (
+    <>
+      <TypeIcon type={peer.type} />
+      <div className="min-w-0 flex-1">
+        {/* The relation sits immediately before the label with nothing between them, so the
+            accessible name reads "attached to prod-web-01". A chip or a badge in that gap
+            renames the card without changing a word of what it says. */}
+        <span className="block text-[9px] font-bold uppercase tracking-wide text-[#7c3aed] truncate">
+          {relationLine}
+        </span>
+        <p className="text-[11.5px] font-semibold text-black truncate leading-tight">
+          {peer.label}
+        </p>
+        <div className="flex items-center gap-1 min-w-0">
+          {state && <StateChip state={state} />}
+          <p className="text-[9.5px] text-[rgba(0,0,0,0.4)] truncate">{metaLine}</p>
+        </div>
+        {/* An external peer has no node and therefore no id to price, which is a different fact
+            from a resource whose cost cannot be attributed — so it gets no money slot at all
+            rather than an empty one. */}
+        {peer.external ? (
+          <span className="text-[10px] text-[rgba(0,0,0,0.35)] whitespace-nowrap">
+            Not drawn on the map
+          </span>
+        ) : (
+          <MoneySlot
+            cost={costOf(peer.id)}
+            loading={costsLoading}
+            failed={costsFailed}
+            ambiguous={isAmbiguous(peer.id)}
+            format={format}
+          />
+        )}
+      </div>
+    </>
+  );
+
+  return followable ? (
+    <button type="button" onClick={() => onFollow(peer)} title={title}
+      className={className} style={style}>
+      {body}
+    </button>
+  ) : (
+    <div title={title} className={className} style={style}>{body}</div>
+  );
+};
 
 /**
  * The money column — a figure, or the reason there is not one.

@@ -23,7 +23,13 @@ import { renderWithQuery } from './renderWithQuery';
  *
  * <p>Driven through `ResourceCostDrawer` rather than the tab in isolation, because the mount rule,
  * the `active` gate and the tab strip are the drawer's and are half of what is being tested. The
- * drawer renders through a portal, so queries go through `screen`.
+ * drawer renders through a portal, so queries go through `screen` — and for the SVG edge layer,
+ * which no role answers for, through `document`.
+ *
+ * <p>The tab draws a flow, not a list: a focused card at the left, its connections in a column at
+ * the right, joined by edges, with the inferred tail folded behind a count. So the assertions
+ * about shape are about the flow surface and the focused card's `aria-current`, never about group
+ * headings or list rows.
  */
 
 const ACCOUNT = '605134457560';
@@ -97,6 +103,71 @@ const COSTS: ResourceCostsResponse = {
   basis: 'unblended',
 };
 
+/*
+ * The measured shape, and the one the fold exists for: `xamops-prod-db-redis` in 605134457560,
+ * CONNECTED TO (18) of which exactly 2 cost money. Two relationships AWS states, and sixteen SSM
+ * session rows inferred from one detail key on the instance itself — which is what pushed the two
+ * paying peers off the top of the panel when every row was drawn.
+ */
+const REDIS = 'i-0redis000000001';
+const SSM_RELATION = 'SSM:SSMMESSAGES:TARGET-ID';
+const REDIS_VOLUME = 'vol-0redis0000001';
+const REDIS_APP = 'i-0redisapp000001';
+const ssmId = (i: number) => `ssm-session-${String(i).padStart(2, '0')}`;
+const SSM_IDS = Array.from({ length: 16 }, (_, i) => ssmId(i));
+
+const REDIS_GRAPH: GraphElement[] = [
+  { group: 'nodes', data: { id: 'vpc-001', label: 'prod-vpc', type: 'VPC' } },
+  { group: 'nodes', data: { id: 'subnet-001', label: 'private-1a', type: 'Subnet', parent: 'vpc-001' } },
+  {
+    group: 'nodes',
+    data: {
+      id: REDIS,
+      label: 'xamops-prod-db-redis',
+      type: 'EC2 Instance',
+      parent: 'subnet-001',
+      // One detail naming sixteen ids, which is how one key on one node becomes sixteen inferred
+      // connections — the model splits the value on commas and links each id it can resolve.
+      [SSM_RELATION]: SSM_IDS.join(','),
+    },
+  },
+  { group: 'nodes', data: { id: REDIS_VOLUME, label: 'redis-data', type: 'EBS Volume', parent: 'subnet-001' } },
+  { group: 'nodes', data: { id: REDIS_APP, label: 'redis-app-01', type: 'EC2 Instance', parent: 'subnet-001' } },
+  ...SSM_IDS.map((id) => ({
+    group: 'nodes',
+    data: { id, label: id, type: 'Systems Manager', parent: 'subnet-001' },
+  })),
+  { group: 'edges', data: { id: 'r1', source: REDIS, target: REDIS_VOLUME, label: 'attached to' } },
+  { group: 'edges', data: { id: 'r2', source: REDIS_APP, target: REDIS, label: 'accesses' } },
+] as GraphElement[];
+
+const REDIS_IDENTITIES: ResourceIdentities = {
+  identities: [{
+    requestedId: REDIS,
+    nodeIdCandidates: [REDIS],
+    resourceId: REDIS,
+    resourceType: 'EC2 Instance',
+    resourceName: 'xamops-prod-db-redis',
+    region: 'ap-south-1',
+  }],
+  requested: 1,
+  resolved: 1,
+};
+
+/** The instance and its volume; the app server and every SSM row carry no attributable cost. */
+const REDIS_COSTS: ResourceCostsResponse = {
+  costs: [
+    { resourceId: REDIS, cost: 621.35 },
+    { resourceId: REDIS_VOLUME, cost: 120.4 },
+  ],
+  ambiguous: [],
+  requestedCount: 19,
+  pricedCount: 2,
+  totalCost: 741.75,
+  groupCount: 2,
+  basis: 'unblended',
+};
+
 const fetchers = (over: Partial<ConnectivityFetchers> = {}) => ({
   graph: vi.fn().mockResolvedValue(GRAPH),
   identities: vi.fn().mockResolvedValue(IDENTITIES),
@@ -132,6 +203,28 @@ const drawer = (
 
 const openTab = async () => {
   await userEvent.click(await screen.findByRole('tab', { name: 'Connectivity' }));
+};
+
+const redisFetchers = () => fetchers({
+  graph: vi.fn().mockResolvedValue(REDIS_GRAPH),
+  identities: vi.fn().mockResolvedValue(REDIS_IDENTITIES),
+  costs: vi.fn().mockResolvedValue(REDIS_COSTS),
+});
+
+/** The positioned surface the flow is drawn on, which is the only thing declaring its width. */
+const flowSurface = () => screen.getByRole('group', { name: /connects to/ });
+
+/**
+ * The edge layer's paths.
+ *
+ * <p>The first `svg` inside the surface, not every `svg` in the document: the more-affordance
+ * carries an icon, the drawer header carries several, and each of those is an `svg` with a
+ * `path[d]` in it.
+ */
+const edgePaths = () => {
+  const layer = flowSurface().querySelector('svg');
+  if (!layer) throw new Error('no edge layer on the flow surface');
+  return layer.querySelectorAll('path[d]');
 };
 
 /** The sentences that must not appear before the tab has read anything. */
@@ -336,9 +429,10 @@ describe('the Connectivity tab', () => {
     await openTab();
 
     const slot = await screen.findByText('cost not attributable to this resource alone');
-    // Bound to the focus card rather than merely present somewhere in the tab: the peer below it
-    // prices normally, so "present" would pass on the wrong element.
-    expect(slot.closest('div.rounded-xl')).toHaveTextContent('prod-web-01-data');
+    // Bound to the focus card rather than merely present somewhere in the tab: the peer beside it
+    // prices normally, so "present" would pass on the wrong element. `aria-current` is how the
+    // focused card is marked now that the tab draws a flow instead of a list.
+    expect(slot.closest('[aria-current="true"]')).toHaveTextContent('prod-web-01-data');
     expect(await screen.findByText('$1,621.35')).toBeInTheDocument();
     expect(screen.queryByText(/not in the account topology/)).not.toBeInTheDocument();
     expect(screen.queryByText('$0.00')).not.toBeInTheDocument();
@@ -768,6 +862,96 @@ describe('the Connectivity tab', () => {
     expect(client.getQueryData(['cloudmap', 'graph', ACCOUNT, '__ALL__'])).toEqual(['sentinel']);
     expect(client.getQueryData(['cost-connectivity', 'graph', ACCOUNT, 'ap-south-1'])).toEqual(GRAPH);
   });
+
+  it('folds the inferred tail behind a count, and prices it anyway', async () => {
+    const read = redisFetchers();
+    renderWithQuery(drawer(read, { resourceId: REDIS }));
+    await openTab();
+
+    // The two stated relationships are drawn.
+    expect(await screen.findByText('redis-data')).toBeInTheDocument();
+    expect(screen.getByText('redis-app-01')).toBeInTheDocument();
+    // The count and its breakdown have to add up, so the breakdown is over every peer.
+    expect(screen.getByText('Connected to (18)')).toBeInTheDocument();
+    expect(screen.getByText('2 stated · 16 inferred')).toBeInTheDocument();
+    // The tail is not drawn — sixteen SSM session rows are what buried the two paying peers.
+    for (const id of SSM_IDS) expect(screen.queryByText(id)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show 16 more inferred connections' }))
+      .toBeInTheDocument();
+
+    // But it was priced. The fold is presentation: a figure must not appear only after an expand,
+    // and the request the reader's first look issued is the one that carries every id.
+    await waitFor(() => expect(read.costs).toHaveBeenCalled());
+    const sent = read.costs.mock.calls[0][1] as string[];
+    for (const id of SSM_IDS) expect(sent).toContain(id);
+    expect(sent).toHaveLength(19);
+  });
+
+  it('draws the inferred connections when the reader asks, and asks for no more money', async () => {
+    const read = redisFetchers();
+    renderWithQuery(drawer(read, { resourceId: REDIS }));
+    await openTab();
+    await screen.findByText('redis-data');
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Show 16 more inferred connections' }),
+    );
+
+    expect(await screen.findByText(ssmId(0))).toBeInTheDocument();
+    expect(screen.getByText(ssmId(15))).toBeInTheDocument();
+    // One-way for this focus, so the affordance is gone rather than offering to fold back.
+    expect(screen.queryByRole('button', { name: /more inferred connections/ }))
+      .not.toBeInTheDocument();
+    // The stated ones are still drawn, and nothing was fetched again.
+    expect(screen.getByText('redis-data')).toBeInTheDocument();
+    expect(read.costs).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws one edge per connection it draws', async () => {
+    const read = redisFetchers();
+    renderWithQuery(drawer(read, { resourceId: REDIS }));
+    await openTab();
+    await screen.findByText('redis-data');
+
+    // Two stated peers and the folded row, each with its own connector. Counted off the edge
+    // layer rather than the whole document, because every icon in the drawer is an svg with a
+    // path in it too.
+    expect(edgePaths()).toHaveLength(3);
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Show 16 more inferred connections' }),
+    );
+    await screen.findByText(ssmId(0));
+
+    expect(edgePaths()).toHaveLength(18);
+  });
+
+  it('marks exactly one card as the resource the panel is about', async () => {
+    const read = redisFetchers();
+    renderWithQuery(drawer(read, { resourceId: REDIS }));
+    await openTab();
+    await screen.findByText('$621.35');
+
+    const current = document.querySelectorAll('[aria-current="true"]');
+    expect(current).toHaveLength(1);
+    expect(current[0]).toHaveTextContent('xamops-prod-db-redis');
+    expect(current[0]).toHaveTextContent('$621.35');
+  });
+
+  it('declares a 684px flow inside a scroller, so a phone can reach the second column',
+    async () => {
+      const read = redisFetchers();
+      renderWithQuery(drawer(read, { resourceId: REDIS }));
+      await openTab();
+      await screen.findByText('redis-data');
+
+      const surface = flowSurface();
+      // 300 for the focus, the model's own 84px column gap, 300 for the peer column. The drawer
+      // itself does not grow: at `w-full` on a phone the column past the right edge is reached by
+      // scrolling the flow, not by widening a dialog the other three tabs share.
+      expect(surface.style.width).toBe('684px');
+      expect(surface.parentElement).toHaveClass('overflow-x-auto');
+    });
 
   it('starts a different resource with a clean trail and no stale peers', async () => {
     const read = fetchers();

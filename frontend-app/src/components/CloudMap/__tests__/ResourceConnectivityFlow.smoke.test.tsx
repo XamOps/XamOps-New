@@ -77,6 +77,14 @@ describe('ResourceConnectivityFlow, after the shared helpers moved out', () => {
     expect(title.split('\n').every((line) => line.trim().length > 0)).toBe(true);
     // shortenId left a 19-character id alone; a budget applied unconditionally would have cut it.
     expect(screen.getAllByText('vol-0aa1122334455667').length).toBeGreaterThan(0);
+
+    // The legend and the edges moved into `connectivityView` too, and both are pure rendering —
+    // nothing else on this page would notice if the swatches lost their words or every `<path>`
+    // came back without a `d`.
+    expect(screen.getByText('contains')).toBeInTheDocument();
+    expect(screen.getByText('connects to')).toBeInTheDocument();
+    expect(screen.getByText('inferred')).toBeInTheDocument();
+    expect(document.querySelectorAll('svg path[d]').length).toBeGreaterThan(0);
   });
 
   it('gives a type with no artwork its initial rather than a generic mark', async () => {

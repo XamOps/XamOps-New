@@ -1395,6 +1395,97 @@ export function flowEdge(
 /** The trunk x for edges leaving a column that ends at `parentRight`. */
 export const trunkFor = (parentRight: number): number => parentRight + CFLOW.TRUNK_OFFSET;
 
+/** A focus and its peers packed into two columns at the origin. */
+export interface CompactFlow {
+  /** The focused resource, at x 0, vertically centred on the peer stack. */
+  focus: Placed;
+  /** The drawn peers, in the model's own order, one column to the right. */
+  peers: (PeerFlowNode & Placed)[];
+  /** The folded-away row, when anything is hidden. */
+  more: MoreRow | null;
+  /** Shared vertical trunk for the elbows, so both views bend in the same place. */
+  trunkX: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Re-stacks one resource and the peers actually being drawn into two columns at the origin.
+ *
+ * <p>Why not use {@link buildConnectivityFlow}'s own coordinates: that function places a
+ * six-column canvas and centres every column on the branch above it, so on the measured
+ * `xamops-prod-db-redis` instance in 605134457560 ("xammer-local") — 18 connections, 16 of them
+ * SSM session rows — the peer column is about 1,120px tall and the focus card sits some 560px
+ * down it. A compact view draws a *subset* of those peers (the inferred ones folded away), so its
+ * rows have to close up, and a 560px lead-in of empty space is the first thing a reader sees in a
+ * drawer that is only as tall as the viewport.
+ *
+ * <p>It lives here, beside the canvas's own placement, so the two views cannot drift apart on
+ * spacing: the gaps are `CFLOW`'s, the trunk is {@link trunkFor} and the elbows are
+ * {@link flowEdge}. Pure, hence unit-tested rather than inspected in a browser.
+ */
+export function compactConnectivityFlow(args: {
+  /** The peers to draw, in the model's order; their fields are carried through untouched. */
+  peers: PeerFlowNode[];
+  /** How many peers were folded away, so the "show more" row can say so. 0 for none. */
+  hidden: number;
+  focusW?: number;
+  focusH?: number;
+  peerW?: number;
+  peerH?: number;
+}): CompactFlow {
+  const focusW = args.focusW ?? CFLOW.RESOURCE_W;
+  const focusH = args.focusH ?? CFLOW.RESOURCE_H;
+  const peerW = args.peerW ?? CFLOW.PEER_W;
+  const peerH = args.peerH ?? CFLOW.PEER_H;
+
+  const peerX = focusW + CFLOW.COL_GAP;
+  const pitch = peerH + CFLOW.ROW_GAP;
+
+  const peers = args.peers.map((peer, i) => ({
+    ...peer,
+    x: peerX,
+    y: i * pitch,
+    w: peerW,
+    h: peerH,
+  }));
+
+  const more: MoreRow | null = args.hidden > 0
+    ? {
+      hidden: args.hidden,
+      x: peerX,
+      y: peers.length > 0 ? peers.length * pitch : 0,
+      w: peerW,
+      h: CFLOW.MORE_H,
+    }
+    : null;
+
+  const rows: Placed[] = more ? [...peers, more] : peers;
+  const stackBottom = rows.reduce((max, row) => Math.max(max, row.y + row.h), 0);
+
+  const focus: Placed = { x: 0, y: (stackBottom - focusH) / 2, w: focusW, h: focusH };
+  // A focus taller than its own stack would otherwise be placed above the origin and clipped.
+  // Same single-shift normalisation `buildConnectivityFlow` ends with: move everything down once
+  // rather than letting any row carry a negative y.
+  if (focus.y < 0) {
+    const shift = -focus.y;
+    focus.y = 0;
+    for (const row of rows) row.y += shift;
+  }
+
+  const bottom = rows.reduce((max, row) => Math.max(max, row.y + row.h), focus.y + focus.h);
+
+  return {
+    focus,
+    peers,
+    more,
+    trunkX: trunkFor(focusW),
+    // No second column is drawn when there is nothing to put in it, so none is claimed either.
+    width: rows.length > 0 ? peerX + peerW : focusW,
+    height: bottom,
+  };
+}
+
 /** The branch a selection sits on, all five levels. */
 export interface Branch {
   region: string | null;

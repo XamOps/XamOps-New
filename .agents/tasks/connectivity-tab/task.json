@@ -1,0 +1,7 @@
+{
+  "task_id": "task-connectivity-tab-cloudmap-redesign",
+  "task_description": "Redesign the Cost page's Connectivity tab so it reads like the Cloud Map page's Resource Connectivity view: Cloud Map-style cards in columns joined by drawn SVG edges, the focused card highlighted, a service icon and state chip per card, a more-affordance where a column is truncated, and a legend naming contains / connects to / inferred. Frontend only. The shared presentation moves into connectivityView.tsx (moved, never copied) and the Cloud Map page must stay visually unchanged. The inferred tail collapses behind a count by default so the two paying connections are not buried under sixteen SSM session rows. Cost stays on the cards, with 'no cost attributable' and never $0.00 for an absence. No backend change, no new endpoint, no change to the cost join.",
+  "status": "pending",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}
