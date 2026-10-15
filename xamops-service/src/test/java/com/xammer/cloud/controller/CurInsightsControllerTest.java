@@ -6,11 +6,13 @@ import com.xammer.cloud.domain.CurSource;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CloudAccountAccessService;
+import com.xammer.cloud.service.ResourceIdResolver;
 import com.xammer.cloud.service.cur.CostBasis;
 import com.xammer.cloud.service.cur.CurAdvancedMetricsService;
 import com.xammer.cloud.service.cur.CurInsightCache;
 import com.xammer.cloud.service.cur.CurSourceResolver;
 import com.xammer.cloud.service.cur.ReportCannotAnswerException;
+import com.xammer.cloud.service.cur.ResourceCostJoin;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -32,6 +34,7 @@ import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -39,9 +42,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -66,6 +71,7 @@ class CurInsightsControllerTest {
     @Mock private CurAdvancedMetricsService metricsService;
     @Mock private CurInsightCache insightCache;
     @Mock private CloudAccountAccessService accessService;
+    @Mock private ResourceIdResolver idResolver;
 
     private CurInsightsController controller;
     private CloudAccount account;
@@ -74,7 +80,7 @@ class CurInsightsControllerTest {
     @BeforeEach
     void setUp() {
         controller = new CurInsightsController(cloudAccountRepository, curSourceResolver,
-                metricsService, insightCache, accessService, List.of("cost-center"));
+                metricsService, insightCache, accessService, idResolver, List.of("cost-center"));
 
         Client client = new Client();
         client.setId(7L);
@@ -95,6 +101,11 @@ class CurInsightsControllerTest {
         // MockitoExtension is strict about unused stubs.
         lenient().when(insightCache.getOrCompute(anyString(), any()))
                 .thenAnswer(inv -> inv.<Supplier<ResponseEntity<?>>>getArgument(1).get());
+        // A separate stub for the keyed overload, which /resource-costs uses. The two-argument one
+        // above is left exactly as it was, because withSource still calls it for the other ten
+        // endpoints — that is the whole reason the overload is a sibling rather than a refactor.
+        lenient().when(insightCache.getOrCompute(anyString(), anyString(), any()))
+                .thenAnswer(inv -> inv.<Supplier<ResponseEntity<?>>>getArgument(2).get());
 
         signIn();
     }
@@ -363,6 +374,280 @@ class CurInsightsControllerTest {
                 .thenReturn(List.of());
         controller.chargesByService(ACCOUNT_ID, "2026-08", null);
         verify(insightCache).getOrCompute(eq(ACCOUNT_ID), any());
+    }
+
+    // ── /resource-identities and /resource-costs ────────────────────────────────
+
+    @Test
+    @DisplayName("Both per-resource-set endpoints answer 404 for an account the caller does not hold")
+    void theResourceSetEndpointsAreEntitled() {
+        deny();
+
+        ResponseEntity<?> identities = controller.resourceIdentities(ACCOUNT_ID, "i-0abc");
+        ResponseEntity<?> costs = controller.resourceCosts(ACCOUNT_ID, "i-0abc", "2026-08", null);
+
+        for (ResponseEntity<?> response : List.of(identities, costs)) {
+            assertEquals(404, response.getStatusCode().value());
+            assertNull(response.getBody());
+        }
+        // Before any ids validation that names account data, and without consulting the cache.
+        verifyNoInteractions(insightCache, idResolver, metricsService);
+    }
+
+    @ParameterizedTest(name = "ids={0}")
+    @ValueSource(strings = {"", " ", ",,,"})
+    @DisplayName("An ids parameter carrying no identifier is a 400 saying so")
+    void anEmptyIdListIsRefused(String ids) {
+        allow();
+
+        ResponseEntity<?> response = controller.resourceCosts(ACCOUNT_ID, ids, "2026-08", null);
+
+        assertEquals(400, response.getStatusCode().value());
+        assertEquals("An id is required", body(response).get("error"));
+        verifyNoInteractions(idResolver, metricsService);
+    }
+
+    @Test
+    @DisplayName("An absent ids parameter is a 400, not a request for the whole account")
+    void anAbsentIdListIsRefused() {
+        allow();
+
+        assertEquals(400, controller.resourceIdentities(ACCOUNT_ID, null).getStatusCode().value());
+    }
+
+    @Test
+    @DisplayName("The character limit is measured on the raw parameter, before splitting")
+    void theCharacterLimitIsMeasuredBeforeCleaning() {
+        /*
+         * The case that decides between two readings of the same rule. A 3,100-character parameter
+         * whose ids dedupe down to 2,900 characters is a 400 under "measure the parameter" and a
+         * 200 under "measure what survives cleaning". It is the first: that is the budget the URI
+         * actually spends, and it is the only measurement the client can make before it sends.
+         */
+        allow();
+        String duplicated = ("i-" + "0".repeat(98) + ",").repeat(31);
+        assertTrue(duplicated.length() > CurAdvancedMetricsService.MAX_IDS_CHARS);
+
+        ResponseEntity<?> response = controller.resourceCosts(ACCOUNT_ID, duplicated, null, null);
+
+        assertEquals(400, response.getStatusCode().value());
+        assertEquals("Too many characters of ids", body(response).get("error"));
+        assertTrue(String.valueOf(body(response).get("detail"))
+                .contains(String.valueOf(CurAdvancedMetricsService.MAX_IDS_CHARS)));
+        assertTrue(String.valueOf(body(response).get("detail"))
+                .contains(String.valueOf(duplicated.length())));
+    }
+
+    @Test
+    @DisplayName("Too many ids names the count, not the character limit")
+    void theCountLimitIsNamedWhenItIsTheOneBroken() {
+        allow();
+        List<String> many = new java.util.ArrayList<>();
+        for (int i = 0; i < CurAdvancedMetricsService.MAX_LOOKUP_IDS + 20; i++) {
+            many.add("i-" + i);
+        }
+        String ids = String.join(",", many);
+        assertTrue(ids.length() < CurAdvancedMetricsService.MAX_IDS_CHARS);
+
+        ResponseEntity<?> response = controller.resourceCosts(ACCOUNT_ID, ids, null, null);
+
+        assertEquals(400, response.getStatusCode().value());
+        assertEquals("Too many ids", body(response).get("error"));
+        assertTrue(String.valueOf(body(response).get("detail")).contains(String.valueOf(many.size())));
+    }
+
+    @Test
+    @DisplayName("A single id longer than the inventory's widest identifier column is refused")
+    void anOverlongIdIsRefused() {
+        allow();
+
+        ResponseEntity<?> response = controller.resourceCosts(ACCOUNT_ID,
+                "x".repeat(CurAdvancedMetricsService.MAX_ID_CHARS + 1), null, null);
+
+        assertEquals(400, response.getStatusCode().value());
+        assertEquals("An id is too long", body(response).get("error"));
+    }
+
+    @Test
+    @DisplayName("/resource-identities never caches and never resolves a CUR source")
+    void identitiesBypassTheCacheAndTheSource() {
+        /*
+         * Both halves matter. The answer is one indexed read, and the cache's 6h TTL plus
+         * stale-while-revalidate would hold an inventory answer past an inventory sync — silently
+         * rooting the connectivity tab on a resource that no longer exists. And this endpoint says
+         * which resource an id names, which is true whether or not a report covers the month, so a
+         * 409 here would be an answer to a question nobody asked.
+         */
+        allow();
+        when(cloudAccountRepository.findByAwsAccountId(ACCOUNT_ID)).thenReturn(List.of(account));
+        when(idResolver.curIdentifiers(eq(42L), any())).thenReturn(
+                new ResourceIdResolver.CurIdentifiers(
+                        Map.of("i-0abc", List.of("i-0abc")),
+                        Map.of("i-0abc", List.of("i-0abc")),
+                        Map.of("i-0abc", new ResourceIdResolver.CanonicalResource(
+                                "i-0abc", "EC2 Instance", "prod-web-01", "ap-south-1")),
+                        Set.of()));
+
+        ResponseEntity<?> response = controller.resourceIdentities(ACCOUNT_ID, "i-0abc");
+
+        assertEquals(200, response.getStatusCode().value());
+        ResourceCostJoin.ResourceIdentities identities =
+                (ResourceCostJoin.ResourceIdentities) response.getBody();
+        assertTrue(identities != null && identities.resolved() == 1);
+        assertEquals("i-0abc", identities.identities().get(0).requestedId());
+        verifyNoInteractions(insightCache, curSourceResolver, metricsService);
+    }
+
+    @Test
+    @DisplayName("An unreadable inventory is a 502, not a flow of silently blank costs")
+    void anUnreadableInventoryFails() {
+        // The tempting fallback — carry on with exact-equality candidates only — blanks every peer
+        // whose CUR id is an ARN and produces a flow that looks complete and under-reports.
+        allow();
+        when(cloudAccountRepository.findByAwsAccountId(ACCOUNT_ID)).thenReturn(List.of(account));
+        when(idResolver.curIdentifiers(anyLong(), any()))
+                .thenThrow(new RuntimeException("connection pool exhausted"));
+
+        ResponseEntity<?> response = controller.resourceIdentities(ACCOUNT_ID, "i-0abc");
+
+        assertEquals(502, response.getStatusCode().value());
+        assertEquals("Could not read the resource inventory", body(response).get("error"));
+    }
+
+    @Test
+    @DisplayName("Every id unanswerable answers 200 without asking Athena anything")
+    void nothingUsableSkipsAthena() {
+        // `IN ()` is not valid SQL and there is no question to put, so the guard belongs in the
+        // handler rather than being defended against inside the metrics service.
+        allow();
+        resolves();
+        when(idResolver.curIdentifiers(eq(42L), any())).thenReturn(
+                new ResourceIdResolver.CurIdentifiers(
+                        Map.of("shared", List.of()),
+                        Map.of("shared", List.of("shared")),
+                        Map.of(),
+                        Set.of("shared")));
+
+        ResponseEntity<?> response = controller.resourceCosts(ACCOUNT_ID, "shared", "2026-08", null);
+
+        assertEquals(200, response.getStatusCode().value());
+        ResourceCostJoin.ResourceCostsResponse costs =
+                (ResourceCostJoin.ResourceCostsResponse) response.getBody();
+        assertTrue(costs != null && costs.costs().isEmpty());
+        assertEquals(List.of("shared"), costs.ambiguous());
+        assertEquals(0, costs.pricedCount());
+        verifyNoInteractions(metricsService);
+    }
+
+    @Test
+    @DisplayName("/resource-costs prices through the keyed cache, on a bounded key")
+    void costsUseTheKeyedCacheOverload() {
+        allow();
+        resolves();
+        when(idResolver.curIdentifiers(eq(42L), any())).thenReturn(
+                new ResourceIdResolver.CurIdentifiers(
+                        Map.of("i-0abc", List.of("i-0abc")),
+                        Map.of("i-0abc", List.of("i-0abc")),
+                        Map.of(),
+                        Set.of()));
+        when(metricsService.getResourceCosts(any(), any(), any(), any(), any(),
+                eq(CostBasis.UNBLENDED)))
+                .thenReturn(new CurAdvancedMetricsService.ResourceGroupCosts(
+                        List.of(new CurAdvancedMetricsService.ResourceGroupCost("i-0abc", 1621.35)),
+                        1621.35, 1));
+
+        ResponseEntity<?> response = controller.resourceCosts(ACCOUNT_ID, "i-0abc", "2026-08", null);
+
+        assertEquals(200, response.getStatusCode().value());
+        ResourceCostJoin.ResourceCostsResponse costs =
+                (ResourceCostJoin.ResourceCostsResponse) response.getBody();
+        assertEquals(1, costs.pricedCount());
+        assertEquals(1621.35, costs.costs().get(0).cost(), 0.0001);
+
+        ArgumentCaptor<String> suffix = ArgumentCaptor.forClass(String.class);
+        verify(insightCache).getOrCompute(eq(ACCOUNT_ID), suffix.capture(), any());
+        // period and basis readable so CurInsightCache.isOpenMonth still finds the month, the ids
+        // hashed so the key cannot outgrow what cached_data.cache_key holds.
+        assertTrue(suffix.getValue().contains("period=2026-08"), suffix.getValue());
+        assertTrue(suffix.getValue().contains("basis=unblended"), suffix.getValue());
+        assertTrue(suffix.getValue().matches(".*&ids=[0-9a-f]{64}$"), suffix.getValue());
+    }
+
+    @Test
+    @DisplayName("The cost cache key is bounded and order-independent")
+    void theCostCacheKeyIsBoundedAndOrderIndependent() {
+        /*
+         * Asserted rather than trusted to arithmetic, because the failure it guards is silent: a
+         * key past what cached_data.cache_key holds still serves a correct 200 out of Redis while
+         * the durable tier stops persisting, so the only symptom is Athena being re-scanned on
+         * every cold start.
+         */
+        allow();
+        resolves();
+        lenient().when(idResolver.curIdentifiers(eq(42L), any())).thenReturn(
+                new ResourceIdResolver.CurIdentifiers(Map.of(), Map.of(), Map.of(), Set.of()));
+
+        /*
+         * MAX_LOOKUP_IDS ids, ARN-shaped but short, because full-length ARNs cannot reach this
+         * count: 100 of them is ~5 KB and MAX_IDS_CHARS refuses the request at 3 KB first. That is
+         * intended — for ARN-shaped ids the character budget binds before the count does, and the
+         * client reports how many connections it was able to price. The key's length does not
+         * depend on the ids either way, since they are hashed, which is the property being pinned.
+         */
+        List<String> arns = new java.util.ArrayList<>();
+        for (int i = 0; i < CurAdvancedMetricsService.MAX_LOOKUP_IDS; i++) {
+            arns.add(String.format("arn:aws:s3:::bkt-%04d", i));
+        }
+        String ids = String.join(",", arns);
+        assertTrue(ids.length() <= CurAdvancedMetricsService.MAX_IDS_CHARS, ids.length() + "");
+        controller.resourceCosts(ACCOUNT_ID, ids, "2026-08", null);
+        List<String> reversed = new java.util.ArrayList<>(arns);
+        java.util.Collections.reverse(reversed);
+        controller.resourceCosts(ACCOUNT_ID, String.join(",", reversed), "2026-08", null);
+
+        ArgumentCaptor<String> suffix = ArgumentCaptor.forClass(String.class);
+        verify(insightCache, times(2)).getOrCompute(eq(ACCOUNT_ID), suffix.capture(), any());
+        String first = suffix.getAllValues().get(0);
+        // PREFIX(13) + account(12) + "::" + the suffix, so the whole key stays near 154.
+        assertTrue(CurInsightCache.PREFIX.length() + ACCOUNT_ID.length() + 2 + first.length() <= 160,
+                first);
+        // Sorted before hashing, so two readers asking the same question hit the same entry.
+        assertEquals(first, suffix.getAllValues().get(1));
+    }
+
+    @Test
+    @DisplayName("Amortized on a trimmed report is a 422 naming the columns, through this endpoint too")
+    void costsSurfaceTheAmortizedRefusal() {
+        allow();
+        resolves();
+        when(idResolver.curIdentifiers(eq(42L), any())).thenReturn(
+                new ResourceIdResolver.CurIdentifiers(
+                        Map.of("i-0abc", List.of("i-0abc")),
+                        Map.of("i-0abc", List.of("i-0abc")),
+                        Map.of(),
+                        Set.of()));
+        when(metricsService.getResourceCosts(any(), any(), any(), any(), any(),
+                eq(CostBasis.AMORTIZED)))
+                .thenThrow(new ReportCannotAnswerException("the amortized cost basis",
+                        List.of("reservation_effective_cost")));
+
+        ResponseEntity<?> response =
+                controller.resourceCosts(ACCOUNT_ID, "i-0abc", "2026-08", "amortized");
+
+        assertEquals(422, response.getStatusCode().value());
+        assertEquals(List.of("reservation_effective_cost"), body(response).get("missingColumns"));
+    }
+
+    @Test
+    @DisplayName("An unusable period on /resource-costs is a 400, and nothing is cached or queried")
+    void costsRefuseAnUnusablePeriod() {
+        allow();
+
+        ResponseEntity<?> response = controller.resourceCosts(ACCOUNT_ID, "i-0abc", "2026-13", null);
+
+        assertEquals(400, response.getStatusCode().value());
+        assertEquals("Invalid period", body(response).get("error"));
+        verifyNoInteractions(insightCache, idResolver, metricsService);
     }
 
     // ── The month's end ─────────────────────────────────────────────────────────

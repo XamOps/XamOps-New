@@ -29,6 +29,12 @@ export const renderWithQuery = (ui: React.ReactElement) => {
   return {
     ...view,
     /**
+     * The client itself, for the assertions that are about which cache entries a component
+     * touches — the connectivity tab must not read or write the Cloud Map page's own topology
+     * entry, and only the client can say whether it did.
+     */
+    client,
+    /**
      * Re-renders with the same client, which is what the three cache-identity assertions need: a
      * prop change has to be measured against the cache the first render populated. The default
      * `rerender` replaces the root and would take the provider with it.

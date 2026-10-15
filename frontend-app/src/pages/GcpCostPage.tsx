@@ -345,6 +345,12 @@ const GcpCostPage: React.FC = () => {
                 // No unblended/amortized distinction in the BigQuery export, so there is nothing
                 // to toggle. Explicit null rather than omission: omitting takes the AWS default,
                 // which would render an AWS basis control over figures that have no such basis.
+                // The Connectivity tab is AWS-only. Azure has no topology endpoint at all;
+                // GCP has a graph but no batch per-resource cost query and no identifier
+                // reconciler, and the model is AWS-shaped — so the tab could only apologise. The
+                // same reason `labels` is already off here. Explicit null rather than omission,
+                // which takes the AWS default.
+                connectivity={null}
                 capabilitiesFetcher={null}
                 // The ledger, though — the export has a cost type on every line and a credit type
                 // on every credit, and nothing on this page has ever shown that split.

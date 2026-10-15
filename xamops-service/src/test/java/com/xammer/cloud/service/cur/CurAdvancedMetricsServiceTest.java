@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -1028,6 +1029,125 @@ class CurAdvancedMetricsServiceTest {
         assertEquals(2, byValue.size());
         assertEquals("(unassigned)", byValue.get(1).value());
         assertEquals(37L, byValue.get(1).resourceCount());
+    }
+
+    // ── The batch per-resource query, behind the connectivity tab ───────────────
+
+    @Test
+    @DisplayName("Every candidate reaches one IN list, with embedded quotes doubled")
+    void resourceCostsEscapesEveryCandidate() {
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        when(athena.query(any(), any(), sql.capture())).thenReturn(List.of());
+
+        service.getResourceCosts(source, account,
+                List.of("i-0abc", "arn:aws:rds:ap-south-1:123456789012:db:o'brien"),
+                start, end, CostBasis.UNBLENDED);
+
+        String emitted = sql.getValue();
+        assertTrue(emitted.contains("line_item_resource_id IN ('i-0abc',"
+                        + " 'arn:aws:rds:ap-south-1:123456789012:db:o''brien')"),
+                emitted);
+    }
+
+    @Test
+    @DisplayName("A resource whose charges and credits cancel is dropped, not reported as $0.00")
+    void resourceCostsUsesAbsoluteHaving() {
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        when(athena.query(any(), any(), sql.capture())).thenReturn(List.of());
+
+        service.getResourceCosts(source, account, List.of("i-0abc"), start, end,
+                CostBasis.UNBLENDED);
+
+        // Credits and refunds are negative, so a bare `SUM(cost) > 0.001` would keep a resource
+        // whose credits exceed its charges and drop one whose charges exceed its credits.
+        assertTrue(sql.getValue().contains("HAVING ABS(SUM("), sql.getValue());
+        assertTrue(sql.getValue().contains(")) > 0.001"), sql.getValue());
+    }
+
+    @Test
+    @DisplayName("The totals windows are inside the subquery and the LIMIT is the candidate count")
+    void resourceCostsSizesTheLimitToTheCandidateList() {
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        when(athena.query(any(), any(), sql.capture())).thenReturn(List.of());
+
+        // Longer than MAX_LOOKUP_IDS, which is reachable because each requested id contributes up
+        // to two candidates. A LIMIT of 100 here would drop the cheapest groups and leave
+        // pricedCount disagreeing with the total_cost window.
+        List<String> candidates = new java.util.ArrayList<>();
+        for (int i = 0; i < CurAdvancedMetricsService.MAX_LOOKUP_IDS + 23; i++) {
+            candidates.add("i-" + i);
+        }
+        service.getResourceCosts(source, account, candidates, start, end, CostBasis.UNBLENDED);
+
+        String emitted = sql.getValue();
+        int subqueryEnd = emitted.indexOf(") ORDER BY cost DESC");
+        assertTrue(subqueryEnd > 0, emitted);
+        assertTrue(emitted.indexOf("SUM(SUM(") < subqueryEnd, emitted);
+        assertTrue(emitted.indexOf("COUNT(*) OVER ()") < subqueryEnd, emitted);
+        assertTrue(emitted.endsWith(" LIMIT " + candidates.size()), emitted);
+    }
+
+    @Test
+    @DisplayName("No charge-type filter and no service or region scope — a peer's whole month")
+    void resourceCostsSumsEveryChargeTypeEverywhere() {
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        when(athena.query(any(), any(), sql.capture())).thenReturn(List.of());
+
+        service.getResourceCosts(source, account, List.of("i-0abc"), start, end,
+                CostBasis.UNBLENDED);
+
+        String emitted = sql.getValue();
+        // A peer is a different resource with its own services and regions, so scoping it by the
+        // focus resource's service would zero almost every peer.
+        assertTrue(!emitted.contains("line_item_line_item_type"), emitted);
+        assertTrue(!emitted.contains("product_product_name"), emitted);
+        assertTrue(!emitted.contains("product_region"), emitted);
+    }
+
+    @Test
+    @DisplayName("Both unpartitioned windows describe the matched set, not the returned page")
+    void resourceCostsReadsTheWindowsOffEveryRow() {
+        when(athena.query(any(), any(), anyString())).thenReturn(List.of(
+                Map.of("resource_id", "i-0abc", "cost", "1621.35",
+                        "total_cost", "2106.09", "group_count", "2"),
+                Map.of("resource_id", "vol-0aa1", "cost", "484.74",
+                        "total_cost", "2106.09", "group_count", "2")));
+
+        CurAdvancedMetricsService.ResourceGroupCosts costs = service.getResourceCosts(
+                source, account, List.of("i-0abc", "vol-0aa1"), start, end, CostBasis.UNBLENDED);
+
+        assertEquals(2, costs.groups().size());
+        assertEquals("i-0abc", costs.groups().get(0).curResourceId());
+        assertEquals(1621.35, costs.groups().get(0).cost(), 0.0001);
+        assertEquals(2106.09, costs.totalCost(), 0.0001);
+        assertEquals(2L, costs.groupCount());
+    }
+
+    @Test
+    @DisplayName("The amortized basis refuses a trimmed export rather than 502-ing in Athena")
+    void resourceCostsRefusesAmortizedWithoutTheCommitmentColumn() {
+        presentExcept("reservation_effective_cost");
+
+        ReportCannotAnswerException thrown = assertThrows(ReportCannotAnswerException.class,
+                () -> service.getResourceCosts(source, account, List.of("i-0abc"), start, end,
+                        CostBasis.AMORTIZED));
+
+        assertEquals("the amortized cost basis", thrown.question());
+        assertEquals(List.of("reservation_effective_cost"), thrown.missingColumns());
+        verifyNoInteractions(athena);
+    }
+
+    @Test
+    @DisplayName("The basis threads through to the cost expression")
+    void resourceCostsHonoursTheAmortizedBasis() {
+        everyColumnPresent();
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        when(athena.query(any(), any(), sql.capture())).thenReturn(List.of());
+
+        service.getResourceCosts(source, account, List.of("i-0abc"), start, end,
+                CostBasis.AMORTIZED);
+
+        assertTrue(sql.getValue().contains("reservation_effective_cost"), sql.getValue());
     }
 
     @Test

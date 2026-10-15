@@ -9,11 +9,13 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Metrics that exist only in a CUR — the columns sitting in the same rows the cost
@@ -55,6 +57,71 @@ public class CurAdvancedMetricsService {
      * arguing with a measurement rather than with a guess.
      */
     private static final int MAX_SERVICE_RESOURCES = 1000;
+
+    /*
+     * The three id limits for the batch per-resource lookup.
+     *
+     * Declared public, unlike the two caps above, which are private because only the query uses
+     * them. These are read by CurInsightsController — a different package, so package-private does
+     * not reach — and by both test classes. Public static final is the narrowest visibility that
+     * works, and the departure is noted so it reads as a decision rather than carelessness.
+     *
+     * They live here rather than on the controller because they are facts about the query:
+     * MAX_ID_CHARS is a statement about the identifier columns the SQL compares against, and
+     * MAX_LOOKUP_IDS bounds the IN list this layer builds. A copy in the controller would be a
+     * second number able to drift from the one the query is built under.
+     */
+
+    /**
+     * Ids per request. <b>Not</b> the {@code LIMIT} on the batch query: each requested id
+     * contributes up to two candidate identifiers ({@code resource_id} and {@code arn}), so the
+     * query can legitimately return up to twice this many groups and its {@code LIMIT} is the
+     * candidate count instead. See {@link #getResourceCosts}.
+     *
+     * <p>Not derived from the client's own peer cap. The Cloud Map model caps inferred egress edges
+     * per gateway, and the peer column itself has no cap at all — a security group referenced by
+     * 300 instances really does produce 300 peers. 100 is roughly four times the connectivity tab's
+     * default page, so expanding one level never trips it.
+     *
+     * <p>MIRRORED on the client as {@code MAX_COST_IDS} in {@code api/curInsightsApi.ts}, which
+     * trims to it before asking. Lowering this without lowering that turns a trimmed request into a
+     * 400 the reader cannot be told anything useful about.
+     */
+    public static final int MAX_LOOKUP_IDS = 100;
+
+    /**
+     * Total length of the raw {@code ids} request parameter, measured before splitting and before
+     * URL encoding. Checked ahead of the count, and on a different string from it.
+     *
+     * <p>MIRRORED on the client as {@code MAX_COST_IDS_CHARS}.
+     *
+     * <p>Bounded by the request URI budget and nothing else, because the cache key for this
+     * endpoint is a hash rather than the raw query string. Tomcat's
+     * {@code max-http-request-header-size} defaults to 8 KB and covers the request line plus
+     * headers together; nginx's {@code large_client_header_buffers} defaults to {@code 4 8k} and
+     * the request line must fit one buffer. Neither is overridden in this repo. ARN-shaped ids
+     * encode at roughly 1.3x ({@code :} becomes {@code %3A}), so 3 KB raw is under 4 KB on the
+     * wire, leaving over half the budget for the auth headers.
+     */
+    public static final int MAX_IDS_CHARS = 3_000;
+
+    /**
+     * {@code aws_cloud_resource.arn} is {@code varchar(2048)} and {@code resource_id} is
+     * {@code varchar(512)}, so 2048 is the longest string either identifier column can hold. An id
+     * longer than that cannot be one, so it is rejected rather than queried with — which also
+     * bounds what reaches {@link #literal}.
+     *
+     * <p>MIRRORED on the client as {@code MAX_COST_ID_CHARS}.
+     *
+     * <p>These three bound the REQUEST, not the emitted SQL, and the gap is worth naming: 100 short
+     * ids are ~2 KB of request but can resolve to 100 rows whose ARNs are 2 KB each, so the
+     * {@code IN} list {@link #getResourceCosts} emits can reach ~200 KB — inside Athena's
+     * 262,144-byte DML query-string quota, but not by much. It degrades legibly: Athena rejects the
+     * statement, the service answers 502, and the tab renders "costs could not be read" above a
+     * flow that still works. No cap is placed on the candidate list for it, because a cap there
+     * would silently drop resources from a priced set rather than failing the request.
+     */
+    public static final int MAX_ID_CHARS = 2_048;
 
     /**
      * How many offenders are listed inside one service.
@@ -1007,6 +1074,101 @@ public class CurAdvancedMetricsService {
         return new TopResources(resources, totalCost, groupCount);
     }
 
+    // ── A set of resources, each one's whole month ──────────────────────────────
+
+    /**
+     * What each of these resources cost for the month — one query, whatever the set size.
+     *
+     * <p>Backs the connectivity tab, which needs a figure for a resource and for everything
+     * attached to it in the same breath. Per-resource requests would be fan-out: one click on a NAT
+     * gateway with twenty egress peers would be twenty-one Athena scans of the same partitions.
+     *
+     * <p>Deliberately unlike {@link #getResourceChange} in two ways, both of which the caller
+     * states on screen rather than leaving as a discrepancy:
+     * <ul>
+     *   <li><b>No charge-type filter.</b> Every line type is summed — usage, {@code DiscountedUsage},
+     *       {@code SavingsPlanCoveredUsage}, fees, tax, credits. That is the resource's whole spend,
+     *       the quantity the drawer's Trend tab totals, and the right answer to "what is this
+     *       connected thing costing me". {@code getResourceChange} is usage-only because a unit rate
+     *       needs a quantity; nothing here computes a rate.</li>
+     *   <li><b>No service or region scope.</b> A peer is a different resource with its own services
+     *       and regions, so scoping it by the focus resource's service would zero almost every
+     *       peer.</li>
+     * </ul>
+     *
+     * <p>A consequence worth recording rather than leaving as an omission: {@link #servicePredicate}
+     * exists because the client echoes back a display word this layer substituted for a blank
+     * ({@code "Other"}, {@code "Global"}), so the predicate has to accept both forms. This query
+     * echoes back no display word — its only predicate is on raw identifiers, blank ids are
+     * rejected before they reach SQL, and nothing is substituted for a blank. So there is no
+     * inverse mapping to apply here.
+     *
+     * <p>{@code line_item_line_item_type} is not referenced at all — there is no charge-type filter
+     * — so there is nothing to guard and nothing to leave unguarded. The only optional columns
+     * reachable are the amortized ones, and {@code basisExpr} already guards those through
+     * {@link CurColumnCatalog} and refuses with a 422 naming them.
+     *
+     * @param curIds every candidate identifier, already proven single-claimant by
+     *               {@code ResourceIdResolver.curIdentifiers}. Must be non-empty: {@code IN ()} is
+     *               not valid SQL, and the caller skips this query entirely when there is nothing
+     *               safe to ask about.
+     * @param basis  which cost column to sum; {@code AMORTIZED} on a report without the commitment
+     *               columns throws {@link ReportCannotAnswerException}
+     */
+    public ResourceGroupCosts getResourceCosts(CurSource source, CloudAccount account,
+                                               Collection<String> curIds,
+                                               LocalDate start, LocalDate end, CostBasis basis) {
+        String cost = basisExpr(source, account, basis);
+        // Every id arrives over HTTP, so literal() is the load-bearing escape here rather than a
+        // formality — an id that terminated the string early would be an injection into the
+        // tenant's own billing data.
+        String inList = curIds.stream().map(this::literal).collect(Collectors.joining(", "));
+
+        String sql = "SELECT resource_id, cost, total_cost, group_count FROM ("
+                + "SELECT line_item_resource_id AS resource_id,"
+                + " SUM(" + cost + ") AS cost,"
+                // Unpartitioned, inside the subquery: computed after the GROUP BY and before the
+                // ORDER BY, which is the only ordering that works. Summing the returned rows
+                // instead would understate by whatever the limit cut.
+                + " SUM(SUM(" + cost + ")) OVER () AS total_cost,"
+                + " COUNT(*) OVER () AS group_count"
+                + " FROM " + source.qualifiedTable()
+                + " WHERE " + accountPredicate(account)
+                + " AND line_item_resource_id IN (" + inList + ")"
+                + " AND " + CurSql.partitionPredicate(source, start, end)
+                + " AND " + CurSql.usageDatePredicate(source, start, end)
+                + " GROUP BY line_item_resource_id"
+                // Credits and refunds are negative, so ABS — a resource whose charges and credits
+                // cancel is dropped rather than reported as a real $0.00, which is the one figure
+                // the connectivity tab must never show. Same threshold and reason as
+                // getChargesByService.
+                + " HAVING ABS(SUM(" + cost + ")) > 0.001"
+                // LIMIT is the CANDIDATE count, not MAX_LOOKUP_IDS. Each requested id contributes
+                // up to two candidates (resource_id and arn), and the join relies on both appearing
+                // for one resource — rows written under a bare id early in the month and under an
+                // ARN later. So 100 requested ids can yield 200 groups; a LIMIT of 100 would drop
+                // the cheapest and leave pricedCount disagreeing with the total_cost window. Sized
+                // to the candidate count, the page provably is the whole matched set.
+                + ") ORDER BY cost DESC LIMIT " + curIds.size();
+
+        List<ResourceGroupCost> groups = new ArrayList<>();
+        double totalCost = 0;
+        long groupCount = 0;
+        for (Map<String, String> row : athena.query(source, account, sql)) {
+            groups.add(new ResourceGroupCost(blankTo(row.get("resource_id"), ""),
+                    parse(row.get("cost"))));
+            // Identical on every row — the windows are unpartitioned.
+            totalCost = parse(row.get("total_cost"));
+            groupCount = (long) parse(row.get("group_count"));
+        }
+
+        logger.info("✅ [CUR] Resource costs — {} groups from {} candidates, ${} total"
+                        + " for account {} ({} to {}, {})",
+                groups.size(), curIds.size(), totalCost, account.getAwsAccountId(),
+                start, end, basis.wire());
+        return new ResourceGroupCosts(groups, totalCost, groupCount);
+    }
+
     // ── Tag coverage and cost allocation ────────────────────────────────────────
 
     /**
@@ -1907,6 +2069,30 @@ public class CurAdvancedMetricsService {
      * @param groupCount how many there were in total
      */
     public record TopResources(List<ResourceCost> resources, double totalCost, long groupCount) {
+    }
+
+    /**
+     * One CUR group from the batch per-resource query.
+     *
+     * @param curResourceId the {@code line_item_resource_id} the rows were grouped under. Named for
+     *                      what it is: a CUR identifier, neither a requested id nor an inventory
+     *                      id. {@code ResourceCostJoin} is the only thing that maps it back.
+     * @param cost          those rows' summed cost on the requested basis, every charge type
+     */
+    public record ResourceGroupCost(String curResourceId, double cost) {
+    }
+
+    /**
+     * Every group the batch per-resource query matched, with the totals that describe the set.
+     *
+     * @param groups     one entry per surviving group, cost-descending
+     * @param totalCost  the unpartitioned {@code SUM(SUM(cost)) OVER ()} window — the whole matched
+     *                   set rather than the returned page, which on this query is the same thing
+     *                   because the {@code LIMIT} is the candidate count
+     * @param groupCount the unpartitioned {@code COUNT(*) OVER ()} window, for the same reason
+     */
+    public record ResourceGroupCosts(List<ResourceGroupCost> groups, double totalCost,
+                                     long groupCount) {
     }
 
     /**

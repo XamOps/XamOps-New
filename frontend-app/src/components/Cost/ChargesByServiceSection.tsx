@@ -19,6 +19,7 @@ import ChargeTypeReconciliation, {
   type ChargeTypeReconciliationCopy,
 } from './ChargeTypeReconciliation';
 import CostBasisToggle from './CostBasisToggle';
+import type { ConnectivityFetchers } from './ResourceConnectivityTab';
 import ServiceResourcesDrawer, {
   type ServiceResourcesCopy,
   type ServiceSelection,
@@ -171,6 +172,8 @@ interface ChargesByServiceSectionProps {
   resourcesInsightName?: string;
   /** Whether resource rows in the panel offer the label control. Off for GCP. */
   labels?: boolean;
+  /** Where the panel's per-resource drill-down's Connectivity tab reads from. Null omits it. */
+  connectivity?: ConnectivityFetchers | null;
   /** Where the panel's per-resource drill-down reads from. */
   detailFetcher?: (
     accountId: string,
@@ -350,6 +353,7 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
   resourcesInsightName = 'top-resources',
   labels = true,
   detailFetcher,
+  connectivity,
   capabilitiesFetcher = fetchReportCapabilities,
   chargeTypesFetcher = fetchChargeTypes,
   scopedResourcesFetcher,
@@ -938,6 +942,7 @@ const ChargesByServiceSection: React.FC<ChargesByServiceSectionProps> = ({
           scopedFetcher={scopedResourcesFetcher}
           basis={basis}
           detailFetcher={detailFetcher}
+          connectivity={connectivity}
           insightName={resourcesInsightName}
           currency={currency}
           labels={labels}

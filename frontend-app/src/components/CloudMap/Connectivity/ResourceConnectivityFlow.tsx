@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
-import { AWS_ICONS, NODE_TYPE_DATA, TAILWIND_COLORS } from '../../../types/cloudmap';
 import type { GraphElement, NodeData } from '../../../types/cloudmap';
+import { shortenId as shorten } from '../../../utils/shortenId';
+// Moved out rather than copied, so the compact flow in the cost drawer and this canvas share one
+// glyph table and one tooltip builder.
+import { TypeIcon, hoverText } from './connectivityView';
 import {
   CCOLS,
   CFLOW,
@@ -120,35 +123,6 @@ function usePrefersReducedMotion(): boolean {
 }
 
 const VIEW_EASE = '220ms cubic-bezier(0.22, 1, 0.36, 1)';
-
-/** Service hue for a node type, falling back to a neutral grey. */
-const hueFor = (type: string): string => {
-  const info = NODE_TYPE_DATA[type];
-  const palette = info ? TAILWIND_COLORS[info.color as keyof typeof TAILWIND_COLORS] : undefined;
-  return palette ? palette[500] : '#94a3b8';
-};
-
-/** Shortens a long id from the middle — the ends of an ARN carry the identity. */
-const shorten = (id: string, max = 34): string => {
-  if (id.length <= max) return id;
-  const head = Math.ceil((max - 1) / 2);
-  return `${id.slice(0, head)}…${id.slice(id.length - (max - head - 1))}`;
-};
-
-/**
- * Hover text for a card, one line per line the card shows.
- *
- * <p>Every card in this view packs three lines into a fixed-width box and truncates all of
- * them, so an id, a CIDR or a "type · location · connections" summary is routinely cut
- * mid-word. The native tooltip is the only place that text can be recovered, which means it
- * has to carry what the card actually displays rather than a shorter restatement of it: a
- * title that stops before the line the reader is squinting at is no help.
- *
- * <p>Blank entries are dropped instead of leaving empty lines, so a card with no facts and no
- * state does not open a tooltip padded with gaps.
- */
-const hoverText = (...lines: (string | false | null | undefined)[]): string =>
-  lines.filter((line): line is string => Boolean(line && line.trim())).join('\n');
 
 /** Which column a click just opened, so the canvas can pan to it. */
 type Level = 'region' | 'vpc' | 'subnet' | 'service' | 'resource';
@@ -1330,31 +1304,6 @@ const StateChip: React.FC<{ state: string }> = ({ state }) => {
       ].join(' ')}
     >
       {state}
-    </span>
-  );
-};
-
-/**
- * The service icon, or a hue-tinted glyph when there is no artwork for the type.
- *
- * Mirrors what the live canvas does for unknown types rather than repeating one generic AWS
- * mark across every unrecognised node.
- */
-const TypeIcon: React.FC<{ type: string }> = ({ type }) => {
-  const src = AWS_ICONS[type];
-  if (src) {
-    return (
-      <img src={src} alt="" aria-hidden="true" width={18} height={18}
-        className="flex-shrink-0 object-contain" />
-    );
-  }
-  return (
-    <span
-      aria-hidden="true"
-      className="w-[18px] h-[18px] rounded flex items-center justify-center flex-shrink-0 text-[9px] font-bold text-white"
-      style={{ backgroundColor: hueFor(type) }}
-    >
-      {(type || '?').slice(0, 1).toUpperCase()}
     </span>
   );
 };

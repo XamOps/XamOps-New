@@ -267,6 +267,12 @@ const AzureCostPage: React.FC = () => {
                 // Cost Management already returns AmortizedCost by its own choice, so a toggle here
                 // would be a control over a decision made upstream. Explicit null rather than
                 // omission, which would take the AWS default and render the control anyway.
+                // The Connectivity tab is AWS-only. Azure has no topology endpoint at all;
+                // GCP has a graph but no batch per-resource cost query and no identifier
+                // reconciler, and the model is AWS-shaped — so the tab could only apologise. The
+                // same reason `labels` is already off here. Explicit null rather than omission,
+                // which takes the AWS default.
+                connectivity={null}
                 capabilitiesFetcher={null}
                 // The ledger works: Cost Management groups by ChargeType, and nothing on this page
                 // has ever shown that split.

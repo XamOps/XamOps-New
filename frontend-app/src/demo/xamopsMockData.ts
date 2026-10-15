@@ -907,6 +907,18 @@ export const demoCloudMapVpcs = [
 ];
 
 // ─── /api/xamops/cloudmap/graph ──────────────────────────────────────────────
+//
+// Node ids are the *inventory short id* of the matching `demoTopResources` row, not invented
+// names, because the cost drawer's Connectivity tab matches a resource to a node by exact
+// equality against those identifiers. Written independently, the two fixtures lined up on
+// nothing — not one id was shared — so every demo resource landed in "not in the account
+// topology" and a working feature looked broken.
+//
+// Labels are unchanged. Three nodes have no `demoTopResources` row at all (`i-0abc1006`,
+// `i-0abc1007`, `igw-001`), and the two `alb-*` nodes keep their ids deliberately: a load
+// balancer is exactly the type the billing-to-inventory join cannot reach on an account served by
+// a describe scan, so they render the real "no cost attributable" sentence. A demo that quietly
+// worked where production does not would be the worse of the two options.
 export const demoCloudMapGraph: object[] = [
   // VPC node (parent)
   { group: 'nodes', data: { id: 'vpc-001', label: 'prod-vpc\n10.0.0.0/16', type: 'VPC' } },
@@ -916,29 +928,38 @@ export const demoCloudMapGraph: object[] = [
   { group: 'nodes', data: { id: 'subnet-003', label: 'subnet-003\n10.0.3.0/24\nus-east-1a', type: 'Subnet', parent: 'vpc-001' } },
   // Internet Gateway
   { group: 'nodes', data: { id: 'igw-001', label: 'igw-001\nInternet Gateway', type: 'Internet Gateway', parent: 'vpc-001' } },
-  // Load Balancers
+  // Load Balancers — unpriceable by design, see the note above
   { group: 'nodes', data: { id: 'alb-prod-web-001', label: 'prod-web-alb\nApplication LB', type: 'Load Balancer', parent: 'subnet-001' } },
   { group: 'nodes', data: { id: 'alb-prod-api-001', label: 'prod-api-alb\nInternal LB',    type: 'Load Balancer', parent: 'subnet-002' } },
   // EC2 Instances
-  { group: 'nodes', data: { id: 'i-0abc1001', label: 'prod-web-01\nt3.large',   type: 'EC2 Instance', parent: 'subnet-001' } },
-  { group: 'nodes', data: { id: 'i-0abc1002', label: 'prod-api-01\nm5.xlarge',  type: 'EC2 Instance', parent: 'subnet-001' } },
-  { group: 'nodes', data: { id: 'i-0abc1005', label: 'prod-worker-01\nc5.2xl',  type: 'EC2 Instance', parent: 'subnet-002' } },
+  { group: 'nodes', data: { id: 'i-0abc1001a2b3c4d5e', label: 'prod-web-01\nt3.large',   type: 'EC2 Instance', parent: 'subnet-001' } },
+  { group: 'nodes', data: { id: 'i-0abc1002a2b3c4d5e', label: 'prod-api-01\nm5.xlarge',  type: 'EC2 Instance', parent: 'subnet-001' } },
+  { group: 'nodes', data: { id: 'i-0abc1003a2b3c4d5e', label: 'prod-worker-01\nc5.2xl',  type: 'EC2 Instance', parent: 'subnet-002' } },
   { group: 'nodes', data: { id: 'i-0abc1006', label: 'prod-worker-02\nc5.2xl',  type: 'EC2 Instance', parent: 'subnet-002' } },
   { group: 'nodes', data: { id: 'i-0abc1007', label: 'prod-db-proxy\nr5.2xl',   type: 'EC2 Instance', parent: 'subnet-003' } },
-  // RDS
-  { group: 'nodes', data: { id: 'rds-prod-001', label: 'rds-prod-postgres\ndb.r5.large', type: 'RDS Instance', parent: 'subnet-003' } },
-  // S3
-  { group: 'nodes', data: { id: 's3-001', label: 'xammer-data-lake\nS3 Bucket', type: 'S3 Bucket' } },
+  // EBS volume and NAT gateway: the two resources the connectivity flow is most often opened for,
+  // and both were missing from this fixture entirely.
+  { group: 'nodes', data: { id: 'vol-0aa1122334455667', label: 'prod-web-01-data\n500 GiB gp3', type: 'EBS Volume', parent: 'subnet-001' } },
+  { group: 'nodes', data: { id: 'nat-0aa11bb22cc33dd44', label: 'prod-nat-a\nNAT Gateway', type: 'NAT Gateway', parent: 'subnet-002' } },
+  // RDS — its short id is shared with the EKS cluster in demoTopResources, which is the
+  // collision the join refuses to guess at. See demoResourceCosts.
+  { group: 'nodes', data: { id: 'xammer-prod', label: 'rds-prod-postgres\ndb.r5.large', type: 'RDS Instance', parent: 'subnet-003' } },
+  // S3 and Lambda carry no VPC, so they file under "Outside any VPC"
+  { group: 'nodes', data: { id: 'xammer-prod-assets', label: 'xammer-data-lake\nS3 Bucket', type: 'S3 Bucket' } },
+  { group: 'nodes', data: { id: 'image-processor', label: 'image-processor\nLambda', type: 'Lambda Function' } },
   // Edges
   { group: 'edges', data: { id: 'e-igw-alb1', source: 'igw-001',         target: 'alb-prod-web-001', label: 'inbound' } },
-  { group: 'edges', data: { id: 'e-alb1-ec2-1', source: 'alb-prod-web-001', target: 'i-0abc1001',      label: ':80'    } },
-  { group: 'edges', data: { id: 'e-alb1-ec2-2', source: 'alb-prod-web-001', target: 'i-0abc1002',      label: ':80'    } },
-  { group: 'edges', data: { id: 'e-alb2-w1',  source: 'alb-prod-api-001', target: 'i-0abc1005',      label: ':8080'  } },
+  { group: 'edges', data: { id: 'e-alb1-ec2-1', source: 'alb-prod-web-001', target: 'i-0abc1001a2b3c4d5e', label: ':80'    } },
+  { group: 'edges', data: { id: 'e-alb1-ec2-2', source: 'alb-prod-web-001', target: 'i-0abc1002a2b3c4d5e', label: ':80'    } },
+  { group: 'edges', data: { id: 'e-alb2-w1',  source: 'alb-prod-api-001', target: 'i-0abc1003a2b3c4d5e', label: ':8080'  } },
   { group: 'edges', data: { id: 'e-alb2-w2',  source: 'alb-prod-api-001', target: 'i-0abc1006',      label: ':8080'  } },
-  { group: 'edges', data: { id: 'e-ec2-rds',  source: 'i-0abc1007',       target: 'rds-prod-001',    label: ':5432'  } },
-  { group: 'edges', data: { id: 'e-w1-rds',   source: 'i-0abc1005',       target: 'i-0abc1007',      label: 'proxy'  } },
+  { group: 'edges', data: { id: 'e-ec2-rds',  source: 'i-0abc1007',       target: 'xammer-prod',     label: ':5432'  } },
+  { group: 'edges', data: { id: 'e-w1-rds',   source: 'i-0abc1003a2b3c4d5e', target: 'i-0abc1007',   label: 'proxy'  } },
   { group: 'edges', data: { id: 'e-w2-rds',   source: 'i-0abc1006',       target: 'i-0abc1007',      label: 'proxy'  } },
-  { group: 'edges', data: { id: 'e-ec2-s3',   source: 'i-0abc1005',       target: 's3-001',          label: 's3'     } },
+  { group: 'edges', data: { id: 'e-ec2-s3',   source: 'i-0abc1003a2b3c4d5e', target: 'xammer-prod-assets', label: 's3' } },
+  { group: 'edges', data: { id: 'e-vol-web',  source: 'vol-0aa1122334455667', target: 'i-0abc1001a2b3c4d5e', label: 'attached to' } },
+  { group: 'edges', data: { id: 'e-w1-nat',   source: 'i-0abc1003a2b3c4d5e', target: 'nat-0aa11bb22cc33dd44', label: 'egress via' } },
+  { group: 'edges', data: { id: 'e-lambda-s3', source: 'image-processor',  target: 'xammer-prod-assets', label: 'reads' } },
 ];
 
 // ─── Generic empty fallback ───────────────────────────────────────────────────
@@ -2964,6 +2985,154 @@ export const demoServiceResources = (service: string) => {
     resources,
     totalCost: resources.reduce((sum, r) => sum + r.cost, 0),
     groupCount: resources.length,
+  };
+};
+
+// ─── /api/xamops/cur-insights/resource-identities + /resource-costs ───────────
+//
+// The two reads behind the cost drawer's Connectivity tab. The first says which resource a
+// billing id names and which graph node ids could be it; the second prices a set of them.
+//
+// This table is the demo's stand-in for `aws_cloud_resource`, which is the only place a
+// resource's ARN and its short id sit on one row. Keyed by the CUR id — what
+// `demoTopResources` holds — with the short id being the graph node id in `demoCloudMapGraph`.
+// Only resources that are in the graph are listed, plus the two rows that are here precisely
+// because they are not: the EKS cluster, whose short id collides with the RDS instance's, and the
+// SSM facet of the first instance, whose short id collides with the instance's own.
+const DEMO_INVENTORY: {
+  curId: string; shortId: string; type: string; name: string; region: string;
+}[] = [
+  { curId: 'i-0abc1001a2b3c4d5e', shortId: 'i-0abc1001a2b3c4d5e', type: 'EC2 Instance', name: 'prod-web-01', region: 'ap-south-1' },
+  // The same machine, indexed again under the SSM agent's ARN — which is how production looks:
+  // on account 605134457560 every EC2 instance is claimed by its EC2, SSM and STS ARNs, and 73 of
+  // 80 instances were blanked by counting those strings. Listed so the demo exercises the
+  // AWS-generated carve-out, not just the name collision below.
+  { curId: 'arn:aws:ssm:ap-south-1:605134400000:managed-instance/i-0abc1001a2b3c4d5e', shortId: 'i-0abc1001a2b3c4d5e', type: 'SSM Managed Instance', name: 'prod-web-01', region: 'ap-south-1' },
+  { curId: 'i-0abc1002a2b3c4d5e', shortId: 'i-0abc1002a2b3c4d5e', type: 'EC2 Instance', name: 'prod-api-01', region: 'ap-south-1' },
+  { curId: 'i-0abc1003a2b3c4d5e', shortId: 'i-0abc1003a2b3c4d5e', type: 'EC2 Instance', name: 'prod-worker-01', region: 'ap-south-1' },
+  { curId: 'vol-0aa1122334455667', shortId: 'vol-0aa1122334455667', type: 'EBS Volume', name: 'prod-web-01-data', region: 'ap-south-1' },
+  { curId: 'nat-0aa11bb22cc33dd44', shortId: 'nat-0aa11bb22cc33dd44', type: 'NAT Gateway', name: 'prod-nat-a', region: 'ap-south-1' },
+  { curId: 'arn:aws:rds:ap-south-1:605134400000:db:xammer-prod', shortId: 'xammer-prod', type: 'RDS Instance', name: 'xammer-prod', region: 'ap-south-1' },
+  // Same short id as the RDS instance above — `db:xammer-prod` and `cluster/xammer-prod` both
+  // tail to `xammer-prod`. Both are live, so neither can be priced under that bare name.
+  { curId: 'arn:aws:eks:ap-south-1:605134400000:cluster/xammer-prod', shortId: 'xammer-prod', type: 'EKS Cluster', name: 'xammer-prod', region: 'ap-south-1' },
+  { curId: 'arn:aws:s3:::xammer-prod-assets', shortId: 'xammer-prod-assets', type: 'S3 Bucket', name: 'xammer-prod-assets', region: 'ap-south-1' },
+  { curId: 'arn:aws:lambda:ap-south-1:605134400000:function:image-processor', shortId: 'image-processor', type: 'Lambda Function', name: 'image-processor', region: 'ap-south-1' },
+];
+
+/**
+ * Every inventory row claiming an identifier, in either vocabulary.
+ *
+ * <p>Matched against both forms, like the real repository query, so the answer does not depend on
+ * which vocabulary the caller holds. More than one row means the identifier names two live
+ * resources, which is the case the real resolver refuses to guess at.
+ */
+const demoClaimants = (id: string) =>
+  DEMO_INVENTORY.filter((row) => row.curId === id || row.shortId === id);
+
+/**
+ * The id space AWS mints and never reissues — a short lowercase prefix, a hyphen, eight or more
+ * hex digits. Mirrors `ResourceIdResolver.isAwsGeneratedId`, so demo and production disagree about
+ * nothing: several claimants on one of these are facets of one machine, while two resources
+ * genuinely can both be named `xammer-prod`.
+ */
+const DEMO_AWS_GENERATED_ID = /^[a-z]{1,12}-[0-9a-f]{8,}$/;
+
+/**
+ * The one resource an identifier names, or null when nothing can be said.
+ *
+ * <p>Null for an id no row claims, and for a customer-chosen name two rows claim. An
+ * AWS-generated id resolves through its facets to the first of them, which is what lets an EC2
+ * instance price while the bare `xammer-prod` still cannot.
+ */
+const demoNamedResource = (id: string) => {
+  const claimants = demoClaimants(id);
+  if (claimants.length === 1) return claimants[0];
+  return claimants.length > 1 && DEMO_AWS_GENERATED_ID.test(id) ? claimants[0] : null;
+};
+
+/** Comma-separated ids as the endpoints receive them, cleaned the way the backend cleans them. */
+const demoIds = (ids: string): string[] =>
+  Array.from(new Set(ids.split(',').map((id) => id.trim()).filter(Boolean)));
+
+/**
+ * Which resource each id names — /api/xamops/cur-insights/resource-identities/{accountId}
+ *
+ * <p>An id the table does not know comes back **present**, with `resourceId: null` and itself as
+ * the only node-id candidate. That is what the real endpoint does, and it is what keeps "this
+ * resource is not in the account topology" reachable in demo rather than unreachable.
+ */
+export const demoResourceIdentities = (ids: string) => {
+  const requested = demoIds(ids);
+  const identities = requested.map((id) => {
+    // Two live claimants on a name: the id is still locatable — it names a node — but no row can
+    // be named as "the" resource without picking one arbitrarily.
+    const row = demoNamedResource(id);
+    return {
+      requestedId: id,
+      nodeIdCandidates: row
+        ? Array.from(new Set([row.shortId, row.curId]))
+        : [id],
+      resourceId: row ? row.shortId : null,
+      resourceType: row ? row.type : null,
+      resourceName: row ? row.name : null,
+      region: row ? row.region : null,
+    };
+  });
+  return {
+    identities,
+    requested: requested.length,
+    resolved: identities.filter((entry) => entry.resourceId !== null).length,
+  };
+};
+
+/**
+ * What a set of resources cost — /api/xamops/cur-insights/resource-costs/{accountId}
+ *
+ * <p>Derived from `demoTopResources` rather than hand-written, so the figures here cannot drift
+ * from the 18,420.75 the rest of the Cost page reconciles to.
+ *
+ * <p>Reproduces the collision honestly rather than papering over it: a request for the RDS
+ * instance's own ARN prices, because an ARN is single-claimant by construction, while a request
+ * for the bare `xammer-prod` — which is what the graph node sends when the database appears as
+ * someone else's peer — comes back in `ambiguous` with no figure, and the row renders "cost not
+ * attributable to this resource alone". Ids with no row come back absent, which is the
+ * "no cost attributable" case.
+ *
+ * <p>And reproduces the carve-out with it: `i-0abc1001a2b3c4d5e` is claimed twice as well, by the
+ * instance and by its SSM facet, and prices anyway — AWS minted that id, so the two claimants are
+ * one machine. The two cases sit side by side on purpose, because they are the pair that cannot be
+ * told apart by ARN structure.
+ */
+export const demoResourceCosts = (ids: string) => {
+  const requested = demoIds(ids);
+  const ambiguous: string[] = [];
+  const costs: { resourceId: string; cost: number }[] = [];
+
+  for (const id of requested) {
+    const row = demoNamedResource(id);
+    if (!row && demoClaimants(id).length > 1) {
+      ambiguous.push(id);
+      continue;
+    }
+    const curId = row ? row.curId : id;
+    const cost = demoTopResources.resources
+      .filter((resource) => resource.resourceId === curId)
+      .reduce((sum, resource) => sum + resource.cost, 0);
+    // Charges and credits that cancel within a tenth of a cent are dropped rather than reported
+    // as a real zero, exactly as the query's own HAVING does.
+    if (Math.abs(cost) > 0.001) costs.push({ resourceId: id, cost });
+  }
+
+  costs.sort((a, b) => b.cost - a.cost);
+  return {
+    costs,
+    ambiguous,
+    requestedCount: requested.length,
+    pricedCount: costs.length,
+    totalCost: costs.reduce((sum, entry) => sum + entry.cost, 0),
+    groupCount: costs.length,
+    basis: 'unblended',
   };
 };
 

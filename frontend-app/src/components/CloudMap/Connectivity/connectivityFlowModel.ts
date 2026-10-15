@@ -339,7 +339,18 @@ export function fieldOf(node: NodeData, key: 'state' | 'region'): string {
   return typeof raw === 'string' && !isEmptyValue(raw) ? raw : '';
 }
 
-const labelOf = (node: NodeData): string =>
+/**
+ * A node's display name, falling back to its id.
+ *
+ * <p>Exported for the cost drawer's compact flow, which names a focus resource the model does not
+ * hand back as a peer. No logic change — both views have to agree about what a node is called.
+ *
+ * <p>{@link bareId} is deliberately NOT exported alongside it: it splits on the last `::` with no
+ * test that the prefix is a VPC id, so outside this module — where ids are known to be either
+ * unscoped or `vpc-xxx::`-scoped — it would truncate any ARN with an empty region or account
+ * segment. A caller that needs to tolerate a scope prefix should test for one.
+ */
+export const labelOf = (node: NodeData): string =>
   node.label && node.label.trim() ? node.label : node.id;
 
 /**

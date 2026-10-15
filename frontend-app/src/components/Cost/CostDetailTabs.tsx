@@ -18,6 +18,7 @@ import { AriaTabGroup } from '../ui/Tabs';
 import ChargesByServiceSection, { type ChargesByServiceCopy } from './ChargesByServiceSection';
 import { type ChargeTypeReconciliationCopy } from './ChargeTypeReconciliation';
 import { type ServiceResourcesCopy } from './ServiceResourcesDrawer';
+import { type ConnectivityFetchers } from './ResourceConnectivityTab';
 import PriceVsVolumeSection from './PriceVsVolumeSection';
 
 /**
@@ -138,6 +139,14 @@ interface CostDetailTabsProps {
     scope?: { service?: string; region?: string },
   ) => Promise<ResourceChange | null>;
   /**
+   * Where the per-resource panel's Connectivity tab reads from, or `null` to omit that tab.
+   *
+   * <p>Defaults to the AWS trio. Both provider pages pass `null` explicitly, for the reasons on
+   * `ResourceCostDrawer.connectivity` — omitting it would take the AWS default and render a tab
+   * that can only apologise.
+   */
+  connectivity?: ConnectivityFetchers | null;
+  /**
    * Where the basis capability probe reads from. Defaults to the AWS report.
    *
    * <p>Pass `null` for a billing source with no unblended/amortized distinction, which suppresses
@@ -192,6 +201,7 @@ const CostDetailTabs: React.FC<CostDetailTabsProps> = ({
   resourcesCopy,
   changeFetcher,
   detailFetcher,
+  connectivity,
   capabilitiesFetcher = fetchReportCapabilities,
   chargeTypesFetcher = fetchChargeTypes,
   scopedResourcesFetcher = fetchServiceResources,
@@ -291,6 +301,7 @@ const CostDetailTabs: React.FC<CostDetailTabsProps> = ({
           resourcesInsightName={`${insightPrefix}top-resources`}
           labels={labels}
           detailFetcher={detailFetcher}
+          connectivity={connectivity}
           /* The basis toggle, the reconciliation ledger and the scoped per-service query. Two
              independent gates: a provider with no cost basis still wants the ledger. */
           capabilitiesFetcher={capabilitiesFetcher}

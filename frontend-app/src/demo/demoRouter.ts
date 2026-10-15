@@ -157,6 +157,13 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(xamops.demoReportCapabilities);
   if (url.includes('/api/xamops/cur-insights/data-transfer'))
     return makeResponse(xamops.demoDataTransferCosts);
+  // The connectivity tab's two reads. Both read the query string, because the id set *is* the
+  // request; `param` decodes, so ARNs with ':' and '/' survive. Neither pattern is a substring of
+  // another CUR route, so the order within this block is free.
+  if (url.includes('/api/xamops/cur-insights/resource-identities'))
+    return makeResponse(xamops.demoResourceIdentities(param(url, 'ids')));
+  if (url.includes('/api/xamops/cur-insights/resource-costs'))
+    return makeResponse(xamops.demoResourceCosts(param(url, 'ids')));
 
   // Costs (with "s") — breakdown, historical trend, forecast
   if (url.includes('/api/xamops/costs/breakdown'))

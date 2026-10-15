@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ServiceCharge, TopResources } from '../../../api/curInsightsApi';
 import CostDetailTabs from '../CostDetailTabs';
@@ -82,6 +82,41 @@ describe.each([
       screen.getByRole('button', { name: /Reconcile this total by charge type/ }),
     );
     await waitFor(() => expect(ledger).toHaveBeenCalled());
+  });
+
+  it('renders no Connectivity tab on the per-resource panel', async () => {
+    /*
+     * The tab is AWS-only: Azure has no topology endpoint at all, and GCP has a graph but no batch
+     * per-resource cost query and no identifier reconciler. A tab strip entry that can only
+     * apologise is worse than no entry, and both pages pass `connectivity={null}` for the same
+     * reason they already pass `labels={false}`.
+     */
+    renderWithQuery(
+      <CostDetailTabs
+        accountId="project-or-subscription"
+        insightPrefix={prefix}
+        chargesFetcher={() => Promise.resolve(CHARGES)}
+        resourcesFetcher={() => Promise.resolve(RESOURCES)}
+        detailFetcher={() => Promise.resolve(null)}
+        capabilitiesFetcher={null}
+        chargeTypesFetcher={null}
+        scopedResourcesFetcher={null}
+        connectivity={null}
+        labels={false}
+      />,
+    );
+    await screen.findByText('Amazon Simple Storage Service');
+    await openTheService();
+    await userEvent.click(
+      await screen.findByRole('button', { name: /xammer-prod-assets/ }),
+    );
+
+    // Scoped to the drawer's own strip: the card above it has a tablist too, and this assertion
+    // is about the drawer's four-versus-three.
+    const strip = await screen.findByRole('tablist', { name: 'Resource detail' });
+    expect(within(strip).getAllByRole('tab').map((tab) => tab.textContent))
+      .toEqual(['Change', 'Breakdown', 'Trend']);
+    expect(screen.queryByRole('tab', { name: 'Connectivity' })).not.toBeInTheDocument();
   });
 });
 

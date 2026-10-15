@@ -592,6 +592,217 @@ export const fetchResourceChange = async (
   return readShape<ResourceChange>(res, isRecordWith(['lines', 'daily'], ['costChange']));
 };
 
+// ── A set of resources: which they are, and what they cost ───────────────────
+
+/** Which resource one id names, and which graph node ids could be it. */
+export interface ResourceIdentity {
+  /** The id as asked about, so an entry is matched by value and never by position. */
+  requestedId: string;
+  /**
+   * Every identifier the inventory holds for the resource, in the order to try them against a
+   * graph index — `resource_id` first, because that is the id the inventory-plane graph path emits
+   * and that is the preferred path; the ARN hits instead on the describe-scan path, for the dozen
+   * types whose service API identifier *is* the ARN.
+   *
+   * Never empty: an id the inventory does not know carries itself, which is correct — with no row,
+   * the only string that could name a node is the one the caller already has.
+   */
+  nodeIdCandidates: string[];
+  /**
+   * The inventory's short id, for display. Null when the inventory does not know the id.
+   *
+   * **Not "the graph id".** It is always the ARN tail, so for a load balancer it is
+   * `50dc6c495c0c9188` while the describe-path graph names the node `my-lb` — reading this field as
+   * the node id reports every load balancer as missing from the topology. Match on
+   * `nodeIdCandidates` instead.
+   */
+  resourceId: string | null;
+  /** The UI-facing type ("EC2 Instance"), or null when unresolved. */
+  resourceType: string | null;
+  resourceName: string | null;
+  region: string | null;
+}
+
+export interface ResourceIdentities {
+  /** One entry per requested id, in request order, including the unresolved ones. */
+  identities: ResourceIdentity[];
+  requested: number;
+  /** How many matched an inventory row. */
+  resolved: number;
+}
+
+/** One resource's whole month, keyed by the id that was asked about. */
+export interface ResourceCostEntry {
+  /** The id **as requested**, not the CUR id it matched. */
+  resourceId: string;
+  /** Every charge type, across every service and region, on the requested basis. */
+  cost: number;
+}
+
+export interface ResourceCostsResponse {
+  /** One entry per priced id, cost-descending. An absent id has no attributable cost. */
+  costs: ResourceCostEntry[];
+  /**
+   * Ids whose cost cannot be attributed to one resource: two live resources answer to the name, so
+   * pricing either would be a guess. Rendered as its own sentence, not as "no cost".
+   */
+  ambiguous: string[];
+  requestedCount: number;
+  /** How many came back with a figure, so the caller can state the gap in its own words. */
+  pricedCount: number;
+  /** The matched set's total. Not the sum of `costs` when one resource is priced under two names. */
+  totalCost: number;
+  groupCount: number;
+  basis: string;
+}
+
+/*
+ * Mirrors CurAdvancedMetricsService.MAX_LOOKUP_IDS / MAX_IDS_CHARS / MAX_ID_CHARS.
+ *
+ * Duplicated deliberately. The Java side argues against a second copy of a limit — "a number that
+ * can drift from the one the query is built under" — and that argument is about the server's own
+ * layers, where one copy is avoidable because it can read the field. This copy cannot be: the
+ * client has to know the limit in order to trim to it, and the alternative is sending a request it
+ * knows may 400 and then rendering a failure for a condition it could have described. Lowering a
+ * Java constant without lowering its twin here turns a trimmed request into a 400; each Java
+ * constant carries a comment pointing back at this block, which is the cheapest thing that makes
+ * the pair findable.
+ */
+export const MAX_COST_IDS = 100;
+export const MAX_COST_IDS_CHARS = 3_000;
+export const MAX_COST_ID_CHARS = 2_048;
+
+/**
+ * Trims an id list to what the backend accepts, in model order.
+ *
+ * <p>The order the three rules are applied in is not the server's — it checks total length, then
+ * count, then per-id length, and returns on the first violation — and does not need to be: the
+ * server returns on the first failure while this has to satisfy all three, so it applies them in
+ * the order that discards least. What must agree is the three numbers and what each is measured on.
+ *
+ * <p>The focus id is never dropped. It is the one figure the tab must always be able to show, and
+ * its absence would read as "this resource has no cost" rather than as a trim. Peers are dropped
+ * from the END of the order they arrive in — the model's own order, declared relations before
+ * inferred ones, then by relation — so what survives is the half the model already considers more
+ * informative.
+ *
+ * <p>Total length is measured on the string that becomes the `ids` parameter, the ids joined by
+ * commas, because that is what the server measures before splitting. Measuring the array's total
+ * instead would under-count by one character per id and a correctly trimmed request would still
+ * 400.
+ *
+ * @param focusId the resource at the centre of the flow
+ * @param peerIds the rendered peers' ids, in model order, already filtered to the non-external ones
+ * @returns the ids to send in model order, plus the peer counts needed to say what was left out
+ */
+export const trimCostIds = (
+  focusId: string,
+  peerIds: string[],
+): { sent: string[]; sentPeerCount: number; totalPeerCount: number } => {
+  const totalPeerCount = peerIds.length;
+  // An id longer than the inventory's widest identifier column cannot price under any
+  // circumstances, so dropping it costs nothing and buys room for one that can.
+  const usable = peerIds.filter((id) => id.length <= MAX_COST_ID_CHARS);
+
+  const sent: string[] = [];
+  const seen = new Set<string>();
+  const take = (id: string) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    sent.push(id);
+  };
+  /*
+   * A focus id of its own past MAX_COST_ID_CHARS is not taken, and on a peerless resource that
+   * leaves `sent` empty — the request then carries `ids=`, the backend 400s, and the tab renders
+   * "the costs could not be read". Accepted rather than special-cased: at 2,048 characters it
+   * needs an identifier longer than any AWS ARN, and the alternative is sending an id the server
+   * is documented to reject and calling the 400 an outage.
+   */
+  if (focusId && focusId.length <= MAX_COST_ID_CHARS) take(focusId);
+  for (const id of usable) {
+    // Counted after dedupe, so a duplicate cannot consume a slot.
+    if (seen.size >= MAX_COST_IDS) break;
+    take(id);
+  }
+
+  /*
+   * Then the character budget, trimming from the end. `sent.length > 1` keeps the first entry,
+   * which is the focus whenever the focus was taken at all — the only case where it is not is the
+   * over-long focus above, and there the surviving entry is a peer rather than the focus. Stated
+   * precisely because "the focus is never dropped" is the rule, and position is only a proxy for
+   * it.
+   */
+  while (sent.length > 1 && sent.join(',').length > MAX_COST_IDS_CHARS) {
+    const dropped = sent.pop();
+    if (dropped) seen.delete(dropped);
+  }
+
+  const focusSent = focusId && sent.includes(focusId) ? 1 : 0;
+  return { sent, sentPeerCount: sent.length - focusSent, totalPeerCount };
+};
+
+/**
+ * Which resource each of these ids names.
+ *
+ * <p>**Throws** on a non-2xx and on an unexpected shape — the only fetcher in this file that does,
+ * and a requirement rather than a style choice. `readShape` returns null for an unreadable body
+ * whatever the status, which for every other endpoint here means "hide the widget". The
+ * connectivity tab decides "this resource is not in the account topology" from an empty candidate
+ * match, so a null answer on a 502 would resolve the query *successfully*, leave `isError` false,
+ * and render that benign, retry-less state permanently — a transient backend blip turned into a
+ * confident, wrong, unrecoverable statement about the reader's infrastructure. The status travels
+ * in the message because a 400 here is a bug in our own request construction and is worth warning
+ * about separately.
+ */
+export const fetchResourceIdentities = async (
+  accountId: string,
+  ids: string[],
+): Promise<ResourceIdentities> => {
+  const params = new URLSearchParams({ ids: ids.join(',') });
+  const res = await apiFetch(
+    `/api/xamops/cur-insights/resource-identities/${encodeURIComponent(accountId)}?${params}`,
+  );
+  if (!res.ok) throw new Error(`resource-identities ${res.status}`);
+  const body = await readShape<ResourceIdentities>(res, isRecordWith(['identities']));
+  if (!body) throw new Error('resource-identities: unexpected shape');
+  return body;
+};
+
+/**
+ * What each of a set of resources cost for a month — one query, whatever the set size.
+ *
+ * <p>Every charge type, across every service and region, which is deliberately different from
+ * `fetchResourceChange`'s usage-only figure: a peer is a different resource with its own services,
+ * and scoping it by the focus resource's service would zero almost every peer.
+ *
+ * <p>Keeps the ordinary null-returning contract, unlike the identity fetcher above: a null costs
+ * answer has its own non-destructive rendering — a banner above a flow that still works — so it
+ * does not need to be told apart from a benign absence.
+ */
+export const fetchResourceCosts = async (
+  accountId: string,
+  ids: string[],
+  period?: string,
+  basis?: CostBasis,
+): Promise<ResourceCostsResponse | null> => {
+  const params = new URLSearchParams({ ids: ids.join(',') });
+  if (period) params.set('period', period);
+  withBasis(params, basis);
+  const res = await apiFetch(
+    `/api/xamops/cur-insights/resource-costs/${encodeURIComponent(accountId)}?${params}`,
+  );
+  if (!res.ok) {
+    if (res.status === 400) {
+      // Our own bug: the client trimmed against its copy of the limits and the server refused it
+      // anyway, which means the two copies no longer agree.
+      console.warn('[CUR] resource-costs refused a trimmed id list — the client and server id'
+        + ' limits have drifted apart');
+    }
+    return null;
+  }
+  return readShape<ResourceCostsResponse>(res, isRecordWith(['costs'], ['totalCost']));
+};
+
 // ── Tag coverage and cost allocation ─────────────────────────────────────────
 
 /** One required tag's share of the bill. */

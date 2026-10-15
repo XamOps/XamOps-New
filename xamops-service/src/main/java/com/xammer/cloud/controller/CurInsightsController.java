@@ -5,11 +5,13 @@ import com.xammer.cloud.domain.CurSource;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CloudAccountAccessService;
+import com.xammer.cloud.service.ResourceIdResolver;
 import com.xammer.cloud.service.cur.CostBasis;
 import com.xammer.cloud.service.cur.CurAdvancedMetricsService;
 import com.xammer.cloud.service.cur.CurInsightCache;
 import com.xammer.cloud.service.cur.CurSourceResolver;
 import com.xammer.cloud.service.cur.ReportCannotAnswerException;
+import com.xammer.cloud.service.cur.ResourceCostJoin;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,12 +21,20 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Cost insights that only a CUR can answer.
@@ -46,6 +56,15 @@ public class CurInsightsController {
     private final CurInsightCache insightCache;
     private final CloudAccountAccessService accessService;
 
+    /**
+     * Reconciles a CUR identifier against the inventory, for the two per-resource-set endpoints.
+     *
+     * <p>The only JPA-backed collaborator here that is not a repository. It belongs in this
+     * controller rather than in {@code CurAdvancedMetricsService}, which stays free of JPA so its
+     * tests need nothing but a mocked Athena.
+     */
+    private final ResourceIdResolver idResolver;
+
     /** The tags an owned resource is expected to carry. Shared with the inventory scan. */
     private final List<String> requiredTags;
 
@@ -54,12 +73,14 @@ public class CurInsightsController {
                                  CurAdvancedMetricsService metricsService,
                                  CurInsightCache insightCache,
                                  CloudAccountAccessService accessService,
+                                 ResourceIdResolver idResolver,
                                  @Value("${tagging.compliance.required-tags}") List<String> requiredTags) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.curSourceResolver = curSourceResolver;
         this.metricsService = metricsService;
         this.insightCache = insightCache;
         this.accessService = accessService;
+        this.idResolver = idResolver;
         this.requiredTags = requiredTags;
     }
 
@@ -405,6 +426,133 @@ public class CurInsightsController {
     }
 
     /**
+     * Which resource each of these ids names, and which graph node ids could be it.
+     *
+     * <p>Serves the connectivity tab's first step: the drawer holds a CUR identifier and the Cloud
+     * Map graph holds node ids from one of two vocabularies, so the client needs every form the
+     * inventory records for the resource and matches each against the graph index itself. The
+     * matching is on the client because the server does not have the graph — having a cost endpoint
+     * fetch a topology would couple an Athena path to a ~1,000-call account scan.
+     *
+     * <p>No Athena, no {@code CurSource}: this answers which resource an id names, which is true
+     * whether or not a report covers the month. So it must not 409 for an account whose report
+     * starts later than the month being read.
+     *
+     * <p><b>Not cached</b>, and that is a decision — the same one {@link #capabilities} records.
+     * The answer is one indexed Postgres read, and {@code CurInsightCache}'s 6 h TTL plus
+     * stale-while-revalidate would hold an inventory answer past an inventory sync, silently
+     * rooting the tab on a resource that no longer exists.
+     *
+     * <p>Validation order: entitlement, then {@code ids}. Entitlement first, matching
+     * {@link #serviceResources} — a caller who holds no account should not be able to probe an
+     * endpoint's parameter handling.
+     */
+    @GetMapping("/resource-identities/{accountId}")
+    public ResponseEntity<?> resourceIdentities(@PathVariable String accountId,
+                                                @RequestParam(required = false) String ids) {
+        ResponseEntity<?> denied = denyIfNotEntitled(accountId);
+        if (denied != null) {
+            return denied;
+        }
+        IdList parsed = parseIds(ids);
+        if (parsed.error() != null) {
+            return parsed.error();
+        }
+        List<CloudAccount> accounts = cloudAccountRepository.findByAwsAccountId(accountId);
+        if (accounts.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        try {
+            ResourceIdResolver.CurIdentifiers candidates =
+                    idResolver.curIdentifiers(accounts.get(0).getId(), parsed.ids());
+            ResourceCostJoin.ResourceIdentities identities =
+                    ResourceCostJoin.identities(parsed.ids(), candidates);
+            logger.info("✅ [CUR] Resource identities — {} of {} ids resolved for account {}",
+                    identities.resolved(), identities.requested(), accountId);
+            return ResponseEntity.ok(identities);
+        } catch (Exception e) {
+            // Fatal rather than degraded, deliberately. Carrying on with exact-equality candidates
+            // only would blank every peer whose CUR id is an ARN — RDS, Lambda, DynamoDB, EKS —
+            // and produce a flow that looks complete and under-reports, with no way for the view
+            // to say the blanks are a fault rather than an absence.
+            logger.warn("[CUR] Could not read the resource inventory for account {}: {}",
+                    accountId, e.getMessage());
+            return ResponseEntity.status(502).body(Map.of(
+                    "error", "Could not read the resource inventory",
+                    "detail", String.valueOf(e.getMessage())));
+        }
+    }
+
+    /**
+     * What each of a set of resources cost for the month. One Athena query, whatever the set size.
+     *
+     * <p>Every charge type, across every service and region — see
+     * {@code CurAdvancedMetricsService.getResourceCosts} for why that differs from
+     * {@link #resourceChange}'s usage-only figure.
+     *
+     * <p>Validation order: entitlement, then {@code basis}, then {@code ids}, then {@code period} —
+     * which is parsed inside {@link #withSourceKeyed}, before the key is assembled and before
+     * anything is cached or queried. Exactly {@link #serviceResources}' order.
+     *
+     * <p>{@code curIdentifiers} runs inside the cache's compute supplier, which is safe and worth
+     * stating: it is a plain repository read with the account id already in hand, so it needs no
+     * security context and works on {@code awsTaskExecutor} during a background refresh. The
+     * entitlement check stays above, on the request thread, for the reason
+     * {@link #denyIfNotEntitled} documents.
+     */
+    @GetMapping("/resource-costs/{accountId}")
+    public ResponseEntity<?> resourceCosts(@PathVariable String accountId,
+                                           @RequestParam(required = false) String ids,
+                                           @RequestParam(required = false) String period,
+                                           @RequestParam(required = false) String basis) {
+        // Checked here and again inside withSourceKeyed, and the duplication is deliberate rather
+        // than missed. This call is what puts entitlement *above* the basis and ids validation, so
+        // a caller who holds no account gets 404 rather than a 400 describing our parameter rules
+        // (criterion 28). The one inside withSourceKeyed is what the other ten handlers rely on,
+        // so neither can be removed without changing a response somewhere. The cost is one extra
+        // indexed findByAwsAccountId per request, which is less than a surprise is worth.
+        ResponseEntity<?> denied = denyIfNotEntitled(accountId);
+        if (denied != null) {
+            return denied;
+        }
+        Optional<CostBasis> costBasis = basisOf(basis);
+        if (costBasis.isEmpty()) {
+            return invalidBasis(basis);
+        }
+        IdList parsed = parseIds(ids);
+        if (parsed.error() != null) {
+            return parsed.error();
+        }
+
+        // Keyed explicitly rather than on the query string: the ids are too long for the cache's
+        // varchar(255) primary key. The key is a *function* of the resolved month, not a finished
+        // string — `period` is still unparsed here, and resolving "now" twice could key an entry
+        // to a different month from the one queried.
+        return withSourceKeyed(accountId, period,
+                month -> costsCacheKey(accountId, month, costBasis.get(), parsed.ids()),
+                (source, account, start, end) -> {
+                    ResourceIdResolver.CurIdentifiers candidates =
+                            idResolver.curIdentifiers(account.getId(), parsed.ids());
+                    if (candidates.allCandidates().isEmpty()) {
+                        // Nothing safe to ask about: every requested id is claimed by two live
+                        // resources. `IN ()` is not valid SQL and there is no question to put, so
+                        // Athena is skipped entirely rather than defended against downstream.
+                        logger.info("✅ [CUR] Resource costs — no usable identifier for any of {}"
+                                        + " ids on account {}, Athena skipped",
+                                parsed.ids().size(), accountId);
+                        return new ResourceCostJoin.ResourceCostsResponse(List.of(),
+                                List.copyOf(candidates.ambiguous()), parsed.ids().size(), 0,
+                                0, 0, costBasis.get().wire());
+                    }
+                    CurAdvancedMetricsService.ResourceGroupCosts groups =
+                            metricsService.getResourceCosts(source, account,
+                                    candidates.allCandidates(), start, end, costBasis.get());
+                    return ResourceCostJoin.join(parsed.ids(), candidates, groups,
+                            costBasis.get());
+                });
+    }
+
+    /**
      * Price vs volume decomposition against the preceding month.
      *
      * <p>Both periods must be inside the report's coverage, so the resolver is asked
@@ -477,6 +625,149 @@ public class CurInsightsController {
         // Every section on the Cost and FinOps pages that reads the report comes through
         // here, so this one wrap is what stops them waiting on Athena per visit.
         return insightCache.getOrCompute(accountId, () -> runWithSource(accountId, target.get(), query));
+    }
+
+    /**
+     * {@link #withSource}, with the cache key supplied as a function of the resolved month rather
+     * than read off the request.
+     *
+     * <p>Deliberately a sibling and not a refactor: {@code withSource} is byte-identical for its
+     * ten existing callers, so {@code CurInsightsControllerTest}'s stub and verify on the
+     * two-argument {@code getOrCompute} keep passing. The duplicated prologue is four lines.
+     *
+     * <p>The key is a {@code Function<YearMonth, String>} rather than a finished string because
+     * {@link #parsePeriod} is the only thing that turns a null period into {@code YearMonth.now()},
+     * and assembling the key before that would either re-implement it — two independent
+     * resolutions of "now", which can straddle a month boundary and key an entry to a month other
+     * than the one queried — or write {@code period=null} into a key that
+     * {@code CurInsightCache.isOpenMonth} compares literally.
+     */
+    private ResponseEntity<?> withSourceKeyed(String accountId, String period,
+                                              Function<YearMonth, String> keySuffix,
+                                              SourceQuery query) {
+        ResponseEntity<?> denied = denyIfNotEntitled(accountId);
+        if (denied != null) {
+            return denied;
+        }
+        Optional<YearMonth> target = parsePeriod(period);
+        if (target.isEmpty()) {
+            return invalidPeriod(period);
+        }
+        YearMonth month = target.get();
+        return insightCache.getOrCompute(accountId, keySuffix.apply(month),
+                () -> runWithSource(accountId, month, query));
+    }
+
+    /**
+     * The cache-key suffix for {@link #resourceCosts}.
+     *
+     * <p>{@code period} and {@code basis} are written explicitly and resolved, never omitted:
+     * {@code isOpenMonth} parses {@code period=} off the key to decide between the 1 h and 6 h
+     * TTLs, and the client omits {@code basis} on the default so the two request shapes must
+     * converge on one key rather than forking two entries and two scans.
+     *
+     * <p>The ids are sorted before hashing — the client sorts the same way, which is what makes two
+     * readers opening the same resource hit the same entry; sorting here is what makes it true even
+     * if a client ever does not. SHA-256 through {@code java.security.MessageDigest}, no new
+     * dependency, 64 hex characters. Collisions are not defended against: a SHA-256 collision
+     * between two id sets in one account is not a failure mode worth code.
+     *
+     * <p>Length, which is the whole point: {@code CUR_INSIGHT::} (13) + account (12) + {@code ::} +
+     * {@code resource-costs/} (15) + account (12) + {@code ?period=YYYY-MM} (15) +
+     * {@code &basis=unblended} (16) + {@code &ids=} (5) + 64 hex ≈ <b>154</b> characters, inside
+     * what the durable tier can hold.
+     */
+    private String costsCacheKey(String accountId, YearMonth month, CostBasis basis,
+                                 List<String> ids) {
+        String joined = ids.stream().sorted().collect(Collectors.joining(","));
+        return "resource-costs/" + accountId + "?period=" + month
+                + "&basis=" + basis.wire() + "&ids=" + sha256(joined);
+    }
+
+    /** Lower-case hex SHA-256. SHA-256 is mandated on every JVM, so the catch cannot fire. */
+    private String sha256(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16))
+                        .append(Character.forDigit(b & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is required of every JVM", e);
+        }
+    }
+
+    /** The cleaned id list, or the 400 to return instead — never both. */
+    private record IdList(List<String> ids, ResponseEntity<?> error) {
+    }
+
+    /**
+     * Cleans and bounds the {@code ids} parameter, returning on the <b>first</b> failure.
+     *
+     * <p>The order is fixed rather than left to taste, because two of these limits are measured on
+     * different strings — one on the raw parameter and one on the cleaned list — and because an
+     * unfixed order makes the {@code detail} string of a request violating two limits undecidable.
+     *
+     * <ol>
+     *   <li>absent, or blank after trimming → "An id is required";</li>
+     *   <li><b>raw parameter</b> over {@code MAX_IDS_CHARS}, measured before splitting, because
+     *       that is the budget the URI actually spends and the only measurement a client can make
+     *       before it sends;</li>
+     *   <li>split on {@code ,}, trim, drop blanks, deduplicate preserving first-seen order;</li>
+     *   <li>cleaned list empty, e.g. {@code ids=,,,} → "An id is required";</li>
+     *   <li>cleaned size over {@code MAX_LOOKUP_IDS};</li>
+     *   <li>any cleaned id over {@code MAX_ID_CHARS}.</li>
+     * </ol>
+     *
+     * <p>Blanks are dropped in step 3 rather than rejected: a resource-less charge carries an empty
+     * id and must never resolve to anything, but a trailing comma in a client-built list is not
+     * worth a 400.
+     */
+    private IdList parseIds(String ids) {
+        if (ids == null || ids.isBlank()) {
+            return new IdList(List.of(), ResponseEntity.badRequest().body(Map.of(
+                    "error", "An id is required",
+                    "detail", "This endpoint describes a set of resources."
+                            + " Pass one or more identifiers in `ids`, comma separated.")));
+        }
+        if (ids.length() > CurAdvancedMetricsService.MAX_IDS_CHARS) {
+            return new IdList(List.of(), ResponseEntity.badRequest().body(Map.of(
+                    "error", "Too many characters of ids",
+                    "detail", "The `ids` parameter is at most "
+                            + CurAdvancedMetricsService.MAX_IDS_CHARS + " characters, and this one"
+                            + " is " + ids.length() + ".")));
+        }
+        List<String> cleaned = new ArrayList<>(new LinkedHashSet<>(
+                Arrays.stream(ids.split(","))
+                        .map(String::trim)
+                        .filter(id -> !id.isEmpty())
+                        .toList()));
+        if (cleaned.isEmpty()) {
+            return new IdList(List.of(), ResponseEntity.badRequest().body(Map.of(
+                    "error", "An id is required",
+                    "detail", "The `ids` parameter carried no identifier, only separators.")));
+        }
+        if (cleaned.size() > CurAdvancedMetricsService.MAX_LOOKUP_IDS) {
+            return new IdList(List.of(), ResponseEntity.badRequest().body(Map.of(
+                    "error", "Too many ids",
+                    "detail", "At most " + CurAdvancedMetricsService.MAX_LOOKUP_IDS
+                            + " ids per request, and this one asked about " + cleaned.size()
+                            + ".")));
+        }
+        for (String id : cleaned) {
+            if (id.length() > CurAdvancedMetricsService.MAX_ID_CHARS) {
+                return new IdList(List.of(), ResponseEntity.badRequest().body(Map.of(
+                        "error", "An id is too long",
+                        "detail", "An identifier is at most "
+                                + CurAdvancedMetricsService.MAX_ID_CHARS + " characters — the"
+                                + " widest either inventory identifier column holds — and one here"
+                                + " is " + id.length() + ".")));
+            }
+        }
+        return new IdList(cleaned, null);
     }
 
     private ResponseEntity<?> runWithSource(String accountId, YearMonth target, SourceQuery query) {

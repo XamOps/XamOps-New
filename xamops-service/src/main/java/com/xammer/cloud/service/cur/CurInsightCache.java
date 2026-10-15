@@ -80,6 +80,16 @@ public class CurInsightCache {
 
     private static final String CUR_INSIGHTS_PATH = "/cur-insights/";
 
+    /**
+     * The longest key the durable tier can hold.
+     *
+     * <p>{@code CachedData.cacheKey} is {@code @Id private String} with no length attribute, so
+     * under {@code ddl-auto=update} Hibernate creates it as {@code varchar(255)} and no Flyway
+     * migration widens it. Widening is not a clean fix either: it is the primary key, and a
+     * PostgreSQL btree entry is capped around 2,704 bytes.
+     */
+    private static final int DURABLE_KEY_LIMIT = 255;
+
     /** What is kept: the rendered JSON and when it was produced. */
     public record Entry(String json, long storedAt) {
     }
@@ -119,6 +129,50 @@ public class CurInsightCache {
         if (key == null) {
             return compute.get();
         }
+
+        Entry hit = read(key);
+        if (hit != null) {
+            if (isStale(key, hit)) {
+                refreshInBackground(key, compute);
+            }
+            return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(hit.json());
+        }
+
+        ResponseEntity<?> fresh = compute.get();
+        store(key, fresh);
+        return fresh;
+    }
+
+    /**
+     * As {@link #getOrCompute(String, Supplier)}, but with the key's discriminator supplied rather
+     * than read off the request.
+     *
+     * <p>Exists for one case: an endpoint whose parameters are too long to key on. The default
+     * behaviour — key on the raw path and query string — is right for every other endpoint here,
+     * and is why a parameter added later joins the key for free. It is wrong when the parameter is
+     * a list of ARNs: the assembled key is written to {@code CachedData.cacheKey}, an unannotated
+     * {@code @Id String} and therefore a {@code varchar(255)} primary key, so a multi-kilobyte key
+     * makes every save fail. {@link #store} swallows that, so Redis would keep hitting while the
+     * durable tier quietly stopped working — the exact failure the second tier exists to prevent,
+     * and invisible.
+     *
+     * <p>A sibling rather than a refactor of the two-argument method, which is left untouched and
+     * does not delegate. {@link #keyForCurrentRequest} returns a whole key and returns null outside
+     * a request to skip caching; splitting it would give this overload a null-suffix branch and
+     * would re-point all ten existing cached endpoints at a new code path, to save eight lines.
+     * The ~8-line prologue below is duplicated deliberately, and both halves are exercised by
+     * tests. A third keying mode is the moment to unify them.
+     *
+     * @param accountId the AWS account id, which is also the prefix an eviction clears by
+     * @param keySuffix a pure function of the request's <em>meaning</em>, or two readers asking the
+     *                  same question get two entries and two Athena scans. Callers hash the long
+     *                  part and leave the short part readable, because {@link #isOpenMonth} parses
+     *                  {@code period=} back off the assembled key.
+     * @param compute   what to run on a miss
+     */
+    public ResponseEntity<?> getOrCompute(String accountId, String keySuffix,
+                                          Supplier<ResponseEntity<?>> compute) {
+        String key = PREFIX + accountId + "::" + keySuffix;
 
         Entry hit = read(key);
         if (hit != null) {
@@ -191,6 +245,21 @@ public class CurInsightCache {
     private void store(String key, ResponseEntity<?> response) {
         if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
             return;
+        }
+        if (key.length() > DURABLE_KEY_LIMIT) {
+            /*
+             * The only failure in this class that is invisible by construction: the request
+             * succeeds, the figures are right, and the sole symptom is that every cold start
+             * re-scans Athena because the save below throws into the catch and is logged at DEBUG.
+             *
+             * Unconditional rather than once-per-key: tracking which keys have warned needs state
+             * in a shared singleton, and the warning is already rate-limited by how often a long
+             * key misses. The limit is Hibernate's default String length under ddl-auto=update;
+             * the real column type per environment is worth confirming on a running instance.
+             */
+            logger.warn("[CUR] Insight cache key is {} characters, past the {} the durable tier"
+                            + " can store — this answer will only ever be held in Redis: {}",
+                    key.length(), DURABLE_KEY_LIMIT, key);
         }
         try {
             String json = objectMapper.writeValueAsString(response.getBody());

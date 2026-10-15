@@ -553,4 +553,64 @@ describe('demo router — CUR insights (ROLE_XAMOPS)', () => {
     const body = await readDemoBody('/api/xamops/cur-insights/savings-rate/demo-aws-001');
     expect(body).toEqual({});
   });
+
+  it('answers the connectivity tab\'s identity lookup, decoding the ids it was given', async () => {
+    const body = await readDemoBody(
+      '/api/xamops/cur-insights/resource-identities/demo-aws-001'
+        + '?ids=arn%3Aaws%3Ards%3Aap-south-1%3A605134400000%3Adb%3Axammer-prod%2Ci-0abc1001a2b3c4d5e',
+    );
+
+    // Decoded through the router's own `param` helper, so an ARN's colons survive.
+    expect(body.identities.map((entry: { requestedId: string }) => entry.requestedId)).toEqual([
+      'arn:aws:rds:ap-south-1:605134400000:db:xammer-prod',
+      'i-0abc1001a2b3c4d5e',
+    ]);
+    // resource_id first, because that is the id the inventory-plane graph path emits.
+    expect(body.identities[0].nodeIdCandidates[0]).toBe('xammer-prod');
+    expect(body.resolved).toBe(2);
+  });
+
+  it('answers an id it has never seen as present and unresolved', async () => {
+    // What the real endpoint does, and what keeps the "not in the account topology" state
+    // reachable in demo rather than unreachable.
+    const body = await readDemoBody(
+      '/api/xamops/cur-insights/resource-identities/demo-aws-001?ids=snap-0deadbeef',
+    );
+
+    expect(body.identities).toHaveLength(1);
+    expect(body.identities[0].resourceId).toBeNull();
+    expect(body.identities[0].nodeIdCandidates).toEqual(['snap-0deadbeef']);
+    expect(body.resolved).toBe(0);
+  });
+
+  it('prices a set of resources, and refuses the one name two live resources answer to', async () => {
+    const body = await readDemoBody(
+      '/api/xamops/cur-insights/resource-costs/demo-aws-001'
+        + '?ids=i-0abc1001a2b3c4d5e%2Cvol-0aa1122334455667%2Cxammer-prod%2Cigw-001&period=2026-08',
+    );
+
+    const priced = Object.fromEntries(
+      body.costs.map((entry: { resourceId: string; cost: number }) => [entry.resourceId, entry.cost]),
+    );
+    expect(priced['i-0abc1001a2b3c4d5e']).toBe(1621.35);
+    expect(priced['vol-0aa1122334455667']).toBe(484.74);
+    // The RDS instance and the EKS cluster both tail to `xammer-prod`, so the bare name prices
+    // neither — the row renders "cost not attributable to this resource alone".
+    expect(body.ambiguous).toEqual(['xammer-prod']);
+    expect(priced['xammer-prod']).toBeUndefined();
+    // No row in demoTopResources at all: absent, which renders "no cost attributable".
+    expect(priced['igw-001']).toBeUndefined();
+    expect(body.requestedCount).toBe(4);
+    expect(body.pricedCount).toBe(2);
+  });
+
+  it('prices the database under its own ARN, which is single-claimant', async () => {
+    const body = await readDemoBody(
+      '/api/xamops/cur-insights/resource-costs/demo-aws-001'
+        + '?ids=arn%3Aaws%3Ards%3Aap-south-1%3A605134400000%3Adb%3Axammer-prod',
+    );
+
+    expect(body.ambiguous).toEqual([]);
+    expect(body.costs[0].cost).toBe(2540.40);
+  });
 });

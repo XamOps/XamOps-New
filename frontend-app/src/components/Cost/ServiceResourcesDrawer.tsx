@@ -11,7 +11,9 @@ import {
 } from '../../api/curInsightsApi';
 import { CostCurrencyContext, useMoney, useMoneyIn } from './costCurrency';
 import ResourceCostDrawer from './ResourceCostDrawer';
+import type { ConnectivityFetchers } from './ResourceConnectivityTab';
 import { useCurInsight } from '../../hooks/useCurInsight';
+import { shortenId } from '../../utils/shortenId';
 import {
   invalidateResourceLabels,
   publishResourceLabels,
@@ -190,6 +192,13 @@ interface ServiceResourcesDrawerProps {
   /** ISO currency code the billing source reports in. */
   currency?: string;
   /**
+   * Where the per-resource panel's Connectivity tab reads from, or `null` to omit that tab.
+   *
+   * <p>A pass-through, like `detailFetcher`: configured by whichever page wires the card up, owned
+   * by the panel the resource row opens.
+   */
+  connectivity?: ConnectivityFetchers | null;
+  /**
    * Whether rows offer the label control.
    *
    * <p>Off for GCP. Labels are stored against a resource id and reconciled through
@@ -228,22 +237,15 @@ const iconFor = (service: string): string => {
 };
 
 /**
- * Shortens a long id from the middle.
+ * Shortens a long id from the middle, at this panel's own budget.
  *
- * The ends of an ARN carry the identity — the service at the front, the resource name at the back.
- * Truncating with a trailing ellipsis throws away the half that names the thing.
- *
- * <p>The budgets are the panel's, not the old tab's. This ran at 52 and 46 characters when the
- * list sat in a 768px panel; widening the panel without raising them would have spent the new
- * space on empty gutter, because this cut lands well before the CSS `truncate` does and is
- * therefore the binding constraint. Still bounded rather than unlimited — the row has five other
- * things on it, and an ARN allowed to run full length pushes the amount off the end.
+ * <p>72, not the canvas card's 34: this ran at 52 and 46 characters when the list sat in a 768px
+ * panel, and widening the panel without raising them would have spent the new space on empty
+ * gutter, because this cut lands well before the CSS `truncate` does and is therefore the binding
+ * constraint. Still bounded rather than unlimited — the row has five other things on it, and an
+ * ARN allowed to run full length pushes the amount off the end.
  */
-const shorten = (id: string, max = 72): string => {
-  if (id.length <= max) return id;
-  const head = Math.ceil((max - 1) / 2);
-  return `${id.slice(0, head)}…${id.slice(id.length - (max - head - 1))}`;
-};
+const shorten = (id: string, max = 72): string => shortenId(id, max);
 
 /**
  * The last segment of an ARN — what the console calls the resource.
@@ -318,6 +320,7 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
   scopedFetcher,
   basis,
   detailFetcher,
+  connectivity,
   insightName = 'top-resources',
   currency = 'USD',
   labels = true,
@@ -945,6 +948,7 @@ const ServiceResourcesDrawer: React.FC<ServiceResourcesDrawerProps> = ({
             // to find the discrepancy by subtracting.
             basis={basis}
             rowCost={detail?.cost}
+            connectivity={connectivity}
           />
         </React.Fragment>
       )}

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Icon } from '@iconify/react';
@@ -7,6 +7,10 @@ import { fetchResourceChange } from '../../api/curInsightsApi';
 import { useCurInsight } from '../../hooks/useCurInsight';
 import { lockPageScroll } from '../../utils/scrollLock';
 import { useMoneyIn } from './costCurrency';
+import ResourceConnectivityTab, {
+  awsConnectivity,
+  type ConnectivityFetchers,
+} from './ResourceConnectivityTab';
 
 /**
  * One resource, in depth, in a panel over the page.
@@ -32,13 +36,17 @@ import { useMoneyIn } from './costCurrency';
  *       tier repriced look identical on the Change tab and completely different here.</li>
  *   <li><b>Trend</b> — <em>when</em> it moved. A step on one day is a deployment; a slope is growth.
  *       That distinction decides who gets asked about it.</li>
+ *   <li><b>Connectivity</b> — <em>what it is attached to</em>, and what each of those things costs in
+ *       the same month. The question a reader has next and which no per-resource figure can reach: a
+ *       NAT gateway at $344 is meaningless until you know which five instances egress through it.
+ *       AWS only, for the reasons on the {@code connectivity} prop.</li>
  * </ul>
  *
  * <p>Provider-agnostic: the three cost pages pass their own fetcher and currency, and the payloads are
  * field-identical, so there is one implementation of this panel rather than three that drift.
  */
 
-type Tab = 'change' | 'breakdown' | 'trend';
+type Tab = 'change' | 'breakdown' | 'trend' | 'connectivity';
 
 interface ResourceCostDrawerProps {
   /** The resource to describe, or null when the panel is closed. */
@@ -84,6 +92,16 @@ interface ResourceCostDrawerProps {
   basis?: CostBasis;
   /** That row's figure on that basis, so the difference can be named rather than implied. */
   rowCost?: number;
+  /**
+   * Where the Connectivity tab reads from, or `null` to omit the tab entirely.
+   *
+   * <p>Defaulted to the AWS trio, like every other fetcher here, so `null` and an omitted prop
+   * cannot mean two different things. GCP and Azure pass `null`: there is no Azure topology
+   * endpoint at all, and while GCP has a graph it has no batch per-resource cost query and no
+   * identifier reconciler, so the tab there could only apologise — the same reason `labels` is
+   * already off for GCP.
+   */
+  connectivity?: ConnectivityFetchers | null;
 }
 
 /** Month names for the two periods being compared, from a `YYYY-MM` string. */
@@ -129,8 +147,33 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
   scope,
   basis,
   rowCost,
+  connectivity = awsConnectivity,
 }) => {
   const [tab, setTab] = useState<Tab>('change');
+  const connectivityActive = tab === 'connectivity';
+  /*
+   * Mounted on first selection, kept mounted after that, so the focus trail and the scroll
+   * position of a long peer list survive a glance at Trend.
+   *
+   * A ref and not state: flipping it must not itself cause a render, and it only ever goes false
+   * -> true. The body is keyed on `resourceId` below, which is what discards a previous
+   * resource's trail — synchronously, rather than one render later as an effect would.
+   */
+  const everConnectivity = useRef(false);
+  /*
+   * Latched during render, which costs one extra read in one case, measured and accepted.
+   *
+   * When `resourceId` changes while Connectivity is the selected tab, the commit carrying the new
+   * id still has `tab === 'connectivity'` — the reset below is an effect and lands after it — so
+   * this re-latches and the keyed body mounts once with `active` true, issuing one
+   * /resource-identities call for the new resource. The graph query hits its own 30-minute cache
+   * entry (same account, same region), and no cost query can fire because the tab's `settled` gate
+   * needs both prior queries successful. So the cost is a single indexed Postgres read and no
+   * Athena scan, and criterion 18a — no stale peer row, no cost call on the previous focus — still
+   * holds. Deriving the latch from state set in the same commit would trade that read for an extra
+   * render on every selection of the tab.
+   */
+  if (connectivityActive) everConnectivity.current = true;
   const format = useMoneyIn(currency);
   // Signed, with the sign outside the amount, so a column of changes scans as +/− rather than having
   // the minus buried inside the currency symbol.
@@ -159,6 +202,10 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
   // about the previous resource, and landing on Trend for a new one buries the answer they came for.
   useEffect(() => {
     setTab('change');
+    // So a new resource starts with the connectivity body unmounted rather than inheriting a
+    // mount from the previous one. The `key` below is what discards the trail itself, which is
+    // why this is tidiness rather than the guard.
+    everConnectivity.current = false;
   }, [resourceId]);
 
   useEffect(() => {
@@ -272,6 +319,11 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
                   { key: 'change' as Tab, label: 'Change' },
                   { key: 'breakdown' as Tab, label: `Breakdown${lines.length ? ` (${lines.length})` : ''}` },
                   { key: 'trend' as Tab, label: 'Trend' },
+                  // No count on the label: the peer count is not known until two requests have
+                  // landed, so it would be the only label on the strip that moves — and it would
+                  // read "(0)" for every resource the topology does not know, which looks like
+                  // "no connections" before anything has been read.
+                  ...(connectivity ? [{ key: 'connectivity' as Tab, label: 'Connectivity' }] : []),
                 ]
               ).map((t) => (
                 <button
@@ -292,7 +344,11 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
             </nav>
 
             <div className="flex-1 overflow-y-auto p-5">
-              {loading && (
+              {/* Both of these describe the resource-change payload, which the Connectivity tab
+                  does not read — so neither may cover a tab that works. In demo mode, where
+                  /cur-insights/resource-change has no fixture, that payload is null for every
+                  resource. */}
+              {loading && !connectivityActive && (
                 <div className="space-y-2">
                   {[0, 1, 2, 3, 4].map((i) => (
                     <div
@@ -305,7 +361,7 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
 
               {/* Cannot answer — distinct from "no movement". The reader followed a link from a table
                   that worked, so an unexplained blank panel would read as a fault. */}
-              {!loading && !change && (
+              {!loading && !change && !connectivityActive && (
                 <div className="text-center py-12">
                   <Icon
                     icon="mdi:file-remove-outline"
@@ -345,6 +401,30 @@ const ResourceCostDrawer: React.FC<ResourceCostDrawerProps> = ({
 
               {!loading && change && tab === 'trend' && (
                 <TrendTab change={change} months={months} money={money} />
+              )}
+
+              {/* Gated on neither `loading` nor `change`: this answer does not come from the
+                  resource-change payload, so gating on either would hide a working tab for a
+                  resource whose CUR comparison cannot be read. */}
+              {connectivity && everConnectivity.current && resourceId && (
+                <div hidden={!connectivityActive}>
+                  <ResourceConnectivityTab
+                    key={resourceId}
+                    active={connectivityActive}
+                    accountId={accountId}
+                    resourceId={resourceId}
+                    resourceName={resourceName}
+                    period={period}
+                    basis={basis}
+                    // "Global" is this section's own word for a row the report gave no region, not
+                    // a region the topology can be scoped to.
+                    region={scope?.region && scope.region !== 'Global' ? scope.region : undefined}
+                    insightName={insightName}
+                    currency={currency}
+                    connectivity={connectivity}
+                    change={change}
+                  />
+                </div>
               )}
             </div>
           </motion.aside>

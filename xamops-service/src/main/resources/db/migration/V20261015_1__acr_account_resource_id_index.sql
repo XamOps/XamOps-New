@@ -1,0 +1,28 @@
+-- An index on (cloud_account_id, resource_id) for the inventory identity lookup.
+--
+-- findByCloudAccountIdAndAnyIdentifier is
+--   WHERE cloud_account_id = :id AND (arn IN :ids OR resource_id IN :ids)
+-- and the ARN branch is already served by the unique index
+-- uq_aws_cloud_resource_cloudacct_arn (cloud_account_id, arn), while nothing covers resource_id.
+-- Measured on the live database rather than read off the migrations: pg_indexes for this table
+-- returns only aws_cloud_resource_pkey, that unique index and three (cloud_account_id, …)
+-- indexes on status, type and first_seen_at. So Postgres could index one branch of that OR and
+-- had to scan the account's rows for the other — EXPLAIN of the identity query on account
+-- 605134457560 was a Seq Scan over 20,312 rows.
+--
+-- This moved from optional to required with the connectivity tab's join. Resolving a CUR
+-- identifier now takes TWO reads on the request path: one over the ids the caller asked about,
+-- then a second keyed on the short ids the first read returned, to find every resource claiming
+-- each of them. Without that second read a short id shared by two resources is invisible (a read
+-- over the requested ids cannot see a resource that merely shares one), and the join would price
+-- one team's database under another's name. The second read keys on resource_id, so it is exactly
+-- the branch that had no index.
+--
+-- Not CONCURRENTLY: Flyway runs each migration inside a transaction, which forbids it, and this
+-- table is small enough (tens of thousands of rows per connection) that a brief ACCESS EXCLUSIVE
+-- lock on index creation is cheaper than the machinery of an out-of-band build.
+--
+-- Helps every existing caller of that query as well — resource labels on the cost page resolve
+-- through the same statement.
+CREATE INDEX IF NOT EXISTS idx_acr_account_resource_id
+    ON aws_cloud_resource (cloud_account_id, resource_id);
