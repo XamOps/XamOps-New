@@ -134,7 +134,7 @@ describe('Automation › Overview (§9.1)', () => {
   });
 
   it('points the workloads row at the hosted Workload autoscaler, not the contract block (review S2)', async () => {
-    const href = '/eks-details?name=prod-eks-cluster&tab=automation&sub=workload-autoscaling';
+    const href = '/eks-details?name=prod-eks-cluster&tab=automation&sub=workload-autoscaler';
     const table = await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', href);
     const workload = rowOf(table, 'workload-rightsizing');
     expect(workload).not.toHaveTextContent(CONTRACT_BLOCK_MESSAGE);

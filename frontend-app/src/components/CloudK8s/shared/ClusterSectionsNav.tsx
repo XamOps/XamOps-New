@@ -5,7 +5,9 @@
  * Rendered by the Sidebar right after the CloudK8s entry, the way XamSecure and XamLens list their
  * tabs. It shows only while a cluster the page accepts is in the URL: a context row (cluster name and
  * region from the link, and "All clusters"), one link per registered section in registry order, and
- * the current section's registered subtabs. Every entry is a real link built by the page's own
+ * the current section's registered subtabs. A group of subtabs (Automation › Workload autoscaler) is
+ * one plain link row; its subtabs show at a third level only while the group is current. Every entry
+ * is a real link built by the page's own
  * resolver and serializer, so open-in-new-tab works and the sidebar and the page can't disagree.
  * Links push history entries, so Back and Forward step through sections, and carry
  * `inPageState`, so the layout keeps the page mounted and nothing is refetched.
@@ -18,7 +20,7 @@ import { useId } from 'react';
 import { Icon } from '@iconify/react';
 import { Link, useLocation } from 'react-router-dom';
 import SubNav from '../../Sidebar/SubNav';
-import { EKS_SECTIONS, LEGACY_TAB_MAP, sectionNavEntries } from '../../../hooks/useEksSectionRoute';
+import { EKS_SECTIONS, LEGACY_TAB_MAP, sectionNavEntries, type SectionNavSub } from '../../../hooks/useEksSectionRoute';
 import { isDemoMode } from '../../../demo/demoConfig';
 import { parseClusterLink } from '../../../utils/k8sClusterLink';
 import { inPageState } from '../../../utils/inPageNavigation';
@@ -52,7 +54,37 @@ function iconClass(dark: boolean, current: boolean): string {
   return current ? 'text-[rgba(0,0,0,0.88)]' : 'text-[rgba(0,0,0,0.4)]';
 }
 
+/**
+ * A group row (e.g. Workload autoscaler): open and in strong text while one of its subtabs is the
+ * page, never the "you are here" fill, which belongs to the leaf.
+ */
+function groupClass(dark: boolean, current: boolean): string {
+  if (dark) {
+    return current
+      ? 'font-semibold text-white hover:bg-[rgba(255,255,255,0.07)]'
+      : 'font-medium text-[rgba(255,255,255,0.6)] hover:bg-[rgba(255,255,255,0.07)] hover:text-white';
+  }
+  return current
+    ? 'font-semibold text-[rgba(0,0,0,0.9)] hover:bg-[rgba(0,0,0,0.05)]'
+    : 'font-medium text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.05)] hover:text-[rgba(0,0,0,0.9)]';
+}
+
 const secondary = (dark: boolean) => (dark ? 'text-[rgba(255,255,255,0.6)]' : 'text-[rgba(0,0,0,0.6)]');
+
+/** One subtab link, at the second level or under a group at the third. Its label wraps, never truncates. */
+function SubLink({ sub, state, dark }: { sub: SectionNavSub; state: { pageKey: string }; dark: boolean }) {
+  return (
+    <Link
+      to={sub.href}
+      state={state}
+      aria-current={sub.current ? 'page' : undefined}
+      data-sub={sub.id}
+      className={`flex min-h-[30px] items-center rounded-lg px-2.5 py-1 text-[13px] leading-snug tracking-[-0.01em] transition-colors duration-150 ${entryClass(dark, sub.current)} ${focus(dark)}`}
+    >
+      {sub.label}
+    </Link>
+  );
+}
 
 export interface ClusterSectionsNavProps {
   /** Dark theme, as the rest of the sidebar. */
@@ -134,15 +166,39 @@ export function ClusterSectionsNav({ dark }: ClusterSectionsNavProps) {
                     <ul className="space-y-0.5">
                       {entry.subs.map((sub) => (
                         <li key={sub.id}>
-                          <Link
-                            to={sub.href}
-                            state={state}
-                            aria-current={sub.current ? 'page' : undefined}
-                            data-sub={sub.id}
-                            className={`flex min-h-[30px] items-center rounded-lg px-2.5 py-1 text-[13px] leading-snug tracking-[-0.01em] transition-colors duration-150 ${entryClass(dark, sub.current)} ${focus(dark)}`}
-                          >
-                            {sub.label}
-                          </Link>
+                          {sub.children ? (
+                            <>
+                              {/* A group row is a plain link to its first subtab; aria-current stays on the leaf. */}
+                              <Link
+                                to={sub.href}
+                                state={state}
+                                data-sub-group={sub.id}
+                                className={`flex min-h-[30px] items-center gap-1 rounded-lg px-2.5 py-1 text-[13px] leading-snug tracking-[-0.01em] transition-colors duration-150 ${groupClass(dark, sub.current)} ${focus(dark)}`}
+                              >
+                                <span className="min-w-0 flex-1">{sub.label}</span>
+                                <Icon
+                                  icon={sub.current ? 'mdi:chevron-down' : 'mdi:chevron-right'}
+                                  width={14}
+                                  aria-hidden="true"
+                                  className={`shrink-0 ${iconClass(dark, false)}`}
+                                />
+                              </Link>
+                              {/* Only the current group expands (automation-v2 design §3.1). */}
+                              {sub.current && (
+                                <SubNav isOpen dark={dark} level={3}>
+                                  <ul className="space-y-0.5">
+                                    {sub.children.map((child) => (
+                                      <li key={child.id}>
+                                        <SubLink sub={child} state={state} dark={dark} />
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </SubNav>
+                              )}
+                            </>
+                          ) : (
+                            <SubLink sub={sub} state={state} dark={dark} />
+                          )}
                         </li>
                       ))}
                     </ul>

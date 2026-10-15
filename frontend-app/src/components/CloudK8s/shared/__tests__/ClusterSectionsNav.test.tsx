@@ -176,3 +176,79 @@ describe('ClusterSectionsNav (Addendum 1)', () => {
     expect(sectionLink('cost').className).toContain('text-[rgba(255,255,255,0.6)]');
   });
 });
+
+describe('ClusterSectionsNav: Automation groups at the third level (automation-v2 design §3.1)', () => {
+  const groupLinks = () => [...nav().querySelectorAll<HTMLAnchorElement>('a[data-sub-group]')];
+  const order = () =>
+    [...nav().querySelectorAll('a')].map((a) => a.dataset.section ?? a.dataset.subGroup ?? a.dataset.sub ?? a.textContent);
+
+  it('renders Workload autoscaler as a plain group link and, while it is current, its Workloads leaf one level deeper', () => {
+    renderAt(`${BASE}&tab=automation&sub=workload-autoscaler`);
+    expect(groupLinks()).toHaveLength(1);
+    const [group] = groupLinks();
+    expect(group).toHaveTextContent('Workload autoscaler');
+    expect(group.dataset.subGroup).toBe('group:workload-autoscaler');
+    // A plain link to its first subtab; "you are here" belongs to the leaf.
+    expect(group).not.toHaveAttribute('aria-current');
+    expect(resolveSectionRoute(EKS_SECTIONS, LEGACY_TAB_MAP, searchOf(group.getAttribute('href')!)))
+      .toEqual({ tab: 'automation', sub: 'workload-autoscaler', corrected: null });
+
+    expect(subLinks().map((a) => [a.dataset.sub, a.textContent])).toEqual([
+      ['overview', 'Overview'],
+      ['workload-autoscaler', 'Workloads'],
+      ['hpa', 'HPA'],
+      ['vpa', 'VPA'],
+    ]);
+    expect(subLinks().filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.dataset.sub)).toEqual(['workload-autoscaler']);
+    expect(sectionLink('automation')).toHaveAttribute('aria-current', 'page');
+    // The leaf is nested under its group row (the third level), and follows it in keyboard order.
+    const leaf = nav().querySelector<HTMLAnchorElement>('a[data-sub="workload-autoscaler"]')!;
+    expect(group.closest('li')!.contains(leaf)).toBe(true);
+    expect(order()).toEqual([
+      ALL_CLUSTERS_LABEL, 'overview', 'cost', 'workloads', 'nodes', 'automation',
+      'overview', 'group:workload-autoscaler', 'workload-autoscaler', 'hpa', 'vpa', 'security',
+    ]);
+    // At 220 px a label may wrap, never truncate.
+    for (const a of [group, leaf]) {
+      expect(a.className).not.toContain('truncate');
+      expect(a.querySelector('.truncate')).toBeNull();
+    }
+  });
+
+  it('keeps the group collapsed while another Automation page is current', () => {
+    renderAt(`${BASE}&tab=automation&sub=hpa`);
+    expect(groupLinks().map((a) => a.textContent)).toEqual(['Workload autoscaler']);
+    expect(nav().querySelector('a[data-sub="workload-autoscaler"]')).toBeNull();
+    expect(subLinks().map((a) => a.dataset.sub)).toEqual(['overview', 'hpa', 'vpa']);
+    expect(subLinks().filter((a) => a.getAttribute('aria-current') === 'page').map((a) => a.dataset.sub)).toEqual(['hpa']);
+  });
+
+  it("marks HPA for main's old Pod autoscaler link and VPA as its own page", () => {
+    renderAt(`${BASE}&tab=automation&sub=pod-autoscaling`);
+    expect(subLinks().find((a) => a.getAttribute('aria-current') === 'page')?.dataset.sub).toBe('hpa');
+    const vpa = subLinks().find((a) => a.dataset.sub === 'vpa')!;
+    expect(resolveSectionRoute(EKS_SECTIONS, LEGACY_TAB_MAP, searchOf(vpa.getAttribute('href')!)))
+      .toEqual({ tab: 'automation', sub: 'vpa', corrected: null });
+  });
+
+  it('opens the group from its row with the keyboard, and the leaf takes the focus ring', async () => {
+    const user = userEvent.setup();
+    const router = renderAt(`${BASE}&tab=automation&sub=overview`);
+    expect(nav().querySelector('a[data-sub="workload-autoscaler"]')).toBeNull();
+    const [group] = groupLinks();
+    expect(group.className).toContain('focus-visible:ring-2');
+    group.focus();
+    await user.keyboard('{Enter}');
+    expect(new URLSearchParams(router.state.location.search).get('sub')).toBe('workload-autoscaler');
+    const leaf = nav().querySelector<HTMLAnchorElement>('a[data-sub="workload-autoscaler"]')!;
+    expect(leaf).toHaveAttribute('aria-current', 'page');
+    expect(leaf.className).toContain('focus-visible:ring-2');
+  });
+
+  it('follows the dark sidebar theme, in greyscale', () => {
+    renderAt(`${BASE}&tab=automation&sub=workload-autoscaler`, true);
+    const [group] = groupLinks();
+    expect(group.className).toContain('text-white');
+    expect(nav().querySelector('a[data-sub="workload-autoscaler"]')!.className).toContain('text-white');
+  });
+});

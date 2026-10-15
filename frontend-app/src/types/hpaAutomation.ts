@@ -1,5 +1,5 @@
 /**
- * HPA automation + VPA coexistence (CloudK8s Automation › Pod autoscaler).
+ * HPA automation + VPA coexistence (CloudK8s Automation › HPA and Automation › VPA).
  *
  * The HPA page reuses the vertical rightsizer read payload
  * (`GET /api/eks/automation/vertical/{cluster}`): every workload already carries its HPA decision in

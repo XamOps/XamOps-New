@@ -4,10 +4,13 @@ import { describe, expect, it } from 'vitest';
 import {
   EKS_SECTIONS,
   LEGACY_TAB_MAP,
+  PAGE_PARAMS,
+  SUB_ALIASES,
   resolveSectionRoute,
   sectionNavEntries,
   useEksSectionRoute,
   withSection,
+  type SectionRegistry,
 } from '../useEksSectionRoute';
 import { pageKeyOf } from '../../utils/inPageNavigation';
 
@@ -90,17 +93,34 @@ describe('resolveSectionRoute', () => {
 
   it('registers only the subtabs that render content so far, each section default among its subs (P3)', () => {
     // Slice 1's targets, plus Overview › Events and Nodes › Node groups (FEAT-003 items 24, 25),
-    // Automation › Workload autoscaler (the demo cut) and Automation › Pod autoscaler (the HPA
-    // recommend+apply page and VPA coexistence view, cloudk8s-hpa-vpa FEAT-003).
+    // Automation › Workload autoscaler › Workloads (the demo cut) and Automation › HPA and VPA (main's
+    // combined Pod autoscaler page, cloudk8s-hpa-vpa FEAT-003, split in UI v3).
     expect(EKS_SECTIONS.map((s) => `${s.id}:${s.subs.map((x) => x.id).join(',')}`)).toEqual([
       'overview:summary,events',
       'cost:cluster',
       'workloads:workloads,pods,containers,resources',
       'nodes:nodes,node-groups,karpenter,utilization',
-      'automation:overview,workload-autoscaling,pod-autoscaling',
+      'automation:overview,workload-autoscaler,hpa,vpa',
       'security:vulnerabilities',
     ]);
     for (const s of EKS_SECTIONS) expect(s.subs.some((x) => x.id === s.defaultSub)).toBe(true);
+  });
+
+  it('labels the Automation subs as the v3 tree, with Workloads under the Workload autoscaler group', () => {
+    const automation = EKS_SECTIONS.find((s) => s.id === 'automation')!;
+    expect(automation.subs.map((s) => [s.id, s.label, s.group ?? null])).toEqual([
+      ['overview', 'Overview', null],
+      ['workload-autoscaler', 'Workloads', 'Workload autoscaler'],
+      ['hpa', 'HPA', null],
+      ['vpa', 'VPA', null],
+    ]);
+  });
+
+  it('keeps every group contiguous in registry order, so a group is one sidebar row', () => {
+    for (const section of EKS_SECTIONS) {
+      const runs = section.subs.map((s) => s.group ?? null).filter((g, i, all) => g !== null && g !== all[i - 1]);
+      expect(new Set(runs).size, section.id).toBe(runs.length);
+    }
   });
 
   it('withSection sets tab and sub only', () => {
@@ -109,6 +129,85 @@ describe('resolveSectionRoute', () => {
 
   it('withSection drops a one-shot view filter, so it never follows the user to the next section', () => {
     expect(withSection('a=1&tab=workloads&sub=pods&phase=Pending', 'nodes', 'nodes')).toBe('a=1&tab=nodes&sub=nodes');
+  });
+});
+
+describe('sub aliases and page params (automation-v2 design §3.2)', () => {
+  const automation = EKS_SECTIONS.find((s) => s.id === 'automation')!;
+  const registered = (sub: string) => automation.subs.some((s) => s.id === sub);
+
+  it('has exactly the planned Automation aliases', () => {
+    expect(SUB_ALIASES).toEqual({
+      automation: {
+        'workload-autoscaling': 'workload-autoscaler',
+        rightsizing: 'workload-autoscaler',
+        'workload-rightsizing': 'workload-autoscaler',
+        policies: 'workload-autoscaler-policies',
+        'node-autoscaling': 'node-autoscaler',
+        guardrails: 'node-autoscaler',
+        rebalancing: 'node-autoscaler',
+        spot: 'node-autoscaler',
+        'pod-autoscaling': 'hpa',
+      },
+    });
+  });
+
+  it.each(Object.entries(SUB_ALIASES.automation))(
+    'resolves ?tab=automation&sub=%s with a correction, to %s once it is registered and to the default until then',
+    (alias, target) => {
+      const r = resolve(`${BASE}&tab=automation&sub=${alias}`);
+      const expected = registered(target) ? target : automation.defaultSub;
+      expect([r.tab, r.sub]).toEqual(['automation', expected]);
+      expect(r.corrected).not.toBeNull();
+      expect(params(r.corrected).get('tab')).toBe('automation');
+      expect(params(r.corrected).get('sub')).toBe(expected);
+      expect(params(r.corrected).get('name')).toBe('prod-eks');
+    },
+  );
+
+  it("sends main's ?tab=automation&sub=pod-autoscaling to HPA", () => {
+    const r = resolve(`${BASE}&tab=automation&sub=pod-autoscaling`);
+    expect([r.tab, r.sub]).toEqual(['automation', 'hpa']);
+    expect(params(r.corrected).get('sub')).toBe('hpa');
+  });
+
+  it('sends ?sub=workload-autoscaling to Workload autoscaler › Workloads and keeps the workload it opened', () => {
+    const r = resolve(`${BASE}&tab=automation&sub=workload-autoscaling&workload=a/Deployment/b`);
+    expect([r.tab, r.sub]).toEqual(['automation', 'workload-autoscaler']);
+    expect(params(r.corrected).get('workload')).toBe('a/Deployment/b');
+  });
+
+  it('applies an alias only inside its own section, and never a prototype key', () => {
+    expect(resolve(`${BASE}&tab=nodes&sub=pod-autoscaling`)).toMatchObject({ tab: 'nodes', sub: 'nodes' });
+    expect(resolve(`${BASE}&tab=automation&sub=constructor`)).toMatchObject({ tab: 'automation', sub: 'overview' });
+  });
+
+  it('owns each page param on exactly one registered page', () => {
+    expect(PAGE_PARAMS).toEqual({
+      workload: { tab: 'automation', sub: 'workload-autoscaler' },
+      hpa: { tab: 'automation', sub: 'hpa' },
+    });
+    for (const owner of Object.values(PAGE_PARAMS)) {
+      expect(resolve(`${BASE}&tab=${owner.tab}&sub=${owner.sub}`).corrected, `${owner.tab}/${owner.sub}`).toBeNull();
+    }
+  });
+
+  it('withSection drops a page param on a link to any other page, and keeps it on its owner', () => {
+    const detail = 'a=1&tab=automation&sub=workload-autoscaler&workload=a/Deployment/b';
+    expect(params(withSection(detail, 'automation', 'hpa')).has('workload')).toBe(false);
+    expect(params(withSection(detail, 'workloads', 'workloads')).has('workload')).toBe(false);
+    expect(params(withSection(detail, 'automation', 'workload-autoscaler')).get('workload')).toBe('a/Deployment/b');
+    const hpa = 'a=1&tab=automation&sub=hpa&hpa=team-b/php-apache';
+    expect(params(withSection(hpa, 'automation', 'vpa')).has('hpa')).toBe(false);
+    expect(params(withSection(hpa, 'automation', 'hpa')).get('hpa')).toBe('team-b/php-apache');
+    // Everything else stays where it was.
+    expect([...params(withSection(detail, 'automation', 'hpa')).keys()]).toEqual(['a', 'tab', 'sub']);
+  });
+
+  it('drops a page param when a correction lands somewhere else', () => {
+    const r = resolve(`${BASE}&tab=automation&sub=bogus&workload=a/Deployment/b`);
+    expect([r.tab, r.sub]).toEqual(['automation', 'overview']);
+    expect(params(r.corrected).has('workload')).toBe(false);
   });
 });
 
@@ -172,6 +271,67 @@ describe('sectionNavEntries (Addendum 1, J-2..J-4)', () => {
     expect(currentOf(`${BASE}&tab=bogus`)).toBe('overview/summary');
     expect(currentOf(`${BASE}&tab=nodes&sub=bogus`)).toBe('nodes/nodes');
   });
+
+  const automationOf = (search: string) => nav(search).find((e) => e.id === 'automation')!;
+
+  it('folds a group into one node: id group:<slug>, its first child\'s href, current while a child is', () => {
+    const automation = automationOf(`${BASE}&tab=automation&sub=workload-autoscaler`);
+    expect(automation.subs.map((s) => [s.id, s.label, s.current])).toEqual([
+      ['overview', 'Overview', false],
+      ['group:workload-autoscaler', 'Workload autoscaler', true],
+      ['hpa', 'HPA', false],
+      ['vpa', 'VPA', false],
+    ]);
+    const group = automation.subs[1];
+    expect(group.children!.map((c) => [c.id, c.label, c.current])).toEqual([['workload-autoscaler', 'Workloads', true]]);
+    expect(group.href).toBe(group.children![0].href);
+    expect(resolve(searchOf(group.href))).toEqual({ tab: 'automation', sub: 'workload-autoscaler', corrected: null });
+    for (const leaf of automation.subs.filter((s) => s !== group)) {
+      expect(leaf.children, leaf.id).toBeUndefined();
+      expect(resolve(searchOf(leaf.href))).toEqual({ tab: 'automation', sub: leaf.id, corrected: null });
+    }
+  });
+
+  it('leaves the group node not current while another Automation page is', () => {
+    const automation = automationOf(`${BASE}&tab=automation&sub=hpa`);
+    const group = automation.subs.find((s) => s.id === 'group:workload-autoscaler')!;
+    expect(group.current).toBe(false);
+    expect(group.children!.map((c) => c.current)).toEqual([false]);
+    expect(automation.subs.filter((s) => s.current).map((s) => s.id)).toEqual(['hpa']);
+  });
+
+  it('marks HPA current for main\'s old Pod autoscaler link', () => {
+    expect(automationOf(`${BASE}&tab=automation&sub=pod-autoscaling`).subs.find((s) => s.current)?.id).toBe('hpa');
+  });
+
+  it('drops the workload from links that leave Workload autoscaler › Workloads, and keeps it on Workloads itself', () => {
+    const automation = automationOf(`${BASE}&tab=automation&sub=workload-autoscaler&workload=a/Deployment/b`);
+    expect(params(searchOf(automation.subs.find((s) => s.id === 'hpa')!.href)).has('workload')).toBe(false);
+    expect(params(searchOf(automation.subs.find((s) => s.id === 'overview')!.href)).has('workload')).toBe(false);
+    const workloads = automation.subs.find((s) => s.id === 'group:workload-autoscaler')!.children![0];
+    expect(params(searchOf(workloads.href)).get('workload')).toBe('a/Deployment/b');
+    for (const entry of nav(`${BASE}&tab=automation&sub=workload-autoscaler&workload=a/Deployment/b`)) {
+      expect(params(searchOf(entry.href)).has('workload'), entry.id).toBe(false);
+    }
+  });
+
+  it('folds only consecutive subs of a group, and leaves ungrouped subs as leaves', () => {
+    const registry: SectionRegistry = [
+      { id: 's', label: 'S', icon: 'mdi:circle-outline', defaultSub: 'a', subs: [
+        { id: 'a', label: 'A' },
+        { id: 'b', label: 'B', group: 'Two words' },
+        { id: 'c', label: 'C', group: 'Two words' },
+        { id: 'd', label: 'D' },
+      ] },
+    ];
+    const [entry] = sectionNavEntries(registry, {}, '/p', 'tab=s&sub=c');
+    expect(entry.subs.map((s) => [s.id, s.current, s.children?.map((c) => c.id) ?? null])).toEqual([
+      ['a', false, null],
+      ['group:two-words', true, ['b', 'c']],
+      ['d', false, null],
+    ]);
+    expect(entry.subs[1].href).toBe('/p?tab=s&sub=b');
+  });
 });
 
 function Probe() {
@@ -203,6 +363,19 @@ describe('useEksSectionRoute', () => {
     const p = params(router.state.location.search);
     expect([p.get('tab'), p.get('sub')]).toEqual([tab, sub]);
     expect(p.get('name')).toBe('prod-eks');
+  });
+
+  it.each([
+    ['pod-autoscaling', 'hpa'],
+    ['workload-autoscaling', 'workload-autoscaler'],
+  ])('rewrites the aliased ?sub=%s to %s once, with replace', async (alias, sub) => {
+    const router = renderAt(`${BASE}&tab=automation&sub=${alias}`);
+    expect(screen.getByTestId('pair')).toHaveTextContent(`automation/${sub}`);
+    await act(async () => {});
+    expect(router.state.historyAction).toBe('REPLACE');
+    const p = params(router.state.location.search);
+    expect([p.get('tab'), p.get('sub')]).toEqual(['automation', sub]);
+    expect(p.get('accountIds')).toBe('111111111111');
   });
 
   it('does not rewrite a URL that is already right', async () => {

@@ -8,10 +8,12 @@ interface Props {
   dark: boolean;
   /**
    * Nesting depth. 2 is a list inside another SubNav (the CloudK8s cluster subtabs), with a
-   * tighter indent so its labels still fit the sidebar. Defaults to 1, which renders exactly as
-   * every SubNav did before the prop existed.
+   * tighter indent so its labels still fit the sidebar; 3 is one step deeper with the same nested
+   * pattern (a CloudK8s group's subtabs, e.g. Automation › Workload autoscaler › Workloads), its
+   * rule under the group label's text. Defaults to 1, which renders exactly as every SubNav did
+   * before the prop existed.
    */
-  level?: 1 | 2;
+  level?: 1 | 2 | 3;
   children: React.ReactNode;
 }
 
@@ -43,7 +45,7 @@ const SubNav: React.FC<Props> = ({ isOpen, dark, level = 1, children }) => (
     <div
       className={clsx(
         'min-h-0 space-y-0.5',
-        level === 2 ? 'ml-2 pl-2' : 'ml-3 pl-3',
+        level === 3 ? 'ml-2.5 pl-2' : level === 2 ? 'ml-2 pl-2' : 'ml-3 pl-3',
         'border-l',
         !isOpen && 'pointer-events-none',
         dark ? 'border-[rgba(255,255,255,0.08)]' : 'border-[rgba(0,0,0,0.08)]'

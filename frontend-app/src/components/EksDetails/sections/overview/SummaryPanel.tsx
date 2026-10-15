@@ -269,7 +269,7 @@ export function attentionItems(input: {
       id: 'throttled', icon: 'mdi:timer-sand', tone: 'text-status-warn',
       title: `${plural(throttled.length, 'workload is', 'workloads are')} held back by the CPU limit`,
       detail: `${workloadName(throttled[0])} is CPU throttled. The Workload autoscaler suggests more CPU.${andMore(throttled.length)}`,
-      tab: 'automation', sub: 'workload-autoscaling',
+      tab: 'automation', sub: 'workload-autoscaler',
     });
   }
   const oom = finding('OOM_RISK');
@@ -278,7 +278,7 @@ export function attentionItems(input: {
       id: 'oom', icon: 'mdi:memory', tone: 'text-status-bad',
       title: `${plural(oom.length, 'workload', 'workloads')} ran out of memory`,
       detail: `${workloadName(oom[0])} had containers killed for using too much memory in the window.${andMore(oom.length)}`,
-      tab: 'automation', sub: 'workload-autoscaling',
+      tab: 'automation', sub: 'workload-autoscaler',
     });
   }
   const atMax = (hpaStates(dashboard) ?? []).filter((h) => h.atMax);
@@ -664,7 +664,7 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
           )}
           {analysed > 0 && (
             <div className="mt-auto pt-1">
-              <Link to={href('automation', 'workload-autoscaling')} state={linkState} className={primaryButton}>
+              <Link to={href('automation', 'workload-autoscaler')} state={linkState} className={primaryButton}>
                 {REVIEW_SUGGESTIONS}
                 <Icon icon="mdi:arrow-right" width={14} aria-hidden="true" />
               </Link>
@@ -688,7 +688,7 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
               }}
               next={analysed > 0 ? (
                 <p className="flex flex-wrap gap-x-4 gap-y-1">
-                  <Link to={href('automation', 'workload-autoscaling')} state={linkState} className={linkClass}>
+                  <Link to={href('automation', 'workload-autoscaler')} state={linkState} className={linkClass}>
                     {REVIEW_SUGGESTIONS}<Icon icon="mdi:chevron-right" width={14} aria-hidden="true" />
                   </Link>
                   {workloadStatus.status === 'On: suggestions only' && (
@@ -811,11 +811,11 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
   );
 }
 
-/** "Workloads › Pods": where an attention item's link goes. */
+/** "Workloads › Pods" (with its group, "Automation › Workload autoscaler › Workloads"): where an attention item's link goes. */
 function findingLabel(tab: EksSectionId, sub: EksSubtabId): string {
   const section = EKS_SECTIONS.find((s) => s.id === tab) ?? EKS_SECTIONS[0];
   const subtab = section.subs.find((s) => s.id === sub) ?? section.subs[0];
-  return `${section.label} › ${subtab.label}`;
+  return [section.label, subtab.group, subtab.label].filter(Boolean).join(' › ');
 }
 
 /** vCPU in a sentence, without trailing zeros: "32 vCPU", "1.93 vCPU" (the cards keep two decimals). */

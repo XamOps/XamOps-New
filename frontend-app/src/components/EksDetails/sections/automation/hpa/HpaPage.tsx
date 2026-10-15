@@ -1,65 +1,65 @@
 /**
- * EKS HPA Tab — horizontal autoscaling (replica bounds + CPU target) and VPA coexistence.
+ * Automation › HPA: horizontal autoscaling (replica bounds and CPU target).
  *
- * Reads the vertical rightsizer payload (one `GET` per cluster) and renders two things:
- *
- *  - the HPA page: per workload, the engine's decision as a plain sentence (e.g. "XamOps suggests
- *    raising the maximum to 8") with an Apply button that is enabled only when the decision is
- *    appliable and every gate the server re-checks passes, otherwise greyed with the reason —
- *    exactly the vertical Apply gating;
- *  - the VPA coexistence view: each native VPA's mode/target beside XamOps's view, with a conflict
- *    column. An Off-mode VPA reads "None — Off doesn't change pods", not a warning. There is no
- *    Apply here: applying a vertical change is the rightsizer's job on the workload.
+ * The HPA half of main's combined Pod autoscaler page (`EksHpaTab`), moved here unchanged in
+ * behaviour; the VPA coexistence half is its own page (`../vpa/VpaPage`). It reads the vertical
+ * rightsizer payload (one `GET` per cluster) and renders, per workload, the engine's decision as a
+ * plain sentence (e.g. "XamOps suggests raising the maximum to 8") with its formula, and an Apply
+ * button that is enabled only when the decision is appliable and every gate the server re-checks
+ * passes, otherwise greyed with the reason — exactly the vertical Apply gating.
  *
  * The same four rules as the Automation tab hold: nothing is fabricated (a value XamOps did not
  * measure is a dash, an unset field is "Not set", a 0 in a resources field is a reported defect),
  * Apply confirms a real change, and codes never appear as visible text — only in titles as
- * "Code: <CODE>".
+ * "Code: <CODE>". Every status is a chip with an icon and a label, never colour alone.
  */
 
 import React, { useState } from 'react';
-import useHpaAutomation from '../../../hooks/useHpaAutomation';
-import { DASH, hpaApplyGate } from '../../../api/hpaAdapter';
-import {
-  VPA_OFF_TEXT,
-  hpaCodeText,
-  hpaReasonSentence,
-  hpaReasonTitle,
-} from '../sections/automation/hpaCopy';
-import type { CodeView } from '../../../types/verticalRightsizer';
-import type {
-  HpaApplyGate,
-  HpaApplyResult,
-  HpaPageView,
-  HpaWorkloadView,
-  NativeVpaTargetView,
-} from '../../../types/hpaAutomation';
+import useHpaAutomation from '../../../../../hooks/useHpaAutomation';
+import { DASH, hpaApplyGate } from '../../../../../api/hpaAdapter';
+import { hpaCodeText, hpaReasonSentence, hpaReasonTitle } from '../hpaCopy';
+import { EmptyState, HpaReadFallback, gateEmptyState, type GateCopy } from '../hpaReadStates';
+import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
+import type { Tone } from '../../../../CloudK8s/shared/status/statusTones';
+import type { UseEksDashboardReturn } from '../../../../../hooks/useEksDashboard';
+import type { CodeView } from '../../../../../types/verticalRightsizer';
+import type { HpaApplyGate, HpaApplyResult, HpaWorkloadView } from '../../../../../types/hpaAutomation';
 
-interface EksHpaTabProps {
+export interface HpaPageProps {
   clusterName: string;
   accountId: string;
   region: string;
+  /** The page's dashboard (the XamOps agent's HPAs), for the list and detail visuals that build on this page. */
+  eksData?: UseEksDashboardReturn;
 }
 
-// ─── Shared chrome, greyscale (mirrors EksAutomationTab) ─────────────────────
+// ─── Chips (tone + icon + label, glossary-additions §2) ──────────────────────
 
-const Chip: React.FC<{ text: string; title?: string }> = ({ text, title }) => (
-  <span
-    title={title}
-    className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border bg-[rgba(0,0,0,0.02)] text-[rgba(0,0,0,0.6)] border-[rgba(0,0,0,0.1)]"
-  >
-    {text}
+/** The tone and icon of an HPA reason chip. A reason that holds a change back is a neutral "left alone". */
+const reasonTone = (code: CodeView): { tone: Tone; icon: string } => {
+  switch (code.kind === 'known' ? code.code : null) {
+    case 'AT_MAX_UNMET_DEMAND':
+      return { tone: 'warn', icon: 'mdi:arrow-collapse-up' };
+    case 'MAX_ABOVE_OBSERVED_PEAK':
+      return { tone: 'warn', icon: 'mdi:arrow-collapse-down' };
+    case 'TARGET_COADJUSTED':
+    case 'TARGET_RETUNED':
+      return { tone: 'info', icon: 'mdi:tune-variant' };
+    case 'HPA_RECOMMENDED_NEW':
+      return { tone: 'info', icon: 'mdi:lightbulb-outline' };
+    case 'HPA_NOT_READABLE':
+    case 'VPA_NOT_READABLE':
+      return { tone: 'warn', icon: 'mdi:eye-off-outline' };
+    default:
+      return { tone: 'off', icon: 'mdi:minus-circle-outline' };
+  }
+};
+
+/** A chip with a tooltip: the title sits on a wrapper, since the chip itself takes none. */
+const TitledChip: React.FC<{ tone: Tone; icon: string; label: string; title?: string }> = ({ tone, icon, label, title }) => (
+  <span title={title} className="inline-flex">
+    <StatusChip tone={tone} icon={icon} label={label} />
   </span>
-);
-
-const EmptyState: React.FC<{ icon: string; title: string; subtitle: string }> = ({ icon, title, subtitle }) => (
-  <div className="flex flex-col items-center justify-center py-16 text-center">
-    <div className="w-14 h-14 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.06)] rounded-lg flex items-center justify-center mb-4">
-      <i className={`${icon} text-[rgba(0,0,0,0.4)] text-xl`}></i>
-    </div>
-    <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{title}</p>
-    <p className="text-[12px] text-[rgba(0,0,0,0.5)] mt-1 max-w-[460px]">{subtitle}</p>
-  </div>
 );
 
 const StatusItem: React.FC<{ label: string; value: string; title?: string }> = ({ label, value, title }) => (
@@ -71,10 +71,6 @@ const StatusItem: React.FC<{ label: string; value: string; title?: string }> = (
   </div>
 );
 
-/** A millicore value, or a dash when XamOps didn't measure it. Never 0. */
-const millis = (value: number | null): string => (value === null ? DASH : `${value}m`);
-const mib = (value: number | null): string =>
-  value === null ? DASH : value < 1024 ? `${value}Mi` : `${Number((value / 1024).toFixed(2))} GiB`;
 const count = (value: number | null): string => (value === null ? DASH : String(value));
 
 // ─── Decision sentence (glossary) ────────────────────────────────────────────
@@ -116,7 +112,7 @@ const DecisionBlock: React.FC<{ workload: HpaWorkloadView }> = ({ workload }) =>
       {d.reasons.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
           {d.reasons.map((r) => (
-            <Chip key={hpaCodeText(r)} text={hpaCodeText(r)} title={hpaReasonTitle(r, ctx)} />
+            <TitledChip key={hpaCodeText(r)} {...reasonTone(r)} label={hpaCodeText(r)} title={hpaReasonTitle(r, ctx)} />
           ))}
         </div>
       )}
@@ -248,12 +244,18 @@ const HpaCard: React.FC<{
             <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">
               {workload.hpaPresent ? (workload.hpaName ?? workload.ref.name) : workload.ref.name}
             </span>
-            <Chip
-              text={workload.hpaPresent ? 'HPA' : 'No HPA'}
-              title={workload.hpaPresent ? 'A HorizontalPodAutoscaler targets this workload' : 'No HPA targets this workload'}
-            />
+            {workload.hpaPresent ? (
+              <TitledChip tone="info" icon="mdi:arrow-expand-horizontal" label="HPA" title="A HorizontalPodAutoscaler targets this workload" />
+            ) : (
+              <TitledChip tone="off" icon="mdi:minus-circle-outline" label="No HPA" title="No HPA targets this workload" />
+            )}
             {workload.vpaCoexistence.kind === 'managed' && (
-              <Chip text="VPA-managed" title={hpaReasonTitle({ kind: 'known', code: 'VPA_MANAGED', label: '' } as CodeView, { name: workload.hpaName })} />
+              <TitledChip
+                tone="off"
+                icon="mdi:minus-circle-outline"
+                label="VPA-managed"
+                title={hpaReasonTitle({ kind: 'known', code: 'VPA_MANAGED', label: '' } as CodeView, { name: workload.hpaName })}
+              />
             )}
           </div>
           <p className="mt-0.5 text-[11px] text-[rgba(0,0,0,0.5)]">
@@ -307,112 +309,12 @@ const HpaCard: React.FC<{
   );
 };
 
-// ─── VPA coexistence view ────────────────────────────────────────────────────
+// ─── Status text ─────────────────────────────────────────────────────────────
 
-const COEXIST_TEXT: Record<string, string> = {
-  managed: 'XamOps stands down — the VPA owns the requests',
-  unreadable: "XamOps can't read the VPA, so it leaves requests alone",
-  off: VPA_OFF_TEXT,
-  none: DASH,
-};
-
-const vpaTargetText = (t: NativeVpaTargetView): string => `${millis(t.cpuRequestM)} CPU / ${mib(t.memRequestMi)} memory`;
-
-const VpaCoexistenceTable: React.FC<{ view: HpaPageView }> = ({ view }) => {
-  const rows = view.vpaWorkloads;
-  if (rows.length === 0) {
-    return (
-      <EmptyState
-        icon="fas fa-layer-group"
-        title="No Kubernetes VPAs on this cluster"
-        subtitle="When a VerticalPodAutoscaler targets a workload, it appears here beside XamOps's view."
-      />
-    );
-  }
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left">
-        <thead>
-          <tr className="bg-[rgba(0,0,0,0.02)] border-b border-[rgba(0,0,0,0.06)]">
-            {['Workload', 'Native VPA mode', 'Native VPA suggests', 'XamOps view', 'Coexistence'].map((h) => (
-              <th key={h} className="px-4 py-2 text-[10px] uppercase tracking-wide font-bold text-[rgba(0,0,0,0.4)] whitespace-nowrap">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((w) => {
-            const kind = w.vpaCoexistence.kind;
-            // Off is the common, benign case: a VPA exists but changes no pods.
-            const mode = kind === 'managed' ? 'Mutating' : kind === 'unreadable' ? 'Not readable' : 'Off';
-            const target =
-              w.nativeVpa.length === 0
-                ? DASH
-                : w.nativeVpa.map((t) => `${t.containerName}: ${vpaTargetText(t)}`).join('  ·  ');
-            return (
-              <tr key={w.id} className="border-b border-[rgba(0,0,0,0.04)] last:border-0 align-top">
-                <td className="px-4 py-3 text-[12px] font-semibold text-[rgba(0,0,0,0.88)] whitespace-nowrap">
-                  {w.ref.name}
-                  <span className="block text-[11px] font-normal text-[rgba(0,0,0,0.5)]">
-                    {w.ref.kind} · {w.ref.namespace}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-[12px] text-[rgba(0,0,0,0.6)] whitespace-nowrap">{mode}</td>
-                <td className="px-4 py-3 text-[12px] text-[rgba(0,0,0,0.6)] tabular-nums">{target}</td>
-                <td className="px-4 py-3 text-[12px] text-[rgba(0,0,0,0.6)] whitespace-nowrap">
-                  {/* XamOps writes requests only when the VPA is NOT mutating; otherwise it stands down. */}
-                  {kind === 'managed' || kind === 'unreadable' ? 'Requests left to the VPA' : 'Rightsizer manages requests'}
-                </td>
-                <td className="px-4 py-3 text-[12px] text-[rgba(0,0,0,0.78)]">{COEXIST_TEXT[kind]}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-};
-
-// ─── Empty-state copy, keyed by the backend gate ─────────────────────────────
-
-interface GateCopy {
-  icon: string;
-  title: string;
-  subtitle: string;
-}
-
-const GATE_COPY: Record<string, GateCopy> = {
-  CONTROLLER_NOT_READY: {
-    icon: 'fas fa-toggle-off',
-    title: 'HPA automation is off in this environment',
-    subtitle: "XamOps hasn't evaluated this cluster's HPAs, and nothing was read from the cluster.",
-  },
-  CLUSTER_ACCESS_NOT_CONFIGURED: {
-    icon: 'fas fa-key',
-    title: "XamOps can't sign in to this cluster",
-    subtitle: "Create an EKS access entry for this account's XamOps role. The cluster setup guide shows how.",
-  },
-  CLUSTER_UNREACHABLE: {
-    icon: 'fas fa-plug',
-    title: "XamOps can't reach this cluster's API server",
-    subtitle: "Access is set up, but the endpoint didn't answer. That's expected for a private endpoint.",
-  },
-};
-
-const CALLER_WRITE_GATES = new Set(['DEMO', 'NO_USER_PERMISSION', 'READ_ONLY_CONNECTION']);
-
-const gateEmptyState = (gateReasons: CodeView[]): GateCopy => {
-  for (const reason of gateReasons) {
-    if (reason.kind === 'known' && !CALLER_WRITE_GATES.has(reason.code) && GATE_COPY[reason.code]) {
-      return GATE_COPY[reason.code];
-    }
-  }
-  return {
-    icon: 'fas fa-expand-arrows-alt',
-    title: 'No HPAs to show',
-    subtitle: 'XamOps found no HorizontalPodAutoscalers and no workload that would benefit from one.',
-  };
+const NO_HPAS: GateCopy = {
+  icon: 'mdi:arrow-expand-horizontal',
+  title: 'No HPAs to show',
+  subtitle: 'XamOps found no HorizontalPodAutoscalers and no workload that would benefit from one.',
 };
 
 const CLUSTER_ACCESS_TEXT: Record<string, string> = {
@@ -427,9 +329,9 @@ const PATH_TEXT: Record<string, string> = {
   NONE: 'No way to send changes',
 };
 
-// ─── Tab ─────────────────────────────────────────────────────────────────────
+// ─── Page ────────────────────────────────────────────────────────────────────
 
-const EksHpaTab: React.FC<EksHpaTabProps> = ({ clusterName, accountId, region }) => {
+export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region }) => {
   const [dryRun, setDryRun] = useState(true);
   const { loading, result, reload, applyingIds, applyResults, callerRefusal, apply } = useHpaAutomation({
     clusterName,
@@ -437,46 +339,18 @@ const EksHpaTab: React.FC<EksHpaTabProps> = ({ clusterName, accountId, region })
     region,
   });
 
-  if (loading && !result) {
-    return <div className="skeleton h-64 rounded-xl"></div>;
-  }
-  if (!result) {
-    return <EmptyState icon="fas fa-circle-info" title="Nothing requested yet" subtitle="HPA automation needs a cluster, an account and a region." />;
-  }
-  if (result.kind === 'cluster-not-registered') {
-    return <EmptyState icon="fas fa-link-slash" title="This cluster isn't connected to XamOps yet" subtitle="Install the XamOps agent from the cluster's setup guide, then reload." />;
-  }
-  if (result.kind === 'unauthenticated') {
-    return <EmptyState icon="fas fa-user-lock" title="Your session has expired" subtitle="Sign in again to see automation." />;
-  }
-  if (result.kind === 'refused') {
-    const copy = result.code.kind === 'known' ? GATE_COPY[result.code.code] : undefined;
-    return <EmptyState icon={copy?.icon ?? 'fas fa-ban'} title={copy?.title ?? hpaCodeText(result.code)} subtitle={copy?.subtitle ?? result.message} />;
-  }
-  if (result.kind === 'error') {
-    return (
-      <div className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] p-6">
-        <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">Couldn&apos;t load HPA automation</p>
-        <p className="text-[12px] text-[rgba(0,0,0,0.5)] mt-1">{result.message}</p>
-        <button
-          type="button"
-          onClick={reload}
-          className="mt-4 px-4 py-2 text-xs font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] transition-all"
-        >
-          Retry
-        </button>
-      </div>
-    );
+  if (result?.kind !== 'ok') {
+    return <HpaReadFallback feature="hpa" loading={loading} result={result} reload={reload} />;
   }
 
   const view = result.view;
   const { engine, gateReasons, hpaWorkloads, anomalies } = view;
-  const empty = gateEmptyState(gateReasons);
+  const empty = gateEmptyState(gateReasons, 'hpa', NO_HPAS);
 
   return (
     <div className="space-y-4">
       <section className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] px-6 py-4">
-        <h3 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">Pod autoscaler (HPA)</h3>
+        <h3 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">HPA</h3>
         <p className="mt-1 text-[12px] text-[rgba(0,0,0,0.6)] max-w-[820px]">
           Reviews each HorizontalPodAutoscaler&apos;s replica bounds and CPU target against how the workload has
           actually scaled, and can tune them. XamOps only suggests: nothing changes until you press Apply and confirm.
@@ -524,7 +398,7 @@ const EksHpaTab: React.FC<EksHpaTabProps> = ({ clusterName, accountId, region })
           <div className="flex flex-wrap items-center gap-1 mt-3">
             <span className="text-[10px] uppercase tracking-wide text-[rgba(0,0,0,0.4)] font-bold mr-1">Why changes are off</span>
             {gateReasons.map((r) => (
-              <Chip key={hpaCodeText(r)} text={hpaCodeText(r)} title={`Code: ${r.kind === 'known' ? r.code : r.raw}`} />
+              <TitledChip key={hpaCodeText(r)} tone="off" icon="mdi:lock-outline" label={hpaCodeText(r)} title={`Code: ${r.kind === 'known' ? r.code : r.raw}`} />
             ))}
           </div>
         )}
@@ -562,19 +436,8 @@ const EksHpaTab: React.FC<EksHpaTabProps> = ({ clusterName, accountId, region })
           />
         ))
       )}
-
-      <section className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] overflow-hidden">
-        <div className="px-6 py-4">
-          <h3 className="text-[14px] font-semibold text-[rgba(0,0,0,0.88)]">Kubernetes VPA coexistence</h3>
-          <p className="mt-1 text-[12px] text-[rgba(0,0,0,0.6)] max-w-[820px]">
-            How XamOps and any native VerticalPodAutoscaler share a workload. XamOps sizes requests itself and reads
-            native VPAs to stay out of their way; a VPA in Mode Off changes no pods, so it is never a conflict.
-          </p>
-        </div>
-        <VpaCoexistenceTable view={view} />
-      </section>
     </div>
   );
 };
 
-export default EksHpaTab;
+export default HpaPage;

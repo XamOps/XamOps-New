@@ -9,7 +9,7 @@
  * chunk inside Suspense and an ErrorBoundary, so a section that fails leaves the rest of the page
  * working.
  */
-import React, { Suspense, lazy, useCallback, useState } from 'react';
+import React, { Fragment, Suspense, lazy, useCallback, useState } from 'react';
 import { Icon } from '@iconify/react';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { useTheme } from '../contexts/ThemeContext';
@@ -115,21 +115,23 @@ function LoadError({ message, onRetry }: { message: string; onRetry: () => void 
 /**
  * Names the section and subtab on screen (Addendum 1, J-7). The sidebar lists them as links
  * (ClusterSectionsNav), so this is what tells a screen reader the content changed: the heading sits
- * in a polite live region and is announced as "Workloads, Pods" when the URL moves on.
+ * in a polite live region and is announced as "Workloads, Pods" when the URL moves on. A grouped
+ * subtab names its group too: "Automation, Workload autoscaler, Workloads".
  */
 function SectionHeading({ route }: { route: EksSectionProps['route'] }) {
   const sub = route.section.subs.find((s) => s.id === route.sub) ?? route.section.subs[0];
+  const trail = sub ? [...(sub.group ? [sub.group] : []), sub.label] : [];
   return (
     <div aria-live="polite" aria-atomic="true">
       <h2 className="text-[16px] font-semibold text-[rgba(0,0,0,0.88)]" data-section-heading="">
         {route.section.label}
-        {sub && (
-          <>
+        {trail.map((part) => (
+          <Fragment key={part}>
             {/* The space is a text node of its own: names trim the inside of a span. */}
             <span aria-hidden="true" className="ml-1.5 font-normal text-[rgba(0,0,0,0.4)]">›</span>
-            <span className="sr-only">,</span> {sub.label}
-          </>
-        )}
+            <span className="sr-only">,</span> {part}
+          </Fragment>
+        ))}
       </h2>
     </div>
   );

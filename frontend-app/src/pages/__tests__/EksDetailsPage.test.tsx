@@ -191,6 +191,17 @@ describe('legacy ?tab= links (§5.2)', () => {
     expect(screen.queryByRole('tab')).toBeNull();
   });
 
+  it.each([
+    ['workload-autoscaling', 'workload-autoscaler', 'Automation, Workload autoscaler, Workloads'],
+    ['pod-autoscaling', 'hpa', 'Automation, HPA'],
+  ])('?tab=automation&sub=%s lands on %s, named "%s"', async (alias, sub, heading) => {
+    renderAt(`${BASE}&tab=automation&sub=${alias}`);
+    await waitFor(() => expect(currentUrl().searchParams.get('sub')).toBe(sub));
+    expect(currentUrl().searchParams.get('tab')).toBe('automation');
+    expect(currentUrl().searchParams.get('accountIds')).toBe(ACCOUNT);
+    expect(sectionHeading(heading)).toBeInTheDocument();
+  });
+
   it('opens Overview › Summary for a plain link without rewriting it', async () => {
     renderAt(BASE);
     expect(await find('Overview tab content')).toBeInTheDocument();
@@ -201,7 +212,8 @@ describe('legacy ?tab= links (§5.2)', () => {
 
 describe('sidebar section navigation (Addendum 1)', () => {
   it.each(
-    EKS_SECTIONS.flatMap((section) => section.subs.map((sub) => [section.id, sub.id, section.label, sub.label] as const)),
+    // A grouped subtab names its group too: "Automation, Workload autoscaler, Workloads".
+    EKS_SECTIONS.flatMap((section) => section.subs.map((sub) => [section.id, sub.id, section.label, sub.group ? `${sub.group}, ${sub.label}` : sub.label] as const)),
   )('?tab=%s&sub=%s shows "%s, %s" with no tablist', async (tab, sub, sectionLabel, subLabel) => {
     renderAt(`${BASE}&tab=${tab}&sub=${sub}`, { withNav: true });
     expect(await screen.findByRole('heading', { level: 2, name: `${sectionLabel}, ${subLabel}` }, { timeout: 4000 })).toBeInTheDocument();

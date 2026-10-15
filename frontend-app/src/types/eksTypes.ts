@@ -365,6 +365,7 @@ export type EksSubtabId =
   | 'pods' | 'containers' | 'resources'
   | 'node-groups' | 'karpenter' | 'utilization'
   | 'overview' | 'workload-autoscaling' | 'pod-autoscaling' | 'node-autoscaling' | 'rebalancing' | 'guardrails' | 'activity'
+  | 'workload-autoscaler' | 'workload-autoscaler-policies' | 'node-autoscaler' | 'hpa' | 'vpa'
   | 'vulnerabilities' | 'compliance' | 'runtime'
   | 'connections' | 'install';
 

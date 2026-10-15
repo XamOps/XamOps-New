@@ -223,7 +223,7 @@ describe('Overview › Summary, laid out like the cast.ai Dashboard (23b)', () =
     expect(freed).toHaveAttribute('title', FREED_TOOLTIP);
     expect(card).not.toHaveTextContent('$');
     const target = resolved(within(card).getByRole('link', { name: REVIEW_SUGGESTIONS }).getAttribute('href')!);
-    expect([target.tab, target.sub, target.corrected]).toEqual(['automation', 'workload-autoscaling', null]);
+    expect([target.tab, target.sub, target.corrected]).toEqual(['automation', 'workload-autoscaler', null]);
   });
 
   it('uses the status words when the Workload autoscaler is off here, and offers Retry when it fails', async () => {
