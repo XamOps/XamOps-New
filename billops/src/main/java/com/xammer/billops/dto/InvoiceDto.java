@@ -42,6 +42,8 @@ public class InvoiceDto {
     private String dataSource;
     /** True when built from a month that had not yet closed — an estimate, not the final bill. */
     private boolean provisional;
+    /** INR per 1 USD this invoice was finalized at; null until finalized with a chosen rate. */
+    private Double exchangeRate;
     private long lastUpdated;
     private List<LineItemDto> lineItems;
     private List<DiscountDto> discounts;
@@ -90,6 +92,7 @@ public class InvoiceDto {
         dto.setIncludeIrn(invoice.isIncludeIrn());
         dto.setDataSource(invoice.getDataSource() != null ? invoice.getDataSource().name() : null);
         dto.setProvisional(invoice.isProvisional());
+        dto.setExchangeRate(invoice.getExchangeRate());
 
         // Convert line items (only non-hidden items)
         List<LineItemDto> items = Optional.ofNullable(invoice.getLineItems())
@@ -320,6 +323,14 @@ public class InvoiceDto {
 
     public void setProvisional(boolean provisional) {
         this.provisional = provisional;
+    }
+
+    public Double getExchangeRate() {
+        return exchangeRate;
+    }
+
+    public void setExchangeRate(Double exchangeRate) {
+        this.exchangeRate = exchangeRate;
     }
 
     public void setIncludeIrn(boolean includeIrn) {

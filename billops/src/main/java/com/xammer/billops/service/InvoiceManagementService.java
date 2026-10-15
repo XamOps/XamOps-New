@@ -229,10 +229,17 @@ public class InvoiceManagementService {
 
     /**
      * Fetches the USD→INR exchange rate for PDF invoice generation.
-     * Priority: 1) CloudAccount stored rate → 2) Live currency API → 3) Hardcoded fallback.
+     * Priority: 1) Invoice's own finalized rate → 2) CloudAccount stored rate →
+     * 3) Live currency API → 4) Hardcoded fallback.
      */
     private double fetchUsdToInrRate(InvoiceDto dto) {
-        // 1. Try the stored rate on the CloudAccount
+        // 1. Prefer the rate the admin locked in on this invoice at finalize time.
+        if (dto.getExchangeRate() != null && dto.getExchangeRate() > 1.0) {
+            double invoiceRate = dto.getExchangeRate();
+            logger.info("[InvoiceGen] Using invoice-finalized USD→INR rate: {}", invoiceRate);
+            return invoiceRate;
+        }
+        // 2. Try the stored rate on the CloudAccount
         try {
             Optional<CloudAccount> accountOpt = Optional.empty();
             String awsId = dto.getAwsAccountId();
@@ -2416,11 +2423,21 @@ public class InvoiceManagementService {
         invoice.setAmount(grandTotal);
     }
 
+    public Invoice finalizeInvoice(Long invoiceId) {
+        return finalizeInvoice(invoiceId, null);
+    }
+
     @Transactional
     @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
-    public Invoice finalizeInvoice(Long invoiceId) {
+    public Invoice finalizeInvoice(Long invoiceId, Double exchangeRate) {
         Invoice invoice = invoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new RuntimeException("Invoice not found"));
+        if (exchangeRate != null) {
+            if (exchangeRate <= 1.0) {
+                throw new IllegalArgumentException("Exchange rate must be greater than 1.");
+            }
+            invoice.setExchangeRate(exchangeRate);
+        }
         recalculateTotals(invoice);
         invoice.setStatus(Invoice.InvoiceStatus.FINALIZED);
         Invoice finalizedInvoice = invoiceRepository.save(invoice);

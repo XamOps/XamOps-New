@@ -231,10 +231,20 @@ public class AdminInvoiceController {
         }
     }
 
+    /** Optional finalize body carrying the admin-chosen USD→INR rate to lock in. */
+    public record FinalizeRequest(Double exchangeRate) {}
+
     @PostMapping("/{id}/finalize")
-    public ResponseEntity<InvoiceDto> finalizeInvoice(@PathVariable Long id) {
-        Invoice finalizedInvoice = invoiceManagementService.finalizeInvoice(id);
-        return ResponseEntity.ok(InvoiceDto.fromEntity(finalizedInvoice));
+    public ResponseEntity<?> finalizeInvoice(@PathVariable Long id,
+                                             @RequestBody(required = false) FinalizeRequest body) {
+        Double rate = body != null ? body.exchangeRate() : null;
+        try {
+            Invoice finalizedInvoice = invoiceManagementService.finalizeInvoice(id, rate);
+            return ResponseEntity.ok(InvoiceDto.fromEntity(finalizedInvoice));
+        } catch (IllegalArgumentException e) {
+            logger.info("[InvoiceGen] Finalize rejected for invoice {}: {}", id, e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
     }
 
     @DeleteMapping("/{invoiceId}/discounts/{discountId}")

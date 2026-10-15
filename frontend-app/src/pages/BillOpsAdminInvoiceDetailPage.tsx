@@ -96,6 +96,8 @@ interface InvoiceDetail {
   privatePricing?: PrivatePricingDto[];
   dataSource?: 'CUR' | 'COST_EXPLORER' | null;
   provisional?: boolean;
+  /** INR per 1 USD this invoice was finalized at; null until finalized with a chosen rate. */
+  exchangeRate?: number | null;
 }
 
 interface UsageTypeNode { usageType: string; total: number; lines: LineItemDto[] }
@@ -346,6 +348,12 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
   const [usdRate, setUsdRate] = useState<number | null>(null);
   const [rateDate, setRateDate] = useState<string | null>(null);
 
+  // The USD→INR rate an admin reviews and locks in at finalize. String-backed for the
+  // input; seeded once from the invoice's own rate if set, else the live rate when it
+  // loads, without clobbering an edit already made. `rateTouched` tracks that edit.
+  const [chosenRate, setChosenRate] = useState('');
+  const [rateTouched, setRateTouched] = useState(false);
+
   // ── Load ──────────────────────────────────────────────────────────────────
 
   const fetchInvoice = useCallback(async () => {
@@ -395,6 +403,17 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
       }
     })();
   }, []);
+
+  // Seed the editable rate from the effective source once it becomes available: the
+  // invoice's own finalized rate first, else the live rate. Leaves an admin's own edit
+  // alone once they've typed into the field.
+  useEffect(() => {
+    if (rateTouched) return;
+    const seed = invoice?.exchangeRate ?? usdRate;
+    if (seed != null && seed > 0) {
+      setChosenRate(String(seed));
+    }
+  }, [invoice?.exchangeRate, usdRate, rateTouched]);
 
   // ── Charges ───────────────────────────────────────────────────────────────
 
@@ -689,21 +708,40 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
 
   const finalizeInvoice = useCallback(async () => {
     if (!invoice) return;
+    // The rate is reviewed before anything is locked in: a NaN or <= 1 value is a mistake,
+    // so stop here (the inline validation on the field explains it) rather than posting.
+    const rate = Number(chosenRate);
+    if (chosenRate.trim() === '' || Number.isNaN(rate) || rate <= 1) {
+      setRateTouched(true);
+      setConfirmFinalize(false);
+      return;
+    }
     setConfirmFinalize(false);
     setFinalizing(true);
     try {
       const res = await apiFetch(`/api/admin/invoices/${invoice.id}/finalize`, {
         method: 'POST',
         credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exchangeRate: rate }),
       });
-      if (!res.ok) throw new Error('Failed to finalize invoice.');
+      if (!res.ok) {
+        let message = 'Failed to finalize invoice.';
+        try {
+          const body = await res.json();
+          if (body?.message) message = body.message;
+        } catch {
+          // non-JSON error body; keep the default message
+        }
+        throw new Error(message);
+      }
       setInvoice(await res.json());
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to finalize invoice.');
     } finally {
       setFinalizing(false);
     }
-  }, [invoice]);
+  }, [invoice, chosenRate]);
 
   const download = useCallback(async (kind: 'pdf' | 'detail') => {
     if (!invoice) return;
@@ -790,6 +828,20 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
   const isDraft = invoice.status === 'DRAFT';
   const marketplace = invoice.marketplaceCharge ?? 0;
   const taxable = (invoice.preDiscountTotal ?? 0) - (invoice.discountAmount ?? 0);
+
+  // The admin-chosen rate, parsed. Valid only when it's a real number above 1 (INR per
+  // USD is always well above that), which is also what the backend enforces at finalize.
+  const parsedRate = Number(chosenRate);
+  const rateValid = chosenRate.trim() !== '' && !Number.isNaN(parsedRate) && parsedRate > 1;
+  // The rate the finalized/preview INR figures should use: the invoice's locked-in rate
+  // once finalized, else the admin's valid chosen rate while drafting, else the live rate.
+  const effectiveRate: number | null = !isDraft
+    ? (invoice.exchangeRate ?? null)
+    : rateValid
+      ? parsedRate
+      : (invoice.exchangeRate ?? usdRate ?? null);
+  // Whether the shown rate still comes from the live feed (so the date suffix applies).
+  const rateFromLiveFeed = isDraft && !rateValid && invoice.exchangeRate == null && usdRate != null;
 
   // ── Private pricing, in the charges tree ──────────────────────────────────
   //
@@ -1025,7 +1077,7 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
       <AlertDialog
         isOpen={confirmFinalize}
         title="Finalize this invoice?"
-        description={`${invoice.invoiceNumber} will be marked finalized and sent to the client. Discounts can no longer be changed, and this can't be undone.`}
+        description={`${invoice.invoiceNumber} will be marked finalized and sent to the client. Discounts can no longer be changed, and this can't be undone.${rateValid ? ` The invoice will be locked at ₹${parsedRate.toFixed(2)} per USD.` : ''}`}
         confirmLabel="Finalize"
         variant="warning"
         onConfirm={finalizeInvoice}
@@ -1081,8 +1133,9 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
               <button
                 type="button"
                 className="inv-btn inv-btn--primary"
-                onClick={() => setConfirmFinalize(true)}
-                disabled={finalizing}
+                onClick={() => { if (!rateValid) { setRateTouched(true); return; } setConfirmFinalize(true); }}
+                disabled={finalizing || !rateValid}
+                title={!rateValid ? 'Set a conversion rate greater than 1 to finalize' : undefined}
               >
                 <i className={`fas ${finalizing ? 'fa-spinner fa-spin' : 'fa-check-circle'}`} aria-hidden="true" />
                 {finalizing ? 'Finalizing…' : 'Finalize'}
@@ -1111,10 +1164,43 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
               <p className="inv-kpi__label">Total due</p>
               <p className="inv-hero-value">{usd(invoice.amount)}</p>
               <p className="inv-hero-sub">
-                {usdRate
-                  ? <>≈ {inr((invoice.amount ?? 0) * usdRate)} at ₹{usdRate.toFixed(2)} per USD{rateDate ? ` (${rateDate})` : ''}</>
+                {effectiveRate != null && effectiveRate > 1
+                  ? <>≈ {inr((invoice.amount ?? 0) * effectiveRate)} at ₹{effectiveRate.toFixed(2)} per USD{rateFromLiveFeed && rateDate ? ` (${rateDate})` : ''}</>
                   : 'USD, including tax'}
               </p>
+
+              {isDraft ? (
+                <div className="inv-rate" style={{ marginTop: 16 }}>
+                  <label htmlFor="inv-exchange-rate" className="inv-kpi__label">
+                    USD → INR conversion rate
+                  </label>
+                  <div className="inv-rate__field" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                    <span className="inv-ink-2" aria-hidden="true">₹</span>
+                    <input
+                      id="inv-exchange-rate"
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      min="1.01"
+                      className="inv-input"
+                      value={chosenRate}
+                      aria-describedby="inv-exchange-rate-help"
+                      aria-invalid={rateTouched && !rateValid}
+                      onChange={e => { setChosenRate(e.target.value); setRateTouched(true); }}
+                    />
+                    <span className="inv-ink-2">per USD</span>
+                  </div>
+                  <p id="inv-exchange-rate-help" className="text-[12px] inv-muted" style={{ marginTop: 4 }}>
+                    {rateTouched && !rateValid
+                      ? <span role="alert" style={{ color: '#dc2626' }}>Enter a rate greater than 1 before finalizing.</span>
+                      : 'Review and adjust the rate the finalized invoice will be locked at.'}
+                  </p>
+                </div>
+              ) : invoice.exchangeRate != null && invoice.exchangeRate > 1 ? (
+                <p className="inv-ink-2" style={{ marginTop: 10 }}>
+                  Finalized at ₹{invoice.exchangeRate.toFixed(2)} per USD
+                </p>
+              ) : null}
 
               {/* Who and what this bill is for, beside the figure it arrives at. */}
               <dl className="inv-kv" style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--inv-divider)' }}>

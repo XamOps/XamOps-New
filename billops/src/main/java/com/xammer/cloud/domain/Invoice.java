@@ -106,6 +106,17 @@ public class Invoice {
     @Column(name = "provisional", columnDefinition = "boolean default false")
     private Boolean provisional = false;
 
+    /**
+     * How many INR equal 1 USD this invoice finalized at. Null on invoices finalized
+     * before this existed, which fall back to the CloudAccount / live / hardcoded rate.
+     *
+     * <p>Nullable {@code Double} (mirroring {@link CloudAccount#usdExchangeRate}) rather
+     * than a NOT NULL primitive so {@code ddl-auto=update} can add it to the populated
+     * invoice table without failing, and so old invoices read back {@code null}.
+     */
+    @Column(name = "exchange_rate")
+    private Double exchangeRate;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "cloud_account_id", nullable = false)
     private CloudAccount cloudAccount;
@@ -180,6 +191,8 @@ public class Invoice {
     public void setDataSource(DataSource dataSource) { this.dataSource = dataSource; }
     public boolean isProvisional() { return Boolean.TRUE.equals(provisional); }
     public void setProvisional(boolean provisional) { this.provisional = provisional; }
+    public Double getExchangeRate() { return exchangeRate; }
+    public void setExchangeRate(Double exchangeRate) { this.exchangeRate = exchangeRate; }
     public CloudAccount getCloudAccount() { return cloudAccount; }
     public void setCloudAccount(CloudAccount cloudAccount) { this.cloudAccount = cloudAccount; }
     public List<InvoiceLineItem> getLineItems() { return lineItems; }
