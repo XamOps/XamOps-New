@@ -18,10 +18,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -50,6 +46,7 @@ public class AzureAlertsService {
     private final AlertNotificationDeduplicator deduplicator;
     private final AlertDigestSeverityGate severityGate;
     private final CloudAccountRepository cloudAccountRepository;
+    private final AzureArmClient armClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AzureAlertsService(AzureClientProvider clientProvider,
@@ -58,7 +55,8 @@ public class AzureAlertsService {
                                AlertEmailBuilder alertEmailBuilder,
                                AlertNotificationDeduplicator deduplicator,
                                AlertDigestSeverityGate severityGate,
-                               CloudAccountRepository cloudAccountRepository) {
+                               CloudAccountRepository cloudAccountRepository,
+                               AzureArmClient armClient) {
         this.clientProvider = clientProvider;
         this.redisCache = redisCache;
         this.emailService = emailService;
@@ -66,6 +64,7 @@ public class AzureAlertsService {
         this.deduplicator = deduplicator;
         this.severityGate = severityGate;
         this.cloudAccountRepository = cloudAccountRepository;
+        this.armClient = armClient;
     }
 
     /**
@@ -94,91 +93,65 @@ public class AzureAlertsService {
     }
 
     private AzureAlertsResponse fetchFromMonitor(String subscriptionId) {
+        String bearerToken;
         try {
             TokenCredential credential = clientProvider.getCredential(subscriptionId);
             TokenRequestContext tokenCtx = new TokenRequestContext()
                     .addScopes("https://management.azure.com/.default");
-            String bearerToken = credential.getToken(tokenCtx).block().getToken();
+            bearerToken = credential.getToken(tokenCtx).block().getToken();
+        } catch (Exception e) {
+            log.error("Failed to obtain ARM token for Azure Monitor alerts {}: {}",
+                    subscriptionId, e.getMessage(), e);
+            return new AzureAlertsResponse(
+                    AzureAlertsResponse.Status.API_ERROR, new ArrayList<>());
+        }
 
-            // Fetch all alerts with nextLink pagination
-            String baseUri = "https://management.azure.com/subscriptions/" + subscriptionId
-                    + "/providers/Microsoft.AlertsManagement/alerts?api-version=2019-05-05-preview";
+        // Fetch all alerts with nextLink pagination via the shared pooled client.
+        String baseUri = "https://management.azure.com/subscriptions/" + subscriptionId
+                + "/providers/Microsoft.AlertsManagement/alerts?api-version=2019-05-05-preview";
 
-            HttpClient httpClient = HttpClient.newHttpClient();
-            List<AzureMonitorAlert> allAlerts = new ArrayList<>();
-            String currentUrl = baseUri;
-            boolean permissionError = false;
-
-            while (currentUrl != null) {
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(currentUrl))
-                        .header("Authorization", "Bearer " + bearerToken)
-                        .header("Content-Type", "application/json")
-                        .GET()
-                        .build();
-
-                HttpResponse<String> httpResponse = httpClient.send(request,
-                        HttpResponse.BodyHandlers.ofString());
-
-                int httpStatus = httpResponse.statusCode();
-                log.info("Azure Monitor Alerts API status: {} for {}", httpStatus, subscriptionId);
-
-                if (httpStatus == 403) {
-                    permissionError = true;
-                    break;
-                }
-
-                if (httpStatus != 200) {
-                    log.warn("Azure Monitor Alerts API returned {} for {}: {}",
-                            httpStatus, subscriptionId,
-                            httpResponse.body().substring(0, Math.min(200, httpResponse.body().length())));
-                    return new AzureAlertsResponse(
-                            AzureAlertsResponse.Status.API_ERROR, new ArrayList<>());
-                }
-
-                List<AzureMonitorAlert> page = parseAlerts(httpResponse.body());
-                allAlerts.addAll(page);
-
-                // Follow nextLink for pagination
-                JsonNode root = objectMapper.readTree(httpResponse.body());
-                String nextLink = root.path("nextLink").asText(null);
-                currentUrl = (nextLink != null && !nextLink.isEmpty()) ? nextLink : null;
-            }
-
-            if (permissionError) {
+        List<JsonNode> nodes;
+        try {
+            nodes = armClient.list(baseUri, bearerToken);
+        } catch (AzureArmClient.AzureArmException e) {
+            // A 401/403 on the first page is a missing Monitoring Reader role — a distinct,
+            // reportable state. Any other failure is API_ERROR.
+            String message = e.getMessage() == null ? "" : e.getMessage();
+            if (message.contains("HTTP 401") || message.contains("HTTP 403")
+                    || message.contains("denied access")) {
                 log.warn("SP may lack Monitoring Reader role for subscription {}. " +
                         "Assign 'Monitoring Reader' role to enable Azure Monitor alerts.",
                         subscriptionId);
                 return new AzureAlertsResponse(
                         AzureAlertsResponse.Status.PERMISSION_ERROR, new ArrayList<>());
             }
-
-            log.info("Azure Monitor Alerts: {} alerts for {}", allAlerts.size(), subscriptionId);
-
-            AzureAlertsResponse.Status status = allAlerts.isEmpty()
-                    ? AzureAlertsResponse.Status.NO_DATA
-                    : AzureAlertsResponse.Status.OK;
-
-            // No email from here — this is the Alerts page's own read path. Notification is
-            // driven by the scheduler through notifyNewAlerts.
-            return new AzureAlertsResponse(status, allAlerts);
-
+            log.error("Azure Monitor Alerts API error for {}: {}", subscriptionId, message);
+            return new AzureAlertsResponse(
+                    AzureAlertsResponse.Status.API_ERROR, new ArrayList<>());
         } catch (Exception e) {
             log.error("Failed to fetch Azure Monitor alerts for {}: {}",
                     subscriptionId, e.getMessage(), e);
             return new AzureAlertsResponse(
                     AzureAlertsResponse.Status.API_ERROR, new ArrayList<>());
         }
+
+        List<AzureMonitorAlert> allAlerts = parseAlerts(nodes);
+
+        log.info("Azure Monitor Alerts: {} alerts for {}", allAlerts.size(), subscriptionId);
+
+        AzureAlertsResponse.Status status = allAlerts.isEmpty()
+                ? AzureAlertsResponse.Status.NO_DATA
+                : AzureAlertsResponse.Status.OK;
+
+        // No email from here — this is the Alerts page's own read path. Notification is
+        // driven by the scheduler through notifyNewAlerts.
+        return new AzureAlertsResponse(status, allAlerts);
     }
 
-    private List<AzureMonitorAlert> parseAlerts(String json) throws Exception {
+    private List<AzureMonitorAlert> parseAlerts(List<JsonNode> nodes) {
         List<AzureMonitorAlert> result = new ArrayList<>();
-        JsonNode root = objectMapper.readTree(json);
-        JsonNode value = root.path("value");
 
-        if (value.isMissingNode() || !value.isArray()) return result;
-
-        for (JsonNode node : value) {
+        for (JsonNode node : nodes) {
             try {
                 AzureMonitorAlert alert = new AzureMonitorAlert();
 

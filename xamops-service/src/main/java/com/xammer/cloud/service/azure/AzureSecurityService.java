@@ -15,10 +15,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -60,14 +56,17 @@ public class AzureSecurityService {
     private final AzureClientProvider clientProvider;
     private final RedisCacheService redisCache;
     private final CachedDataRepository cachedDataRepository;
+    private final AzureArmClient armClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AzureSecurityService(AzureClientProvider clientProvider,
                                 RedisCacheService redisCache,
-                                CachedDataRepository cachedDataRepository) {
+                                CachedDataRepository cachedDataRepository,
+                                AzureArmClient armClient) {
         this.clientProvider = clientProvider;
         this.redisCache = redisCache;
         this.cachedDataRepository = cachedDataRepository;
+        this.armClient = armClient;
     }
 
     /**
@@ -157,13 +156,11 @@ public class AzureSecurityService {
             TokenRequestContext tokenCtx = new TokenRequestContext().addScopes(SCOPE);
             String bearerToken = credential.getToken(tokenCtx).block().getToken();
 
-            HttpClient httpClient = HttpClient.newHttpClient();
-
-            SecureScore score = fetchSecureScore(subscriptionId, bearerToken, httpClient);
+            SecureScore score = fetchSecureScore(subscriptionId, bearerToken);
             double secureScore = score.current();
-            List<AzureSecurityAlert> alerts = fetchAlerts(subscriptionId, bearerToken, httpClient);
-            List<AzureSecurityAssessment> assessments = fetchAssessments(subscriptionId, bearerToken, httpClient);
-            List<AzureSecureScoreControl> scoreControls = fetchSecureScoreControls(subscriptionId, bearerToken, httpClient);
+            List<AzureSecurityAlert> alerts = fetchAlerts(subscriptionId, bearerToken);
+            List<AzureSecurityAssessment> assessments = fetchAssessments(subscriptionId, bearerToken);
+            List<AzureSecureScoreControl> scoreControls = fetchSecureScoreControls(subscriptionId, bearerToken);
 
             boolean hasData = secureScore > 0 || !alerts.isEmpty() || !assessments.isEmpty();
             AzureSecurityResponse.Status status = hasData
@@ -221,13 +218,12 @@ public class AzureSecurityService {
      * available points was displayed as "8.0 Out of 100 (8%)" instead of 61%. Defender scales
      * the maximum to the controls actually in scope, so 100 is almost never right.
      */
-    private SecureScore fetchSecureScore(String subscriptionId, String bearerToken,
-                                         HttpClient httpClient) throws Exception {
+    private SecureScore fetchSecureScore(String subscriptionId, String bearerToken) throws Exception {
         String uri = BASE_URL + subscriptionId
                 + "/providers/Microsoft.Security/secureScores"
                 + "?api-version=2020-01-01-preview";
 
-        String body = doGet(uri, bearerToken, httpClient, subscriptionId, "secureScores");
+        String body = doGet(uri, bearerToken, subscriptionId, "secureScores");
         if (body == null) return SecureScore.UNKNOWN;
 
         JsonNode root = objectMapper.readTree(body);
@@ -248,13 +244,13 @@ public class AzureSecurityService {
      * controls drag down their score and how many points are recoverable.
      * Sorted by recoverable score (biggest opportunity first).
      */
-    private List<AzureSecureScoreControl> fetchSecureScoreControls(String subscriptionId, String bearerToken,
-                                                                   HttpClient httpClient) throws Exception {
+    private List<AzureSecureScoreControl> fetchSecureScoreControls(String subscriptionId,
+                                                                   String bearerToken) throws Exception {
         String uri = BASE_URL + subscriptionId
                 + "/providers/Microsoft.Security/secureScoreControls"
                 + "?api-version=2020-01-01-preview";
 
-        String body = doGet(uri, bearerToken, httpClient, subscriptionId, "secureScoreControls");
+        String body = doGet(uri, bearerToken, subscriptionId, "secureScoreControls");
         if (body == null) return new ArrayList<>();
 
         List<AzureSecureScoreControl> result = new ArrayList<>();
@@ -292,13 +288,12 @@ public class AzureSecurityService {
 
     // ── Security Alerts ───────────────────────────────────────────────────────
 
-    private List<AzureSecurityAlert> fetchAlerts(String subscriptionId, String bearerToken,
-                                                  HttpClient httpClient) throws Exception {
+    private List<AzureSecurityAlert> fetchAlerts(String subscriptionId, String bearerToken) throws Exception {
         String uri = BASE_URL + subscriptionId
                 + "/providers/Microsoft.Security/alerts"
                 + "?api-version=2021-01-01";
 
-        String body = doGet(uri, bearerToken, httpClient, subscriptionId, "alerts");
+        String body = doGet(uri, bearerToken, subscriptionId, "alerts");
         if (body == null) return new ArrayList<>();
 
         return parseAlerts(body);
@@ -344,13 +339,13 @@ public class AzureSecurityService {
 
     // ── Security Assessments ──────────────────────────────────────────────────
 
-    private List<AzureSecurityAssessment> fetchAssessments(String subscriptionId, String bearerToken,
-                                                            HttpClient httpClient) throws Exception {
+    private List<AzureSecurityAssessment> fetchAssessments(String subscriptionId,
+                                                            String bearerToken) throws Exception {
         String uri = BASE_URL + subscriptionId
                 + "/providers/Microsoft.Security/assessments"
                 + "?api-version=2021-06-01";
 
-        String body = doGet(uri, bearerToken, httpClient, subscriptionId, "assessments");
+        String body = doGet(uri, bearerToken, subscriptionId, "assessments");
         if (body == null) return new ArrayList<>();
 
         return parseAssessments(body);
@@ -476,37 +471,37 @@ public class AzureSecurityService {
     // ── HTTP helper ───────────────────────────────────────────────────────────
 
     /**
-     * Executes a GET request and returns the response body, or null on 404.
-     * Throws PermissionException on 403, RuntimeException on other non-200 responses.
+     * Executes a GET through the shared {@link AzureArmClient} and returns the response body,
+     * or null when there is no data to read.
+     *
+     * <p>Behaviour is preserved from the previous per-call implementation: a 403 raises
+     * {@link PermissionException} (so {@code fetchFromDefender} still reports PERMISSION_ERROR),
+     * a 404 yields null (the Defender feature may not be enabled), and every other non-success —
+     * a 401, a throttle, a server error, or a transport failure — is folded to null rather than
+     * failing the whole security fetch. {@code armClient.get} returns an empty Optional on 404
+     * and throws {@link AzureArmClient.AzureArmException} on an authorization/throttle/server
+     * failure, which this maps onto those two outcomes.
      */
-    private String doGet(String uri, String bearerToken, HttpClient httpClient,
+    private String doGet(String uri, String bearerToken,
                          String subscriptionId, String resourceType) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(uri))
-                .header("Authorization", "Bearer " + bearerToken)
-                .header("Content-Type", "application/json")
-                .GET()
-                .build();
-
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        int status = response.statusCode();
-
-        log.info("Azure Security {} API status: {} for {}", resourceType, status, subscriptionId);
-
-        if (status == 403) {
-            throw new PermissionException("403 fetching " + resourceType + " for " + subscriptionId);
-        }
-        if (status == 404) {
-            log.warn("Azure Security {} not found for {} (feature may not be enabled)", resourceType, subscriptionId);
+        try {
+            Optional<String> body = armClient.get(uri, bearerToken);
+            if (body.isEmpty()) {
+                // 404 from ARM — feature not enabled for this subscription.
+                log.warn("Azure Security {} not found for {} (feature may not be enabled)",
+                        resourceType, subscriptionId);
+                return null;
+            }
+            return body.get();
+        } catch (AzureArmClient.AzureArmException e) {
+            String message = e.getMessage() == null ? "" : e.getMessage();
+            if (message.contains("HTTP 403") || message.contains("denied access")) {
+                throw new PermissionException("403 fetching " + resourceType + " for " + subscriptionId);
+            }
+            // 401, throttle, server or transport failure — treated as "no data" as before.
+            log.warn("Azure Security {} unavailable for {}: {}", resourceType, subscriptionId, message);
             return null;
         }
-        if (status != 200) {
-            log.warn("Azure Security {} returned {} for {}: {}", resourceType, status, subscriptionId,
-                    response.body().substring(0, Math.min(200, response.body().length())));
-            return null;
-        }
-
-        return response.body();
     }
 
     // ── Inner exception ───────────────────────────────────────────────────────

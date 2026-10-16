@@ -23,10 +23,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -95,6 +91,7 @@ public class AzureDbOpsService {
     private final DbAgentConfigRepository dbAgentConfigRepository;
     private final DbAgentDataCacheRepository dbAgentDataCacheRepository;
     private final DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository;
+    private final AzureArmClient armClient;
 
     public AzureDbOpsService(
             AzureClientProvider azureClientProvider,
@@ -104,7 +101,8 @@ public class AzureDbOpsService {
             ObjectMapper objectMapper,
             DbAgentConfigRepository dbAgentConfigRepository,
             DbAgentDataCacheRepository dbAgentDataCacheRepository,
-            DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository) {
+            DbAgentMetricsHistoryRepository dbAgentMetricsHistoryRepository,
+            AzureArmClient armClient) {
         this.azureClientProvider = azureClientProvider;
         this.cloudAccountRepository = cloudAccountRepository;
         this.redisCache = redisCache;
@@ -113,6 +111,7 @@ public class AzureDbOpsService {
         this.dbAgentConfigRepository = dbAgentConfigRepository;
         this.dbAgentDataCacheRepository = dbAgentDataCacheRepository;
         this.dbAgentMetricsHistoryRepository = dbAgentMetricsHistoryRepository;
+        this.armClient = armClient;
     }
 
     // =========================================================================
@@ -1261,26 +1260,17 @@ public class AzureDbOpsService {
                 .getToken();
     }
 
+    /**
+     * Authenticated ARM GET, delegating to the shared {@link AzureArmClient}.
+     *
+     * <p>Previously created a fresh untimed {@link java.net.http.HttpClient} per call and
+     * collapsed every non-2xx (and every exception) to {@code null}. {@code getQuietly}
+     * preserves that "2xx body else null" contract — it returns the body on success and an
+     * empty Optional on 404, on an authorization/throttle/server failure, or on a transport
+     * error — while reusing the pooled, timeout-configured client.
+     */
     private String armGet(String url, String token) {
-        try {
-            HttpClient httpClient = HttpClient.newHttpClient();
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Authorization", "Bearer " + token)
-                    .header("Accept", "application/json")
-                    .GET()
-                    .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                return response.body();
-            } else {
-                log.debug("[AzureDbOps] ARM GET {} returned HTTP {}", url, response.statusCode());
-                return null;
-            }
-        } catch (Exception e) {
-            log.debug("[AzureDbOps] ARM GET error for {}: {}", url, e.getMessage());
-            return null;
-        }
+        return armClient.getQuietly(url, token).orElse(null);
     }
 
     // =========================================================================

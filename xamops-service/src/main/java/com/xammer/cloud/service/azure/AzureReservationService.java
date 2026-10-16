@@ -96,17 +96,42 @@ public class AzureReservationService {
             java.util.Map.entry("sqledge", "SQL Edge"),
             java.util.Map.entry("virtualmachinesoftware", "Virtual Machine Software"));
 
+    /** Connect timeout for the recommendations fallback client — mirrors {@link AzureArmClient}. */
+    private static final java.time.Duration CONNECT_TIMEOUT = java.time.Duration.ofSeconds(10);
+
     private final AzureClientProvider clientProvider;
     private final RedisCacheService redisCache;
     private final CachedDataRepository cachedDataRepository;
+    private final AzureArmClient armClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * A single reused client for {@link #buildRecommendations} only.
+     *
+     * <p>The reservation-recommendations loop distinguishes HTTP 400 (retry the request
+     * unfiltered), 204 (no content — stop) and other non-200 statuses (report the exact reason),
+     * plus a page cap. {@link AzureArmClient#get} collapses every non-success that is not a
+     * 401/403/404/429/5xx into an empty Optional, so a 400 there is indistinguishable from a 204
+     * or any other failure — the unfiltered-retry branch could not be preserved through it
+     * without changing behaviour. The documented minimum fix applies here: one client built once
+     * with a connect timeout (as {@code AzureArmClient} does) instead of {@code newHttpClient()}
+     * per call, so no per-request selector/worker threads leak. Every other ARM call in this
+     * service routes through the shared {@code armClient}.
+     */
+    private final HttpClient recommendationsHttpClient;
 
     public AzureReservationService(AzureClientProvider clientProvider,
                                    RedisCacheService redisCache,
-                                   CachedDataRepository cachedDataRepository) {
+                                   CachedDataRepository cachedDataRepository,
+                                   AzureArmClient armClient) {
         this.clientProvider = clientProvider;
         this.redisCache = redisCache;
         this.cachedDataRepository = cachedDataRepository;
+        this.armClient = armClient;
+        this.recommendationsHttpClient = HttpClient.newBuilder()
+                .connectTimeout(CONNECT_TIMEOUT)
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
     }
 
     /**
@@ -138,23 +163,21 @@ public class AzureReservationService {
                     .addScopes("https://management.azure.com/.default");
             String bearerToken = credential.getToken(tokenCtx).block().getToken();
 
-            HttpClient httpClient = HttpClient.newHttpClient();
-
             // --- Reservations (Microsoft.Capacity) ---
             List<AzureReservationData.ReservationItem> reservations =
-                    fetchReservations(httpClient, bearerToken, subscriptionId);
+                    fetchReservations(bearerToken, subscriptionId);
             data.setReservations(reservations);
 
             // --- Savings Plans (Microsoft.BillingBenefits) ---
             List<AzureReservationData.SavingsPlanItem> savingsPlans =
-                    fetchSavingsPlans(httpClient, bearerToken, subscriptionId);
+                    fetchSavingsPlans(bearerToken, subscriptionId);
             data.setSavingsPlans(savingsPlans);
 
             // --- Metrics ---
             data.setMetrics(buildMetrics(reservations, savingsPlans));
 
             // --- Purchase recommendations (Microsoft.Consumption) ---
-            buildRecommendations(httpClient, bearerToken, subscriptionId, data);
+            buildRecommendations(bearerToken, subscriptionId, data);
             summariseSavings(data, data.getRecommendations());
             saveReservationPageSnapshot(subscriptionId, data);
 
@@ -249,35 +272,32 @@ public class AzureReservationService {
     }
 
     private List<AzureReservationData.ReservationItem> fetchReservations(
-            HttpClient httpClient, String bearerToken, String subscriptionId) {
+            String bearerToken, String subscriptionId) {
 
         String uri = "https://management.azure.com/subscriptions/" + subscriptionId
                 + "/providers/Microsoft.Capacity/reservations?api-version=2022-11-01";
 
         try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(uri))
-                    .header("Authorization", "Bearer " + bearerToken)
-                    .header("Content-Type", "application/json")
-                    .GET()
-                    .build();
+            // Shared pooled client. A 403 surfaces as an AzureArmException and a 404/other
+            // non-200 as an empty Optional — both map to the empty-list outcome, with the same
+            // 'Reservation Reader' guidance the per-call client logged.
+            Optional<String> body = armClient.get(uri, bearerToken);
+            if (body.isEmpty()) {
+                log.warn("Reservations API returned no data for {}", subscriptionId);
+                return new ArrayList<>();
+            }
+            return parseReservations(body.get());
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            log.info("Reservations API status: {} for {}", response.statusCode(), subscriptionId);
-
-            if (response.statusCode() == 403) {
+        } catch (AzureArmClient.AzureArmException e) {
+            String message = e.getMessage() == null ? "" : e.getMessage();
+            if (message.contains("HTTP 401") || message.contains("HTTP 403")
+                    || message.contains("denied access")) {
                 log.warn("SP lacks 'Reservation Reader' role on subscription {}. " +
                         "Grant 'Reservation Reader' to enable reservation data.", subscriptionId);
-                return new ArrayList<>();
+            } else {
+                log.warn("Reservations API error for {}: {}", subscriptionId, message);
             }
-
-            if (response.statusCode() != 200) {
-                log.warn("Reservations API returned {} for {}", response.statusCode(), subscriptionId);
-                return new ArrayList<>();
-            }
-
-            return parseReservations(response.body());
-
+            return new ArrayList<>();
         } catch (Exception e) {
             log.error("Error calling Reservations API for {}: {}", subscriptionId, e.getMessage());
             return new ArrayList<>();
@@ -330,35 +350,30 @@ public class AzureReservationService {
     }
 
     private List<AzureReservationData.SavingsPlanItem> fetchSavingsPlans(
-            HttpClient httpClient, String bearerToken, String subscriptionId) {
+            String bearerToken, String subscriptionId) {
 
         String uri = "https://management.azure.com/subscriptions/" + subscriptionId
                 + "/providers/Microsoft.BillingBenefits/savingsPlans?api-version=2022-11-01";
 
         try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(uri))
-                    .header("Authorization", "Bearer " + bearerToken)
-                    .header("Content-Type", "application/json")
-                    .GET()
-                    .build();
+            // Shared pooled client; 403 -> empty list, other non-200 -> empty list, as before.
+            Optional<String> body = armClient.get(uri, bearerToken);
+            if (body.isEmpty()) {
+                log.warn("Savings Plans API returned no data for {}", subscriptionId);
+                return new ArrayList<>();
+            }
+            return parseSavingsPlans(body.get());
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            log.info("Savings Plans API status: {} for {}", response.statusCode(), subscriptionId);
-
-            if (response.statusCode() == 403) {
+        } catch (AzureArmClient.AzureArmException e) {
+            String message = e.getMessage() == null ? "" : e.getMessage();
+            if (message.contains("HTTP 401") || message.contains("HTTP 403")
+                    || message.contains("denied access")) {
                 log.warn("SP lacks 'Reservation Reader' role on subscription {}. " +
                         "Savings Plans data unavailable.", subscriptionId);
-                return new ArrayList<>();
+            } else {
+                log.warn("Savings Plans API error for {}: {}", subscriptionId, message);
             }
-
-            if (response.statusCode() != 200) {
-                log.warn("Savings Plans API returned {} for {}", response.statusCode(), subscriptionId);
-                return new ArrayList<>();
-            }
-
-            return parseSavingsPlans(response.body());
-
+            return new ArrayList<>();
         } catch (Exception e) {
             log.error("Error calling Savings Plans API for {}: {}", subscriptionId, e.getMessage());
             return new ArrayList<>();
@@ -446,7 +461,7 @@ public class AzureReservationService {
      * deliberately no local fallback estimate: a wrong number presented as a saving is worse than an
      * empty tab that names the missing role.
      */
-    private void buildRecommendations(HttpClient httpClient, String bearerToken,
+    private void buildRecommendations(String bearerToken,
             String subscriptionId, AzureReservationData data) {
 
         List<RawRecommendation> raw = new ArrayList<>();
@@ -467,7 +482,11 @@ public class AzureReservationService {
                     break;
                 }
                 page++;
-                HttpResponse<String> response = httpClient.send(
+                // Reused, timeout-configured client (see recommendationsHttpClient). The 400
+                // (retry unfiltered) / 204 (stop) / other-non-200 (report reason) branches below
+                // all depend on reading the exact status, which the shared armClient collapses —
+                // so this one loop keeps direct access to the HttpResponse.
+                HttpResponse<String> response = recommendationsHttpClient.send(
                         HttpRequest.newBuilder()
                                 .uri(URI.create(uri))
                                 .header("Authorization", "Bearer " + bearerToken)

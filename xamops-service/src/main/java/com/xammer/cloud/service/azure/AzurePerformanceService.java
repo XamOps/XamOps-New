@@ -13,10 +13,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -46,14 +42,17 @@ public class AzurePerformanceService {
     private final AzureClientProvider clientProvider;
     private final RedisCacheService redisCache;
     private final CachedDataRepository cachedDataRepository;
+    private final AzureArmClient armClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AzurePerformanceService(AzureClientProvider clientProvider,
                                     RedisCacheService redisCache,
-                                    CachedDataRepository cachedDataRepository) {
+                                    CachedDataRepository cachedDataRepository,
+                                    AzureArmClient armClient) {
         this.clientProvider = clientProvider;
         this.redisCache = redisCache;
         this.cachedDataRepository = cachedDataRepository;
+        this.armClient = armClient;
     }
 
     /**
@@ -115,93 +114,68 @@ public class AzurePerformanceService {
     }
 
     private AzurePerformanceResponse fetchFromAdvisor(String subscriptionId) {
+        String bearerToken;
         try {
             TokenCredential credential = clientProvider.getCredential(subscriptionId);
             TokenRequestContext tokenCtx = new TokenRequestContext()
                     .addScopes("https://management.azure.com/.default");
-            String bearerToken = credential.getToken(tokenCtx).block().getToken();
+            bearerToken = credential.getToken(tokenCtx).block().getToken();
+        } catch (Exception e) {
+            log.error("Failed to obtain ARM token for Azure Advisor Performance {}: {}",
+                    subscriptionId, e.getMessage(), e);
+            return new AzurePerformanceResponse(
+                    AzurePerformanceResponse.Status.API_ERROR, 100, new ArrayList<>());
+        }
 
-            // Fetch all Advisor recommendations (no OData $filter) — filter by category in code.
-            // This avoids URI encoding issues with single-quoted OData string literals and
-            // ensures we follow nextLink pagination correctly.
-            String baseUri = "https://management.azure.com/subscriptions/" + subscriptionId
-                    + "/providers/Microsoft.Advisor/recommendations?api-version=2023-01-01";
+        // Fetch all Advisor recommendations (no OData $filter) — filter by category in code.
+        // This avoids URI encoding issues with single-quoted OData string literals and
+        // ensures we follow nextLink pagination correctly. The shared client supplies the
+        // pooled, timeout-configured HttpClient and follows nextLink through list().
+        String baseUri = "https://management.azure.com/subscriptions/" + subscriptionId
+                + "/providers/Microsoft.Advisor/recommendations?api-version=2023-01-01";
 
-            HttpClient httpClient = HttpClient.newHttpClient();
-            List<AzurePerformanceInsight> allInsights = new ArrayList<>();
-            String currentUrl = baseUri;
-            boolean permissionError = false;
-
-            while (currentUrl != null) {
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(currentUrl))
-                        .header("Authorization", "Bearer " + bearerToken)
-                        .header("Content-Type", "application/json")
-                        .GET()
-                        .build();
-
-                HttpResponse<String> httpResponse = httpClient.send(request,
-                        HttpResponse.BodyHandlers.ofString());
-
-                int httpStatus = httpResponse.statusCode();
-                log.info("Azure Advisor Performance API status: {} for {}", httpStatus, subscriptionId);
-
-                if (httpStatus == 403) {
-                    permissionError = true;
-                    break;
-                }
-
-                if (httpStatus != 200) {
-                    log.warn("Azure Advisor Performance API returned {} for {}: {}",
-                            httpStatus, subscriptionId,
-                            httpResponse.body().substring(0, Math.min(200, httpResponse.body().length())));
-                    return new AzurePerformanceResponse(
-                            AzurePerformanceResponse.Status.API_ERROR, 100, new ArrayList<>());
-                }
-
-                List<AzurePerformanceInsight> page = parseInsights(httpResponse.body());
-                allInsights.addAll(page);
-
-                // Follow nextLink for pagination
-                JsonNode root = objectMapper.readTree(httpResponse.body());
-                String nextLink = root.path("nextLink").asText(null);
-                currentUrl = (nextLink != null && !nextLink.isEmpty()) ? nextLink : null;
-            }
-
-            if (permissionError) {
+        List<JsonNode> nodes;
+        try {
+            nodes = armClient.list(baseUri, bearerToken);
+        } catch (AzureArmClient.AzureArmException e) {
+            // A 401/403 on the first page means the service principal cannot read Advisor —
+            // a distinct, reportable state rather than "no data". Any other failure is API_ERROR.
+            String message = e.getMessage() == null ? "" : e.getMessage();
+            if (message.contains("HTTP 401") || message.contains("HTTP 403")
+                    || message.contains("denied access")) {
                 log.warn("SP may lack access to Azure Advisor for subscription {}. " +
                         "Assign 'Advisor Reviews Reader' or 'Reader' role to enable performance insights.",
                         subscriptionId);
                 return new AzurePerformanceResponse(
                         AzurePerformanceResponse.Status.PERMISSION_ERROR, 100, new ArrayList<>());
             }
-
-            log.info("Azure Advisor Performance: {} insights for {}", allInsights.size(), subscriptionId);
-
-            int score = computeScore(allInsights);
-            AzurePerformanceResponse.Status status = allInsights.isEmpty()
-                    ? AzurePerformanceResponse.Status.NO_DATA
-                    : AzurePerformanceResponse.Status.OK;
-
-            return new AzurePerformanceResponse(status, score, allInsights);
-
+            log.error("Azure Advisor Performance API error for {}: {}", subscriptionId, message);
+            return new AzurePerformanceResponse(
+                    AzurePerformanceResponse.Status.API_ERROR, 100, new ArrayList<>());
         } catch (Exception e) {
             log.error("Failed to fetch Azure Advisor Performance insights for {}: {}",
                     subscriptionId, e.getMessage(), e);
             return new AzurePerformanceResponse(
                     AzurePerformanceResponse.Status.API_ERROR, 100, new ArrayList<>());
         }
+
+        List<AzurePerformanceInsight> allInsights = parseInsights(nodes);
+
+        log.info("Azure Advisor Performance: {} insights for {}", allInsights.size(), subscriptionId);
+
+        int score = computeScore(allInsights);
+        AzurePerformanceResponse.Status status = allInsights.isEmpty()
+                ? AzurePerformanceResponse.Status.NO_DATA
+                : AzurePerformanceResponse.Status.OK;
+
+        return new AzurePerformanceResponse(status, score, allInsights);
     }
 
-    private List<AzurePerformanceInsight> parseInsights(String json) throws Exception {
+    private List<AzurePerformanceInsight> parseInsights(List<JsonNode> nodes) {
         List<AzurePerformanceInsight> result = new ArrayList<>();
         Set<String> seenCategories = new HashSet<>();
-        JsonNode root = objectMapper.readTree(json);
-        JsonNode value = root.path("value");
 
-        if (value.isMissingNode() || !value.isArray()) return result;
-
-        for (JsonNode node : value) {
+        for (JsonNode node : nodes) {
             try {
                 // Filter by Performance category in code (case-insensitive)
                 String category = node.path("properties").path("category").asText("");
@@ -246,9 +220,9 @@ public class AzurePerformanceService {
             }
         }
 
-        // Diagnostic: log all categories seen when no Performance items were found on this page
+        // Diagnostic: log all categories seen when no Performance items were found
         if (result.isEmpty() && !seenCategories.isEmpty()) {
-            log.warn("No 'Performance' category insights on this page for this subscription. " +
+            log.warn("No 'Performance' category insights for this subscription. " +
                     "Categories seen: {}", seenCategories);
         }
 
