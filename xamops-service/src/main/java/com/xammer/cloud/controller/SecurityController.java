@@ -366,6 +366,12 @@ public class SecurityController {
                     logger.info("Returning {} security findings for account {} ({} from the live "
                             + "event stream, {} hidden as fixed)", merged.size(), accountId,
                             beforeResolutions - findings.size(), beforeResolutions - merged.size());
+                    // Persist the live-scan result under the same key the Security Center group
+                    // reads. The cost drawer's aggregator only reads this snapshot and never
+                    // triggers a scan, so without this write an account whose twice-weekly cron
+                    // had not yet run showed nothing there while /security rendered findings live.
+                    // Opening /security once now populates security-<accountId> for the drawer.
+                    dashboardDataService.saveSecuritySnapshot(cacheKey, merged);
                     return ResponseEntity.ok(merged);
                 })
                 .exceptionally(ex -> {
