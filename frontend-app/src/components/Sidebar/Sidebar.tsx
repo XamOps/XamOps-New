@@ -469,7 +469,6 @@ const Sidebar: React.FC = () => {
                   </>
                 )}
                 {isXamTabAllowed('secops-performance') &&<NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-performance' : selectedAccountDisplay.provider === 'Azure' ? '/azure-performance' : '/performance'} icon="fas fa-chart-line" label="Performance Insights" isActive={isActive('/performance') || isActive('/gcp-performance') || isActive('/azure-performance')} />}
-                {isXamTabAllowed('secops-alerts') && <NavItem href={selectedAccountDisplay.provider === 'GCP' ? '/gcp-alerts' : selectedAccountDisplay.provider === 'Azure' ? '/azure-alerts' : '/alerts'} icon="fas fa-bell" label="Alerts" isActive={isActive('/alerts') || isActive('/gcp-alerts') || isActive('/azure-alerts')} />}
               </NavSection>
               )}
 

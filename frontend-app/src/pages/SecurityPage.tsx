@@ -16,11 +16,12 @@ import {
   IdentityAccessTab,
 } from '../components/Security';
 import { AriaTabGroup } from '../components/ui';
+import { AlertsTabContent } from '../components/Alerts';
 import { useTabState } from '../hooks/useTabState';
 
 const SEVERITY_LEVELS: SeverityLevel[] = ['Critical', 'High', 'Medium', 'Low'];
 
-type ActiveTab = 'findings' | 'identity';
+type ActiveTab = 'findings' | 'identity' | 'alerts';
 
 const SecurityPage: React.FC = () => {
   const { selectedAccountIds } = useAccounts();
@@ -73,6 +74,13 @@ const SecurityPage: React.FC = () => {
     // "Export Report" writes findings to Excel and "Refresh Scan" re-runs Prowler — so on the
     // Identity tab they would claim to refresh data they do not touch. The Identity canvas
     // carries its own refresh control instead.
+    //
+    // The Alerts tab is the sole writer of its own "Refresh Alerts" action (AlertsTabContent
+    // gated by isActive), so this effect must NOT clearActions() there — doing so would race
+    // with and clobber the Alerts registration. Yield early without clearing on 'alerts'.
+    if (activeTab === 'alerts') {
+      return;
+    }
     if (activeTab !== 'findings') {
       clearActions();
       return;
@@ -110,6 +118,7 @@ const SecurityPage: React.FC = () => {
   const tabs = [
     { id: 'findings', label: 'Findings', icon: 'mdi:shield-search' },
     { id: 'identity', label: 'Identity & Access', icon: 'mdi:account-key-outline' },
+    { id: 'alerts', label: 'Alerts', icon: 'mdi:bell-outline' },
   ];
 
   // The compliance-filtered findings narrowed to the deep-linked resource, when one is present.
@@ -151,6 +160,17 @@ const SecurityPage: React.FC = () => {
             transition={{ duration: 0.18, ease: 'easeOut' }}
           >
             <IdentityAccessTab />
+          </motion.div>
+        )}
+
+        {selectedAccountId && activeTab === 'alerts' && (
+          <motion.div
+            key="alerts"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+          >
+            <AlertsTabContent isActive={activeTab === 'alerts'} />
           </motion.div>
         )}
 
