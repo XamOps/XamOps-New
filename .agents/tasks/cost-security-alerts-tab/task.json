@@ -1,0 +1,7 @@
+{
+  "task_id": "task-cost-security-alerts-tab",
+  "task_description": "Fix two confirmed backend bugs in the XamOps 'Security & Alerts' cost-drawer tab (route /cost, resource drawer). Bug 1: XamSecure (Upwind) posture findings are massively duplicated because the tab dedupes by upwind_id while the Upwind sync appends one row per historical scan; dedupe instead by a stable identity (checkTitle+resourceType+region), keeping one row per group at the worst severity, preferring most recent by syncedAt. Bug 2: the Security Center group is empty for accounts whose cached snapshot was never written; the aggregator's reader fix and 12-digit key form are already committed (d082b9f05), so the remaining work is to make SecurityController.getSecurityFindings persist its live-scan result via saveSecuritySnapshot under the same 12-digit key, so the drawer reaches parity after /security is opened once. The aggregator must never trigger a scan.",
+  "status": "pending",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}
