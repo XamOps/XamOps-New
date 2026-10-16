@@ -635,6 +635,80 @@ public class TicketService {
     }
 
     /**
+     * Transfer a ticket to the "Account and Billing" category.
+     *
+     * <p>Moving a ticket between categories is purely a change of the {@code category} string
+     * (the tabs on the admin board filter on it). We re-fire the same admin notification that a
+     * freshly-created Account &amp; Billing ticket sends, so the billing inbox is alerted exactly
+     * as if the ticket had been raised there. Both the old and the new category caches are evicted
+     * so the ticket leaves the Technical tab and appears under Account &amp; Billing without waiting
+     * on the TTL.
+     */
+    public static final String CATEGORY_ACCOUNT_BILLING = "Account and Billing";
+    public static final String CATEGORY_TECHNICAL = "Technical";
+
+    @Transactional
+    public TicketDto transferToAccountBilling(Long ticketId) {
+        return transferCategory(ticketId, CATEGORY_ACCOUNT_BILLING, "Account & Billing");
+    }
+
+    @Transactional
+    public TicketDto transferToTechnical(Long ticketId) {
+        return transferCategory(ticketId, CATEGORY_TECHNICAL, "Technical Support");
+    }
+
+    /**
+     * Move a ticket to {@code targetCategory} and notify that queue's admin inbox with the same
+     * email a freshly-created ticket in that category would send.
+     *
+     * <p>Changing a ticket's queue is purely a change of the {@code category} string (the admin
+     * board tabs filter on it). Both the source and destination category caches are evicted so the
+     * ticket leaves its old tab and appears in the new one without waiting on the TTL. No-ops (no
+     * duplicate email) if the ticket is already in the target category.
+     *
+     * @param targetCategory the stored category value, e.g. {@link #CATEGORY_ACCOUNT_BILLING} or
+     *                        {@link #CATEGORY_TECHNICAL}
+     * @param displayLabel    human-friendly label used only in the email subject line
+     */
+    @Transactional
+    public TicketDto transferCategory(Long ticketId, String targetCategory, String displayLabel) {
+        Ticket ticket = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new RuntimeException("Ticket not found"));
+
+        String oldCategory = ticket.getCategory();
+
+        if (targetCategory.equalsIgnoreCase(oldCategory)) {
+            // Already in the target queue — nothing to do, no duplicate email.
+            return attachEmailDetails(convertToDto(ticket, true), ticket);
+        }
+
+        ticket.setCategory(targetCategory);
+        ticket.setUpdatedAt(java.time.LocalDateTime.now());
+        Ticket updatedTicket = ticketRepository.save(ticket);
+
+        // Fire the same admin notification a new ticket in the target category would send.
+        try {
+            String subject = String.format("Ticket Transferred to %s [ID: %d]: %s",
+                    displayLabel, updatedTicket.getId(), updatedTicket.getSubject());
+            String htmlBody = buildTicketEmailTemplate(updatedTicket, updatedTicket.getCreator(),
+                    updatedTicket.getClient());
+            List<String> adminEmails = getAdminEmailList(targetCategory);
+            if (!adminEmails.isEmpty()) {
+                emailService.sendHtmlEmailToMultiple(adminEmails.toArray(new String[0]), subject, htmlBody);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to send {} transfer notification for ticket {}",
+                    displayLabel, updatedTicket.getId(), e);
+        }
+
+        // Evict both the source and destination category caches so neither tab shows a stale list.
+        evictTicketCaches(oldCategory);
+        evictTicketCaches(targetCategory);
+
+        return attachEmailDetails(convertToDto(updatedTicket, true), updatedTicket);
+    }
+
+    /**
      * Pause the stop-the-clock SLA: bank the currently-running interval into slaActiveMs and
      * clear slaRunningSince. No-op if the clock is already paused.
      */

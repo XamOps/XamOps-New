@@ -45,6 +45,8 @@ interface UseBillOpsTicketDetailReturn {
   submitReply: (message: string, files: File[], isInternal?: boolean) => Promise<void>;
   closeTicket: () => Promise<void>;
   reopenTicket: () => Promise<void>;
+  transferToAccountBilling: () => Promise<void>;
+  transferToTechnical: () => Promise<void>;
   submitRCA: (rcaData: RCAFormData) => Promise<void>;
   assignTicket: (adminId: number, adminUsername: string) => Promise<void>;
   sendEmailThread: (recipientEmails: string[], sendMode?: 'separate' | 'combined') => Promise<void>;
@@ -247,6 +249,48 @@ export const useBillOpsTicketDetail = (
       throw err;
     }
   }, [ticketId]);
+
+  /**
+   * Move this ticket to another category queue. The backend re-fires the standard
+   * new-ticket email to the destination queue's admin inbox.
+   */
+  const transferCategory = useCallback(
+    async (endpoint: 'transfer-account-billing' | 'transfer-technical', label: string) => {
+      if (!ticketId) return;
+
+      try {
+        const response = await fetch(`/api/billops/tickets/${ticketId}/${endpoint}`, {
+          method: 'POST',
+          credentials: 'include'
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to transfer ticket to ${label}`);
+        }
+
+        const updatedTicket = await response.json();
+        setTicket(updatedTicket);
+        localStorage.setItem('billops_admin_tickets_needs_refresh', '1');
+        localStorage.setItem('billops_user_tickets_needs_refresh', '1');
+        localStorage.setItem('user_tickets_needs_refresh', '1');
+        window.dispatchEvent(new CustomEvent('ticket:updated'));
+      } catch (err) {
+        console.error(`Error transferring ticket to ${label}:`, err);
+        throw err;
+      }
+    },
+    [ticketId]
+  );
+
+  const transferToAccountBilling = useCallback(
+    () => transferCategory('transfer-account-billing', 'Account & Billing'),
+    [transferCategory]
+  );
+
+  const transferToTechnical = useCallback(
+    () => transferCategory('transfer-technical', 'Technical Support'),
+    [transferCategory]
+  );
 
   /**
    * Submit RCA report and close ticket
@@ -565,6 +609,8 @@ export const useBillOpsTicketDetail = (
     submitReply,
     closeTicket,
     reopenTicket,
+    transferToAccountBilling,
+    transferToTechnical,
     submitRCA,
     assignTicket,
     sendEmailThread,

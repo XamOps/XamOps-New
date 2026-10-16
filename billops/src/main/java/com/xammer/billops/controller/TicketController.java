@@ -436,6 +436,28 @@ public class TicketController {
         }
     }
 
+    @PostMapping("/tickets/{id}/transfer-account-billing")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    public ResponseEntity<TicketDto> transferToAccountBilling(@PathVariable Long id) {
+        try {
+            return ResponseEntity.ok(ticketService.transferToAccountBilling(id));
+        } catch (RuntimeException e) {
+            logger.error("Error transferring ticket {} to Account & Billing: {}", id, e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+    }
+
+    @PostMapping("/tickets/{id}/transfer-technical")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
+    public ResponseEntity<TicketDto> transferToTechnical(@PathVariable Long id) {
+        try {
+            return ResponseEntity.ok(ticketService.transferToTechnical(id));
+        } catch (RuntimeException e) {
+            logger.error("Error transferring ticket {} to Technical: {}", id, e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+    }
+
     @PostMapping("/tickets/{id}/reopen")
     @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     public ResponseEntity<TicketDto> reopenTicket(@PathVariable Long id) {

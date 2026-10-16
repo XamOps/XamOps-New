@@ -5,6 +5,7 @@ import com.xammer.cloud.domain.User;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.FlexComputeService;
+import com.xammer.cloud.service.UserActivityService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,14 +42,37 @@ public class SessionService {
     @Autowired
     private FlexComputeService flexComputeService;
 
+    @Autowired
+    private UserActivityService userActivityService;
+
     @Value("${app.frontend.url}")
     private String frontendUrl;
 
     /**
      * Establishes an authenticated session for the given user (session fixation safe)
      * and returns { redirectUrl, tenantId }.
+     *
+     * @deprecated prefer {@link #establishSession(User, HttpServletRequest, String)} so the
+     *             activity trail records which mechanism was actually used. This overload
+     *             records the login with an unknown provider.
      */
+    @Deprecated
     public Map<String, String> establishSession(User user, HttpServletRequest request) {
+        return establishSession(user, request, null);
+    }
+
+    /**
+     * Establishes an authenticated session and records the login against {@code authProvider}.
+     *
+     * The provider is passed in rather than read from {@code user.getAuthProvider()} because
+     * those are different facts: the column is the account's configured default, while this
+     * is the mechanism used for this particular sign-in. A Google-provisioned user signing in
+     * by email code is exactly the discrepancy the activity window exists to show.
+     *
+     * @param authProvider one of the {@code UserActivityEvent.PROVIDER_*} constants
+     */
+    public Map<String, String> establishSession(User user, HttpServletRequest request,
+                                                String authProvider) {
         UserDetails userDetails = userDetailsService.loadUserByUsername(user.getUsername());
 
         UsernamePasswordAuthenticationToken authToken =
@@ -64,6 +88,11 @@ public class SessionService {
         }
         HttpSession session = request.getSession(true);
         session.setAttribute("SPRING_SECURITY_CONTEXT", securityContext);
+
+        // After the new session exists, so the event carries the id that the eventual logout
+        // will also carry. Recording before the fixation handling above would stamp the id of
+        // the session just invalidated and the pair could never be matched.
+        userActivityService.recordLogin(user, authProvider, request);
 
         ClientUserDetails clientDetails = (ClientUserDetails) userDetails;
         Set<String> roles = userDetails.getAuthorities().stream()

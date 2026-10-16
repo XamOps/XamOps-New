@@ -1,9 +1,11 @@
 package com.xammer.cloud.security;
 
 import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.domain.UserActivityEvent;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.FlexComputeService;
+import com.xammer.cloud.service.UserActivityService;
 import java.time.LocalDateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,15 +32,18 @@ public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationS
     private final CloudAccountRepository cloudAccountRepository;
     private final FlexComputeService flexComputeService;
     private final UserRepository userRepository;
+    private final UserActivityService userActivityService;
     private final String frontendUrl;
 
     public CustomAuthenticationSuccessHandler(CloudAccountRepository cloudAccountRepository,
             FlexComputeService flexComputeService,
             UserRepository userRepository,
+            UserActivityService userActivityService,
             @Value("${app.frontend.url}") String frontendUrl) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.flexComputeService = flexComputeService;
         this.userRepository = userRepository;
+        this.userActivityService = userActivityService;
         this.frontendUrl = frontendUrl;
     }
 
@@ -47,11 +52,13 @@ public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationS
             Authentication authentication) throws IOException, ServletException {
         ClientUserDetails userDetails = (ClientUserDetails) authentication.getPrincipal();
 
-        // Record last login time
+        // Record last login time, plus an append-only event carrying the detail the
+        // single last_login_at column cannot hold (provider, address, session).
         try {
             userRepository.findById(userDetails.getId()).ifPresent(user -> {
                 user.setLastLoginAt(LocalDateTime.now());
                 userRepository.save(user);
+                userActivityService.recordLogin(user, UserActivityEvent.PROVIDER_LOCAL, request);
             });
         } catch (Exception e) {
             logger.warn("Failed to record last login time for user {}: {}", userDetails.getId(), e.getMessage());

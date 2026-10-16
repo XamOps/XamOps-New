@@ -9,6 +9,8 @@ import com.xammer.cloud.service.EmailIcons;
 import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.FlexComputeService;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.service.UserActivityService;
+import com.xammer.cloud.domain.UserActivityEvent;
 import com.xammer.cloud.util.OtpCodes;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -63,6 +65,9 @@ public class LoginOtpController {
 
     @Autowired
     private FlexComputeService flexComputeService;
+
+    @Autowired
+    private UserActivityService userActivityService;
 
     @Value("${app.frontend.url}")
     private String frontendUrl;
@@ -244,6 +249,12 @@ public class LoginOtpController {
 
         HttpSession session = request.getSession(true);
         session.setAttribute("SPRING_SECURITY_CONTEXT", securityContext);
+
+        // Deliberately after the session exists, not alongside the lastLoginAt write above.
+        // That write happens before session fixation handling, so recording there would stamp
+        // the event with the id of the session about to be invalidated — and the login could
+        // never be paired with its logout.
+        userActivityService.recordLogin(user, UserActivityEvent.PROVIDER_OTP, request);
 
         // Determine redirect URL (same logic as CustomAuthenticationSuccessHandler)
         ClientUserDetails clientDetails = (ClientUserDetails) userDetails;

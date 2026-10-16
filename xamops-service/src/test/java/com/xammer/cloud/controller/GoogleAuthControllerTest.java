@@ -120,7 +120,7 @@ class GoogleAuthControllerTest {
         });
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
         when(passwordEncoder.encode(anyString())).thenReturn("unusable-hash");
-        when(sessionService.establishSession(any(), any()))
+        when(sessionService.establishSession(any(), any(), any()))
                 .thenReturn(Map.of("redirectUrl", "https://test.xamops.com/unified-dashboard", "tenantId", "default"));
 
         mockMvc.perform(post("/api/auth/google/complete-signup")
@@ -158,7 +158,7 @@ class GoogleAuthControllerTest {
             return c;
         });
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(sessionService.establishSession(any(), any()))
+        when(sessionService.establishSession(any(), any(), any()))
                 .thenReturn(Map.of("redirectUrl", "https://test.xamops.com/unified-dashboard", "tenantId", "default"));
 
         mockMvc.perform(post("/api/auth/google/complete-signup")

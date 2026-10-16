@@ -1,9 +1,11 @@
 package com.xammer.cloud.config;
 
 import com.xammer.cloud.config.multitenancy.ImpersonationJwtFilter;
+import com.xammer.cloud.security.ActivityLogoutHandler;
 import com.xammer.cloud.security.CustomAuthenticationFailureHandler;
 import com.xammer.cloud.security.CustomAuthenticationSuccessHandler;
 import com.xammer.cloud.security.CustomLogoutSuccessHandler;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -51,6 +53,18 @@ public class SecurityConfig {
         private final CustomLogoutSuccessHandler logoutSuccessHandler;
         private final UserDetailsService userDetailsService;
 
+        /**
+         * Records a logout event, when activity tracking is on the context.
+         *
+         * An {@link ObjectProvider} rather than a hard dependency because this is audit, not
+         * authentication: if it is absent, signing out still works and the only loss is a row
+         * in {@code user_activity_event}. Requiring it would also drag
+         * {@code UserActivityService} and two repositories into every slice test that imports
+         * this config to exercise the filter chain -- three of them do -- none of which care
+         * about telemetry.
+         */
+        private final ObjectProvider<ActivityLogoutHandler> activityLogoutHandler;
+
         @Autowired
         private ImpersonationJwtFilter impersonationJwtFilter;
 
@@ -67,10 +81,12 @@ public class SecurityConfig {
         public SecurityConfig(CustomAuthenticationSuccessHandler authenticationSuccessHandler,
                         CustomAuthenticationFailureHandler authenticationFailureHandler,
                         CustomLogoutSuccessHandler logoutSuccessHandler,
+                        ObjectProvider<ActivityLogoutHandler> activityLogoutHandler,
                         UserDetailsService userDetailsService) {
                 this.authenticationSuccessHandler = authenticationSuccessHandler;
                 this.authenticationFailureHandler = authenticationFailureHandler;
                 this.logoutSuccessHandler = logoutSuccessHandler;
+                this.activityLogoutHandler = activityLogoutHandler;
                 this.userDetailsService = userDetailsService;
         }
 
@@ -337,12 +353,25 @@ public class SecurityConfig {
                                                 .successHandler(authenticationSuccessHandler)
                                                 .failureHandler(authenticationFailureHandler)
                                                 .permitAll())
-                                .logout((logout) -> logout
+                                .logout((logout) -> {
+                                        logout
                                                 .logoutUrl("/logout")
                                                 .logoutSuccessHandler(logoutSuccessHandler)
                                                 .invalidateHttpSession(true)
                                                 .deleteCookies("JSESSIONID", "remember-me")
-                                                .permitAll())
+                                                .permitAll();
+                                        // Added before Spring's own SecurityContextLogoutHandler,
+                                        // which is what performs invalidateHttpSession(true).
+                                        // Handlers registered here run first, so the session still
+                                        // exists and the event can carry the id that pairs it with
+                                        // the matching login. A logoutSuccessHandler runs after
+                                        // invalidation and would have nothing left to read.
+                                        ActivityLogoutHandler activityHandler =
+                                                        activityLogoutHandler.getIfAvailable();
+                                        if (activityHandler != null) {
+                                                logout.addLogoutHandler(activityHandler);
+                                        }
+                                })
                                 .rememberMe((rememberMe) -> rememberMe
                                                 // Was the literal "xamops-remember-me-key-2025". This key
                                                 // signs the remember-me cookie, so publishing it in source

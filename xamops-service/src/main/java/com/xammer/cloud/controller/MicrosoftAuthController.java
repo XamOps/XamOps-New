@@ -2,6 +2,7 @@ package com.xammer.cloud.controller;
 
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.User;
+import com.xammer.cloud.domain.UserActivityEvent;
 import com.xammer.cloud.dto.auth.MicrosoftIdentity;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.UserRepository;
@@ -131,7 +132,7 @@ public class MicrosoftAuthController {
             try { userRepository.save(user); } catch (Exception e) {
                 log.warn("Failed to persist Microsoft link for user {}: {}", user.getId(), e.getMessage());
             }
-            Map<String, String> result = sessionService.establishSession(user, request);
+            Map<String, String> result = sessionService.establishSession(user, request, UserActivityEvent.PROVIDER_MICROSOFT);
             return new RedirectView(result.get("redirectUrl"));
         }
 
@@ -174,7 +175,7 @@ public class MicrosoftAuthController {
         Optional<User> already = userRepository.findByMicrosoftSub(microsoftSub);
         if (already.isEmpty()) already = userRepository.findByEmail(email);
         if (already.isPresent()) {
-            Map<String, String> result = sessionService.establishSession(already.get(), request);
+            Map<String, String> result = sessionService.establishSession(already.get(), request, UserActivityEvent.PROVIDER_MICROSOFT);
             return ResponseEntity.ok(result);
         }
 
@@ -205,7 +206,7 @@ public class MicrosoftAuthController {
             log.error("Welcome email failed for {}: {}", email, e.getMessage());
         }
 
-        Map<String, String> result = sessionService.establishSession(user, request);
+        Map<String, String> result = sessionService.establishSession(user, request, UserActivityEvent.PROVIDER_MICROSOFT);
         return ResponseEntity.ok(result);
     }
 

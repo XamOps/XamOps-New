@@ -8,6 +8,7 @@ import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.FlexComputeService;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.service.UserActivityService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -50,6 +51,7 @@ class LoginOtpControllerTest {
     @Mock private UserDetailsService userDetailsService;
     @Mock private CloudAccountRepository cloudAccountRepository;
     @Mock private FlexComputeService flexComputeService;
+    @Mock private UserActivityService userActivityService;
 
     private MockMvc mockMvc;
     private User validUser;
@@ -67,6 +69,7 @@ class LoginOtpControllerTest {
         ReflectionTestUtils.setField(controller, "userDetailsService", userDetailsService);
         ReflectionTestUtils.setField(controller, "cloudAccountRepository", cloudAccountRepository);
         ReflectionTestUtils.setField(controller, "flexComputeService", flexComputeService);
+        ReflectionTestUtils.setField(controller, "userActivityService", userActivityService);
         ReflectionTestUtils.setField(controller, "frontendUrl", "https://test.xamops.com");
 
         mockMvc = MockMvcBuilders.standaloneSetup(controller)

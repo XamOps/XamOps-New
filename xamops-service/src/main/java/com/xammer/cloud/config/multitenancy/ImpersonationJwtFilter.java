@@ -51,6 +51,18 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(ImpersonationJwtFilter.class);
 
+    /**
+     * Request attribute carrying the id of the admin behind an impersonated session.
+     * Absent on ordinary requests; present on every request authenticated by this filter.
+     */
+    public static final String ATTR_ACTOR_USER_ID = "impersonation.actorUserId";
+
+    /**
+     * Stand-in for an impersonating admin whose identity the token does not record.
+     * Negative so it can never collide with a real {@code app_user.id}.
+     */
+    public static final Long ACTOR_UNKNOWN = -1L;
+
     @Value("${app.impersonation.secret-key}")
     private String secretKey;
 
@@ -191,6 +203,25 @@ public class ImpersonationJwtFilter extends OncePerRequestFilter {
             if (allowedAccountIds != null && !allowedAccountIds.isEmpty()) {
                 request.setAttribute("impersonation.allowedAccountIds", allowedAccountIds);
             }
+
+            // Which admin is driving, so activity recorded during this request can be
+            // attributed to them rather than counted as the customer's own usage.
+            //
+            // Falls back to ACTOR_UNKNOWN rather than leaving the attribute unset. Tokens
+            // minted before the claim existed are still valid for up to eight hours, and the
+            // safe reading of one is "an admin, identity unrecorded" — not "the user did this
+            // themselves". Any non-null value excludes the row from the subject's own totals,
+            // so the fallback fails in the direction that cannot overstate engagement.
+            Long actorUserId = ACTOR_UNKNOWN;
+            try {
+                Object claimed = claims.get("actorUserId");
+                if (claimed instanceof Number n) {
+                    actorUserId = n.longValue();
+                }
+            } catch (Exception ignored) {
+                // Keep the fallback.
+            }
+            request.setAttribute(ATTR_ACTOR_USER_ID, actorUserId);
 
         } catch (JwtException | IllegalArgumentException e) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);

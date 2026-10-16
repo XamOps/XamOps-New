@@ -2,6 +2,7 @@ package com.xammer.cloud.controller;
 
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.User;
+import com.xammer.cloud.domain.UserActivityEvent;
 import com.xammer.cloud.dto.auth.GoogleIdentity;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.UserRepository;
@@ -137,7 +138,7 @@ public class GoogleAuthController {
             try { userRepository.save(user); } catch (Exception e) {
                 log.warn("Failed to persist Google link for user {}: {}", user.getId(), e.getMessage());
             }
-            Map<String, String> result = sessionService.establishSession(user, request);
+            Map<String, String> result = sessionService.establishSession(user, request, UserActivityEvent.PROVIDER_GOOGLE);
             return new RedirectView(result.get("redirectUrl"));
         }
 
@@ -180,7 +181,7 @@ public class GoogleAuthController {
         Optional<User> already = userRepository.findByGoogleSub(googleSub);
         if (already.isEmpty()) already = userRepository.findByEmail(email);
         if (already.isPresent()) {
-            Map<String, String> result = sessionService.establishSession(already.get(), request);
+            Map<String, String> result = sessionService.establishSession(already.get(), request, UserActivityEvent.PROVIDER_GOOGLE);
             return ResponseEntity.ok(result);
         }
 
@@ -216,7 +217,7 @@ public class GoogleAuthController {
             log.error("Welcome email failed for {}: {}", email, e.getMessage());
         }
 
-        Map<String, String> result = sessionService.establishSession(user, request);
+        Map<String, String> result = sessionService.establishSession(user, request, UserActivityEvent.PROVIDER_GOOGLE);
         return ResponseEntity.ok(result);
     }
 

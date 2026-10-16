@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import apiClient from '../utils/apiClient';
 import ClientDetailsSkeleton from '../components/Shared/ClientDetailsSkeleton';
 import ClientSavingsTab from '../components/BillOps/ClientSavingsTab';
+import CheckActivityModal from '../components/BillOps/CheckActivityModal';
 import { useCurrency } from '../hooks/useCurrency';
 import { useTopbarActions } from '../contexts/TopbarContext';
 import '../styles/billopsAdminDashboard.css';
@@ -234,6 +235,14 @@ const ClientDetailsPage: React.FC = () => {
     const [expandedClient, setExpandedClient] = useState<number | null>(null);
     const [expandedSection, setExpandedSection] = useState<'accounts' | 'users' | 'savings' | null>(null);
     const [expandedPrimaryUsers, setExpandedPrimaryUsers] = useState<Set<string>>(new Set());
+
+    /**
+     * The user whose activity window is open, or null when closed.
+     *
+     * Holds the name alongside the id so the window header can render immediately rather than
+     * showing a blank title while the summary request is in flight.
+     */
+    const [activityUser, setActivityUser] = useState<{ id: number; name: string } | null>(null);
     const [search, setSearch] = useState('');
     const [filterProvider, setFilterProvider] = useState('');
     const [sortBy, setSortBy] = useState('');
@@ -1017,14 +1026,29 @@ const ClientDetailsPage: React.FC = () => {
                                                                         <td className="px-4 py-3.5 text-sm text-gray-600">{primary.email}</td>
                                                                         <td className="px-4 py-3.5">{renderAccountAccess(primary)}</td>
                                                                         <td className="px-4 py-3.5">
-                                                                            {primary.lastLoginAt ? (
-                                                                                <div>
-                                                                                    <p className="text-xs font-semibold text-gray-700">{new Date(primary.lastLoginAt).toLocaleDateString()}</p>
-                                                                                    <p className="text-[10px] text-gray-400">{new Date(primary.lastLoginAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                                                                                </div>
-                                                                            ) : (
-                                                                                <span className="text-xs text-gray-300 italic">Never</span>
-                                                                            )}
+                                                                            <div className="flex items-center gap-2">
+                                                                                {primary.lastLoginAt ? (
+                                                                                    <div>
+                                                                                        <p className="text-xs font-semibold text-gray-700">{new Date(primary.lastLoginAt).toLocaleDateString()}</p>
+                                                                                        <p className="text-[10px] text-gray-400">{new Date(primary.lastLoginAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <span className="text-xs text-gray-300 italic">Never</span>
+                                                                                )}
+                                                                                {/* Sits beside the timestamp it expands on: this column answers "when",
+                                                                                    the window answers "how much, where, and who else got in". */}
+                                                                                {/* Accent matches the FinOps-themed panel it opens, so the affordance and
+                                                                                    its destination read as the same feature. FontAwesome rather than
+                                                                                    iconify to stay consistent with the rest of this page. */}
+                                                                                <button
+                                                                                    onClick={() => setActivityUser({ id: primary.id, name: primary.username })}
+                                                                                    title={`View activity for ${primary.username}`}
+                                                                                    className="px-2.5 py-1 border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.6)] rounded-lg text-[11px] font-medium hover:border-[#FF9900] hover:text-[#FF9900] hover:bg-[#FF990012] transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                                                                                >
+                                                                                    <i className="fas fa-chart-line text-[9px]"></i>
+                                                                                    Check activity
+                                                                                </button>
+                                                                            </div>
                                                                         </td>
                                                                         <td className="px-4 py-3.5">
                                                                             <SecurityEmailSwitch
@@ -1060,14 +1084,24 @@ const ClientDetailsPage: React.FC = () => {
                                                                             <td className="px-4 py-3 text-sm text-gray-500">{sub.email}</td>
                                                                             <td className="px-4 py-3">{renderAccountAccess(sub)}</td>
                                                                             <td className="px-4 py-3">
-                                                                                {sub.lastLoginAt ? (
-                                                                                    <div>
-                                                                                        <p className="text-xs font-semibold text-gray-700">{new Date(sub.lastLoginAt).toLocaleDateString()}</p>
-                                                                                        <p className="text-[10px] text-gray-400">{new Date(sub.lastLoginAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                                                                                    </div>
-                                                                                ) : (
-                                                                                    <span className="text-xs text-gray-300 italic">Never</span>
-                                                                                )}
+                                                                                <div className="flex items-center gap-2">
+                                                                                    {sub.lastLoginAt ? (
+                                                                                        <div>
+                                                                                            <p className="text-xs font-semibold text-gray-700">{new Date(sub.lastLoginAt).toLocaleDateString()}</p>
+                                                                                            <p className="text-[10px] text-gray-400">{new Date(sub.lastLoginAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                                                                        </div>
+                                                                                    ) : (
+                                                                                        <span className="text-xs text-gray-300 italic">Never</span>
+                                                                                    )}
+                                                                                    <button
+                                                                                        onClick={() => setActivityUser({ id: sub.id, name: sub.username })}
+                                                                                        title={`View activity for ${sub.username}`}
+                                                                                        className="px-2.5 py-1 border border-[rgba(0,0,0,0.1)] text-[rgba(0,0,0,0.6)] rounded-lg text-[11px] font-medium hover:border-[#FF9900] hover:text-[#FF9900] hover:bg-[#FF990012] transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                                                                                    >
+                                                                                        <i className="fas fa-chart-line text-[9px]"></i>
+                                                                                        Check activity
+                                                                                    </button>
+                                                                                </div>
                                                                             </td>
                                                                             <td className="px-4 py-3">
                                                                                 <SecurityEmailSwitch
@@ -1158,6 +1192,15 @@ const ClientDetailsPage: React.FC = () => {
                     </button>
                 </div>
             )}
+
+            {/* Mounted once for the page rather than per row: a dialog per user would put a
+                hundred overlays in the tree, and the hook inside only fetches while open. */}
+            <CheckActivityModal
+                isOpen={activityUser !== null}
+                onClose={() => setActivityUser(null)}
+                userId={activityUser?.id ?? null}
+                fallbackName={activityUser?.name}
+            />
         </div>
     );
 };

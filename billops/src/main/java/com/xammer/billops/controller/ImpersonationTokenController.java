@@ -1,9 +1,12 @@
 package com.xammer.billops.controller;
 
 import com.xammer.billops.repository.AppUserRepository;
+import com.xammer.billops.repository.UserActivityEventRepository;
 import com.xammer.billops.repository.UserRepository;
+import com.xammer.billops.util.SecurityUtils;
 import com.xammer.cloud.domain.AppUser;
 import com.xammer.cloud.domain.User;
+import com.xammer.cloud.domain.UserActivityEvent;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
@@ -17,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.servlet.http.HttpServletRequest;
 import javax.crypto.SecretKey;
 import java.util.Date;
 import java.util.Map;
@@ -25,6 +29,12 @@ import java.util.Optional;
 @RestController
 @RequestMapping("/api/billops")
 public class ImpersonationTokenController {
+
+    private static final org.slf4j.Logger log =
+            org.slf4j.LoggerFactory.getLogger(ImpersonationTokenController.class);
+
+    @Autowired
+    private UserActivityEventRepository userActivityEventRepository;
 
     @Value("${app.impersonation.secret-key}")
     private String secretKey;
@@ -43,7 +53,8 @@ public class ImpersonationTokenController {
 
     @PostMapping("/generate-impersonation-token")
     @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
-    public ResponseEntity<Map<String, String>> generateToken(@RequestBody ImpersonationTokenRequest request) {
+    public ResponseEntity<Map<String, String>> generateToken(@RequestBody ImpersonationTokenRequest request,
+                                                             HttpServletRequest httpRequest) {
         // Resolve the target user's REAL role from the DB. ImpersonationJwtFilter builds the
         // impersonated SecurityContext's authorities straight from this claim, and the frontend
         // renders its sidebar from those authorities — so hardcoding ROLE_XAMOPS here made every
@@ -63,7 +74,72 @@ public class ImpersonationTokenController {
         String token = buildToken(request.getUserId(), request.getTenantId(),
                 request.getAllowedAccountIds(), role);
 
+        recordImpersonation(request.getUserId(), role, httpRequest);
+
         return ResponseEntity.ok(Map.of("token", token, "destination", destinationForRole(role)));
+    }
+
+    /**
+     * Records that an admin entered this user's account.
+     *
+     * Until this existed, "Login as" left no trace of any kind: the endpoint mints an
+     * eight-hour full-access token and the class did not even hold a logger. Who entered
+     * which customer account, and when, was unanswerable from the database — an awkward gap
+     * for a product that sells cloud governance.
+     *
+     * <p>Best-effort by design. A failure to record must not prevent support staff from
+     * reaching an account, so everything here is swallowed and logged.
+     */
+    private void recordImpersonation(Long targetUserId, String grantedRole,
+                                     HttpServletRequest httpRequest) {
+        try {
+            Long actorUserId = null;
+            try {
+                actorUserId = SecurityUtils.getPrincipal().getId();
+            } catch (Exception e) {
+                log.debug("Could not resolve impersonating admin: {}", e.getMessage());
+            }
+
+            Long clientId = userRepository.findById(targetUserId)
+                    .map(u -> u.getClient() != null ? u.getClient().getId() : null)
+                    .orElse(null);
+
+            UserActivityEvent event = new UserActivityEvent();
+            event.setUserId(targetUserId);
+            event.setClientId(clientId);
+            event.setActorUserId(actorUserId);
+            event.setAction(UserActivityEvent.ACTION_IMPERSONATION_STARTED);
+            event.setMetadata("{\"grantedRole\":\"" + grantedRole.replace("\"", "") + "\"}");
+            if (httpRequest != null) {
+                event.setIpAddress(clientIp(httpRequest));
+                String agent = httpRequest.getHeader("User-Agent");
+                event.setUserAgent(agent != null && agent.length() > 512
+                        ? agent.substring(0, 512) : agent);
+            }
+            userActivityEventRepository.save(event);
+        } catch (Exception e) {
+            log.warn("Failed to record impersonation of user {}: {}", targetUserId, e.getMessage());
+        }
+    }
+
+    /**
+     * Left-most entry of {@code X-Forwarded-For}, falling back to the socket address.
+     *
+     * Every deployed profile runs behind a load balancer, so {@code getRemoteAddr()} alone
+     * records the balancer for every request. The header is client-supplied and spoofable,
+     * which is acceptable because this value is only ever displayed, never trusted for an
+     * access decision.
+     */
+    private static String clientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            String first = forwarded.split(",")[0].trim();
+            if (!first.isEmpty()) {
+                return first.length() > 45 ? first.substring(0, 45) : first;
+            }
+        }
+        String remote = request.getRemoteAddr();
+        return remote != null && remote.length() > 45 ? remote.substring(0, 45) : remote;
     }
 
     /**
@@ -131,6 +207,16 @@ public class ImpersonationTokenController {
                 .setExpiration(new Date(System.currentTimeMillis() + 8L * 60 * 60 * 1000));
         if (tenantId != null) builder.claim("tenantId", tenantId);
         if (allowedAccountIds != null) builder.claim("allowedAccountIds", allowedAccountIds);
+
+        // Who is wearing this identity. The subject is the account being entered, so without
+        // this claim the receiving service can tell that a session is impersonated but not by
+        // whom — which makes activity recorded during the session unattributable, and means it
+        // would otherwise be counted as the customer's own usage.
+        try {
+            builder.claim("actorUserId", SecurityUtils.getPrincipal().getId());
+        } catch (Exception e) {
+            log.debug("Could not stamp impersonating admin on token: {}", e.getMessage());
+        }
         return builder.signWith(key, SignatureAlgorithm.HS256).compact();
     }
 

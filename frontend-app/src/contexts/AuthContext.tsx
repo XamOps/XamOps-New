@@ -10,6 +10,7 @@ import apiClient from '../utils/apiClient';
 import { UserRole, UserProfile, Tenant, TenantUser } from '../types/auth';
 import { Account } from '../types/account';
 import { activateDemoModeIfNeeded } from '../demo/demoConfig';
+import { endTracking } from '../utils/pageTimeTracker';
 
 interface AuthContextValue {
   userRoles: UserRole[];
@@ -394,6 +395,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
    * Centralized logout
    */
   const logout = useCallback(async () => {
+    // Close and send the page the user is leaving, before /logout invalidates the session.
+    // Afterwards the ingest endpoint would reject the batch as unauthenticated, so the final
+    // visit of every session would be lost — and that is the one the user spent longest on.
+    try {
+      endTracking('UNLOAD');
+    } catch {
+      // Telemetry must never block signing out.
+    }
+
     try {
       console.log('🚪 Logging out...');
       await apiClient.post('/logout', {});

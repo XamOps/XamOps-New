@@ -77,6 +77,8 @@ const BillOpsTicketDetailPage: React.FC = () => {
     submitReply,
     closeTicket,
     reopenTicket,
+    transferToAccountBilling,
+    transferToTechnical,
     submitRCA,
     assignTicket,
     sendEmailThread,
@@ -165,6 +167,10 @@ const BillOpsTicketDetailPage: React.FC = () => {
   const [isSendingMeetEmail, setIsSendingMeetEmail] = useState(false);
   const [isSharingMeet, setIsSharingMeet] = useState(false);
 
+  // Transfer to Account & Billing confirmation modal
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [isTransferring, setIsTransferring] = useState(false);
+
   // RCA Modal
   const [showRcaModal, setShowRcaModal] = useState(false);
   const [rcaSubmitting, setRcaSubmitting] = useState(false);
@@ -232,6 +238,28 @@ const BillOpsTicketDetailPage: React.FC = () => {
       }
     }
   }, [reopenTicket]);
+
+  // The ticket transfers to whichever queue it is NOT currently in.
+  const transferTarget: 'Account and Billing' | 'Technical' =
+    ticket?.category === 'Account and Billing' ? 'Technical' : 'Account and Billing';
+  const transferTargetLabel =
+    transferTarget === 'Account and Billing' ? 'Account & Billing' : 'Technical Support';
+
+  const handleTransfer = useCallback(async () => {
+    setIsTransferring(true);
+    try {
+      if (transferTarget === 'Account and Billing') {
+        await transferToAccountBilling();
+      } else {
+        await transferToTechnical();
+      }
+      setShowTransferModal(false);
+    } catch (err) {
+      globalThis.alert(`Error transferring ticket to ${transferTargetLabel}. Please try again.`);
+    } finally {
+      setIsTransferring(false);
+    }
+  }, [transferTarget, transferTargetLabel, transferToAccountBilling, transferToTechnical]);
 
   const goBackToTickets = useCallback(() => {
     if (isAdmin) {
@@ -787,6 +815,15 @@ const BillOpsTicketDetailPage: React.FC = () => {
                   Email Thread
                 </button>
               )}
+              {isAdmin && ticket.status !== 'CLOSED' && (
+                <button
+                  onClick={() => { setShowTransferModal(true); setShowActionsDropdown(false); }}
+                  className="w-full text-left flex items-center gap-3 px-4 py-2.5 text-[12px] text-[rgba(0,0,0,0.6)] hover:bg-amber-50 hover:text-amber-700 transition-colors border-t border-[rgba(0,0,0,0.06)]"
+                >
+                  <Icon icon="mdi:swap-horizontal" width={16} className="text-amber-500 flex-shrink-0" />
+                  Transfer to {transferTargetLabel}
+                </button>
+              )}
               {ticket.status !== 'CLOSED' && (
                 <button
                   onClick={() => { handleCloseTicket(); setShowActionsDropdown(false); }}
@@ -813,7 +850,8 @@ const BillOpsTicketDetailPage: React.FC = () => {
 
     return () => clearActions();
   }, [setActions, clearActions, ticket, isAdmin, handleCloseTicket, handleReopenTicket, goBackToTickets,
-      adminUsers, showAssignDropdown, isAssigning, handleAssign, showEmailModal, openMeetModal, showActionsDropdown]);
+      adminUsers, showAssignDropdown, isAssigning, handleAssign, showEmailModal, openMeetModal, showActionsDropdown,
+      setShowTransferModal, transferTargetLabel]);
 
   const addEmailRecipient = (email: string) => {
     const trimmed = email.trim().toLowerCase();
@@ -2148,6 +2186,50 @@ const BillOpsTicketDetailPage: React.FC = () => {
         </div>,
         document.body
       )}
+
+      {/* Transfer ticket between queues confirmation */}
+      <DialogRoot isOpen={showTransferModal} onClose={() => { if (!isTransferring) setShowTransferModal(false); }} maxWidth="max-w-md">
+        <DialogPanel
+          title={
+            <span className="flex items-center gap-2 text-[15px] font-semibold text-[rgba(0,0,0,0.88)]">
+              <Icon icon="mdi:swap-horizontal" width={18} className="text-amber-600" /> Transfer to {transferTargetLabel}
+            </span>
+          }
+          onClose={() => { if (!isTransferring) setShowTransferModal(false); }}
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => setShowTransferModal(false)}
+                disabled={isTransferring}
+                className="inline-flex justify-center rounded-md border border-[rgba(0,0,0,0.12)] shadow-sm px-4 py-2 bg-white text-sm font-medium text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.02)] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleTransfer}
+                disabled={isTransferring}
+                className="inline-flex items-center gap-2 justify-center rounded-md px-4 py-2 bg-amber-600 hover:bg-amber-700 text-sm font-medium text-white shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isTransferring
+                  ? <><Icon icon="mdi:loading" width={14} className="animate-spin" /> Transferring...</>
+                  : <><Icon icon="mdi:swap-horizontal" width={14} /> Transfer</>
+                }
+              </button>
+            </>
+          }
+        >
+          <p className="text-[13px] leading-relaxed text-[rgba(0,0,0,0.65)]">
+            This will move ticket <span className="font-semibold text-[rgba(0,0,0,0.88)]">#{ticket?.id}</span> to the{' '}
+            <span className="font-semibold text-[rgba(0,0,0,0.88)]">{transferTargetLabel}</span> queue.
+            The {transferTargetLabel} team will be notified by email.
+          </p>
+          <p className="mt-3 text-[12px] text-[rgba(0,0,0,0.45)]">
+            Are you sure you want to transfer this ticket?
+          </p>
+        </DialogPanel>
+      </DialogRoot>
 
       {/* RCA Modal */}
       <DialogRoot isOpen={showRcaModal} onClose={() => setShowRcaModal(false)} maxWidth="max-w-4xl">
