@@ -27,6 +27,12 @@ export type ReasonPlacement = 'inline' | 'popover';
 /** Shown while capabilities load: the control is blocked, but there is no reason yet. */
 export const CHECKING_ACCESS_TEXT = 'Checking automation access…';
 
+/*
+ * The lock and the remedies carry dark text colours for the v3 pages that mark their sections
+ * `data-k8s-kit` (Automation › Overview). Everywhere else the legacy dark CSS in style.css still sets
+ * these icon, link, button and text colours with `!important`, so those pages are unchanged.
+ */
+
 /** Decorative lock that marks a blocked control (§14). */
 export function LockIcon({ className = '' }: { className?: string }) {
   return (
@@ -35,13 +41,13 @@ export function LockIcon({ className = '' }: { className?: string }) {
       width={14}
       aria-hidden="true"
       data-gated-lock=""
-      className={`shrink-0 text-[rgba(0,0,0,0.6)] ${className}`}
+      className={`shrink-0 text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)] ${className}`}
     />
   );
 }
 
 export const linkClass =
-  'font-semibold text-[rgba(0,0,0,0.88)] underline underline-offset-2 rounded-sm '
+  'font-semibold text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)] underline underline-offset-2 rounded-sm '
   + 'outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] focus-visible:ring-offset-2';
 
 function useRemedyHref(target: RemedyTarget): { pathname?: string; search?: string; hash?: string } | string {
@@ -64,7 +70,7 @@ function RemedyLink({ remedy }: { remedy: Extract<Remedy, { kind: 'link' }> }) {
  */
 export function ReadWriteHelp({ className = '' }: { className?: string }) {
   return (
-    <span className={`block text-[12px] text-[rgba(0,0,0,0.6)] ${className}`}>
+    <span className={`block text-[12px] text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)] ${className}`}>
       {READ_WRITE_EXPLAINER}
       <span className="mt-1 flex flex-wrap gap-3">
         <Link to="/tickets" className={linkClass}>Contact support</Link>
@@ -93,7 +99,7 @@ function Explainer({ remedy }: { remedy: Extract<Remedy, { kind: 'explainer' }> 
       <span id={panelId} hidden={!open} className={open ? 'mt-1 block' : 'hidden'}>
         {remedy.explainer === 'read-write'
           ? <ReadWriteHelp />
-          : <span className="block text-[12px] text-[rgba(0,0,0,0.6)]">{NOT_READY_EXPLAINER}</span>}
+          : <span className="block text-[12px] text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]">{NOT_READY_EXPLAINER}</span>}
       </span>
     </span>
   );
@@ -118,7 +124,7 @@ export function Remedies({ remedies }: { remedies: Remedy[] }) {
           case 'link':
             return <RemedyLink key={remedy.label} remedy={remedy} />;
           case 'text':
-            return <span key={remedy.label} className="text-[rgba(0,0,0,0.6)]">{remedy.label}</span>;
+            return <span key={remedy.label} className="text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]">{remedy.label}</span>;
           case 'explainer':
             return <Explainer key={remedy.label} remedy={remedy} />;
           case 'retry':

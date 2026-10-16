@@ -8,6 +8,12 @@
  *
  * Only `low` columns may hide on narrow screens, and the type allows `hideBelowPx` only there, so a
  * column holding a gated control, a status or the row action (always `essential`) never disappears.
+ *
+ * Dark mode: the `dark:` variants here are for a table inside a v3 `data-k8s-kit` root (Automation ›
+ * Activity). Everywhere else on the cluster page the legacy dark CSS in style.css still paints the
+ * table, and its `!important` rules win over these for every text, surface, button, input and cell
+ * colour. Plain `<div>` borders are the one thing those rules don't set, so those dark borders use
+ * the kit-scoped variant `dark:[[data-k8s-kit]_&]:`, which leaves every other page's table as it is.
  */
 import { Fragment, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { Icon } from '@iconify/react';
@@ -88,7 +94,11 @@ export interface K8sDataTableProps<T> {
 }
 
 const focusRing = 'outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] focus-visible:ring-offset-2';
-const buttonClass = `inline-flex items-center gap-1.5 rounded-md border border-[rgba(0,0,0,0.2)] bg-white px-2.5 py-1 text-[12px] font-semibold text-[rgba(0,0,0,0.88)] hover:bg-[rgba(0,0,0,0.04)] aria-disabled:cursor-default aria-disabled:opacity-50 ${focusRing}`;
+const buttonClass = `inline-flex items-center gap-1.5 rounded-md border border-[rgba(0,0,0,0.2)] bg-white px-2.5 py-1 text-[12px] font-semibold text-[rgba(0,0,0,0.88)] hover:bg-[rgba(0,0,0,0.04)] aria-disabled:cursor-default aria-disabled:opacity-50 dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.8)] dark:hover:bg-[rgba(255,255,255,0.06)] ${focusRing}`;
+/** The table's outer box: a white card, a dark one inside the kit. */
+const boxClass = 'rounded-lg border border-[rgba(0,0,0,0.12)] bg-white dark:bg-[#141414] dark:[[data-k8s-kit]_&]:border-[rgba(255,255,255,0.1)]';
+const MUTED_TEXT = 'text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]';
+const INK_TEXT = 'text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]';
 const ALIGN = { left: 'text-left', right: 'text-right', center: 'text-center' } as const;
 
 function useViewportWidth(): number {
@@ -188,11 +198,11 @@ export function K8sDataTable<T>({
 
   if (error) {
     return (
-      <div role="alert" className="flex items-start gap-3 rounded-lg border border-[rgba(0,0,0,0.88)] bg-white p-4">
-        <Icon icon="mdi:alert-octagon" width={18} aria-hidden="true" className="mt-0.5 shrink-0 text-[rgba(0,0,0,0.88)]" />
+      <div role="alert" className="flex items-start gap-3 rounded-lg border border-[rgba(0,0,0,0.88)] bg-white p-4 dark:bg-[#141414] dark:[[data-k8s-kit]_&]:border-[rgba(255,255,255,0.88)]">
+        <Icon icon="mdi:alert-octagon" width={18} aria-hidden="true" className={`mt-0.5 shrink-0 ${INK_TEXT}`} />
         <div className="min-w-0 flex-1 text-[13px]">
-          <p className="font-semibold text-[rgba(0,0,0,0.88)]">{`Couldn't load ${caption.toLowerCase()}`}</p>
-          <p className="mt-0.5 break-words text-[rgba(0,0,0,0.6)]">{error}</p>
+          <p className={`font-semibold ${INK_TEXT}`}>{`Couldn't load ${caption.toLowerCase()}`}</p>
+          <p className={`mt-0.5 break-words ${MUTED_TEXT}`}>{error}</p>
           {onRetry && (
             <button type="button" onClick={onRetry} className={`mt-2 ${buttonClass}`}>
               <Icon icon="mdi:refresh" width={14} aria-hidden="true" />
@@ -206,42 +216,42 @@ export function K8sDataTable<T>({
 
   if (loading && rows.length === 0) {
     return (
-      <div aria-busy="true" className="space-y-2 rounded-lg border border-[rgba(0,0,0,0.12)] bg-white p-4">
+      <div aria-busy="true" className={`space-y-2 p-4 ${boxClass}`}>
         <span className="sr-only">{`Loading ${caption.toLowerCase()}…`}</span>
-        {[0, 1, 2, 3].map((i) => <div key={i} className="h-6 animate-pulse rounded bg-[rgba(0,0,0,0.06)]" />)}
+        {[0, 1, 2, 3].map((i) => <div key={i} className="h-6 animate-pulse rounded bg-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.06)]" />)}
       </div>
     );
   }
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-lg border border-[rgba(0,0,0,0.12)] bg-white">
-        {emptyState ?? <p className="px-4 py-8 text-center text-[13px] text-[rgba(0,0,0,0.6)]">Nothing to show.</p>}
-        {source && <div className="border-t border-[rgba(0,0,0,0.08)] px-4 py-2">{source}</div>}
+      <div className={boxClass}>
+        {emptyState ?? <p className={`px-4 py-8 text-center text-[13px] ${MUTED_TEXT}`}>Nothing to show.</p>}
+        {source && <div className="border-t border-[rgba(0,0,0,0.08)] px-4 py-2 dark:[[data-k8s-kit]_&]:border-[rgba(255,255,255,0.08)]">{source}</div>}
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border border-[rgba(0,0,0,0.12)] bg-white">
+    <div className={boxClass}>
       {hasToolbar && (
-        <div className="flex flex-wrap items-center gap-3 border-b border-[rgba(0,0,0,0.08)] px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-3 border-b border-[rgba(0,0,0,0.08)] px-4 py-2.5 dark:[[data-k8s-kit]_&]:border-[rgba(255,255,255,0.08)]">
           {search && (
             <div className="relative flex min-w-[220px] flex-1 items-center">
-              <Icon icon="mdi:magnify" width={16} aria-hidden="true" className="pointer-events-none absolute left-2.5 text-[rgba(0,0,0,0.6)]" />
+              <Icon icon="mdi:magnify" width={16} aria-hidden="true" className={`pointer-events-none absolute left-2.5 ${MUTED_TEXT}`} />
               <input
                 type="search"
                 aria-label={`Search ${caption.toLowerCase()}`}
                 value={query}
                 onChange={(e) => { setQuery(e.target.value); resetPage(); }}
                 placeholder={searchPlaceholder ?? 'Search'}
-                className={`w-full rounded-md border border-[rgba(0,0,0,0.2)] bg-white py-1.5 pl-8 pr-2 text-[13px] text-[rgba(0,0,0,0.88)] placeholder:text-[rgba(0,0,0,0.6)] ${focusRing}`}
+                className={`w-full rounded-md border border-[rgba(0,0,0,0.2)] bg-white py-1.5 pl-8 pr-2 text-[13px] text-[rgba(0,0,0,0.88)] placeholder:text-[rgba(0,0,0,0.6)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.92)] dark:placeholder:text-[rgba(255,255,255,0.5)] ${focusRing}`}
               />
             </div>
           )}
           {filters.map((f) => (
             <div key={f.id} role="group" aria-label={f.label} className="flex flex-wrap items-center gap-1">
-              <span className="mr-1 text-[12px] font-medium text-[rgba(0,0,0,0.6)]" aria-hidden="true">{f.label}</span>
+              <span className={`mr-1 text-[12px] font-medium ${MUTED_TEXT}`} aria-hidden="true">{f.label}</span>
               {[{ value: '', label: 'All' }, ...f.options].map((o) => {
                 const pressed = (chosen[f.id] ?? '') === o.value;
                 return (
@@ -251,8 +261,8 @@ export function K8sDataTable<T>({
                     aria-pressed={pressed}
                     onClick={() => { setChosen((prev) => ({ ...prev, [f.id]: o.value })); resetPage(); }}
                     className={`rounded-full border px-2.5 py-0.5 text-[12px] ${focusRing} ${pressed
-                      ? 'border-[rgba(0,0,0,0.88)] bg-[rgba(0,0,0,0.88)] font-semibold text-white'
-                      : 'border-[rgba(0,0,0,0.2)] bg-white font-medium text-[rgba(0,0,0,0.88)] hover:bg-[rgba(0,0,0,0.04)]'}`}
+                      ? 'border-[rgba(0,0,0,0.88)] bg-[rgba(0,0,0,0.88)] font-semibold text-white dark:border-[rgba(255,255,255,0.92)] dark:bg-[rgba(255,255,255,0.92)] dark:text-black'
+                      : 'border-[rgba(0,0,0,0.2)] bg-white font-medium text-[rgba(0,0,0,0.88)] hover:bg-[rgba(0,0,0,0.04)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.8)] dark:hover:bg-[rgba(255,255,255,0.06)]'}`}
                   >
                     {o.label}
                   </button>
@@ -273,7 +283,7 @@ export function K8sDataTable<T>({
         <table className="w-full border-collapse text-[13px]">
           <caption className="sr-only">{caption}</caption>
           <thead>
-            <tr className="border-b border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.02)]">
+            <tr className="border-b border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.02)] dark:border-[rgba(255,255,255,0.1)] dark:bg-[rgba(255,255,255,0.03)]">
               {expandRow && (
                 <th scope="col" className="w-9 px-2 py-2"><span className="sr-only">Details</span></th>
               )}
@@ -286,13 +296,13 @@ export function K8sDataTable<T>({
                     scope="col"
                     aria-sort={ariaSort}
                     title={c.headerTitle}
-                    className={`whitespace-nowrap px-3 py-2 text-[12px] font-semibold text-[rgba(0,0,0,0.6)] ${ALIGN[c.align ?? 'left']}`}
+                    className={`whitespace-nowrap px-3 py-2 text-[12px] font-semibold ${MUTED_TEXT} ${ALIGN[c.align ?? 'left']}`}
                   >
                     {c.sortValue ? (
                       <button
                         type="button"
                         onClick={() => toggleSort(c.id)}
-                        className={`inline-flex items-center gap-1 rounded hover:text-[rgba(0,0,0,0.88)] ${focusRing} ${active ? 'text-[rgba(0,0,0,0.88)]' : ''}`}
+                        className={`inline-flex items-center gap-1 rounded hover:text-[rgba(0,0,0,0.88)] dark:hover:text-[rgba(255,255,255,0.92)] ${focusRing} ${active ? INK_TEXT : ''}`}
                       >
                         {c.header}
                         {active && sort!.direction === 'asc' && <Icon icon="mdi:arrow-up" width={13} aria-hidden="true" />}
@@ -308,7 +318,7 @@ export function K8sDataTable<T>({
           <tbody>
             {pageRows.length === 0 && (
               <tr>
-                <td colSpan={colSpan} className="px-4 py-8 text-center text-[13px] text-[rgba(0,0,0,0.6)]">
+                <td colSpan={colSpan} className={`px-4 py-8 text-center text-[13px] ${MUTED_TEXT}`}>
                   <p>No rows match the search or filters.</p>
                   <button type="button" onClick={clearAll} className={`mt-2 ${buttonClass}`}>Clear search and filters</button>
                 </td>
@@ -321,7 +331,7 @@ export function K8sDataTable<T>({
               const detailId = `${id}-detail-${key}`;
               return (
                 <Fragment key={key}>
-                  <tr className="border-b border-[rgba(0,0,0,0.06)] align-top hover:bg-[rgba(0,0,0,0.02)]">
+                  <tr className="border-b border-[rgba(0,0,0,0.06)] align-top hover:bg-[rgba(0,0,0,0.02)] dark:border-[rgba(255,255,255,0.08)] dark:hover:bg-[rgba(255,255,255,0.03)]">
                     {expandRow && (
                       <td className="px-2 py-2">
                         {detail !== null && (
@@ -336,7 +346,7 @@ export function K8sDataTable<T>({
                               else next.add(key);
                               return next;
                             })}
-                            className={`flex h-6 w-6 items-center justify-center rounded text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.88)] ${focusRing}`}
+                            className={`flex h-6 w-6 items-center justify-center rounded text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.6)] dark:hover:bg-[rgba(255,255,255,0.06)] dark:hover:text-[rgba(255,255,255,0.92)] ${focusRing}`}
                           >
                             <Icon icon={isOpen ? 'mdi:chevron-down' : 'mdi:chevron-right'} width={16} aria-hidden="true" />
                           </button>
@@ -344,11 +354,11 @@ export function K8sDataTable<T>({
                       </td>
                     )}
                     {visible.map((c) => (
-                      <td key={c.id} className={`px-3 py-2 text-[rgba(0,0,0,0.88)] ${ALIGN[c.align ?? 'left']}`}>{c.cell(row)}</td>
+                      <td key={c.id} className={`px-3 py-2 ${INK_TEXT} ${ALIGN[c.align ?? 'left']}`}>{c.cell(row)}</td>
                     ))}
                   </tr>
                   {isOpen && detail !== null && (
-                    <tr id={detailId} className="border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)]">
+                    <tr id={detailId} className="border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)] dark:border-[rgba(255,255,255,0.08)] dark:bg-[rgba(255,255,255,0.03)]">
                       <td colSpan={colSpan} className="px-4 py-3">{detail}</td>
                     </tr>
                   )}
@@ -359,7 +369,7 @@ export function K8sDataTable<T>({
         </table>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 border-t border-[rgba(0,0,0,0.08)] px-4 py-2 text-[12px] text-[rgba(0,0,0,0.6)]">
+      <div className={`flex flex-wrap items-center gap-3 border-t border-[rgba(0,0,0,0.08)] px-4 py-2 text-[12px] dark:[[data-k8s-kit]_&]:border-[rgba(255,255,255,0.08)] ${MUTED_TEXT}`}>
         <span aria-live="polite">
           {sorted.length === 0
             ? `0 of ${rows.length}`
@@ -372,7 +382,7 @@ export function K8sDataTable<T>({
             id={`${id}-page-size`}
             value={pageSize}
             onChange={(e) => { setPageSize(Number(e.target.value) as PageSize); resetPage(); }}
-            className={`rounded border border-[rgba(0,0,0,0.2)] bg-white px-1.5 py-0.5 text-[12px] text-[rgba(0,0,0,0.88)] ${focusRing}`}
+            className={`rounded border border-[rgba(0,0,0,0.2)] bg-white px-1.5 py-0.5 text-[12px] text-[rgba(0,0,0,0.88)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.92)] ${focusRing}`}
           >
             {PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
           </select>

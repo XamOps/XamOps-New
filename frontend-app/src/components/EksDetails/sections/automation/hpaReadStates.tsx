@@ -92,7 +92,9 @@ export const HpaReadFallback: FC<{
   reload: () => void;
 }> = ({ feature, loading, result, reload }) => {
   if (loading && !result) {
-    return <div className="skeleton h-64 rounded-xl"></div>;
+    // The app's `.skeleton` shimmer is light; inside the kit (the pages mark their root) the dark
+    // variant draws it as a faint block instead.
+    return <div className="skeleton h-64 rounded-xl dark:bg-none dark:bg-[rgba(255,255,255,0.06)]"></div>;
   }
   if (!result) {
     return <EmptyState icon="mdi:information-outline" title="Nothing requested yet" subtitle={SUBJECT[feature].needs} />;
@@ -109,13 +111,13 @@ export const HpaReadFallback: FC<{
   }
   if (result.kind === 'error') {
     return (
-      <div className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] p-6">
-        <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{SUBJECT[feature].failed}</p>
-        <p className="text-[12px] text-[rgba(0,0,0,0.56)] mt-1">{result.message}</p>
+      <div className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] p-6 dark:bg-[#141414] dark:border-[rgba(255,255,255,0.16)]">
+        <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]">{SUBJECT[feature].failed}</p>
+        <p className="text-[12px] text-[rgba(0,0,0,0.56)] mt-1 dark:text-[rgba(255,255,255,0.5)]">{result.message}</p>
         <button
           type="button"
           onClick={reload}
-          className="mt-4 px-4 py-2 text-xs font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] transition-all"
+          className="mt-4 px-4 py-2 text-xs font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] transition-all dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.7)] dark:hover:bg-[rgba(255,255,255,0.06)]"
         >
           Retry
         </button>

@@ -18,7 +18,7 @@ import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
 import { TermTip } from '../../../../CloudK8s/shared/status/TermTip';
 import { RangeBar } from '../../../../CloudK8s/shared/charts/RangeBar';
 import { hpaConditionText, hpaWants, hpaWorksChecks, rowHasFlag, type HpaRow } from '../automationDerivations';
-import { CARD, Card, FAINT, INK, InPageLink, LINK, MUTED, RULE } from '../automationUi';
+import { CARD, Card, DIVIDE, FAINT, INK, InPageLink, LINK, MUTED, RULE } from '../automationUi';
 import { HpaDecisionPanel } from './HpaDecision';
 import { FROM_AGENT, HpaHistoryCards } from './hpaShared';
 
@@ -54,7 +54,9 @@ export function HpaDetail({ row, view, engineRead, dryRun, onDryRun, state, list
   const w = row.workload;
 
   return (
-    <div className="space-y-4" data-hpa-detail={row.id}>
+    // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it
+    // alone and the write controls keep their own disabled and confirm states in dark mode.
+    <div className="space-y-4" data-hpa-detail={row.id} data-k8s-kit="">
       <InPageLink to={listHref} className={`inline-flex items-center gap-1 text-[12px] ${LINK}`}>
         <Icon icon="mdi:arrow-left" width={14} aria-hidden="true" />
         All HPAs
@@ -108,7 +110,7 @@ export function HpaDetail({ row, view, engineRead, dryRun, onDryRun, state, list
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Conditions">
           {live && live.conditions.length > 0 ? (
-            <ul className={`divide-y ${RULE}`}>
+            <ul className={`divide-y ${DIVIDE}`}>
               {live.conditions.map((c) => (
                 <li key={c.type} className={`py-1.5 text-[12px] ${INK}`} data-hpa-condition={c.type} title={`${c.type} ${c.status}${c.reason ? ` (${c.reason})` : ''}`}>
                   {hpaConditionText(c)}
@@ -137,12 +139,13 @@ export function HpaDetail({ row, view, engineRead, dryRun, onDryRun, state, list
         title="XamOps's suggestion"
         aside={
           <label className={`flex items-center gap-2 text-[11px] font-semibold ${MUTED}`} title="A test run checks the change without sending anything to the cluster">
+            {/* Important: a global `input[type="checkbox"]` rule (styles/gcpPerformance.css) paints every
+                checkbox's accent blue, and outranks a plain accent class. */}
             <input
               type="checkbox"
               checked={dryRun}
               onChange={(e) => onDryRun(e.target.checked)}
-              className="accent-black dark:accent-white"
-              data-k8s-kit=""
+              className="!accent-black dark:!accent-white"
             />
             Test run only (nothing is sent)
           </label>

@@ -207,7 +207,9 @@ export function ActivityPage({ clusterName, accountId, region, eksData }: Activi
 
   const tableTitle = useId();
   return (
-    <div className="space-y-4" data-activity="">
+    // data-k8s-kit: every colour on this page has its dark variant (K8sDataTable's included), so the
+    // legacy dark CSS leaves it alone and the source filter keeps its pressed chip in dark mode.
+    <div className="space-y-4" data-activity="" data-k8s-kit="">
       <div className="space-y-1">
         <p className={`text-[13px] font-semibold ${INK}`}>Activity</p>
         <p className={`text-[12px] ${MUTED}`}>
@@ -216,7 +218,7 @@ export function ActivityPage({ clusterName, accountId, region, eksData }: Activi
         </p>
       </div>
       <NowBanner sentence={sentence} />
-      {loading && !result && <div className="skeleton h-28 rounded-lg" />}
+      {loading && !result && <div className="skeleton h-28 rounded-lg dark:bg-none dark:bg-[rgba(255,255,255,0.06)]" />}
       {result && result.kind !== 'ok' && <ReadFailureCard failure={result} onRetry={reload} />}
       {view && (
         <>

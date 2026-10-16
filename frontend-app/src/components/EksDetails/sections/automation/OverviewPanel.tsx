@@ -227,7 +227,8 @@ function AccessBlock({ caps, clusterName }: { caps: K8sCapabilitiesValue; cluste
   const data = caps.status === 'ready' ? caps.data : null;
   const unknown = <StatusMark state="unknown" label="Unknown" />;
   return (
-    <section aria-labelledby={headingId} className={`${CARD} p-4`}>
+    // data-k8s-kit: every colour here has its dark variant, so the legacy dark CSS leaves it alone.
+    <section aria-labelledby={headingId} className={`${CARD} p-4`} data-k8s-kit="">
       <h2 id={headingId} className={`text-[14px] font-semibold ${INK}`}>Access</h2>
       {caps.status === 'loading' ? (
         <p className={`mt-2 text-[13px] ${MUTED}`}>{CHECKING_ACCESS_TEXT}</p>
@@ -273,7 +274,8 @@ function TodayTable({
   const location = useLocation();
   const engineOff = caps.status === 'ready' && !caps.verticalEngineEnabled;
   return (
-    <section aria-labelledby={headingId} className={`${CARD} pt-4`}>
+    // data-k8s-kit: every colour here has its dark variant, so the legacy dark CSS leaves it alone.
+    <section aria-labelledby={headingId} className={`${CARD} pt-4`} data-k8s-kit="">
       <h2 id={headingId} className={`px-4 text-[14px] font-semibold ${INK}`}>
         What automation can do on this cluster today
       </h2>
@@ -456,7 +458,7 @@ interface CardLink {
 
 function FeatureCard({ feature, status, link }: { feature: Feature; status: FeatureStatus; link: CardLink }) {
   return (
-    <section className={`${CARD} flex flex-col gap-2 px-4 py-3`} data-feature-card={feature}>
+    <section className={`${CARD} flex flex-col gap-2 px-4 py-3`} data-feature-card={feature} data-k8s-kit="">
       <FeatureMark feature={feature} />
       <span><StatusChip tone={status.tone} icon={status.icon} label={status.label} /></span>
       {status.lines.length > 0 && (

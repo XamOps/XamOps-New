@@ -137,6 +137,9 @@ describe('buildApplySteps: only what the proof says (glossary v2 §8.2, §11.3; 
   });
   const titles = (steps: ReturnType<typeof buildApplySteps>) => steps.map((s) => s.title);
 
+  const CAVEAT = (kind: string) =>
+    `The ${kind} itself wasn't changed, so a pod created later (a rollout, a rescheduled pod) starts at the size in its template, not the new one.`;
+
   it('restart-free and every pod: "Done: applied in every pod, no restart", with the template caveat', () => {
     const steps = buildApplySteps(applied({}), { kind: 'Deployment' });
     expect(titles(steps)).toEqual([
@@ -145,7 +148,45 @@ describe('buildApplySteps: only what the proof says (glossary v2 §8.2, §11.3; 
       'Resized pod 2 of 2',
       'Done: applied in every pod, no restart',
     ]);
-    expect(last(steps).detail).toBe("The Deployment itself wasn't changed, so a pod created later starts at 1000m CPU, 1 GiB memory.");
+    expect(last(steps).detail).toBe(CAVEAT('Deployment'));
+  });
+
+  // In-place resize never writes the template (ClusterWorkloadInventory), so after a first in-place
+  // change the running pods' size before this apply is not what a new pod starts at.
+  it('names no size in the caveat when the pods were already resized in place (observedBefore is not the template)', () => {
+    const again = (name: string): NonNullable<VerticalOutcome['pods']>[number] => ({
+      ...resized(name),
+      containers: [{
+        name: 'api', containerIdBefore: 'c1', containerIdAfter: 'c1', restartCountBefore: 0, restartCountAfter: 0,
+        // Running at 25m / 250Mi from an earlier in-place change, on a 1 CPU / 1 GiB template.
+        observedBefore: { cpuRequestM: 25, memRequestMi: 250, cpuLimitM: 25, memLimitMi: 250 },
+        observedAfter: { cpuRequestM: 50, memRequestMi: 256, cpuLimitM: 50, memLimitMi: 256 },
+      }],
+    });
+    const steps = buildApplySteps(applied({ pods: [again('api-6f7d8-2bddb'), again('api-6f7d8-jm7jv')] }), { kind: 'Deployment' });
+    expect(last(steps).detail).toBe(CAVEAT('Deployment'));
+    expect(last(steps).detail).not.toMatch(/\d+m CPU|Mi memory|GiB/);
+  });
+
+  it('names no container\'s size in the caveat for a pod with two containers', () => {
+    const twoContainers = (name: string): NonNullable<VerticalOutcome['pods']>[number] => ({
+      ...resized(name),
+      containers: [
+        {
+          name: 'proxy', containerIdBefore: 'p1', containerIdAfter: 'p1', restartCountBefore: 0, restartCountAfter: 0,
+          observedBefore: { cpuRequestM: 50, memRequestMi: 64, cpuLimitM: 50, memLimitMi: 64 },
+          observedAfter: { cpuRequestM: 50, memRequestMi: 64, cpuLimitM: 50, memLimitMi: 64 },
+        },
+        {
+          name: 'api', containerIdBefore: 'c1', containerIdAfter: 'c1', restartCountBefore: 0, restartCountAfter: 0,
+          observedBefore: { cpuRequestM: 1000, memRequestMi: 1024, cpuLimitM: 1000, memLimitMi: 1024 },
+          observedAfter: { cpuRequestM: 25, memRequestMi: 256, cpuLimitM: 25, memLimitMi: 256 },
+        },
+      ],
+    });
+    const steps = buildApplySteps(applied({ pods: [twoContainers('api-6f7d8-2bddb')] }), { kind: 'StatefulSet' });
+    expect(last(steps).detail).toBe(CAVEAT('StatefulSet'));
+    expect(last(steps).detail).not.toMatch(/50m|1000m/);
   });
 
   // ResizeProof: restartFree false means "not proved", and skippedPods means "never every pod".
@@ -198,7 +239,7 @@ describe('buildApplySteps: only what the proof says (glossary v2 §8.2, §11.3; 
   });
 
   it('says the template caveat only for IN_PLACE, the method that leaves the template alone', () => {
-    expect(last(buildApplySteps(applied({}))).detail).toBe("The workload itself wasn't changed, so a pod created later starts at 1000m CPU, 1 GiB memory.");
+    expect(last(buildApplySteps(applied({}))).detail).toBe(CAVEAT('workload'));
     expect(last(buildApplySteps(applied({ method: 'IN_PLACE_AND_PERSIST', restartFree: false }), { kind: 'Deployment' })).detail).toBeUndefined();
   });
 
@@ -227,6 +268,100 @@ describe('buildApplySteps: only what the proof says (glossary v2 §8.2, §11.3; 
     // A failure that changed nothing still says so.
     const failed = buildApplySteps({ ...outcome('FAILED', [pod('p-1', false)]), restartFree: false });
     expect(last(failed).title).toBe('Result: not applied. Nothing changed.');
+  });
+});
+
+// DirectInPlaceResizeExecutor returns only the canary's proof when the canary fails, and only the
+// attempted pods after a mid-rollout failure: the pods it never reached are in neither list.
+describe('buildApplySteps: a rollout that stopped, numbered against the workload (glossary §6 "Not touched")', () => {
+  type Pod = NonNullable<VerticalOutcome['pods']>[number];
+  const NOT_REACHED = "XamOps stops at the first pod that doesn't take the change.";
+  const before = { cpuRequestM: 1000, memRequestMi: 1024, cpuLimitM: 1000, memLimitMi: 1024 };
+  const after = { cpuRequestM: 25, memRequestMi: 256, cpuLimitM: 25, memLimitMi: 256 };
+  const podOf = (name: string, changed: boolean, revert: Pod['revert'] = null): Pod => ({
+    podName: name, uidBefore: `${name}-uid`, uidAfter: `${name}-uid`, samePod: true, ready: true, changed,
+    containers: [{
+      name: 'api', containerIdBefore: 'c1', containerIdAfter: 'c1', restartCountBefore: 0, restartCountAfter: 0,
+      observedBefore: before, observedAfter: changed ? after : before,
+    }],
+    revert,
+  });
+  const deferredCanary = (over: Partial<VerticalOutcome> = {}): VerticalOutcome => ({
+    method: 'IN_PLACE', terminal: 'DEFERRED', detail: 'OutOfcpu: requested 25, used 1900, capacity 1930', restartFree: false,
+    containers: null, reverted: true, insufficient: 'cpu',
+    pods: [podOf('api-6f7d8-mcw8q', false, { state: 'REVERTED', detail: null })],
+    ...over,
+  });
+  const titles = (steps: ReturnType<typeof buildApplySteps>) => steps.map((s) => s.title);
+
+  it('a deferred test pod on a three-replica workload: "Pods 2 and 3 of 3 not touched", after the put-back', () => {
+    const steps = buildApplySteps(deferredCanary(), { kind: 'Deployment', replicas: 3 });
+    expect(titles(steps)).toEqual([
+      'Checked the safety rules: all passed',
+      'Resizing pod 1 of 3, the test pod',
+      'Kubernetes deferred this: the node has no free CPU',
+      'So XamOps put the pod back',
+      'Pods 2 and 3 of 3 not touched',
+      'Result: not applied. Nothing changed.',
+    ]);
+    expect(steps.find((s) => s.key === 'not-reached')).toMatchObject({ tone: 'off', detail: NOT_REACHED });
+  });
+
+  it('a rollout that stopped part-way names the pods it never reached', () => {
+    const steps = buildApplySteps(
+      {
+        method: 'IN_PLACE',
+        terminal: 'PARTIALLY_APPLIED',
+        detail: 'The canary pod was resized and confirmed, but pod api-3 was not (DEFERRED). The rollout stopped there.',
+        restartFree: false,
+        containers: null,
+        reverted: true,
+        pods: [podOf('api-1', true), podOf('api-2', true), podOf('api-3', false, { state: 'REVERTED', detail: null })],
+      },
+      { replicas: 5 },
+    );
+    expect(titles(steps)).toEqual([
+      'Checked the safety rules: all passed',
+      'Resized pod 1 of 5, the test pod',
+      'Resized pod 2 of 5',
+      'Resizing pod 3 of 5',
+      'So XamOps put the pod back',
+      'Pods 4 and 5 of 5 not touched',
+      'Result: partly applied.',
+    ]);
+  });
+
+  it('numbers skipped pods after the ones it reached, and the pods never reached last', () => {
+    const steps = buildApplySteps(
+      deferredCanary({ skippedPods: [{ podName: 'api-6f7d8-x9k2p', phase: 'Pending', reason: 'NOT_RUNNING' }] }),
+      { replicas: 4 },
+    );
+    expect(titles(steps)).toEqual([
+      'Checked the safety rules: all passed',
+      'Resizing pod 1 of 4, the test pod',
+      'Pod 2 of 4 not touched',
+      'Kubernetes deferred this: the node has no free CPU',
+      'So XamOps put the pod back',
+      'Pods 3 and 4 of 4 not touched',
+      'Result: not applied. Nothing changed.',
+    ]);
+    expect(steps.find((s) => s.key === 'skipped')!.detail).toBe("api-6f7d8-x9k2p: not running (Pending). It runs at the workload's own size.");
+    expect(steps.find((s) => s.key === 'not-reached')!.detail).toBe(NOT_REACHED);
+  });
+
+  it('an applied reply covered every running pod, so it numbers against its own pods whatever the replica count says', () => {
+    const steps = buildApplySteps(
+      { method: 'IN_PLACE', terminal: 'APPLIED', detail: null, restartFree: true, containers: null, pods: [podOf('api-1', true), podOf('api-2', true)] },
+      { replicas: 3 },
+    );
+    expect(titles(steps)).toEqual(['Checked the safety rules: all passed', 'Resized pod 1 of 2, the test pod', 'Resized pod 2 of 2', 'Done: applied in every pod, no restart']);
+    expect(steps.some((s) => s.key === 'not-reached')).toBe(false);
+  });
+
+  it('claims no pod it can\'t count: no replica count, or a reply that lists no pod', () => {
+    expect(titles(buildApplySteps(deferredCanary()))).toContain('Resizing pod 1 of 1, the test pod');
+    expect(buildApplySteps(deferredCanary()).some((s) => s.key === 'not-reached')).toBe(false);
+    expect(buildApplySteps(deferredCanary({ pods: [] }), { replicas: 3 }).some((s) => s.key === 'not-reached')).toBe(false);
   });
 });
 

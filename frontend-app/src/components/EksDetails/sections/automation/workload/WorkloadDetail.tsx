@@ -202,7 +202,7 @@ function WhatChanged({ outcome, replyAt }: { outcome: ApplyOutcomeWire; replyAt?
     : `${pods.length} ${pods.length === 1 ? 'pod' : 'pods'}, read from each pod's status after the change.`;
   const leftOut = skipped > 0 ? ` ${skipped} more ${skipped === 1 ? "pod wasn't" : "pods weren't"} touched: ${skipped === 1 ? 'it runs' : 'they run'} at the workload's own size.` : '';
   return (
-    <section className={`${CARD} px-4 py-3`} aria-labelledby={titleId} data-what-changed="">
+    <section className={`${CARD} px-4 py-3`} aria-labelledby={titleId} data-what-changed="" data-k8s-kit="">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <h3 id={titleId} className={`text-[13px] font-semibold ${INK}`}>What changed</h3>
         {next && <StatusChip tone="info" icon="mdi:timer-sand" label={`Next change allowed at ${next}`} />}
@@ -394,7 +394,8 @@ export function WorkloadDetail({ clusterName, accountId, region, workload, contr
         All workloads
       </InPageLink>
 
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      {/* data-k8s-kit on each v3 part rather than the root: the root also hosts main's light-only card. */}
+      <div className="flex flex-wrap items-end justify-between gap-3" data-k8s-kit="">
         <FeatureMark feature="workload" title={workload.ref.name} />
         <p className={`text-[12px] ${MUTED}`}>
           {workload.ref.kind} · Namespace {workload.ref.namespace} · {workload.replicas ?? DASH} {workload.replicas === 1 ? 'replica' : 'replicas'}
@@ -410,7 +411,9 @@ export function WorkloadDetail({ clusterName, accountId, region, workload, contr
         </p>
       </Card>
 
-      {outcome !== undefined && <ApplyStepper outcome={outcome} live={applying} workloadKind={workload.ref.kind} />}
+      {outcome !== undefined && (
+        <ApplyStepper outcome={outcome} live={applying} workloadKind={workload.ref.kind} workloadReplicas={workload.replicas} />
+      )}
       {!applying && reply?.kind === 'submitted' && reply.result === null && (
         <Card title="Apply progress">
           <p className={`text-[12px] ${MUTED}`}>Submitted. No result reported yet.</p>
@@ -445,7 +448,7 @@ export function WorkloadDetail({ clusterName, accountId, region, workload, contr
       </div>
 
       <section aria-labelledby={changeHeading} className="space-y-2">
-        <h3 id={changeHeading} className={`text-[14px] font-semibold ${INK}`}>Change this workload</h3>
+        <h3 id={changeHeading} className={`text-[14px] font-semibold ${INK}`} data-k8s-kit="">Change this workload</h3>
         <EksAutomationTab
           clusterName={clusterName}
           accountId={accountId}

@@ -140,13 +140,13 @@ const EngineStatus: React.FC<{
         </div>
         <div className="flex items-center gap-3">
           <label className={`flex items-center gap-2 text-[11px] font-semibold ${MUTED}`} title="A test run checks the change without sending anything to the cluster">
-            {/* data-k8s-kit: its own dark accent, so style.css's legacy dark rule doesn't turn it blue. */}
+            {/* Important: a global `input[type="checkbox"]` rule (styles/gcpPerformance.css) paints every
+                checkbox's accent blue, and outranks a plain accent class. */}
             <input
               type="checkbox"
               checked={dryRun}
               onChange={(e) => onDryRun(e.target.checked)}
-              className="accent-black dark:accent-white"
-              data-k8s-kit=""
+              className="!accent-black dark:!accent-white"
             />
             Test run only (nothing is sent)
           </label>
@@ -510,7 +510,9 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
   const empty = view ? gateEmptyState(view.gateReasons, 'hpa', NO_HPAS) : NO_HPAS;
 
   return (
-    <div className="space-y-4">
+    // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it
+    // alone and the write controls keep their own disabled and confirm states in dark mode.
+    <div className="space-y-4" data-hpa-page="" data-k8s-kit="">
       {malformed && <Notice onDismiss={() => setMalformed(false)}>{MALFORMED_HPA_NOTICE}</Notice>}
       {missing && <Notice onDismiss={dropHpaParam}>{missingHpaNotice(missing)}</Notice>}
       <div className="space-y-1">

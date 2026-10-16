@@ -3,6 +3,10 @@
  * card, ink and rule classes with their dark variants, in-page links, the one-time notice and the
  * copy for an endpoint-1 read that didn't answer with a view. Greyscale only: colour reaches these
  * pages through shared/status and shared/charts.
+ *
+ * The card, the notice and the read-failure card mark their root `data-k8s-kit`, like the kit's
+ * own components: every colour in them has its dark variant, so style.css's legacy dark rules
+ * (which repaint buttons, white surfaces and text with `!important`) must not reach them.
  */
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
@@ -17,6 +21,8 @@ export const MUTED = 'text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]';
 /** Tertiary text (source lines, gate reasons, dash explanations): 0.56 is 4.9:1 on white, AA at 11–12 px. */
 export const FAINT = 'text-[rgba(0,0,0,0.56)] dark:text-[rgba(255,255,255,0.5)]';
 export const RULE = 'border-[rgba(0,0,0,0.08)] dark:border-[rgba(255,255,255,0.1)]';
+/** RULE's colours for the lines `divide-y` draws between children (a parent's border colour doesn't reach them). */
+export const DIVIDE = 'divide-[rgba(0,0,0,0.08)] dark:divide-[rgba(255,255,255,0.1)]';
 export const FOCUS = 'outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] dark:focus-visible:ring-[rgba(255,255,255,0.92)]';
 export const LINK = `rounded-sm font-semibold underline underline-offset-2 ${INK} ${FOCUS}`;
 export const BUTTON = `rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-3 py-1.5 text-[12px] font-semibold text-[rgba(0,0,0,0.72)] hover:bg-[rgba(0,0,0,0.03)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.8)] dark:hover:bg-[rgba(255,255,255,0.06)] ${FOCUS}`;
@@ -45,6 +51,7 @@ export function Notice({ children, onDismiss }: { children: ReactNode; onDismiss
     <div
       role="status"
       className={`flex items-center gap-3 rounded-lg border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.03)] px-3.5 py-2.5 text-[13px] dark:border-[rgba(255,255,255,0.14)] dark:bg-[rgba(255,255,255,0.04)] ${INK}`}
+      data-k8s-kit=""
     >
       <Icon icon="mdi:information-outline" width={16} aria-hidden="true" className={`shrink-0 ${MUTED}`} />
       <span className="min-w-0 flex-1">{children}</span>
@@ -82,7 +89,7 @@ export function Card({
   labelledBy?: string;
 }) {
   return (
-    <section className={`${CARD} px-4 py-3 ${className}`} aria-labelledby={labelledBy}>
+    <section className={`${CARD} px-4 py-3 ${className}`} aria-labelledby={labelledBy} data-k8s-kit="">
       {(title || aside) && (
         <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
           {title && (
@@ -131,7 +138,7 @@ export function readFailureText(failure: ReadFailure): { title: string; detail: 
 export function ReadFailureCard({ failure, onRetry }: { failure: ReadFailure; onRetry: () => void }) {
   const text = readFailureText(failure);
   return (
-    <section className={`${CARD} px-4 py-3`} data-read-failure={failure.kind}>
+    <section className={`${CARD} px-4 py-3`} data-read-failure={failure.kind} data-k8s-kit="">
       <p className={`flex items-center gap-1.5 text-[13px] font-semibold ${INK}`}>
         <Icon icon="mdi:information-outline" width={16} aria-hidden="true" className={`shrink-0 ${MUTED}`} />
         {text.title}

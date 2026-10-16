@@ -44,7 +44,7 @@ import {
   type NodeChangerLine,
   type NodeKpis,
 } from '../automationDerivations';
-import { CARD, Card, FAINT, INK, MUTED, RULE } from '../automationUi';
+import { CARD, Card, DIVIDE, FAINT, INK, MUTED, RULE } from '../automationUi';
 
 export interface NodeAutoscalerPageProps {
   clusterName: string;
@@ -76,7 +76,7 @@ function WhoChanges({ lines, agentLine }: { lines: NodeChangerLine[] | null; age
           tell what adds or removes nodes.
         </p>
       ) : (
-        <ul className={`divide-y ${RULE}`}>
+        <ul className={`divide-y ${DIVIDE}`}>
           {lines.map((l) => (
             <ChangerRow key={l.id} line={l} />
           ))}
@@ -322,7 +322,7 @@ export function NodeAutoscalerPage({ clusterName, accountId, region, eksData }: 
       <NodeKpiRow k={k} idle={idle} agentReported={agentReported} />
       <NodeCharts rows={rows} />
       <Card title="Capacity type and rebalancing">
-        <dl className={`divide-y ${RULE}`}>
+        <dl className={`divide-y ${DIVIDE}`}>
           <Fact term="On-demand and Spot">
             {agentReported
               ? `${k.capacity.onDemand} on-demand, ${k.capacity.spot} Spot${k.capacity.unknown > 0 ? `, ${k.capacity.unknown} with no capacity type` : ''}`

@@ -155,7 +155,9 @@ describe('Workload autoscaler › Workloads › one workload (UI v3 plan §2 "Wo
       'Pod 3 of 3 not touched',
       'Done: applied in every running pod (2 of 3), no restart-free proof',
     ]);
-    expect(stepper()).toHaveTextContent("The Deployment itself wasn't changed, so a pod created later starts at 1000m CPU, 1 GiB memory.");
+    expect(stepper()).toHaveTextContent(
+      "The Deployment itself wasn't changed, so a pod created later (a rollout, a rescheduled pod) starts at the size in its template, not the new one.",
+    );
     const now = document.querySelector('[data-now-banner]')!;
     expect(now).toHaveTextContent(/on every running pod \(2 of 3\), in place, no restart-free proof\./);
     expect(now).not.toHaveTextContent(/on all|restart detected/);
@@ -168,6 +170,30 @@ describe('Workload autoscaler › Workloads › one workload (UI v3 plan §2 "Wo
     // Main's card on the same page says the same thing (EksAutomationTab, unchanged).
     expect(screen.getByText('Applied. Confirmed in every running pod (2 of 3).')).toBeInTheDocument();
     expect(screen.getByText('In place · no restart-free proof')).toBeInTheDocument();
+  });
+
+  // In-place resize never writes the template: after a first in-place change the pods' size before
+  // this apply (25m / 250Mi) is not the template's (1000m / 1 GiB), so the caveat names no size.
+  it('applied to pods resized in place before: the Done caveat names the template, not the pods\' old size', async () => {
+    const user = userEvent.setup();
+    const resizedBefore = { cpuRequestM: 25, memRequestMi: 250, cpuLimitM: 25, memLimitMi: 250 };
+    serve(() => json(202, {
+      ...APPLIED_REPLY,
+      result: {
+        ...APPLIED_REPLY.result,
+        pods: APPLIED_REPLY.result.pods.map((p) => ({ ...p, containers: [{ ...p.containers[0], observedBefore: resizedBefore }] })),
+      },
+    }));
+    detail('team-a/Deployment/overprovisioned-api');
+    await screen.findByText('Where it is now');
+    await applyLive(user, 'overprovisioned-api');
+
+    await waitFor(() => expect(stepTitles()).toContain('Done: applied in every pod, no restart'));
+    const done = stepper()!.querySelector('[data-apply-step="done"]')!;
+    expect(done).toHaveTextContent(
+      "The Deployment itself wasn't changed, so a pod created later (a rollout, a rescheduled pod) starts at the size in its template, not the new one.",
+    );
+    expect(done).not.toHaveTextContent(/25m|250Mi|1000m/);
   });
 
   it('applied with a restart count that rose: the Restart row and "restart detected", and never "no restart"', async () => {
@@ -202,13 +228,17 @@ describe('Workload autoscaler › Workloads › one workload (UI v3 plan §2 "Wo
     await applyLive(user, 'throttled-encoder');
 
     await waitFor(() => expect(stepTitles()).toContain('So XamOps put the pod back'));
+    // The reply lists only the test pod; endpoint 1 says throttled-encoder has 2 replicas, so pod 2
+    // was never reached (mock 14: "Pod 2 of 2 not touched").
     expect(stepTitles()).toEqual([
       'Checked the safety rules: all passed',
-      'Resizing pod 1 of 1, the test pod',
+      'Resizing pod 1 of 2, the test pod',
       'Kubernetes deferred this: the node has no free CPU',
       'So XamOps put the pod back',
+      'Pod 2 of 2 not touched',
       'Result: not applied. Nothing changed.',
     ]);
+    expect(stepper()).toHaveTextContent("XamOps stops at the first pod that doesn't take the change.");
     expect(stepper()).toHaveTextContent('Back to 10m CPU, 64Mi memory, and the pod confirmed it: nothing is pending. No restart.');
     expect(document.querySelector('[data-now-banner]')).toHaveTextContent(
       'throttled-encoder: XamOps suggests 63m (limit 200m). Kubernetes deferred the change: its node had no free room. XamOps put the pod back. Nothing changed.',

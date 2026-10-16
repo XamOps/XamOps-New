@@ -80,6 +80,27 @@ describe('the legacy dark CSS leaves the v3 kit alone', () => {
     expect(others.flatMap((r) => r.selectors.filter((s) => !s.includes(KIT_EXEMPTION)))).toEqual([]);
   });
 
+  // Phase-1 review 2, findings 2 and 3: outside a kit root the legacy rules repaint every button,
+  // white surface and text with `!important`, so a gated Apply looked enabled and a pressed filter
+  // unpressed. A page with nothing light-only in it marks its root. Overview (which shows the
+  // cluster page's shared access banner), Workloads and the workload detail (which host main's
+  // light-only Workload rightsizing cards) mark each v3 section instead; automationKitMarks.test.tsx
+  // renders every page and checks those sections, and main's write controls, one by one.
+  it.each([
+    ['components/EksDetails/sections/automation/hpa/HpaPage.tsx', 'data-hpa-page'],
+    ['components/EksDetails/sections/automation/hpa/HpaDetail.tsx', 'data-hpa-detail'],
+    ['components/EksDetails/sections/automation/vpa/VpaPage.tsx', 'data-vpa-page'],
+    ['components/EksDetails/sections/automation/activity/ActivityPage.tsx', 'data-activity'],
+    ['components/EksDetails/sections/automation/node/NodeAutoscalerPage.tsx', 'data-node-autoscaler'],
+    ['components/EksDetails/sections/automation/workload/PoliciesPage.tsx', 'data-policies-page'],
+  ])('marks the page root data-k8s-kit: %s', (file, marker) => {
+    const roots = readFileSync(join(SRC, file), 'utf8')
+      .split('\n')
+      .filter((line) => new RegExp(`<div\\b[^>]*\\b${marker}=`).test(line));
+    expect(roots).toHaveLength(1);
+    expect(roots[0]).toContain('data-k8s-kit=""');
+  });
+
   it('marks the root of every status and chart component data-k8s-kit', () => {
     const unmarked: string[] = [];
     for (const dir of ['components/CloudK8s/shared/status', 'components/CloudK8s/shared/charts']) {

@@ -14,7 +14,9 @@
  * running pod (N of M)" when `skippedPods` left pods out, "no restart" only when `restartFree` is
  * true (else "no restart-free proof"), and a Restart row for each container whose restart count
  * rose. Pods are numbered against every pod of the workload, the skipped ones included, and a
- * closing row never says "Nothing changed" while a pod the reply lists did change.
+ * closing row never says "Nothing changed" while a pod the reply lists did change. A rollout that
+ * stopped lists only the pods XamOps reached, so its pods are numbered against the workload's
+ * replicas and the ones it never reached get the glossary's "Not touched" row.
  *
  * `buildApplySteps` is pure, so every terminal path is unit-tested without the DOM.
  */
@@ -160,19 +162,37 @@ function podChanged(pod: ApplyPodProofWire): boolean {
 const resourceWord = (insufficient: string | null | undefined): string =>
   insufficient === 'cpu' ? 'CPU' : insufficient === 'memory' ? 'memory' : 'room';
 
+/** "Pod 3 of 3", "Pods 2 and 3 of 3", "Pods 2 to 4 of 4". */
+function podRange(first: number, last: number, total: number): string {
+  if (first === last) return `Pod ${first} of ${total}`;
+  if (last === first + 1) return `Pods ${first} and ${last} of ${total}`;
+  return `Pods ${first} to ${last} of ${total}`;
+}
+
 /** The workload's pods the reply left out (glossary §6 "Not touched"), numbered after the touched ones. */
-function skippedStep(skipped: readonly SkippedPodWire[], touched: number): ApplyStep | null {
+function skippedStep(skipped: readonly SkippedPodWire[], touched: number, total: number): ApplyStep | null {
   if (skipped.length === 0) return null;
-  const total = touched + skipped.length;
-  const first = touched + 1;
-  const which =
-    skipped.length === 1 ? `Pod ${first} of ${total}` : skipped.length === 2 ? `Pods ${first} and ${total} of ${total}` : `Pods ${first} to ${total} of ${total}`;
   return {
     key: 'skipped',
     tone: 'off',
     icon: 'mdi:minus-circle-outline',
-    title: `${which} not touched`,
+    title: `${podRange(touched + 1, touched + skipped.length, total)} not touched`,
     detail: `${skipped.map((p) => `${p.podName}: ${skippedPodText(p)}`).join('; ')}. ${skipped.length === 1 ? 'It runs' : 'They run'} at the workload's own size.`,
+  };
+}
+
+/**
+ * The pods a stopped rollout never reached (glossary §6 "Not touched", exact detail). The reply
+ * names none of them, so the row gives their numbers only, after every pod the reply lists.
+ */
+function notReachedStep(listed: number, total: number): ApplyStep | null {
+  if (total <= listed) return null;
+  return {
+    key: 'not-reached',
+    tone: 'off',
+    icon: 'mdi:minus-circle-outline',
+    title: `${podRange(listed + 1, total, total)} not touched`,
+    detail: "XamOps stops at the first pod that doesn't take the change.",
   };
 }
 
@@ -190,14 +210,16 @@ function restartSteps(outcome: ApplyOutcomeWire): ApplyStep[] {
 }
 
 /**
- * The Done row's caveat (glossary §6): an in-place resize changes the running pods only, so the
- * workload's own template still holds the old size. Said only for `IN_PLACE`, the method that leaves
- * the template alone; the price clause waits for prices (BE-4).
+ * The Done row's caveat (glossary §6): an in-place resize changes the running pods only, never the
+ * workload's template, so a pod created later starts at the template's size. Neither the reply nor
+ * endpoint 1 carries that size: `observedBefore` is what a running pod had, which is the template's
+ * size only before the workload's first in-place change, and it is one container's. So the caveat
+ * names no number. Said only for `IN_PLACE`, the method that leaves the template alone; the price
+ * clause waits for prices (BE-4).
  */
 function doneDetail(outcome: ApplyOutcomeWire, kind: string | undefined): string | undefined {
   if (outcome.method !== 'IN_PLACE') return outcome.detail ?? undefined;
-  const old = sizeText(outcome.pods?.[0]?.containers?.[0]?.observedBefore);
-  const caveat = `The ${kind ?? 'workload'} itself wasn't changed, so a pod created later starts at ${old ?? 'its old size'}.`;
+  const caveat = `The ${kind ?? 'workload'} itself wasn't changed, so a pod created later (a rollout, a rescheduled pod) starts at the size in its template, not the new one.`;
   return outcome.detail ? `${outcome.detail} ${caveat}` : caveat;
 }
 
@@ -214,6 +236,11 @@ const CHANGED_RESULT_TEXT: Record<string, string> = {
 export interface ApplyStepContext {
   /** The workload's kind ("Deployment", "StatefulSet"), for the Done row's caveat. */
   kind?: string;
+  /**
+   * The workload's replicas (endpoint 1). A rollout that stopped lists only the pods XamOps reached
+   * (DirectInPlaceResizeExecutor), so its pods are numbered against this, and the rest are "not touched".
+   */
+  replicas?: number | null;
 }
 
 /** Build the ordered steps from endpoint 3's reply (glossary §6). */
@@ -249,8 +276,15 @@ export function buildApplySteps(outcome: ApplyOutcomeWire | null, context: Apply
 
   const pods = outcome.pods ?? [];
   const skipped = skippedPodsOf(outcome);
-  // Numbered against every pod of the workload, so a pod left out is never silently dropped.
-  const total = pods.length + skipped.length;
+  // Numbered against every pod of the workload, so a pod left out is never silently dropped. An
+  // applied reply covered every running pod, so its own pods and skipped pods are the whole
+  // workload. A rollout that stopped (at the test pod, or at the first pod that didn't take the
+  // change) lists only the pods XamOps reached: the rest are in neither list, so it is numbered
+  // against the workload's replicas when it lists any pod at all.
+  const listed = pods.length + skipped.length;
+  const stopped = result !== 'applied' && result !== 'test-run' && pods.length > 0;
+  const total = stopped ? Math.max(context.replicas ?? 0, listed) : listed;
+  const notReached = notReachedStep(listed, total);
   pods.forEach((pod, i) => {
     const confirmed = podResized(pod);
     const restarts = pod.containers?.[0]
@@ -265,7 +299,7 @@ export function buildApplySteps(outcome: ApplyOutcomeWire | null, context: Apply
       detail: `${podShort(pod)}${restarts ? `: restarts ${restarts}` : ''}${pod.ready === true ? ', still ready' : ''}.`,
     });
   });
-  const notTouched = skippedStep(skipped, pods.length);
+  const notTouched = skippedStep(skipped, pods.length, total);
   if (notTouched) steps.push(notTouched);
   const restartRows = restartSteps(outcome);
   steps.push(...restartRows);
@@ -292,6 +326,7 @@ export function buildApplySteps(outcome: ApplyOutcomeWire | null, context: Apply
       detail: outcome.detail ?? undefined,
     });
     steps.push(...putBack);
+    if (notReached) steps.push(notReached);
     steps.push(notAppliedResult(outcome, 'warn', RESULT_TONES.deferred.icon, true));
   } else if (result === 'infeasible') {
     steps.push({
@@ -302,6 +337,7 @@ export function buildApplySteps(outcome: ApplyOutcomeWire | null, context: Apply
       detail: outcome.detail ?? undefined,
     });
     steps.push(...putBack);
+    if (notReached) steps.push(notReached);
     steps.push(notAppliedResult(outcome, 'bad', RESULT_TONES.infeasible.icon, false));
   } else if (result === 'test-run') {
     steps.push({
@@ -316,6 +352,7 @@ export function buildApplySteps(outcome: ApplyOutcomeWire | null, context: Apply
     // partly-applied, not-confirmed, failed (incl. a restart or a pod that stopped being ready), expired.
     const r = RESULT_TONES[result];
     steps.push(...putBack);
+    if (notReached) steps.push(notReached);
     const label = RESULT_LABELS[result];
     steps.push(
       outcome.reverted === false
@@ -342,11 +379,13 @@ export interface ApplyStepperProps {
   live?: boolean;
   /** The workload's kind ("Deployment", "StatefulSet"), named in the Done row's caveat. */
   workloadKind?: string;
+  /** The workload's replicas (endpoint 1), so a rollout that stopped numbers every pod. */
+  workloadReplicas?: number | null;
   className?: string;
 }
 
-export function ApplyStepper({ outcome, live = false, workloadKind, className = '' }: ApplyStepperProps) {
-  const steps = buildApplySteps(outcome, { kind: workloadKind });
+export function ApplyStepper({ outcome, live = false, workloadKind, workloadReplicas, className = '' }: ApplyStepperProps) {
+  const steps = buildApplySteps(outcome, { kind: workloadKind, replicas: workloadReplicas });
   const resultKey = outcome ? resultKeyForTerminal(outcome.terminal) : null;
 
   return (

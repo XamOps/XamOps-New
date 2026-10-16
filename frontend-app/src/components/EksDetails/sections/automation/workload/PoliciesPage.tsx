@@ -28,7 +28,7 @@ import {
   withParam,
   type Common,
 } from '../automationDerivations';
-import { Card, CARD, FAINT, INK, InPageLink, MUTED, RULE, ReadFailureCard, Tag } from '../automationUi';
+import { Card, CARD, DIVIDE, FAINT, INK, InPageLink, MUTED, RULE, ReadFailureCard, Tag } from '../automationUi';
 
 /** Exact copy, UI v3 plan §2. */
 export const POLICIES_HEADER =
@@ -66,7 +66,7 @@ function Defaults({ workloads }: { workloads: readonly WorkloadView[] }) {
       <p className={`text-[12px] ${MUTED}`}>
         The setting most workloads on this cluster use, as the engine reports it for each workload in endpoint 1.
       </p>
-      <dl className={`mt-1 divide-y ${RULE}`}>
+      <dl className={`mt-1 divide-y ${DIVIDE}`}>
         <DefaultRow term="Mode" value={d.mode ? modeText(d.mode.value) : DASH} note={share(d.mode, d.total)} />
         <DefaultRow term="CPU target" value={percentileText(d.percentile?.value)} note={share(d.percentile, d.total)} />
         <DefaultRow term="Headroom" value={headroomText(d.headroomPct?.value)} note={share(d.headroomPct, d.total)} />
@@ -139,7 +139,7 @@ function LeftAlone({ workloads }: { workloads: readonly WorkloadView[] }) {
       {rules.length === 0 ? (
         <p className={`mt-2 text-[12px] ${INK}`}>No protection holds a workload back on this cluster right now.</p>
       ) : (
-        <ul className={`mt-2 divide-y ${RULE}`}>
+        <ul className={`mt-2 divide-y ${DIVIDE}`}>
           {rules.map((rule) => (
             <li key={rule.id} className="py-2" data-left-alone={rule.id}>
               <div className="flex flex-wrap items-center gap-2">
@@ -161,7 +161,7 @@ function Fixed() {
   return (
     <Card title="Set by XamOps" aside={<Tag icon="mdi:lock-outline">Fixed in XamOps</Tag>}>
       <p className={`text-[12px] ${MUTED}`}>The engine uses these values for every workload. Endpoint 1 doesn&apos;t carry them yet.</p>
-      <dl className={`mt-1 divide-y ${RULE}`}>
+      <dl className={`mt-1 divide-y ${DIVIDE}`}>
         {FIXED_RULES.map((rule) => (
           <DefaultRow key={rule.label} term={rule.label} value={rule.value} note="Fixed in XamOps" />
         ))}
@@ -193,7 +193,7 @@ export function PoliciesPage({ clusterName, accountId, region, workloadsHref }: 
 
   return (
     // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it alone.
-    <div className="space-y-4" data-k8s-kit="">
+    <div className="space-y-4" data-policies-page="" data-k8s-kit="">
       <div className="space-y-1">
         <FeatureMark feature="workload" title="Workload autoscaler rules" />
         <p className={`text-[12px] ${MUTED}`} data-policies-header="">{POLICIES_HEADER}</p>

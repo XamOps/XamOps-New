@@ -92,7 +92,8 @@ function KpiRow({ k, workloads }: { k: AutomationKpis; workloads: readonly Workl
     buckets.set(label, (buckets.get(label) ?? 0) + 1);
   }
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    // data-k8s-kit: the KPI cards and the note under them carry their own dark colours.
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-k8s-kit="">
       <KpiCard tone="info" icon="mdi:view-grid-outline" label="Workloads analysed" value={k.analysed}>
         <p>{[...buckets.entries()].map(([label, n]) => `${label} ${n}`).join(' · ') || 'No workloads'}</p>
       </KpiCard>
@@ -270,7 +271,9 @@ export function WorkloadsPage({ clusterName, accountId, region, workloadsHref, p
         </>
       )}
       <section aria-labelledby={headingId} className="space-y-2">
-        <h3 id={headingId} className={`text-[14px] font-semibold ${INK}`}>Change a workload</h3>
+        {/* Only the heading is marked: main's cards below are light-only, so the legacy dark CSS
+            still paints them, apart from the write controls they mark themselves. */}
+        <h3 id={headingId} className={`text-[14px] font-semibold ${INK}`} data-k8s-kit="">Change a workload</h3>
         <EksAutomationTab clusterName={clusterName} accountId={accountId} region={region} controller={state} />
       </section>
     </div>

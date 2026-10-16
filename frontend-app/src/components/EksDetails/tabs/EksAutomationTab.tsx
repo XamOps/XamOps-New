@@ -760,17 +760,20 @@ const ApplyConfirmation: React.FC<{
         <li>XamOps won&apos;t change this workload again for {COOLDOWN_MINUTES} minutes.</li>
       </ul>
       <div className="flex items-center gap-2">
+        {/* data-k8s-kit: in dark mode the legacy button rule would paint Resize pods and Cancel alike. */}
         <button
           type="button"
           onClick={onConfirm}
-          className="px-4 py-2 text-xs font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.88)] text-white hover:bg-black transition-all"
+          data-k8s-kit=""
+          className="px-4 py-2 text-xs font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.88)] text-white hover:bg-black transition-all dark:border-[rgba(255,255,255,0.16)] dark:bg-[rgba(255,255,255,0.92)] dark:text-black"
         >
           Resize pods
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="px-4 py-2 text-xs font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] transition-all"
+          data-k8s-kit=""
+          className="px-4 py-2 text-xs font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] transition-all dark:border-[rgba(255,255,255,0.16)] dark:bg-transparent dark:text-[rgba(255,255,255,0.7)] dark:hover:bg-[rgba(255,255,255,0.06)]"
         >
           Cancel
         </button>
@@ -981,11 +984,13 @@ const ModeControl: React.FC<{
         <div
           role="group"
           aria-label={`Automation mode for ${workload.ref.name}`}
-          className="inline-flex rounded-xl border border-[rgba(0,0,0,0.12)] overflow-hidden"
+          className="inline-flex rounded-xl border border-[rgba(0,0,0,0.12)] overflow-hidden dark:border-[rgba(255,255,255,0.16)]"
         >
           {MODE_OPTIONS.map((option) => {
             const active = current === option.value;
             return (
+              // data-k8s-kit: the selected and disabled segments keep their own dark colours, which
+              // the legacy dark button rule in style.css would otherwise paint all alike.
               <button
                 key={option.value}
                 type="button"
@@ -993,11 +998,12 @@ const ModeControl: React.FC<{
                 disabled={disabled || active}
                 aria-pressed={active}
                 title={disabled && !active ? (gate.reason ?? undefined) : undefined}
+                data-k8s-kit=""
                 className={
-                  'px-3 py-1.5 text-[11px] font-bold border-r border-[rgba(0,0,0,0.12)] last:border-r-0 transition-all ' +
+                  'px-3 py-1.5 text-[11px] font-bold border-r border-[rgba(0,0,0,0.12)] last:border-r-0 transition-all dark:border-[rgba(255,255,255,0.16)] ' +
                   (active
-                    ? 'bg-[rgba(0,0,0,0.88)] text-white'
-                    : 'bg-white text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] disabled:text-[rgba(0,0,0,0.3)] disabled:cursor-not-allowed disabled:hover:bg-white')
+                    ? 'bg-[rgba(0,0,0,0.88)] text-white dark:bg-[rgba(255,255,255,0.92)] dark:text-black'
+                    : 'bg-white text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] disabled:text-[rgba(0,0,0,0.3)] disabled:cursor-not-allowed disabled:hover:bg-white dark:bg-transparent dark:text-[rgba(255,255,255,0.6)] dark:hover:bg-[rgba(255,255,255,0.06)] dark:disabled:text-[rgba(255,255,255,0.3)] dark:disabled:hover:bg-transparent')
                 }
               >
                 {option.label}
@@ -1025,14 +1031,16 @@ const ModeControl: React.FC<{
                 setConfirmAuto(false);
                 onSetMode('AUTO');
               }}
-              className="px-4 py-1.5 text-[11px] font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.88)] text-white hover:bg-black transition-all"
+              data-k8s-kit=""
+              className="px-4 py-1.5 text-[11px] font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.88)] text-white hover:bg-black transition-all dark:border-[rgba(255,255,255,0.16)] dark:bg-[rgba(255,255,255,0.92)] dark:text-black"
             >
               Turn on Automatic
             </button>
             <button
               type="button"
               onClick={() => setConfirmAuto(false)}
-              className="px-4 py-1.5 text-[11px] font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] transition-all"
+              data-k8s-kit=""
+              className="px-4 py-1.5 text-[11px] font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-white text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.03)] transition-all dark:border-[rgba(255,255,255,0.16)] dark:bg-transparent dark:text-[rgba(255,255,255,0.7)] dark:hover:bg-[rgba(255,255,255,0.06)]"
             >
               Cancel
             </button>
@@ -1128,7 +1136,9 @@ const WorkloadCard: React.FC<{
             disabled={disabled || confirming}
             title={blockedReason ?? (dryRun ? 'Run a test: nothing is sent to the cluster' : 'Review and resize the running pods')}
             aria-label={`Apply ${workload.ref.name}`}
-            className="px-4 py-2 text-xs font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.88)] text-white hover:bg-black transition-all disabled:bg-white disabled:text-[rgba(0,0,0,0.35)] disabled:cursor-not-allowed"
+            // data-k8s-kit: enabled and greyed keep their own dark colours (see the mode switch).
+            data-k8s-kit=""
+            className="px-4 py-2 text-xs font-bold rounded-xl border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.88)] text-white hover:bg-black transition-all disabled:bg-white disabled:text-[rgba(0,0,0,0.35)] disabled:cursor-not-allowed dark:border-[rgba(255,255,255,0.16)] dark:bg-[rgba(255,255,255,0.92)] dark:text-black dark:disabled:bg-transparent dark:disabled:text-[rgba(255,255,255,0.35)]"
           >
             {applying ? 'Submitting…' : 'Apply'}
           </button>
@@ -1339,7 +1349,8 @@ const EksAutomationTab: React.FC<EksAutomationTabProps> = ({ clusterName, accoun
                 type="checkbox"
                 checked={dryRun}
                 onChange={(e) => setDryRun(e.target.checked)}
-                className="accent-black"
+                data-k8s-kit=""
+                className="accent-black dark:accent-white"
               />
               Test run only (nothing is sent)
             </label>
