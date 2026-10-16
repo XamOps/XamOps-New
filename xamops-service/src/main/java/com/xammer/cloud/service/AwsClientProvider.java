@@ -9,9 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.awscore.client.builder.AwsClientBuilder;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.regions.Region;
@@ -74,8 +72,6 @@ import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.ssm.SsmClient;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
-import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
-import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
 import software.amazon.awssdk.services.textract.TextractClient;
 import software.amazon.awssdk.services.wafv2.Wafv2Client;
 import software.amazon.awssdk.services.savingsplans.SavingsplansClient;
@@ -249,27 +245,25 @@ public class AwsClientProvider {
         logger.info("Creating HOST DynamoDB client in region ap-south-1 using role {}", hostRoleArn);
 
         try {
-            // Assume host role
-            AssumeRoleRequest roleRequest = AssumeRoleRequest.builder()
-                    .roleArn(hostRoleArn)
-                    .roleSessionName("XamOps-AutoSpotting-HostDynamo")
-                    .build();
+            // HOST: key is not per customer account, so evictAccount does not evict it.
+            // Build the client ONCE with an auto-refreshing credentials provider: caching static
+            // assume-role creds would leave them to expire, so the provider refreshes them lazily
+            // instead of doing a stsClient.assumeRole round-trip on every call.
+            String cacheKey = "HOST:" + DynamoDbClient.class.getSimpleName() + ":ap-south-1";
+            return (DynamoDbClient) clientCache.computeIfAbsent(cacheKey, k -> {
+                DynamoDbClient client = DynamoDbClient.builder()
+                        .region(Region.AP_SOUTH_1)
+                        .credentialsProvider(StsAssumeRoleCredentialsProvider.builder()
+                                .stsClient(stsClient)
+                                .refreshRequest(req -> req
+                                        .roleArn(hostRoleArn)
+                                        .roleSessionName("XamOps-AutoSpotting-HostDynamo"))
+                                .build())
+                        .build();
 
-            AssumeRoleResponse roleResponse = stsClient.assumeRole(roleRequest);
-            logger.info("Successfully assumed host role {} for DynamoDB", hostRoleArn);
-
-            AwsSessionCredentials tempCreds = AwsSessionCredentials.create(
-                    roleResponse.credentials().accessKeyId(),
-                    roleResponse.credentials().secretAccessKey(),
-                    roleResponse.credentials().sessionToken());
-
-            DynamoDbClient client = DynamoDbClient.builder()
-                    .region(Region.AP_SOUTH_1)
-                    .credentialsProvider(StaticCredentialsProvider.create(tempCreds))
-                    .build();
-
-            logger.info("Successfully created HOST DynamoDB client in ap-south-1");
-            return client;
+                logger.info("Successfully created HOST DynamoDB client in ap-south-1");
+                return client;
+            });
         } catch (Exception e) {
             logger.error("Failed to create HOST DynamoDB client via role {}: {}", hostRoleArn, e.getMessage(), e);
             throw new RuntimeException("Failed to create HOST DynamoDB client: " + e.getMessage(), e);
@@ -284,16 +278,20 @@ public class AwsClientProvider {
         logger.info("Creating HOST CloudWatch client in region {}", region);
 
         try {
-            String hostAccount = getHostAccount();
-            logger.info("Host account ID: {} for CloudWatch in region {}", hostAccount, region);
+            // HOST: key is region-only (not per customer account), so evictAccount does not evict it.
+            String cacheKey = "HOST:" + CloudWatchClient.class.getSimpleName() + ":" + region;
+            return (CloudWatchClient) clientCache.computeIfAbsent(cacheKey, k -> {
+                String hostAccount = getHostAccount();
+                logger.info("Host account ID: {} for CloudWatch in region {}", hostAccount, region);
 
-            CloudWatchClient client = CloudWatchClient.builder()
-                    .region(Region.of(region))
-                    .credentialsProvider(DefaultCredentialsProvider.create())
-                    .build();
+                CloudWatchClient client = CloudWatchClient.builder()
+                        .region(Region.of(region))
+                        .credentialsProvider(DefaultCredentialsProvider.create())
+                        .build();
 
-            logger.info("Successfully created HOST CloudWatch client");
-            return client;
+                logger.info("Successfully created HOST CloudWatch client");
+                return client;
+            });
         } catch (Exception e) {
             logger.error("Failed to create HOST CloudWatch client: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to create HOST CloudWatch client: " + e.getMessage(), e);
@@ -348,18 +346,29 @@ public class AwsClientProvider {
      * is a XamOps configuration problem, not a customer's missing grant.
      */
     public AthenaClient getRoleAthenaClient(String roleArn, String externalId, String region) {
-        return AthenaClient.builder()
-                .region(Region.of(region))
-                .credentialsProvider(getRoleCredentialsProvider(roleArn, externalId))
-                .build();
+        // ROLE: key is per role ARN, not per customer account, so evictAccount does not evict it.
+        String cacheKey = "ROLE:" + AthenaClient.class.getSimpleName() + ":" + roleArn + ":" + region;
+        return (AthenaClient) clientCache.computeIfAbsent(cacheKey, k -> {
+            logger.info("🚀 [AwsClientProvider] Creating NEW ROLE AthenaClient for role {} in region {}", roleArn,
+                    region);
+            return AthenaClient.builder()
+                    .region(Region.of(region))
+                    .credentialsProvider(getRoleCredentialsProvider(roleArn, externalId))
+                    .build();
+        });
     }
 
     /** S3 client for an arbitrary XamOps-controlled role. See {@link #getRoleAthenaClient}. */
     public S3Client getRoleS3Client(String roleArn, String externalId, String region) {
-        return S3Client.builder()
-                .region(Region.of(region))
-                .credentialsProvider(getRoleCredentialsProvider(roleArn, externalId))
-                .build();
+        // ROLE: key is per role ARN, not per customer account, so evictAccount does not evict it.
+        String cacheKey = "ROLE:" + S3Client.class.getSimpleName() + ":" + roleArn + ":" + region;
+        return (S3Client) clientCache.computeIfAbsent(cacheKey, k -> {
+            logger.info("🚀 [AwsClientProvider] Creating NEW ROLE S3Client for role {} in region {}", roleArn, region);
+            return S3Client.builder()
+                    .region(Region.of(region))
+                    .credentialsProvider(getRoleCredentialsProvider(roleArn, externalId))
+                    .build();
+        });
     }
 
     /**
@@ -403,11 +412,16 @@ public class AwsClientProvider {
 
     public EksClient getEksClientForTokenGeneration(CloudAccount account) {
         String region = System.getenv().getOrDefault("AWS_REGION", "us-east-1");
-        return EksClient.builder()
-                .credentialsProvider(getCredentialsProvider(account))
-                .region(Region.of(region))
-                .overrideConfiguration(getClientOverrideConfig(account, "EksClient", region))
-                .build();
+        // HOST_TOKEN: key is region-only (not per customer account), so evictAccount does not evict it.
+        String cacheKey = "HOST_TOKEN:" + EksClient.class.getSimpleName() + ":" + region;
+        return (EksClient) clientCache.computeIfAbsent(cacheKey, k -> {
+            logger.info("🚀 [AwsClientProvider] Creating NEW EksClient for token generation in region {}", region);
+            return EksClient.builder()
+                    .credentialsProvider(getCredentialsProvider(account))
+                    .region(Region.of(region))
+                    .overrideConfiguration(getClientOverrideConfig(account, "EksClient", region))
+                    .build();
+        });
     }
 
     public Ec2Client getEc2Client(CloudAccount account, String region) {
@@ -550,9 +564,15 @@ public class AwsClientProvider {
     }
 
     public PricingClient getPricingClient() {
-        return PricingClient.builder()
-                .region(Region.US_EAST_1)
-                .build();
+        // HOST: key — not per customer account, so evictAccount (which removes
+        // awsAccountId-prefixed keys) does not evict it. Acceptable: this is a shared HOST client.
+        String cacheKey = "HOST:" + PricingClient.class.getSimpleName() + ":us-east-1";
+        return (PricingClient) clientCache.computeIfAbsent(cacheKey, k -> {
+            logger.info("🚀 [AwsClientProvider] Creating NEW HOST PricingClient in region us-east-1");
+            return PricingClient.builder()
+                    .region(Region.US_EAST_1)
+                    .build();
+        });
     }
 
     public StsClient getStsClient(CloudAccount account, String region) {
@@ -672,11 +692,7 @@ public class AwsClientProvider {
     }
 
     public SavingsplansClient getSavingsplansClient(CloudAccount account, String region) {
-        return SavingsplansClient.builder()
-                .credentialsProvider(getCredentialsProvider(account))
-                .region(Region.of(region))
-                .overrideConfiguration(getClientOverrideConfig(account, "SavingsplansClient", region))
-                .build();
+        return getClient(SavingsplansClient.class, SavingsplansClient.builder(), account, region);
     }
 
     public RedshiftClient getRedshiftClient(CloudAccount account, String region) {
