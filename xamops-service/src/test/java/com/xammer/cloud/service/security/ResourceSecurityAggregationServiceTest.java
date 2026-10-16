@@ -27,6 +27,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -264,6 +265,58 @@ class ResourceSecurityAggregationServiceTest {
     }
 
     @Test
+    @DisplayName("XamSecure: posture rows sharing an identity collapse to one finding at the worst severity")
+    void xamSecurePostureDedupesByIdentityKeepingWorstSeverityAndMostRecentRepresentative() {
+        // Three FAIL rows for the SAME check on the SAME resource+region — distinct upwind_ids
+        // (the historical-scan rows) and differing severities. These are the rows the old
+        // upwind_id de-dup failed to collapse. The identity key is
+        // normalise(checkTitle)+resourceType+region, so sharing those collapses them to one.
+        // syncedAt decides the representative; the most-recent row's resourceType is emitted.
+        Instant t1 = Instant.parse("2024-01-01T00:00:00Z");
+        Instant t2 = Instant.parse("2024-02-01T00:00:00Z");
+        Instant t3 = Instant.parse("2024-03-01T00:00:00Z");
+        when(upwindPostureRepository.findFailingByResource(List.of(AWS_ID), ARN)).thenReturn(List.of(
+                posture("Public bucket", "LOW", "AWS_S3_BUCKET", "up-1", "ap-south-1", t3, t3),
+                posture("Public bucket", "CRITICAL", "AWS_S3_BUCKET", "up-2", "ap-south-1", t2, t2),
+                posture("Public bucket", "HIGH", "AWS_S3_BUCKET", "up-3", "ap-south-1", t1, t1)));
+        // No vulnerabilities, so only the posture finding is asserted.
+        when(upwindVulnerabilityRepository.countOpenBySeverityForResource(List.of(AWS_ID), ARN))
+                .thenReturn(List.of());
+
+        ResourceSecurityGroup xamSecure = group(aggregate(), "XAMSECURE");
+
+        assertNotNull(xamSecure);
+        // Exactly ONE posture finding despite three historical-scan rows.
+        assertEquals(1, xamSecure.getFindings().size());
+        ResourceSecurityFindings.ResourceSecurityFinding finding = xamSecure.getFindings().get(0);
+        // Severity is the WORST across the whole group, not the most-recent row's own LOW.
+        assertEquals("CRITICAL", finding.getSeverity());
+        // Title comes from the (shared) check title; emitted from the most-recent-by-syncedAt row.
+        assertEquals("Public bucket", finding.getTitle());
+        assertEquals("/xamsecure/posture", finding.getDeepLink().getPath());
+    }
+
+    @Test
+    @DisplayName("XamSecure: posture rows of different checks stay as distinct findings")
+    void xamSecurePostureKeepsDistinctChecksSeparate() {
+        Instant t = Instant.parse("2024-01-01T00:00:00Z");
+        when(upwindPostureRepository.findFailingByResource(List.of(AWS_ID), ARN)).thenReturn(List.of(
+                posture("Enable VPC flow logs", "HIGH", "AWS_EC2_INSTANCE", "up-1", "ap-south-1", t, t),
+                posture("Restrict public ingress", "CRITICAL", "AWS_EC2_INSTANCE", "up-2", "ap-south-1", t, t)));
+        when(upwindVulnerabilityRepository.countOpenBySeverityForResource(List.of(AWS_ID), ARN))
+                .thenReturn(List.of());
+
+        ResourceSecurityGroup xamSecure = group(aggregate(), "XAMSECURE");
+
+        assertNotNull(xamSecure);
+        // Different check titles → two distinct posture findings.
+        assertEquals(2, xamSecure.getFindings().size());
+        // Most-severe-first ordering is preserved.
+        assertEquals("CRITICAL", xamSecure.getFindings().get(0).getSeverity());
+        assertEquals("HIGH", xamSecure.getFindings().get(1).getSeverity());
+    }
+
+    @Test
     @DisplayName("XamSecure contributes nothing when the resource has no ARN")
     void xamSecureEmptyWhenNoArn() {
         // A resolved row whose arn() is null and whose short id is a non-ARN bucket name.
@@ -477,12 +530,21 @@ class ResourceSecurityAggregationServiceTest {
 
     private UpwindPostureFinding posture(String checkTitle, String severity, String resourceType,
                                          String upwindId) {
+        return posture(checkTitle, severity, resourceType, upwindId, null, null, null);
+    }
+
+    private UpwindPostureFinding posture(String checkTitle, String severity, String resourceType,
+                                         String upwindId, String region, Instant syncedAt,
+                                         Instant lastSeenTime) {
         UpwindPostureFinding f = new UpwindPostureFinding();
         f.setUpwindId(upwindId);
         f.setCheckTitle(checkTitle);
         f.setSeverity(severity);
         f.setResourceType(resourceType);
         f.setStatus("FAIL");
+        f.setRegion(region);
+        f.setSyncedAt(syncedAt);
+        f.setLastSeenTime(lastSeenTime);
         return f;
     }
 

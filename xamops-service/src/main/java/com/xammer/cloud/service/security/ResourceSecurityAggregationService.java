@@ -432,23 +432,32 @@ public class ResourceSecurityAggregationService {
         try {
             List<String> accountIds = List.of(account.getAwsAccountId());
 
-            // POSTURE: one finding per matched failing row, de-duplicated by Upwind id across keys.
-            Set<String> seenPostureIds = new LinkedHashSet<>();
+            // POSTURE: de-duplicate by a stable identity, NOT by upwind_id. The Upwind sync
+            // appends one row per historical scan — each with a distinct upwind_id — so the old
+            // upwind_id de-dup was a no-op and the same check showed up dozens of times. The real
+            // identity of a posture finding on a resource is the check it failed, keyed by
+            // normalise(checkTitle||title) + resourceType + region. Collapse to ONE finding per
+            // key: keep the most-recent representative (by syncedAt, then lastSeenTime), and emit
+            // it at the WORST severity seen across every row in the group.
+            Map<String, PostureGroup> postureGroups = new LinkedHashMap<>();
             for (String key : matchKeys) {
                 List<UpwindPostureFinding> rows =
                         upwindPostureRepository.findFailingByResource(accountIds, key);
                 for (UpwindPostureFinding row : rows) {
-                    if (row.getUpwindId() != null && !seenPostureIds.add(row.getUpwindId())) {
-                        continue;
-                    }
-                    String title = row.getCheckTitle() != null ? row.getCheckTitle() : row.getTitle();
-                    SecurityDeepLink link = new SecurityDeepLink("/xamsecure/posture", Map.of());
-                    group.getFindings().add(new ResourceSecurityFinding(
-                            title,
-                            SecuritySeverity.normalize(row.getSeverity()),
-                            row.getResourceType(),
-                            link));
+                    String identity = posturizeIdentity(row);
+                    postureGroups.computeIfAbsent(identity, k -> new PostureGroup()).add(row);
                 }
+            }
+            for (PostureGroup pg : postureGroups.values()) {
+                UpwindPostureFinding representative = pg.representative;
+                String title = representative.getCheckTitle() != null
+                        ? representative.getCheckTitle() : representative.getTitle();
+                SecurityDeepLink link = new SecurityDeepLink("/xamsecure/posture", Map.of());
+                group.getFindings().add(new ResourceSecurityFinding(
+                        title,
+                        SecuritySeverity.worstOf(pg.severities),
+                        representative.getResourceType(),
+                        link));
             }
 
             // VULNERABILITY: merge the per-resource severity breakdown across keys, summing counts
@@ -485,6 +494,55 @@ public class ResourceSecurityAggregationService {
                     "XamSecure findings could not be read."));
         }
         return group;
+    }
+
+    /**
+     * Stable identity for a posture finding on one resource:
+     * {@code normalise(checkTitle||title) + '|' + resourceType + '|' + region}. The same check on
+     * the same resource in the same region is the same finding, however many historical scan rows
+     * (distinct upwind_ids) Upwind has appended for it.
+     */
+    private String posturizeIdentity(UpwindPostureFinding row) {
+        String titleSource = row.getCheckTitle() != null ? row.getCheckTitle() : row.getTitle();
+        return normalizeKeyPart(titleSource)
+                + "|" + String.valueOf(row.getResourceType())
+                + "|" + String.valueOf(row.getRegion());
+    }
+
+    /** Null-safe trim + lowercase for building a posture identity key. */
+    private String normalizeKeyPart(String value) {
+        return value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /**
+     * One posture identity's rows: the most-recent representative to emit, and every severity seen
+     * so the emitted finding carries the WORST of the group rather than the representative's own.
+     */
+    private static final class PostureGroup {
+        private UpwindPostureFinding representative;
+        private final List<String> severities = new ArrayList<>();
+
+        void add(UpwindPostureFinding row) {
+            severities.add(row.getSeverity());
+            if (representative == null || isMoreRecent(row, representative)) {
+                representative = row;
+            }
+        }
+
+        /**
+         * Whether {@code candidate} should supersede {@code current} as the representative: prefer
+         * the later syncedAt; if either syncedAt is null, fall back to lastSeenTime; if that too is
+         * undecidable, keep the first row encountered (return false).
+         */
+        private static boolean isMoreRecent(UpwindPostureFinding candidate, UpwindPostureFinding current) {
+            if (candidate.getSyncedAt() != null && current.getSyncedAt() != null) {
+                return candidate.getSyncedAt().isAfter(current.getSyncedAt());
+            }
+            if (candidate.getLastSeenTime() != null && current.getLastSeenTime() != null) {
+                return candidate.getLastSeenTime().isAfter(current.getLastSeenTime());
+            }
+            return false;
+        }
     }
 
     /** Most-severe-first within a group, using the one severity ranking. */
