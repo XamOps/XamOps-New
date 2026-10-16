@@ -56,7 +56,7 @@ export function RangeBar({
   const label = rangeBarText({ min, max, current, suggestedMin, suggestedMax });
   if (!finite(min) || !finite(max)) {
     return (
-      <span className={`text-[11px] text-[rgba(0,0,0,0.4)] dark:text-[rgba(255,255,255,0.4)] ${className}`} data-range-bar="empty">
+      <span className={`text-[11px] text-[rgba(0,0,0,0.4)] dark:text-[rgba(255,255,255,0.4)] ${className}`} data-range-bar="empty" data-k8s-kit="">
         <span aria-hidden="true">—</span>
         <span className="sr-only">{label}</span>
       </span>
@@ -81,6 +81,7 @@ export function RangeBar({
       aria-label={label}
       focusable="false"
       data-range-bar=""
+      data-k8s-kit=""
     >
       <title>{label}</title>
       {/* Greyscale track over the whole scale. */}

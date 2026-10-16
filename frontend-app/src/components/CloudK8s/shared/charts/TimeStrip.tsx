@@ -50,6 +50,7 @@ export function TimeStrip({
       role="img"
       aria-label={ariaLabel}
       data-time-strip=""
+      data-k8s-kit=""
       focusable="false"
     >
       {/* Greyscale track. */}

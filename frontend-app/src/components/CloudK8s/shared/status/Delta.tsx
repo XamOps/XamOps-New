@@ -22,6 +22,7 @@ export function Delta({ direction, amount, suffix, className = '' }: DeltaProps)
     <span
       className={`inline-flex items-center gap-1 text-[13px] font-semibold tabular-nums ${saved ? 'text-money-saved' : 'text-money-extra'} ${className}`}
       data-delta={direction}
+      data-k8s-kit=""
     >
       <Icon icon={saved ? 'mdi:trending-down' : 'mdi:trending-up'} width={14} aria-hidden="true" className="shrink-0" />
       <span>{amount}</span>

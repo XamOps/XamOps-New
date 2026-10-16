@@ -73,6 +73,7 @@ export function LanesTimeline({
       role="img"
       aria-label={ariaLabel}
       data-lanes-timeline=""
+      data-k8s-kit=""
       focusable="false"
     >
       <defs>

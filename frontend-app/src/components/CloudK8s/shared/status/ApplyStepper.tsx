@@ -264,6 +264,7 @@ export function ApplyStepper({ outcome, live = false, className = '' }: ApplySte
     <section
       className={`rounded-lg border border-[rgba(0,0,0,0.08)] bg-white px-4 py-3 dark:border-[rgba(255,255,255,0.1)] dark:bg-[#141414] ${className}`}
       data-apply-stepper=""
+      data-k8s-kit=""
     >
       <div className="flex items-start justify-between gap-3">
         <h3 className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]">Apply progress</h3>

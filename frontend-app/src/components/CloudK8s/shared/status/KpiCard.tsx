@@ -28,6 +28,7 @@ export function KpiCard({ tone, icon, label, value, children, className = '' }: 
     <div
       className={`relative overflow-hidden rounded-lg border border-[rgba(0,0,0,0.08)] bg-white pl-4 pr-4 py-3 dark:border-[rgba(255,255,255,0.1)] dark:bg-[#141414] ${className}`}
       data-kpi-tone={tone}
+      data-k8s-kit=""
     >
       <span className={`absolute inset-y-0 left-0 w-1 ${t.border} border-l-4`} aria-hidden="true" />
       <div className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide ${t.text}`}>

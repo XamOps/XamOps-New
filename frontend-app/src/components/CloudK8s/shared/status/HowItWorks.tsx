@@ -86,6 +86,7 @@ export function HowItWorks({ chips, policiesHref, policiesLinkState, collapsed =
       <section
         className={`rounded-lg border border-[rgba(0,0,0,0.08)] bg-white px-4 py-3 dark:border-[rgba(255,255,255,0.1)] dark:bg-[#141414] ${className}`}
         data-how-it-works="collapsed"
+        data-k8s-kit=""
       >
         {header}
         <p className="mt-1 text-[12px] text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]">
@@ -106,6 +107,7 @@ export function HowItWorks({ chips, policiesHref, policiesLinkState, collapsed =
     <section
       className={`rounded-lg border border-[rgba(0,0,0,0.08)] bg-white px-4 py-3 dark:border-[rgba(255,255,255,0.1)] dark:bg-[#141414] ${className}`}
       data-how-it-works="expanded"
+      data-k8s-kit=""
     >
       {header}
       <ol className="mt-3 grid gap-2 sm:grid-cols-5">

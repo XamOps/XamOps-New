@@ -32,7 +32,7 @@ export function TermTip({ term, entry, children, className = '' }: TermTipProps)
   const label = children ?? resolved.term;
 
   return (
-    <span className={`relative inline-flex items-center ${className}`}>
+    <span className={`relative inline-flex items-center ${className}`} data-k8s-kit="">
       <button
         type="button"
         aria-describedby={tooltipId}

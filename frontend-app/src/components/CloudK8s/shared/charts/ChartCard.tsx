@@ -94,6 +94,7 @@ export function ChartCard({ title, source, subline, state = { kind: 'ok' }, chil
     <section
       className={`rounded-lg border border-[rgba(0,0,0,0.08)] bg-white px-4 py-3 dark:border-[rgba(255,255,255,0.1)] dark:bg-[#141414] ${className}`}
       data-chart-card=""
+      data-k8s-kit=""
     >
       <header className="mb-2">
         <h3 className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]">{title}</h3>

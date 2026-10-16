@@ -79,13 +79,13 @@ export interface FeatureMarkProps {
  * never the only signal.
  */
 export function FeatureDot({ feature, className = '' }: { feature: Feature; className?: string }) {
-  return <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${FEATURES[feature].rule} ${className}`} aria-hidden="true" data-feature-dot={feature} />;
+  return <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${FEATURES[feature].rule} ${className}`} aria-hidden="true" data-feature-dot={feature} data-k8s-kit="" />;
 }
 
 export function FeatureMark({ feature, title, rule = true, className = '' }: FeatureMarkProps) {
   const f = FEATURES[feature];
   return (
-    <span className={`inline-flex flex-col gap-1 ${className}`} data-feature={feature}>
+    <span className={`inline-flex flex-col gap-1 ${className}`} data-feature={feature} data-k8s-kit="">
       <span className="inline-flex items-center gap-2">
         <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded ${f.tile} ${f.text}`} aria-hidden="true">
           <Icon icon={f.icon} width={15} />

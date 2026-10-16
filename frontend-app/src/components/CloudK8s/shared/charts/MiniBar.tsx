@@ -40,7 +40,7 @@ export function MiniBar({
   className = '',
 }: MiniBarProps) {
   if (value === null || !Number.isFinite(value)) {
-    return <span className={`text-[11px] text-[rgba(0,0,0,0.4)] dark:text-[rgba(255,255,255,0.4)] ${className}`} data-mini-bar="empty">—</span>;
+    return <span className={`text-[11px] text-[rgba(0,0,0,0.4)] dark:text-[rgba(255,255,255,0.4)] ${className}`} data-mini-bar="empty" data-k8s-kit="">—</span>;
   }
 
   // Series bars colour through a `fill-series-*` class (allowed in charts/); money bars pass the raw
@@ -58,6 +58,7 @@ export function MiniBar({
       aria-hidden="true"
       focusable="false"
       data-mini-bar=""
+      data-k8s-kit=""
     >
       {/* Greyscale track. */}
       <rect x="0" y={height / 2 - 2} width={width} height="4" rx="2" className="fill-series-capacity" fillOpacity={0.18} />

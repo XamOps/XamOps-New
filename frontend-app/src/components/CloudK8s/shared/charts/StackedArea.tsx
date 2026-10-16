@@ -82,7 +82,7 @@ export function StackedArea({ data, layers, xKey, total, height = 220, width, ar
 
   if (width) {
     return (
-      <div style={{ width, height }} data-stacked-area="">
+      <div style={{ width, height }} className="text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]" data-stacked-area="" data-k8s-kit="">
         <ResponsiveContainer width={width} height={height}>
           {chart}
         </ResponsiveContainer>
@@ -90,7 +90,7 @@ export function StackedArea({ data, layers, xKey, total, height = 220, width, ar
     );
   }
   return (
-    <div style={{ height }} data-stacked-area="">
+    <div style={{ height }} className="text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]" data-stacked-area="" data-k8s-kit="">
       <ResponsiveContainer width="100%" height={height}>
         {chart}
       </ResponsiveContainer>

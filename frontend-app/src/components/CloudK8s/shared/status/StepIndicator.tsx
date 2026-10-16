@@ -52,7 +52,7 @@ export function StepIndicator({ states, label, variant = 'compact', details, cla
 
   if (variant === 'full') {
     return (
-      <ol className={`grid gap-2 sm:grid-cols-5 ${className}`} aria-label={`Lifecycle: ${text}`} data-step-indicator="full">
+      <ol className={`grid gap-2 sm:grid-cols-5 ${className}`} aria-label={`Lifecycle: ${text}`} data-step-indicator="full" data-k8s-kit="">
         {LIFECYCLE_STAGES.map((stage, i) => {
           const state = states[i];
           const t = toneClasses(state ? state.tone : 'off');
@@ -80,7 +80,7 @@ export function StepIndicator({ states, label, variant = 'compact', details, cla
   }
 
   return (
-    <span className={`inline-flex flex-col gap-1 ${className}`} data-step-indicator="">
+    <span className={`inline-flex flex-col gap-1 ${className}`} data-step-indicator="" data-k8s-kit="">
       <span className="flex items-center gap-0.5" role="img" aria-label={`Lifecycle: ${text}`}>
         {LIFECYCLE_STAGES.map((stage, i) => {
           const state = states[i];

@@ -139,7 +139,7 @@ export function TimeSeriesChart({
 
   if (width) {
     return (
-      <div style={{ width, height }} data-timeseries="">
+      <div style={{ width, height }} className="text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]" data-timeseries="" data-k8s-kit="">
         <ResponsiveContainer width={width} height={height}>
           {chart}
         </ResponsiveContainer>
@@ -147,7 +147,7 @@ export function TimeSeriesChart({
     );
   }
   return (
-    <div style={{ height }} data-timeseries="">
+    <div style={{ height }} className="text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]" data-timeseries="" data-k8s-kit="">
       <ResponsiveContainer width="100%" height={height}>
         {chart}
       </ResponsiveContainer>

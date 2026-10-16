@@ -37,7 +37,7 @@ export interface ChartDataTableProps {
 
 export function ChartDataTable({ caption, rowHeader, columns, rows, className = '' }: ChartDataTableProps) {
   return (
-    <details className={`group text-[12px] ${className}`} data-chart-table="">
+    <details className={`group text-[12px] ${className}`} data-chart-table="" data-k8s-kit="">
       <summary className="cursor-pointer select-none text-[12px] text-[rgba(0,0,0,0.6)] marker:text-[rgba(0,0,0,0.4)] dark:text-[rgba(255,255,255,0.6)]">
         Data table
       </summary>

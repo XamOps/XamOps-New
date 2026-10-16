@@ -107,7 +107,8 @@ export function WorkloadsTable({ workloads, detailHref, applyingIds, applyResult
   }, [workloads, status, namespace, query]);
 
   return (
-    <section className={CARD} aria-labelledby={ids.caption}>
+    // data-k8s-kit: every colour here has its dark variant, so the legacy dark CSS leaves the table alone.
+    <section className={CARD} aria-labelledby={ids.caption} data-k8s-kit="">
       <div className="flex flex-wrap items-end justify-between gap-3 px-4 pt-3">
         <div>
           <h3 id={ids.caption} className={`text-[13px] font-semibold ${INK}`}>Workloads at a glance</h3>

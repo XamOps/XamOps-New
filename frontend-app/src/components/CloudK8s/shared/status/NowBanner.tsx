@@ -18,6 +18,7 @@ export function NowBanner({ sentence, className = '' }: NowBannerProps) {
     <div
       className={`rounded-lg border border-[rgba(0,0,0,0.08)] bg-white px-4 py-3 dark:border-[rgba(255,255,255,0.1)] dark:bg-[#141414] ${className}`}
       data-now-banner=""
+      data-k8s-kit=""
     >
       <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]">
         <Icon icon="mdi:record-circle-outline" width={13} aria-hidden="true" className="shrink-0" />

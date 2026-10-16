@@ -22,6 +22,20 @@
 
 /* NOTE: Dark mode styles use !important to override hardcoded colors in individual CSS files */
 
+/*
+ * CloudK8s v3 kit exemption. Every legacy `.dark` selector below ends in
+ * `:where(:not([data-k8s-kit], [data-k8s-kit] *))`, so none of these overrides reaches a v3
+ * element marked `data-k8s-kit` or anything inside one: the status and chart components
+ * (components/CloudK8s/shared/status/* and shared/charts/*, on their root elements) and the
+ * Automation pages' in-page links. Those elements carry their own `dark:` variants and token
+ * colours (styles/k8sSemanticTokens.css); without the exemption the map rules below paint every
+ * chart bar and icon path slate, the text rules strip every status colour and the link rule turns
+ * links blue. `:where()` adds no specificity, so every other element resolves exactly as before.
+ * Today the only `.dark` in the app is the CloudK8s page wrapper (pages/EksDetailsPage.tsx). The
+ * rules that paint SVG fill or stroke (the map rules) also leave every Iconify icon (`.iconify`)
+ * alone, so an icon keeps its currentColor instead of turning slate.
+ */
+
 /* Global Dark Mode Variables - Overrides dashboard.css and all other CSS variables */
 .dark {
     /* Background Colors */
@@ -68,17 +82,17 @@
 
 /* Global Transitions for Theme Switching - Optimized for scroll performance */
 /* Only apply transitions to specific elements, not all (*) to prevent scroll jank */
-.dark button,
-.dark a,
-.dark .glass-card,
-.dark .card,
-.dark input,
-.dark select,
-.dark textarea,
-.dark [class*="btn"],
-.dark header,
-.dark nav,
-.dark .sidebar {
+.dark button:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark a:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .glass-card:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .card:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark input:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark select:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark textarea:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="btn"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark header:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark nav:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .sidebar:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     transition-property: background-color, border-color, color;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     transition-duration: 200ms;
@@ -95,191 +109,191 @@ html.is-scrolling * {
 }
 
 /* Base Dark Mode Background */
-.dark body {
+.dark body:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-app);
 }
 
 /* Override hardcoded Tailwind classes in pages for dark mode */
-.dark .bg-white,
-.dark [style*="background: white"],
-.dark [style*="background: #fff"],
-.dark [style*="background: #FFF"],
-.dark [style*="background: #ffffff"],
-.dark [style*="background: #FFFFFF"],
-.dark [style*="background-color: white"],
-.dark [style*="background-color: #fff"],
-.dark [style*="background-color: #FFF"],
-.dark [style*="background-color: #ffffff"],
-.dark [style*="background-color: #FFFFFF"] {
+.dark .bg-white:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [style*="background: white"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [style*="background: #fff"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [style*="background: #FFF"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [style*="background: #ffffff"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [style*="background: #FFFFFF"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [style*="background-color: white"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [style*="background-color: #fff"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [style*="background-color: #FFF"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [style*="background-color: #ffffff"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [style*="background-color: #FFFFFF"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
 }
 
 /* Force dark backgrounds on body and root */
-.dark body,
-.dark #root {
+.dark body:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark #root:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-app) !important;
 }
 
-.dark .bg-gray-50,
-.dark .bg-slate-50 {
+.dark .bg-gray-50:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-slate-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-app) !important;
 }
 
 /* Colored backgrounds - dark versions with better contrast */
-.dark .bg-indigo-50 {
+.dark .bg-indigo-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(49, 46, 129, 0.3) !important;
 }
 
-.dark .bg-blue-50 {
+.dark .bg-blue-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(30, 58, 138, 0.3) !important;
 }
 
-.dark .bg-rose-50 {
+.dark .bg-rose-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(136, 19, 55, 0.4) !important;
 }
 
-.dark .bg-green-50 {
+.dark .bg-green-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 83, 45, 0.4) !important;
 }
 
-.dark .bg-green-100 {
+.dark .bg-green-100:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 83, 45, 0.5) !important;
 }
 
-.dark .bg-red-50 {
+.dark .bg-red-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(136, 19, 55, 0.4) !important;
 }
 
-.dark .bg-red-100 {
+.dark .bg-red-100:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(136, 19, 55, 0.5) !important;
 }
 
-.dark .bg-yellow-50 {
+.dark .bg-yellow-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(133, 77, 14, 0.3) !important;
 }
 
-.dark .bg-purple-50 {
+.dark .bg-purple-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(88, 28, 135, 0.3) !important;
 }
 
 /* Gradient backgrounds for optimization cards */
-.dark .from-green-50 {
+.dark .from-green-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     --tw-gradient-from: rgba(20, 83, 45, 0.4) !important;
 }
 
-.dark .to-green-100 {
+.dark .to-green-100:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     --tw-gradient-to: rgba(20, 83, 45, 0.5) !important;
 }
 
-.dark .from-red-50 {
+.dark .from-red-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     --tw-gradient-from: rgba(136, 19, 55, 0.4) !important;
 }
 
-.dark .to-red-100 {
+.dark .to-red-100:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     --tw-gradient-to: rgba(136, 19, 55, 0.5) !important;
 }
 
-.dark .bg-gray-100,
-.dark .bg-slate-100 {
+.dark .bg-gray-100:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-slate-100:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 25, 35, 0.5) !important;
 }
 
-.dark .bg-gray-200,
-.dark .bg-slate-200 {
+.dark .bg-gray-200:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-slate-200:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(30, 40, 55, 0.5) !important;
 }
 
-.dark .text-gray-900,
-.dark .text-slate-900,
-.dark .text-gray-800,
-.dark .text-slate-800,
-.dark .text-gray-700,
-.dark .text-slate-700 {
+.dark .text-gray-900:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .text-slate-900:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .text-gray-800:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .text-slate-800:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .text-gray-700:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .text-slate-700:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-primary) !important;
 }
 
-.dark .text-gray-600,
-.dark .text-slate-600,
-.dark .text-gray-500,
-.dark .text-slate-500 {
+.dark .text-gray-600:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .text-slate-600:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .text-gray-500:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .text-slate-500:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-secondary) !important;
 }
 
-.dark .text-gray-400,
-.dark .text-slate-400 {
+.dark .text-gray-400:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .text-slate-400:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-tertiary) !important;
 }
 
-.dark .border-gray-200,
-.dark .border-slate-200,
-.dark .border-gray-100,
-.dark .border-slate-100,
-.dark .border-gray-300,
-.dark .border-slate-300 {
+.dark .border-gray-200:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .border-slate-200:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .border-gray-100:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .border-slate-100:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .border-gray-300:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .border-slate-300:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: var(--border-subtle) !important;
 }
 
 /* Specific Component Overrides */
-.dark .btn-secondary-standard,
-.dark .pagination-btn {
+.dark .btn-secondary-standard:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .pagination-btn:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     color: var(--text-primary) !important;
     border-color: var(--border-subtle) !important;
 }
 
-.dark .btn-secondary-standard:hover,
-.dark .pagination-btn:hover {
+.dark .btn-secondary-standard:hover:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .pagination-btn:hover:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-app) !important;
 }
 
-.dark .error-message,
-.dark .toast-error {
+.dark .error-message:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .toast-error:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: rgba(239, 68, 68, 0.1) !important;
     border-color: rgba(239, 68, 68, 0.4) !important;
     color: #fca5a5 !important;
 }
 
-.dark .success-message,
-.dark .toast-success {
+.dark .success-message:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .toast-success:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: rgba(16, 185, 129, 0.1) !important;
     border-color: rgba(16, 185, 129, 0.4) !important;
     color: #6ee7b7 !important;
 }
 
-.dark .warning-message,
-.dark .toast-warning {
+.dark .warning-message:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .toast-warning:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: rgba(245, 158, 11, 0.1) !important;
     border-color: rgba(245, 158, 11, 0.4) !important;
     color: #fdba74 !important;
 }
 
-.dark table tbody tr:hover {
+.dark table tbody tr:hover:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(102, 126, 234, 0.1) !important;
 }
 
-.dark .pagination-container {
+.dark .pagination-container:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: var(--border-subtle) !important;
 }
 
 /* Sparkline Overrides */
-.dark .sparkline-container {
+.dark .sparkline-container:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(10, 15, 26, 0.95) !important;
 }
 
 /* Glass Card Components */
-.dark .glass-card {
+.dark .glass-card:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: var(--bg-glass) !important;
     border-color: var(--border-glass) !important;
     box-shadow: var(--shadow-glass) !important;
 }
 
-.dark .glass-card:hover {
+.dark .glass-card:hover:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: var(--bg-glass-hover) !important;
     box-shadow: var(--shadow-hover) !important;
 }
 
 /* Metric Value Text */
-.dark .metric-value {
+.dark .metric-value:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: linear-gradient(135deg, var(--text-primary) 0%, #94a3b8 100%) !important;
     -webkit-background-clip: text !important;
     -webkit-text-fill-color: transparent !important;
@@ -287,81 +301,81 @@ html.is-scrolling * {
 }
 
 /* Cards and Panels */
-.dark .card,
-.dark .panel,
-.dark .modal-content,
-.dark .dropdown-menu {
+.dark .card:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .panel:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .modal-content:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .dropdown-menu:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
 }
 
 /* Input Fields */
-.dark input,
-.dark textarea,
-.dark select {
+.dark input:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark textarea:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark select:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 25, 35, 0.5) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
 }
 
-.dark input::placeholder,
-.dark textarea::placeholder {
+.dark input:where(:not([data-k8s-kit], [data-k8s-kit] *))::placeholder,
+.dark textarea:where(:not([data-k8s-kit], [data-k8s-kit] *))::placeholder {
     color: var(--text-tertiary) !important;
 }
 
-.dark input:focus,
-.dark textarea:focus,
-.dark select:focus {
+.dark input:focus:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark textarea:focus:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark select:focus:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 25, 35, 0.7) !important;
     border-color: var(--primary) !important;
 }
 
 /* Buttons */
-.dark button:not(.bg-indigo-600):not(.bg-blue-600):not(.bg-green-600):not(.bg-rose-600):not(.bg-purple-600) {
+.dark button:not(.bg-indigo-600):not(.bg-blue-600):not(.bg-green-600):not(.bg-rose-600):not(.bg-purple-600):where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 25, 35, 0.5) !important;
     color: var(--text-primary) !important;
     border-color: var(--border-subtle) !important;
 }
 
 /* Tables - Consolidated Rules */
-.dark table,
-.dark thead,
-.dark tbody,
-.dark tfoot {
+.dark table:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark thead:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark tbody:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark tfoot:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     color: var(--text-primary) !important;
 }
 
-.dark table thead {
+.dark table thead:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 25, 35, 0.6) !important;
     border-color: var(--border-subtle) !important;
 }
 
-.dark table th,
-.dark table td,
-.dark tr,
-.dark th,
-.dark td {
+.dark table th:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark table td:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark tr:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark th:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark td:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
     background-color: transparent !important;
 }
 
-.dark table tbody tr,
-.dark tbody tr:nth-child(odd) {
+.dark table tbody tr:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark tbody tr:nth-child(odd):where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: var(--border-subtle) !important;
     background-color: transparent !important;
 }
 
-.dark table tbody tr:nth-child(even),
-.dark tbody tr:nth-child(even) {
+.dark table tbody tr:nth-child(even):where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark tbody tr:nth-child(even):where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 25, 35, 0.3) !important;
 }
 
 /* Badges and Tags */
-.dark .badge,
-.dark .tag {
+.dark .badge:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .tag:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 25, 35, 0.5) !important;
     color: var(--text-primary) !important;
     border-color: var(--border-subtle) !important;
@@ -386,11 +400,11 @@ html.is-scrolling * {
     background: #94a3b8;
 }
 
-.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+.dark .custom-scrollbar:where(:not([data-k8s-kit], [data-k8s-kit] *))::-webkit-scrollbar-thumb {
     background: rgba(20, 25, 35, 0.8);
 }
 
-.dark .custom-scrollbar:hover::-webkit-scrollbar-thumb {
+.dark .custom-scrollbar:hover:where(:not([data-k8s-kit], [data-k8s-kit] *))::-webkit-scrollbar-thumb {
     background: rgba(30, 40, 55, 0.9);
 }
 
@@ -400,65 +414,65 @@ html.is-scrolling * {
 }
 
 /* Sidebar Dark Mode Overrides */
-.dark .sidebar-scroll::-webkit-scrollbar-track {
+.dark .sidebar-scroll:where(:not([data-k8s-kit], [data-k8s-kit] *))::-webkit-scrollbar-track {
     background: rgba(10, 15, 26, 0.5) !important;
 }
 
-.dark .sidebar-scroll::-webkit-scrollbar-thumb {
+.dark .sidebar-scroll:where(:not([data-k8s-kit], [data-k8s-kit] *))::-webkit-scrollbar-thumb {
     background: rgba(30, 40, 55, 0.8) !important;
 }
 
-.dark .sidebar-scroll::-webkit-scrollbar-thumb:hover {
+.dark .sidebar-scroll:where(:not([data-k8s-kit], [data-k8s-kit] *))::-webkit-scrollbar-thumb:hover {
     background: rgba(40, 50, 65, 0.9) !important;
 }
 
-.dark .toggle-switch {
+.dark .toggle-switch:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(30, 40, 55, 0.8) !important;
 }
 
-.dark .toggle-switch.active {
+.dark .toggle-switch.active:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: #4f46e5 !important;
 }
 
-.dark .connection-indicator {
+.dark .connection-indicator:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: var(--bg-surface) !important;
 }
 
 /* Modal and Overlay Dark Mode */
-.dark .modal-overlay {
+.dark .modal-overlay:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(0, 0, 0, 0.75) !important;
 }
 
-.dark .modal,
-.dark .dialog {
+.dark .modal:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .dialog:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     border-color: var(--border-subtle) !important;
 }
 
 /* Charts and Visualization Dark Mode */
-.dark .chart-container,
-.dark .highcharts-container {
+.dark .chart-container:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .highcharts-container:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: transparent !important;
 }
 
-.dark .highcharts-background {
+.dark .highcharts-background:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     fill: transparent !important;
 }
 
-.dark .highcharts-title,
-.dark .highcharts-subtitle,
-.dark .highcharts-axis-title,
-.dark .highcharts-axis-labels text {
+.dark .highcharts-title:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark .highcharts-subtitle:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark .highcharts-axis-title:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark .highcharts-axis-labels text:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     fill: var(--text-primary) !important;
 }
 
-.dark .highcharts-grid-line {
+.dark .highcharts-grid-line:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     stroke: var(--border-subtle) !important;
 }
 
 /* Loading States */
-.dark .skeleton,
-.dark .loading-skeleton {
+.dark .skeleton:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .loading-skeleton:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: linear-gradient(90deg,
             rgba(20, 25, 35, 0.5) 25%,
             rgba(30, 40, 55, 0.5) 50%,
@@ -467,7 +481,7 @@ html.is-scrolling * {
 }
 
 /* Tooltips */
-.dark .tooltip {
+.dark .tooltip:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(10, 15, 26, 0.95) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
@@ -475,723 +489,723 @@ html.is-scrolling * {
 }
 
 /* Code Blocks */
-.dark pre,
-.dark code {
+.dark pre:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark code:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(0, 0, 0, 0.3) !important;
     color: #e2e8f0 !important;
     border-color: var(--border-subtle) !important;
 }
 
 /* Additional Component Overrides for Hardcoded Styles */
-.dark [class*="kpi-card"],
-.dark [class*="metric-card"],
-.dark [class*="stat-card"],
-.dark [class*="info-card"],
-.dark [class*="savings"],
-.dark [class*="alert"],
-.dark [class*="critical"] {
+.dark [class*="kpi-card"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="metric-card"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="stat-card"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="info-card"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="savings"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="alert"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="critical"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
 }
 
 /* Ensure text is readable on colored backgrounds */
-.dark .bg-green-50 *,
-.dark .bg-rose-50 *,
-.dark .bg-red-50 *,
-.dark .bg-blue-50 *,
-.dark .bg-yellow-50 *,
-.dark .bg-purple-50 *,
-.dark .bg-indigo-50 * {
+.dark .bg-green-50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-rose-50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-red-50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-blue-50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-yellow-50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-purple-50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-indigo-50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #ffffff !important;
 }
 
-.dark .bg-green-50 [class*="text-gray"],
-.dark .bg-rose-50 [class*="text-gray"],
-.dark .bg-red-50 [class*="text-gray"],
-.dark .bg-blue-50 [class*="text-gray"],
-.dark .bg-yellow-50 [class*="text-gray"],
-.dark .bg-purple-50 [class*="text-gray"],
-.dark .bg-indigo-50 [class*="text-gray"] {
+.dark .bg-green-50 [class*="text-gray"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-rose-50 [class*="text-gray"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-red-50 [class*="text-gray"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-blue-50 [class*="text-gray"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-yellow-50 [class*="text-gray"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-purple-50 [class*="text-gray"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-indigo-50 [class*="text-gray"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: rgba(255, 255, 255, 0.8) !important;
 }
 
 /* Override specific text colors on gradient backgrounds */
-.dark .from-green-50 *,
-.dark .to-green-100 *,
-.dark .from-red-50 *,
-.dark .to-red-100 * {
+.dark .from-green-50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .to-green-100 *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .from-red-50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .to-red-100 *:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #ffffff !important;
 }
 
 /* Specific overrides for green text colors in dark mode */
-.dark .text-green-600,
-.dark .text-green-700,
-.dark .text-green-800,
-.dark .text-green-900 {
+.dark .text-green-600:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .text-green-700:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .text-green-800:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .text-green-900:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #ffffff !important;
 }
 
 /* Specific overrides for red text colors in dark mode */
-.dark .text-red-600,
-.dark .text-red-700,
-.dark .text-red-800,
-.dark .text-red-900 {
+.dark .text-red-600:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .text-red-700:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .text-red-800:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .text-red-900:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #ffffff !important;
 }
 
 /* Border colors for gradient cards */
-.dark .border-green-200 {
+.dark .border-green-200:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: rgba(20, 83, 45, 0.6) !important;
 }
 
-.dark .border-red-200 {
+.dark .border-red-200:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: rgba(136, 19, 55, 0.6) !important;
 }
 
 /* Ensure gradient cards have proper dark backgrounds */
-.dark .bg-gradient-to-br.from-green-50 {
+.dark .bg-gradient-to-br.from-green-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-image: linear-gradient(to bottom right, rgba(20, 83, 45, 0.4), rgba(20, 83, 45, 0.5)) !important;
 }
 
-.dark .bg-gradient-to-br.from-red-50 {
+.dark .bg-gradient-to-br.from-red-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-image: linear-gradient(to bottom right, rgba(136, 19, 55, 0.4), rgba(136, 19, 55, 0.5)) !important;
 }
 
 /* Ensure all text inside gradient cards is white */
-.dark .bg-gradient-to-br.from-green-50 *,
-.dark .bg-gradient-to-br.from-red-50 * {
+.dark .bg-gradient-to-br.from-green-50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-gradient-to-br.from-red-50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #ffffff !important;
 }
 
 /* SVG icons should be white too */
-.dark .bg-gradient-to-br.from-green-50 svg,
-.dark .bg-gradient-to-br.from-red-50 svg {
+.dark .bg-gradient-to-br.from-green-50 svg:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-gradient-to-br.from-red-50 svg:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #ffffff !important;
 }
 
 /* Ensure all text elements are white on gradient cards */
-.dark .bg-gradient-to-br.from-green-50 p,
-.dark .bg-gradient-to-br.from-green-50 span,
-.dark .bg-gradient-to-br.from-green-50 div,
-.dark .bg-gradient-to-br.from-red-50 p,
-.dark .bg-gradient-to-br.from-red-50 span,
-.dark .bg-gradient-to-br.from-red-50 div {
+.dark .bg-gradient-to-br.from-green-50 p:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-gradient-to-br.from-green-50 span:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-gradient-to-br.from-green-50 div:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-gradient-to-br.from-red-50 p:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-gradient-to-br.from-red-50 span:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-gradient-to-br.from-red-50 div:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #ffffff !important;
 }
 
 /* Override any inline text color classes on gradient backgrounds */
-.dark .bg-gradient-to-br[class*="from-green"] [class*="text-"],
-.dark .bg-gradient-to-br[class*="from-red"] [class*="text-"] {
+.dark .bg-gradient-to-br[class*="from-green"] [class*="text-"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-gradient-to-br[class*="from-red"] [class*="text-"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #ffffff !important;
 }
 
 /* ===== PROVIDER CARD GRADIENTS (Unified Dashboard) ===== */
 
 /* Main spend card - gray gradient */
-.dark .from-gray-50 {
+.dark .from-gray-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     --tw-gradient-from: rgba(20, 25, 35, 0.5) !important;
 }
 
-.dark .to-white {
+.dark .to-white:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     --tw-gradient-to: rgba(30, 40, 55, 0.5) !important;
 }
 
-.dark .bg-gradient-to-br.from-gray-50 {
+.dark .bg-gradient-to-br.from-gray-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-image: linear-gradient(to bottom right, rgba(20, 25, 35, 0.5), rgba(30, 40, 55, 0.5)) !important;
 }
 
 /* Resources card - blue gradient */
-.dark .from-blue-50 {
+.dark .from-blue-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     --tw-gradient-from: rgba(30, 58, 138, 0.3) !important;
 }
 
-.dark .to-indigo-50 {
+.dark .to-indigo-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     --tw-gradient-to: rgba(49, 46, 129, 0.3) !important;
 }
 
-.dark .bg-gradient-to-br.from-blue-50 {
+.dark .bg-gradient-to-br.from-blue-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-image: linear-gradient(to bottom right, rgba(30, 58, 138, 0.3), rgba(49, 46, 129, 0.3)) !important;
 }
 
 /* Score card - emerald/green gradient */
-.dark .from-emerald-50 {
+.dark .from-emerald-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     --tw-gradient-from: rgba(20, 83, 45, 0.3) !important;
 }
 
-.dark .to-green-50 {
+.dark .to-green-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     --tw-gradient-to: rgba(20, 83, 45, 0.4) !important;
 }
 
-.dark .bg-gradient-to-br.from-emerald-50 {
+.dark .bg-gradient-to-br.from-emerald-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-image: linear-gradient(to bottom right, rgba(20, 83, 45, 0.3), rgba(20, 83, 45, 0.4)) !important;
 }
 
 /* Alerts card - red/rose gradient */
-.dark .from-red-50 {
+.dark .from-red-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     --tw-gradient-from: rgba(136, 19, 55, 0.4) !important;
 }
 
-.dark .to-rose-50 {
+.dark .to-rose-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     --tw-gradient-to: rgba(136, 19, 55, 0.5) !important;
 }
 
-.dark .bg-gradient-to-br.from-red-50 {
+.dark .bg-gradient-to-br.from-red-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-image: linear-gradient(to bottom right, rgba(136, 19, 55, 0.4), rgba(136, 19, 55, 0.5)) !important;
 }
 
 /* Ensure all text in provider card gradients is white */
-.dark .bg-gradient-to-br.from-gray-50 *,
-.dark .bg-gradient-to-br.from-blue-50 *,
-.dark .bg-gradient-to-br.from-emerald-50 *,
-.dark .bg-gradient-to-br.from-red-50 * {
+.dark .bg-gradient-to-br.from-gray-50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-gradient-to-br.from-blue-50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-gradient-to-br.from-emerald-50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-gradient-to-br.from-red-50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #ffffff !important;
 }
 
 /* Override specific text color classes in provider cards */
-.dark .text-gray-600,
-.dark .text-gray-500 {
+.dark .text-gray-600:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .text-gray-500:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: rgba(255, 255, 255, 0.9) !important;
 }
 
-.dark .text-gray-900 {
+.dark .text-gray-900:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #ffffff !important;
 }
 
 /* Border colors for provider cards */
-.dark .border-gray-200 {
+.dark .border-gray-200:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: rgba(30, 40, 55, 0.6) !important;
 }
 
-.dark .border-blue-100 {
+.dark .border-blue-100:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: rgba(30, 58, 138, 0.5) !important;
 }
 
-.dark .border-emerald-100 {
+.dark .border-emerald-100:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: rgba(20, 83, 45, 0.5) !important;
 }
 
-.dark .border-red-100 {
+.dark .border-red-100:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: rgba(136, 19, 55, 0.5) !important;
 }
 
 /* Icon colors in provider cards should remain visible */
-.dark .bg-gradient-to-br.from-blue-50 .text-blue-600 {
+.dark .bg-gradient-to-br.from-blue-50 .text-blue-600:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #60a5fa !important;
 }
 
-.dark .bg-gradient-to-br.from-emerald-50 .text-emerald-600 {
+.dark .bg-gradient-to-br.from-emerald-50 .text-emerald-600:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #6ee7b7 !important;
 }
 
-.dark .bg-gradient-to-br.from-red-50 .text-red-600 {
+.dark .bg-gradient-to-br.from-red-50 .text-red-600:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #fca5a5 !important;
 }
 
 /* ===== RESERVATION PAGE DARK MODE ===== */
 
 /* Reservation header gradients */
-.dark .from-gray-50\/50 {
+.dark .from-gray-50\/50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     --tw-gradient-from: rgba(20, 25, 35, 0.5) !important;
 }
 
-.dark .bg-gradient-to-r.from-gray-50\/50 {
+.dark .bg-gradient-to-r.from-gray-50\/50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-image: linear-gradient(to right, rgba(20, 25, 35, 0.5), rgba(30, 40, 55, 0.5)) !important;
 }
 
 /* All text in gradient headers should be white */
-.dark .bg-gradient-to-r.from-gray-50\/50 * {
+.dark .bg-gradient-to-r.from-gray-50\/50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #ffffff !important;
 }
 
 /* Select dropdowns on reservation page */
-.dark select.bg-white {
+.dark select.bg-white:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 25, 35, 0.5) !important;
     color: var(--text-primary) !important;
     border-color: var(--border-subtle) !important;
 }
 
-.dark select.bg-white option {
+.dark select.bg-white option:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     color: var(--text-primary) !important;
 }
 
 /* Indigo gradient badges in reservation table */
-.dark .from-indigo-50 {
+.dark .from-indigo-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     --tw-gradient-from: rgba(49, 46, 129, 0.3) !important;
 }
 
-.dark .to-purple-50 {
+.dark .to-purple-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     --tw-gradient-to: rgba(88, 28, 135, 0.3) !important;
 }
 
-.dark .bg-gradient-to-br.from-indigo-50 {
+.dark .bg-gradient-to-br.from-indigo-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-image: linear-gradient(to bottom right, rgba(49, 46, 129, 0.3), rgba(88, 28, 135, 0.3)) !important;
 }
 
-.dark .bg-gradient-to-br.from-indigo-50 * {
+.dark .bg-gradient-to-br.from-indigo-50 *:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #c7d2fe !important;
 }
 
-.dark .text-indigo-700 {
+.dark .text-indigo-700:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #c7d2fe !important;
 }
 
 /* Border colors for reservation components */
-.dark .border-indigo-200 {
+.dark .border-indigo-200:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: rgba(49, 46, 129, 0.5) !important;
 }
 
-.dark .border-purple-500 {
+.dark .border-purple-500:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: rgba(168, 85, 247, 0.7) !important;
 }
 
-.dark .border-green-500 {
+.dark .border-green-500:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: rgba(34, 197, 94, 0.7) !important;
 }
 
 /* Ensure all table text is readable */
-.dark table.pro-table tbody td {
+.dark table.pro-table tbody td:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-primary) !important;
 }
 
-.dark table.pro-table tbody td .text-gray-800 {
+.dark table.pro-table tbody td .text-gray-800:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #ffffff !important;
 }
 
-.dark table.pro-table tbody td .text-gray-700 {
+.dark table.pro-table tbody td .text-gray-700:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: rgba(255, 255, 255, 0.9) !important;
 }
 
-.dark table.pro-table tbody td .text-gray-500 {
+.dark table.pro-table tbody td .text-gray-500:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-secondary) !important;
 }
 
 /* Force all card content to be light colored */
-.dark [class*="card"] *,
-.dark [class*="kpi"] *,
-.dark [class*="metric"] *,
-.dark [class*="stat"] *,
-.dark [class*="savings"] *,
-.dark [class*="alert"] * {
+.dark [class*="card"] *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="kpi"] *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="metric"] *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="stat"] *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="savings"] *:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="alert"] *:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: inherit !important;
 }
 
-.dark [class*="header"],
-.dark [class*="title"]:not([class*="text-"]) {
+.dark [class*="header"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="title"]:not([class*="text-"]):where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-primary) !important;
 }
 
-.dark [class*="description"],
-.dark [class*="subtitle"],
-.dark [class*="label"]:not([class*="text-"]) {
+.dark [class*="description"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="subtitle"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="label"]:not([class*="text-"]):where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-secondary) !important;
 }
 
 /* Search Bars and Filters */
-.dark [class*="search"],
-.dark [class*="filter"] {
+.dark [class*="search"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="filter"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 25, 35, 0.5) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
 }
 
 /* Sections and Containers */
-.dark [class*="section"],
-.dark [class*="container"]:not(.sparkline-container) {
+.dark [class*="section"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="container"]:not(.sparkline-container):where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: transparent !important;
 }
 
 /* Notification and Alert Boxes */
-.dark [class*="notification"],
-.dark [class*="alert"]:not(.error-message):not(.success-message):not(.warning-message) {
+.dark [class*="notification"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="alert"]:not(.error-message):not(.success-message):not(.warning-message):where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
 }
 
 /* List Items */
-.dark li,
-.dark [class*="list-item"] {
+.dark li:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="list-item"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-primary) !important;
 }
 
-.dark li:hover,
-.dark [class*="list-item"]:hover {
+.dark li:hover:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="list-item"]:hover:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(59, 130, 246, 0.1) !important;
 }
 
 /* Dividers and Separators */
-.dark hr,
-.dark [class*="divider"],
-.dark [class*="separator"] {
+.dark hr:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="divider"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="separator"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: var(--border-subtle) !important;
     background-color: var(--border-subtle) !important;
 }
 
 /* Breadcrumbs */
-.dark [class*="breadcrumb"] {
+.dark [class*="breadcrumb"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-secondary) !important;
 }
 
 /* Progress Bars */
-.dark [class*="progress"] {
+.dark [class*="progress"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 25, 35, 0.5) !important;
 }
 
-.dark [class*="progress-bar"] {
+.dark [class*="progress-bar"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--primary) !important;
 }
 
 /* Tabs */
-.dark [class*="tab"] {
+.dark [class*="tab"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-secondary) !important;
     border-color: var(--border-subtle) !important;
 }
 
-.dark [class*="tab"].active,
-.dark [class*="tab"]:hover {
+.dark [class*="tab"].active:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="tab"]:hover:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-primary) !important;
     background-color: rgba(59, 130, 246, 0.1) !important;
 }
 
 /* Accordions */
-.dark [class*="accordion"] {
+.dark [class*="accordion"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
 }
 
 /* Legends */
-.dark [class*="legend"] {
+.dark [class*="legend"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-secondary) !important;
 }
 
 /* Empty States */
-.dark [class*="empty"],
-.dark [class*="no-data"] {
+.dark [class*="empty"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="no-data"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-tertiary) !important;
 }
 
 /* Icons - Ensure visibility */
-.dark i,
-.dark svg:not([class*="highcharts"]) {
+.dark i:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark svg:not([class*="highcharts"]):where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: inherit !important;
 }
 
 /* Select Dropdowns */
-.dark select option {
+.dark select option:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     color: var(--text-primary) !important;
 }
 
 /* Checkboxes and Radio Buttons */
-.dark input[type="checkbox"],
-.dark input[type="radio"] {
+.dark input[type="checkbox"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark input[type="radio"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: var(--border-subtle) !important;
 }
 
-.dark input[type="checkbox"]:checked,
-.dark input[type="radio"]:checked {
+.dark input[type="checkbox"]:checked:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark input[type="radio"]:checked:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--primary) !important;
     border-color: var(--primary) !important;
 }
 
 /* Links */
-.dark a:not([class*="bg-"]):not([class*="btn"]) {
+.dark a:not([class*="bg-"]):not([class*="btn"]):where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #60a5fa !important;
 }
 
-.dark a:not([class*="bg-"]):not([class*="btn"]):hover {
+.dark a:not([class*="bg-"]):not([class*="btn"]):hover:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #93c5fd !important;
 }
 
 /* Scrollbar for all elements */
-.dark *::-webkit-scrollbar {
+.dark *:where(:not([data-k8s-kit], [data-k8s-kit] *))::-webkit-scrollbar {
     width: 8px;
     height: 8px;
 }
 
-.dark *::-webkit-scrollbar-track {
+.dark *:where(:not([data-k8s-kit], [data-k8s-kit] *))::-webkit-scrollbar-track {
     background: rgba(10, 15, 26, 0.5);
 }
 
-.dark *::-webkit-scrollbar-thumb {
+.dark *:where(:not([data-k8s-kit], [data-k8s-kit] *))::-webkit-scrollbar-thumb {
     background: rgba(30, 40, 55, 0.8);
     border-radius: 4px;
 }
 
-.dark *::-webkit-scrollbar-thumb:hover {
+.dark *:where(:not([data-k8s-kit], [data-k8s-kit] *))::-webkit-scrollbar-thumb:hover {
     background: rgba(40, 50, 65, 0.9);
 }
 
 /* ===== AGGRESSIVE DARK MODE OVERRIDES - NO WHITE ANYWHERE ===== */
 
 /* Main page containers */
-.dark main,
-.dark .main-content,
-.dark #main-content,
-.dark [class*="page"],
-.dark [class*="container"],
-.dark [class*="wrapper"] {
+.dark main:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .main-content:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark #main-content:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="page"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="container"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="wrapper"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-app) !important;
 }
 
 /* All divs should have dark background by default */
-.dark div:not([class*="bg-indigo"]):not([class*="bg-blue"]):not([class*="bg-green"]):not([class*="bg-rose"]):not([class*="bg-purple"]):not([class*="bg-yellow"]):not([class*="bg-orange"]) {
+.dark div:not([class*="bg-indigo"]):not([class*="bg-blue"]):not([class*="bg-green"]):not([class*="bg-rose"]):not([class*="bg-purple"]):not([class*="bg-yellow"]):not([class*="bg-orange"]):where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: transparent;
 }
 
 /* Force all sections to be dark */
-.dark section {
+.dark section:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: transparent !important;
 }
 
 /* Override any remaining white/light backgrounds */
-.dark .bg-gray-50,
-.dark .bg-slate-50,
-.dark .bg-neutral-50 {
+.dark .bg-gray-50:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-slate-50:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-neutral-50:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-app) !important;
 }
 
-.dark .bg-gray-100,
-.dark .bg-slate-100,
-.dark .bg-neutral-100,
-.dark [class*="bg-100"] {
+.dark .bg-gray-100:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-slate-100:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-neutral-100:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="bg-100"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 25, 35, 0.5) !important;
 }
 
-.dark .bg-gray-200,
-.dark .bg-slate-200,
-.dark .bg-neutral-200,
-.dark [class*="bg-200"] {
+.dark .bg-gray-200:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-slate-200:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-neutral-200:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="bg-200"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(30, 40, 55, 0.5) !important;
 }
 
 /* Table overrides handled in consolidated Tables section above */
 
 /* Grid and flex containers */
-.dark [class*="grid"],
-.dark [class*="flex"] {
+.dark [class*="grid"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="flex"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: transparent !important;
 }
 
 /* Forms and form elements */
-.dark form,
-.dark fieldset,
-.dark legend {
+.dark form:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark fieldset:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark legend:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: transparent !important;
     color: var(--text-primary) !important;
 }
 
 /* Navigation elements */
-.dark nav,
-.dark [role="navigation"] {
+.dark nav:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [role="navigation"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: transparent !important;
 }
 
 /* Article and aside elements */
-.dark article,
-.dark aside {
+.dark article:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark aside:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: transparent !important;
 }
 
 /* Header and footer elements */
-.dark header:not(.sticky),
-.dark footer {
+.dark header:not(.sticky):where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark footer:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
 }
 
 /* All text elements should be light colored - AGGRESSIVE */
-.dark h1,
-.dark h2,
-.dark h3,
-.dark h4,
-.dark h5,
-.dark h6,
-.dark p,
-.dark label,
-.dark span:not([class*="text-indigo"]):not([class*="text-blue"]):not([class*="text-green"]):not([class*="text-rose"]):not([class*="text-purple"]):not([class*="text-yellow"]):not([class*="text-orange"]),
-.dark div:not([class*="bg-indigo"]):not([class*="bg-blue"]):not([class*="bg-green"]):not([class*="bg-rose"]):not([class*="bg-purple"]):not([class*="bg-yellow"]):not([class*="bg-orange"]) {
+.dark h1:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark h2:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark h3:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark h4:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark h5:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark h6:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark p:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark label:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark span:not([class*="text-indigo"]):not([class*="text-blue"]):not([class*="text-green"]):not([class*="text-rose"]):not([class*="text-purple"]):not([class*="text-yellow"]):not([class*="text-orange"]):where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark div:not([class*="bg-indigo"]):not([class*="bg-blue"]):not([class*="bg-green"]):not([class*="bg-rose"]):not([class*="bg-purple"]):not([class*="bg-yellow"]):not([class*="bg-orange"]):where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-primary) !important;
 }
 
 /* Force all potential white text to be light */
-.dark *:not([class*="text-indigo"]):not([class*="text-blue"]):not([class*="text-green"]):not([class*="text-rose"]):not([class*="text-purple"]):not([class*="text-yellow"]):not([class*="text-orange"]):not(svg):not(path):not(circle):not(rect):not(line) {
+.dark *:not([class*="text-indigo"]):not([class*="text-blue"]):not([class*="text-green"]):not([class*="text-rose"]):not([class*="text-purple"]):not([class*="text-yellow"]):not([class*="text-orange"]):not(svg):not(path):not(circle):not(rect):not(line):where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: inherit;
 }
 
 /* Small text elements */
-.dark small,
-.dark [class*="text-xs"],
-.dark [class*="text-sm"] {
+.dark small:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="text-xs"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="text-sm"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-secondary) !important;
 }
 
 /* Override any hardcoded white text */
-.dark [style*="color: white"],
-.dark [style*="color: #fff"],
-.dark [style*="color: #FFF"],
-.dark [style*="color: #ffffff"],
-.dark [style*="color: #FFFFFF"] {
+.dark [style*="color: white"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [style*="color: #fff"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [style*="color: #FFF"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [style*="color: #ffffff"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [style*="color: #FFFFFF"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-primary) !important;
 }
 
 /* Override any hardcoded black text to light */
-.dark [style*="color: black"],
-.dark [style*="color: #000"],
-.dark [style*="color: #000000"] {
+.dark [style*="color: black"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [style*="color: #000"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [style*="color: #000000"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-primary) !important;
 }
 
 /* Ensure no element can have white background via inline styles */
-.dark [style*="background: white"] {
+.dark [style*="background: white"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: var(--bg-surface) !important;
 }
 
-.dark [style*="background-color: white"] {
+.dark [style*="background-color: white"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
 }
 
 /* Border color defaults handled by Global Transitions section above */
 
 /* Popovers and floating elements */
-.dark [role="dialog"],
-.dark [role="alertdialog"],
-.dark [class*="popover"],
-.dark [class*="dropdown"],
-.dark [class*="menu"] {
+.dark [role="dialog"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [role="alertdialog"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="popover"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="dropdown"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="menu"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
 }
 
 /* Ensure all backdrop elements are dark */
-.dark [class*="backdrop"],
-.dark [class*="overlay"],
-.dark [class*="modal-bg"] {
+.dark [class*="backdrop"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="overlay"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="modal-bg"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(0, 0, 0, 0.75) !important;
 }
 
 /* List groups and list elements */
-.dark ul,
-.dark ol,
-.dark dl {
+.dark ul:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark ol:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark dl:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-primary) !important;
 }
 
-.dark dt {
+.dark dt:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-primary) !important;
 }
 
-.dark dd {
+.dark dd:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-secondary) !important;
 }
 
 /* Definition lists and description lists */
-.dark [class*="list-group"],
-.dark [class*="list"] {
+.dark [class*="list-group"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="list"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: transparent !important;
 }
 
-.dark [class*="list-group-item"],
-.dark [class*="list-item"] {
+.dark [class*="list-group-item"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="list-item"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
 }
 
 /* Ensure images don't have white backgrounds */
-.dark img {
+.dark img:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: transparent !important;
 }
 
 /* SVG elements */
-.dark svg {
+.dark svg:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: currentColor !important;
 }
 
 /* Canvas elements */
-.dark canvas {
+.dark canvas:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: transparent !important;
 }
 
 /* Iframe elements */
-.dark iframe {
+.dark iframe:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-color: var(--border-subtle) !important;
 }
 
 /* ===== MAP COMPONENTS - DARK THEME ===== */
 
 /* Map containers and wrappers */
-.dark [class*="map"],
-.dark [id*="map"],
-.dark [class*="cloudmap"],
-.dark [class*="cloud-map"],
-.dark .leaflet-container,
-.dark .mapboxgl-map,
-.dark .google-map {
+.dark [class*="map"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [id*="map"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="cloudmap"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="cloud-map"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .leaflet-container:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .mapboxgl-map:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .google-map:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: #000000 !important;
 }
 
 /* Map SVG elements */
-.dark [class*="map"] svg,
-.dark [id*="map"] svg {
+.dark [class*="map"] svg:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [id*="map"] svg:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: transparent !important;
 }
 
 /* Map paths (continents, regions) - AGGRESSIVE OVERRIDE */
-.dark [class*="map"] path,
-.dark [id*="map"] path,
-.dark svg path[class*="land"],
-.dark svg path[class*="country"],
-.dark svg path[class*="region"],
-.dark svg path,
-.dark [class*="map"] svg path,
-.dark [id*="map"] svg path,
-.dark [class*="map-section"] svg path,
-.dark [class*="global-footprint"] svg path,
-.dark .highcharts-map-series .highcharts-point,
-.dark .highcharts-map-series path {
+.dark [class*="map"] path:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark [id*="map"] path:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark svg path[class*="land"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark svg path[class*="country"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark svg path[class*="region"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark svg path:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark [class*="map"] svg path:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark [id*="map"] svg path:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark [class*="map-section"] svg path:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark [class*="global-footprint"] svg path:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark .highcharts-map-series .highcharts-point:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark .highcharts-map-series path:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     fill: #334155 !important;
     stroke: #1e293b !important;
     stroke-width: 0.5 !important;
 }
 
 /* Override any white fills in SVG */
-.dark svg path[fill="#fff"],
-.dark svg path[fill="#FFF"],
-.dark svg path[fill="#ffffff"],
-.dark svg path[fill="#FFFFFF"],
-.dark svg path[fill="white"],
-.dark svg [fill="white"],
-.dark svg [fill="#fff"],
-.dark svg [fill="#FFF"],
-.dark svg [fill="#ffffff"],
-.dark svg [fill="#FFFFFF"] {
+.dark svg path[fill="#fff"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark svg path[fill="#FFF"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark svg path[fill="#ffffff"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark svg path[fill="#FFFFFF"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark svg path[fill="white"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark svg [fill="white"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark svg [fill="#fff"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark svg [fill="#FFF"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark svg [fill="#ffffff"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark svg [fill="#FFFFFF"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     fill: #334155 !important;
 }
 
 /* Map water/ocean areas */
-.dark svg [class*="ocean"],
-.dark svg [class*="water"],
-.dark svg [class*="sea"] {
+.dark svg [class*="ocean"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark svg [class*="water"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark svg [class*="sea"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     fill: #000000 !important;
 }
 
 /* Map markers and dots */
-.dark [class*="marker"],
-.dark [class*="map-pin"],
-.dark circle[class*="marker"],
-.dark .leaflet-marker-icon {
+.dark [class*="marker"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark [class*="map-pin"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark circle[class*="marker"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark .leaflet-marker-icon:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     fill: #3b82f6 !important;
     stroke: #60a5fa !important;
 }
 
 /* Map labels and text - Enhanced for readability */
-.dark [class*="map"] text,
-.dark [id*="map"] text,
-.dark svg text {
+.dark [class*="map"] text:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark [id*="map"] text:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark svg text:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     fill: #ffffff !important;
     color: #ffffff !important;
     font-weight: 700 !important;
@@ -1207,166 +1221,166 @@ html.is-scrolling * {
 }
 
 /* Map tooltips */
-.dark .leaflet-popup,
-.dark .mapboxgl-popup,
-.dark [class*="map-tooltip"],
-.dark [class*="map-popup"] {
+.dark .leaflet-popup:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .mapboxgl-popup:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="map-tooltip"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="map-popup"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     color: var(--text-primary) !important;
     border-color: var(--border-subtle) !important;
 }
 
 /* Map popup content */
-.dark .leaflet-popup-content,
-.dark .mapboxgl-popup-content {
+.dark .leaflet-popup-content:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .mapboxgl-popup-content:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     color: var(--text-primary) !important;
 }
 
 /* Map popup tip */
-.dark .leaflet-popup-tip,
-.dark .mapboxgl-popup-tip {
+.dark .leaflet-popup-tip:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .mapboxgl-popup-tip:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     border-color: var(--border-subtle) !important;
 }
 
 /* Map controls */
-.dark .leaflet-control,
-.dark .mapboxgl-ctrl,
-.dark [class*="map-control"] {
+.dark .leaflet-control:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .mapboxgl-ctrl:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="map-control"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
 }
 
 /* Map zoom buttons */
-.dark .leaflet-control-zoom a,
-.dark .mapboxgl-ctrl-zoom-in,
-.dark .mapboxgl-ctrl-zoom-out {
+.dark .leaflet-control-zoom a:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .mapboxgl-ctrl-zoom-in:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .mapboxgl-ctrl-zoom-out:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     color: var(--text-primary) !important;
     border-color: var(--border-subtle) !important;
 }
 
-.dark .leaflet-control-zoom a:hover,
-.dark .mapboxgl-ctrl-zoom-in:hover,
-.dark .mapboxgl-ctrl-zoom-out:hover {
+.dark .leaflet-control-zoom a:hover:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .mapboxgl-ctrl-zoom-in:hover:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .mapboxgl-ctrl-zoom-out:hover:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(59, 130, 246, 0.2) !important;
 }
 
 /* Map attribution */
-.dark .leaflet-control-attribution,
-.dark .mapboxgl-ctrl-attrib {
+.dark .leaflet-control-attribution:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .mapboxgl-ctrl-attrib:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(10, 15, 26, 0.8) !important;
     color: var(--text-secondary) !important;
 }
 
 /* Highcharts Map specific */
-.dark .highcharts-map-series path {
+.dark .highcharts-map-series path:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     fill: #334155 !important;
     stroke: #1e293b !important;
 }
 
-.dark .highcharts-point {
+.dark .highcharts-point:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     fill: #3b82f6 !important;
 }
 
 /* Map legend */
-.dark [class*="map-legend"],
-.dark .leaflet-legend,
-.dark .mapboxgl-legend {
+.dark [class*="map-legend"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .leaflet-legend:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .mapboxgl-legend:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     color: var(--text-primary) !important;
     border-color: var(--border-subtle) !important;
 }
 
 /* Ensure no white backgrounds in map containers */
-.dark [class*="map-container"],
-.dark [class*="map-wrapper"],
-.dark [class*="map-section"] {
+.dark [class*="map-container"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="map-wrapper"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="map-section"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: #000000 !important;
 }
 
 /* Map loading states */
-.dark [class*="map-loading"],
-.dark .leaflet-tile-pane {
+.dark [class*="map-loading"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .leaflet-tile-pane:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: #000000 !important;
 }
 
 /* Map tiles */
-.dark .leaflet-tile {
+.dark .leaflet-tile:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     filter: brightness(0.7) contrast(1.2) !important;
 }
 
 /* Custom map elements */
-.dark [class*="map"] [class*="background"],
-.dark [class*="map"] [class*="bg"] {
+.dark [class*="map"] [class*="background"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark [class*="map"] [class*="bg"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     background-color: #000000 !important;
     fill: #000000 !important;
 }
 
 /* Map grid lines */
-.dark [class*="map"] line,
-.dark [class*="map"] .grid-line {
+.dark [class*="map"] line:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark [class*="map"] .grid-line:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     stroke: rgba(51, 65, 85, 0.3) !important;
 }
 
 /* Map borders and boundaries */
-.dark [class*="map"] [class*="border"],
-.dark [class*="map"] [class*="boundary"] {
+.dark [class*="map"] [class*="border"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark [class*="map"] [class*="boundary"]:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     stroke: #1e293b !important;
 }
 
 /* Ensure map SVG backgrounds are dark */
-.dark svg[class*="map"],
-.dark svg[id*="map"] {
+.dark svg[class*="map"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark svg[id*="map"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: #000000 !important;
 }
 
 /* World map specific */
-.dark [class*="world-map"],
-.dark [id*="world-map"] {
+.dark [class*="world-map"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [id*="world-map"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: #000000 !important;
 }
 
-.dark [class*="world-map"] path,
-.dark [id*="world-map"] path {
+.dark [class*="world-map"] path:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark [id*="world-map"] path:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     fill: #334155 !important;
     stroke: #1e293b !important;
 }
 
 /* Cloud provider map styling */
-.dark [class*="cloud-footprint"],
-.dark [class*="global-footprint"] {
+.dark [class*="cloud-footprint"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="global-footprint"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: #000000 !important;
 }
 
-.dark [class*="cloud-footprint"] path,
-.dark [class*="global-footprint"] path {
+.dark [class*="cloud-footprint"] path:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark [class*="global-footprint"] path:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     fill: #334155 !important;
     stroke: #1e293b !important;
 }
 
 /* Active/selected regions */
-.dark [class*="map"] path.active,
-.dark [class*="map"] path:hover,
-.dark [class*="map"] path.selected {
+.dark [class*="map"] path.active:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark [class*="map"] path:hover:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark [class*="map"] path.selected:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     fill: #475569 !important;
     stroke: #3b82f6 !important;
 }
 
 /* Map cluster markers */
-.dark .marker-cluster,
-.dark [class*="cluster-marker"] {
+.dark .marker-cluster:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="cluster-marker"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(59, 130, 246, 0.6) !important;
     color: var(--text-primary) !important;
     border-color: #3b82f6 !important;
 }
 
 /* D3 map elements */
-.dark .d3-map path,
-.dark g[class*="countries"] path,
-.dark g[class*="regions"] path {
+.dark .d3-map path:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark g[class*="countries"] path:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark g[class*="regions"] path:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     fill: #334155 !important;
     stroke: #1e293b !important;
 }
@@ -1374,7 +1388,7 @@ html.is-scrolling * {
 /* ===== CLOUDMAP SPECIFIC DARK MODE OVERRIDES ===== */
 
 /* CloudMap header */
-.dark .cloudmap-header {
+.dark .cloudmap-header:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: rgba(10, 15, 26, 0.95) !important;
     backdrop-filter: blur(10px) !important;
     border-bottom: 1px solid var(--border-subtle) !important;
@@ -1382,71 +1396,71 @@ html.is-scrolling * {
 }
 
 /* Cytoscape container - the main map area */
-.dark .cytoscape-container {
+.dark .cytoscape-container:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: linear-gradient(135deg, #000000 0%, #0a0f1a 100%) !important;
 }
 
 /* CloudMap back button */
-.dark .back-btn {
+.dark .back-btn:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 25, 35, 0.5) !important;
     color: var(--text-secondary) !important;
     border: 1px solid var(--border-subtle) !important;
 }
 
-.dark .back-btn:hover {
+.dark .back-btn:hover:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(30, 40, 55, 0.6) !important;
     color: var(--text-primary) !important;
 }
 
 /* CloudMap tabs */
-.dark .tab-btn {
+.dark .tab-btn:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-secondary) !important;
     background: transparent !important;
 }
 
-.dark .tab-btn:hover:not(.active) {
+.dark .tab-btn:hover:not(.active):where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: var(--text-primary) !important;
     background: rgba(59, 130, 246, 0.1) !important;
 }
 
-.dark .tab-btn.active {
+.dark .tab-btn.active:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #60a5fa !important;
     background: linear-gradient(135deg, rgba(20, 25, 35, 0.8) 0%, rgba(30, 40, 55, 0.6) 100%) !important;
     box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2), 0 1px 3px rgba(0, 0, 0, 0.3) !important;
 }
 
 /* CloudMap live badge */
-.dark .live-badge {
+.dark .live-badge:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(16, 185, 129, 0.1) !important;
     color: #6ee7b7 !important;
     border-color: rgba(16, 185, 129, 0.3) !important;
 }
 
 /* CloudMap panels and sidebars */
-.dark .cloudmap-panel,
-.dark .cloudmap-sidebar {
+.dark .cloudmap-panel:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .cloudmap-sidebar:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
 }
 
 /* CloudMap cards */
-.dark .cloudmap-card,
-.dark [class*="cloudmap-"] [class*="card"] {
+.dark .cloudmap-card:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="cloudmap-"] [class*="card"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 25, 35, 0.5) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
 }
 
 /* CloudMap node labels */
-.dark .cytoscape-container text,
-.dark [data-id] text {
+.dark .cytoscape-container text:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)),
+.dark [data-id] text:where(:not([data-k8s-kit], [data-k8s-kit] *, .iconify, .iconify *)) {
     fill: var(--text-primary) !important;
 }
 
 /* CloudMap tooltips */
-.dark .cloudmap-tooltip,
-.dark [class*="cloudmap-"] [class*="tooltip"] {
+.dark .cloudmap-tooltip:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="cloudmap-"] [class*="tooltip"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(10, 15, 26, 0.95) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
@@ -1454,96 +1468,96 @@ html.is-scrolling * {
 }
 
 /* CloudMap legend */
-.dark .cloudmap-legend,
-.dark [class*="cloudmap-"] [class*="legend"] {
+.dark .cloudmap-legend:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="cloudmap-"] [class*="legend"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: var(--bg-surface) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
 }
 
 /* CloudMap filters and controls */
-.dark .cloudmap-filter,
-.dark .cloudmap-control,
-.dark [class*="cloudmap-"] button:not(.bg-indigo-600):not(.bg-blue-600) {
+.dark .cloudmap-filter:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .cloudmap-control:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="cloudmap-"] button:not(.bg-indigo-600):not(.bg-blue-600):where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 25, 35, 0.5) !important;
     color: var(--text-primary) !important;
     border-color: var(--border-subtle) !important;
 }
 
-.dark .cloudmap-filter:hover,
-.dark .cloudmap-control:hover,
-.dark [class*="cloudmap-"] button:not(.bg-indigo-600):not(.bg-blue-600):hover {
+.dark .cloudmap-filter:hover:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .cloudmap-control:hover:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="cloudmap-"] button:not(.bg-indigo-600):not(.bg-blue-600):hover:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(30, 40, 55, 0.6) !important;
 }
 
 /* GCP CloudMap specific */
-.dark .gcp-cloudmap,
-.dark [class*="gcp-cloudmap"] {
+.dark .gcp-cloudmap:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="gcp-cloudmap"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: #000000 !important;
 }
 
-.dark .gcp-cloudmap-header,
-.dark [class*="gcp-cloudmap-"] [class*="header"] {
+.dark .gcp-cloudmap-header:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="gcp-cloudmap-"] [class*="header"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(10, 15, 26, 0.95) !important;
     border-color: var(--border-subtle) !important;
 }
 
 /* Azure CloudMap specific */
-.dark .azure-cloudmap,
-.dark [class*="azure-cloudmap"] {
+.dark .azure-cloudmap:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="azure-cloudmap"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: #000000 !important;
 }
 
-.dark .azure-cloudmap-header,
-.dark [class*="azure-cloudmap-"] [class*="header"] {
+.dark .azure-cloudmap-header:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="azure-cloudmap-"] [class*="header"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(10, 15, 26, 0.95) !important;
     border-color: var(--border-subtle) !important;
 }
 
 /* CloudMap search bar */
-.dark [class*="cloudmap-"] input[type="search"],
-.dark [class*="cloudmap-"] input[type="text"],
-.dark .cloudmap-search {
+.dark [class*="cloudmap-"] input[type="search"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="cloudmap-"] input[type="text"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .cloudmap-search:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 25, 35, 0.5) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
 }
 
 /* CloudMap dropdown menus */
-.dark [class*="cloudmap-"] select,
-.dark .cloudmap-select {
+.dark [class*="cloudmap-"] select:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .cloudmap-select:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 25, 35, 0.5) !important;
     border-color: var(--border-subtle) !important;
     color: var(--text-primary) !important;
 }
 
 /* CloudMap info boxes */
-.dark .cloudmap-info,
-.dark [class*="cloudmap-"] [class*="info"] {
+.dark .cloudmap-info:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="cloudmap-"] [class*="info"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(59, 130, 246, 0.1) !important;
     border-color: rgba(59, 130, 246, 0.3) !important;
     color: #93c5fd !important;
 }
 
 /* CloudMap warning boxes */
-.dark .cloudmap-warning,
-.dark [class*="cloudmap-"] [class*="warning"] {
+.dark .cloudmap-warning:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="cloudmap-"] [class*="warning"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(245, 158, 11, 0.1) !important;
     border-color: rgba(245, 158, 11, 0.3) !important;
     color: #fdba74 !important;
 }
 
 /* CloudMap error boxes */
-.dark .cloudmap-error,
-.dark [class*="cloudmap-"] [class*="error"] {
+.dark .cloudmap-error:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="cloudmap-"] [class*="error"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(239, 68, 68, 0.1) !important;
     border-color: rgba(239, 68, 68, 0.3) !important;
     color: #fca5a5 !important;
 }
 
 /* CloudMap success boxes */
-.dark .cloudmap-success,
-.dark [class*="cloudmap-"] [class*="success"] {
+.dark .cloudmap-success:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="cloudmap-"] [class*="success"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(16, 185, 129, 0.1) !important;
     border-color: rgba(16, 185, 129, 0.3) !important;
     color: #6ee7b7 !important;
@@ -1552,53 +1566,53 @@ html.is-scrolling * {
 /* ===== OPTIMIZATION HUB DARK MODE ===== */
 
 /* Optimization Hub main sections */
-.dark [class*="optimization"],
-.dark [class*="strategic"] {
+.dark [class*="optimization"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="strategic"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: transparent !important;
 }
 
 /* Potential Savings and Critical Alerts cards */
-.dark [class*="potential-savings"],
-.dark [class*="savings-card"] {
+.dark [class*="potential-savings"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="savings-card"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(20, 83, 45, 0.25) !important;
     border-left: 4px solid #10b981 !important;
     color: #ffffff !important;
 }
 
-.dark [class*="critical-alert"],
-.dark [class*="alert-card"] {
+.dark [class*="critical-alert"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="alert-card"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(136, 19, 55, 0.25) !important;
     border-left: 4px solid #ef4444 !important;
     color: #ffffff !important;
 }
 
 /* Card icons in optimization hub */
-.dark [class*="savings"] [class*="icon"],
-.dark [class*="alert"] [class*="icon"] {
+.dark [class*="savings"] [class*="icon"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="alert"] [class*="icon"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background-color: rgba(0, 0, 0, 0.3) !important;
 }
 
 /* Metric values in colored cards */
-.dark .bg-green-50 [class*="value"],
-.dark .bg-rose-50 [class*="value"],
-.dark [class*="savings"] [class*="value"],
-.dark [class*="alert"] [class*="value"] {
+.dark .bg-green-50 [class*="value"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-rose-50 [class*="value"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="savings"] [class*="value"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="alert"] [class*="value"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #ffffff !important;
     font-weight: 700 !important;
 }
 
 /* Labels and secondary text in colored cards */
-.dark .bg-green-50 [class*="label"],
-.dark .bg-rose-50 [class*="label"],
-.dark [class*="savings"] [class*="label"],
-.dark [class*="alert"] [class*="label"] {
+.dark .bg-green-50 [class*="label"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .bg-rose-50 [class*="label"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="savings"] [class*="label"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="alert"] [class*="label"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: rgba(255, 255, 255, 0.9) !important;
 }
 
 /* ===== SOLID DARK MODE - NO GLASS EFFECT FOR DROPDOWNS & HEADER ===== */
 
 /* Remove glass effect from notification dropdown */
-.dark .notification-dropdown {
+.dark .notification-dropdown:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: #0f172a !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -1606,61 +1620,61 @@ html.is-scrolling * {
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 1px rgba(0, 0, 0, 0.3) !important;
 }
 
-.dark .notification-header {
+.dark .notification-header:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: #1e293b !important;
     border-bottom: 1px solid #334155 !important;
 }
 
-.dark .notification-header-title {
+.dark .notification-header-title:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #f8fafc !important;
 }
 
-.dark .notification-footer {
+.dark .notification-footer:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: #1e293b !important;
     border-top: 1px solid #334155 !important;
 }
 
-.dark .notification-section {
+.dark .notification-section:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     border-bottom: 1px solid #334155 !important;
 }
 
-.dark .notification-item:hover {
+.dark .notification-item:hover:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: #1e293b !important;
 }
 
-.dark .notification-item-title {
+.dark .notification-item-title:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #f8fafc !important;
 }
 
-.dark .notification-item-description {
+.dark .notification-item-description:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #94a3b8 !important;
 }
 
-.dark .notification-empty-title {
+.dark .notification-empty-title:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #f8fafc !important;
 }
 
-.dark .notification-empty-text,
-.dark .notification-loading-text {
+.dark .notification-empty-text:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .notification-loading-text:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #94a3b8 !important;
 }
 
-.dark .notification-section-title {
+.dark .notification-section-title:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #cbd5e1 !important;
 }
 
-.dark .notification-content::-webkit-scrollbar-track {
+.dark .notification-content:where(:not([data-k8s-kit], [data-k8s-kit] *))::-webkit-scrollbar-track {
     background: #1e293b !important;
 }
 
-.dark .notification-content::-webkit-scrollbar-thumb {
+.dark .notification-content:where(:not([data-k8s-kit], [data-k8s-kit] *))::-webkit-scrollbar-thumb {
     background: #475569 !important;
 }
 
 /* Remove glass effect from profile dropdown */
-.dark [class*="dropdown"],
-.dark [role="menu"],
-.dark [class*="popover"] {
+.dark [class*="dropdown"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [role="menu"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="popover"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: #0f172a !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -1668,19 +1682,19 @@ html.is-scrolling * {
 }
 
 /* Remove glass effect from select dropdowns */
-.dark select,
-.dark select option {
+.dark select:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark select option:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: #0f172a !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
 }
 
 /* Remove glass effect from top header/headline section */
-.dark header,
-.dark .sticky.top-0,
-.dark [class*="topbar"],
-.dark [class*="top-bar"],
-.dark [class*="header-bar"] {
+.dark header:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .sticky.top-0:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="topbar"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="top-bar"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="header-bar"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: #0a0f1a !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -1688,25 +1702,25 @@ html.is-scrolling * {
 }
 
 /* Remove glass effect from ticker/headline bar */
-.dark .ticker-wrap {
+.dark .ticker-wrap:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: #0a0f1a !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
     border-bottom: 1px solid #1e293b !important;
 }
 
-.dark .ticker-item {
+.dark .ticker-item:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #94a3b8 !important;
 }
 
-.dark .ticker-item strong {
+.dark .ticker-item strong:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     color: #f8fafc !important;
 }
 
 /* Ensure all dropdown menus are solid in dark mode */
-.dark .absolute[class*="top-full"],
-.dark .absolute[class*="bottom-full"],
-.dark div[class*="rounded-2xl"][class*="shadow"] {
+.dark .absolute[class*="top-full"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark .absolute[class*="bottom-full"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark div[class*="rounded-2xl"][class*="shadow"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: #0f172a !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -1755,8 +1769,8 @@ html.is-scrolling * {
 }
 
 /* Override any remaining glass effects in dark mode for menus */
-.dark [class*="menu"],
-.dark [class*="Menu"] {
+.dark [class*="menu"]:where(:not([data-k8s-kit], [data-k8s-kit] *)),
+.dark [class*="Menu"]:where(:not([data-k8s-kit], [data-k8s-kit] *)) {
     background: #0f172a !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;

@@ -29,8 +29,10 @@ export function InPageLink({
   ...rest
 }: { to: string; children: ReactNode; className?: string; 'aria-label'?: string; title?: string }) {
   const location = useLocation();
+  // data-k8s-kit: the link carries its own dark colours, so style.css's legacy dark link rule
+  // (which turns every link blue) leaves it alone.
   return (
-    <Link to={to} state={inPageState(location)} className={className} {...rest}>
+    <Link to={to} state={inPageState(location)} className={className} data-k8s-kit="" {...rest}>
       {children}
     </Link>
   );

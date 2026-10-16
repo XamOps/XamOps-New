@@ -30,6 +30,7 @@ export function SeriesLegend({ items, className = '' }: SeriesLegendProps) {
     <ul
       className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)] ${className}`}
       data-series-legend=""
+      data-k8s-kit=""
     >
       {items.map((item) => {
         const color = item.money ? MONEY[item.kind as MoneyKind].color : SERIES[item.kind as SeriesKind].color;

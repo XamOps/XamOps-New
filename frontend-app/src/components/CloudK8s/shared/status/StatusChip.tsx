@@ -33,6 +33,7 @@ export function StatusChip({ tone, icon, label, detail, weight = 'semibold', cla
     <span
       className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[12px] ${t.text} ${t.chipBg} ${t.chipBorder} ${WEIGHT[weight]} ${className}`}
       data-tone={tone}
+      data-k8s-kit=""
     >
       <Icon icon={icon} width={14} aria-hidden="true" className="shrink-0" />
       <span className="inline-flex flex-col leading-tight">

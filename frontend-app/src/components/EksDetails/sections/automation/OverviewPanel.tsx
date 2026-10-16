@@ -281,6 +281,7 @@ function TodayTable({ caps, clusterName, workloadAutoscalerHref }: { caps: K8sCa
                             to={workloadAutoscalerHref}
                             state={inPageState(location)}
                             className="font-semibold underline-offset-2 hover:underline outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] focus-visible:ring-offset-2"
+                            data-k8s-kit=""
                           >
                             {WORKLOAD_AUTOSCALER_LINK}
                           </Link>

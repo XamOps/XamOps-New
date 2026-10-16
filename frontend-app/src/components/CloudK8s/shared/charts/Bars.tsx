@@ -165,7 +165,7 @@ export function Bars({ mode, data, bars, xKey, height = 220, width, ariaLabel, c
 
   if (width) {
     return (
-      <div style={{ width, height }} data-bars="" data-bars-scale={logAxis ? 'log' : 'linear'}>
+      <div style={{ width, height }} className="text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]" data-bars="" data-k8s-kit="" data-bars-scale={logAxis ? 'log' : 'linear'}>
         <ResponsiveContainer width={width} height={height}>
           {chart}
         </ResponsiveContainer>
@@ -173,7 +173,7 @@ export function Bars({ mode, data, bars, xKey, height = 220, width, ariaLabel, c
     );
   }
   return (
-    <div style={{ height }} data-bars="" data-bars-scale={logAxis ? 'log' : 'linear'}>
+    <div style={{ height }} className="text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]" data-bars="" data-k8s-kit="" data-bars-scale={logAxis ? 'log' : 'linear'}>
       <ResponsiveContainer width="100%" height={height}>
         {chart}
       </ResponsiveContainer>
