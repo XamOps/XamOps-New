@@ -5,6 +5,7 @@
 import type { Account } from '../types/account';
 import type { Budget } from '../types/finops';
 import type { FlexComputeCapacity } from '../types/flexCompute';
+import type { ResourceChange, ResourceLineChange, DailyCost } from '../api/curInsightsApi';
 
 // ─── /api/xamops/account-manager/accounts ────────────────────────────────────
 export const demoAccounts: Account[] = [
@@ -2985,6 +2986,250 @@ export const demoServiceResources = (service: string) => {
     resources,
     totalCost: resources.reduce((sum, r) => sum + r.cost, 0),
     groupCount: resources.length,
+  };
+};
+
+// ─── /api/xamops/cur-insights/resource-change/{accountId} ─────────────────────
+// ResourceChange: the per-resource drill-down drawer's whole payload — the
+// month-over-month split, the per-usage-type lines, and the daily series.
+//
+// Derived from `demoTopResources` the same way `demoServiceResources` and
+// `demoResourceCosts` are, so the figure the drawer reconciles to is exactly the
+// row that opened it and nothing can drift from the page's 18,420.75 total. The
+// row's `cost` is `currentCost`; everything else is a believable, deterministic
+// story built around it.
+//
+// Why deterministic: the drawer re-opens on the same resource whenever a reader
+// clicks back into it, and the test re-requests the same URL to assert stability.
+// A `new Date()` or an un-seeded random would make the fixture disagree with
+// itself between opens, so every figure here is a pure function of `resourceId`
+// (via `seed`) and the passed `period` — never of wall-clock time.
+
+/** Cents, so the price/volume split and the per-line sums reconcile exactly. */
+const round2 = (x: number): number => Math.round(x * 100) / 100;
+
+/**
+ * A stable value in [0,1) from a string. FNV-1a — deterministic, no deps — so the
+ * same resource always tells the same story and different resources differ.
+ */
+const seed = (s: string): number => {
+  let h = 2166136261; // FNV offset basis
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619); // FNV prime
+  }
+  return ((h >>> 0) % 1000) / 1000; // 0.000 … 0.999
+};
+
+/**
+ * Per-service usage-type vocabulary for the Breakdown lines, reusing the words
+ * already in `demoChargesByService` so a line reads like a real invoice row. Each
+ * entry is one `{ usageType, unit, description }`; the first is the dominant line.
+ * Any service not listed falls back to a single generic 'Usage' line.
+ */
+const DEMO_LINE_VOCAB: Record<string, { usageType: string; unit: string; description: string }[]> = {
+  'Amazon Elastic Compute Cloud': [
+    { usageType: 'APS3-BoxUsage:m5.xlarge', unit: 'Hrs', description: 'On Demand Linux m5.xlarge Instance Hour' },
+    { usageType: 'APS3-EBS:VolumeUsage.gp3', unit: 'GB-Mo', description: 'Provisioned gp3 storage' },
+  ],
+  'Amazon Relational Database Service': [
+    { usageType: 'APS3-Multi-AZUsage:db.r5.large', unit: 'Hrs', description: 'RDS db.r5.large Multi-AZ instance hour' },
+    { usageType: 'APS3-RDS:GP2-Storage', unit: 'GB-Mo', description: 'Provisioned gp2 storage' },
+  ],
+  'Amazon Simple Storage Service': [
+    { usageType: 'APS3-TimedStorage-ByteHrs', unit: 'GB-Mo', description: 'Standard storage' },
+    { usageType: 'APS3-Requests-Tier1', unit: 'Requests', description: 'PUT, COPY, POST or LIST requests' },
+  ],
+  'AWS Lambda': [
+    { usageType: 'APS3-Lambda-GB-Second', unit: 'seconds', description: 'Compute GB-second' },
+    { usageType: 'APS3-Lambda-Request', unit: 'Requests', description: 'Invocation request' },
+  ],
+  'Amazon CloudFront': [
+    { usageType: 'DataTransfer-Out-Bytes', unit: 'GB', description: 'Data transfer out to internet' },
+    { usageType: 'Requests-Tier1-HTTPS', unit: 'Requests', description: 'HTTPS requests' },
+  ],
+  'Amazon ElastiCache': [
+    { usageType: 'APS3-NodeUsage:cache.r6g.large', unit: 'Hrs', description: 'cache.r6g.large node-hour' },
+  ],
+  'Amazon Elastic Container Service for Kubernetes': [
+    { usageType: 'APS3-AmazonEKS-Hours:perCluster', unit: 'Hrs', description: 'EKS cluster hour' },
+  ],
+  'Amazon Virtual Private Cloud': [
+    { usageType: 'APS3-NatGateway-Hours', unit: 'Hrs', description: 'NAT Gateway Hour' },
+    { usageType: 'APS3-NatGateway-Bytes', unit: 'GB', description: 'Data processed by NAT Gateways' },
+  ],
+};
+
+/** The number of days in a `YYYY-MM` month (deterministic, no `new Date()` for "today"). */
+const daysInMonth = (year: number, month1to12: number): number =>
+  new Date(year, month1to12, 0).getDate();
+
+/** The demo month used when the drawer passes no `period`. The drawer always passes one. */
+const DEMO_CURRENT_MONTH = '2026-08';
+
+/**
+ * One resource's month-over-month movement, which usage types moved, and its daily
+ * spend — /api/xamops/cur-insights/resource-change/{accountId}?resourceId=…
+ *
+ * <p>Returns null when nothing can be said about a single resource: a blank
+ * `resourceId` (an account-level charge — tax, support, transfer — which is not one
+ * resource), or an id that no `demoTopResources` row carries. `makeResponse(null)`
+ * then sends the body "null", which fails the fetcher's
+ * `isRecordWith(['lines','daily'],['costChange'])` check and reads as "No detail
+ * available for this resource" — the same empty state a real account with no CUR shows.
+ *
+ * <p>When `service`/`region` are supplied (the drawer always supplies them, because the
+ * table groups by resource+service+region) the match is filtered to that scope, so the
+ * drawer's figure equals the row the reader clicked rather than the resource's total
+ * across every scope.
+ *
+ * <p>The invariant `priceEffect + volumeEffect === costChange` holds exactly at both
+ * the resource and the per-line level. `priceEffect` is computed from rounded inputs and
+ * `volumeEffect` is taken as the residual `costChange - priceEffect`, so the two always
+ * sum to `costChange` to the cent with no floating-point drift. The Change tab renders
+ * that split, so the two figures also read as a plausible rate-vs-usage decomposition.
+ *
+ * <p>`excludedCost` is omitted deliberately: it is optional and AWS-only, and the demo AWS
+ * card runs on the unblended basis (amortized reported unavailable), so neither the
+ * ExcludedNote nor the BasisNote has a reason to render.
+ */
+export const demoResourceChange = (
+  resourceId: string,
+  service?: string,
+  region?: string,
+  period?: string,
+): ResourceChange | null => {
+  // Account-level charges carry an empty id and match several rows, so there is no single
+  // resource to describe. Treat a blank/whitespace id as "no resource".
+  const id = (resourceId ?? '').trim();
+  if (!id) return null;
+
+  // Match the row(s) the drawer opened. Filter to the row's scope when given, which mirrors
+  // the backend grouping so the panel figure equals the clicked row rather than the id's total.
+  let rows = demoTopResources.resources.filter((r) => r.resourceId === id);
+  if (service) rows = rows.filter((r) => r.service === service);
+  if (region) rows = rows.filter((r) => r.region === region);
+  if (rows.length === 0) return null;
+
+  // When several rows share the id (no scope was passed), pick the costliest deterministically.
+  // The drawer always passes scope, so this is the defensive branch.
+  const row = rows.reduce((a, b) => (b.cost > a.cost ? b : a));
+
+  const r = seed(id);
+  const currentCost = round2(row.cost);
+
+  // A believable change fraction in roughly [-0.18, +0.22] — a rise or a fall, both worth
+  // showing on the Change tab. `priorCost` is `currentCost` divided back out by it.
+  const f = round2(-0.18 + 0.4 * r);
+  const priorCost = Math.max(0.01, round2(currentCost / (1 + f)));
+  const costChange = round2(currentCost - priorCost);
+
+  // Quantities from a plausible unit rate in a sane band, with the prior rate nudged by a small
+  // deterministic factor so that BOTH a rate change and a volume change are present (otherwise
+  // priceEffect is 0 and the "rate vs usage" headline is trivial). Keep both quantities > 0 so
+  // the drawer's priorRate = priorCost/priorQuantity is non-zero.
+  const unitRate = round2(0.5 + 2.5 * r); // 0.50 … 3.00 per unit
+  const priorUnitRate = round2(unitRate * (0.9 + 0.2 * seed(id + ':prior'))); // ±10% of current
+  const currentQuantity = round2(currentCost / unitRate);
+  const priorQuantity = round2(priorCost / priorUnitRate);
+
+  // Standard price-volume decomposition, residual for exactness. priceEffect isolates the part
+  // of the change caused by a different unit rate (evaluated at the current quantity);
+  // volumeEffect is whatever is left, so the two sum to costChange to the cent by construction.
+  const currentRate = currentQuantity > 0 ? currentCost / currentQuantity : 0;
+  const priorRate = priorQuantity > 0 ? priorCost / priorQuantity : 0;
+  const priceEffect = round2((currentRate - priorRate) * currentQuantity);
+  const volumeEffect = round2(costChange - priceEffect);
+
+  // Lines: 1–3 usage-type rows that reconcile to the resource totals. Allocate currentCost,
+  // priorCost and costChange across the lines with deterministic weights, round each to cents,
+  // and give the LAST line the residual so the sums are exact. Per line the price/volume split
+  // uses the same residual method so each line's invariant is exact too. Every retained line is
+  // kept well above the drawer's MIN_LINE_CHANGE (0.01), so none is filtered and the Breakdown
+  // (count) label matches the array length.
+  const vocab = DEMO_LINE_VOCAB[row.service] ?? [
+    { usageType: 'Usage', unit: '', description: 'Usage' },
+  ];
+  const n = Math.min(vocab.length, 1 + Math.floor(r * 3)); // 1 … 3, capped by the vocabulary
+  const baseWeights = [0.6, 0.3, 0.1].slice(0, n);
+  const weightTotal = baseWeights.reduce((s, w) => s + w, 0);
+  const weights = baseWeights.map((w) => w / weightTotal); // renormalised to sum to 1
+
+  const lines: ResourceLineChange[] = [];
+  let currentRemainder = currentCost;
+  let priorRemainder = priorCost;
+  let changeRemainder = costChange;
+  for (let i = 0; i < n; i++) {
+    const last = i === n - 1;
+    const lineCurrent = last ? round2(currentRemainder) : round2(currentCost * weights[i]);
+    const linePrior = last ? round2(priorRemainder) : round2(priorCost * weights[i]);
+    const lineChange = last ? round2(changeRemainder) : round2(costChange * weights[i]);
+    currentRemainder = round2(currentRemainder - lineCurrent);
+    priorRemainder = round2(priorRemainder - linePrior);
+    changeRemainder = round2(changeRemainder - lineChange);
+
+    // Per-line quantities from a line-specific rate, so the per-line rate decomposition is real
+    // and not a scaled copy of the resource-level one.
+    const lineRate = round2(0.5 + 2.5 * seed(id + ':' + vocab[i].usageType));
+    const linePriorRate = round2(lineRate * (0.9 + 0.2 * seed(id + ':' + vocab[i].usageType + ':prior')));
+    const lineCurrentQty = lineRate > 0 ? round2(lineCurrent / lineRate) : 0;
+    const linePriorQty = linePriorRate > 0 ? round2(linePrior / linePriorRate) : 0;
+    const lineCurRate = lineCurrentQty > 0 ? lineCurrent / lineCurrentQty : 0;
+    const linePrRate = linePriorQty > 0 ? linePrior / linePriorQty : 0;
+    const linePriceEffect = round2((lineCurRate - linePrRate) * lineCurrentQty);
+    const lineVolumeEffect = round2(lineChange - linePriceEffect);
+
+    lines.push({
+      description: vocab[i].description,
+      usageType: vocab[i].usageType,
+      unit: vocab[i].unit,
+      priorCost: linePrior,
+      currentCost: lineCurrent,
+      costChange: lineChange,
+      priorQuantity: linePriorQty,
+      currentQuantity: lineCurrentQty,
+      priceEffect: linePriceEffect,
+      volumeEffect: lineVolumeEffect,
+    });
+  }
+
+  // Daily series for the selected month (or the fixed demo month when none is passed — the
+  // drawer always passes one, but this keeps the fixture and its test deterministic). Spread
+  // currentCost across the days with a gentle deterministic wobble, round each to cents, and put
+  // the rounding residual on the last day so the series sums to currentCost exactly.
+  const ym = /^\d{4}-\d{2}$/.test(period ?? '') ? (period as string) : DEMO_CURRENT_MONTH;
+  const [yearStr, monthStr] = ym.split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const dayCount = daysInMonth(year, month);
+  const daily: DailyCost[] = [];
+  const perDay = currentCost / dayCount;
+  let dailyRemainder = currentCost;
+  for (let d = 1; d <= dayCount; d++) {
+    const last = d === dayCount;
+    // A ±12% wobble keyed to the day and the id, so the trend line is not flat but is stable.
+    const wobble = 1 + 0.12 * Math.sin((d / dayCount) * Math.PI * 2 + r * Math.PI * 2);
+    const cost = last ? round2(dailyRemainder) : round2(perDay * wobble);
+    dailyRemainder = round2(dailyRemainder - cost);
+    daily.push({ date: `${ym}-${String(d).padStart(2, '0')}`, cost });
+  }
+
+  return {
+    resourceId: id,
+    name: row.name,
+    service: row.service,
+    region: row.region,
+    instanceType: row.instanceType,
+    priorCost,
+    currentCost,
+    costChange,
+    priorQuantity,
+    currentQuantity,
+    priceEffect,
+    volumeEffect,
+    comparisonAvailable: true,
+    lines,
+    daily,
   };
 };
 

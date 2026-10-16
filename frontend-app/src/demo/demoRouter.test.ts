@@ -671,4 +671,88 @@ describe('demo router — CUR insights (ROLE_XAMOPS)', () => {
     expect(body.ambiguous).toEqual([]);
     expect(body.costs[0].cost).toBe(2540.40);
   });
+
+  // The per-resource drill-down drawer (Change/Breakdown/Trend tabs). Without a fixture the
+  // request fell through to the backend, 409'd, and the drawer showed "No detail available".
+  it('answers the resource drill-down scoped to the row that opened it', async () => {
+    const body = await readDemoBody(
+      '/api/xamops/cur-insights/resource-change/demo-aws-001'
+        + '?resourceId=i-0abc1001a2b3c4d5e'
+        + '&service=Amazon%20Elastic%20Compute%20Cloud&region=ap-south-1&period=2026-08',
+    );
+
+    // The exact shape the fetcher validates with isRecordWith(['lines','daily'],['costChange']).
+    expect(Array.isArray(body.lines)).toBe(true);
+    expect(Array.isArray(body.daily)).toBe(true);
+    expect(typeof body.costChange).toBe('number');
+
+    expect(body.comparisonAvailable).toBe(true);
+    // Reconciles to the demoTopResources row, so the panel matches the figure that opened it.
+    expect(Math.round(body.currentCost * 100)).toBe(Math.round(1621.35 * 100));
+    expect(body.service).toBe('Amazon Elastic Compute Cloud');
+    expect(body.region).toBe('ap-south-1');
+  });
+
+  it('keeps priceEffect + volumeEffect === costChange at the resource level', async () => {
+    const body = await readDemoBody(
+      '/api/xamops/cur-insights/resource-change/demo-aws-001'
+        + '?resourceId=arn%3Aaws%3Ards%3Aap-south-1%3A605134400000%3Adb%3Axammer-prod'
+        + '&service=Amazon%20Relational%20Database%20Service&region=ap-south-1&period=2026-08',
+    );
+
+    expect(Math.round((body.priceEffect + body.volumeEffect) * 100))
+      .toBe(Math.round(body.costChange * 100));
+  });
+
+  it('keeps the invariant per line and every line clears the min-change filter', async () => {
+    const body = await readDemoBody(
+      '/api/xamops/cur-insights/resource-change/demo-aws-001'
+        + '?resourceId=arn%3Aaws%3As3%3A%3A%3Axammer-prod-assets'
+        + '&service=Amazon%20Simple%20Storage%20Service&region=ap-south-1&period=2026-08',
+    );
+
+    expect(body.lines.length).toBeGreaterThanOrEqual(1);
+    expect(body.lines.length).toBeLessThanOrEqual(3);
+    for (const l of body.lines) {
+      expect(Math.round((l.priceEffect + l.volumeEffect) * 100))
+        .toBe(Math.round(l.costChange * 100));
+      // MIN_LINE_CHANGE = 0.01 in the drawer — a smaller line would be hidden and desync the count.
+      expect(Math.abs(l.costChange) >= 0.01 || Math.abs(l.currentCost) >= 0.01).toBe(true);
+    }
+  });
+
+  it('builds a daily series that reconciles to the current cost', async () => {
+    const body = await readDemoBody(
+      '/api/xamops/cur-insights/resource-change/demo-aws-001'
+        + '?resourceId=i-0abc1001a2b3c4d5e'
+        + '&service=Amazon%20Elastic%20Compute%20Cloud&region=ap-south-1&period=2026-08',
+    );
+
+    expect(body.daily.length).toBeGreaterThanOrEqual(28);
+    for (const d of body.daily) expect(d.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const sum = body.daily.reduce((s: number, d: { cost: number }) => s + d.cost, 0);
+    expect(Math.round(sum * 100)).toBe(Math.round(body.currentCost * 100));
+  });
+
+  it('answers two identical requests identically, so re-opening the drawer is stable', async () => {
+    const url = '/api/xamops/cur-insights/resource-change/demo-aws-001'
+      + '?resourceId=i-0abc1001a2b3c4d5e'
+      + '&service=Amazon%20Elastic%20Compute%20Cloud&region=ap-south-1&period=2026-08';
+    expect(await readDemoBody(url)).toEqual(await readDemoBody(url));
+  });
+
+  it('reads an unknown resource id as no data, so the drawer shows "No detail available"', async () => {
+    // A 200 body of "null" fails the fetcher's shape check → readShape returns null → empty state.
+    const body = await readDemoBody(
+      '/api/xamops/cur-insights/resource-change/demo-aws-001?resourceId=i-doesnotexist&period=2026-08',
+    );
+    expect(body).toBeNull();
+  });
+
+  it('reads a blank (account-level) id as no data', async () => {
+    const body = await readDemoBody(
+      '/api/xamops/cur-insights/resource-change/demo-aws-001?resourceId=&period=2026-08',
+    );
+    expect(body).toBeNull();
+  });
 });

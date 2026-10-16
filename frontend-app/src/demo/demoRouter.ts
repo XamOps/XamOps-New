@@ -164,6 +164,23 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(xamops.demoResourceIdentities(param(url, 'ids')));
   if (url.includes('/api/xamops/cur-insights/resource-costs'))
     return makeResponse(xamops.demoResourceCosts(param(url, 'ids')));
+  // The cost drawer's Change/Breakdown/Trend tabs. Reads the query string — the resource, its
+  // scope and the month ARE the request — through the router's own `param` helper, so the router
+  // stays a pure function of its argument (no `new URL`/`location`). `resource-change` shares no
+  // substring with `resource-identities` or `resource-costs` ('change' ≠ 'identities'/'costs'),
+  // so its position within this block is free. demoResourceChange(...) returns null for a blank
+  // or unknown id; makeResponse(null) sends the body "null", which fails the fetcher's
+  // isRecordWith(['lines','daily'],['costChange']) check and reads as "No detail available" — the
+  // same empty state a real account with no CUR shows.
+  if (url.includes('/api/xamops/cur-insights/resource-change'))
+    return makeResponse(
+      xamops.demoResourceChange(
+        param(url, 'resourceId'),
+        param(url, 'service') || undefined,
+        param(url, 'region') || undefined,
+        param(url, 'period') || undefined,
+      ),
+    );
 
   // Costs (with "s") — breakdown, historical trend, forecast
   if (url.includes('/api/xamops/costs/breakdown'))
