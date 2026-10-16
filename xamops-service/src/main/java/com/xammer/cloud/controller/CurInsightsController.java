@@ -642,6 +642,14 @@ public class CurInsightsController {
             // the generic "connect a CUR" text sends someone to reconnect one that is already working.
             CurSourceResolver.Coverage coverage = curSourceResolver.describeCoverage(
                     account, prior.atDay(1), current.atEndOfMonth(), false);
+            // A readable report that simply does not reach back to the earlier month is a different
+            // fact from "no CUR at all": the client hides the whole card on a 409, but here the
+            // report works and only this month-pair is out of range — so the selector that lets the
+            // reader pick an answerable pair must stay on screen. 422 keeps the card; the body
+            // carries the report's own start so the frontend can offer only the pairs it covers.
+            if ("RANGE_BEFORE_START".equals(coverage.reason())) {
+                return coverageUnanswerable(accountId, coverage);
+            }
             return noCurSource(accountId, coverage.message());
         }
 
@@ -1004,6 +1012,32 @@ public class CurInsightsController {
                 "error", "This report cannot answer " + e.question(),
                 "detail", String.valueOf(e.getMessage()),
                 "missingColumns", e.missingColumns()));
+    }
+
+    /**
+     * 422 — the report is readable but does not reach back to the earlier month this question
+     * needs.
+     *
+     * <p>Not 409: that means "this account has no CUR" and the client hides the whole card. This is
+     * a report that works and a month-pair that falls before it begins — the same distinction
+     * {@link #cannotAnswer} draws for a missing column, so the card and its month selector stay on
+     * screen. The body carries {@code reason} for the client to branch on and
+     * {@code earliestBillingPeriod} so it can offer only the pairs the report covers.
+     *
+     * <p>Logged at INFO rather than WARN. On a report younger than two months this is the expected
+     * answer for the earliest month it offers, a property of the export rather than a fault.
+     */
+    private ResponseEntity<Map<String, Object>> coverageUnanswerable(String accountId,
+                                                                     CurSourceResolver.Coverage coverage) {
+        logger.info("[CUR] Account {} asked to compare a month-pair before the report begins ({}) —"
+                        + " answerable only from {} onward",
+                accountId, coverage.reason(), coverage.earliestBillingPeriod());
+        Map<String, Object> body = new HashMap<>();
+        body.put("error", "This report does not reach back far enough to compare those two months");
+        body.put("detail", String.valueOf(coverage.message()));
+        body.put("reason", "RANGE_BEFORE_START");
+        body.put("earliestBillingPeriod", coverage.earliestBillingPeriod());
+        return ResponseEntity.unprocessableEntity().body(body);
     }
 
     private ResponseEntity<Map<String, String>> queryFailed(String accountId, Exception e) {

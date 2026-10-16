@@ -9,8 +9,11 @@ import com.xammer.cloud.dto.security.ResourceSecurityFindings.ProductError;
 import com.xammer.cloud.dto.security.ResourceSecurityFindings.ResourceSecurityFinding;
 import com.xammer.cloud.dto.security.ResourceSecurityFindings.ResourceSecurityGroup;
 import com.xammer.cloud.dto.security.ResourceSecurityFindings.SecurityDeepLink;
+import com.xammer.cloud.domain.UpwindPostureFinding;
 import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.CloudSecurityFindingRepository;
+import com.xammer.cloud.repository.UpwindPostureFindingRepository;
+import com.xammer.cloud.repository.UpwindVulnerabilityFindingRepository;
 import com.xammer.cloud.service.PerformanceInsightsService;
 import com.xammer.cloud.service.ResourceIdResolver;
 import com.xammer.cloud.service.ResourceIdResolver.CanonicalResource;
@@ -22,8 +25,11 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Reads what every SecOps surface knows about one resource and returns it grouped by product.
@@ -33,13 +39,14 @@ import java.util.Map;
  * {@code /resource-security} handler, which runs {@code denyIfNotEntitled(accountId)} on the request
  * thread <b>before</b> {@code insightCache.getOrCompute} invokes {@link #aggregate}. So the supplier
  * only ever runs for an account the caller holds; it resolves that one {@link CloudAccount} once and
- * reuses it across all three product reads, each of which needs the account in a different form (the
- * internal row id for Security Center and ComplianceOps, the 12-digit AWS id for Performance).
+ * reuses it across all four product reads, each of which needs the account in a different form (the
+ * internal row id for Security Center and ComplianceOps, the 12-digit AWS id for Performance and for
+ * XamSecure/Upwind, whose rows are keyed by that 12-digit id and the resource ARN).
  *
  * <h2>Per-product isolation</h2>
  * Each product read is wrapped in its own try/catch. A product that throws becomes an
  * {@code errors[]} entry rather than failing the whole response — one surface being down must not
- * blank the other two. The Performance read in particular can trigger a cold multi-region scan; its
+ * blank the others. The Performance read in particular can trigger a cold multi-region scan; its
  * try/catch is also what time-boxes that into an error entry instead of a 500.
  *
  * <h2>Best-effort ComplianceOps match</h2>
@@ -66,27 +73,34 @@ public class ResourceSecurityAggregationService {
     static final String PRODUCT_SECURITY_CENTER = "SECURITY_CENTER";
     static final String PRODUCT_COMPLIANCEOPS = "COMPLIANCEOPS";
     static final String PRODUCT_PERFORMANCE = "PERFORMANCE";
+    static final String PRODUCT_XAMSECURE = "XAMSECURE";
 
     private final CloudAccountRepository cloudAccountRepository;
     private final ResourceIdResolver idResolver;
     private final CloudSecurityFindingRepository securityFindingRepository;
     private final ComplianceOpsService complianceOpsService;
     private final PerformanceInsightsService performanceInsightsService;
+    private final UpwindPostureFindingRepository upwindPostureRepository;
+    private final UpwindVulnerabilityFindingRepository upwindVulnerabilityRepository;
 
     public ResourceSecurityAggregationService(CloudAccountRepository cloudAccountRepository,
                                               ResourceIdResolver idResolver,
                                               CloudSecurityFindingRepository securityFindingRepository,
                                               ComplianceOpsService complianceOpsService,
-                                              PerformanceInsightsService performanceInsightsService) {
+                                              PerformanceInsightsService performanceInsightsService,
+                                              UpwindPostureFindingRepository upwindPostureRepository,
+                                              UpwindVulnerabilityFindingRepository upwindVulnerabilityRepository) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.idResolver = idResolver;
         this.securityFindingRepository = securityFindingRepository;
         this.complianceOpsService = complianceOpsService;
         this.performanceInsightsService = performanceInsightsService;
+        this.upwindPostureRepository = upwindPostureRepository;
+        this.upwindVulnerabilityRepository = upwindVulnerabilityRepository;
     }
 
     /**
-     * Aggregates the three product reads for one resource into a normalised, grouped response.
+     * Aggregates the four product reads for one resource into a normalised, grouped response.
      *
      * @param accountId  the 12-digit AWS account id (already entitled by the controller prologue)
      * @param resourceId the CUR identifier of the resource, as the drawer holds it
@@ -114,6 +128,13 @@ public class ResourceSecurityAggregationService {
             if (canonical != null) {
                 matched = true;
                 shortIdCandidate = canonical.resourceId();
+                // A short-id resource (S3/EC2/EBS) has no ARN in hand, but the inventory row does.
+                // Carry it so the ARN-keyed products (Security Center, ComplianceOps) can match.
+                // When the raw id already is an ARN we keep it verbatim; the inventory ARN stays a
+                // fallback used only for short ids, and is null-safe when the row has none.
+                if (arnCandidate == null && canonical.arn() != null) {
+                    arnCandidate = canonical.arn();
+                }
             }
         } catch (RuntimeException e) {
             logger.warn("[resource-security] Could not resolve resource {} for account {}: {}",
@@ -127,6 +148,7 @@ public class ResourceSecurityAggregationService {
         groups.add(securityCenterGroup(account, arnCandidate, errors));
         groups.add(complianceOpsGroup(account, arnCandidate, errors));
         groups.add(performanceGroup(account, shortIdCandidate, errors));
+        groups.add(xamSecureGroup(account, arnCandidate, shortIdCandidate, errors));
 
         // Drop empty groups; the client renders only the products that had something to say.
         groups.removeIf(group -> group == null || group.getFindings().isEmpty());
@@ -254,6 +276,98 @@ public class ResourceSecurityAggregationService {
                     account.getAwsAccountId(), e.getMessage());
             errors.add(new ProductError(PRODUCT_PERFORMANCE,
                     "Performance insights could not be read."));
+        }
+        return group;
+    }
+
+    /**
+     * XamSecure (Upwind) findings — the posture and vulnerability rows this resource carries.
+     *
+     * <p>Upwind rows are keyed by the <b>12-digit AWS account id</b> ({@code cloud_account_id}) and
+     * the resource's <b>full ARN</b> ({@code resource_id}), so this is ARN-primary like Security
+     * Center: the {@code arnCandidate} is tried first and {@code shortIdCandidate} only as a
+     * secondary key (for rows that may store a short id). When neither is present the group
+     * contributes nothing.
+     *
+     * <p>Posture emits one row per matched failing finding. Vulnerability emits at most ONE summary
+     * row — {@code "<N> vulnerabilities (<c> critical, <h> high)"} at the worst severity present —
+     * built from a per-resource {@code (severity, count)} breakdown so the ~727K-row vulnerability
+     * table is never loaded. Both deep-link to the XamSecure page's own tabs with no query, because
+     * those tabs are server-filtered and carry no read-only {@code ?resource=} param to thread.
+     */
+    private ResourceSecurityGroup xamSecureGroup(CloudAccount account, String arnCandidate,
+                                                 String shortIdCandidate, List<ProductError> errors) {
+        ResourceSecurityGroup group = new ResourceSecurityGroup(
+                PRODUCT_XAMSECURE, "XamSecure", "/xamsecure", new ArrayList<>());
+
+        // Build the ARN-primary match keys: the ARN first, then the short id as a secondary key
+        // when it is a distinct, non-blank value. No ARN and no usable short id → nothing to read.
+        List<String> matchKeys = new ArrayList<>();
+        if (arnCandidate != null) {
+            matchKeys.add(arnCandidate);
+        }
+        if (shortIdCandidate != null && !shortIdCandidate.isBlank()
+                && !shortIdCandidate.equals(arnCandidate)) {
+            matchKeys.add(shortIdCandidate);
+        }
+        if (matchKeys.isEmpty()) {
+            return group;
+        }
+
+        try {
+            List<String> accountIds = List.of(account.getAwsAccountId());
+
+            // POSTURE: one finding per matched failing row, de-duplicated by Upwind id across keys.
+            Set<String> seenPostureIds = new LinkedHashSet<>();
+            for (String key : matchKeys) {
+                List<UpwindPostureFinding> rows =
+                        upwindPostureRepository.findFailingByResource(accountIds, key);
+                for (UpwindPostureFinding row : rows) {
+                    if (row.getUpwindId() != null && !seenPostureIds.add(row.getUpwindId())) {
+                        continue;
+                    }
+                    String title = row.getCheckTitle() != null ? row.getCheckTitle() : row.getTitle();
+                    SecurityDeepLink link = new SecurityDeepLink("/xamsecure/posture", Map.of());
+                    group.getFindings().add(new ResourceSecurityFinding(
+                            title,
+                            SecuritySeverity.normalize(row.getSeverity()),
+                            row.getResourceType(),
+                            link));
+                }
+            }
+
+            // VULNERABILITY: merge the per-resource severity breakdown across keys, summing counts
+            // per normalised severity. Never loads an entity — only (severity, count) pairs.
+            Map<String, Long> bySeverity = new LinkedHashMap<>();
+            for (String key : matchKeys) {
+                List<Object[]> breakdown =
+                        upwindVulnerabilityRepository.countOpenBySeverityForResource(accountIds, key);
+                for (Object[] pair : breakdown) {
+                    String severity = SecuritySeverity.normalize((String) pair[0]);
+                    long count = ((Number) pair[1]).longValue();
+                    bySeverity.merge(severity, count, Long::sum);
+                }
+            }
+            long total = bySeverity.values().stream().mapToLong(Long::longValue).sum();
+            if (total > 0) {
+                long critical = bySeverity.getOrDefault(SecuritySeverity.CRITICAL, 0L);
+                long high = bySeverity.getOrDefault(SecuritySeverity.HIGH, 0L);
+                String title = String.format("%d vulnerabilities (%d critical, %d high)",
+                        total, critical, high);
+                SecurityDeepLink link = new SecurityDeepLink("/xamsecure/vulnerabilities", Map.of());
+                group.getFindings().add(new ResourceSecurityFinding(
+                        title,
+                        SecuritySeverity.worstOf(bySeverity.keySet()),
+                        null,
+                        link));
+            }
+
+            sortBySeverity(group);
+        } catch (RuntimeException e) {
+            logger.warn("[resource-security] XamSecure read failed for account {}: {}",
+                    account.getAwsAccountId(), e.getMessage());
+            errors.add(new ProductError(PRODUCT_XAMSECURE,
+                    "XamSecure findings could not be read."));
         }
         return group;
     }

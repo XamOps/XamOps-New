@@ -124,20 +124,66 @@ export interface PriceVolumeChange {
 }
 
 /**
+ * The report is readable but does not reach back to the earlier month of the pair asked about.
+ *
+ * A distinct value from both the list (an answer) and null (no usable report at all), because the
+ * section renders it differently: it keeps the card and names the real limit — "this report starts
+ * at September 2026, so it can't compare August" — rather than hiding the card or showing the
+ * generic "needs usage quantity" banner.
+ */
+export interface PriceVolumeCoverageGap {
+  unavailable: 'coverage';
+  /** The backend's own sentence naming the limit. */
+  detail: string;
+  /** How far back the report goes, as `YYYY-MM`, when known. */
+  earliest?: string;
+}
+
+/**
  * Compares a month against the one before it, splitting each service's change into rate
  * and usage.
  *
- * Null means "no report for this account" — the section should not render.
+ * Returns the list on success. A 422 whose body says `reason === 'RANGE_BEFORE_START'` is a
+ * readable report that cannot reach the earlier month — returned as a {@link PriceVolumeCoverageGap}
+ * so the section can keep the card and explain the limit. Every other non-OK response (409 "no
+ * report", 502, or a body of the wrong shape) is null — the section hides itself, exactly as before.
  */
 export const fetchPriceVsVolume = async (
   accountId: string,
   period?: string,
-): Promise<PriceVolumeChange[] | null> => {
+): Promise<PriceVolumeChange[] | PriceVolumeCoverageGap | null> => {
   const query = period ? `?period=${encodeURIComponent(period)}` : '';
   const res = await apiFetch(
     `/api/xamops/cur-insights/price-vs-volume/${encodeURIComponent(accountId)}${query}`,
   );
-  if (!res.ok) return null;
+  if (!res.ok) {
+    // The one non-OK status that is not "hide the card": a readable report whose coverage does not
+    // reach the earlier month. Any other error, or a 422 that is not this coverage reason, stays
+    // null so the existing hide-the-section behaviour is unchanged.
+    if (res.status === 422) {
+      let body: unknown;
+      try {
+        body = await res.json();
+      } catch {
+        return null;
+      }
+      if (
+        isRecord(body) &&
+        body.reason === 'RANGE_BEFORE_START' &&
+        typeof body.detail === 'string'
+      ) {
+        return {
+          unavailable: 'coverage',
+          detail: body.detail,
+          earliest:
+            typeof body.earliestBillingPeriod === 'string'
+              ? body.earliestBillingPeriod
+              : undefined,
+        };
+      }
+    }
+    return null;
+  }
   return readShape<PriceVolumeChange[]>(res, isList);
 };
 
@@ -232,6 +278,13 @@ export interface ReportCapabilities {
   amortizedDetail: string;
   /** Why quantities carry no unit. Empty when they do. */
   unitDetail: string;
+  /**
+   * How far back the report goes, as `YYYY-MM`, or absent when that is not known yet.
+   *
+   * Used by the "why spend changed" section to offer only the month-pairs the report can actually
+   * answer, instead of letting the reader pick one it would have to refuse.
+   */
+  earliestBillingPeriod?: string;
 }
 
 /**

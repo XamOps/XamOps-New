@@ -302,6 +302,35 @@ class CurInsightsControllerTest {
     }
 
     @Test
+    @DisplayName("Price vs volume is 422, not 409, when the report starts after the earlier month")
+    void priceVsVolumeIsFourTwentyTwoWhenReportStartsAfterTheEarlierMonth() {
+        /*
+         * The user-visible defect this FEAT fixes: a readable report that simply does not reach
+         * back a second month answered 409, the client hid the whole "why spend changed" card, and
+         * the reader saw nothing with no way to pick a month-pair the report could answer. The
+         * coverage reason RANGE_BEFORE_START is the one case that must become a 422 so the card and
+         * its selector stay — and the body has to carry the report's own start so the frontend can
+         * offer only the answerable pairs. Every other empty reason stays on 409 (see the test
+         * above, which uses STARTS_LATER).
+         */
+        allow();
+        when(cloudAccountRepository.findByAwsAccountId(ACCOUNT_ID)).thenReturn(List.of(account));
+        when(curSourceResolver.resolve(any(), any(), any())).thenReturn(Optional.empty());
+        when(curSourceResolver.describeCoverage(any(), any(), any(), anyBoolean()))
+                .thenReturn(new CurSourceResolver.Coverage(Optional.empty(), "RANGE_BEFORE_START",
+                        "This report starts at 2026-09, which is after the start of the range you"
+                                + " picked.", "2026-09", null));
+
+        ResponseEntity<?> response = controller.priceVsVolume(ACCOUNT_ID, "2026-09");
+
+        assertEquals(422, response.getStatusCode().value());
+        assertEquals("RANGE_BEFORE_START", body(response).get("reason"));
+        assertEquals("2026-09", body(response).get("earliestBillingPeriod"));
+        assertTrue(String.valueOf(body(response).get("detail"))
+                .contains("This report starts at 2026-09"), String.valueOf(body(response).get("detail")));
+    }
+
+    @Test
     @DisplayName("A report that cannot answer the amortized basis is 422, naming the columns")
     void aReportThatCannotAnswerIsFourTwentyTwo() {
         allow();
@@ -344,7 +373,7 @@ class CurInsightsControllerTest {
         when(metricsService.getReportCapabilities(any(), any()))
                 .thenReturn(new CurAdvancedMetricsService.ReportCapabilities(true, List.of(), false,
                         "", "This export does not carry pricing_unit, so quantities are shown"
-                        + " without a unit."));
+                        + " without a unit.", "2026-01"));
 
         ResponseEntity<?> response = controller.capabilities(ACCOUNT_ID, "2026-08");
 
@@ -367,7 +396,7 @@ class CurInsightsControllerTest {
         resolves();
         when(metricsService.getReportCapabilities(any(), any()))
                 .thenReturn(new CurAdvancedMetricsService.ReportCapabilities(true, List.of(), true,
-                        "", ""));
+                        "", "", "2026-01"));
 
         controller.capabilities(ACCOUNT_ID, "2026-08");
         verifyNoInteractions(insightCache);
@@ -487,7 +516,8 @@ class CurInsightsControllerTest {
                         Map.of("i-0abc", List.of("i-0abc")),
                         Map.of("i-0abc", List.of("i-0abc")),
                         Map.of("i-0abc", new ResourceIdResolver.CanonicalResource(
-                                "i-0abc", "EC2 Instance", "prod-web-01", "ap-south-1")),
+                                "i-0abc", "EC2 Instance", "prod-web-01", "ap-south-1",
+                                "arn:aws:ec2:ap-south-1:123456789012:instance/i-0abc")),
                         Set.of()));
 
         ResponseEntity<?> response = controller.resourceIdentities(ACCOUNT_ID, "i-0abc");

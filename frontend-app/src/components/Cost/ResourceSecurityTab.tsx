@@ -150,7 +150,7 @@ const ResourceSecurityTab: React.FC<ResourceSecurityTabProps> = ({
           No findings reference this resource
         </p>
         <p className="text-[11.5px] text-[rgba(0,0,0,0.4)] mt-1 max-w-[420px] mx-auto leading-relaxed">
-          Nothing in Security Center, ComplianceOps or Performance Insights points at this resource.
+          Nothing in Security Center, ComplianceOps, Performance Insights or XamSecure points at this resource.
         </p>
       </div>
     );

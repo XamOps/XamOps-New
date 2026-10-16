@@ -182,7 +182,8 @@ class ResourceCostJoinTest {
                 Map.of("xammer-prod", List.of("xammer-prod", "arn:aws:rds:ap-south-1:605:db:xammer-prod"),
                         "igw-001", List.of("igw-001")),
                 Map.of("xammer-prod", new ResourceIdResolver.CanonicalResource(
-                        "xammer-prod", "RDS Instance", "xammer-prod", "ap-south-1")),
+                        "xammer-prod", "RDS Instance", "xammer-prod", "ap-south-1",
+                        "arn:aws:rds:ap-south-1:605:db:xammer-prod")),
                 Set.of());
 
         ResourceCostJoin.ResourceIdentities identities =

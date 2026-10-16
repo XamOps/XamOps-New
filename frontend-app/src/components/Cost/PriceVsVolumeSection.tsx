@@ -1,8 +1,22 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Icon } from '@iconify/react';
-import { fetchPriceVsVolume, type PriceVolumeChange } from '../../api/curInsightsApi';
+import {
+  fetchPriceVsVolume,
+  fetchReportCapabilities,
+  type PriceVolumeChange,
+  type PriceVolumeCoverageGap,
+} from '../../api/curInsightsApi';
 import { useMoneyIn } from './costCurrency';
 import { useCurInsight } from '../../hooks/useCurInsight';
+
+/** The fetcher may now answer with a coverage gap, which the AWS default returns and the card renders. */
+type PriceVsVolumeResult = PriceVolumeChange[] | PriceVolumeCoverageGap | null;
+
+/** True when a fetch result is the readable-but-out-of-coverage case rather than rows or null. */
+const isCoverageGap = (
+  result: PriceVsVolumeResult | undefined,
+): result is PriceVolumeCoverageGap =>
+  !!result && !Array.isArray(result) && result.unavailable === 'coverage';
 
 /**
  * Explains *why* spend changed, by splitting each service's movement into the part caused
@@ -25,7 +39,7 @@ interface PriceVsVolumeSectionProps {
    * Where the comparison comes from. Defaults to the AWS Cost and Usage Report; GCP and Azure pass
    * their own fetchers, which return the identical payload shape.
    */
-  fetcher?: (accountId: string, period?: string) => Promise<PriceVolumeChange[] | null>;
+  fetcher?: (accountId: string, period?: string) => Promise<PriceVsVolumeResult>;
   /** Cache-key discriminator, so two providers never share an entry for the same id. */
   insightName?: string;
   /**
@@ -93,25 +107,54 @@ interface Comparison {
  * fewer days, and no amount of labelling stops people reading it as a real drop. Offering it in a
  * dropdown would be offering a reading that is wrong by construction.
  */
-const comparisonOptions = (): Comparison[] => {
+const comparisonOptions = (earliest?: string): Comparison[] => {
   const out: Comparison[] = [];
   const later = new Date();
   later.setDate(1);
   // Start at last month, not this one.
   later.setMonth(later.getMonth() - 1);
 
+  // The first month the report covers, as a `YYYY-MM` string comparison. A pair is answerable only
+  // when its EARLIER month is at or after this — the endpoint needs both months inside coverage, and
+  // the earlier one is the binding end. When the report's start is unknown (no AWS capabilities, or
+  // a report whose coverage has not been established) every pair is offered and the backend's 422
+  // explains any that turn out to be out of range.
+  const earliestKey = earliest && /^\d{4}-\d{2}$/.test(earliest) ? earliest : null;
+
   for (let i = 0; i < MONTHS_OFFERED; i++) {
     const earlier = new Date(later);
     earlier.setMonth(earlier.getMonth() - 1);
+    const earlierKey = `${earlier.getFullYear()}-${String(earlier.getMonth() + 1).padStart(2, '0')}`;
+    const monthYear = (d: Date) =>
+      d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    if (!earliestKey || earlierKey >= earliestKey) {
+      out.push({
+        value: `${later.getFullYear()}-${String(later.getMonth() + 1).padStart(2, '0')}`,
+        label: `${monthYear(later)} vs ${monthYear(earlier)}`,
+        current: later.toLocaleDateString('en-US', { month: 'long' }),
+        prior: earlier.toLocaleDateString('en-US', { month: 'long' }),
+      });
+    }
+    later.setMonth(later.getMonth() - 1);
+  }
+  // A report whose start is newer than every earlier-month in the window leaves nothing answerable.
+  // Keep the newest pair anyway so the card has a valid selection to render against — the backend
+  // 422s it and the coverage banner explains why, rather than the component crashing on an empty
+  // selector. Only reachable when the report begins within the last month or two.
+  if (out.length === 0) {
+    const newer = new Date();
+    newer.setDate(1);
+    newer.setMonth(newer.getMonth() - 1);
+    const older = new Date(newer);
+    older.setMonth(older.getMonth() - 1);
     const monthYear = (d: Date) =>
       d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
     out.push({
-      value: `${later.getFullYear()}-${String(later.getMonth() + 1).padStart(2, '0')}`,
-      label: `${monthYear(later)} vs ${monthYear(earlier)}`,
-      current: later.toLocaleDateString('en-US', { month: 'long' }),
-      prior: earlier.toLocaleDateString('en-US', { month: 'long' }),
+      value: `${newer.getFullYear()}-${String(newer.getMonth() + 1).padStart(2, '0')}`,
+      label: `${monthYear(newer)} vs ${monthYear(older)}`,
+      current: newer.toLocaleDateString('en-US', { month: 'long' }),
+      prior: older.toLocaleDateString('en-US', { month: 'long' }),
     });
-    later.setMonth(later.getMonth() - 1);
   }
   return out;
 };
@@ -136,8 +179,40 @@ const PriceVsVolumeSection: React.FC<PriceVsVolumeSectionProps> = ({
    * "did that rate rise happen in August or has it been running since June" was unanswerable here,
    * which is the obvious next question after reading a single month's split.
    */
-  const comparisons = useMemo(comparisonOptions, []);
-  const [period, setPeriod] = useState(comparisons[0].value);
+  /*
+   * How far back the report reaches, when it can be known.
+   *
+   * Fetched from the AWS /capabilities endpoint, which GCP and Azure do not have — so it is asked
+   * for ONLY on the default AWS fetcher. When a caller passes its own fetcher (GCP/Azure), the
+   * capabilities probe is skipped and every pair is offered, because there is no equivalent endpoint
+   * to narrow them and the backend still refuses any genuinely out-of-range pair.
+   */
+  const isAwsDefault = fetcher === fetchPriceVsVolume;
+  const [earliest, setEarliest] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (!accountId || !isAwsDefault) {
+      setEarliest(undefined);
+      return;
+    }
+    let cancelled = false;
+    void fetchReportCapabilities(accountId).then((caps) => {
+      if (!cancelled) setEarliest(caps?.earliestBillingPeriod);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, isAwsDefault]);
+
+  // Only the month-pairs the report can answer, newest first; all twelve when the start is unknown.
+  const comparisons = useMemo(() => comparisonOptions(earliest), [earliest]);
+  const [period, setPeriod] = useState(comparisons[0]?.value ?? '');
+  // Keep the selection valid as the offered pairs change (e.g. once earliest arrives): fall back to
+  // the newest covered pair when the current choice is no longer offered.
+  useEffect(() => {
+    if (comparisons.length > 0 && !comparisons.some((c) => c.value === period)) {
+      setPeriod(comparisons[0].value);
+    }
+  }, [comparisons, period]);
   const selected = comparisons.find((c) => c.value === period) ?? comparisons[0];
 
   /**
@@ -167,10 +242,15 @@ const PriceVsVolumeSection: React.FC<PriceVsVolumeSectionProps> = ({
     fetcher,
   );
   const loading = Boolean(accountId) && isPending;
+  // The report is readable but does not reach the earlier month of this pair. A distinct case from
+  // both rows and null: the card stays and explains the real limit, rather than hiding or blaming a
+  // missing usage quantity. Can still happen on an answerable-looking pair when the report's start
+  // is unknown and the backend refuses it.
+  const coverageGap = isError ? null : isCoverageGap(data) ? data : null;
   // Movements under a dollar are rounding on a service costing pennies, not a story.
   const rows = useMemo(
     () =>
-      isError || !data
+      isError || !data || isCoverageGap(data)
         ? null
         : data.filter((r) => Math.abs(r.costChange) >= MIN_CHANGE).slice(0, MAX_ROWS),
     [data, isError],
@@ -190,9 +270,25 @@ const PriceVsVolumeSection: React.FC<PriceVsVolumeSectionProps> = ({
    * An empty list is a third case — the source answered and nothing moved by more than a unit — and is
    * always kept on screen, because the month selector is the thing the reader needs next.
    */
-  if (!rows && !heading) return null;
+  // A coverage gap keeps the card even as a standalone section: unlike the true "cannot answer this
+  // at all" null, a different month-pair would work, and the selector that reaches one is the whole
+  // point of staying on screen.
+  if (!rows && !coverageGap && !heading) return null;
 
   const totalChange = (rows ?? []).reduce((sum, r) => sum + r.costChange, 0);
+
+  // "September 2026" from "2026-09", for the coverage sentence; the raw string if it will not parse.
+  const earliestLabel = (ym?: string): string => {
+    if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return ym ?? '';
+    const [y, m] = ym.split('-').map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  };
+  const coverageSentence = coverageGap
+    ? coverageGap.earliest
+      ? `This report starts at ${earliestLabel(coverageGap.earliest)}, so it can't compare ${selected.prior}. Pick a later pair the report covers.`
+      : coverageGap.detail ||
+        'This report does not reach back far enough to compare those two months. Pick a later pair.'
+    : null;
 
   return (
     <div className="bg-white border border-[rgba(0,0,0,0.12)] rounded-xl shadow-sm p-6">
@@ -233,8 +329,26 @@ const PriceVsVolumeSection: React.FC<PriceVsVolumeSectionProps> = ({
         </div>
       </div>
 
-      {/* The billing source cannot answer this at all. Only reachable as a tab — see above. */}
-      {!rows && (
+      {/* The report is readable but does not reach the earlier month of this pair. Names the real
+          limit and points at the selector, rather than the generic "usage quantity" banner below —
+          which would be a claim about the billing source when the truth is the report's age. */}
+      {coverageGap && (
+        <div className="mt-4 flex items-start gap-2.5 px-3.5 py-3 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.07)] rounded-lg">
+          <Icon
+            icon="mdi:information-outline"
+            width={15}
+            className="text-[rgba(0,0,0,0.35)] flex-shrink-0 mt-0.5"
+          />
+          <div className="text-[11.5px] text-[rgba(0,0,0,0.55)] leading-relaxed">
+            {coverageSentence}
+          </div>
+        </div>
+      )}
+
+      {/* The billing source cannot answer this at all — no report, no readable export, a scope that
+          will not aggregate usage quantity. Distinct from the coverage case above: no month would
+          work. Only reachable as a tab — see above. */}
+      {!rows && !coverageGap && (
         <div className="mt-4 flex items-start gap-2.5 px-3.5 py-3 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.07)] rounded-lg">
           <Icon
             icon="mdi:information-outline"

@@ -34,13 +34,16 @@ class CurCostDataSourceTest {
     @Mock
     private CurAthenaQueryService athena;
 
+    @Mock
+    private CurColumnCatalog columnCatalog;
+
     private CurCostDataSource dataSource;
     private CurSource source;
     private CloudAccount account;
 
     @BeforeEach
     void setUp() {
-        dataSource = new CurCostDataSource(athena);
+        dataSource = new CurCostDataSource(athena, columnCatalog);
 
         source = new CurSource();
         source.setId(1L);
@@ -54,6 +57,16 @@ class CurCostDataSourceTest {
         account.setProvider("AWS");
     }
 
+    /**
+     * A report carrying product_product_name, the default service-name column.
+     *
+     * <p>Stubbed per test rather than in {@code setUp}: {@code MockitoExtension} is strict about
+     * unused stubs, so a test whose path never resolves the service column must not declare it.
+     */
+    private void everyColumnPresent() {
+        when(columnCatalog.has(any(), any(), anyString())).thenReturn(true);
+    }
+
     private String captureSql(Runnable call) {
         when(athena.query(any(), any(), anyString())).thenReturn(List.of());
         call.run();
@@ -65,6 +78,7 @@ class CurCostDataSourceTest {
     @Test
     @DisplayName("Every query filters on the account — this is the tenant boundary")
     void everyQueryScopesToTheAccount() {
+        everyColumnPresent();
         LocalDate start = LocalDate.of(2026, 8, 1);
         LocalDate end = LocalDate.of(2026, 8, 31);
 
@@ -171,6 +185,7 @@ class CurCostDataSourceTest {
     @Test
     @DisplayName("SERVICE groups by product name, matching the label Cost Explorer returns")
     void serviceGroupsByProductName() {
+        everyColumnPresent();
         String sql = captureSql(() -> dataSource.getCostBreakdown(source, account, "SERVICE", null,
                 LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31)));
         assertTrue(sql.contains("product_product_name"), sql);
@@ -195,6 +210,7 @@ class CurCostDataSourceTest {
     @Test
     @DisplayName("A quote in a service name is escaped, not passed through")
     void serviceFilterEscapesQuotes() {
+        everyColumnPresent();
         String sql = captureSql(() -> dataSource.getDailyTrend(source, account,
                 LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 5), "O'Reilly", null));
         assertTrue(sql.contains("'O''Reilly'"), sql);
@@ -203,6 +219,7 @@ class CurCostDataSourceTest {
     @Test
     @DisplayName("\"ALL\" means unfiltered, matching how the Cost Explorer path reads it")
     void allMeansNoFilter() {
+        everyColumnPresent();
         String sql = captureSql(() -> dataSource.getDailyTrend(source, account,
                 LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 5), "ALL", "ALL"));
         assertTrue(!sql.contains("product_product_name ="), sql);
@@ -230,6 +247,7 @@ class CurCostDataSourceTest {
     @Test
     @DisplayName("Region-less charges get the same label the Cost Explorer path uses")
     void blankRegionNormalised() {
+        everyColumnPresent();
         when(athena.query(any(), any(), anyString())).thenReturn(List.of(
                 Map.of("svc", "AWS Support", "rgn", "", "cost", "100.0")));
 

@@ -255,6 +255,9 @@ class CurAdvancedMetricsServiceTest {
     @Test
     @DisplayName("Price and volume effects sum to the total cost change")
     void priceAndVolumeEffectsReconcile() {
+        // Exercises the default product_product_name column: a CSV CUR carries it, so the SQL is
+        // byte-identical to before the CUR 2.0 service-name guard.
+        everyColumnPresent();
         // Prior: 100 units at $1 = $100. Current: 150 units at $1.20 = $180.
         when(athena.query(any(), any(), anyString()))
                 .thenReturn(List.of(Map.of("svc", "Amazon S3", "cost", "180.0", "qty", "150.0")))
@@ -274,6 +277,7 @@ class CurAdvancedMetricsServiceTest {
     @Test
     @DisplayName("A service that is new this period is pure volume, not a rate change")
     void newServiceIsAllVolume() {
+        everyColumnPresent();
         when(athena.query(any(), any(), anyString()))
                 .thenReturn(List.of(Map.of("svc", "AWS Lambda", "cost", "40.0", "qty", "80.0")))
                 .thenReturn(List.of());
@@ -287,6 +291,30 @@ class CurAdvancedMetricsServiceTest {
         assertEquals(0.0, change.priceEffect(), 0.0001);
         assertEquals(40.0, change.volumeEffect(), 0.0001);
         assertEquals(40.0, change.costChange(), 0.0001);
+    }
+
+    @Test
+    @DisplayName("A CUR 2.0 export without product_product_name falls back to product_servicecode")
+    void serviceGroupingFallsBackToProductServicecodeWhenProductNameAbsent() {
+        // CUR 2.0 renamed product_product_name to product_servicecode, and the Data Export this
+        // product ships selects the new name. Naming the old column unguarded failed in Athena's
+        // analysis phase — a 502 on every service-grouping tab. The guard groups by whichever the
+        // report actually carries.
+        presentExcept("product_product_name");
+        when(athena.query(any(), any(), contains("product_servicecode"))).thenAnswer(invocation -> {
+            String sql = invocation.getArgument(2, String.class);
+            assertTrue(sql.contains("product_servicecode AS svc"), sql);
+            assertTrue(sql.contains("GROUP BY product_servicecode"), sql);
+            assertTrue(!sql.contains("product_product_name"),
+                    "no product_product_name reference should survive when the report has none:\n" + sql);
+            return List.of(Map.of("svc", "AmazonEC2", "cost", "10.0", "qty", "5.0"));
+        });
+
+        List<CurAdvancedMetricsService.PriceVolumeChange> changes = service.getPriceVsVolume(
+                source, account, start, end,
+                LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31));
+
+        assertEquals("AmazonEC2", changes.get(0).service());
     }
 
     @Test

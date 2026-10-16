@@ -203,6 +203,25 @@ public class CurAdvancedMetricsService {
         this.columnCatalog = columnCatalog;
     }
 
+    /**
+     * The column that carries the service display name, guarded against the CUR 2.0 rename.
+     *
+     * <p>Legacy CUR and a CSV export carry {@code product_product_name}; a CUR 2.0 Data Export
+     * renamed it to {@code product_servicecode}, and the CloudFormation export this product ships
+     * selects the new name. Athena fails a query during analysis when it names a column the table
+     * lacks, so an unguarded {@code product_product_name} 502'd every service-grouping query on a
+     * Parquet-Data-Export-backed account. Same precedent as the {@code pricing_unit} guard.
+     *
+     * <p>{@code product_product_name} stays the default so a CSV CUR that carries it is byte-identical
+     * to before this change. Resolve once per method and reuse it in SELECT, GROUP BY, any predicate
+     * and any window PARTITION BY so they always agree.
+     */
+    private String serviceNameColumn(CurSource source, CloudAccount account) {
+        return columnCatalog.has(source, account, "product_product_name")
+                ? "product_product_name"
+                : "product_servicecode";
+    }
+
     // ── Effective savings rate ──────────────────────────────────────────────────
 
     /**
@@ -405,7 +424,7 @@ public class CurAdvancedMetricsService {
         }
 
         return new ReportCapabilities(amortizedAvailable, missingAmortized, unitAvailable,
-                amortizedDetail, unitDetail);
+                amortizedDetail, unitDetail, source.getEarliestBillingPeriod());
     }
 
     // ── Price vs volume ─────────────────────────────────────────────────────────
@@ -451,7 +470,8 @@ public class CurAdvancedMetricsService {
 
     private Map<String, double[]> usageAndCostByService(CurSource source, CloudAccount account,
                                                         LocalDate start, LocalDate end) {
-        String sql = "SELECT product_product_name AS svc,"
+        String svcColumn = serviceNameColumn(source, account);
+        String sql = "SELECT " + svcColumn + " AS svc,"
                 + " SUM(" + CurSql.numericExpr(source, "line_item_unblended_cost") + ") AS cost,"
                 + " SUM(" + CurSql.numericExpr(source, "line_item_usage_amount") + ") AS qty"
                 + " FROM " + source.qualifiedTable()
@@ -461,7 +481,7 @@ public class CurAdvancedMetricsService {
                 // Usage lines only: a tax or credit row has a cost but no comparable
                 // quantity, and averaging it into a unit rate is meaningless.
                 + " AND line_item_line_item_type = 'Usage'"
-                + " GROUP BY product_product_name";
+                + " GROUP BY " + svcColumn;
 
         Map<String, double[]> byService = new java.util.LinkedHashMap<>();
         for (Map<String, String> row : athena.query(source, account, sql)) {
@@ -499,7 +519,7 @@ public class CurAdvancedMetricsService {
                                             boolean comparePrior) {
 
         // Scoped to the row that opened this, not to the resource id alone. See scopePredicate.
-        String scope = scopePredicate(resourceId, service, region);
+        String scope = scopePredicate(serviceNameColumn(source, account), resourceId, service, region);
 
         Map<String, LineAggregate> current = lineAggregates(source, account, scope,
                 currentStart, currentEnd);
@@ -701,9 +721,10 @@ public class CurAdvancedMetricsService {
                                           LocalDate start, LocalDate end) {
         String nameExpr = tagColumns.resourceNameExpr(source, account).orElse(null);
         String nameSelect = nameExpr == null ? "" : " MAX(" + nameExpr + ") AS resource_name,";
+        String svc = serviceNameColumn(source, account);
 
         String sql = "SELECT" + nameSelect
-                + " MAX(product_product_name) AS service,"
+                + " MAX(" + svc + ") AS service,"
                 + " MAX(product_region) AS region,"
                 + " " + instanceTypeExpr(source, account) + " AS instance_type"
                 + " FROM " + source.qualifiedTable()
@@ -785,12 +806,12 @@ public class CurAdvancedMetricsService {
      * <p>Both are optional: a caller that does not know the row's service and region gets the
      * resource-wide figures, which is the correct degraded answer rather than an empty one.
      */
-    private String scopePredicate(String resourceId, String service, String region) {
+    private String scopePredicate(String svc, String resourceId, String service, String region) {
         StringBuilder predicate = new StringBuilder(resourcePredicate(resourceId));
         if (service != null && !service.isBlank()) {
             // Delegated rather than inlined, so the scoped resource query and this drill-down cannot
             // disagree about what "Other" means. The explanation lives on servicePredicate.
-            predicate.append(" AND ").append(servicePredicate(service));
+            predicate.append(" AND ").append(servicePredicate(svc, service));
         }
         if (region != null && !region.isBlank()) {
             // "Global" is this section's own word for a row the report gave no region, not a value the
@@ -818,11 +839,11 @@ public class CurAdvancedMetricsService {
      * same {@code (resource_id, region)} and the panel shows two rows with the same id. That is
      * pre-existing in {@link #getTopResources} and is not made worse here.
      */
-    private String servicePredicate(String service) {
+    private String servicePredicate(String svc, String service) {
         return "Other".equals(service)
-                ? "(product_product_name IS NULL OR product_product_name = ''"
-                  + " OR product_product_name = 'Other')"
-                : "product_product_name = " + literal(service);
+                ? "(" + svc + " IS NULL OR " + svc + " = ''"
+                  + " OR " + svc + " = 'Other')"
+                : svc + " = " + literal(service);
     }
 
     /**
@@ -874,8 +895,9 @@ public class CurAdvancedMetricsService {
          */
         boolean hasUnit = columnCatalog.has(source, account, "pricing_unit");
         String unitExpr = hasUnit ? "pricing_unit" : "''";
+        String svc = serviceNameColumn(source, account);
 
-        String sql = "SELECT product_product_name AS service,"
+        String sql = "SELECT " + svc + " AS service,"
                 + " product_region AS region,"
                 + " line_item_line_item_description AS description,"
                 + " line_item_usage_type AS usage_type,"
@@ -886,7 +908,7 @@ public class CurAdvancedMetricsService {
                 + " WHERE " + accountPredicate(account)
                 + " AND " + CurSql.partitionPredicate(source, start, end)
                 + " AND " + CurSql.usageDatePredicate(source, start, end)
-                + " GROUP BY product_product_name, product_region,"
+                + " GROUP BY " + svc + ", product_region,"
                 + " line_item_line_item_description, line_item_usage_type"
                 + (hasUnit ? ", pricing_unit" : "")
                 // A bill lists what was charged, so rows that net to nothing are dropped —
@@ -941,6 +963,7 @@ public class CurAdvancedMetricsService {
         String nameExpr = tagColumns.resourceNameExpr(source, account).orElse(null);
         String nameInner = nameExpr == null ? "" : " MAX(" + nameExpr + ") AS resource_name,";
         String nameOuter = nameExpr == null ? "" : " resource_name,";
+        String svc = serviceNameColumn(source, account);
 
         // The window functions run after grouping and before the limit, so they describe
         // every resource in the month rather than the page being returned. That is what
@@ -950,7 +973,7 @@ public class CurAdvancedMetricsService {
                 + " total_cost, group_count FROM ("
                 + "SELECT " + resourceId + " AS resource_id,"
                 + nameInner
-                + " product_product_name AS service,"
+                + " " + svc + " AS service,"
                 + " product_region AS region,"
                 + " " + instanceTypeExpr(source, account) + " AS instance_type,"
                 + " SUM(" + cost + ") AS cost,"
@@ -960,7 +983,7 @@ public class CurAdvancedMetricsService {
                 + " WHERE " + accountPredicate(account)
                 + " AND " + CurSql.partitionPredicate(source, start, end)
                 + " AND " + CurSql.usageDatePredicate(source, start, end)
-                + " GROUP BY " + resourceId + ", product_product_name, product_region"
+                + " GROUP BY " + resourceId + ", " + svc + ", product_region"
                 + ") ORDER BY cost DESC LIMIT " + MAX_RESOURCES;
 
         List<ResourceCost> resources = new ArrayList<>();
@@ -1015,6 +1038,7 @@ public class CurAdvancedMetricsService {
         String nameExpr = tagColumns.resourceNameExpr(source, account).orElse(null);
         String nameInner = nameExpr == null ? "" : " MAX(" + nameExpr + ") AS resource_name,";
         String nameOuter = nameExpr == null ? "" : " resource_name,";
+        String svc = serviceNameColumn(source, account);
 
         /*
          * No HAVING, deliberately. getTopResources has none either, and the panel's reconciliation
@@ -1034,7 +1058,7 @@ public class CurAdvancedMetricsService {
                 + " total_cost, group_count FROM ("
                 + "SELECT " + resourceId + " AS resource_id,"
                 + nameInner
-                + " product_product_name AS service,"
+                + " " + svc + " AS service,"
                 + " product_region AS region,"
                 + " " + instanceTypeExpr(source, account) + " AS instance_type,"
                 + " SUM(" + cost + ") AS cost,"
@@ -1045,10 +1069,10 @@ public class CurAdvancedMetricsService {
                 + " COUNT(*) OVER () AS group_count"
                 + " FROM " + source.qualifiedTable()
                 + " WHERE " + accountPredicate(account)
-                + " AND " + servicePredicate(service)
+                + " AND " + servicePredicate(svc, service)
                 + " AND " + CurSql.partitionPredicate(source, start, end)
                 + " AND " + CurSql.usageDatePredicate(source, start, end)
-                + " GROUP BY " + resourceId + ", product_product_name, product_region"
+                + " GROUP BY " + resourceId + ", " + svc + ", product_region"
                 + ") ORDER BY cost DESC LIMIT " + MAX_SERVICE_RESOURCES;
 
         List<ResourceCost> resources = new ArrayList<>();
@@ -1208,6 +1232,7 @@ public class CurAdvancedMetricsService {
         String nameExpr = tagColumns.resourceNameExpr(source, account).orElse(null);
         String nameInner = nameExpr == null ? "" : " MAX(" + nameExpr + ") AS resource_name,";
         String nameOuter = nameExpr == null ? "" : " resource_name,";
+        String svc = serviceNameColumn(source, account);
         String untagged = "SUM(" + cost + ") - " + tags.allocated();
 
         /*
@@ -1229,8 +1254,8 @@ public class CurAdvancedMetricsService {
                 + " service_untagged, service_untagged_count, global_rank,"
                 + tagTotalsSelectList(checked.size())
                 + " FROM ("
-                + resourceLevelSelect(source, account, start, end, cost, nameInner, tags,
-                        windowSelect(untagged))
+                + resourceLevelSelect(source, account, start, end, cost, nameInner, tags, svc,
+                        windowSelect(svc, untagged))
                 + ") WHERE service_rank <= " + UNTAGGED_PER_SERVICE
                 + " OR global_rank <= " + CONCENTRATION_HEAD
                 + " ORDER BY (cost - allocated) DESC";
@@ -1313,11 +1338,12 @@ public class CurAdvancedMetricsService {
         String nameExpr = tagColumns.resourceNameExpr(source, account).orElse(null);
         String nameInner = nameExpr == null ? "" : " MAX(" + nameExpr + ") AS resource_name,";
         String nameOuter = nameExpr == null ? "" : " resource_name,";
+        String svc = serviceNameColumn(source, account);
 
         String sql = "SELECT resource_id," + nameOuter + " service, region, cost, allocated,"
                 + tagTotalsSelectList(checked.size())
                 + " FROM ("
-                + resourceLevelSelect(source, account, start, end, cost, nameInner, tags, "")
+                + resourceLevelSelect(source, account, start, end, cost, nameInner, tags, svc, "")
                 + ") WHERE cost - allocated > 0.0001"
                 + " ORDER BY (cost - allocated) DESC LIMIT " + MAX_UNTAGGED_EXPORT;
 
@@ -1370,11 +1396,12 @@ public class CurAdvancedMetricsService {
      */
     private String resourceLevelSelect(CurSource source, CloudAccount account,
                                        LocalDate start, LocalDate end, String cost,
-                                       String nameInner, TagPredicates tags, String extraWindows) {
+                                       String nameInner, TagPredicates tags, String svc,
+                                       String extraWindows) {
         String resourceId = "COALESCE(NULLIF(line_item_resource_id, ''), '')";
         return "SELECT " + resourceId + " AS resource_id,"
                 + nameInner
-                + " product_product_name AS service,"
+                + " " + svc + " AS service,"
                 + " product_region AS region,"
                 + " SUM(" + cost + ") AS cost,"
                 + " " + tags.allocated() + " AS allocated,"
@@ -1396,7 +1423,7 @@ public class CurAdvancedMetricsService {
                 // can carry no tag. Scoring them as untagged would put a permanent,
                 // unfixable floor under the number.
                 + " AND " + resourceId + " <> ''"
-                + " GROUP BY " + resourceId + ", product_product_name, product_region";
+                + " GROUP BY " + resourceId + ", " + svc + ", product_region";
     }
 
     /**
@@ -1405,11 +1432,11 @@ public class CurAdvancedMetricsService {
      * <p>Partitioned by the column rather than by the {@code service} alias, which is not
      * in scope in the same SELECT that defines it.
      */
-    private String windowSelect(String untagged) {
-        return ", SUM(" + untagged + ") OVER (PARTITION BY product_product_name) AS service_untagged,"
+    private String windowSelect(String svc, String untagged) {
+        return ", SUM(" + untagged + ") OVER (PARTITION BY " + svc + ") AS service_untagged,"
                 + " SUM(CASE WHEN " + untagged + " > 0.0001 THEN 1 ELSE 0 END)"
-                + " OVER (PARTITION BY product_product_name) AS service_untagged_count,"
-                + " ROW_NUMBER() OVER (PARTITION BY product_product_name"
+                + " OVER (PARTITION BY " + svc + ") AS service_untagged_count,"
+                + " ROW_NUMBER() OVER (PARTITION BY " + svc
                 + " ORDER BY " + untagged + " DESC) AS service_rank,"
                 + " ROW_NUMBER() OVER (ORDER BY " + untagged + " DESC) AS global_rank";
     }
@@ -1576,6 +1603,7 @@ public class CurAdvancedMetricsService {
         String cost = CurSql.numericExpr(source, "line_item_unblended_cost");
         String qty = CurSql.numericExpr(source, "line_item_usage_amount");
         String category = networkCategoryExpr();
+        String svc = serviceNameColumn(source, account);
 
         String routeSelect = (fromExpr == null ? "" : " " + fromExpr + " AS from_location,")
                 + (toExpr == null ? "" : " " + toExpr + " AS to_location,");
@@ -1583,7 +1611,7 @@ public class CurAdvancedMetricsService {
                 + (toExpr == null ? "" : ", " + toExpr);
 
         String sql = "SELECT " + category + " AS category,"
-                + " product_product_name AS service,"
+                + " " + svc + " AS service,"
                 + " line_item_usage_type AS usage_type,"
                 + " pricing_unit AS unit,"
                 + " product_region AS region,"
@@ -1595,7 +1623,7 @@ public class CurAdvancedMetricsService {
                 + " AND " + CurSql.partitionPredicate(source, start, end)
                 + " AND " + CurSql.usageDatePredicate(source, start, end)
                 + " AND " + NETWORK_USAGE_PREDICATE
-                + " GROUP BY " + category + ", product_product_name,"
+                + " GROUP BY " + category + ", " + svc + ","
                 + " line_item_usage_type, pricing_unit, product_region" + routeGroup
                 // Ingress is almost always free; a long tail of $0.00 rows would bury the
                 // handful that cost real money.
@@ -1662,6 +1690,7 @@ public class CurAdvancedMetricsService {
         String azInner = hasAz
                 ? " MAX(NULLIF(line_item_availability_zone, '')) AS availability_zone," : "";
         String azOuter = hasAz ? " availability_zone," : "";
+        String svc = serviceNameColumn(source, account);
 
         String routeSelect = (fromExpr == null ? "" : " " + fromExpr + " AS from_location,")
                 + (toExpr == null ? "" : " " + toExpr + " AS to_location,");
@@ -1677,7 +1706,7 @@ public class CurAdvancedMetricsService {
                 + "SELECT " + category + " AS category,"
                 + " " + resourceId + " AS resource_id,"
                 + nameInner
-                + " product_product_name AS service,"
+                + " " + svc + " AS service,"
                 + " product_region AS region,"
                 + azInner
                 + routeSelect
@@ -1701,7 +1730,7 @@ public class CurAdvancedMetricsService {
                 + " AND " + CurSql.usageDatePredicate(source, start, end)
                 + " AND " + NETWORK_USAGE_PREDICATE
                 + " GROUP BY " + category + ", " + resourceId
-                + ", product_product_name, product_region, line_item_usage_type" + routeGroup
+                + ", " + svc + ", product_region, line_item_usage_type" + routeGroup
                 + ")"
                 + " WHERE rank_in_category <= " + TRANSFER_FLOWS_PER_CATEGORY
                 + " AND cost > " + TRANSFER_MIN_COST
@@ -2331,12 +2360,16 @@ public class CurAdvancedMetricsService {
      *        columns when the catalog was readable, and says the column list could not be read when
      *        it was not — different facts with different remedies
      * @param unitDetail why quantities carry no unit, or "", on the same terms
+     * @param earliestBillingPeriod how far back the report goes, as {@code YYYY-MM}, or null/blank
+     *        when that is not known yet. Carried so the frontend can offer only the month-pairs the
+     *        report can actually answer rather than letting the reader pick one it has to refuse
      */
     public record ReportCapabilities(boolean amortizedAvailable,
                                      List<String> amortizedMissingColumns,
                                      boolean unitAvailable,
                                      String amortizedDetail,
-                                     String unitDetail) {
+                                     String unitDetail,
+                                     String earliestBillingPeriod) {
     }
 
     /** Cost attributed to one EKS namespace on one node. */
