@@ -1,126 +1,229 @@
-# Implementation Plan — Cost "Security & Alerts" tab
+# Implementation Plan — Add XamSecure (Upwind) as the 4th product group in the Cost "Security & Alerts" tab
 
-> Ordered, dependency-sequenced plan for the coding agent. All paths are absolute under the worktree
-> `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab`. Build and test
-> commands are the project's real ones (verified during planning — see "Verification commands").
->
-> **Authoritative spec:** `design.md` (Revision 3) + `design-review.json` (6 findings). Read both.
->
-> **BASELINE CORRECTION (load-bearing — design.md was written against a stale tree).** The worktree
-> HEAD is `de4d42f65`; the Connectivity tab (commit `c3109b8f8`) is committed to `main` and present.
-> The drawer today is a **FOUR-tab** drawer: `Change · Breakdown · Trend · Connectivity`. The new
-> "Security & Alerts" tab is the **FIFTH** tab, placed **immediately after Connectivity**. Everywhere
-> `design.md` says "fourth tab" / "three-tab drawer" / "introduce the latch from scratch", read "fifth
-> tab after Connectivity, mirroring the existing Connectivity latch/prop pattern". The data/backend
-> design is unaffected by this correction and stands as written.
->
-> **Re-pinned anchors (verified against current worktree source; use THESE, not design.md's older
-> numbers):**
->
-> Frontend `frontend-app/src/`:
-> - `components/Cost/ResourceCostDrawer.tsx`: `type Tab` at **:49**; `connectivity?: ConnectivityFetchers | null` prop at **:104**; `connectivity = awsConnectivity` default in destructure at **:150**; `const everConnectivity = useRef(false)` at **:162**; `if (connectivityActive) everConnectivity.current = true;` at **:176**; `everConnectivity.current = false;` reset inside the `useEffect([resourceId])` at **:208**; the tab-strip append `...(connectivity ? [{ key: 'connectivity' as Tab, label: 'Connectivity' }] : [])` is in the strip array (~**:398**); the Connectivity body block `{connectivity && everConnectivity.current && resourceId && (<div hidden={!connectivityActive}><ResourceConnectivityTab key={resourceId} active={connectivityActive} .../></div>)}` at **:409**.
-> - `components/Cost/ServiceResourcesDrawer.tsx`: `connectivity?: ConnectivityFetchers | null` prop at **:200**; destructure at **:323**; forwarded `connectivity={connectivity}` to `<ResourceCostDrawer>` at **:951**.
-> - `components/Cost/ChargesByServiceSection.tsx`: prop at **:176**; destructure at **:356**; `<ServiceResourcesDrawer>` opens at **:934**, `connectivity={connectivity}` forwarded at **:945**.
-> - `components/Cost/CostDetailTabs.tsx`: prop at **:148**; destructure at **:204**; `<ChargesByServiceSection>` opens at **:288**, `connectivity={connectivity}` forwarded at **:304**. Imports `ConnectivityFetchers` at **:21**.
-> - `pages/CostPage.tsx`: `<CostDetailTabs accountId={curAccountId} />` at **:372** (no explicit props → AWS defaults apply).
-> - `pages/GcpCostPage.tsx`: `<CostDetailTabs` opens at **:333**, passes `connectivity={null}` at **:353**.
-> - `pages/AzureCostPage.tsx`: `<CostDetailTabs` opens at **:255**, passes `connectivity={null}` at **:275**.
-> - `components/Cost/ResourceConnectivityTab.tsx`: the sibling to mirror — `ConnectivityFetchers` interface, `awsConnectivity` default bundle, `useQuery` gated on `active && Boolean(accountId)`, explicit loading/error/empty/data state ladder, inline Tailwind, Iconify icons.
-> - Client types: `types/security.ts` — `interface SecurityFinding` at **:7**, `resourceId: string` at **:8**, `controlId?` at **:14**. `types/performance.ts` — `interface PerformanceInsight` at **:12**, `resourceId?: string` at **:21**. `types/compliance.ts` — `ComplianceResourceRef` at **:76**, `uid: string | null` at **:77**, `ComplianceControl.resources` at **:125**. `types/alerts.ts` — `AlertBase` at **:13** (no resource field).
-> - Routes in `App.tsx`: `/security` at **:562**, `/performance` at **:572**, `/alerts` at **:575**, `/complianceops` at **:633**.
-> - Destination page data hooks: `SecurityPage.tsx` uses `useSecurityData` (**:47**) exposing `filteredFindings` (**:28**), `getFindingsBySeverity` (**:41**); `PerformancePage.tsx` uses `usePerformanceData` (**:54**) exposing `filteredInsights` (**:33**); `ComplianceOpsPage.tsx` uses `useComplianceOps` (**:65**) exposing `filteredControls` (**:53**).
->
-> Backend `xamops-service/src/main/java/com/xammer/cloud/`:
-> - `controller/CurInsightsController.java`: `@RequestMapping("/api/xamops/cur-insights")` at **:48**; constructor at **:74** (currently `(cloudAccountRepository, curSourceResolver, metricsService, insightCache, accessService, idResolver, List<String> costAllocationTags)`); `@GetMapping("/resource-change/{accountId}")` at **:356**, handler `resourceChange` **:357–380** (blank-id 400 at **:362**, `denyIfNotEntitled` at **:371**, `parsePeriod`/`invalidPeriod` at **:375–377**, `insightCache.getOrCompute(accountId, …)` at **:379**); `computeResourceChange` resolves `cloudAccountRepository.findByAwsAccountId(accountId)` and 404s on empty at **:384–388**.
-> - `service/ResourceIdResolver.java`: `public record CanonicalResource(String resourceId, String resourceType, String resourceName, String region)` at **:116**; `public Map<String, CanonicalResource> resolve(Long cloudAccountId, Collection<String> rawIds)` at **:130**; indexes under both ARN and short id — `index(byIdentifier, row.getArn(), row); index(byIdentifier, row.getResourceId(), row);` at **:147–148**; canonical value built from `row.getResourceId()` (**:156**).
-> - `repository/CloudSecurityFindingRepository.java`: `findByResource(@Param("cloudAccountId") Long, @Param("arn") String)` at **:91**, JPQL `WHERE f.cloudAccountId = :cloudAccountId AND f.resourceArn = :arn` (**:88–90**). `findActiveBySeverityIn(Long, …)` at **:59** (Alerts source — not called in v1).
-> - `domain/CloudSecurityFinding.java`: `@Data` at **:34**; `id:Long` **:50**, `severity` **:76**, `title` **:79**, `resourceArn` **:85**, `resourceType` **:88**, `region` **:91**, `controlId` **:100**.
-> - `domain/CloudAccount.java`: `private Long id;` at **:20**; `private String awsAccountId;` at **:25**; `getAwsAccountId()` at **:225**.
-> - `service/compliance/ComplianceOpsService.java`: `getReport(String accountId, int trendDays)` at **:77** — treats `accountId` as the internal `cloud_account` id (`findFirstByCloudAccountIdAndStatus…(accountId, …)` **:82**; `ownerRepo.findByCloudAccountId(accountId)` **:127**).
-> - `dto/compliance/ComplianceReport.java`: `getControls()` → `List<ControlView>` (**:96**); `ControlView` at **:207** with `getTitle()`, `getSeverity()` (**:211**), `getResources()` → `List<ResourceRef>` (**:220**); `ResourceRef` at **:257** with `getUid()` (`private String uid;` **:258**), `getName/getType/getRegion`.
-> - `service/PerformanceInsightsService.java`: `getInsights(String accountId, String severity, boolean forceRefresh)` at **:78**; private `getAccount(String accountId)` at **:70** → `cloudAccountRepository.findByAwsAccountId(accountId)` at **:71** (needs the 12-digit AWS id).
-> - `dto/PerformanceInsightDto.java`: `private InsightSeverity severity;` at **:14**; `private String resourceId;` (**~:18**); `enum InsightSeverity { CRITICAL, WARNING, WEAK_WARNING }` at **:79**. `getSeverity()` returns the enum → must call `.name()`.
-> - `service/security/SecuritySeverity.java`: `public static String normalize(String raw)` at **:51** — already maps `CRITICAL→CRITICAL`, `WARNING→MEDIUM`, `WEAK_WARNING→LOW`, unknown→`MEDIUM`; `fromGuardDutyScore(double)` for numeric scores.
-> - `service/SecurityService.java`: `getComprehensiveSecurityFindings(CloudAccount, …)` at **:67** builds `DashboardData.SecurityFinding` from manual SDK checks whose first ctor arg is a resource NAME, not an ARN (e.g. `findUsersWithoutMfa` passes `user.userName()`).
-> - `dto/DashboardData.java`: `SecurityFinding` class at **:747**; first field `private String resourceId;` (**:750**). The `@AllArgsConstructor` order is `(resourceId, region, category, severity, description, complianceFramework, controlId)` — so `/security/findings` rows from manual/describe scans carry a non-ARN `resourceId`.
-> - `service/security/SecurityFindingProjectionService.java`: `asSecurityFindings(Long cloudAccountId)` at **:189** sets `resourceId = f.getResourceArn() != null ? f.getResourceArn() : "—"` (**:192**) — only the LIVE projection sets the ARN.
-> - Controller test to mirror: `xamops-service/src/test/java/com/xammer/cloud/controller/CurInsightsControllerTest.java` (`@ExtendWith(MockitoExtension.class)`, pass-through `insightCache` stub, `allow()`/`deny()` helpers, `account.setId(42L)` / `account.setAwsAccountId("123456789012")`).
+All work happens in the worktree:
+`/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/security-tab-xamsecure`
+(branch `feat/security-tab-xamsecure`, base `main`). Use
+`git -C /Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/security-tab-xamsecure` for git.
+Never touch the main checkout at `/Users/admin/Desktop/xam-latest/XamOps-New`.
+
+## Design decisions (confirmed by reading the code, not assumed)
+
+1. **Reuse existing entities + repositories; add NO tables and NO ingest.** Both
+   `com.xammer.cloud.domain.UpwindPostureFinding` and
+   `com.xammer.cloud.domain.UpwindVulnerabilityFinding` already exist and are `@Entity`-mapped.
+   - **`cloudAccountId` is a `String`** mapped to column `cloud_account_id` on BOTH entities (plain
+     `@Column(name = "cloud_account_id")`). It holds the **12-digit AWS account id** as a string
+     (e.g. `"605134457560"`), matching `account.getAwsAccountId()`. This is the value every Upwind
+     repository query already binds via its `accountIds` list, so XamSecure must query with
+     `List.of(account.getAwsAccountId())` — NOT `account.getId()` (that Long is what Security Center /
+     ComplianceOps use).
+   - **`resourceId` is a `String`** mapped to `resource_id`, holding the **full ARN**
+     (`arn:aws:s3:::bucket`, `arn:aws:ec2:...:instance/i-...`, `.../volume/vol-...`). So the match is
+     ARN-primary, exactly like Security Center.
+
+2. **Reuse the already-present per-resource repository methods — no new posture method needed.**
+   - Posture: `UpwindPostureFindingRepository.findFailingByResource(List<String> accountIds, String resourceId)`
+     returns `List<UpwindPostureFinding>` and is already filtered to `status = 'FAIL'` and ordered
+     `lastSeenTime DESC`. This is the correct "problems only" set — reuse it verbatim.
+   - Vulnerability (drill list, NOT used for the summary count path):
+     `UpwindVulnerabilityFindingRepository.findOpenByResource(List<String> accountIds, String resourceId)`
+     exists and is filtered to `status = 'OPEN'`. We will NOT call this in the aggregator (it would
+     stream rows); it is noted only to show the per-resource access pattern already exists.
+
+3. **Vulnerability summary without loading 727K rows.** Add ONE new derived aggregate query on the
+   EXISTING `UpwindVulnerabilityFindingRepository`: a per-resource severity breakdown COUNT (mirrors
+   the existing account-wide `countOpenBySeverity`, but scoped to one `resourceId`). The aggregator
+   builds the single summary row from that `List<Object[]>` of `(severity, count)` — never loading
+   entities. Rationale: the existing `countOpenBySeverity` proves the GROUP BY shape works; scoping it
+   to one resource is the minimal, index-friendly addition and keeps the OPEN filter the repo's
+   standing note requires.
+
+4. **Severity.** Reuse `SecuritySeverity`: `normalize(row.getSeverity())` for each posture row, and
+   for the vulnerability summary compute the worst severity across the matched severity buckets with
+   `SecuritySeverity.worstOf(...)` (its Javadoc already names Upwind as an upper-case source).
+
+5. **Deep-link decision (documented choice):** the XamSecure page is `/xamsecure/:tab` (App.tsx), and
+   its tabs (`posture`, `vulnerabilities`) are **server-filtered tables driven by `useXamSecureData`**;
+   `XamSecurePage` reads only `useParams().tab`, and **no XamSecure tab reads a `?resource=` search
+   param** (confirmed: only `OnboardingTab` uses `useSearchParams`, for `?add=`). Threading a resource
+   filter through `useXamSecureData` → the hook → the API is NOT a cheap/safe read-only change, so per
+   the task's own guidance we take the **graceful no-param deep link**, mirroring the Alerts decision:
+   - posture findings deep-link to `path = "/xamsecure/posture"`, no query.
+   - the vulnerability summary deep-links to `path = "/xamsecure/vulnerabilities"`, no query.
+   The group's own `route` is `"/xamsecure"`. `SecurityDeepLink` requires a non-null `query` map in
+   current rows, so pass `Map.of()` (empty) — `ResourceSecurityTab.toSearch({})` already returns `''`,
+   producing the bare path with no trailing `?`.
+
+6. **Frontend needs no structural change.** `ResourceSecurityTab.tsx` renders `groups.map(...)`
+   generically and `curInsightsApi.ts` types `product` as `string` (no union to extend). The only
+   frontend edit is cosmetic: the empty-state sentence hard-codes the three product names and should
+   also mention XamSecure.
+
+7. **Entitlement + account resolution unchanged.** The controller runs `denyIfNotEntitled` before
+   `aggregate(...)`; the single resolved `CloudAccount` is reused, exactly as the other three groups do.
+
+## Files to touch
+
+- `xamops-service/src/main/java/com/xammer/cloud/repository/UpwindVulnerabilityFindingRepository.java`
+  (add one aggregate query method)
+- `xamops-service/src/main/java/com/xammer/cloud/service/security/ResourceSecurityAggregationService.java`
+  (add constructor deps + `PRODUCT_XAMSECURE` + `xamSecureGroup(...)` + wire into `aggregate`)
+- `xamops-service/src/test/java/com/xammer/cloud/service/security/ResourceSecurityAggregationServiceTest.java`
+  (new mocks + new test cases; existing tests must keep passing — their constructor call changes)
+- `frontend-app/src/components/Cost/ResourceSecurityTab.tsx` (empty-state copy only)
+
+No new files are required.
 
 ---
 
-## Finding resolutions baked into the plan
+## Steps
 
-- **Finding 1 (MEDIUM) — Security Center ARN tolerance.** CONFIRMED by evidence above: `/security/findings` renders the merged payload; manual/describe rows set `SecurityFinding.resourceId` to a resource NAME (e.g. an IAM user name), only the live projection sets it to the ARN (`asSecurityFindings:192`). Therefore the Security Center destination filter (step 9) is **ARN-tolerant**, not strict equality: a finding matches the `resource` param when `finding.resourceId === resource || resource.endsWith(':' + finding.resourceId) || resource.endsWith('/' + finding.resourceId)`. The aggregator still deep-links `/security?resource=<arn>` (the arnCandidate), because that is the one id every ARN-keyed `CloudSecurityFinding` row the aggregator read already carries.
-- **Finding 2 (MEDIUM) — ComplianceOps exact-uid param.** The aggregator matches ComplianceOps rows on `ref.getUid()` and MUST emit that exact matched `uid` string as `deepLink.query.resource` (not a separately-derived arnCandidate), so the destination filter `resources[].uid === resource` re-matches byte-for-byte.
-- **Finding 3 (NIT) — Performance severity is an enum.** `PerformanceInsightDto.getSeverity()` returns `InsightSeverity`. Call `SecuritySeverity.normalize(insight.getSeverity().name())`, never pass the enum.
-- **Finding 4 (NIT) — drifted anchors.** All anchors above are re-pinned against current source.
-- **Finding 5 (NIT) — entitlement boundary.** State in code comments: `denyIfNotEntitled(accountId)` runs on the request thread BEFORE `insightCache.getOrCompute`, so the aggregator supplier only ever runs for an entitled account; it resolves the `CloudAccount` once and reuses it for all three product id forms.
-- **Finding 6 (NIT) — ComplianceOps best-effort.** Record in code/comment that `ResourceRef.uid == CUR ARN` equivalence is best-effort (not guaranteed per resource type); a resource type that does not focus is not a bug.
+- [ ] 1. Add a per-resource open-vulnerability severity breakdown query to the EXISTING
+      `UpwindVulnerabilityFindingRepository`.
+      Add exactly one method, following the existing `countOpenBySeverity` JPQL and the repo's
+      standing `status = 'OPEN'` rule:
+      ```java
+      @Query("SELECT v.severity, COUNT(v) FROM UpwindVulnerabilityFinding v " +
+             "WHERE v.cloudAccountId IN :accountIds AND v.resourceId = :resourceId " +
+             "AND v.status = 'OPEN' GROUP BY v.severity")
+      List<Object[]> countOpenBySeverityForResource(@Param("accountIds") List<String> accountIds,
+                                                     @Param("resourceId") String resourceId);
+      ```
+      Do NOT add a vulnerability "list by resource" method for the aggregator — `findOpenByResource`
+      already exists and we deliberately do not call it (no 727K-row load).
+      Files: `xamops-service/src/main/java/com/xammer/cloud/repository/UpwindVulnerabilityFindingRepository.java`
+      Verify: `mvn -q -pl xamops-service compile` succeeds (the module compiles with the new method).
 
----
+- [ ] 2. Wire the XamSecure group into `ResourceSecurityAggregationService`.
+      Depends on step 1 for the vulnerability count method; posture reuses the existing
+      `findFailingByResource`.
+      - Add two constructor params and fields: `UpwindPostureFindingRepository upwindPostureRepository`
+        and `UpwindVulnerabilityFindingRepository upwindVulnerabilityRepository` (Spring injects both;
+        update the single constructor). Keep the existing params/order and append the two new ones.
+      - Add `static final String PRODUCT_XAMSECURE = "XAMSECURE";`.
+      - Add a `xamSecureGroup(CloudAccount account, String arnCandidate, String shortIdCandidate,
+        List<ProductError> errors)` method mirroring `securityCenterGroup`'s structure:
+        * Create `new ResourceSecurityGroup(PRODUCT_XAMSECURE, "XamSecure", "/xamsecure", new ArrayList<>())`.
+        * Guard: if `arnCandidate == null` (and `shortIdCandidate` is null/blank), return the empty group
+          (same guard shape as Security Center).
+        * Wrap the whole read in one `try/catch (RuntimeException e)` that logs with
+          `account.getAwsAccountId()` and adds `new ProductError(PRODUCT_XAMSECURE, "XamSecure findings could not be read.")`
+          — a failing Upwind read must NOT fail the other groups.
+        * Build `List<String> accountIds = List.of(account.getAwsAccountId());`.
+        * **ARN-primary match keys:** try `arnCandidate` first; also try `shortIdCandidate` as a
+          secondary key when it is non-null, non-blank and not equal to `arnCandidate` (covers rows that
+          may store a short id). Collect matched posture rows and the vulnerability severity-count map
+          across both keys, de-duplicating posture rows by `getUpwindId()`.
+        * **POSTURE:** for each matched `UpwindPostureFinding` row emit one `ResourceSecurityFinding`:
+          `title = checkTitle != null ? checkTitle : title`,
+          `severity = SecuritySeverity.normalize(row.getSeverity())`,
+          `detail/resourceType = row.getResourceType()`,
+          `deepLink = new SecurityDeepLink("/xamsecure/posture", Map.of())`.
+        * **VULNERABILITY (one summary row max):** call `countOpenBySeverityForResource(accountIds, key)`
+          for each key, merge the `(severity, count)` pairs into a `Map<String,Long>` keyed by
+          `SecuritySeverity.normalize(severity)` (summing counts). If total > 0, emit exactly ONE
+          `ResourceSecurityFinding`:
+          - `severity = SecuritySeverity.worstOf(mergedMap.keySet())`,
+          - `title` like `"<total> vulnerabilities (<criticalCount> critical, <highCount> high)"`
+            (include the critical/high counts from the merged map; show 0s if absent),
+          - `detail = null` or a short label,
+          - `deepLink = new SecurityDeepLink("/xamsecure/vulnerabilities", Map.of())`.
+          Never iterate vulnerability entities.
+        * `sortBySeverity(group)` at the end (reuse the private helper).
+      - In `aggregate(...)` add `groups.add(xamSecureGroup(account, arnCandidate, shortIdCandidate, errors));`
+        after the `performanceGroup(...)` line, so XamSecure is the fourth group. The existing
+        `groups.removeIf(empty)` drop and `errors` wiring already cover it.
+      - Update the class Javadoc that says "across all three product reads" / lists three products to
+        say four and name XamSecure.
+      Files: `xamops-service/src/main/java/com/xammer/cloud/service/security/ResourceSecurityAggregationService.java`
+      Verify: `mvn -q -pl xamops-service compile` succeeds.
 
-## Verification commands (the project's real ones)
+- [ ] 3. Extend `ResourceSecurityAggregationServiceTest` for XamSecure and fix the constructor call.
+      Depends on steps 1-2.
+      - Add two `@Mock`s: `UpwindPostureFindingRepository upwindPostureRepository` and
+        `UpwindVulnerabilityFindingRepository upwindVulnerabilityRepository`, and pass them to the
+        `new ResourceSecurityAggregationService(...)` call in `setUp()` (the existing tests then keep
+        compiling; add `lenient()` empty-return stubs in `setUp()` so unrelated tests still see empty
+        XamSecure groups and their group-count assertions can be updated as below).
+      - Because the three "all products" assertions count groups, update expectations where XamSecure
+        now contributes (or stub the Upwind mocks to return empty for those cases so the count stays as
+        the test intends — prefer empty stubs so existing assertions like `assertEquals(3, groups)` in
+        `groupsNormalisesAndSorts` stay meaningful; add a dedicated XamSecure test instead).
+      - New test cases (follow the existing helper/style, mock the Upwind repositories):
+        1. **XamSecure group appears with posture rows + ONE vulnerability summary at worst severity.**
+           Stub `upwindPostureRepository.findFailingByResource(List.of(AWS_ID), ARN)` to return two
+           posture entities (e.g. severities `"HIGH"` and `"CRITICAL"`); stub
+           `upwindVulnerabilityRepository.countOpenBySeverityForResource(List.of(AWS_ID), ARN)` to return
+           `List.of(new Object[]{"CRITICAL", 2L}, new Object[]{"HIGH", 5L})`. Assert the `XAMSECURE`
+           group exists, its posture findings are present individually and sorted CRITICAL-first, and
+           there is exactly ONE summary finding whose severity is `CRITICAL` and whose title contains
+           the counts (e.g. `"7 vulnerabilities"`, `"2 critical"`, `"5 high"`). Assert the posture
+           deep-link path is `/xamsecure/posture` and the summary deep-link path is
+           `/xamsecure/vulnerabilities`.
+        2. **Empty when no ARN.** With a resolved row whose `arn()` is null and a non-ARN short id,
+           assert no `XAMSECURE` group is present (dropped as empty) and the Upwind repos are not
+           required to return anything meaningful.
+        3. **A failing Upwind read becomes an `errors[]` entry and does NOT fail other groups.** Stub
+           `upwindPostureRepository.findFailingByResource(...)` to throw `RuntimeException`; assert the
+           response still 200s, other groups still render, and `errors` contains a `XAMSECURE` entry.
+      Files: `xamops-service/src/test/java/com/xammer/cloud/service/security/ResourceSecurityAggregationServiceTest.java`
+      Verify: `mvn -q -pl xamops-service -am test -Dtest=ResourceSecurityAggregationServiceTest` — all
+      cases pass.
 
-- **Frontend** (run in `frontend-app/`): typecheck + build is `npm run build` (which is `tsc && vite build` — `tsc` is the typecheck gate; there is **no** separate `lint` script in `package.json`). Tests: `npm run test` (which is `vitest run`). Vitest 4 and `@testing-library/react` are already dependencies.
-- **Backend** (run in the worktree root): full module tests `mvn -pl xamops-service test`; single new class `mvn -pl xamops-service test -Dtest=ResourceSecurityControllerTest`. (`mvn` is on PATH; there is no `mvnw` wrapper. Multi-module reactor root is `pom.xml`, module `xamops-service`.)
+- [ ] 4. Update the frontend empty-state copy to mention XamSecure (cosmetic only).
+      In `ResourceSecurityTab.tsx`, the "No findings" paragraph currently reads
+      "Nothing in Security Center, ComplianceOps or Performance Insights points at this resource."
+      Change it to include XamSecure, e.g.
+      "Nothing in Security Center, ComplianceOps, Performance Insights or XamSecure points at this
+      resource." No type or rendering change is needed — groups already render generically and
+      `product` is typed `string`.
+      Files: `frontend-app/src/components/Cost/ResourceSecurityTab.tsx`
+      Verify: covered by step 6 (frontend build + tests).
 
-Each step below leaves the tree buildable. Backend compiles independently of the frontend; the two halves can be verified separately.
+- [ ] 5. Run the full backend module test suite to confirm nothing regressed.
+      Confirms the whole module still builds and the specifically-named existing suites stay green:
+      `ResourceSecurityControllerTest`, `CurInsightsControllerTest`, `ResourceIdResolverTest`, and the
+      Upwind repository tests.
+      Files: none (verification).
+      Verify: `mvn -q -pl xamops-service -am test` — BUILD SUCCESS, 0 failures/errors. (If the full
+      module run is too slow in-sandbox, at minimum run
+      `mvn -q -pl xamops-service -am test -Dtest=ResourceSecurityAggregationServiceTest,ResourceSecurityControllerTest,CurInsightsControllerTest,ResourceIdResolverTest,UpwindVulnerabilityFindingRepositoryTest`
+      and record that scope.)
 
----
+- [ ] 6. Run the frontend build and tests.
+      Files: none (verification).
+      Verify: in `frontend-app`, `npm run build` (icons bundle + `tsc` typecheck + vite build) succeeds
+      and `npm run test` (vitest run) passes. The copy change in step 4 must not break any snapshot or
+      text-matching test in `frontend-app/src/components/Cost/__tests__/`; update such a test's expected
+      string if it asserts the old sentence.
 
-# Implementation Plan
+- [ ] 7. Read-only data-sanity checks (psql; do not mutate).
+      Confirm the match keys and counts the code relies on, against the live local DB. These are
+      SELECT-only.
+      Files: none (verification).
+      Verify (expected: non-zero rows for account `605134457560`):
+      ```sql
+      -- posture rows are keyed by 12-digit account id and full ARN
+      SELECT cloud_account_id, count(*) FROM upwind_posture_finding
+       WHERE cloud_account_id = '605134457560' GROUP BY 1;        -- ~30529
+      SELECT resource_id, count(*) FROM upwind_posture_finding
+       WHERE cloud_account_id = '605134457560' AND status = 'FAIL'
+         AND resource_id LIKE 'arn:aws:s3:::%' GROUP BY 1 LIMIT 5;
+      -- vulnerability severity breakdown for one real resource ARN (shape the summary consumes)
+      SELECT severity, count(*) FROM upwind_vulnerability_finding
+       WHERE cloud_account_id = '605134457560' AND status = 'OPEN'
+         AND resource_id = (SELECT resource_id FROM upwind_vulnerability_finding
+                            WHERE cloud_account_id = '605134457560' AND status = 'OPEN'
+                              AND resource_id LIKE 'arn:aws:ec2:%:instance/%' LIMIT 1)
+       GROUP BY severity;
+      ```
+      A non-empty posture result and a non-empty per-resource severity breakdown confirm the ARN-keyed,
+      12-digit-account match the aggregator performs will actually return rows in the demo account.
 
-- [ ] 1. Add the normalised backend response DTOs for the aggregation endpoint.
-      Create immutable/`@Data` POJOs mirroring the design's response shape: a top-level `ResourceSecurityFindings { String resourceId; boolean matched; List<ResourceSecurityGroup> groups; List<ProductError> errors; }`, `ResourceSecurityGroup { String product; String label; String route; List<ResourceSecurityFinding> findings; }`, `ResourceSecurityFinding { String title; String severity; String detail; SecurityDeepLink deepLink; }`, `SecurityDeepLink { String path; Map<String,String> query; }`, `ProductError { String product; String message; }`. Use Lombok `@Data`/`@AllArgsConstructor`/`@NoArgsConstructor` and `@JsonInclude(NON_NULL)` consistent with `dto/DashboardData.java`. Group enum values are the strings `SECURITY_CENTER`, `COMPLIANCEOPS`, `PERFORMANCE`.
-      Files: `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/xamops-service/src/main/java/com/xammer/cloud/dto/security/ResourceSecurityFindings.java` (nested static classes, or one file per type under `dto/security/`).
-      Verify: `mvn -pl xamops-service test-compile` — compiles with no new errors.
-
-- [ ] 2. Create `ResourceSecurityAggregationService` with the per-product reads, per-product try/catch isolation, and the three account-id forms.
-      Create `com.xammer.cloud.service.security.ResourceSecurityAggregationService` (`@Service`), constructor-injecting `CloudAccountRepository`, `ResourceIdResolver`, `CloudSecurityFindingRepository`, `ComplianceOpsService`, `PerformanceInsightsService`. Add `public static final int MAX_RESOURCE_ID_CHARS = 2048;`. Method `public ResponseEntity<?> aggregate(String accountId, String resourceId, String region)` (or return the DTO and let the controller wrap — keep it consistent with how `computeResourceChange` returns a `ResponseEntity`): (a) resolve `cloudAccountRepository.findByAwsAccountId(accountId)`; return 404 if empty (mirror `computeResourceChange:384-388`); hold the single `CloudAccount account`. (b) `Map<String,CanonicalResource> m = idResolver.resolve(account.getId(), List.of(resourceId));` inside its own try/catch (on throw → `matched=false`, log WARN once); derive `arnCandidate` (= `resourceId` when `resourceId.startsWith("arn:")`, else null), `shortIdCandidate` (= `m.get(resourceId).resourceId()` when resolved, else `resourceId`), `matched`. (c) **Security Center** branch (only when `arnCandidate != null`), own try/catch: `findByResource(account.getId() /*Long*/, arnCandidate)`; each `CloudSecurityFinding` → finding `{ title=getTitle(), severity=SecuritySeverity.normalize(getSeverity()), deepLink={path:"/security", query:{resource:arnCandidate}} }`. (d) **ComplianceOps** branch, own try/catch: `getReport(String.valueOf(account.getId()) /*internal id as String*/, trendDays)`; walk `report.getControls()`, for each `ControlView` walk `getResources()`, emit a finding for each `ResourceRef` whose `getUid()` equals `arnCandidate` (best-effort equivalence — finding 6), with `title=control.getTitle()`, `severity=SecuritySeverity.normalize(control.getSeverity())`, and **`deepLink.query.resource = ref.getUid()`** (the exact matched uid — finding 2). (e) **Performance** branch, own try/catch (this is also what time-boxes a cold scan into an `errors[]` entry — finding 5): `getInsights(account.getAwsAccountId() /*12-digit AWS id*/, null, false)`; filter `insight.getResourceId()` equals `shortIdCandidate`; finding `{ title=insight.getInsight()/getDescription(), severity=SecuritySeverity.normalize(insight.getSeverity().name()) /*enum .name() — finding 3*/, deepLink={path:"/performance", query:{resource:shortIdCandidate}} }`. (f) sort each group's findings most-severe-first using `SecuritySeverity.rank`/`RANKED`; omit groups with no findings; collect per-branch failures into `errors[]`; **do not emit a separate Alerts group** (Alerts ⊆ Security Center). Add a class comment recording the finding-5 entitlement boundary and finding-6 best-effort note. Pick a sensible `trendDays` constant (match the ComplianceOps page default; a small positive int — the report read does not depend on trend for resource rows).
-      Files: `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/xamops-service/src/main/java/com/xammer/cloud/service/security/ResourceSecurityAggregationService.java`
-      Verify: `mvn -pl xamops-service test-compile` — compiles. (Behaviour is covered by the controller test in step 4 and may optionally get a focused unit test.)
-
-- [ ] 3. Add the `GET /resource-security/{accountId}` endpoint to `CurInsightsController`, reusing the existing prologue, and inject the aggregation service.
-      In `controller/CurInsightsController.java`: add `ResourceSecurityAggregationService aggregator` as a constructor parameter and field (append to the existing constructor at **:74**; update every `new CurInsightsController(...)` call site — notably the test in step 4). Add handler `@GetMapping("/resource-security/{accountId}")` modelled verbatim on `resourceChange` (**:356-380**): blank-`resourceId` → 400 `{error:"A resource id is required"}` BEFORE entitlement; `resourceId.length() > ResourceSecurityAggregationService.MAX_RESOURCE_ID_CHARS` → 400 `{error:"Resource id too long"}`; `denyIfNotEntitled(accountId)` (returns 404/403); `parsePeriod(period)`/`invalidPeriod(period)` on the optional `period`; then `return insightCache.getOrCompute(accountId, () -> aggregator.aggregate(accountId, resourceId, region));`. Accept `@RequestParam String resourceId`, `@RequestParam(required=false) String region`, `@RequestParam(required=false) String period`.
-      Files: `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/xamops-service/src/main/java/com/xammer/cloud/controller/CurInsightsController.java`
-      Verify: `mvn -pl xamops-service test-compile` — compiles (test compilation will fail until step 4 updates the constructor call; that is expected and fixed in step 4).
-
-- [ ] 4. Write `ResourceSecurityControllerTest` (MockMvc-style, mirroring `CurInsightsControllerTest`) and update the existing test's constructor call.
-      Update `CurInsightsControllerTest`'s `new CurInsightsController(...)` (in `setUp`, ~**:81**) to pass a mocked `ResourceSecurityAggregationService` so it compiles. Create `ResourceSecurityControllerTest` with `@ExtendWith(MockitoExtension.class)`, the same pass-through `insightCache.getOrCompute` stub and `allow()/deny()` entitlement helpers (`account.setId(42L)`, `account.setAwsAccountId("123456789012")`), mocking `ResourceSecurityAggregationService`. Assert acceptance criterion 13: (a) 200 with a normalised body for a known resource (stub the aggregator to return a `ResourceSecurityFindings` with ≥1 group); (b) empty `groups`+`errors` for an unknown resource (stub returns empty); (c) 404 for an unentitled/unknown account via `deny()` and `verifyNoInteractions(aggregator, insightCache)` to pin entitlement-before-cache; (d) 400 for a blank `resourceId` (no aggregator/cache interaction); (e) 400 for a `resourceId` longer than `MAX_RESOURCE_ID_CHARS`; (f) one failing product does not 500 — stub the aggregator to return a body with a populated `errors[]` alongside populated `groups[]`, assert 200.
-      Files: `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/xamops-service/src/test/java/com/xammer/cloud/controller/ResourceSecurityControllerTest.java`; edit `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/xamops-service/src/test/java/com/xammer/cloud/controller/CurInsightsControllerTest.java`.
-      Verify: `mvn -pl xamops-service test -Dtest=ResourceSecurityControllerTest,CurInsightsControllerTest` — both pass. Backend is now independently complete and green.
-
-- [ ] 5. Add the frontend API client types and `fetchResourceSecurity` to `curInsightsApi.ts`.
-      In `api/curInsightsApi.ts` (where `apiFetch`, `readShape`, `isRecordWith` already live) add exported interfaces `SecurityDeepLink { path: string; query: Record<string,string>; }`, `ResourceSecurityFinding { title: string; severity: string; detail?: string; deepLink: SecurityDeepLink; }`, `ResourceSecurityGroup { product: string; label: string; route: string; findings: ResourceSecurityFinding[]; }`, `ResourceSecurityFindings { resourceId: string; matched: boolean; groups: ResourceSecurityGroup[]; errors: { product: string; message: string }[]; }`, and `export const fetchResourceSecurity = async (accountId, resourceId, region?, period?): Promise<ResourceSecurityFindings | null>` that builds `/api/xamops/cur-insights/resource-security/${encodeURIComponent(accountId)}?resourceId=…[&region][&period]`, returns `null` on `!res.ok`, else `readShape<ResourceSecurityFindings>(res, isRecordWith(['groups','errors']))`.
-      Files: `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/frontend-app/src/api/curInsightsApi.ts`
-      Verify: `cd frontend-app && npm run build` (tsc typechecks the new exports). Expected: no type errors.
-
-- [ ] 6. Create `ResourceSecurityTab.tsx` mirroring `ResourceConnectivityTab.tsx`.
-      Create `components/Cost/ResourceSecurityTab.tsx` with `export interface SecurityFetchers { findings: (accountId: string, resourceId: string, region?: string, period?: string) => Promise<ResourceSecurityFindings | null>; }` and `export const awsSecurity: SecurityFetchers = { findings: fetchResourceSecurity };` (mirror `ConnectivityFetchers`/`awsConnectivity`). Component props `{ active: boolean; accountId: string | null; resourceId: string | null; resourceName?: string; period: string; region?: string; security: SecurityFetchers; }`. Use a plain `useQuery` keyed `['cost-security','findings', accountId ?? '', resourceId ?? '', region ?? '']`, `queryFn: () => security.findings(accountId!, resourceId!, region, period)`, `enabled: active && Boolean(accountId) && Boolean(resourceId)`, `staleTime: 5*60*1000`. Render the explicit state ladder like the sibling: `!active`→null; pending→skeleton/"Reading this resource's findings…"; error→"Unavailable / Try again" calling `refetch`; settled with `groups.length === 0 && errors.length === 0`→empty state ("No security, compliance or performance findings reference this resource."); settled with data→one product-group section per `groups[]` (no client re-sort; the backend already sorted) plus any `errors[]` rendered as inline per-product "couldn't load" rows (criterion 11). Each finding row is a real `<button type="button">` (keyboard-accessible) with a severity badge + title + optional detail, `onClick={() => navigate({ pathname: f.deepLink.path, search: toSearch(f.deepLink.query) })}` using `useNavigate()`; `toSearch(query)` returns `''` for an empty object (use `new URLSearchParams(query).toString()`). Use inline Tailwind classes and Iconify `@iconify/react` matching the sibling's typographic scale. Map the five `SecuritySeverity` values to badge colours in a small local `SeverityBadge`.
-      Files: `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/frontend-app/src/components/Cost/ResourceSecurityTab.tsx`
-      Verify: `cd frontend-app && npm run build` — typechecks. (Behaviour covered by step 10.)
-
-- [ ] 7. Wire the fifth tab into `ResourceCostDrawer.tsx`, mirroring the Connectivity latch/prop pattern, placed AFTER Connectivity.
-      Edit `components/Cost/ResourceCostDrawer.tsx`: (a) widen `type Tab` (**:49**) to `'change' | 'breakdown' | 'trend' | 'connectivity' | 'security'`. (b) import `ResourceSecurityTab, { awsSecurity, type SecurityFetchers }`. (c) add prop `security?: SecurityFetchers | null;` to `ResourceCostDrawerProps` (next to `connectivity` at **:104**), documented "null omits the tab; GCP/Azure pass null". (d) default it `security = awsSecurity` in the destructure (next to `connectivity = awsConnectivity` at **:150**). (e) add `const securityActive = tab === 'security';`, `const everSecurity = useRef(false);` (next to `everConnectivity` at **:162**), `if (securityActive) everSecurity.current = true;` (next to **:176**), and reset `everSecurity.current = false;` inside the existing `useEffect([resourceId])` (next to **:208**). (f) append the tab-strip entry **immediately after** the connectivity entry (~**:398**): `...(security ? [{ key: 'security' as Tab, label: 'Security & Alerts' }] : []),`. (g) add the body block as a sibling AFTER the Connectivity body block (**:409**), gated on neither `loading` nor `change`: `{security && everSecurity.current && resourceId && (<div hidden={!securityActive}><ResourceSecurityTab key={resourceId} active={securityActive} accountId={accountId} resourceId={resourceId} resourceName={resourceName} period={period} region={scope?.region && scope.region !== 'Global' ? scope.region : undefined} security={security} /></div>)}`. Leave the three existing body conditionals, the Connectivity block, scroll lock, and Escape handler untouched (criterion 10).
-      Files: `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/frontend-app/src/components/Cost/ResourceCostDrawer.tsx`
-      Verify: `cd frontend-app && npm run build` — typechecks.
-
-- [ ] 8. Thread the `security` prop through the Cost component chain, mirroring the `connectivity` prop exactly.
-      Add `security?: SecurityFetchers | null;` and forward it at each hop, parallel to `connectivity`: `ServiceResourcesDrawer.tsx` (prop next to **:200**, destructure next to **:323**, forward `security={security}` to `<ResourceCostDrawer>` next to **:951**); `ChargesByServiceSection.tsx` (prop next to **:176**, destructure next to **:356**, forward to `<ServiceResourcesDrawer>` next to **:945**); `CostDetailTabs.tsx` (prop next to **:148** defaulted to `awsSecurity`, destructure next to **:204**, forward to `<ChargesByServiceSection>` next to **:304**; import `SecurityFetchers`/`awsSecurity` next to the `ConnectivityFetchers` import at **:21**). `CostPage.tsx` needs **no change** (**:372** passes no explicit props → the `awsSecurity` default applies down the chain). In `GcpCostPage.tsx` (next to `connectivity={null}` at **:353**) and `AzureCostPage.tsx` (next to `connectivity={null}` at **:275**) add `security={null}` with a one-line comment that per-resource security findings are AWS-only in v1.
-      Files: `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/frontend-app/src/components/Cost/ServiceResourcesDrawer.tsx`, `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/frontend-app/src/components/Cost/ChargesByServiceSection.tsx`, `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/frontend-app/src/components/Cost/CostDetailTabs.tsx`, `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/frontend-app/src/pages/GcpCostPage.tsx`, `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/frontend-app/src/pages/AzureCostPage.tsx`
-      Verify: `cd frontend-app && npm run build` — typechecks; the AWS tab renders by default and the GCP/Azure pages omit it via `security={null}`.
-
-- [ ] 9. Add the additive, read-only `?resource=` deep-link handlers to the three destination pages (NOT Alerts/WAR/XamSecure/SOC2).
-      Each page reads `const [params] = useSearchParams(); const resource = params.get('resource');` and, when present, layers a resource filter on top of the hook's already-filtered collection; when absent, behaviour is unchanged. (a) `SecurityPage.tsx` — over `filteredFindings` (from `useSecurityData`, **:47**), apply the **ARN-tolerant** match (finding 1): keep a finding when `resource == null || finding.resourceId === resource || resource.endsWith(':' + finding.resourceId) || resource.endsWith('/' + finding.resourceId)`. Feed the resource-filtered set into the severity grouping used by `getFindingsBySeverity`/the findings sections, and scroll the first match into view. (b) `PerformancePage.tsx` — over `filteredInsights` (from `usePerformanceData`, **:54**): keep when `resource == null || insight.resourceId === resource` (`types/performance.ts:21`). (c) `ComplianceOpsPage.tsx` — over `filteredControls` (from `useComplianceOps`, **:65**): keep a control when `resource == null || control.resources.some(r => r.uid === resource)` (`types/compliance.ts:77`), and expand/scroll to the first matching control. Do **not** add any handler to `AlertsPage.tsx`, WAR, XamSecure, or SOC2 pages.
-      Files: `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/frontend-app/src/pages/SecurityPage.tsx`, `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/frontend-app/src/pages/PerformancePage.tsx`, `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/frontend-app/src/pages/ComplianceOpsPage.tsx`
-      Verify: `cd frontend-app && npm run build` — typechecks.
-
-- [ ] 10. Add Vitest tests for the tab and the provider-omit wiring.
-      Create the Cost `__tests__` folder (none today) with a react-query + router harness (`QueryClientProvider` + `MemoryRouter`). `ResourceSecurityTab.test.tsx`: (a) no fetch while `active=false`; (b) empty state when `groups`+`errors` are both empty; (c) a per-product error row renders when `errors[]` is non-empty while other groups still render; (d) a row click calls a mocked `useNavigate` with the server-provided `path` + `search` built from `deepLink.query`; (e) rows are `<button>`s (keyboard-activatable). `CostDetailTabs.providers.test.tsx`: the "Security & Alerts" tab is present for the AWS provider config (default `security`) and absent when `security={null}`.
-      Files: `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/frontend-app/src/components/Cost/__tests__/ResourceSecurityTab.test.tsx`, `/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/cost-security-alerts-tab/frontend-app/src/components/Cost/__tests__/CostDetailTabs.providers.test.tsx`
-      Verify: `cd frontend-app && npm run test` — the new specs pass (and the existing suite stays green).
-
-- [ ] 11. Full-feature verification (both halves).
-      Run the whole frontend and backend verification end to end and fix any regressions.
-      Files: none (verification only).
-      Verify: `cd frontend-app && npm run build && npm run test` passes with no type errors; from the worktree root `mvn -pl xamops-service test` passes including `ResourceSecurityControllerTest` and the updated `CurInsightsControllerTest`.
+## Notes / assumptions
+- If, during implementation, the resolver's `CanonicalResource.arn()` turns out to be null for the S3
+  short-id path in the demo data, the ARN-primary match still works for already-ARN `resourceId`s; the
+  `shortIdCandidate` secondary key is the fallback and is why both keys are tried. This mirrors the
+  existing Security Center guard and needs no new resolver work.
+- No new product constant or union is needed on the frontend; `product: string` already accepts
+  `"XAMSECURE"`. If a label/icon map for products is later added, map `XAMSECURE → "XamSecure"`.
