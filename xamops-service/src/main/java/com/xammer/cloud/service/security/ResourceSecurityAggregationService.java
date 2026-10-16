@@ -1,7 +1,9 @@
 package com.xammer.cloud.service.security;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.CloudSecurityFinding;
+import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.PerformanceInsightDto;
 import com.xammer.cloud.dto.compliance.ComplianceReport;
 import com.xammer.cloud.dto.security.ResourceSecurityFindings;
@@ -14,6 +16,7 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.CloudSecurityFindingRepository;
 import com.xammer.cloud.repository.UpwindPostureFindingRepository;
 import com.xammer.cloud.repository.UpwindVulnerabilityFindingRepository;
+import com.xammer.cloud.service.DashboardDataService;
 import com.xammer.cloud.service.PerformanceInsightsService;
 import com.xammer.cloud.service.ResourceIdResolver;
 import com.xammer.cloud.service.ResourceIdResolver.CanonicalResource;
@@ -70,6 +73,14 @@ public class ResourceSecurityAggregationService {
      */
     private static final int COMPLIANCE_TREND_DAYS = 90;
 
+    /**
+     * How old the cached findings snapshot may be and still be read. Mirrors
+     * {@code SecurityController.SECURITY_SNAPSHOT_MAX_AGE_HOURS} so the tab reads the exact same
+     * snapshot, under the exact same freshness rule, as the Security Center page. A null return
+     * (absent or too old) means this source contributes nothing — the tab never triggers a scan.
+     */
+    private static final int SECURITY_SNAPSHOT_MAX_AGE_HOURS = 12;
+
     static final String PRODUCT_SECURITY_CENTER = "SECURITY_CENTER";
     static final String PRODUCT_COMPLIANCEOPS = "COMPLIANCEOPS";
     static final String PRODUCT_PERFORMANCE = "PERFORMANCE";
@@ -82,6 +93,9 @@ public class ResourceSecurityAggregationService {
     private final PerformanceInsightsService performanceInsightsService;
     private final UpwindPostureFindingRepository upwindPostureRepository;
     private final UpwindVulnerabilityFindingRepository upwindVulnerabilityRepository;
+    private final DashboardDataService dashboardDataService;
+    private final SecurityFindingProjectionService liveFindings;
+    private final SecurityFindingResolutionService resolutions;
 
     public ResourceSecurityAggregationService(CloudAccountRepository cloudAccountRepository,
                                               ResourceIdResolver idResolver,
@@ -89,7 +103,10 @@ public class ResourceSecurityAggregationService {
                                               ComplianceOpsService complianceOpsService,
                                               PerformanceInsightsService performanceInsightsService,
                                               UpwindPostureFindingRepository upwindPostureRepository,
-                                              UpwindVulnerabilityFindingRepository upwindVulnerabilityRepository) {
+                                              UpwindVulnerabilityFindingRepository upwindVulnerabilityRepository,
+                                              DashboardDataService dashboardDataService,
+                                              SecurityFindingProjectionService liveFindings,
+                                              SecurityFindingResolutionService resolutions) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.idResolver = idResolver;
         this.securityFindingRepository = securityFindingRepository;
@@ -97,6 +114,9 @@ public class ResourceSecurityAggregationService {
         this.performanceInsightsService = performanceInsightsService;
         this.upwindPostureRepository = upwindPostureRepository;
         this.upwindVulnerabilityRepository = upwindVulnerabilityRepository;
+        this.dashboardDataService = dashboardDataService;
+        this.liveFindings = liveFindings;
+        this.resolutions = resolutions;
     }
 
     /**
@@ -145,7 +165,7 @@ public class ResourceSecurityAggregationService {
         List<ResourceSecurityGroup> groups = new ArrayList<>();
         List<ProductError> errors = new ArrayList<>();
 
-        groups.add(securityCenterGroup(account, arnCandidate, errors));
+        groups.add(securityCenterGroup(account, arnCandidate, shortIdCandidate, errors));
         groups.add(complianceOpsGroup(account, arnCandidate, errors));
         groups.add(performanceGroup(account, shortIdCandidate, errors));
         groups.add(xamSecureGroup(account, arnCandidate, shortIdCandidate, errors));
@@ -158,31 +178,91 @@ public class ResourceSecurityAggregationService {
     }
 
     /**
-     * Security Center findings — the live {@code cloud_security_finding} rows keyed by ARN.
+     * Security Center findings for this resource — read from the <b>same live, merged snapshot the
+     * {@code /security} page reads</b>, not the near-empty {@code cloud_security_finding} table.
      *
-     * <p>Only reachable when the resource id is an ARN: the repository matches on
-     * {@code resource_arn}, so a short id cannot select anything. The deep link carries the same
-     * {@code arnCandidate} the rows were read under — the one id every ARN-keyed row already holds.
+     * <p>The Security Center page ({@code SecurityController.getSecurityFindings}) serves a cached
+     * snapshot that is merged with event-driven live findings and then filtered by the user's
+     * dismissals. That merged set holds the S3 "Public Access Block" and VPC/security-group
+     * findings on billable resources; the old table read saw almost none of them. This method now
+     * mirrors that page's <em>cached</em> branch exactly:
+     * {@code getSecuritySnapshot(cacheKey, ..., SECURITY_SNAPSHOT_MAX_AGE_HOURS)} →
+     * {@code liveFindings.mergeInto(..., cloudAccountId)} → {@code resolutions.filterResolved(...)},
+     * then filtered to the opened resource with an ARN-tolerant match.
+     *
+     * <p><b>Cached-read-only, never a scan.</b> When the snapshot is absent or too old,
+     * {@code getSecuritySnapshot} returns null and this source contributes nothing — it never falls
+     * through to a live Prowler/comprehensive scan. {@code SecurityService} and
+     * {@code CloudListService} are not injected here, so a scan is impossible by construction.
+     *
+     * <p>The stale {@code cloud_security_finding} table is kept as an <em>additional</em> union
+     * source (only when an ARN is in hand), deduped against the merged source by title+resource.
+     * The deep link carries the same id the match was made on, so the page's own ARN-tolerant
+     * filter re-matches.
      */
     private ResourceSecurityGroup securityCenterGroup(CloudAccount account, String arnCandidate,
-                                                      List<ProductError> errors) {
+                                                      String shortIdCandidate, List<ProductError> errors) {
         ResourceSecurityGroup group = new ResourceSecurityGroup(
                 PRODUCT_SECURITY_CENTER, "Security Center", "/security", new ArrayList<>());
-        if (arnCandidate == null) {
+        // The id both sources and the deep link agree on: the ARN when known, else the short id.
+        String deepLinkResource = arnCandidate != null ? arnCandidate : shortIdCandidate;
+        if (deepLinkResource == null) {
             return group;
         }
         try {
-            List<CloudSecurityFinding> rows =
-                    securityFindingRepository.findByResource(account.getId(), arnCandidate);
-            for (CloudSecurityFinding row : rows) {
-                SecurityDeepLink link = new SecurityDeepLink("/security",
-                        Map.of("resource", arnCandidate));
-                group.getFindings().add(new ResourceSecurityFinding(
-                        row.getTitle(),
-                        SecuritySeverity.normalize(row.getSeverity()),
-                        row.getResourceType(),
-                        link));
+            // Dedupe across the two sources by normalised title + the resource id we linked on,
+            // so a finding present in both the merged snapshot and the DB table is listed once.
+            Set<String> seen = new LinkedHashSet<>();
+
+            // PRIMARY: the live, merged cached snapshot the page serves — cached read only.
+            String cacheKey = "security-" + account.getAwsAccountId();
+            @SuppressWarnings("unchecked")
+            List<DashboardData.SecurityFinding> cached =
+                    (List<DashboardData.SecurityFinding>) dashboardDataService.getSecuritySnapshot(
+                            cacheKey, new TypeReference<List<DashboardData.SecurityFinding>>() {},
+                            SECURITY_SNAPSHOT_MAX_AGE_HOURS);
+            if (cached != null) {
+                List<DashboardData.SecurityFinding> merged = resolutions.filterResolved(
+                        liveFindings.mergeInto(cached, account.getId()), account.getId());
+                if (merged != null) {
+                    for (DashboardData.SecurityFinding f : merged) {
+                        if (!matchesResource(f.getResourceId(), arnCandidate)
+                                && !matchesResource(f.getResourceId(), shortIdCandidate)) {
+                            continue;
+                        }
+                        String title = titleOf(f);
+                        if (!seen.add(dedupeKey(title, deepLinkResource))) {
+                            continue;
+                        }
+                        SecurityDeepLink link = new SecurityDeepLink("/security",
+                                Map.of("resource", deepLinkResource));
+                        group.getFindings().add(new ResourceSecurityFinding(
+                                title,
+                                SecuritySeverity.normalize(f.getSeverity()),
+                                f.getCategory(),
+                                link));
+                    }
+                }
             }
+
+            // ADDITIONAL: the legacy cloud_security_finding table, ARN-keyed, deduped against above.
+            if (arnCandidate != null) {
+                List<CloudSecurityFinding> rows =
+                        securityFindingRepository.findByResource(account.getId(), arnCandidate);
+                for (CloudSecurityFinding row : rows) {
+                    if (!seen.add(dedupeKey(row.getTitle(), deepLinkResource))) {
+                        continue;
+                    }
+                    SecurityDeepLink link = new SecurityDeepLink("/security",
+                            Map.of("resource", deepLinkResource));
+                    group.getFindings().add(new ResourceSecurityFinding(
+                            row.getTitle(),
+                            SecuritySeverity.normalize(row.getSeverity()),
+                            row.getResourceType(),
+                            link));
+                }
+            }
+
             sortBySeverity(group);
         } catch (RuntimeException e) {
             logger.warn("[resource-security] Security Center read failed for account {}: {}",
@@ -191,6 +271,41 @@ public class ResourceSecurityAggregationService {
                     "Security Center findings could not be read."));
         }
         return group;
+    }
+
+    /**
+     * ARN-tolerant match between a finding's resource id and one opened-resource candidate — a Java
+     * port of the frontend's {@code securityFindingMatchesResource}, so the tab and the
+     * {@code /security} page agree on what matches. A finding matches when its id equals the
+     * candidate, or the candidate (typically a full ARN) ends with {@code ":"} or {@code "/"} plus
+     * the finding's id (the short-id/name form Prowler rows carry). Null id or null candidate never
+     * matches.
+     */
+    private boolean matchesResource(String findingResourceId, String candidate) {
+        if (findingResourceId == null || candidate == null) {
+            return false;
+        }
+        return candidate.equals(findingResourceId)
+                || candidate.endsWith(":" + findingResourceId)
+                || candidate.endsWith("/" + findingResourceId);
+    }
+
+    /**
+     * The tab title for a merged finding. {@code DashboardData.SecurityFinding} has no title field,
+     * so use the description, falling back to the category when the description is blank.
+     */
+    private String titleOf(DashboardData.SecurityFinding f) {
+        String description = f.getDescription();
+        if (description != null && !description.isBlank()) {
+            return description;
+        }
+        return f.getCategory();
+    }
+
+    /** Dedupe key for a Security Center finding: normalised title plus the linked resource id. */
+    private String dedupeKey(String title, String resource) {
+        String normalisedTitle = title == null ? "" : title.trim().toLowerCase();
+        return normalisedTitle + "|" + resource;
     }
 
     /**

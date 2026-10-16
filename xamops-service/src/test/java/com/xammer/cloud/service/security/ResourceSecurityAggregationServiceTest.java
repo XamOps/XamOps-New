@@ -1,7 +1,9 @@
 package com.xammer.cloud.service.security;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.CloudSecurityFinding;
+import com.xammer.cloud.dto.DashboardData;
 import com.xammer.cloud.dto.PerformanceInsightDto;
 import com.xammer.cloud.dto.PerformanceInsightDto.InsightSeverity;
 import com.xammer.cloud.dto.compliance.ComplianceReport;
@@ -12,6 +14,7 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.CloudSecurityFindingRepository;
 import com.xammer.cloud.repository.UpwindPostureFindingRepository;
 import com.xammer.cloud.repository.UpwindVulnerabilityFindingRepository;
+import com.xammer.cloud.service.DashboardDataService;
 import com.xammer.cloud.service.PerformanceInsightsService;
 import com.xammer.cloud.service.ResourceIdResolver;
 import com.xammer.cloud.service.ResourceIdResolver.CanonicalResource;
@@ -39,6 +42,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -65,6 +69,9 @@ class ResourceSecurityAggregationServiceTest {
     @Mock private PerformanceInsightsService performanceInsightsService;
     @Mock private UpwindPostureFindingRepository upwindPostureRepository;
     @Mock private UpwindVulnerabilityFindingRepository upwindVulnerabilityRepository;
+    @Mock private DashboardDataService dashboardDataService;
+    @Mock private SecurityFindingProjectionService liveFindings;
+    @Mock private SecurityFindingResolutionService resolutions;
 
     private ResourceSecurityAggregationService service;
     private CloudAccount account;
@@ -73,7 +80,8 @@ class ResourceSecurityAggregationServiceTest {
     void setUp() {
         service = new ResourceSecurityAggregationService(cloudAccountRepository, idResolver,
                 securityFindingRepository, complianceOpsService, performanceInsightsService,
-                upwindPostureRepository, upwindVulnerabilityRepository);
+                upwindPostureRepository, upwindVulnerabilityRepository,
+                dashboardDataService, liveFindings, resolutions);
         account = new CloudAccount();
         account.setId(ROW_ID);
         account.setAwsAccountId(AWS_ID);
@@ -88,6 +96,11 @@ class ResourceSecurityAggregationServiceTest {
                 .thenReturn(List.of());
         lenient().when(upwindVulnerabilityRepository.countOpenBySeverityForResource(anyList(), anyString()))
                 .thenReturn(List.of());
+        // Default: no cached security snapshot, so the merged Security Center source contributes
+        // nothing and the existing findByResource-based assertions keep their exact expected
+        // counts. The merged-source tests override this stub.
+        lenient().when(dashboardDataService.getSecuritySnapshot(anyString(), any(), anyInt()))
+                .thenReturn(null);
     }
 
     @Test
@@ -288,6 +301,122 @@ class ResourceSecurityAggregationServiceTest {
     }
 
     @Test
+    @DisplayName("Security Center reads the merged snapshot when the finding stores the full ARN")
+    void securityCenterReadsMergedSnapshotWhenFindingStoresFullArn() {
+        // The drawer holds a bare bucket name; the inventory row carries the full ARN.
+        lenient().when(idResolver.resolve(eq(ROW_ID), any())).thenReturn(
+                Map.of(BUCKET_ID, new CanonicalResource(BUCKET_ID, "S3 Bucket",
+                        "xrms-document-bucket", "ap-south-1", BUCKET_ARN)));
+        // The merged snapshot holds the finding keyed by the FULL ARN.
+        DashboardData.SecurityFinding f = securityFinding(BUCKET_ARN,
+                "Public Access Block is not fully enabled", "HIGH", "S3");
+        stubMergedSnapshot(List.of(f));
+        when(securityFindingRepository.findByResource(ROW_ID, BUCKET_ARN)).thenReturn(List.of());
+
+        ResponseEntity<Object> response = service.aggregate(AWS_ID, BUCKET_ID, null);
+        ResourceSecurityFindings body = (ResourceSecurityFindings) response.getBody();
+
+        assertNotNull(body);
+        ResourceSecurityGroup security = group(body, "SECURITY_CENTER");
+        assertNotNull(security);
+        assertEquals(1, security.getFindings().size());
+        assertEquals("Public Access Block is not fully enabled",
+                security.getFindings().get(0).getTitle());
+        assertEquals("HIGH", security.getFindings().get(0).getSeverity());
+        // Deep link carries the ARN the page's own filter re-matches on.
+        assertEquals(BUCKET_ARN, security.getFindings().get(0).getDeepLink().getQuery().get("resource"));
+    }
+
+    @Test
+    @DisplayName("Security Center reads the merged snapshot when the finding stores just the bucket name")
+    void securityCenterReadsMergedSnapshotWhenFindingStoresBucketName() {
+        lenient().when(idResolver.resolve(eq(ROW_ID), any())).thenReturn(
+                Map.of(BUCKET_ID, new CanonicalResource(BUCKET_ID, "S3 Bucket",
+                        "xrms-document-bucket", "ap-south-1", BUCKET_ARN)));
+        // Prowler-style row: the resource id is the SHORT bucket name, not the ARN.
+        DashboardData.SecurityFinding f = securityFinding(BUCKET_ID,
+                "Public Access Block is not fully enabled", "HIGH", "S3");
+        stubMergedSnapshot(List.of(f));
+        when(securityFindingRepository.findByResource(ROW_ID, BUCKET_ARN)).thenReturn(List.of());
+
+        ResponseEntity<Object> response = service.aggregate(AWS_ID, BUCKET_ID, null);
+        ResourceSecurityFindings body = (ResourceSecurityFindings) response.getBody();
+
+        assertNotNull(body);
+        ResourceSecurityGroup security = group(body, "SECURITY_CENTER");
+        assertNotNull(security);
+        // ARN-tolerant match: BUCKET_ARN ends with ":::" + short name (the ":"-form branch).
+        assertEquals(1, security.getFindings().size());
+        assertEquals("Public Access Block is not fully enabled",
+                security.getFindings().get(0).getTitle());
+    }
+
+    @Test
+    @DisplayName("Security Center never triggers a live/comprehensive scan — cached read only")
+    void securityCenterNeverTriggersLiveScan() {
+        lenient().when(idResolver.resolve(eq(ROW_ID), any())).thenReturn(
+                Map.of(BUCKET_ID, new CanonicalResource(BUCKET_ID, "S3 Bucket",
+                        "xrms-document-bucket", "ap-south-1", BUCKET_ARN)));
+        DashboardData.SecurityFinding f = securityFinding(BUCKET_ARN,
+                "Public Access Block is not fully enabled", "HIGH", "S3");
+        stubMergedSnapshot(List.of(f));
+        when(securityFindingRepository.findByResource(ROW_ID, BUCKET_ARN)).thenReturn(List.of());
+
+        service.aggregate(AWS_ID, BUCKET_ID, null);
+
+        // Only the cached snapshot + merge + resolution path is exercised. No SecurityService or
+        // CloudListService is injected into this service, so a live scan is impossible by
+        // construction — the "no heavy scan" guarantee is structural, asserted here by confirming
+        // the cached-read path (with the exact cache key and 12h max age) is the only path taken.
+        verify(dashboardDataService).getSecuritySnapshot(
+                eq("security-" + AWS_ID), any(), eq(12));
+        verify(liveFindings).mergeInto(anyList(), eq(ROW_ID));
+        verify(resolutions).filterResolved(anyList(), eq(ROW_ID));
+    }
+
+    @Test
+    @DisplayName("Security Center is a graceful empty group when the snapshot is null — no NPE, no scan")
+    void securityCenterEmptyWhenSnapshotNull() {
+        lenient().when(idResolver.resolve(eq(ROW_ID), any())).thenReturn(
+                Map.of(BUCKET_ID, new CanonicalResource(BUCKET_ID, "S3 Bucket",
+                        "xrms-document-bucket", "ap-south-1", BUCKET_ARN)));
+        // Snapshot is null (default stub) AND the legacy table has nothing.
+        when(securityFindingRepository.findByResource(ROW_ID, BUCKET_ARN)).thenReturn(List.of());
+        when(performanceInsightsService.getInsights(eq(AWS_ID), any(), eq(false)))
+                .thenReturn(List.of(insight("Underutilised instance", InsightSeverity.CRITICAL, BUCKET_ID)));
+
+        ResponseEntity<Object> response = service.aggregate(AWS_ID, BUCKET_ID, null);
+        ResourceSecurityFindings body = (ResourceSecurityFindings) response.getBody();
+
+        assertNotNull(body);
+        // The empty Security Center group is dropped; other groups are unaffected.
+        assertNull(group(body, "SECURITY_CENTER"));
+        assertNotNull(group(body, "PERFORMANCE"));
+        // A null snapshot must never reach the merge/resolution collaborators.
+        verify(liveFindings, never()).mergeInto(anyList(), any());
+        verify(resolutions, never()).filterResolved(anyList(), any());
+    }
+
+    @Test
+    @DisplayName("Security Center unions the merged snapshot and the legacy table, deduped by title+resource")
+    void securityCenterUnionDedupesSnapshotAndDbRows() {
+        // Resolve to an ARN resource so both sources are read under the same resource.
+        DashboardData.SecurityFinding f = securityFinding(ARN, "Public bucket", "CRITICAL", "S3");
+        stubMergedSnapshot(List.of(f));
+        // The legacy table carries the same finding title on the same resource.
+        when(securityFindingRepository.findByResource(ROW_ID, ARN))
+                .thenReturn(List.of(finding("Public bucket", "CRITICAL")));
+
+        ResourceSecurityFindings body = aggregate();
+
+        ResourceSecurityGroup security = group(body, "SECURITY_CENTER");
+        assertNotNull(security);
+        // Exactly ONE "Public bucket" finding — deduped across the two sources.
+        assertEquals(1, security.getFindings().size());
+        assertEquals("Public bucket", security.getFindings().get(0).getTitle());
+    }
+
+    @Test
     @DisplayName("An unknown account is a 404")
     void unknownAccountIsNotFound() {
         when(cloudAccountRepository.findByAwsAccountId("000000000000")).thenReturn(List.of());
@@ -307,6 +436,31 @@ class ResourceSecurityAggregationServiceTest {
                 .filter(g -> product.equals(g.getProduct()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private DashboardData.SecurityFinding securityFinding(String resourceId, String description,
+                                                          String severity, String category) {
+        DashboardData.SecurityFinding f = new DashboardData.SecurityFinding();
+        f.setResourceId(resourceId);
+        f.setDescription(description);
+        f.setSeverity(severity);
+        f.setCategory(category);
+        return f;
+    }
+
+    /**
+     * Stubs the cached-read path the way the Security Center page wires it: the snapshot getter
+     * returns {@code findings}, and the merge/resolution collaborators pass their input through.
+     */
+    @SuppressWarnings("unchecked")
+    private void stubMergedSnapshot(List<DashboardData.SecurityFinding> findings) {
+        lenient().when(dashboardDataService.getSecuritySnapshot(
+                        eq("security-" + AWS_ID), any(TypeReference.class), eq(12)))
+                .thenReturn(findings);
+        lenient().when(liveFindings.mergeInto(anyList(), eq(ROW_ID)))
+                .thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(resolutions.filterResolved(anyList(), eq(ROW_ID)))
+                .thenAnswer(inv -> inv.getArgument(0));
     }
 
     private CloudSecurityFinding finding(String title, String severity) {
