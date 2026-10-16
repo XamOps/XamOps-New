@@ -18,7 +18,7 @@ export const EmptyState: FC<{ icon: string; title: string; subtitle: string }> =
       <Icon icon={icon} width={22} aria-hidden="true" className="text-[rgba(0,0,0,0.4)] dark:text-[rgba(255,255,255,0.4)]" />
     </div>
     <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]">{title}</p>
-    <p className="text-[12px] text-[rgba(0,0,0,0.5)] mt-1 max-w-[460px] dark:text-[rgba(255,255,255,0.5)]">{subtitle}</p>
+    <p className="text-[12px] text-[rgba(0,0,0,0.56)] mt-1 max-w-[460px] dark:text-[rgba(255,255,255,0.5)]">{subtitle}</p>
   </div>
 );
 
@@ -111,7 +111,7 @@ export const HpaReadFallback: FC<{
     return (
       <div className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] p-6">
         <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">{SUBJECT[feature].failed}</p>
-        <p className="text-[12px] text-[rgba(0,0,0,0.5)] mt-1">{result.message}</p>
+        <p className="text-[12px] text-[rgba(0,0,0,0.56)] mt-1">{result.message}</p>
         <button
           type="button"
           onClick={reload}

@@ -59,7 +59,7 @@ export function TermTip({ term, entry, children, className = '' }: TermTipProps)
           What's this? {resolved.term}
         </span>
         <span className="mt-1 block text-[rgba(0,0,0,0.72)] dark:text-[rgba(255,255,255,0.8)]">{resolved.text}</span>
-        <span className="mt-1 block text-[11px] text-[rgba(0,0,0,0.5)] dark:text-[rgba(255,255,255,0.5)]">{resolved.source}</span>
+        <span className="mt-1 block text-[11px] text-[rgba(0,0,0,0.56)] dark:text-[rgba(255,255,255,0.5)]">{resolved.source}</span>
       </span>
     </span>
   );

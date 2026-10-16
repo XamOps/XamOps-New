@@ -10,6 +10,12 @@
  * "Kubernetes deferred this. The new size may still be applied later.", and never claims a put-back
  * the server didn't prove (design-delta §5.0).
  *
+ * The success row says only what the reply proves (glossary v2 §8.2, §11.3; `ResizeProof`): "every
+ * running pod (N of M)" when `skippedPods` left pods out, "no restart" only when `restartFree` is
+ * true (else "no restart-free proof"), and a Restart row for each container whose restart count
+ * rose. Pods are numbered against every pod of the workload, the skipped ones included, and a
+ * closing row never says "Nothing changed" while a pod the reply lists did change.
+ *
  * `buildApplySteps` is pure, so every terminal path is unit-tested without the DOM.
  */
 import { Icon } from '@iconify/react';
@@ -18,6 +24,7 @@ import { COOLDOWN_MINUTES, formatMemoryMi } from '../../../../api/verticalRights
 import type { ApplyOutcomeWire, ApplyPodProofWire, VerticalResourcesWire } from '../../../../types/verticalRightsizer';
 import type { Tone } from './statusTones';
 import { resultKeyForTerminal, RESULT_LABELS, RESULT_TONES } from './statusTones';
+import { everyPodPhrase, restartedContainers, skippedPodText, skippedPodsOf, type SkippedPodWire } from './applyProof';
 import StatusChip from './StatusChip';
 import { toneClasses } from './toneClasses';
 
@@ -142,11 +149,75 @@ function podResized(pod: ApplyPodProofWire): boolean {
   return true;
 }
 
+/** Whether the reply shows this pod's resources moved: its `changed` flag, else before against after. */
+function podChanged(pod: ApplyPodProofWire): boolean {
+  if (typeof pod.changed === 'boolean') return pod.changed;
+  return (pod.containers ?? []).some(
+    (c) => !!c.observedBefore && !!c.observedAfter && RESOURCE_FIELDS.some((f) => (c.observedBefore![f] ?? null) !== (c.observedAfter![f] ?? null)),
+  );
+}
+
 const resourceWord = (insufficient: string | null | undefined): string =>
   insufficient === 'cpu' ? 'CPU' : insufficient === 'memory' ? 'memory' : 'room';
 
+/** The workload's pods the reply left out (glossary §6 "Not touched"), numbered after the touched ones. */
+function skippedStep(skipped: readonly SkippedPodWire[], touched: number): ApplyStep | null {
+  if (skipped.length === 0) return null;
+  const total = touched + skipped.length;
+  const first = touched + 1;
+  const which =
+    skipped.length === 1 ? `Pod ${first} of ${total}` : skipped.length === 2 ? `Pods ${first} and ${total} of ${total}` : `Pods ${first} to ${total} of ${total}`;
+  return {
+    key: 'skipped',
+    tone: 'off',
+    icon: 'mdi:minus-circle-outline',
+    title: `${which} not touched`,
+    detail: `${skipped.map((p) => `${p.podName}: ${skippedPodText(p)}`).join('; ')}. ${skipped.length === 1 ? 'It runs' : 'They run'} at the workload's own size.`,
+  };
+}
+
+/** The glossary's Restart row, once per container whose restart count rose during the change. */
+function restartSteps(outcome: ApplyOutcomeWire): ApplyStep[] {
+  return restartedContainers(outcome).map((r) => ({
+    key: `restart-${r.podIndex}-${r.container}`,
+    tone: 'bad' as const,
+    icon: 'mdi:restart-alert',
+    title: 'A container restarted during the resize',
+    detail: `${podShort(r.pod)}, container ${r.container}: restart count ${r.before} → ${r.after}. This was not a restart-free change.${
+      r.bySetting ? ' The container restarts by its own setting.' : ''
+    }`,
+  }));
+}
+
+/**
+ * The Done row's caveat (glossary §6): an in-place resize changes the running pods only, so the
+ * workload's own template still holds the old size. Said only for `IN_PLACE`, the method that leaves
+ * the template alone; the price clause waits for prices (BE-4).
+ */
+function doneDetail(outcome: ApplyOutcomeWire, kind: string | undefined): string | undefined {
+  if (outcome.method !== 'IN_PLACE') return outcome.detail ?? undefined;
+  const old = sizeText(outcome.pods?.[0]?.containers?.[0]?.observedBefore);
+  const caveat = `The ${kind ?? 'workload'} itself wasn't changed, so a pod created later starts at ${old ?? 'its old size'}.`;
+  return outcome.detail ? `${outcome.detail} ${caveat}` : caveat;
+}
+
+/**
+ * The closing line of a path that isn't a clean success but did change a pod (glossary v2 §8.2), so
+ * the row never says "Nothing changed" over a pod the reply shows resized.
+ */
+const CHANGED_RESULT_TEXT: Record<string, string> = {
+  PARTIALLY_APPLIED: 'It stopped at the first pod that failed. The pods above say which changed.',
+  RESTART_DETECTED: 'A container restarted during the resize. This was not a restart-free change.',
+  NOT_READY: 'The new size is in place, but the pod stopped being ready.',
+};
+
+export interface ApplyStepContext {
+  /** The workload's kind ("Deployment", "StatefulSet"), for the Done row's caveat. */
+  kind?: string;
+}
+
 /** Build the ordered steps from endpoint 3's reply (glossary §6). */
-export function buildApplySteps(outcome: ApplyOutcomeWire | null): ApplyStep[] {
+export function buildApplySteps(outcome: ApplyOutcomeWire | null, context: ApplyStepContext = {}): ApplyStep[] {
   if (!outcome) {
     return [{ key: 'waiting', tone: 'info', icon: 'mdi:progress-clock', title: 'Waiting for the cluster…', at: null }];
   }
@@ -177,12 +248,15 @@ export function buildApplySteps(outcome: ApplyOutcomeWire | null): ApplyStep[] {
   }
 
   const pods = outcome.pods ?? [];
+  const skipped = skippedPodsOf(outcome);
+  // Numbered against every pod of the workload, so a pod left out is never silently dropped.
+  const total = pods.length + skipped.length;
   pods.forEach((pod, i) => {
     const confirmed = podResized(pod);
     const restarts = pod.containers?.[0]
       ? `${pod.containers[0].restartCountBefore ?? 0} → ${pod.containers[0].restartCountAfter ?? 0}`
       : null;
-    const which = i === 0 ? `pod 1 of ${pods.length}, the test pod` : `pod ${i + 1} of ${pods.length}`;
+    const which = i === 0 ? `pod 1 of ${total}, the test pod` : `pod ${i + 1} of ${total}`;
     steps.push({
       key: `pod-${i}`,
       tone: confirmed ? 'good' : 'info',
@@ -191,16 +265,22 @@ export function buildApplySteps(outcome: ApplyOutcomeWire | null): ApplyStep[] {
       detail: `${podShort(pod)}${restarts ? `: restarts ${restarts}` : ''}${pod.ready === true ? ', still ready' : ''}.`,
     });
   });
+  const notTouched = skippedStep(skipped, pods.length);
+  if (notTouched) steps.push(notTouched);
+  const restartRows = restartSteps(outcome);
+  steps.push(...restartRows);
   const putBack = pods.map(putBackStep).filter((s): s is ApplyStep => s !== null);
 
   // Terminal path.
   if (result === 'applied') {
+    // "no restart" is a proof, not a default: only restartFree says it, and never over a restart.
+    const proof = outcome.restartFree === true && restartRows.length === 0 ? 'no restart' : 'no restart-free proof';
     steps.push({
       key: 'done',
       tone: 'good',
       icon: RESULT_TONES.applied.icon,
-      title: 'Done: applied in every pod, no restart',
-      detail: outcome.detail ?? undefined,
+      title: `Done: applied in ${everyPodPhrase(outcome)}, ${proof}`,
+      detail: doneDetail(outcome, context.kind),
       banded: true,
     });
   } else if (result === 'deferred') {
@@ -233,17 +313,24 @@ export function buildApplySteps(outcome: ApplyOutcomeWire | null): ApplyStep[] {
       banded: true,
     });
   } else {
-    // partly-applied, not-confirmed, failed, expired.
+    // partly-applied, not-confirmed, failed (incl. a restart or a pod that stopped being ready), expired.
     const r = RESULT_TONES[result];
     steps.push(...putBack);
-    steps.push({
-      key: 'result',
-      tone: r.tone,
-      icon: r.icon,
-      title: outcome.reverted === false ? 'Result: not applied yet.' : 'Result: not applied. Nothing changed.',
-      detail: outcome.reverted === false ? MAY_STILL_APPLY : (outcome.detail ?? undefined),
-      banded: true,
-    });
+    const label = RESULT_LABELS[result];
+    steps.push(
+      outcome.reverted === false
+        ? { key: 'result', tone: r.tone, icon: r.icon, title: 'Result: not applied yet.', detail: MAY_STILL_APPLY, banded: true }
+        : pods.some(podChanged)
+          ? {
+              key: 'result',
+              tone: r.tone,
+              icon: r.icon,
+              title: `Result: ${label.charAt(0).toLowerCase()}${label.slice(1)}.`,
+              detail: CHANGED_RESULT_TEXT[outcome.terminal ?? ''] ?? outcome.detail ?? undefined,
+              banded: true,
+            }
+          : { key: 'result', tone: r.tone, icon: r.icon, title: 'Result: not applied. Nothing changed.', detail: outcome.detail ?? undefined, banded: true },
+    );
   }
 
   return steps;
@@ -253,11 +340,13 @@ export interface ApplyStepperProps {
   outcome: ApplyOutcomeWire | null;
   /** True while the apply is still running ("Live: updates every 2 seconds."). */
   live?: boolean;
+  /** The workload's kind ("Deployment", "StatefulSet"), named in the Done row's caveat. */
+  workloadKind?: string;
   className?: string;
 }
 
-export function ApplyStepper({ outcome, live = false, className = '' }: ApplyStepperProps) {
-  const steps = buildApplySteps(outcome);
+export function ApplyStepper({ outcome, live = false, workloadKind, className = '' }: ApplyStepperProps) {
+  const steps = buildApplySteps(outcome, { kind: workloadKind });
   const resultKey = outcome ? resultKeyForTerminal(outcome.terminal) : null;
 
   return (
@@ -290,7 +379,7 @@ export function ApplyStepper({ outcome, live = false, className = '' }: ApplySte
                   <div className="text-[12px] text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]">{step.detail}</div>
                 )}
               </div>
-              <span className="shrink-0 text-[11px] tabular-nums text-[rgba(0,0,0,0.5)] dark:text-[rgba(255,255,255,0.5)]">
+              <span className="shrink-0 text-[11px] tabular-nums text-[rgba(0,0,0,0.56)] dark:text-[rgba(255,255,255,0.5)]">
                 {step.at ? formatIST(step.at, { short: true }) : '—'}
               </span>
             </li>

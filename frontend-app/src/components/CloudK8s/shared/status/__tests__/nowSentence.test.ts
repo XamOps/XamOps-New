@@ -163,10 +163,29 @@ describe('nowSentence: workload detail (glossary §3)', () => {
     expect(chips.map((c) => c.label)).toEqual(['idle-batch-listener: applied', 'Watching until 5:13 PM IST']);
   });
 
-  it('Applied with a restart reads restart detected, with a bad chip', () => {
-    const { clauses, chips } = workloadDetailSentence({ workload: 'w', applied: { restartFree: false } });
+  it('Applied with a restart count that rose reads restart detected, with a bad chip', () => {
+    const { clauses, chips } = workloadDetailSentence({ workload: 'w', applied: { restartFree: false, restarted: true } });
     expect(clauses[0]).toBe('Resized, restart detected.');
     expect(chips[0]).toMatchObject({ tone: 'bad', label: 'w: restart detected' });
+  });
+
+  // ResizeProof: restartFree false is "not proved", which is not the same as "it restarted".
+  it('Applied without the restart-free proof says so, and claims no restart either way', () => {
+    for (const restartFree of [false, null]) {
+      const { clauses, chips } = workloadDetailSentence({ workload: 'w', applied: { pods: 2, restartFree } });
+      expect(clauses[0]).toBe('Resized on all 2 pods, in place, no restart-free proof.');
+      expect(chips[0]).toMatchObject({ tone: 'good', label: 'w: applied' });
+    }
+  });
+
+  // review-2 SF3: pods the reply left out mean it is never "all" pods.
+  it('Applied with skipped pods reads every running pod (N of M), never "on all"', () => {
+    const { clauses } = workloadDetailSentence({
+      workload: 'overprovisioned-api',
+      applied: { time: '6:41 PM IST', change: { resource: 'CPU request', from: '1000m', to: '25m' }, pods: 2, skipped: 1, restartFree: true },
+    });
+    expect(clauses[0]).toBe('Resized 6:41 PM IST: CPU request 1000m → 25m on every running pod (2 of 3), in place, with no restart.');
+    expect(clauses.join(' ')).not.toContain('on all');
   });
 
   // Today's throttled-encoder deferral, put back by XamOps (fix S7).

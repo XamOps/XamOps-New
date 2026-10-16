@@ -298,12 +298,15 @@ describe('Automation › Overview (§9.1)', () => {
       expect(banner.textContent).not.toMatch(/\$/);
     });
 
-    it('shows the KPIs from the fixture: saving now, can save, needs more, changes in 7 days', async () => {
+    it('shows the KPIs from the fixture: applied live, can save, needs more, changes in 7 days', async () => {
       await renderPanel(fixture('demo-aws-001'));
       await waitFor(() => expect(document.querySelector('[data-overview-kpis]')).not.toBeNull());
-      const saving = kpi('Saving now');
-      expect(saving).toHaveTextContent('1');
-      expect(saving).toHaveTextContent('recorded once the activity feed is on');
+      // lastAction has no before and after, so a raise would count too: "Applied live", never "Saving now".
+      const applied = kpi('Applied live');
+      expect(applied).toHaveTextContent('1');
+      expect(applied).toHaveTextContent('whose latest change was applied live');
+      expect(applied).toHaveTextContent('Before and after: —, recorded once the activity feed is on');
+      expect(document.querySelector('[data-overview-kpis]')).not.toHaveTextContent(/saving now/i);
       expect(kpi('Can save now')).toHaveTextContent('1.95 vCPU');
       expect(kpi('Can save now')).toHaveTextContent('1.5 GiB memory');
       expect(kpi('Needs more')).toHaveTextContent('+0.11 vCPU added if applied');
@@ -345,6 +348,17 @@ describe('Automation › Overview (§9.1)', () => {
       expect(cards().vpa).toHaveTextContent('No VPAs found');
       expect(within(cards().workload).getByRole('link', { name: 'Open Workloads' })).toHaveAttribute('href', '/w');
       expect(within(cards().node).getByRole('link', { name: 'Open Node autoscaler' })).toHaveAttribute('href', '/n');
+    });
+
+    it('points the capability table\'s HPA and VPA rows at the pages that show them, not "Not shown yet"', async () => {
+      const table = await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { hrefs: { hpa: '/h', vpa: '/v' } });
+      const hpa = rowOf(table, 'hpa-manager');
+      expect(hpa).toHaveTextContent("Each HPA's limits, flags and conflicts");
+      expect(within(hpa).getByRole('link', { name: 'Automation › HPA' })).toHaveAttribute('href', '/h');
+      const vpa = rowOf(table, 'vpa-baseline');
+      expect(vpa).toHaveTextContent("Each Kubernetes VPA's target, next to XamOps's suggestion");
+      expect(within(vpa).getByRole('link', { name: 'Automation › VPA' })).toHaveAttribute('href', '/v');
+      expect(table).not.toHaveTextContent(/Not shown yet|display coming/);
     });
 
     it('compares requested, used and suggested by namespace, with a memory toggle', async () => {

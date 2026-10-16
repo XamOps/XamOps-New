@@ -34,6 +34,7 @@ import type { HpaPageView, NativeVpaTargetView, VpaCoexistenceKind } from '../..
 import {
   VPA_CONFLICT_CHIPS,
   formatMemory,
+  vpaConflictTone,
   vpaKpis,
   vpaRows,
   type Resource,
@@ -143,7 +144,9 @@ function VpaKpiRow({ k }: { k: VpaKpis }) {
       <KpiCard tone={k.changingPods > 0 ? 'bad' : 'good'} icon={k.changingPods > 0 ? 'mdi:alert-octagon-outline' : 'mdi:check-circle'} label="Changing pods" value={k.changingPods}>
         <p>{k.changingPods > 0 ? 'XamOps leaves these workloads alone' : 'No VPA here changes pods'}</p>
       </KpiCard>
-      <KpiCard tone={k.conflicts > 0 ? 'bad' : 'good'} icon={k.conflicts > 0 ? 'mdi:alert-octagon-outline' : 'mdi:shield-check-outline'} label="Conflicts with XamOps" value={k.conflicts}>
+      {/* Not "Conflicts with XamOps": that card on the HPA page counts VPA-managed only. This one adds
+          the VPAs XamOps can't read, and takes the table chips' tones (a conflict bad, unreadable warn). */}
+      <KpiCard {...vpaConflictTone(k)} label="Conflicts or unreadable" value={k.conflictsOrUnreadable}>
         <p>{`${k.changingPods} a VPA changes, ${k.unreadable} XamOps can't read`}</p>
       </KpiCard>
       <KpiCard

@@ -14,7 +14,8 @@ import type { CodeView } from '../../../../types/verticalRightsizer';
 export const CARD = 'rounded-lg border border-[rgba(0,0,0,0.08)] bg-white dark:border-[rgba(255,255,255,0.1)] dark:bg-[#141414]';
 export const INK = 'text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]';
 export const MUTED = 'text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]';
-export const FAINT = 'text-[rgba(0,0,0,0.5)] dark:text-[rgba(255,255,255,0.5)]';
+/** Tertiary text (source lines, gate reasons, dash explanations): 0.56 is 4.9:1 on white, AA at 11–12 px. */
+export const FAINT = 'text-[rgba(0,0,0,0.56)] dark:text-[rgba(255,255,255,0.5)]';
 export const RULE = 'border-[rgba(0,0,0,0.08)] dark:border-[rgba(255,255,255,0.1)]';
 export const FOCUS = 'outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] dark:focus-visible:ring-[rgba(255,255,255,0.92)]';
 export const LINK = `rounded-sm font-semibold underline underline-offset-2 ${INK} ${FOCUS}`;

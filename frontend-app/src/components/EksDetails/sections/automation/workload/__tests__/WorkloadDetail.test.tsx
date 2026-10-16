@@ -136,6 +136,64 @@ describe('Workload autoscaler › Workloads › one workload (UI v3 plan §2 "Wo
     expect(JSON.parse(String((posts()[0][1] as RequestInit).body))).toMatchObject({ dryRun: false });
   });
 
+  // ResizeProof: restartFree false is "not proved", and skippedPods means "every pod" is never claimed.
+  it('applied without the restart-free proof and with a pod left out: every running pod (2 of 3), never "every pod"', async () => {
+    const user = userEvent.setup();
+    serve(() => json(202, {
+      ...APPLIED_REPLY,
+      result: { ...APPLIED_REPLY.result, restartFree: false, skippedPods: [{ podName: 'overprovisioned-api-6f7d8-x9k2p', phase: 'Pending', reason: 'NOT_RUNNING' }] },
+    }));
+    detail('team-a/Deployment/overprovisioned-api');
+    await screen.findByText('Where it is now');
+    await applyLive(user, 'overprovisioned-api');
+
+    await waitFor(() => expect(stepTitles()).toContain('Done: applied in every running pod (2 of 3), no restart-free proof'));
+    expect(stepTitles()).toEqual([
+      'Checked the safety rules: all passed',
+      'Resized pod 1 of 3, the test pod',
+      'Resized pod 2 of 3',
+      'Pod 3 of 3 not touched',
+      'Done: applied in every running pod (2 of 3), no restart-free proof',
+    ]);
+    expect(stepper()).toHaveTextContent("The Deployment itself wasn't changed, so a pod created later starts at 1000m CPU, 1 GiB memory.");
+    const now = document.querySelector('[data-now-banner]')!;
+    expect(now).toHaveTextContent(/on every running pod \(2 of 3\), in place, no restart-free proof\./);
+    expect(now).not.toHaveTextContent(/on all|restart detected/);
+    expect(now.querySelector('[data-tone="bad"]')).toBeNull();
+    expect(document.querySelector('[data-stage="applying"]')).toHaveTextContent('Every running pod (2 of 3)');
+    expect(document.querySelector('[data-stage="applied"]')).toHaveTextContent('no restart-free proof');
+    expect(document.querySelector('[data-what-changed]')).toHaveTextContent(
+      "Container api, in each pod XamOps resized. 1950m CPU freed across 2 pods. 1 more pod wasn't touched: it runs at the workload's own size.",
+    );
+    // Main's card on the same page says the same thing (EksAutomationTab, unchanged).
+    expect(screen.getByText('Applied. Confirmed in every running pod (2 of 3).')).toBeInTheDocument();
+    expect(screen.getByText('In place · no restart-free proof')).toBeInTheDocument();
+  });
+
+  it('applied with a restart count that rose: the Restart row and "restart detected", and never "no restart"', async () => {
+    const user = userEvent.setup();
+    const [first, second] = APPLIED_REPLY.result.pods;
+    serve(() => json(202, {
+      ...APPLIED_REPLY,
+      result: {
+        ...APPLIED_REPLY.result,
+        restartFree: false,
+        pods: [{ ...first, containers: [{ ...first.containers[0], containerIdAfter: 'c2', restartCountAfter: 1 }] }, second],
+      },
+    }));
+    detail('team-a/Deployment/overprovisioned-api');
+    await screen.findByText('Where it is now');
+    await applyLive(user, 'overprovisioned-api');
+
+    await waitFor(() => expect(stepTitles()).toContain('A container restarted during the resize'));
+    expect(stepper()).toHaveTextContent('2bddb, container api: restart count 0 → 1. This was not a restart-free change.');
+    expect(stepTitles()).toContain('Done: applied in every pod, no restart-free proof');
+    const now = document.querySelector('[data-now-banner]')!;
+    expect(now).toHaveTextContent(/on all 2 pods, restart detected\./);
+    expect(now.querySelector('[data-tone="bad"]')).toHaveTextContent('overprovisioned-api: restart detected');
+    expect(document.querySelector('[data-stage="applied"]')).toHaveTextContent('restart detected');
+  });
+
   it('deferred: the kubelet\'s deferral, "So XamOps put the pod back", and nothing changed', async () => {
     const user = userEvent.setup();
     serve(() => json(202, DEFERRED_REPLY));

@@ -312,15 +312,38 @@ describe('sectionNavEntries (Addendum 1, J-2..J-4)', () => {
     expect(automationOf(`${BASE}&tab=automation&sub=pod-autoscaling`).subs.find((s) => s.current)?.id).toBe('hpa');
   });
 
-  it('drops the workload from links that leave Workload autoscaler › Workloads, and keeps it on Workloads itself', () => {
-    const automation = automationOf(`${BASE}&tab=automation&sub=workload-autoscaler&workload=a/Deployment/b`);
+  it('drops an open detail from every sidebar link, so the Workloads leaf and its group row land on the list', () => {
+    const search = `${BASE}&tab=automation&sub=workload-autoscaler&workload=a/Deployment/b`;
+    const automation = automationOf(search);
     expect(params(searchOf(automation.subs.find((s) => s.id === 'hpa')!.href)).has('workload')).toBe(false);
     expect(params(searchOf(automation.subs.find((s) => s.id === 'overview')!.href)).has('workload')).toBe(false);
-    const workloads = automation.subs.find((s) => s.id === 'group:workload-autoscaler')!.children![0];
-    expect(params(searchOf(workloads.href)).get('workload')).toBe('a/Deployment/b');
-    for (const entry of nav(`${BASE}&tab=automation&sub=workload-autoscaler&workload=a/Deployment/b`)) {
+    const group = automation.subs.find((s) => s.id === 'group:workload-autoscaler')!;
+    const workloads = group.children![0];
+    expect(workloads.current).toBe(true);
+    expect(params(searchOf(workloads.href)).has('workload')).toBe(false);
+    expect(resolve(searchOf(workloads.href))).toEqual({ tab: 'automation', sub: 'workload-autoscaler', corrected: null });
+    expect(group.href).toBe(workloads.href);
+    for (const entry of nav(search)) {
       expect(params(searchOf(entry.href)).has('workload'), entry.id).toBe(false);
     }
+  });
+
+  it('drops an open HPA from the HPA leaf too, and keeps every other parameter', () => {
+    const automation = automationOf(`${BASE}&tab=automation&sub=hpa&hpa=team-b/php-apache`);
+    const hpa = automation.subs.find((s) => s.id === 'hpa')!;
+    expect(hpa.current).toBe(true);
+    const p = params(searchOf(hpa.href));
+    expect(p.has('hpa')).toBe(false);
+    expect([p.get('tab'), p.get('sub')]).toEqual(['automation', 'hpa']);
+    for (const [key, value] of params(BASE)) expect(p.get(key), key).toBe(value);
+  });
+
+  it('keeps an open detail through an alias correction, while the sidebar still links to the list', () => {
+    const search = `${BASE}&tab=automation&sub=workload-autoscaling&workload=a/Deployment/b`;
+    expect(params(resolve(search).corrected).get('workload')).toBe('a/Deployment/b');
+    const workloads = automationOf(search).subs.find((s) => s.id === 'group:workload-autoscaler')!.children![0];
+    expect(workloads.current).toBe(true);
+    expect(params(searchOf(workloads.href)).has('workload')).toBe(false);
   });
 
   it('folds only consecutive subs of a group, and leaves ungrouped subs as leaves', () => {

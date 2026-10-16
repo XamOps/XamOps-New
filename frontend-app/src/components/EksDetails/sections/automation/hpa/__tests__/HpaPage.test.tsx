@@ -179,6 +179,17 @@ describe('HpaPage — HPAs on this cluster (UI v3 plan §2 "HPA")', () => {
     expect(kpis.querySelectorAll('[data-kpi-tone]')[1]).toHaveTextContent('At their maximum—from the XamOps agent');
   });
 
+  it('counts no HPAs it never checked: a dash and "Not checked" when neither the agent nor endpoint 1 answered', async () => {
+    mockedRead.mockResolvedValue({ kind: 'refused', code: { kind: 'known', code: 'CLUSTER_ACCESS_NOT_CONFIGURED', label: 'x' }, message: 'No access entry.' });
+    hpaPage(HPA_PAGE, null);
+    expect(await screen.findByText("XamOps can't sign in to this cluster")).toBeInTheDocument();
+    const cards = [...document.querySelectorAll<HTMLElement>('[data-hpa-kpis] [data-kpi-tone]')];
+    expect(cards[0]).toHaveTextContent('HPAs—Not checked: neither the XamOps agent nor the Workload autoscaler answered');
+    expect(cards[0].getAttribute('data-kpi-tone')).toBe('off');
+    expect(cards[0]).not.toHaveTextContent(/None on this cluster|0/);
+    expect(cards.map((c) => c.getAttribute('data-kpi-tone'))).toEqual(['off', 'off', 'off', 'off']);
+  });
+
   it('notes "HPA suggestions are off" only while the horizontal engine evaluated nothing', async () => {
     const off = phpApache({ horizontal: { state: 'NOT_EVALUATED', minReplicas: null, maxReplicas: null, targetCpuUtilizationPct: null, reasons: [] } });
     resolveWith({ engine, gateReasons: [], workloads: [off] });

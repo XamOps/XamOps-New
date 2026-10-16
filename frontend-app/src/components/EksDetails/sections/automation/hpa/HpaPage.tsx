@@ -140,7 +140,14 @@ const EngineStatus: React.FC<{
         </div>
         <div className="flex items-center gap-3">
           <label className={`flex items-center gap-2 text-[11px] font-semibold ${MUTED}`} title="A test run checks the change without sending anything to the cluster">
-            <input type="checkbox" checked={dryRun} onChange={(e) => onDryRun(e.target.checked)} className="accent-black" />
+            {/* data-k8s-kit: its own dark accent, so style.css's legacy dark rule doesn't turn it blue. */}
+            <input
+              type="checkbox"
+              checked={dryRun}
+              onChange={(e) => onDryRun(e.target.checked)}
+              className="accent-black dark:accent-white"
+              data-k8s-kit=""
+            />
             Test run only (nothing is sent)
           </label>
           <button
@@ -221,9 +228,15 @@ const HpaKpiRow: React.FC<{ rows: HpaRow[]; agentReported: boolean; engineRead: 
   const conflicts = rows.filter((r) => r.workload?.vpaCoexistence.kind === 'managed');
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-hpa-kpis="">
-      <KpiCard tone="info" icon="mdi:arrow-expand-horizontal" label="HPAs" value={k.total}>
-        <p>{k.total > 0 ? names(rows) : 'None on this cluster'}</p>
-        <p>{agentReported ? FROM_AGENT : 'from endpoint 1: the XamOps agent reported no HPA list'}</p>
+      <KpiCard tone={k.total === null ? 'off' : 'info'} icon="mdi:arrow-expand-horizontal" label="HPAs" value={k.total ?? DASH}>
+        {k.total === null ? (
+          <p>Not checked: neither the XamOps agent nor the Workload autoscaler answered</p>
+        ) : (
+          <>
+            <p>{k.total > 0 ? names(rows) : 'None on this cluster'}</p>
+            <p>{agentReported ? FROM_AGENT : 'from endpoint 1: the XamOps agent reported no HPA list'}</p>
+          </>
+        )}
       </KpiCard>
       <KpiCard tone={k.atMax === null ? 'off' : k.atMax > 0 ? 'warn' : 'good'} icon="mdi:arrow-collapse-up" label="At their maximum" value={k.atMax ?? DASH}>
         <p>{k.atMax === null ? FROM_AGENT : k.atMax > 0 ? names(atMax) : 'None is held at its maximum'}</p>

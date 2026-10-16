@@ -29,8 +29,10 @@ import {
   parseHpaParam,
   rebalanceText,
   todayByResult,
+  vpaConflictTone,
   vpaKpis,
   vpaRows,
+  VPA_CONFLICT_CHIPS,
   type AgentHpa,
   SCALING_EVENT_REASON,
 } from '../automationDerivations';
@@ -190,7 +192,11 @@ describe('hpaRows: the agent joined with endpoint 1', () => {
     const managed = wire('m', 'team-b', { hpa: { present: true, name: 'm' }, horizontal: { state: 'NO_CHANGE', minReplicas: null, maxReplicas: null, targetCpuUtilizationPct: null, reasons: ['VPA_MANAGED'] } });
     const rows = hpaRows(hpaView([PHP_E1, managed]), dash({ k8sHpas: [PHP_AGENT] }));
     expect(hpaKpis(rows, true, true)).toEqual({ total: 2, atMax: 1, atMin: 0, conflicts: 1 });
-    expect(hpaKpis(rows, false, false)).toEqual({ total: 2, atMax: null, atMin: null, conflicts: null });
+    // One source is enough to count the HPAs; with neither, the count is not checked, never 0.
+    expect(hpaKpis(rows, true, false)).toMatchObject({ total: 2, conflicts: null });
+    expect(hpaKpis(rows, false, true)).toMatchObject({ total: 2, atMax: null, atMin: null });
+    expect(hpaKpis(rows, false, false)).toEqual({ total: null, atMax: null, atMin: null, conflicts: null });
+    expect(hpaKpis([], false, false).total).toBeNull();
   });
 });
 
@@ -257,7 +263,15 @@ describe('vpaRows and vpaKpis', () => {
       // Skipped: XamOps has no value, so nothing to agree with.
       ['solo', { now: 100, xamops: null, vpa: 80 }, 'XamOps skips it: 1 replica', null],
     ]);
-    expect(vpaKpis(rows)).toEqual({ vpas: 4, changingPods: 0, unreadable: 0, off: 4, conflicts: 0, agreement: { agree: 2, compared: 3 } });
+    expect(vpaKpis(rows)).toEqual({ vpas: 4, changingPods: 0, unreadable: 0, off: 4, conflictsOrUnreadable: 0, agreement: { agree: 2, compared: 3 } });
+    expect(vpaConflictTone(vpaKpis(rows))).toEqual({ tone: 'good', icon: 'mdi:shield-check-outline' });
+  });
+
+  it('"Conflicts or unreadable" takes the chips\' tones: a VPA that changes pods is bad, an unreadable one warns', () => {
+    const k = (managed: number, unreadable: number) => ({ vpas: managed + unreadable, changingPods: managed, unreadable, off: 0, conflictsOrUnreadable: managed + unreadable, agreement: { agree: 0, compared: 0 } });
+    expect(vpaConflictTone(k(1, 1))).toEqual(VPA_CONFLICT_CHIPS.managed);
+    expect(vpaConflictTone(k(0, 1))).toEqual(VPA_CONFLICT_CHIPS.unreadable);
+    expect([VPA_CONFLICT_CHIPS.managed.tone, VPA_CONFLICT_CHIPS.unreadable.tone]).toEqual(['bad', 'warn']);
   });
 
   it('a VPA without a target says so; only a workload with no pod running says why', () => {
@@ -272,7 +286,7 @@ describe('vpaRows and vpaKpis', () => {
       [true, 'No VPA suggestion: no running pod to measure'],
       [true, 'No VPA suggestion reported'],
     ]);
-    expect(vpaKpis(rows)).toMatchObject({ changingPods: 2, conflicts: 2 });
+    expect(vpaKpis(rows)).toMatchObject({ changingPods: 2, conflictsOrUnreadable: 2 });
   });
 });
 

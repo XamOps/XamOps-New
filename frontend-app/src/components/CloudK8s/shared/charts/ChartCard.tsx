@@ -72,7 +72,7 @@ function HatchBlock({ before, note }: { before: string; note?: string }) {
         <rect x="0" y="0" width="100%" height="60" fill="url(#k8s-card-hatch)" />
       </svg>
       <span className="text-[12px] text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]">No data before {before}</span>
-      {note && <span className="text-[11px] text-[rgba(0,0,0,0.5)] dark:text-[rgba(255,255,255,0.5)]">{note}</span>}
+      {note && <span className="text-[11px] text-[rgba(0,0,0,0.56)] dark:text-[rgba(255,255,255,0.5)]">{note}</span>}
     </div>
   );
 }
@@ -123,7 +123,8 @@ export function ChartCard({ title, source, subline, state = { kind: 'ok' }, chil
 
       {table && <div className="mt-3">{table}</div>}
 
-      <p className="mt-2 text-[11px] text-[rgba(0,0,0,0.5)] dark:text-[rgba(255,255,255,0.5)]" data-chart-source="">
+      {/* 0.56 on white is 4.9:1, AA for this 11 px line (Phase-1 review finding 8). */}
+      <p className="mt-2 text-[11px] text-[rgba(0,0,0,0.56)] dark:text-[rgba(255,255,255,0.5)]" data-chart-source="">
         <span className="font-semibold">Source:</span> {source}
       </p>
     </section>

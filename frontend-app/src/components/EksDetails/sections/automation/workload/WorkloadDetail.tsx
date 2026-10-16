@@ -37,6 +37,7 @@ import { NowBanner } from '../../../../CloudK8s/shared/status/NowBanner';
 import { nowSentence, type WorkloadDetailInputs } from '../../../../CloudK8s/shared/status/nowSentence';
 import { StepIndicator } from '../../../../CloudK8s/shared/status/StepIndicator';
 import { ApplyStepper } from '../../../../CloudK8s/shared/status/ApplyStepper';
+import { restartedContainers, skippedPodsOf } from '../../../../CloudK8s/shared/status/applyProof';
 import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
 import { FeatureMark } from '../../../../CloudK8s/shared/status/FeatureMark';
 import { Bars } from '../../../../CloudK8s/shared/charts/Bars';
@@ -100,7 +101,9 @@ function sentenceInputs(w: WorkloadView, reply: ApplyResult | undefined, replyAt
         change,
         limit,
         pods: live.pods?.length || undefined,
+        skipped: skippedPodsOf(live).length || undefined,
         restartFree: live.restartFree,
+        restarted: restartedContainers(live).length > 0,
         next: replyAt !== undefined && outcomeStartsWait(live) ? nextOf(replyAt) : undefined,
       },
     };
@@ -191,16 +194,20 @@ function WhatChanged({ outcome, replyAt }: { outcome: ApplyOutcomeWire; replyAt?
     freedCpu += b - a;
   }
   const next = outcome.terminal === 'APPLIED' && replyAt !== undefined ? istShort(replyAt + COOLDOWN_MS) : null;
+  // Pods the reply left out aren't in the table, so "each pod" names only the ones it resized.
+  const skipped = skippedPodsOf(outcome).length;
+  const each = skipped > 0 ? 'in each pod XamOps resized' : 'in each pod';
   const subline = names.size === 1 && freedCpu !== null && freedCpu !== 0
-    ? `Container ${[...names][0]}, in each pod. ${millis(Math.abs(freedCpu))} CPU ${freedCpu > 0 ? 'freed' : 'added'} across ${pods.length} ${pods.length === 1 ? 'pod' : 'pods'}.`
+    ? `Container ${[...names][0]}, ${each}. ${millis(Math.abs(freedCpu))} CPU ${freedCpu > 0 ? 'freed' : 'added'} across ${pods.length} ${pods.length === 1 ? 'pod' : 'pods'}.`
     : `${pods.length} ${pods.length === 1 ? 'pod' : 'pods'}, read from each pod's status after the change.`;
+  const leftOut = skipped > 0 ? ` ${skipped} more ${skipped === 1 ? "pod wasn't" : "pods weren't"} touched: ${skipped === 1 ? 'it runs' : 'they run'} at the workload's own size.` : '';
   return (
     <section className={`${CARD} px-4 py-3`} aria-labelledby={titleId} data-what-changed="">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <h3 id={titleId} className={`text-[13px] font-semibold ${INK}`}>What changed</h3>
         {next && <StatusChip tone="info" icon="mdi:timer-sand" label={`Next change allowed at ${next}`} />}
       </div>
-      <p className={`mt-0.5 text-[12px] ${MUTED}`}>{subline}</p>
+      <p className={`mt-0.5 text-[12px] ${MUTED}`}>{subline}{leftOut}</p>
       <div className="mt-2 overflow-x-auto">
         <table className="w-full border-collapse text-left text-[12px]" aria-labelledby={titleId}>
           <thead>
@@ -403,7 +410,7 @@ export function WorkloadDetail({ clusterName, accountId, region, workload, contr
         </p>
       </Card>
 
-      {outcome !== undefined && <ApplyStepper outcome={outcome} live={applying} />}
+      {outcome !== undefined && <ApplyStepper outcome={outcome} live={applying} workloadKind={workload.ref.kind} />}
       {!applying && reply?.kind === 'submitted' && reply.result === null && (
         <Card title="Apply progress">
           <p className={`text-[12px] ${MUTED}`}>Submitted. No result reported yet.</p>

@@ -114,8 +114,14 @@ export interface WorkloadDetailInputs {
     change?: { resource: string; from: string; to: string };
     /** The limit that moved with it, when it did. */
     limit?: { from: string; to: string };
+    /** The pods the reply confirmed the change in. */
     pods?: number;
+    /** The workload's pods the reply left out (`skippedPods`): with any, it is never "all" pods. */
+    skipped?: number;
+    /** True only when every touched pod was proved not to restart; false or null = not proved. */
     restartFree?: boolean | null;
+    /** A container's restart count rose during the change: the only proof of a restart. */
+    restarted?: boolean;
     /** When XamOps may suggest the next change (the change time plus the wait). */
     next?: string;
   };
@@ -326,11 +332,23 @@ export function workloadDetailSentence(inputs: WorkloadDetailInputs): NowSentenc
     const when = a.time ? ` ${a.time}` : '';
     const what = a.change ? `: ${a.change.resource} ${a.change.from} → ${a.change.to}` : '';
     const limit = a.change && a.limit ? ` and limit ${a.limit.from} → ${a.limit.to}` : '';
-    const pods = a.pods !== undefined ? ` on all ${a.pods} pod${a.pods === 1 ? '' : 's'}` : '';
-    const restart = a.restartFree === true ? ', in place, with no restart' : a.restartFree === false ? ', restart detected' : ', in place';
+    const pods =
+      a.pods === undefined
+        ? ''
+        : a.skipped
+          ? ` on every running pod (${a.pods} of ${a.pods + a.skipped})`
+          : ` on all ${a.pods} pod${a.pods === 1 ? '' : 's'}`;
+    // restartFree false means "not proved", not "restarted": only a risen restart count says that.
+    const restart = a.restarted
+      ? ', restart detected'
+      : a.restartFree === true
+        ? ', in place, with no restart'
+        : a.restartFree === false || a.restartFree === null
+          ? ', in place, no restart-free proof'
+          : ', in place';
     clauses.push(`Resized${when}${what}${limit}${pods}${restart}.`);
     chips.push(
-      a.restartFree === false
+      a.restarted
         ? { tone: 'bad', icon: 'mdi:alert-octagon-outline', label: `${name}: restart detected` }
         : CHIP_GOOD(`${name}: applied`),
     );

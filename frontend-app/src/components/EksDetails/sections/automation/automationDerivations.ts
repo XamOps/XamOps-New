@@ -66,6 +66,7 @@ import { toNumber } from '../../../../utils/k8sQuantities';
 import { formatIST } from '../../../../utils/timeUtils';
 import type { Lane } from '../../../CloudK8s/shared/charts/LanesTimeline';
 import type { HowStepChip, HowStepKey } from '../../../CloudK8s/shared/status/HowItWorks';
+import { restartedContainers, runningShare } from '../../../CloudK8s/shared/status/applyProof';
 import {
   LIFECYCLE_STAGES,
   deriveLifecycle,
@@ -275,7 +276,11 @@ type LastAction = WorkloadView['lastAction'];
 export const isRecordedPodChange = (a: LastAction): boolean =>
   !!a && a.dryRun !== true && !!a.outcome && a.outcome !== POLICY_CHANGE;
 
-/** Applied live: APPLIED or PARTIALLY_APPLIED, not a test run (UI v3 plan §2 "Saving now"). */
+/**
+ * Applied live: APPLIED or PARTIALLY_APPLIED, not a test run. It doesn't know the direction (a raise
+ * counts too), so the Overview KPI reads "Applied live", not "Saving now", until the activity feed
+ * records before and after (UI v3 plan §2, Phase-1 review finding 3).
+ */
 export const isLiveApplied = (a: LastAction): boolean =>
   !!a && a.dryRun === false && (a.outcome === 'APPLIED' || a.outcome === 'PARTIALLY_APPLIED');
 
@@ -769,16 +774,28 @@ export function workloadLifecycle(w: WorkloadView, ctx: LifecycleContext): Lifec
 
   const coverage = w.provenance?.sampleCoverage;
   const pods = live?.pods?.length ?? 0;
+  // Never "N of N" over pods the reply left out, and never "no restart" without the proof.
+  const share = live ? runningShare(live) : null;
+  const restartWords = !live
+    ? ''
+    : restartedContainers(live).length > 0
+      ? ', restart detected'
+      : live.restartFree === true
+        ? ', no restart'
+        : ', no restart-free proof';
   const details: Partial<Record<LifecycleStage, string>> = {
     measuring: `${window} of use${coverage !== null && coverage !== undefined ? `, ${Math.round(coverage * 100)}% covered` : ''}`,
     suggestion: suggestedNow ? (suggestionText(w) ?? 'Suggestion ready') : applyProgress !== undefined ? 'Suggested before the change' : 'No change needed',
     applying:
       applyProgress === 'RUNNING' ? 'Applying now'
-        : applyProgress === 'APPLIED' ? (live && pods > 0 ? `${pods} of ${pods} pods` : appliedAt !== null ? `Applied ${istShort(appliedAt)}` : 'Applied')
+        : applyProgress === 'APPLIED'
+          ? (live && pods > 0
+            ? share ? `Every running pod (${share.touched} of ${share.total})` : `${pods} of ${pods} pods`
+            : appliedAt !== null ? `Applied ${istShort(appliedAt)}` : 'Applied')
           : applyProgress ? (PROBLEM_LABEL[applyProgress] ?? 'Last change failed')
             : 'Not yet',
     applied: appliedOpen
-      ? `${appliedAt !== null ? `Applied ${istShort(appliedAt)}` : 'Applied'}${live?.restartFree === true ? ', no restart' : ''}`
+      ? `${appliedAt !== null ? `Applied ${istShort(appliedAt)}` : 'Applied'}${restartWords}`
       : 'Not yet',
     watching: endsAt === null ? 'Starts after it applies' : cooldownEnded ? `The wait ended at ${istShort(endsAt)}` : `Next change allowed at ${istShort(endsAt)}`,
   };
@@ -1281,8 +1298,8 @@ export const hpaCandidates = (engine: HpaPageView | null): HpaWorkloadView[] =>
 export const rowHasFlag = (row: HpaRow, key: HpaFlagKey): boolean => row.flag?.key === key || row.tags.some((t) => t.key === key);
 
 export interface HpaKpis {
-  /** HPAs on the cluster. */
-  total: number;
+  /** HPAs on the cluster; null when neither the agent nor endpoint 1 answered (not checked, never 0). */
+  total: number | null;
   /** At their maximum / minimum; null when the agent reported no HPA list. */
   atMax: number | null;
   atMin: number | null;
@@ -1292,7 +1309,7 @@ export interface HpaKpis {
 
 export function hpaKpis(rows: readonly HpaRow[], agentReported: boolean, engineRead: boolean): HpaKpis {
   return {
-    total: rows.length,
+    total: agentReported || engineRead ? rows.length : null,
     atMax: agentReported ? rows.filter((r) => rowHasFlag(r, 'at-max')).length : null,
     atMin: agentReported ? rows.filter((r) => rowHasFlag(r, 'at-min')).length : null,
     conflicts: engineRead ? rows.filter((r) => r.workload?.vpaCoexistence.kind === 'managed').length : null,
@@ -1482,10 +1499,16 @@ export const VPA_CONFLICT_CHIPS: Record<'managed' | 'unreadable' | 'off' | 'none
 
 export interface VpaKpis {
   vpas: number;
+  /** VPAs that change pods (VPA_MANAGED): the conflict, counted as on the HPA page. */
   changingPods: number;
+  /** VPAs XamOps can't read (VPA_NOT_READABLE): not a conflict, so XamOps leaves the requests alone. */
   unreadable: number;
   off: number;
-  conflicts: number;
+  /**
+   * Conflicts plus the VPAs XamOps can't read, for the card labelled "Conflicts or unreadable" (never
+   * "Conflicts with XamOps", which means VPA-managed only on the HPA page).
+   */
+  conflictsOrUnreadable: number;
   agreement: { agree: number; compared: number };
 }
 
@@ -1497,9 +1520,16 @@ export function vpaKpis(rows: readonly VpaRowView[]): VpaKpis {
     changingPods: kind('managed'),
     unreadable: kind('unreadable'),
     off: kind('off'),
-    conflicts: kind('managed') + kind('unreadable'),
+    conflictsOrUnreadable: kind('managed') + kind('unreadable'),
     agreement: { agree: compared.filter((r) => r.agrees === true).length, compared: compared.length },
   };
+}
+
+/** The "Conflicts or unreadable" card's tone, the same as the table's chips: a conflict is bad, an unreadable VPA warns. */
+export function vpaConflictTone(k: VpaKpis): { tone: Tone; icon: string } {
+  if (k.changingPods > 0) return VPA_CONFLICT_CHIPS.managed;
+  if (k.unreadable > 0) return VPA_CONFLICT_CHIPS.unreadable;
+  return { tone: 'good', icon: 'mdi:shield-check-outline' };
 }
 
 // ─── Node autoscaler (UI v3 plan §2 "Node autoscaler"; glossary §12) ─────────

@@ -60,7 +60,7 @@ export function Sparkline({
 
   if (!d) {
     return (
-      <span className={`text-[11px] text-[rgba(0,0,0,0.5)] dark:text-[rgba(255,255,255,0.5)] ${className}`} data-sparkline="empty" data-k8s-kit="">
+      <span className={`text-[11px] text-[rgba(0,0,0,0.56)] dark:text-[rgba(255,255,255,0.5)] ${className}`} data-sparkline="empty" data-k8s-kit="">
         {emptyText}
       </span>
     );

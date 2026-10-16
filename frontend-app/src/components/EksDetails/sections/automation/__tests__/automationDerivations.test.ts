@@ -288,6 +288,36 @@ describe('workloadLifecycle (glossary §5)', () => {
   it('reads Measuring for a right-sized workload', () => {
     expect(workloadLifecycle(one(RIGHT), { now: NOW }).label).toBe('Measuring: no change needed');
   });
+
+  // The reply's proof, not a default: skippedPods means never "N of N", restartFree false means "not proved".
+  describe('an applied reply, read only for what it proves', () => {
+    const pod = (name: string, restartsAfter = 0) => ({
+      podName: name, uidBefore: 'u', uidAfter: 'u', samePod: true, ready: true, changed: true,
+      containers: [{
+        name: 'app', containerIdBefore: 'c1', containerIdAfter: 'c1', restartCountBefore: 0, restartCountAfter: restartsAfter,
+        observedBefore: res(1000, 1024), observedAfter: res(25, 256),
+      }],
+    });
+    const reply = (over: Partial<NonNullable<Extract<ApplyResult, { kind: 'submitted' }>['result']>>): ApplyResult => ({
+      kind: 'submitted', correlationId: 'c', state: 'ACCEPTED', dryRun: false,
+      result: { method: 'IN_PLACE', terminal: 'APPLIED', detail: null, restartFree: true, containers: null, pods: [pod('a-1'), pod('a-2')], ...over },
+    });
+    const details = (r: ApplyResult) => workloadLifecycle(one(wire('api')), { reply: r, replyAt: NOW, now: NOW }).details;
+
+    it('every pod, proved restart-free', () => {
+      expect(details(reply({}))).toMatchObject({ applying: '2 of 2 pods', applied: expect.stringMatching(/^Applied .+, no restart$/) });
+    });
+
+    it('a pod left out: every running pod (2 of 3), and no proof means no "no restart"', () => {
+      const d = details(reply({ restartFree: false, skippedPods: [{ podName: 'a-3', phase: 'Pending', reason: 'NOT_RUNNING' }] }));
+      expect(d.applying).toBe('Every running pod (2 of 3)');
+      expect(d.applied).toMatch(/^Applied .+, no restart-free proof$/);
+    });
+
+    it('a restart count that rose reads restart detected', () => {
+      expect(details(reply({ restartFree: false, pods: [pod('a-1', 1), pod('a-2')] })).applied).toMatch(/^Applied .+, restart detected$/);
+    });
+  });
 });
 
 describe('the ?workload= parameter (automation-v2 design §3.2)', () => {

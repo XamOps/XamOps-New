@@ -137,7 +137,13 @@ export function HpaDetail({ row, view, engineRead, dryRun, onDryRun, state, list
         title="XamOps's suggestion"
         aside={
           <label className={`flex items-center gap-2 text-[11px] font-semibold ${MUTED}`} title="A test run checks the change without sending anything to the cluster">
-            <input type="checkbox" checked={dryRun} onChange={(e) => onDryRun(e.target.checked)} className="accent-black" />
+            <input
+              type="checkbox"
+              checked={dryRun}
+              onChange={(e) => onDryRun(e.target.checked)}
+              className="accent-black dark:accent-white"
+              data-k8s-kit=""
+            />
             Test run only (nothing is sent)
           </label>
         }

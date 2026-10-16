@@ -125,7 +125,8 @@ export const SUB_ALIASES: SubAliasMap = {
 /**
  * Page-scoped parameters and the one section and sub that owns each (automation-v2 design §3.2):
  * `workload` opens a workload on Workload autoscaler › Workloads, `hpa` an HPA on the HPA page. A
- * link to any other page drops them, so a sidebar click never reopens a stale detail.
+ * link to any other page drops them, and the sidebar's links drop them always, so a sidebar click
+ * never reopens a stale detail ({@link sectionNavEntries}).
  */
 export const PAGE_PARAMS: Readonly<Record<string, { tab: EksSectionId; sub: EksSubtabId }>> = {
   workload: { tab: 'automation', sub: 'workload-autoscaler' },
@@ -269,11 +270,22 @@ function subNodes<S extends string>(
   return nodes;
 }
 
+/** `search` without any page param ({@link PAGE_PARAMS}): the page itself, with no detail open. */
+function withoutPageParams(search: string): string {
+  const params = new URLSearchParams(search);
+  for (const p of Object.keys(PAGE_PARAMS)) params.delete(p);
+  return params.toString();
+}
+
 /**
  * The sidebar's cluster sections: one entry per registered section, in registry order, and the
  * current section's registered subtabs as a tree (group rows with their children). Pure, and built
  * from the same registry, resolver and serializer ({@link withSection}) as the page, so the sidebar
  * and the page can never disagree.
+ *
+ * A sidebar link lands on the page itself: it carries no page param, even to the page that owns it,
+ * so on `?workload=` the Workloads leaf (and its group row) opens the list, not the same detail
+ * again. The resolver still reads the full search, so an alias correction keeps an open detail.
  */
 export function sectionNavEntries<T extends string, S extends string>(
   registry: SectionRegistry<T, S>,
@@ -283,7 +295,8 @@ export function sectionNavEntries<T extends string, S extends string>(
   subAliases: SubAliasMap = SUB_ALIASES,
 ): Array<SectionNavEntry<T, S>> {
   const resolved = resolveSectionRoute(registry, legacyMap, search, subAliases);
-  const href = (tab: string, sub: string) => `${pathname}?${withSection(search, tab, sub)}`;
+  const pageSearch = withoutPageParams(search);
+  const href = (tab: string, sub: string) => `${pathname}?${withSection(pageSearch, tab, sub)}`;
   return registry.map((section) => {
     const current = section.id === resolved.tab;
     return {

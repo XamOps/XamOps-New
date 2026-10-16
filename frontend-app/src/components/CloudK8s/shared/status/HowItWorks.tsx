@@ -123,7 +123,12 @@ export function HowItWorks({ chips, policiesHref, policiesLinkState, collapsed =
               </span>
               <span className="text-[11px] leading-snug text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]">{step.line}</span>
               {chip && (
-                <StatusChip tone={chip.tone} icon={chip.icon} label={chip.label} detail={chip.detail} weight="semibold" className="mt-0.5 self-start" />
+                // A chip's tint is set over the card (design-delta §2.2 opacity rules). On the
+                // highlighted band the two tints would stack and drop its text below AA in dark
+                // mode (4.1:1), so the chip sits on a card-coloured base, as it does everywhere else.
+                <span className="mt-0.5 inline-flex self-start rounded-full bg-white dark:bg-[#141414]" data-how-chip="">
+                  <StatusChip tone={chip.tone} icon={chip.icon} label={chip.label} detail={chip.detail} weight="semibold" />
+                </span>
               )}
             </li>
           );

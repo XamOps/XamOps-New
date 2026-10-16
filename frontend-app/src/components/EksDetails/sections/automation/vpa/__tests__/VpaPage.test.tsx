@@ -105,7 +105,7 @@ describe('VpaPage — the v3 page (UI v3 plan §2 "VPA")', () => {
     const kpis = [...document.querySelectorAll('[data-vpa-kpis] [data-kpi-tone]')].map((k) => k.textContent);
     expect(kpis[0]).toMatch(/^VPAs on analysed workloads2All in Off mode/);
     expect(kpis[1]).toMatch(/^Changing pods0/);
-    expect(kpis[2]).toMatch(/^Conflicts with XamOps0/);
+    expect(kpis[2]).toMatch(/^Conflicts or unreadable0/);
     expect(kpis[3]).toMatch(/^CPU: VPA agrees0 of 2/);
   });
 
@@ -145,7 +145,20 @@ describe('VpaPage — the v3 page (UI v3 plan §2 "VPA")', () => {
       for (const c of [chip('managed'), chip('blind'), chip('quiet')]) expect(c.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
     });
     const kpis = [...document.querySelectorAll('[data-vpa-kpis] [data-kpi-tone]')];
-    expect(kpis[2]).toHaveTextContent('Conflicts with XamOps21 a VPA changes, 1 XamOps can\'t read');
+    // Not "Conflicts with XamOps" (VPA-managed only, on the HPA page): this card adds the unreadable ones.
+    expect(kpis[2]).toHaveTextContent('Conflicts or unreadable21 a VPA changes, 1 XamOps can\'t read');
+    expect(kpis[2].getAttribute('data-kpi-tone')).toBe('bad');
+  });
+
+  it('an unreadable VPA alone warns on the KPI card, as its chip does, and is no conflict', async () => {
+    resolveWith({ engine, gateReasons: [], workloads: [withReasons('blind', ['VPA_NOT_READABLE']), offVpa('quiet')] });
+    renderTab();
+    await screen.findByText(/Kubernetes VPA coexistence/i);
+    const chip = document.querySelector('[data-vpa-row="prod-sim/Deployment/blind"] td:last-child [data-tone]')!;
+    const kpis = [...document.querySelectorAll('[data-vpa-kpis] [data-kpi-tone]')];
+    expect(kpis[1]).toHaveTextContent('Changing pods0');
+    expect(kpis[2]).toHaveTextContent("Conflicts or unreadable10 a VPA changes, 1 XamOps can't read");
+    expect([kpis[2].getAttribute('data-kpi-tone'), chip.getAttribute('data-tone')]).toEqual(['warn', 'warn']);
   });
 
   it("says a VPA has no suggestion, and why only when no pod runs to measure", async () => {

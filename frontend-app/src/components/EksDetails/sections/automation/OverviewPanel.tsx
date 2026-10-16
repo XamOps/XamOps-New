@@ -77,18 +77,32 @@ export interface TodayRow {
   apply: { actionId: ActionId } | { readiness: ReadinessKey };
   /** The vertical engine's row, replaced by {@link NOT_TURNED_ON_TEXT} while the engine is off. */
   vertical?: boolean;
+  /** The Automation page that shows this analysis, linked under it (its {@link OverviewHrefs} key). */
+  page?: { target: 'hpa' | 'vpa'; label: string };
 }
 
-/** §9.1 item 4, in display order. */
+/** §9.1 item 4, in display order. The HPA and VPA rows point at the pages that now show them. */
 export const TODAY_ROWS: readonly TodayRow[] = [
   { id: 'workload-rightsizing', label: 'Workload rightsizing', analysis: 'Recommendations', apply: { actionId: 'vertical.apply' }, vertical: true },
   { id: 'node-consolidation', label: 'Node consolidation', analysis: 'Analysis not yet reliable', apply: { actionId: 'evictor.live' } },
   { id: 'node-optimizer', label: 'Node optimizer', analysis: 'Idle-node thresholds', apply: { actionId: 'nodeOptimizer.actions' } },
   { id: 'rebalancing', label: 'Rebalancing', analysis: null, apply: { actionId: 'rebalance.trigger' } },
-  { id: 'hpa-manager', label: 'HPA manager', analysis: 'Not shown yet', apply: { actionId: 'hpa.apply' } },
+  {
+    id: 'hpa-manager',
+    label: 'HPA manager',
+    analysis: "Each HPA's limits, flags and conflicts",
+    page: { target: 'hpa', label: 'Automation › HPA' },
+    apply: { actionId: 'hpa.apply' },
+  },
   { id: 'scale-out', label: 'Scale-out', analysis: 'Not built', apply: { actionId: 'scaleOut.settings' } },
   { id: 'node-templates', label: 'Node templates', analysis: 'Not built', apply: { actionId: 'nodeTemplates.edit' } },
-  { id: 'vpa-baseline', label: 'VPA baseline', analysis: 'Collected by the automation agent (display coming)', apply: { readiness: 'vpa-apply' } },
+  {
+    id: 'vpa-baseline',
+    label: 'VPA baseline',
+    analysis: "Each Kubernetes VPA's target, next to XamOps's suggestion",
+    page: { target: 'vpa', label: 'Automation › VPA' },
+    apply: { readiness: 'vpa-apply' },
+  },
   { id: 'spot-interruption', label: 'Spot interruption handling', analysis: 'Protective · state not shown yet', apply: { actionId: 'nodeOptimizer.settings' } },
 ];
 
@@ -243,7 +257,18 @@ function analysisCell(caps: K8sCapabilitiesValue, row: TodayRow): ReactNode {
   return row.analysis;
 }
 
-function TodayTable({ caps, clusterName, workloadAutoscalerHref }: { caps: K8sCapabilitiesValue; clusterName: string; workloadAutoscalerHref?: string }) {
+function TodayTable({
+  caps,
+  clusterName,
+  workloadAutoscalerHref,
+  pageHrefs = {},
+}: {
+  caps: K8sCapabilitiesValue;
+  clusterName: string;
+  workloadAutoscalerHref?: string;
+  /** The HPA and VPA pages, linked under the rows they show. */
+  pageHrefs?: { hpa?: string; vpa?: string };
+}) {
   const headingId = useId();
   const location = useLocation();
   const engineOff = caps.status === 'ready' && !caps.verticalEngineEnabled;
@@ -272,7 +297,14 @@ function TodayTable({ caps, clusterName, workloadAutoscalerHref }: { caps: K8sCa
                   <td colSpan={2} className={`px-4 py-2.5 ${MUTED}`}>{NOT_TURNED_ON_TEXT}</td>
                 ) : (
                   <>
-                    <td className={`px-4 py-2.5 ${MUTED}`}>{analysisCell(caps, row)}</td>
+                    <td className={`px-4 py-2.5 ${MUTED}`}>
+                      {analysisCell(caps, row)}
+                      {row.page && pageHrefs[row.page.target] && (
+                        <span className="mt-0.5 block text-[12px]" data-analysis-page={row.page.target}>
+                          <InPageLink to={pageHrefs[row.page.target]!}>{row.page.label}</InPageLink>
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5">
                       {row.vertical && workloadAutoscalerHref ? (
                         <span className={INK} data-apply="workload-autoscaler">
@@ -339,11 +371,13 @@ function Kpis({ view, now }: { view: VerticalEngineView; now: number }) {
   const unknownSave = k.overProvisioned > 0 && k.canSave.counted === 0;
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-overview-kpis="">
-      <KpiCard tone="good" icon="mdi:check-circle" label="Saving now" value={k.liveApplied}>
+      {/* "Applied live", not "Saving now": endpoint 1's lastAction has no before and after, so a raise
+          for a workload that needed more counts here too (the Workloads page's "Applied"). */}
+      <KpiCard tone="good" icon="mdi:check-circle" label="Applied live" value={k.liveApplied}>
         <p>{k.liveApplied === 1 ? 'workload' : 'workloads'} whose latest change was applied live</p>
         <p>
-          Amount: <span title="Not recorded yet: XamOps keeps the size before a change once the activity feed is on.">—</span>, recorded once the
-          activity feed is on
+          Before and after: <span title="Not recorded yet: XamOps keeps the size before a change once the activity feed is on.">—</span>, recorded
+          once the activity feed is on
         </p>
       </KpiCard>
       <KpiCard tone="warn" icon="mdi:arrow-collapse-down" label="Can save now" value={unknownSave ? '—' : formatVcpu(k.canSave.cpuM)}>
@@ -592,7 +626,12 @@ export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs =
         state={{ kind: 'history-pending', from: 'It will come from Prometheus in your cluster: requested and used CPU and memory, over the last 3 days.' }}
       />
       <AccessBlock caps={caps} clusterName={clusterName} />
-      <TodayTable caps={caps} clusterName={clusterName} workloadAutoscalerHref={hrefs.workloadAutoscaler} />
+      <TodayTable
+        caps={caps}
+        clusterName={clusterName}
+        workloadAutoscalerHref={hrefs.workloadAutoscaler}
+        pageHrefs={{ hpa: hrefs.hpa, vpa: hrefs.vpa }}
+      />
     </div>
   );
 }
