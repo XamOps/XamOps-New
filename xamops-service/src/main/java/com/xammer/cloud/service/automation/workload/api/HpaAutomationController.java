@@ -10,6 +10,7 @@ import com.xammer.cloud.service.automation.workload.access.ClusterAccessExceptio
 import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
 import com.xammer.cloud.service.automation.workload.api.dto.HpaApplyRequestDto;
 import com.xammer.cloud.service.automation.workload.api.dto.HpaApplyResponseDto;
+import com.xammer.cloud.service.automation.workload.api.dto.HpaHistoryDto;
 import com.xammer.cloud.service.automation.workload.api.dto.RefusalDto;
 import com.xammer.cloud.service.automation.workload.usage.UsageUnavailableException;
 import org.slf4j.Logger;
@@ -19,6 +20,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -50,6 +52,9 @@ import java.util.regex.Pattern;
  *       than tuning one. It is <strong>not implemented in this task</strong> and answers a typed
  *       {@code CONTROLLER_NOT_READY} refusal rather than a bare 403, so the UI can disable the
  *       control and say why.</li>
+ *   <li>{@code GET .../{cluster}/{namespace}/{name}/history} — read-only replica, bound and CPU
+ *       history of one HPA from kube-state-metrics (FEAT-004), gated by the horizontal master
+ *       switch rather than by an apply opt-in, because it changes nothing.</li>
  * </ul>
  *
  * <h2>Tenancy</h2>
@@ -73,13 +78,47 @@ public class HpaAutomationController {
     private final CloudAccountAccessService accessService;
     private final KubernetesClusterConfigRepository clusterConfigRepository;
     private final HpaApplyService applyService;
+    private final HpaHistoryService historyService;
 
     public HpaAutomationController(CloudAccountAccessService accessService,
                                    KubernetesClusterConfigRepository clusterConfigRepository,
-                                   HpaApplyService applyService) {
+                                   HpaApplyService applyService,
+                                   HpaHistoryService historyService) {
         this.accessService = accessService;
         this.clusterConfigRepository = clusterConfigRepository;
         this.applyService = applyService;
+        this.historyService = historyService;
+    }
+
+    /**
+     * One HPA's history (FEAT-004): replicas against its bounds, CPU against its target, time at its
+     * maximum and replica changes, from kube-state-metrics. Read-only; see {@link HpaHistoryService}.
+     *
+     * <p>{@code name} is the HPA's own name. {@code window}: {@code 24h | 72h | 168h}. An HPA that
+     * neither Prometheus nor the cluster knows is {@code 404 K8S_INVALID_REQUEST} with
+     * {@code field: name}; a source failure is a {@code 200} with {@code unavailable}.
+     */
+    @GetMapping("/{cluster}/{namespace}/{name}/history")
+    public HpaHistoryDto history(@AuthenticationPrincipal ClientUserDetails principal,
+                                 @PathVariable("cluster") String cluster,
+                                 @PathVariable("namespace") String namespace,
+                                 @PathVariable("name") String name,
+                                 @RequestParam("accountId") String accountId,
+                                 @RequestParam("region") String region,
+                                 @RequestParam("window") String window) {
+        requireShape(cluster, CLUSTER_NAME, "cluster");
+        requireShape(namespace, K8S_NAME, "namespace");
+        requireShape(name, K8S_NAME, "name");
+        requireShape(accountId, AWS_ACCOUNT_ID, "accountId");
+        requireShape(region, REGION, "region");
+        UsageWindow parsedWindow = UsageWindow.fixed(window)
+                .orElseThrow(() -> new ParameterShapeException("window"));
+
+        CloudAccount account = accessService.requireAwsAccess(principal, accountId.trim());
+        KubernetesClusterConfig config = requireClusterConfig(account, cluster.trim());
+        ClusterTarget target = targetFor(account, config, cluster.trim(), region.trim());
+
+        return historyService.history(target, namespace.trim(), name.trim(), parsedWindow);
     }
 
     /**
@@ -217,6 +256,14 @@ public class HpaAutomationController {
         }
         return ResponseEntity.status(e.getStatusCode())
                 .body(RefusalDto.of(RefusalDto.INTERNAL, "Something went wrong."));
+    }
+
+    /** An HPA neither Prometheus nor the cluster knows: {@code 404 K8S_INVALID_REQUEST}, field named. */
+    @ExceptionHandler(UnknownTargetException.class)
+    ResponseEntity<RefusalDto> onUnknownTarget(UnknownTargetException e) {
+        logger.debug("HPA history for an unknown target: {}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(RefusalDto.invalidRequest(e.field(), e.getMessage()));
     }
 
     @ExceptionHandler(ClusterAccessException.class)

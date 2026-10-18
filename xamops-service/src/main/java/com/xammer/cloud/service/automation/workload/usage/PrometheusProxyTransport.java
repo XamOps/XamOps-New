@@ -8,10 +8,11 @@ import org.springframework.stereotype.Component;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 
 /**
- * The only I/O in the Prometheus usage path: one PromQL instant query, sent through the Kubernetes
- * API <strong>service proxy</strong>.
+ * The only I/O in the Prometheus usage path: PromQL instant queries (the engine) and range queries
+ * (the read-only usage charts), sent through the Kubernetes API <strong>service proxy</strong>.
  *
  * <p>Identical in shape to {@code OpenCostService.proxyRequest} — the pattern already in production.
  * No new network path is opened, nothing is exposed publicly, and the only credential involved is
@@ -76,6 +77,37 @@ public class PrometheusProxyTransport {
     }
 
     /**
+     * Sends one PromQL <strong>range</strong> query and returns the raw response body.
+     *
+     * <p>The read-only usage charts' only I/O (FEAT-004). Same service-proxy path as
+     * {@link #instantQuery}, with {@code /api/v1/query_range}, the same {@code timeout} property, and
+     * the same failure mapping: an empty body or any {@link KubernetesClientException} is
+     * {@code NO_METRICS_SOURCE}, and a 403 names the missing ClusterRole rule word for word.
+     *
+     * @param start       the first evaluation instant; sent as whole epoch seconds
+     * @param end         the last evaluation instant; sent as whole epoch seconds, not before start
+     * @param stepSeconds the evaluation step; positive
+     * @return the response body, never null or blank
+     * @throws UsageUnavailableException {@code NO_METRICS_SOURCE}, the only failure this can raise
+     */
+    public String rangeQuery(KubernetesClient client, String promql, Instant start, Instant end,
+                             int stepSeconds) throws UsageUnavailableException {
+        String path = rangePath(promql, start, end, stepSeconds);
+        try {
+            String body = client.raw(path);
+            if (body == null || body.isBlank()) {
+                throw new UsageUnavailableException(UsageUnavailableException.Kind.NO_METRICS_SOURCE,
+                        "Prometheus at " + describeTarget() + " returned an empty body for a range"
+                                + " query, so no usage history could be read.");
+            }
+            return body;
+        } catch (KubernetesClientException e) {
+            throw new UsageUnavailableException(UsageUnavailableException.Kind.NO_METRICS_SOURCE,
+                    failureMessage(e), e);
+        }
+    }
+
+    /**
      * Whether Prometheus answers through the proxy right now.
      *
      * <p>Swallows the failure deliberately: this is the question "is there a metrics source", and the
@@ -108,6 +140,27 @@ public class PrometheusProxyTransport {
         return String.format("/api/v1/namespaces/%s/services/%s:%d/proxy/api/v1/query?query=%s&timeout=%ds",
                 properties.metricsNamespace(), properties.metricsService(), properties.metricsPort(),
                 URLEncoder.encode(promql, StandardCharsets.UTF_8), properties.queryTimeoutSeconds());
+    }
+
+    /**
+     * {@code /api/v1/namespaces/{ns}/services/{svc}:{port}/proxy/api/v1/query_range?query=…&start=…&end=…&step=…&timeout=…s}
+     *
+     * <p>{@code start} and {@code end} are whole epoch seconds, so every evaluation instant is
+     * {@code start + k * step} exactly and a returned point maps onto the caller's grid without
+     * rounding. Package-private so the path itself is assertable without a server.
+     */
+    String rangePath(String promql, Instant start, Instant end, int stepSeconds) {
+        if (start == null || end == null || end.isBefore(start)) {
+            throw new IllegalArgumentException("a range query needs start <= end");
+        }
+        if (stepSeconds <= 0) {
+            throw new IllegalArgumentException("a range query needs a positive step, got " + stepSeconds);
+        }
+        return String.format("/api/v1/namespaces/%s/services/%s:%d/proxy/api/v1/query_range"
+                        + "?query=%s&start=%d&end=%d&step=%d&timeout=%ds",
+                properties.metricsNamespace(), properties.metricsService(), properties.metricsPort(),
+                URLEncoder.encode(promql, StandardCharsets.UTF_8), start.getEpochSecond(),
+                end.getEpochSecond(), stepSeconds, properties.queryTimeoutSeconds());
     }
 
     /** {@code monitoring/prometheus-server:9090} — for messages, never for lookups. */
