@@ -56,6 +56,9 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
 
     List<CloudAccount> findByClientId(Long clientId);
 
+    /** Cheap guard for client deletion — how many cloud accounts are attached to a client. */
+    long countByClientId(Long clientId);
+
     List<CloudAccount> findByClientIdIn(List<Long> clientIds);
 
     Optional<CloudAccount> findByAwsAccountIdAndClientId(String awsAccountId, Long clientId);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import apiClient from '../utils/apiClient';
+import { AlertDialog } from '../components/ui';
 import ClientDetailsSkeleton from '../components/Shared/ClientDetailsSkeleton';
 import ClientSavingsTab from '../components/BillOps/ClientSavingsTab';
 import CheckActivityModal from '../components/BillOps/CheckActivityModal';
@@ -243,6 +244,21 @@ const ClientDetailsPage: React.FC = () => {
      * showing a blank title while the summary request is in flight.
      */
     const [activityUser, setActivityUser] = useState<{ id: number; name: string } | null>(null);
+
+    /**
+     * The client awaiting delete confirmation, or null when the dialog is closed. Holds the name
+     * alongside the id so the confirmation and the resulting notification can speak the client's
+     * name without a second lookup.
+     */
+    const [pendingDeleteClient, setPendingDeleteClient] = useState<{ id: number; name: string } | null>(null);
+
+    /**
+     * Transient banner for the outcome of a delete. Separate from the page's {@link error} block,
+     * which is reserved for a failed initial load — a 409 "still has users" is a normal, expected
+     * answer here, not a page-level failure, and success needs a place to land too.
+     */
+    const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
     const [search, setSearch] = useState('');
     const [filterProvider, setFilterProvider] = useState('');
     const [sortBy, setSortBy] = useState('');
@@ -498,6 +514,46 @@ const ClientDetailsPage: React.FC = () => {
             }
         }, []);
 
+    /**
+     * Delete an empty client, after confirmation.
+     *
+     * The backend refuses (409) unless the client has no users and no cloud accounts, so this is
+     * not a cascade — the guard lives server-side and this surfaces its verdict. apiClient.delete
+     * throws an Error whose message is `HTTP <status>: <body>` on a non-OK response, so a 409 is
+     * detected by looking for it in the message and the human-readable reason is pulled from the
+     * JSON body's `message` field when present.
+     */
+    const confirmDeleteClient = useCallback(async (clientId: number, clientName: string) => {
+        setPendingDeleteClient(null);
+        try {
+            await apiClient.delete(`/api/xamops/billops-admin/clients/${clientId}`);
+            setClients(prev => prev.filter(c => c.id !== clientId));
+            localStorage.removeItem(CACHE_KEY);
+            await evictServerCache();
+            setNotification({ type: 'success', message: `Client "${clientName}" was deleted.` });
+        } catch (err: any) {
+            const raw = String(err?.message ?? '');
+            if (raw.includes('409')) {
+                // Body is `HTTP 409: {"...","message":"..."}`. Prefer the server's sentence; fall
+                // back to a plain conflict line if it cannot be parsed out.
+                let message = `Cannot delete "${clientName}" — it still has users or cloud accounts. Remove them first.`;
+                const jsonStart = raw.indexOf('{');
+                if (jsonStart !== -1) {
+                    try {
+                        const parsed = JSON.parse(raw.slice(jsonStart));
+                        if (parsed?.message) message = String(parsed.message);
+                    } catch {
+                        // keep the fallback message
+                    }
+                }
+                setNotification({ type: 'error', message });
+            } else {
+                console.error('Failed to delete client:', err);
+                setNotification({ type: 'error', message: `Could not delete "${clientName}". Please try again.` });
+            }
+        }
+    }, [evictServerCache]);
+
     const stats = useMemo(() => ({
         clients: clients.length,
         accounts: clients.reduce((sum, c) => sum + c.accounts.length, 0),
@@ -577,6 +633,30 @@ const ClientDetailsPage: React.FC = () => {
 
     return (
         <div className="p-5 space-y-3" style={{ background: '#ffffff', minHeight: '100%' }}>
+            {/* Outcome of a delete — a dismissible banner. Success is green; a 409 "still has
+                users/accounts" is a normal expected answer rendered in red, not a page failure. */}
+            {notification && (
+                <div
+                    role="alert"
+                    className={`flex items-start justify-between gap-3 px-4 py-3 rounded-md border text-sm ${
+                        notification.type === 'success'
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                            : 'bg-rose-50 border-rose-200 text-rose-800'}`}
+                >
+                    <span className="flex items-center gap-2">
+                        <i className={`fas ${notification.type === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'}`}></i>
+                        {notification.message}
+                    </span>
+                    <button
+                        onClick={() => setNotification(null)}
+                        aria-label="Dismiss notification"
+                        className="text-current/60 hover:text-current"
+                    >
+                        <i className="fas fa-times text-xs"></i>
+                    </button>
+                </div>
+            )}
+
             {/* Stats Summary */}
             {!isLoading && clients.length > 0 && (
                 <div className="bg-white rounded-md border border-gray-200 shadow-sm divide-x divide-gray-100 grid grid-cols-2 md:grid-cols-6 animate-premium-fade-in">
@@ -823,6 +903,18 @@ const ClientDetailsPage: React.FC = () => {
                                     className={`w-6 h-6 flex items-center justify-center transition-colors ${client.starred ? 'text-amber-400 hover:text-amber-500' : 'text-gray-300 hover:text-amber-300'}`}
                                 >
                                     <i className={`${client.starred ? 'fas' : 'far'} fa-star text-xs`}></i>
+                                </button>
+                                {/* Delete client. stopPropagation because the row's onClick toggles
+                                    expansion. Only an empty client can actually be removed — the
+                                    backend refuses (409) while users or cloud accounts remain — so
+                                    this opens a confirmation rather than deleting on click. */}
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setPendingDeleteClient({ id: client.id, name: client.name }); }}
+                                    title="Delete client"
+                                    aria-label={`Delete client ${client.name}`}
+                                    className="w-6 h-6 flex items-center justify-center transition-colors text-gray-300 hover:text-rose-500"
+                                >
+                                    <i className="fas fa-trash-can text-xs"></i>
                                 </button>
                                 <div className={`w-6 h-6 rounded-md flex items-center justify-center transition-all duration-300 ${expandedClient === client.id ? 'bg-indigo-600 text-white rotate-180' : 'bg-gray-100 text-gray-400'}`}>
                                     <i className="fas fa-chevron-down text-[9px]"></i>
@@ -1200,6 +1292,25 @@ const ClientDetailsPage: React.FC = () => {
                 onClose={() => setActivityUser(null)}
                 userId={activityUser?.id ?? null}
                 fallbackName={activityUser?.name}
+            />
+
+            {/* Delete confirmation, mounted once rather than per row. The description states the
+                guard up front so the admin knows it only works on an empty client before they
+                confirm. */}
+            <AlertDialog
+                isOpen={pendingDeleteClient !== null}
+                variant="danger"
+                title="Delete client?"
+                description={pendingDeleteClient
+                    ? `Delete "${pendingDeleteClient.name}"? This only works when the client has no users and no cloud accounts, and cannot be undone.`
+                    : ''}
+                confirmLabel="Delete"
+                onConfirm={() => {
+                    if (pendingDeleteClient) {
+                        confirmDeleteClient(pendingDeleteClient.id, pendingDeleteClient.name);
+                    }
+                }}
+                onCancel={() => setPendingDeleteClient(null)}
             />
         </div>
     );

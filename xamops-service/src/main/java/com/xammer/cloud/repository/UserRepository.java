@@ -35,6 +35,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     List<User> findByClientId(Long clientId);
 
+    /** Cheap guard for client deletion — how many users are attached to a client. */
+    long countByClientId(Long clientId);
+
     List<User> findByClientIdIn(List<Long> clientIds);
 
     /**

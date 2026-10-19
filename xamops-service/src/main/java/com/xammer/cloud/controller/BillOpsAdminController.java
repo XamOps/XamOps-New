@@ -594,6 +594,69 @@ public class BillOpsAdminController {
     }
 
     /**
+     * Delete a client that has no users and no cloud accounts.
+     *
+     * <p>
+     * The gap this fills: a client with zero users is listed here (this endpoint's GET returns
+     * every client) but is invisible on the user-driven Admin User Manager, which groups a user
+     * list by client name — an empty client produces no group and so has no row to carry a delete
+     * action. This gives the one screen the empty client actually appears on a way to remove it.
+     *
+     * <p>
+     * Guarded, not a cascade. {@link Client} maps {@code users} and {@code cloudAccounts} with
+     * {@code cascade=ALL, orphanRemoval=true}, and {@code CloudAccount} cascades the same way down
+     * to invoices, so a bare {@code clientRepository.delete(client)} would silently take out every
+     * user, account and invoice beneath it. This refuses with 409 whenever the client still has
+     * either, naming the counts, so the only client that can be deleted is one that is genuinely
+     * empty. Those two relations are the destructive-cascade roots: every other {@code client_id}
+     * satellite table (LLM config, observability, DSPM mapping, SRE, …) is only ever populated
+     * after a client has a user and/or a connected account, so a client with neither has none of
+     * them.
+     *
+     * <p>
+     * Restricted to {@code ROLE_BILLOPS_ADMIN} / {@code ROLE_SUPER_ADMIN}, matching the other write
+     * endpoints here rather than the broader class-level annotation — sub-admins can view the
+     * client list but not mutate it.
+     */
+    @DeleteMapping("/clients/{clientId}")
+    @PreAuthorize("hasAuthority('ROLE_BILLOPS_ADMIN') or hasAuthority('ROLE_SUPER_ADMIN')")
+    public ResponseEntity<Map<String, Object>> deleteClient(@PathVariable Long clientId) {
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "Client not found: " + clientId));
+
+        long userCount = userRepository.countByClientId(clientId);
+        long accountCount = cloudAccountRepository.countByClientId(clientId);
+        if (userCount > 0 || accountCount > 0) {
+            log.info("Refused delete of client {} ({}): {} user(s), {} cloud account(s)",
+                    clientId, client.getName(), userCount, accountCount);
+            Map<String, Object> conflict = new LinkedHashMap<>();
+            conflict.put("clientId", clientId);
+            conflict.put("userCount", userCount);
+            conflict.put("accountCount", accountCount);
+            conflict.put("message", "Cannot delete client '" + client.getName() + "': it still has "
+                    + userCount + " user(s) and " + accountCount + " cloud account(s). Remove them first.");
+            return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).body(conflict);
+        }
+
+        clientRepository.delete(client);
+
+        // Both cache tiers, exactly as setUserEmailNotifications does: the client list is cached
+        // under a shared key and additionally per sub-admin under ":sub:{id}", so evicting only the
+        // shared key would leave a sub-admin's list still showing the deleted client.
+        redisCacheService.evict(CLIENTS_CACHE_KEY);
+        redisCacheService.evictByPattern(CLIENTS_CACHE_KEY + ":sub:*");
+
+        // Deliberately at info: the audit trail for who removed a client and when.
+        log.info("Client {} ({}) deleted by admin", clientId, client.getName());
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("clientId", clientId);
+        response.put("deleted", true);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * Switch security and WAR email on or off for a single user of a client.
      *
      * <p>
