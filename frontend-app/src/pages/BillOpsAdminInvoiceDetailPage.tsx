@@ -86,6 +86,8 @@ interface InvoiceDetail {
   taxAmount: number;
   amount: number;
   marketplaceCharge?: number | null;
+  /** Editable % markup the admin applies only to the AWS Marketplace charge; null/0 = none. */
+  marketplaceHoldingCostPercent?: number | null;
   /** How much of the charges are billed at a rate an admin set rather than at provider cost. */
   privatePricedTotal?: number | null;
   /** The part of that an invoice-wide discount may not reduce. */
@@ -329,6 +331,11 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
   const [discountPct, setDiscountPct] = useState('');
   const [applyingDiscount, setApplyingDiscount] = useState(false);
   const [discountError, setDiscountError] = useState<string | null>(null);
+
+  // AWS Marketplace holding cost: an editable, optional % markup on the Marketplace charge.
+  const [holdingPctInput, setHoldingPctInput] = useState('');
+  const [applyingHoldingCost, setApplyingHoldingCost] = useState(false);
+  const [holdingCostError, setHoldingCostError] = useState<string | null>(null);
 
   // Private pricing is applied from the charges tree itself: the row the admin clicked
   // IS the scope, since the tree's three levels — service, region, usage type — are
@@ -632,6 +639,38 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
     }
   };
 
+  /**
+   * Sets or clears the AWS Marketplace holding-cost markup. Passing an empty input clears
+   * it (sends {@code percent: null}). The server returns the recomputed invoice, which
+   * replaces the whole invoice so Taxable/GST/Total and the holding-cost line all refresh.
+   */
+  const applyHoldingCost = useCallback(async (rawInput: string) => {
+    if (!invoice) return;
+    const trimmed = rawInput.trim();
+    const percent = trimmed === '' ? null : Number(trimmed);
+    if (percent !== null && (!Number.isFinite(percent) || percent < 0 || percent > 100)) {
+      setHoldingCostError('Holding cost must be between 0 and 100 percent.');
+      return;
+    }
+    setApplyingHoldingCost(true);
+    setHoldingCostError(null);
+    try {
+      const res = await apiFetch(`/api/admin/invoices/${invoice.id}/holding-cost`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ percent }),
+      });
+      if (!res.ok) throw new Error(await pricingErrorFrom(res, 'Failed to set holding cost.'));
+      setInvoice(await res.json());
+      setHoldingPctInput('');
+    } catch (err) {
+      setHoldingCostError(err instanceof Error ? err.message : 'Failed to set holding cost.');
+    } finally {
+      setApplyingHoldingCost(false);
+    }
+  }, [invoice]);
+
   const applyPricing = useCallback(async () => {
     if (!invoice || !pricingScope) return;
     const parsedRate = Number(priceRate);
@@ -827,7 +866,15 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
 
   const isDraft = invoice.status === 'DRAFT';
   const marketplace = invoice.marketplaceCharge ?? 0;
-  const taxable = (invoice.preDiscountTotal ?? 0) - (invoice.discountAmount ?? 0);
+  const holdingPct = invoice.marketplaceHoldingCostPercent ?? 0;
+  // Match the server exactly: it truncates the grossed-up Marketplace USD to 2 dp (DOWN),
+  // so floor the grossed component before deriving the margin. Never show a taxable/GST/
+  // total that disagrees with the server and the PDF.
+  const grossedMarketplace = holdingPct > 0
+    ? Math.floor(marketplace * (1 + holdingPct / 100) * 100) / 100
+    : marketplace;
+  const holdingMargin = grossedMarketplace - marketplace;
+  const taxable = (invoice.preDiscountTotal ?? 0) - (invoice.discountAmount ?? 0) + holdingMargin;
 
   // The admin-chosen rate, parsed. Valid only when it's a real number above 1 (INR per
   // USD is always well above that), which is also what the backend enforces at finalize.
@@ -1243,6 +1290,67 @@ const BillOpsAdminInvoiceDetailPage: React.FC = () => {
                 </span>
                 <strong className="inv-num">{usd(invoice.preDiscountTotal)}</strong>
               </div>
+              {marketplace > 0 && (
+                isDraft ? (
+                  <div className="inv-summary-line">
+                    <span>
+                      AWS Marketplace holding cost
+                      <small>Markup applied only to the {usd(marketplace)} AWS Marketplace charge</small>
+                      {holdingCostError && (
+                        <small className="inv-error" role="alert">{holdingCostError}</small>
+                      )}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.01}
+                        className="inv-input inv-num"
+                        style={{ width: 70 }}
+                        placeholder="15"
+                        aria-label="AWS Marketplace holding cost percent"
+                        value={holdingPctInput !== '' ? holdingPctInput : (holdingPct > 0 ? String(holdingPct) : '')}
+                        disabled={applyingHoldingCost}
+                        onChange={e => setHoldingPctInput(e.target.value)}
+                      />
+                      <span>%</span>
+                      <button
+                        type="button"
+                        className="inv-btn inv-btn--ghost inv-btn--sm"
+                        disabled={applyingHoldingCost}
+                        onClick={() => applyHoldingCost(holdingPctInput)}
+                      >
+                        Apply
+                      </button>
+                      {holdingPct > 0 && (
+                        <button
+                          type="button"
+                          className="inv-btn inv-btn--ghost inv-btn--sm"
+                          disabled={applyingHoldingCost}
+                          onClick={() => applyHoldingCost('')}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                ) : holdingPct > 0 ? (
+                  <div className="inv-summary-line">
+                    <span>AWS Marketplace holding cost</span>
+                    <strong className="inv-num">{holdingPct}% on AWS Marketplace</strong>
+                  </div>
+                ) : null
+              )}
+              {holdingPct > 0 && (
+                <div className="inv-summary-line">
+                  <span>
+                    Holding cost (AWS Marketplace)
+                    <small>{holdingPct}% of {usd(marketplace)} AWS Marketplace</small>
+                  </span>
+                  <strong className="inv-num">+{usd(holdingMargin)}</strong>
+                </div>
+              )}
               {(invoice.privatePricedTotal ?? 0) !== 0 && (
                 <div className="inv-summary-line">
                   <span>

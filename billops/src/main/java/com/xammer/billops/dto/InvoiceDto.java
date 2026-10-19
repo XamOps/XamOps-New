@@ -33,6 +33,8 @@ public class InvoiceDto {
     private BigDecimal taxAmount;
     private BigDecimal amount;
     private BigDecimal marketplaceCharge;
+    /** Editable % markup the admin applies only to {@link #marketplaceCharge}; null/0 = none. */
+    private BigDecimal marketplaceHoldingCostPercent;
     /** How much of {@link #preDiscountTotal} is billed at a rate an admin set by hand. */
     private BigDecimal privatePricedTotal;
     /** The part of that which an invoice-wide or consumption-wide discount may not reduce. */
@@ -87,6 +89,7 @@ public class InvoiceDto {
         dto.setTaxAmount(invoice.getTaxAmount());
         dto.setAmount(invoice.getAmount());
         dto.setMarketplaceCharge(invoice.getMarketplaceCharge());
+        dto.setMarketplaceHoldingCostPercent(invoice.getMarketplaceHoldingCostPercent());
         dto.setPrivatePricedTotal(invoice.getPrivatePricedTotal());
         dto.setDiscountShieldedTotal(invoice.getDiscountShieldedTotal());
         dto.setIncludeIrn(invoice.isIncludeIrn());
@@ -279,6 +282,14 @@ public class InvoiceDto {
 
     public void setMarketplaceCharge(BigDecimal marketplaceCharge) {
         this.marketplaceCharge = marketplaceCharge;
+    }
+
+    public BigDecimal getMarketplaceHoldingCostPercent() {
+        return marketplaceHoldingCostPercent;
+    }
+
+    public void setMarketplaceHoldingCostPercent(BigDecimal marketplaceHoldingCostPercent) {
+        this.marketplaceHoldingCostPercent = marketplaceHoldingCostPercent;
     }
 
     public BigDecimal getPrivatePricedTotal() {

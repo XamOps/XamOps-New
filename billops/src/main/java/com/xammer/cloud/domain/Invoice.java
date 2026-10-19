@@ -56,6 +56,20 @@ public class Invoice {
     private BigDecimal marketplaceCharge;
 
     /**
+     * Percentage markup applied only to {@link #marketplaceCharge}, set by the admin per
+     * invoice. Null/absent and zero both mean "no markup": the invoice renders and totals
+     * exactly as it did before this field existed. Stored in percent units (15.00 = 15%).
+     *
+     * <p>Nullable {@code BigDecimal} rather than a NOT NULL primitive so {@code
+     * ddl-auto=update} can add it to the populated invoice table without failing, and so
+     * every pre-existing invoice reads back null -- identical to 0%. Mirrors the
+     * nullability reasoning already documented on {@link #exchangeRate} and
+     * {@link #privatePricedTotal}.
+     */
+    @Column(name = "marketplace_holding_cost_percent", precision = 5, scale = 2)
+    private BigDecimal marketplaceHoldingCostPercent;
+
+    /**
      * How much of {@link #preDiscountTotal} is billed at a rate an admin set rather than
      * at provider cost.
      *
@@ -181,6 +195,8 @@ public class Invoice {
     public void setAmount(BigDecimal amount) { this.amount = amount; }
     public BigDecimal getMarketplaceCharge() { return marketplaceCharge; }
     public void setMarketplaceCharge(BigDecimal marketplaceCharge) { this.marketplaceCharge = marketplaceCharge; }
+    public BigDecimal getMarketplaceHoldingCostPercent() { return marketplaceHoldingCostPercent; }
+    public void setMarketplaceHoldingCostPercent(BigDecimal marketplaceHoldingCostPercent) { this.marketplaceHoldingCostPercent = marketplaceHoldingCostPercent; }
     public BigDecimal getPrivatePricedTotal() { return privatePricedTotal; }
     public void setPrivatePricedTotal(BigDecimal privatePricedTotal) { this.privatePricedTotal = privatePricedTotal; }
     public BigDecimal getDiscountShieldedTotal() { return discountShieldedTotal; }

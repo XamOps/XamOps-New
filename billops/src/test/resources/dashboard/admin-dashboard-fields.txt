@@ -11,6 +11,10 @@
 # Re-captured again since: the admin-editable USD->INR rate added exchangeRate to
 # InvoiceDto, so recentInvoices[] grew by that one field and no others.
 #
+# Re-captured again since: the editable AWS Marketplace holding cost added
+# marketplaceHoldingCostPercent to InvoiceDto, so recentInvoices[] grew by that one field
+# and no others.
+#
 # LineItemDto.privatelyPriced and PrivatePricingDto.margin are deliberately absent: both
 # are derived from fields already here and have no setter, so serializing them broke the
 # detail bill's JSON round trip. They are @JsonIgnore'd -- see DetailBillDtoRoundTripTest.
@@ -63,6 +67,7 @@ recentInvoices[].lineItems[].unitRate
 recentInvoices[].lineItems[].usageQuantity
 recentInvoices[].lineItems[].usageType
 recentInvoices[].marketplaceCharge
+recentInvoices[].marketplaceHoldingCostPercent
 recentInvoices[].preDiscountTotal
 recentInvoices[].privatePricedTotal
 recentInvoices[].privatePricing[].description

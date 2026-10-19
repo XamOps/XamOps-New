@@ -2,6 +2,7 @@ package com.xammer.billops.controller;
 
 import com.xammer.cloud.domain.Invoice;
 import com.xammer.billops.dto.DiscountRequestDto;
+import com.xammer.billops.dto.HoldingCostRequestDto;
 import com.xammer.billops.dto.InvoiceDto;
 import com.xammer.billops.dto.InvoiceUpdateDto;
 import com.xammer.billops.dto.PrivatePricingRequestDto;
@@ -158,6 +159,30 @@ public class AdminInvoiceController {
     public ResponseEntity<InvoiceDto> applyDiscount(@PathVariable Long id, @RequestBody DiscountRequestDto discountRequest) {
         Invoice updatedInvoice = invoiceManagementService.applyDiscountToInvoice(id, discountRequest.getServiceName(), discountRequest.getPercentage());
         return ResponseEntity.ok(InvoiceDto.fromEntity(updatedInvoice));
+    }
+
+    /**
+     * Sets or clears the editable, optional holding-cost markup on a draft invoice's AWS
+     * Marketplace charge. {@code PUT} because it sets a single value idempotently, like the
+     * discount endpoint; its own path because a holding cost is a markup, not a discount.
+     *
+     * <p>400 when the percent is out of the [0, 100] range; 409 when the invoice is not a
+     * draft. The message is written to be shown as-is. Restricted to full BillOps admins and
+     * super admins, matching the private-pricing endpoints -- setting what a customer is
+     * billed is the same class of action.
+     */
+    @PutMapping("/{id}/holding-cost")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_SUPER_ADMIN')")
+    public ResponseEntity<?> setHoldingCost(@PathVariable Long id,
+                                            @RequestBody HoldingCostRequestDto request) {
+        try {
+            Invoice updated = invoiceManagementService.setMarketplaceHoldingCost(id, request.getPercent());
+            return ResponseEntity.ok(InvoiceDto.fromEntity(updated));
+        } catch (IllegalArgumentException e) { // out of range
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        } catch (IllegalStateException e) { // not a draft
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("message", e.getMessage()));
+        }
     }
 
     // ─── Manual private pricing ──────────────────────────────────────────────

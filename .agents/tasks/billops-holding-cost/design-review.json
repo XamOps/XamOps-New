@@ -1,0 +1,30 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "MEDIUM",
+      "title": "Frontend \"Taxable value\" formula does not match the server's truncated margin",
+      "location": "design.md — Frontend → Totals shown on the page",
+      "problem": "The client computes holdingMargin = marketplace * (pct/100) with no rounding, but the server adds grossedMarketplace(base,pct) - base, where grossedMarketplace truncates base*(1+pct/100) to scale-2 with RoundingMode.DOWN. For the reference numbers the server margin is 1799.22 while the client formula gives 1799.226, so the client-rendered 'Taxable value' can show a different cent than the server-authoritative GST/Total/PDF. The design's own stated goal is that the page's taxable matches the server and PDF; this formula does not guarantee it and reintroduces the exact drift the single-rounding rule removed.",
+      "fix": "Mirror the server rounding on the client (const grossed = pct>0 ? Math.floor(marketplace*(1+pct/100)*100)/100 : marketplace; const holdingMargin = grossed - marketplace;) and use the same corrected margin for the read-only holding-cost summary line, OR expose the server-computed taxable/margin on InvoiceDto and render it directly instead of recomputing on the client. Pick one and state it."
+    },
+    {
+      "id": 2,
+      "severity": "NIT",
+      "title": "ROLE_BILLOPS_ADMIN_SUB silently excluded from the endpoint",
+      "location": "design.md — Controller / API @PreAuthorize",
+      "problem": "Method security is enabled and the chosen roles match the private-pricing endpoints (consistent, not a regression). But SecurityConfig grants the admin dashboard to ROLE_BILLOPS_ADMIN_SUB too; a SUB admin can open the detail page, see the control (UI gates on draft+marketplace, not role), and get a 403. Not stated in the design.",
+      "fix": "Add a sentence: SUB admins are intentionally excluded (matching private pricing) and the UI must hide/disable the control for users lacking ROLE_BILLOPS_ADMIN/ROLE_SUPER_ADMIN; or add ROLE_BILLOPS_ADMIN_SUB to the authority list if SUB admins should use it."
+    },
+    {
+      "id": 3,
+      "severity": "NIT",
+      "title": "Base-USD printed via doubleValue()+%.2f is a lossy round-trip",
+      "location": "design.md — PDF Marketplace cell String.format(...)",
+      "problem": "Converting BigDecimal(19,4) to double before %.2f can mis-render the last cent for edge values. This is the existing pattern the design extends and the reference case renders correctly, so it is not a blocker.",
+      "fix": "Keep the existing doubleValue() form on the zero branch for byte-identical backward compat; note that pinned rendering tests cover the reference values. No required change."
+    }
+  ],
+  "reviewDoc": "/Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/billops-holding-cost/.agents/tasks/billops-holding-cost/design-review.md"
+}

@@ -609,18 +609,42 @@ public class InvoiceManagementService {
 
             // --- Marketplace line (added directly, never discounted) ---
             if (marketplaceUsd.compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal mpInr = marketplaceUsd.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+                BigDecimal holdingPct = Optional.ofNullable(dto.getMarketplaceHoldingCostPercent())
+                        .orElse(BigDecimal.ZERO);
+                // Grossed once with RoundingMode.DOWN; the one value feeds both the printed
+                // USD sub-line and the INR amount so they cannot drift apart.
+                BigDecimal grossedUsd = grossedMarketplace(marketplaceUsd, holdingPct);
+                BigDecimal mpInr = grossedUsd.multiply(rate).setScale(2, RoundingMode.HALF_UP);
                 Paragraph mpDesc = new Paragraph();
                 mpDesc.add(new com.itextpdf.layout.element.Text("AWS Consumption Charge - Marketplace")
                         .setBold().setFontSize(8));
-                mpDesc.add(new com.itextpdf.layout.element.Text("\nAmazon Web Services, Inc. - Marketplace")
-                        .setItalic().setFontSize(8));
-                mpDesc.add(new com.itextpdf.layout.element.Text("\nFor the Period of " + monthStr)
-                        .setItalic().setFontSize(8));
-                mpDesc.add(new com.itextpdf.layout.element.Text("\n" + accountLabel).setItalic().setFontSize(8));
-                mpDesc.add(new com.itextpdf.layout.element.Text(
-                        String.format("\n($%.2f @%s)", marketplaceUsd.doubleValue(), rateStr))
-                        .setItalic().setFontSize(8));
+                if (holdingPct.signum() > 0) {
+                    // Reference invoice Marketplace cell, verbatim: sub-line "Amazon Web
+                    // Service Charges" (NOT "Amazon Web Services, Inc. - Marketplace"), no
+                    // Account ID line, and the two literal holding-cost lines.
+                    mpDesc.add(new com.itextpdf.layout.element.Text("\nAmazon Web Service Charges")
+                            .setItalic().setFontSize(8));
+                    mpDesc.add(new com.itextpdf.layout.element.Text("\nFor the Period of " + monthStr)
+                            .setItalic().setFontSize(8));
+                    mpDesc.add(new com.itextpdf.layout.element.Text(
+                            String.format("\n[$ %.2f + %s%% Holding Cost)",
+                                    marketplaceUsd.doubleValue(), trimPercent(holdingPct)))
+                            .setItalic().setFontSize(8));
+                    mpDesc.add(new com.itextpdf.layout.element.Text(
+                            String.format("\n($%.2f @%s)", grossedUsd.doubleValue(), rateStr))
+                            .setItalic().setFontSize(8));
+                } else {
+                    // Today's cell, byte-for-byte -- backward compatibility for un-marked-up
+                    // invoices.
+                    mpDesc.add(new com.itextpdf.layout.element.Text("\nAmazon Web Services, Inc. - Marketplace")
+                            .setItalic().setFontSize(8));
+                    mpDesc.add(new com.itextpdf.layout.element.Text("\nFor the Period of " + monthStr)
+                            .setItalic().setFontSize(8));
+                    mpDesc.add(new com.itextpdf.layout.element.Text("\n" + accountLabel).setItalic().setFontSize(8));
+                    mpDesc.add(new com.itextpdf.layout.element.Text(
+                            String.format("\n($%.2f @%s)", marketplaceUsd.doubleValue(), rateStr))
+                            .setItalic().setFontSize(8));
+                }
                 addTableRow(table, slNo++, mpDesc, "998315", mpInr);
                 totalTaxable = totalTaxable.add(mpInr);
             }
@@ -1270,6 +1294,11 @@ public class InvoiceManagementService {
         if (taxableValue.compareTo(BigDecimal.ZERO) < 0) {
             taxableValue = BigDecimal.ZERO;
         }
+        // Keep this preview path in lockstep with recalculateTotals(Invoice): add the
+        // holding-cost markup after the clamp. Inert today because no preview DTO carries a
+        // percent, but consistent if one ever does.
+        taxableValue = taxableValue.add(holdingCostMargin(
+                invoiceDto.getMarketplaceCharge(), invoiceDto.getMarketplaceHoldingCostPercent()));
         BigDecimal taxAmount = taxableValue.multiply(IGST_RATE).setScale(2, RoundingMode.HALF_UP);
         invoiceDto.setTaxAmount(taxAmount);
         invoiceDto.setAmount(taxableValue.add(taxAmount));
@@ -2198,6 +2227,40 @@ public class InvoiceManagementService {
     }
 
     /**
+     * Sets (or clears) the editable, optional holding-cost markup on a draft invoice's AWS
+     * Marketplace charge, then recomputes and persists the totals.
+     *
+     * <p>Null or zero clears it (identical to a pre-feature invoice). A set value must be
+     * within [0, 100]; out of range is an {@link IllegalArgumentException}. DRAFT-only, like
+     * private pricing -- the holding cost changes the billed total and must not move after
+     * finalize.
+     */
+    @Transactional
+    @CacheEvict(value = {"invoices", "invoiceDtos"}, allEntries = true)
+    public Invoice setMarketplaceHoldingCost(Long invoiceId, BigDecimal percent) {
+        Invoice invoice = invoiceRepository.findById(invoiceId)
+                .orElseThrow(() -> new RuntimeException("Invoice not found: " + invoiceId));
+        if (invoice.getStatus() != Invoice.InvoiceStatus.DRAFT) {
+            throw new IllegalStateException("Cannot change the holding cost on a "
+                    + String.valueOf(invoice.getStatus()).toLowerCase() + " invoice.");
+        }
+        if (percent == null || percent.signum() == 0) {
+            invoice.setMarketplaceHoldingCostPercent(null); // clear -> identical to today
+        } else {
+            if (percent.signum() < 0 || percent.compareTo(new BigDecimal("100")) > 0) {
+                throw new IllegalArgumentException("Holding cost must be between 0 and 100 percent.");
+            }
+            invoice.setMarketplaceHoldingCostPercent(percent.setScale(2, RoundingMode.HALF_UP));
+        }
+        recalculateTotals(invoice);
+        Invoice saved = invoiceRepository.save(invoice);
+        evictInvoiceListCache();
+        logger.info("[InvoiceMgmt] Marketplace holding cost on invoice {} set to {}",
+                invoiceId, invoice.getMarketplaceHoldingCostPercent());
+        return saved;
+    }
+
+    /**
      * Removes an applied rate and puts its charges back to provider cost.
      *
      * <p>Restoration is exact because the provider's figure was kept on the line itself,
@@ -2337,6 +2400,37 @@ public class InvoiceManagementService {
         return invoice;
     }
 
+    /**
+     * The Marketplace charge after its holding-cost markup, rounded once to scale-2 (the
+     * cent that both the printed USD sub-line and the INR amount column derive from, so the
+     * two can never disagree). Equals the base when pct is null/<=0.
+     *
+     * <p>Rounding is {@link RoundingMode#DOWN} (truncation), not HALF_UP: the reference
+     * invoice prints {@code 11994.84 x 1.15} as {@code 13794.06} (HALF_UP would give
+     * {@code 13794.07}), confirmed end-to-end because {@code 13794.06 x 95.4 = 1,315,953.32}
+     * INR matches the reference's amount column. Pinned by a unit test.
+     */
+    static BigDecimal grossedMarketplace(BigDecimal marketplaceUsd, BigDecimal pct) {
+        BigDecimal base = Optional.ofNullable(marketplaceUsd).orElse(BigDecimal.ZERO);
+        BigDecimal p = Optional.ofNullable(pct).orElse(BigDecimal.ZERO);
+        if (p.signum() <= 0) {
+            return base; // null/zero -> no markup
+        }
+        BigDecimal factor = BigDecimal.ONE.add(p.divide(new BigDecimal(100), 6, RoundingMode.HALF_UP));
+        return base.multiply(factor).setScale(2, RoundingMode.DOWN);
+    }
+
+    /** The markup portion only (grossed - base); zero when no markup. */
+    static BigDecimal holdingCostMargin(BigDecimal marketplaceUsd, BigDecimal pct) {
+        return grossedMarketplace(marketplaceUsd, pct)
+                .subtract(Optional.ofNullable(marketplaceUsd).orElse(BigDecimal.ZERO));
+    }
+
+    /** 15.00 -> "15", 12.50 -> "12.5"; matches the reference's "15%" with no trailing zeros. */
+    private static String trimPercent(BigDecimal pct) {
+        return pct.stripTrailingZeros().toPlainString();
+    }
+
     private void recalculateTotals(Invoice invoice) {
         List<InvoiceLineItem> lineItems = Optional.ofNullable(invoice.getLineItems()).orElse(Collections.emptyList());
         BigDecimal preDiscountTotal = lineItems.stream()
@@ -2415,6 +2509,13 @@ public class InvoiceManagementService {
         if (taxableValue.compareTo(BigDecimal.ZERO) < 0) {
             taxableValue = BigDecimal.ZERO;
         }
+
+        // Holding-cost markup: additive, applied AFTER all discount math and after the
+        // clamp, so it can never enter a discount base and a clamped taxable still gets the
+        // markup. Discount bases above subtract only the ORIGINAL marketplace USD, so the
+        // Marketplace charge and its holding cost are never discounted.
+        taxableValue = taxableValue.add(holdingCostMargin(
+                invoice.getMarketplaceCharge(), invoice.getMarketplaceHoldingCostPercent()));
 
         BigDecimal taxAmount = taxableValue.multiply(IGST_RATE).setScale(4, RoundingMode.HALF_UP);
         invoice.setTaxAmount(taxAmount);
