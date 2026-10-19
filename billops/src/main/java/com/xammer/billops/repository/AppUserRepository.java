@@ -53,6 +53,17 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
      */
     List<AppUser> findByClientId(Long clientId);
 
+    /**
+     * All users of a client whose {@code Client.demo} ({@code is_demo}) flag matches. Derived query
+     * over the {@code AppUser.client} {@code @ManyToOne} and {@code Client.demo}
+     * ({@code Client_Demo} → {@code client.demo}). Used by the admin "Demo Users" endpoint to
+     * enumerate the demo-client user set (id/email/username); login history is read separately from
+     * {@code user_activity_event}.
+     * @param demo the {@code Client.demo} value to match (pass {@code true} for demo-client users).
+     * @return the matching users.
+     */
+    List<AppUser> findByClient_Demo(boolean demo);
+
     Optional<AppUser> findByUsername(String username);
 
     Optional<AppUser> findByEmail(String email);

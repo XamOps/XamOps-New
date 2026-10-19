@@ -27,8 +27,10 @@ import java.time.LocalDateTime;
  * {@code SupportMessage} and {@code User}/{@code AppUser} are all mapped twice already.
  *
  * <p>BillOps writes exactly one action here — {@code IMPERSONATION_STARTED} from
- * {@code ImpersonationTokenController} — and reads nothing. The activity window itself is
- * served by xamops-service.
+ * {@code ImpersonationTokenController}. It now also reads {@code LOGIN} rows (as a per-user
+ * aggregate) for the admin "Demo Users" endpoint; the mapping stays column-identical to the
+ * xamops-service copy (no column added — NFR2). The broader activity window is still served by
+ * xamops-service.
  */
 @Entity
 @Table(name = "user_activity_event", indexes = {
@@ -40,6 +42,8 @@ import java.time.LocalDateTime;
 public class UserActivityEvent {
 
     public static final String ACTION_IMPERSONATION_STARTED = "IMPERSONATION_STARTED";
+    /** Login action, mirrors the xamops-service copy. A constant for readability — not a column. */
+    public static final String ACTION_LOGIN = "LOGIN";
     public static final String OUTCOME_SUCCESS = "SUCCESS";
 
     @Id
