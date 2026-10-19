@@ -211,13 +211,23 @@ const computeWasteSummary = (raw: WasteResource[]): WasteSummary => {
 };
 
 // Rightsizing → /api/xamops/rightsizing/recommendations
-interface RightsizingRec { estimatedMonthlySavings: number; instanceName?: string; resourceId?: string }
+// AWS/GCP rows carry `estimatedMonthlySavings` + `instanceName`; Azure's
+// AzureRightsizingRecommendation exposes `monthlySavings` + `resourceName`. The extra fields are
+// optional so AWS/GCP rows (which simply lack them) are unaffected.
+interface RightsizingRec {
+  estimatedMonthlySavings?: number;
+  monthlySavings?: number;
+  instanceName?: string;
+  resourceName?: string;
+  resourceId?: string;
+}
 interface RightsizingSummary { total: number; totalSavings: number; byInstance: { label: string; v: number }[] }
 
 const computeRightsizingSummary = (raw: RightsizingRec[]): RightsizingSummary => {
-  const totalSavings = raw.reduce((s, r) => s + (r.estimatedMonthlySavings || 0), 0);
+  const savingsOf = (r: RightsizingRec) => r.estimatedMonthlySavings ?? r.monthlySavings ?? 0;
+  const totalSavings = raw.reduce((s, r) => s + savingsOf(r), 0);
   const byInstance   = raw
-    .map(r => ({ label: r.instanceName || r.resourceId || 'Unknown instance', v: r.estimatedMonthlySavings || 0 }))
+    .map(r => ({ label: r.instanceName || r.resourceName || r.resourceId || 'Unknown instance', v: savingsOf(r) }))
     .filter(d => d.v > 0)
     .sort((a, b) => b.v - a.v)
     .slice(0, 8);

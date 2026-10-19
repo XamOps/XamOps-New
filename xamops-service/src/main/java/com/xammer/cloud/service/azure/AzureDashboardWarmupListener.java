@@ -43,6 +43,10 @@ public class AzureDashboardWarmupListener {
 
     private final CloudAccountRepository cloudAccountRepository;
     private final AzureDashboardService azureDashboardService;
+    private final AzureWasteService azureWasteService;
+    private final AzureRightsizingService azureRightsizingService;
+    private final AzureSecurityService azureSecurityService;
+    private final AzureAlertsService azureAlertsService;
     private final SchedulingEnvironmentConfig envConfig;
 
     /**
@@ -80,9 +84,17 @@ public class AzureDashboardWarmupListener {
 
     public AzureDashboardWarmupListener(CloudAccountRepository cloudAccountRepository,
             AzureDashboardService azureDashboardService,
+            AzureWasteService azureWasteService,
+            AzureRightsizingService azureRightsizingService,
+            AzureSecurityService azureSecurityService,
+            AzureAlertsService azureAlertsService,
             SchedulingEnvironmentConfig envConfig) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.azureDashboardService = azureDashboardService;
+        this.azureWasteService = azureWasteService;
+        this.azureRightsizingService = azureRightsizingService;
+        this.azureSecurityService = azureSecurityService;
+        this.azureAlertsService = azureAlertsService;
         this.envConfig = envConfig;
     }
 
@@ -159,6 +171,24 @@ public class AzureDashboardWarmupListener {
             azureDashboardService.refreshAndCacheDashboard(subscriptionId);
             log.info("[Azure-warmup] First snapshot ready for subscription {} in {}ms",
                     subscriptionId, System.currentTimeMillis() - startMs);
+
+            // Warm the waste / rightsizing / security / alerts caches the summary cards read.
+            //
+            // refreshAndCacheDashboard only READS these caches (optimization summary reads the
+            // waste cache, security posture reads the security cache) — it does not run the scans
+            // that fill them. So a newly connected subscription showed empty Waste / Rightsizing /
+            // Security / Alerts cards until the next scheduled scan, up to a day away. Forcing the
+            // scans here closes that gap, matching how the AWS onboarding path warms the same
+            // sections. Each is isolated so one failing scan does not cost the others; this runs on
+            // the warmup thread, which already carries the resolved tenant.
+            warmSection("waste", subscriptionId,
+                    () -> azureWasteService.getWasteItems(subscriptionId, true));
+            warmSection("rightsizing", subscriptionId,
+                    () -> azureRightsizingService.getRecommendations(subscriptionId, true));
+            warmSection("security", subscriptionId,
+                    () -> azureSecurityService.getSecurityData(subscriptionId, true));
+            warmSection("alerts", subscriptionId,
+                    () -> azureAlertsService.getAlerts(subscriptionId, true));
         } catch (Exception e) {
             // The scheduled refresh will pick this subscription up on its next run, and the
             // dashboard already reports "no snapshot yet" honestly in the meantime. Nothing here
@@ -167,6 +197,23 @@ public class AzureDashboardWarmupListener {
                     + "refresh remains the fallback.", cloudAccountId, e);
         } finally {
             TenantContext.clear();
+        }
+    }
+
+    /**
+     * Runs one cache-warming scan, logging and continuing on failure.
+     *
+     * <p>A single scan that cannot run (missing role, Defender plan not enabled) must not stop the
+     * others from warming. The scan itself already records the reason through its own
+     * data-warning / unavailable-reason channels; here we only need to keep going.
+     */
+    private void warmSection(String name, String subscriptionId, Runnable scan) {
+        try {
+            scan.run();
+            log.info("[Azure-warmup] {} cache warmed for subscription {}", name, subscriptionId);
+        } catch (Exception e) {
+            log.warn("[Azure-warmup] {} cache warm failed for subscription {}: {} — the scheduled "
+                    + "refresh remains the fallback.", name, subscriptionId, e.getMessage());
         }
     }
 

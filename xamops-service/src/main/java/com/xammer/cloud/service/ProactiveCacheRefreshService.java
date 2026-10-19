@@ -1613,10 +1613,15 @@ public class ProactiveCacheRefreshService {
 
     // ===================================================================================
     // 4:40 AM -> Azure Waste Refresh (Daily)
+    //
+    // Daily, matching GCP's waste refresh. It was WED/SUN, so a subscription connected
+    // just after a run showed an empty Waste card for up to three and a half days — the
+    // live "zeros" the dashboard reported. The onboarding warmup now warms this cache on
+    // connect; the daily cron keeps it warm thereafter.
     // ===================================================================================
-    @Scheduled(cron = "0 40 4 * * WED,SUN")
+    @Scheduled(cron = "${xamops.azure.waste-refresh-cron:0 40 4 * * *}", zone = "Asia/Kolkata")
     public void refreshAzureWasteData() {
-        logger.info("--- [4:40 AM] Starting Azure Waste Refresh ---");
+        logger.info("--- [4:40 AM IST] Starting Azure Waste Refresh ---");
         List<String> tenants = fetchActiveTenants();
 
         for (String tenantId : tenants) {
@@ -1661,10 +1666,13 @@ public class ProactiveCacheRefreshService {
 
     // ===================================================================================
     // 4:45 AM -> Azure Security Refresh (Daily)
+    //
+    // Daily, matching GCP's security refresh. Previously WED/SUN, which left the Security
+    // card cold for a newly connected subscription until the next twice-weekly run.
     // ===================================================================================
-    @Scheduled(cron = "0 45 4 * * WED,SUN")
+    @Scheduled(cron = "${xamops.azure.security-refresh-cron:0 45 4 * * *}", zone = "Asia/Kolkata")
     public void refreshAzureSecurityData() {
-        logger.info("--- [4:45 AM] Starting Azure Security Refresh ---");
+        logger.info("--- [4:45 AM IST] Starting Azure Security Refresh ---");
         List<String> tenants = fetchActiveTenants();
 
         for (String tenantId : tenants) {
@@ -1756,11 +1764,14 @@ public class ProactiveCacheRefreshService {
     }
 
     // ===================================================================================
-    // 4:55 AM Mon/Wed/Fri -> Azure Rightsizing Refresh
+    // 4:55 AM -> Azure Rightsizing Refresh (Daily)
+    //
+    // Daily, matching GCP's rightsizing refresh. Previously WED/SUN, which left the
+    // Rightsizing card cold for a newly connected subscription until the next run.
     // ===================================================================================
-    @Scheduled(cron = "0 55 4 * * WED,SUN")
+    @Scheduled(cron = "${xamops.azure.rightsizing-refresh-cron:0 55 4 * * *}", zone = "Asia/Kolkata")
     public void refreshAzureRightsizingData() {
-        logger.info("--- [4:55 AM Mon/Wed/Fri] Starting Azure Rightsizing Refresh ---");
+        logger.info("--- [4:55 AM IST] Starting Azure Rightsizing Refresh ---");
         List<String> tenants = fetchActiveTenants();
 
         for (String tenantId : tenants) {
