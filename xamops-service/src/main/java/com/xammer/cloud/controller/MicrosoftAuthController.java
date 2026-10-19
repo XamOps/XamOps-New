@@ -7,6 +7,7 @@ import com.xammer.cloud.dto.auth.MicrosoftIdentity;
 import com.xammer.cloud.repository.ClientRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.RedisCacheService;
+import com.xammer.cloud.service.auth.DemoHostResolver;
 import com.xammer.cloud.service.auth.MicrosoftOAuthService;
 import com.xammer.cloud.service.auth.SessionService;
 import com.xammer.cloud.service.auth.TrialEmailService;
@@ -59,6 +60,7 @@ public class MicrosoftAuthController {
     @Autowired private ClientRepository clientRepository;
     @Autowired private RedisCacheService redisCacheService;
     @Autowired private PasswordEncoder passwordEncoder;
+    @Autowired private DemoHostResolver demoHostResolver;
 
     @Value("${app.frontend.url}")
     private String frontendUrl;
@@ -136,9 +138,51 @@ public class MicrosoftAuthController {
             return new RedirectView(result.get("redirectUrl"));
         }
 
+        // New user — on the demo host, auto-provision onto the shared read-only demo client
+        // (no company-name signup flow). The live path below is unchanged.
+        if (demoHostResolver.isDemoHost(request)) {
+            return new RedirectView(autoProvisionDemoUser(identity, request));
+        }
+
         // New user — do NOT create an account yet. Issue a short-lived signup token.
         String token = issueSignupToken(identity);
         return new RedirectView(frontendUrl + "/signup/complete?token=" + token);
+    }
+
+    /**
+     * Demo-host auto-provisioning (plain private helper — NOT @Transactional: the demo client is
+     * held as an in-memory managed reference on both branches, so no lazy association is traversed
+     * off-session). Creates (or re-uses, race-guarded) a ROLE_XAMOPS user attached to the shared
+     * {@code is_demo=true} client, establishes a session (recording exactly one LOGIN row via the
+     * existing path), and returns the redirect URL.
+     */
+    private String autoProvisionDemoUser(MicrosoftIdentity identity, HttpServletRequest request) {
+        // Double-submit / race guard: if the row now exists, just log them in.
+        Optional<User> already = userRepository.findByMicrosoftSub(identity.getSub());
+        if (already.isEmpty()) already = userRepository.findByEmail(identity.getEmail());
+        if (already.isPresent()) {
+            return sessionService.establishSession(already.get(), request,
+                    UserActivityEvent.PROVIDER_MICROSOFT).get("redirectUrl");
+        }
+        // Fail closed if the demo client is missing rather than attaching to a real tenant.
+        Client demoClient = clientRepository.findFirstByDemoTrue().orElse(null);
+        if (demoClient == null) {
+            log.warn("Demo host sign-in but no is_demo client is seeded; refusing to provision");
+            return frontendUrl + "/login?error=demo_unavailable";
+        }
+        User user = new User();
+        user.setUsername(identity.getEmail());
+        user.setEmail(identity.getEmail());
+        // No usable password — demo users authenticate via Microsoft only.
+        user.setPassword(passwordEncoder.encode(UUID.randomUUID().toString()));
+        user.setRole("ROLE_XAMOPS");
+        user.setAuthProvider("MICROSOFT");
+        user.setMicrosoftSub(identity.getSub());
+        user.setClient(demoClient);
+        user.setLastLoginAt(java.time.LocalDateTime.now());
+        user = userRepository.save(user);
+        return sessionService.establishSession(user, request,
+                UserActivityEvent.PROVIDER_MICROSOFT).get("redirectUrl");
     }
 
     // ── Step 3: complete signup (create Client + User + trial) ───────────────
