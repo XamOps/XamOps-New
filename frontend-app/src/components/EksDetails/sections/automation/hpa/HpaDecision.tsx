@@ -7,11 +7,12 @@
  * success. Codes never appear as visible text, only in titles as "Code: <CODE>".
  */
 import React, { useState } from 'react';
-import { hpaCodeText, hpaReasonSentence, hpaReasonTitle } from '../hpaCopy';
+import { RPS_REASON_TEXT, RPS_SIZING_LABEL, hpaCodeText, hpaReasonSentence, hpaReasonTitle } from '../hpaCopy';
+import { DASH } from '../../../../../api/hpaAdapter';
 import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
 import type { Tone } from '../../../../CloudK8s/shared/status/statusTones';
 import type { CodeView } from '../../../../../types/verticalRightsizer';
-import type { HpaApplyGate, HpaApplyResult, HpaWorkloadView } from '../../../../../types/hpaAutomation';
+import type { HpaApplyGate, HpaApplyResult, HpaWorkloadView, RpsSizingView } from '../../../../../types/hpaAutomation';
 import { FAINT, INK, MUTED, RULE } from '../automationUi';
 
 /** The tone and icon of an HPA reason chip. A reason that holds a change back is a neutral "left alone". */
@@ -73,6 +74,41 @@ export const decisionShort = (workload: HpaWorkloadView): { tone: Tone; icon: st
   return { tone: 'off', icon: 'mdi:help-circle-outline', label: `Other: ${d.state}` };
 };
 
+/**
+ * The F3 "Suggested replicas (from throughput)" advisory, recommend-only: the number + formula when
+ * sized, else a dash with the honest reason. Nothing here is an apply affordance. A `none` kind (the
+ * field absent on the wire) renders a plain dash with no reason. Hidden entirely only when the
+ * advisory is `none` AND there is nothing to say — but a dash is more honest, so we always show it.
+ */
+export const SuggestedReplicasLine: React.FC<{ rps: RpsSizingView }> = ({ rps }) => {
+  const reasonText =
+    rps.kind === 'no-rps-source'
+      ? RPS_REASON_TEXT.NO_RPS_SOURCE
+      : rps.kind === 'no-capacity-basis'
+        ? RPS_REASON_TEXT.NO_CAPACITY_BASIS
+        : null;
+  return (
+    <div className="mt-2" data-hpa-rps={rps.kind}>
+      <p className={`text-[11px] font-semibold uppercase tracking-wide ${FAINT}`}>{RPS_SIZING_LABEL}</p>
+      {rps.kind === 'sized' ? (
+        <>
+          <p className={`text-[13px] font-semibold tabular-nums ${INK}`}>about {rps.replicas}</p>
+          {rps.formula && (
+            <p className={`mt-0.5 text-[11px] tabular-nums ${FAINT}`} title="How XamOps derived the suggestion">
+              {rps.formula}
+            </p>
+          )}
+        </>
+      ) : (
+        <p className={`text-[12px] ${MUTED}`}>
+          {DASH}
+          {reasonText ? ` ${reasonText}` : ''}
+        </p>
+      )}
+    </div>
+  );
+};
+
 export const DecisionBlock: React.FC<{ workload: HpaWorkloadView }> = ({ workload }) => {
   const d = workload.decision;
   const ctx = { name: workload.hpaName, min: d.minReplicas, max: d.maxReplicas, target: d.targetUtilizationPct };
@@ -91,6 +127,7 @@ export const DecisionBlock: React.FC<{ workload: HpaWorkloadView }> = ({ workloa
           ))}
         </div>
       )}
+      <SuggestedReplicasLine rps={d.rps} />
     </div>
   );
 };

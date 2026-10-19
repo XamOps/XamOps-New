@@ -100,6 +100,26 @@ public final class PromQl {
     }
 
     /**
+     * The observed request rate per container, summed from a <strong>configured</strong> metric
+     * expression (F3 RPS-based replica sizing).
+     *
+     * <p>Renders {@code sum by (container)(rate(<metricExpr>[5m])<subquery>)} over the same
+     * {@code rate(...[5m])} / {@code [Nh:] offset Ss} discipline every other builder here uses, so a
+     * request-rate series is scoped to exactly the workload's namespace, owner-resolved pods and
+     * containers. {@code metricExpr} is the operator-supplied PromQL request-rate expression (e.g. a
+     * counter name like {@code http_requests_total}); there is no default metric, because no single
+     * request-rate series is universal — an unset expression means "no RPS source", never a guess.
+     *
+     * <p>The reduction to a single workload scalar (summing the per-container series) is the
+     * provider's job; this builder only renders the per-container request rate.
+     */
+    public static String requestRate(Selector selector, String metricExpr, int windowHours,
+                                     int offsetSeconds) {
+        return "sum by (container) (rate(" + metricExpr + "{" + selector.labels() + "}["
+                + CPU_RATE_WINDOW + "])" + subquery(windowHours, offsetSeconds) + ")";
+    }
+
+    /**
      * The memory working-set <strong>maximum</strong> over the window, in bytes.
      *
      * <p>Max rather than a percentile, deliberately: a memory shortfall OOM-kills immediately and

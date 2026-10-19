@@ -2,6 +2,7 @@ package com.xammer.cloud.service.automation.workload.api;
 
 import com.xammer.cloud.repository.WorkloadVerticalActionRepository;
 import com.xammer.cloud.service.automation.workload.ConfidenceProperties;
+import com.xammer.cloud.service.automation.workload.RpsSizingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicy;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessProvider;
@@ -60,10 +61,33 @@ public final class VerticalReadServiceFixtures {
                                                         UpstreamVpaReader vpaReader,
                                                         WorkloadPolicyService policyService,
                                                         LongSupplier nanoClock) {
+        return service(properties, metricsProperties, usageProvider, accessProviders, inventory,
+                vpaReader, policyService, rpsOff(), nanoClock);
+    }
+
+    /**
+     * The full seam including the F3 {@link RpsSizingProperties}. The convenience overloads use
+     * {@link #rpsOff()}, so every pre-F3 test keeps the honest {@code NO_RPS_SOURCE} default; a test
+     * that exercises the sizing passes its own properties here.
+     */
+    public static VerticalAutomationReadService service(WorkloadAutoscalingProperties properties,
+                                                        VerticalMetricsProperties metricsProperties,
+                                                        UsageHistoryProvider usageProvider,
+                                                        List<ClusterAccessProvider> accessProviders,
+                                                        ClusterWorkloadInventory inventory,
+                                                        UpstreamVpaReader vpaReader,
+                                                        WorkloadPolicyService policyService,
+                                                        RpsSizingProperties rpsProperties,
+                                                        LongSupplier nanoClock) {
         return new VerticalAutomationReadService(properties, metricsProperties,
-                new ConfidenceProperties(0.5, 0.8), usageProvider,
+                new ConfidenceProperties(0.5, 0.8), rpsProperties, usageProvider,
                 accessProviders, inventory, vpaReader, policyService, noActions(),
                 Clock.fixed(CYCLE_AT, ZoneOffset.UTC), nanoClock);
+    }
+
+    /** The default-off F3 properties: feature disabled, so every workload is NO_RPS_SOURCE. */
+    public static RpsSizingProperties rpsOff() {
+        return RpsSizingProperties.of(false, "", 0.70, null);
     }
 
     /** An action repository with no rows, so {@code lastAction} is null for every workload. */

@@ -5,7 +5,11 @@ import com.xammer.cloud.domain.WorkloadVerticalAction;
 import com.xammer.cloud.repository.WorkloadVerticalActionRepository;
 import com.xammer.cloud.service.automation.workload.ConfidenceProperties;
 import com.xammer.cloud.service.automation.workload.ContainerSnapshot;
+import com.xammer.cloud.service.automation.workload.HpaView;
 import com.xammer.cloud.service.automation.workload.NodeCapacity;
+import com.xammer.cloud.service.automation.workload.RpsReplicaRecommendation;
+import com.xammer.cloud.service.automation.workload.RpsReplicaSizing;
+import com.xammer.cloud.service.automation.workload.RpsSizingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingEngine;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadDecision;
@@ -22,6 +26,7 @@ import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInv
 import com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader;
 import com.xammer.cloud.service.automation.workload.policy.WorkloadPolicyService;
 import com.xammer.cloud.service.automation.workload.usage.ContainerUsageAggregate;
+import com.xammer.cloud.service.automation.workload.usage.RpsQuery;
 import com.xammer.cloud.service.automation.workload.usage.UsageHistoryProvider;
 import com.xammer.cloud.service.automation.workload.usage.UsageQuery;
 import com.xammer.cloud.service.automation.workload.usage.UsageUnavailableException;
@@ -39,6 +44,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalDouble;
+import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.LongSupplier;
 
@@ -98,6 +105,7 @@ public class VerticalAutomationReadService {
     private final WorkloadAutoscalingProperties properties;
     private final VerticalMetricsProperties metricsProperties;
     private final ConfidenceProperties confidenceProperties;
+    private final RpsSizingProperties rpsProperties;
     private final UsageHistoryProvider usageProvider;
     private final List<ClusterAccessProvider> accessProviders;
     private final ClusterWorkloadInventory inventory;
@@ -119,15 +127,16 @@ public class VerticalAutomationReadService {
     public VerticalAutomationReadService(WorkloadAutoscalingProperties properties,
                                          VerticalMetricsProperties metricsProperties,
                                          ConfidenceProperties confidenceProperties,
+                                         RpsSizingProperties rpsProperties,
                                          UsageHistoryProvider usageProvider,
                                          List<ClusterAccessProvider> accessProviders,
                                          ClusterWorkloadInventory inventory,
                                          UpstreamVpaReader vpaReader,
                                          WorkloadPolicyService policyService,
                                          WorkloadVerticalActionRepository actionRepository) {
-        this(properties, metricsProperties, confidenceProperties, usageProvider, accessProviders,
-                inventory, vpaReader, policyService, actionRepository, Clock.systemUTC(),
-                System::nanoTime);
+        this(properties, metricsProperties, confidenceProperties, rpsProperties, usageProvider,
+                accessProviders, inventory, vpaReader, policyService, actionRepository,
+                Clock.systemUTC(), System::nanoTime);
     }
 
     /**
@@ -137,6 +146,7 @@ public class VerticalAutomationReadService {
     VerticalAutomationReadService(WorkloadAutoscalingProperties properties,
                                   VerticalMetricsProperties metricsProperties,
                                   ConfidenceProperties confidenceProperties,
+                                  RpsSizingProperties rpsProperties,
                                   UsageHistoryProvider usageProvider,
                                   List<ClusterAccessProvider> accessProviders,
                                   ClusterWorkloadInventory inventory,
@@ -148,6 +158,7 @@ public class VerticalAutomationReadService {
         this.properties = properties;
         this.metricsProperties = metricsProperties;
         this.confidenceProperties = confidenceProperties;
+        this.rpsProperties = rpsProperties;
         this.usageProvider = usageProvider;
         this.inventory = inventory;
         this.vpaReader = vpaReader;
@@ -330,6 +341,11 @@ public class VerticalAutomationReadService {
                 continue;
             }
             WorkloadDecision decision = engine.decide(snapshot, policy, capacity);
+            // Always carry an honest RPS outcome: feature off => NO_RPS_SOURCE (no source is read),
+            // otherwise the measured outcome. The advisory is recommend-only and never auto-applies.
+            decision = decision.withRps(rpsProperties.enabled()
+                    ? rpsAdvisory(access, workload, policy)
+                    : RpsReplicaRecommendation.noRpsSource());
             workloads.add(VerticalDecisionMapper.toDto(snapshot, policy, decision, properties,
                     upstreamVpa, lastActions.get(WorkloadPolicyService.key(workload.ref())),
                     confidenceProperties));
@@ -378,6 +394,67 @@ public class VerticalAutomationReadService {
                 workload.pods().names(), workload.pods().nameRules(), policy.percentile(),
                 policy.windowHours());
         return usageProvider.aggregates(access, query);
+    }
+
+    /**
+     * The RPS-based replica-sizing advisory for one workload (F3), computed only when the feature is
+     * enabled. One of three honest outcomes:
+     *
+     * <ol>
+     *   <li>{@code NO_RPS_SOURCE} — the configured metric returned no throughput (unknown / absent /
+     *       NaN), or no metric is configured;</li>
+     *   <li>{@code NO_CAPACITY_BASIS} — throughput is known but no real per-replica capacity is
+     *       configured (capacity is never self-derived from the observed RPS — the H1 fix);</li>
+     *   <li>{@code RPS_SIZED} — both present, so a count is computed, bounded by the HPA range when
+     *       both bounds exist and emitted unbounded with a {@code (no HPA range)} note otherwise.</li>
+     * </ol>
+     *
+     * <p>Recommend-only: nothing is applied and no min/max/target is patched. The RPS read is
+     * best-effort and the HPA bounds pass straight through as nullable {@code Integer}.
+     */
+    private RpsReplicaRecommendation rpsAdvisory(ClusterAccess access,
+                                                 ClusterWorkloadInventory.Workload workload,
+                                                 WorkloadPolicy policy) {
+        RpsQuery query = new RpsQuery(workload.ref(), workload.containerNames(),
+                workload.pods().names(), workload.pods().nameRules(), policy.windowHours(),
+                metricsProperties.ignoreContainerStartSeconds(), rpsProperties.metric());
+        OptionalDouble observedRps = usageProvider.observedRps(access, query);
+        if (observedRps.isEmpty()) {
+            return RpsReplicaRecommendation.noRpsSource();
+        }
+        Double capacity = rpsProperties.capacityPerReplicaRps();
+        if (capacity == null) {
+            return RpsReplicaRecommendation.noCapacityBasis();
+        }
+
+        HpaView hpa = workload.hpa();
+        Integer minReplicas = hpa == null ? null : hpa.minReplicas();
+        Integer maxReplicas = hpa == null ? null : hpa.maxReplicas();
+        double rps = observedRps.getAsDouble();
+        double targetUtil = rpsProperties.targetUtil();
+
+        OptionalInt sized = RpsReplicaSizing.size(rps, capacity, targetUtil, minReplicas, maxReplicas);
+        if (sized.isEmpty()) {
+            // A non-positive capacity/target would have been filtered by RpsSizingProperties, so this
+            // is the defensive total-function fallback rather than an expected path.
+            return RpsReplicaRecommendation.noCapacityBasis();
+        }
+        int replicas = sized.getAsInt();
+        String formula = rpsFormula(rps, capacity, targetUtil, replicas, minReplicas, maxReplicas);
+        return RpsReplicaRecommendation.sized(replicas, formula);
+    }
+
+    /** The human-readable derivation, noting the HPA clamp when present and {@code (no HPA range)} otherwise. */
+    private static String rpsFormula(double observedRps, double capacity, double targetUtil,
+                                     int replicas, Integer minReplicas, Integer maxReplicas) {
+        long raw = (long) Math.ceil((observedRps / capacity) / targetUtil);
+        String base = String.format(java.util.Locale.ROOT,
+                "ceil(%.1f rps / %.1f per replica / %.2f util) = %d", observedRps, capacity,
+                targetUtil, raw);
+        if (RpsReplicaSizing.bounded(minReplicas, maxReplicas)) {
+            return base + ", clamped to HPA [" + minReplicas + "," + maxReplicas + "] \u2192 " + replicas;
+        }
+        return base + " (no HPA range)";
     }
 
     /**

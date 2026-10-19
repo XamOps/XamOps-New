@@ -369,7 +369,78 @@ class PrometheusUsageHistoryProviderTest {
         assertThat(provider(transport).reachable(access())).isTrue();
     }
 
+    // ---------------------------------------------------------------- observedRps (F3)
+
+    @Test
+    @DisplayName("observedRps sums the per-container request-rate series into one scalar")
+    void observedRpsSumsAcrossContainers() {
+        FakeTransport transport = healthy();
+        transport.override("http_requests_total", "request-rate.json");
+
+        java.util.OptionalDouble rps = provider(transport).observedRps(access(), rpsQuery(
+                "http_requests_total"));
+
+        assertThat(rps).isPresent();
+        assertThat(rps.getAsDouble())
+                .as("800 + 400 summed across containers is the total throughput to serve")
+                .isEqualTo(1200.0);
+    }
+
+    @Test
+    @DisplayName("observedRps renders the configured metric over the same selector/offset discipline")
+    void observedRpsRendersTheConfiguredMetric() {
+        FakeTransport transport = healthy();
+        transport.override("http_requests_total", "request-rate.json");
+
+        provider(transport).observedRps(access(), rpsQuery("http_requests_total"));
+
+        String promql = transport.queryContaining("http_requests_total");
+        assertThat(promql).contains("sum by (container) (rate(http_requests_total{");
+        assertThat(promql).contains("namespace=\"dev-sim\"");
+        assertThat(promql).contains("offset 120s");
+        assertThat(promql).doesNotContain(".*");
+    }
+
+    @Test
+    @DisplayName("a blank metric expression is NO RPS source, and never touches the transport")
+    void observedRpsEmptyForABlankMetric() {
+        FakeTransport transport = healthy();
+
+        assertThat(provider(transport).observedRps(access(), rpsQuery(""))).isEmpty();
+        assertThat(transport.queries)
+                .as("a blank metric means no RPS source; no query is sent")
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("observedRps is empty for an absent series, a NaN, a transport error, and no access")
+    void observedRpsEmptyOnEveryAbsenceCase() {
+        FakeTransport absent = healthy();
+        absent.override("http_requests_total", "empty.json");
+        assertThat(provider(absent).observedRps(access(), rpsQuery("http_requests_total"))).isEmpty();
+
+        FakeTransport nan = healthy();
+        nan.override("http_requests_total", "request-rate-nan.json");
+        assertThat(provider(nan).observedRps(access(), rpsQuery("http_requests_total")))
+                .as("a NaN value is dropped, leaving no finite series -> empty")
+                .isEmpty();
+
+        FakeTransport errored = healthy();
+        errored.override("http_requests_total", "error.json");
+        assertThat(provider(errored).observedRps(access(), rpsQuery("http_requests_total")))
+                .as("a NO_METRICS_SOURCE from the transport is 'RPS unavailable', not a read failure")
+                .isEmpty();
+
+        assertThat(provider(healthy()).observedRps(null, rpsQuery("http_requests_total")))
+                .as("no cluster connection -> no number")
+                .isEmpty();
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    private static RpsQuery rpsQuery(String metricExpr) {
+        return new RpsQuery(REF, CONTAINERS, PODS, List.of(), 24, 120, metricExpr);
+    }
 
     private static UsageQuery query() {
         return new UsageQuery(TARGET, REF, CONTAINERS, PODS, WorkloadPolicyDefaults.PERCENTILE, 24);

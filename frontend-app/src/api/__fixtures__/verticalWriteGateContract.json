@@ -87,7 +87,10 @@
         "targetCpuUtilizationPct" : null,
         "reasons" : [ ],
         "formula" : null,
-        "autoApplyEligible" : false
+        "autoApplyEligible" : false,
+        "rpsReplicas" : null,
+        "rpsReason" : null,
+        "rpsFormula" : null
       }
     } ],
     "gateDetails" : {

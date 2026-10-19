@@ -3,6 +3,7 @@ package com.xammer.cloud.service.automation.workload.usage;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccess;
 
 import java.util.Map;
+import java.util.OptionalDouble;
 
 /**
  * Supplies pre-aggregated per-container usage percentiles over a window.
@@ -72,4 +73,31 @@ public interface UsageHistoryProvider {
      */
     Map<String, ContainerUsageAggregate> aggregates(ClusterAccess access, UsageQuery query)
             throws UsageUnavailableException;
+
+    /**
+     * The observed request rate for one workload, summed across its containers, for the RPS-based
+     * replica sizing (F3). <strong>Best-effort and honest about absence.</strong>
+     *
+     * <p>Unlike {@link #aggregates}, this never throws a typed unavailable: a missing RPS source is
+     * not an error, it is simply "no number", which the caller maps to the honest
+     * {@code NO_RPS_SOURCE} dash. The method returns {@link OptionalDouble#empty()} for every absence
+     * case:
+     *
+     * <ul>
+     *   <li>a blank {@code query.metricExpr()} (no request-rate metric configured);</li>
+     *   <li>no cluster connection ({@code access == null});</li>
+     *   <li>the transport reporting {@code NO_METRICS_SOURCE} / refusing the query;</li>
+     *   <li>an empty result vector (no finite series matched the selector);</li>
+     *   <li>a {@code NaN} / non-finite value.</li>
+     * </ul>
+     *
+     * <p>When a request-rate series is present it renders {@link PromQl#requestRate} over the same
+     * namespace + owner-resolved pods + container selector the other queries use, then
+     * <strong>sums</strong> the per-container series into one scalar (the total throughput the
+     * replica count must serve). It never returns a guessed rate, and it never derives a per-replica
+     * capacity from this value.
+     *
+     * @return the summed request rate, or empty on any absence case above
+     */
+    OptionalDouble observedRps(ClusterAccess access, RpsQuery query);
 }

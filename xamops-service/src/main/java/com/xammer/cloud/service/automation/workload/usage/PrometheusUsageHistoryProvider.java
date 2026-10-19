@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.OptionalDouble;
 
 /**
  * The real usage source: the customer cluster's own Prometheus, read through the Kubernetes API
@@ -121,6 +122,37 @@ public class PrometheusUsageHistoryProvider implements UsageHistoryProvider {
                     firstSeen, lastSeen, cpuMean, cpuStddev));
         }
         return byContainer;
+    }
+
+    /**
+     * The observed request rate, summed across containers — best-effort, empty on any absence
+     * (see {@link UsageHistoryProvider#observedRps}). Never throws: a missing RPS source is
+     * {@code NO_RPS_SOURCE}, not a failure of the read.
+     */
+    @Override
+    public OptionalDouble observedRps(ClusterAccess access, RpsQuery query) {
+        if (access == null || query == null || !query.hasMetric()) {
+            return OptionalDouble.empty();
+        }
+        PromQl.Selector selector = new PromQl.Selector(query.ref().namespace(), query.podNames(),
+                query.podNameRules(), query.containerNames());
+        String promql = PromQl.requestRate(selector, query.metricExpr(), query.windowHours(),
+                query.offsetSeconds());
+        Map<String, Double> byContainer;
+        try {
+            byContainer = vectorByContainer(access.client(), promql);
+        } catch (UsageUnavailableException noSource) {
+            // A transport NO_METRICS_SOURCE / refused query is "RPS unavailable", not a read error:
+            // the advisory degrades to NO_RPS_SOURCE rather than failing the whole evaluation.
+            logger.debug("No RPS source for {}: {}", query.ref().describe(), noSource.getMessage());
+            return OptionalDouble.empty();
+        }
+        if (byContainer.isEmpty()) {
+            // No finite series matched (absent metric, empty vector, or every value NaN) -> no number.
+            return OptionalDouble.empty();
+        }
+        // Summed across containers: the total throughput the replica count must serve.
+        return OptionalDouble.of(byContainer.values().stream().mapToDouble(Double::doubleValue).sum());
     }
 
     /** One container's aggregate, or a typed refusal. Never a partially-measured aggregate. */

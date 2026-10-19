@@ -60,4 +60,30 @@ class PromQlTest {
         assertThat(mean).contains(subquery);
         assertThat(stddev).contains(subquery);
     }
+
+    @Test
+    @DisplayName("requestRate renders the configured metric summed by container over the same subquery")
+    void requestRateRendersTheConfiguredMetric() {
+        String rps = PromQl.requestRate(SELECTOR, "http_requests_total", 24, 120);
+
+        assertThat(rps).isEqualTo(
+                "sum by (container) (rate(http_requests_total{"
+                        + "namespace=\"team-a\",pod=~\"api-abc-1\",container=~\"api\"}[5m])"
+                        + "[24h:] offset 120s)");
+    }
+
+    @Test
+    @DisplayName("requestRate reuses the same selector/offset discipline as the other builders")
+    void requestRateSharesTheSelectorAndOffset() {
+        String rps = PromQl.requestRate(SELECTOR, "http_requests_total", 24, 120);
+
+        assertThat(rps).contains("namespace=\"team-a\"");
+        assertThat(rps).contains("pod=~\"api-abc-1\"");
+        assertThat(rps).contains("container=~\"api\"");
+        assertThat(rps).contains("by (container)");
+        assertThat(rps).contains("[5m])[24h:] offset 120s");
+        assertThat(rps)
+                .as("a name-prefix regex is how one workload claims another's series")
+                .doesNotContain(".*");
+    }
 }

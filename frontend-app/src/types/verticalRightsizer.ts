@@ -94,6 +94,10 @@ export interface VerticalHorizontalWire {
   maxReplicas: number | null;
   targetCpuUtilizationPct: number | null;
   reasons: string[] | null;
+  /** F3 RPS-based replica sizing. Absent on builds that predate it; null in the two dash outcomes. */
+  rpsReplicas?: number | null;
+  rpsReason?: string | null;
+  rpsFormula?: string | null;
 }
 
 export interface VerticalWorkloadWire {

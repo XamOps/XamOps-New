@@ -41,6 +41,27 @@ export interface HpaDecisionView {
   formula: string | null;
   /** Always false this task — HPA has no auto tier — so it is display-only and never gates Apply. */
   autoApplyEligible: boolean;
+  /** F3 RPS-based replica sizing, recommend-only — never an apply affordance. */
+  rps: RpsSizingView;
+}
+
+/**
+ * The "Suggested replicas (from throughput)" advisory (F3).
+ *
+ *  - `sized`: a replica count derived from observed throughput against a real per-replica capacity,
+ *    with the derivation `formula`;
+ *  - `no-rps-source`: throughput unknown or the feature is off — a dash with the reason;
+ *  - `no-capacity-basis`: throughput known but no configured per-replica capacity — a dash;
+ *  - `none`: the field was absent on the wire (a build that predates F3) — a plain dash, no reason.
+ */
+export type RpsSizingKind = 'sized' | 'no-rps-source' | 'no-capacity-basis' | 'none';
+
+export interface RpsSizingView {
+  kind: RpsSizingKind;
+  /** The recommended replica count, non-null only when `kind` is `sized`. */
+  replicas: number | null;
+  /** The derivation string, non-null only when `kind` is `sized`. */
+  formula: string | null;
 }
 
 /** The native VPA target XamOps read for one container, for the coexistence comparison. */

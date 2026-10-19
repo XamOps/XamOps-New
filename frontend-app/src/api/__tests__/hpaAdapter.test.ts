@@ -105,6 +105,69 @@ describe('adaptHpaPage decision block', () => {
   });
 });
 
+describe('F3 RPS-based replica sizing (recommend-only)', () => {
+  it('adapts a sized outcome with its replica count and formula', () => {
+    const view = page([
+      phpApache({
+        horizontal: {
+          state: 'NO_CHANGE',
+          minReplicas: null,
+          maxReplicas: null,
+          targetCpuUtilizationPct: null,
+          reasons: [],
+          rpsReplicas: 10,
+          rpsReason: 'RPS_SIZED',
+          rpsFormula: 'ceil(1200 / 50 / 0.70) = 35, clamped to HPA [2,10] → 10',
+        } as VerticalWorkloadWire['horizontal'],
+      }),
+    ]);
+    const rps = view.hpaWorkloads[0].decision.rps;
+    expect(rps.kind).toBe('sized');
+    expect(rps.replicas).toBe(10);
+    expect(rps.formula).toMatch(/clamped to HPA/);
+  });
+
+  it('adapts NO_RPS_SOURCE and NO_CAPACITY_BASIS as dashes with no replica count', () => {
+    const noSource = page([
+      phpApache({
+        horizontal: {
+          state: 'NO_CHANGE', minReplicas: null, maxReplicas: null, targetCpuUtilizationPct: null,
+          reasons: [], rpsReplicas: null, rpsReason: 'NO_RPS_SOURCE', rpsFormula: null,
+        } as VerticalWorkloadWire['horizontal'],
+      }),
+    ]);
+    expect(noSource.hpaWorkloads[0].decision.rps).toEqual({ kind: 'no-rps-source', replicas: null, formula: null });
+
+    const noCapacity = page([
+      phpApache({
+        horizontal: {
+          state: 'NO_CHANGE', minReplicas: null, maxReplicas: null, targetCpuUtilizationPct: null,
+          reasons: [], rpsReplicas: null, rpsReason: 'NO_CAPACITY_BASIS', rpsFormula: null,
+        } as VerticalWorkloadWire['horizontal'],
+      }),
+    ]);
+    expect(noCapacity.hpaWorkloads[0].decision.rps).toEqual({ kind: 'no-capacity-basis', replicas: null, formula: null });
+  });
+
+  it('treats an absent rps field (a build predating F3) as a plain dash with no reason', () => {
+    const view = page([phpApache()]);   // the fixture omits the rps* fields
+    expect(view.hpaWorkloads[0].decision.rps.kind).toBe('none');
+  });
+
+  it('never exposes an apply affordance for the RPS advisory', () => {
+    const view = page([
+      phpApache({
+        horizontal: {
+          state: 'NO_CHANGE', minReplicas: null, maxReplicas: null, targetCpuUtilizationPct: null,
+          reasons: [], rpsReplicas: 10, rpsReason: 'RPS_SIZED', rpsFormula: 'ceil(...) = 10',
+        } as VerticalWorkloadWire['horizontal'],
+      }),
+    ]);
+    // The RPS number lives on decision.rps; the apply body still comes only from the HPA decision.
+    expect(toHpaApplyRequest(view.hpaWorkloads[0].decision, true)).toBeNull();
+  });
+});
+
 describe('toHpaApplyRequest — null leaves alone', () => {
   it('sends only the fields the decision moves, dropping null bounds', () => {
     const view = page([phpApache()]);

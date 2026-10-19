@@ -406,6 +406,88 @@ class VerticalDecisionMapperTest {
                 .isEqualTo(aboveFloorDto.autoApplyEligible());
     }
 
+    @Test
+    @DisplayName("rps* is carried on the NOT_EVALUATED branch when the horizontal flag is off (finding 1)")
+    void rpsIsCarriedWhenHorizontalIsOff() {
+        // GATE has the horizontal flag off (isHorizontalEnabled() default false), so horizontal()
+        // early-returns NOT_EVALUATED. The rps* fields must still reach the wire, or F3's UI line
+        // would always render a dash in the default config.
+        WorkloadSnapshot snapshot = guaranteedOverprovisioned();
+        WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded())
+                .withRps(com.xammer.cloud.service.automation.workload.RpsReplicaRecommendation
+                        .sized(10, "ceil(1200 / 50 / 0.70) = 35, clamped to HPA [2,10] \u2192 10"));
+
+        VerticalWorkloadDto.HorizontalDto horizontal =
+                VerticalDecisionMapper.toDto(snapshot, policy, decision, GATE).horizontal();
+
+        assertThat(horizontal.state()).isEqualTo("NOT_EVALUATED");
+        assertThat(horizontal.rpsReplicas())
+                .as("the early NOT_EVALUATED branch still carries the RPS advisory")
+                .isEqualTo(10);
+        assertThat(horizontal.rpsReason()).isEqualTo("RPS_SIZED");
+        assertThat(horizontal.rpsFormula()).contains("clamped to HPA");
+        assertThat(horizontal.autoApplyEligible()).isFalse();
+    }
+
+    @Test
+    @DisplayName("rps* is carried on the enabled branch too, beside the real HPA decision")
+    void rpsIsCarriedWhenHorizontalIsOn() {
+        WorkloadAutoscalingProperties horizontalOn =
+                new WorkloadAutoscalingProperties(true, true, false, true);
+        WorkloadSnapshot snapshot = guaranteedOverprovisioned();
+        WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded())
+                .withRps(com.xammer.cloud.service.automation.workload.RpsReplicaRecommendation
+                        .sized(35, "ceil(1200 / 50 / 0.70) = 35 (no HPA range)"));
+
+        VerticalWorkloadDto.HorizontalDto horizontal =
+                VerticalDecisionMapper.toDto(snapshot, policy, decision, horizontalOn).horizontal();
+
+        assertThat(horizontal.state()).isEqualTo("CHANGE");   // D4 recommend-new, HPA half present
+        assertThat(horizontal.rpsReplicas()).isEqualTo(35);
+        assertThat(horizontal.rpsReason()).isEqualTo("RPS_SIZED");
+        assertThat(horizontal.rpsFormula()).contains("(no HPA range)");
+    }
+
+    @Test
+    @DisplayName("a null rps() maps all three rps* fields to null on both branches")
+    void nullRpsMapsToNullOnBothBranches() {
+        WorkloadSnapshot snapshot = guaranteedOverprovisioned();
+        WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded());
+
+        VerticalWorkloadDto.HorizontalDto off =
+                VerticalDecisionMapper.toDto(snapshot, policy, decision, GATE).horizontal();
+        VerticalWorkloadDto.HorizontalDto on = VerticalDecisionMapper.toDto(snapshot, policy, decision,
+                new WorkloadAutoscalingProperties(true, true, false, true)).horizontal();
+
+        for (VerticalWorkloadDto.HorizontalDto horizontal : java.util.List.of(off, on)) {
+            assertThat(horizontal.rpsReplicas()).isNull();
+            assertThat(horizontal.rpsReason()).isNull();
+            assertThat(horizontal.rpsFormula()).isNull();
+        }
+    }
+
+    @Test
+    @DisplayName("the notEvaluated(...) path carries null rps*: the engine never ran there")
+    void notEvaluatedPathCarriesNullRps() {
+        com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory.Workload workload =
+                new com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory.Workload(
+                        WorkloadRef.of("team-a", "Deployment", "api"), 2, false, false, null, null,
+                        java.util.List.of(new com.xammer.cloud.service.automation.workload.inventory
+                                .ClusterWorkloadInventory.ContainerSpec("api",
+                                new ResourceEnvelope(100, null, 64 * MI, null), java.util.Map.of())),
+                        new com.xammer.cloud.service.automation.workload.inventory.WorkloadPods(
+                                WorkloadRef.of("team-a", "Deployment", "api"),
+                                java.util.List.of(new com.xammer.cloud.service.automation.workload
+                                        .inventory.WorkloadPods.Pod("api-aaa-1", "uid-1"))));
+
+        VerticalWorkloadDto dto = VerticalDecisionMapper.notEvaluated(workload, policy,
+                "INSUFFICIENT_HISTORY", "test", java.util.List.of());
+
+        assertThat(dto.horizontal().rpsReplicas()).isNull();
+        assertThat(dto.horizontal().rpsReason()).isNull();
+        assertThat(dto.horizontal().rpsFormula()).isNull();
+    }
+
     private static ContainerUsageAggregate volatileUsage(String container, double coverage,
                                                          long cpuMeanMillis, long cpuStddevMillis) {
         return new ContainerUsageAggregate(container,

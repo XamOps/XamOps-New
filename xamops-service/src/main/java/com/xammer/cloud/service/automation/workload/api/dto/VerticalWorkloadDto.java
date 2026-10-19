@@ -143,19 +143,43 @@ public record VerticalWorkloadDto(WorkloadRefDto ref,
      * @param formula            the human-readable derivation, e.g.
      *                           {@code "ceil(5 × 64% ÷ 50%) = 7, capped to 8"}, or null
      * @param autoApplyEligible  always false — HPA has no auto tier this task, forced at the mapper
+     * @param rpsReplicas        the RPS-based suggested replica count (F3), or {@code null} in the
+     *                           two dash outcomes. Carried independently of the HPA half: it travels
+     *                           on <strong>both</strong> mapper branches regardless of whether the
+     *                           horizontal engine is enabled, because F3 is a separate default-off
+     *                           feature. A {@code null} here renders a dash, never a zero.
+     * @param rpsReason          {@code RPS_SIZED} / {@code NO_RPS_SOURCE} / {@code NO_CAPACITY_BASIS},
+     *                           or {@code null} when the feature did not run
+     * @param rpsFormula         the RPS sizing derivation string, non-null only when
+     *                           {@code rpsReplicas} is
      */
     public record HorizontalDto(String state, Integer minReplicas, Integer maxReplicas,
                                 Integer targetCpuUtilizationPct, List<String> reasons,
-                                String formula, boolean autoApplyEligible) {
+                                String formula, boolean autoApplyEligible,
+                                Integer rpsReplicas, String rpsReason, String rpsFormula) {
 
         public HorizontalDto {
             reasons = reasons == null ? List.of() : List.copyOf(reasons);
         }
 
+        /**
+         * The HPA shape before F3, with no RPS advisory. The three {@code rps*} fields default to
+         * {@code null}. The mapper never uses this for a real decision — it calls the 10-arg
+         * canonical constructor directly on both branches with the real {@code rps*} — so this form
+         * is correct only on the engine-never-ran {@code notEvaluated(...)} path.
+         */
+        public HorizontalDto(String state, Integer minReplicas, Integer maxReplicas,
+                             Integer targetCpuUtilizationPct, List<String> reasons,
+                             String formula, boolean autoApplyEligible) {
+            this(state, minReplicas, maxReplicas, targetCpuUtilizationPct, reasons, formula,
+                    autoApplyEligible, null, null, null);
+        }
+
         /** The pre-HPA shape (no formula, never auto-appliable), for the modelled / not-evaluated path. */
         public HorizontalDto(String state, Integer minReplicas, Integer maxReplicas,
                              Integer targetCpuUtilizationPct, List<String> reasons) {
-            this(state, minReplicas, maxReplicas, targetCpuUtilizationPct, reasons, null, false);
+            this(state, minReplicas, maxReplicas, targetCpuUtilizationPct, reasons, null, false,
+                    null, null, null);
         }
     }
 }

@@ -42,4 +42,9 @@ public final class NoMetricsSourceProvider implements UsageHistoryProvider {
                         + " recommendations. Percentile history has to be computed inside the cluster:"
                         + " install Prometheus, or the XamOps agent, and the engine will use it.");
     }
+
+    @Override
+    public java.util.OptionalDouble observedRps(ClusterAccess access, RpsQuery query) {
+        return java.util.OptionalDouble.empty();
+    }
 }

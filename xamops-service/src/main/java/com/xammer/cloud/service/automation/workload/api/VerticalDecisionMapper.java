@@ -253,13 +253,23 @@ public final class VerticalDecisionMapper {
     private static VerticalWorkloadDto.HorizontalDto horizontal(WorkloadDecision decision,
                                                                 WorkloadAutoscalingProperties gate) {
         var hpa = decision.hpa();
+        // The RPS advisory (F3) is read ONCE here and carried on BOTH branches. It is independent of
+        // isHorizontalEnabled(): F3 is gated by its own RpsSizingProperties.enabled and defaults on
+        // top of a default-off horizontal engine, so the early NOT_EVALUATED branch must still carry
+        // it or the suggested-replicas line would always render a dash. A null advisory maps all
+        // three rps* fields to null.
+        var rps = decision.rps();
+        Integer rpsReplicas = rps == null ? null : rps.replicas();
+        String rpsReason = rps == null ? null : rps.reason().name();
+        String rpsFormula = rps == null ? null : rps.formula();
         if (!gate.isHorizontalEnabled()) {
             return new VerticalWorkloadDto.HorizontalDto(
-                    HorizontalDecision.State.NOT_EVALUATED.name(), null, null, null, List.of());
+                    HorizontalDecision.State.NOT_EVALUATED.name(), null, null, null, List.of(),
+                    null, false, rpsReplicas, rpsReason, rpsFormula);
         }
         return new VerticalWorkloadDto.HorizontalDto(hpa.state().name(),
                 hpa.minReplicas(), hpa.maxReplicas(), hpa.targetUtilizationPct(),
                 hpa.reasons().stream().map(Enum::name).toList(),
-                hpa.formula(), false);
+                hpa.formula(), false, rpsReplicas, rpsReason, rpsFormula);
     }
 }

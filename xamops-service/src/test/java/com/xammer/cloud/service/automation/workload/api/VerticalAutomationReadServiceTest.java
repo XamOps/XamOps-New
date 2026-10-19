@@ -5,9 +5,11 @@ import com.xammer.cloud.domain.WorkloadVerticalPolicy;
 import com.xammer.cloud.repository.WorkloadVerticalPolicyRepository;
 import com.xammer.cloud.service.automation.workload.ApplyMethod;
 import com.xammer.cloud.service.automation.workload.HysteresisBand;
+import com.xammer.cloud.service.automation.workload.HpaView;
 import com.xammer.cloud.service.automation.workload.NodeCapacity;
 import com.xammer.cloud.service.automation.workload.PodNameRule;
 import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
+import com.xammer.cloud.service.automation.workload.RpsSizingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadMode;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicy;
@@ -27,6 +29,7 @@ import com.xammer.cloud.service.automation.workload.policy.WorkloadPolicyService
 import com.xammer.cloud.service.automation.workload.usage.ContainerUsageAggregate;
 import com.xammer.cloud.service.automation.workload.usage.NoMetricsSourceProvider;
 import com.xammer.cloud.service.automation.workload.usage.PercentileSet;
+import com.xammer.cloud.service.automation.workload.usage.RpsQuery;
 import com.xammer.cloud.service.automation.workload.usage.UsageHistoryProvider;
 import com.xammer.cloud.service.automation.workload.usage.UsageQuery;
 import com.xammer.cloud.service.automation.workload.usage.UsageUnavailableException;
@@ -574,6 +577,100 @@ class VerticalAutomationReadServiceTest {
         assertThat(dto.findings()).doesNotContain(UpstreamVpaReader.FINDING_NOT_READABLE);
     }
 
+    // ---------------------------------------------------------------- F3: RPS replica sizing
+
+    @Test
+    @DisplayName("feature off (the default): every workload is NO_RPS_SOURCE and nothing auto-applies")
+    void rpsFeatureOffIsNoRpsSource() {
+        FakeUsage usage = new FakeUsage();
+        usage.observedRps = java.util.OptionalDouble.of(1200.0);   // even with RPS, off => no source
+        VerticalAutomationReadService service = service(usage, inventory(overprovisionedApi()),
+                VerticalReadServiceFixtures.noStoredPolicies(), "RECOMMEND", 24,
+                VerticalReadServiceFixtures.rpsOff());
+
+        VerticalWorkloadDto.HorizontalDto horizontal =
+                service.read(TARGET, config(null)).workloads().get(0).horizontal();
+
+        assertThat(horizontal.rpsReplicas()).isNull();
+        assertThat(horizontal.rpsReason()).isEqualTo("NO_RPS_SOURCE");
+        assertThat(horizontal.rpsFormula()).isNull();
+        assertThat(horizontal.autoApplyEligible()).isFalse();
+    }
+
+    @Test
+    @DisplayName("RPS present but no configured capacity is NO_CAPACITY_BASIS, never a self-derived number")
+    void rpsPresentWithoutCapacityIsNoCapacityBasis() {
+        FakeUsage usage = new FakeUsage();
+        usage.observedRps = java.util.OptionalDouble.of(1200.0);
+        VerticalAutomationReadService service = service(usage, inventory(overprovisionedApi()),
+                VerticalReadServiceFixtures.noStoredPolicies(), "RECOMMEND", 24,
+                RpsSizingProperties.of(true, "http_requests_total", 0.70, null));
+
+        VerticalWorkloadDto.HorizontalDto horizontal =
+                service.read(TARGET, config(null)).workloads().get(0).horizontal();
+
+        assertThat(horizontal.rpsReplicas()).isNull();
+        assertThat(horizontal.rpsReason()).isEqualTo("NO_CAPACITY_BASIS");
+        assertThat(horizontal.rpsFormula()).isNull();
+    }
+
+    @Test
+    @DisplayName("RPS + a real capacity is a sized count, unbounded with a note when there is no HPA range")
+    void rpsWithCapacityButNoHpaIsSizedUnbounded() {
+        FakeUsage usage = new FakeUsage();
+        usage.observedRps = java.util.OptionalDouble.of(1200.0);   // no HPA on overprovisionedApi()
+        VerticalAutomationReadService service = service(usage, inventory(overprovisionedApi()),
+                VerticalReadServiceFixtures.noStoredPolicies(), "RECOMMEND", 24,
+                RpsSizingProperties.of(true, "http_requests_total", 0.70, 50.0));
+
+        VerticalWorkloadDto.HorizontalDto horizontal =
+                service.read(TARGET, config(null)).workloads().get(0).horizontal();
+
+        // ceil(1200 / 50 / 0.70) = ceil(34.28...) = 35, no HPA range so unbounded.
+        assertThat(horizontal.rpsReplicas()).isEqualTo(35);
+        assertThat(horizontal.rpsReason()).isEqualTo("RPS_SIZED");
+        assertThat(horizontal.rpsFormula()).contains("(no HPA range)");
+        assertThat(horizontal.autoApplyEligible()).isFalse();
+    }
+
+    @Test
+    @DisplayName("RPS + capacity + an HPA range clamps the sized count to [min,max]")
+    void rpsWithCapacityAndHpaIsClamped() {
+        FakeUsage usage = new FakeUsage();
+        usage.observedRps = java.util.OptionalDouble.of(1200.0);
+        VerticalAutomationReadService service = service(usage, inventory(hpaBackedApi(2, 10)),
+                VerticalReadServiceFixtures.noStoredPolicies(), "RECOMMEND", 24,
+                RpsSizingProperties.of(true, "http_requests_total", 0.70, 50.0));
+
+        VerticalWorkloadDto.HorizontalDto horizontal =
+                service.read(TARGET, config(null)).workloads().get(0).horizontal();
+
+        // raw 35 clamped to the HPA's [2,10] -> 10.
+        assertThat(horizontal.rpsReplicas()).isEqualTo(10);
+        assertThat(horizontal.rpsReason()).isEqualTo("RPS_SIZED");
+        assertThat(horizontal.rpsFormula()).contains("clamped to HPA [2,10]");
+    }
+
+    @Test
+    @DisplayName("the RPS read is scoped to the workload's own pods, window and offset")
+    void theRpsQueryIsOwnerScoped() {
+        FakeUsage usage = new FakeUsage();
+        usage.observedRps = java.util.OptionalDouble.of(1200.0);
+        service(usage, inventory(overprovisionedApi()), VerticalReadServiceFixtures.noStoredPolicies(),
+                "RECOMMEND", 24, RpsSizingProperties.of(true, "http_requests_total", 0.70, 50.0))
+                .read(TARGET, config(null));
+
+        RpsQuery query = usage.lastRpsQuery;
+        assertThat(query).isNotNull();
+        assertThat(query.ref().namespace()).isEqualTo("team-a");
+        assertThat(query.podNames())
+                .containsExactly("overprovisioned-api-aaa-1", "overprovisioned-api-aaa-2");
+        assertThat(query.containerNames()).containsExactly("idler");
+        assertThat(query.windowHours()).isEqualTo(24);
+        assertThat(query.offsetSeconds()).isEqualTo(120);
+        assertThat(query.metricExpr()).isEqualTo("http_requests_total");
+    }
+
     // ---------------------------------------------------------------- fixtures
 
     private VerticalAutomationReadService service(UsageHistoryProvider usage,
@@ -581,6 +678,30 @@ class VerticalAutomationReadServiceTest {
                                                   WorkloadPolicyService policies,
                                                   String defaultMode, int defaultWindowHours) {
         return service(usage, inventory, policies, defaultMode, defaultWindowHours, () -> 0L);
+    }
+
+    private VerticalAutomationReadService service(UsageHistoryProvider usage,
+                                                  ClusterWorkloadInventory inventory,
+                                                  WorkloadPolicyService policies,
+                                                  String defaultMode, int defaultWindowHours,
+                                                  RpsSizingProperties rps) {
+        UpstreamVpaReader vpaReader = mock(UpstreamVpaReader.class);
+        when(vpaReader.read(any())).thenReturn(UpstreamVpaReader.View.none());
+        return VerticalReadServiceFixtures.service(new WorkloadAutoscalingProperties(true, true),
+                VerticalReadServiceFixtures.metricsProperties(defaultMode, defaultWindowHours),
+                usage, List.of(opening()), inventory, vpaReader, policies, rps, () -> 0L);
+    }
+
+    /** The reference workload with a CPU HPA targeting it, for the RPS clamp fixtures. */
+    private static ClusterWorkloadInventory.Workload hpaBackedApi(int minReplicas, int maxReplicas) {
+        HpaView hpa = HpaView.cpuHpa("overprovisioned-api", API, 50, minReplicas, maxReplicas);
+        return new ClusterWorkloadInventory.Workload(API, 2, false, false, hpa, null,
+                List.of(new ClusterWorkloadInventory.ContainerSpec("idler", burstable(), Map.of())),
+                new WorkloadPods(API, List.of(
+                        new WorkloadPods.Pod("overprovisioned-api-aaa-1", "pod-uid-1"),
+                        new WorkloadPods.Pod("overprovisioned-api-aaa-2", "pod-uid-2")),
+                        List.of(PodNameRule.replicaSetPods("overprovisioned-api-aaa"),
+                                PodNameRule.replicaSetPods("overprovisioned-api-old"))));
     }
 
     private VerticalAutomationReadService service(UsageHistoryProvider usage,
@@ -745,6 +866,9 @@ class VerticalAutomationReadServiceTest {
     private static final class FakeUsage implements UsageHistoryProvider {
 
         private UsageQuery lastQuery;
+        private RpsQuery lastRpsQuery;
+        /** When present, {@link #observedRps} returns it; empty by default (NO_RPS_SOURCE). */
+        private java.util.OptionalDouble observedRps = java.util.OptionalDouble.empty();
 
         @Override
         public String sourceName() {
@@ -769,6 +893,12 @@ class VerticalAutomationReadServiceTest {
                         VerticalReadServiceFixtures.CYCLE_AT, 1.0, sourceName()));
             }
             return byContainer;
+        }
+
+        @Override
+        public java.util.OptionalDouble observedRps(ClusterAccess access, RpsQuery query) {
+            lastRpsQuery = query;
+            return observedRps;
         }
     }
 
@@ -796,6 +926,11 @@ class VerticalAutomationReadServiceTest {
                 throws UsageUnavailableException {
             throw new UsageUnavailableException(kind, "fake " + kind);
         }
+
+        @Override
+        public java.util.OptionalDouble observedRps(ClusterAccess access, RpsQuery query) {
+            return java.util.OptionalDouble.empty();
+        }
     }
 
     /** Counts reachability probes, to prove they are cached. */
@@ -817,6 +952,11 @@ class VerticalAutomationReadServiceTest {
         @Override
         public Map<String, ContainerUsageAggregate> aggregates(ClusterAccess access, UsageQuery query) {
             return Map.of();
+        }
+
+        @Override
+        public java.util.OptionalDouble observedRps(ClusterAccess access, RpsQuery query) {
+            return java.util.OptionalDouble.empty();
         }
     }
 }

@@ -36,6 +36,22 @@ export const HPA_CODE_LABELS: Record<string, string> = {
 /** The one coexistence line for an Off-mode VPA (glossary): not a warning. */
 export const VPA_OFF_TEXT = "None — Off doesn't change pods";
 
+/**
+ * Copy for the F3 "Suggested replicas (from throughput)" advisory (recommend-only).
+ *
+ * The label is deliberately neutral — it is a suggestion beside the HPA tuning, never an apply.
+ * The two dash reasons explain honestly why there is no number, so a dash is never mistaken for a
+ * zero or a bug.
+ */
+export const RPS_SIZING_LABEL = 'Suggested replicas (from throughput)';
+
+export const RPS_REASON_TEXT: Record<string, string> = {
+  NO_RPS_SOURCE:
+    'No request-rate metric is configured (or the feature is off), so XamOps has no throughput to size from.',
+  NO_CAPACITY_BASIS:
+    'XamOps has the throughput but no configured per-replica capacity, so it will not guess a replica count.',
+};
+
 export const parseHpaCode = (raw: string | null | undefined): CodeView | null => {
   if (!raw) return null;
   const trimmed = raw.trim();

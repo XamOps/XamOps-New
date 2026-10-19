@@ -15,6 +15,7 @@
 import type {
   CodeView,
   VerticalEngineResponseWire,
+  VerticalHorizontalWire,
   VerticalWorkloadWire,
 } from '../types/verticalRightsizer';
 import type {
@@ -26,6 +27,7 @@ import type {
   HpaPageView,
   HpaWorkloadView,
   NativeVpaTargetView,
+  RpsSizingView,
   VpaCoexistenceKind,
   VpaCoexistenceView,
 } from '../types/hpaAutomation';
@@ -46,6 +48,23 @@ export { hpaCodeText, isCallerLevelRefusal };
 const toInt = (raw: number | null | undefined): number | null =>
   raw === null || raw === undefined || !Number.isFinite(raw) ? null : raw;
 
+/**
+ * The RPS-based replica-sizing advisory (F3), recommend-only. A sized outcome needs a real replica
+ * count AND the reason the backend stamped; a `null`/absent count with a known reason is a dash with
+ * that reason; an absent field (a build predating F3) is a plain dash with no reason.
+ */
+const adaptRps = (h: VerticalHorizontalWire | null | undefined): RpsSizingView => {
+  const reason = h?.rpsReason ?? null;
+  const replicas = toInt(h?.rpsReplicas);
+  const formula = h?.rpsFormula ?? null;
+  if (reason === 'RPS_SIZED' && replicas !== null) {
+    return { kind: 'sized', replicas, formula };
+  }
+  if (reason === 'NO_CAPACITY_BASIS') return { kind: 'no-capacity-basis', replicas: null, formula: null };
+  if (reason === 'NO_RPS_SOURCE') return { kind: 'no-rps-source', replicas: null, formula: null };
+  return { kind: 'none', replicas: null, formula: null };
+};
+
 const adaptDecision = (workload: VerticalWorkloadWire): HpaDecisionView => {
   const h = workload.horizontal;
   return {
@@ -58,6 +77,7 @@ const adaptDecision = (workload: VerticalWorkloadWire): HpaDecisionView => {
     // them, so both are read defensively and autoApplyEligible is never defaulted to true.
     formula: (h as { formula?: string | null } | null)?.formula ?? null,
     autoApplyEligible: (h as { autoApplyEligible?: boolean } | null)?.autoApplyEligible === true,
+    rps: adaptRps(h),
   };
 };
 
