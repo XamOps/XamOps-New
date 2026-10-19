@@ -46,9 +46,11 @@ public class AutoSpottingAdminAccess {
     public static final Set<String> DEMO_EMAILS = Set.of("demo.xamops@xammer.in", "demo.billops@xammer.in");
 
     private final UserRepository userRepository;
+    private final DemoClientMembership demoClientMembership;
 
-    public AutoSpottingAdminAccess(UserRepository userRepository) {
+    public AutoSpottingAdminAccess(UserRepository userRepository, DemoClientMembership demoClientMembership) {
         this.userRepository = userRepository;
+        this.demoClientMembership = demoClientMembership;
     }
 
     /** Whether {@code authentication}, which already holds an admin role, may read the aggregates. */
@@ -83,11 +85,19 @@ public class AutoSpottingAdminAccess {
         if (isDemoEmail(authentication.getName())) {
             return true;
         }
-        Optional<User> user = authentication.getPrincipal() instanceof ClientUserDetails details
-                && details.getId() != null
-                        ? userRepository.findById(details.getId())
-                        : userRepository.findByUsername(authentication.getName());
-        return user.map(User::getEmail).filter(AutoSpottingAdminAccess::isDemoEmail).isPresent();
+        boolean idBearing = authentication.getPrincipal() instanceof ClientUserDetails details
+                && details.getId() != null;
+        Optional<User> user = idBearing
+                ? userRepository.findById(((ClientUserDetails) authentication.getPrincipal()).getId())
+                : userRepository.findByUsername(authentication.getName());
+        if (user.map(User::getEmail).filter(AutoSpottingAdminAccess::isDemoEmail).isPresent()) {
+            return true;
+        }
+        // Additive client-is-demo check: a host-provisioned demo-client user (always a ClientUserDetails
+        // carrying an id) is denied the cross-customer aggregates too. The findByUsername branch is left
+        // untouched by design — demo users are never resolved through it (see class Javadoc).
+        return idBearing
+                && demoClientMembership.isDemoClientUser(((ClientUserDetails) authentication.getPrincipal()).getId());
     }
 
     private static boolean isDemoEmail(String value) {

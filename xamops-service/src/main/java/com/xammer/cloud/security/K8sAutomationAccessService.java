@@ -77,17 +77,20 @@ public class K8sAutomationAccessService {
     private final KubernetesClusterConfigRepository clusterConfigRepository;
     private final UserRepository userRepository;
     private final UserTabAccessRepository userTabAccessRepository;
+    private final DemoClientMembership demoClientMembership;
 
     public K8sAutomationAccessService(CloudAccountAccessService cloudAccountAccessService,
                                       CloudAccountRepository cloudAccountRepository,
                                       KubernetesClusterConfigRepository clusterConfigRepository,
                                       UserRepository userRepository,
-                                      UserTabAccessRepository userTabAccessRepository) {
+                                      UserTabAccessRepository userTabAccessRepository,
+                                      DemoClientMembership demoClientMembership) {
         this.cloudAccountAccessService = cloudAccountAccessService;
         this.cloudAccountRepository = cloudAccountRepository;
         this.clusterConfigRepository = clusterConfigRepository;
         this.userRepository = userRepository;
         this.userTabAccessRepository = userTabAccessRepository;
+        this.demoClientMembership = demoClientMembership;
     }
 
     // ── Decisions ─────────────────────────────────────────────────────────
@@ -287,6 +290,9 @@ public class K8sAutomationAccessService {
             return new UserDecision(List.of(K8sAutomationReason.NO_USER_PERMISSION), NoUserPermissionDetail.TAB_GRANT);
         }
         if (isDemoEmail(row.getEmail())) {
+            return new UserDecision(List.of(K8sAutomationReason.DEMO), null);
+        }
+        if (demoClientMembership.isDemoClientUser(row.getId())) {
             return new UserDecision(List.of(K8sAutomationReason.DEMO), null);
         }
         if (ImpersonationContext.getImpersonatedUserId() != null) {

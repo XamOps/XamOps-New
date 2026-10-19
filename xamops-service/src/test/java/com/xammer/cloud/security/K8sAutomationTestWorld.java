@@ -55,9 +55,10 @@ public final class K8sAutomationTestWorld {
             mock(UserCloudAccountAccessRepository.class);
     public final CloudAccountAccessService cloudAccountAccessService =
             new CloudAccountAccessService(userRepository, userCloudAccountAccessRepository, cloudAccountRepository);
+    public final DemoClientMembership demoClientMembership = new DemoClientMembership(userRepository);
     public final K8sAutomationAccessService accessService = new K8sAutomationAccessService(
             cloudAccountAccessService, cloudAccountRepository, clusterConfigRepository, userRepository,
-            userTabAccessRepository);
+            userTabAccessRepository, demoClientMembership);
 
     private final Map<Long, CloudAccount> accounts = new HashMap<>();
     private final List<KubernetesClusterConfig> configs = new ArrayList<>();

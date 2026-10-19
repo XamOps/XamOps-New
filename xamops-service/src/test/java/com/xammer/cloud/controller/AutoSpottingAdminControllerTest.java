@@ -93,7 +93,8 @@ class AutoSpottingAdminControllerTest {
     @Configuration
     @EnableWebMvc
     @Import({SecurityConfig.class, ImpersonationJwtFilter.class, ImpersonationFilter.class,
-            TrialEnforcementFilter.class, AutoSpottingAdminAccess.class, AutoSpottingAdminController.class})
+            TrialEnforcementFilter.class, AutoSpottingAdminAccess.class,
+            com.xammer.cloud.security.DemoClientMembership.class, AutoSpottingAdminController.class})
     static class TestConfig {
     }
 
@@ -282,6 +283,24 @@ class AutoSpottingAdminControllerTest {
         clearInvocations(autoSpottingService);
         for (String read : READS) {
             mvc.perform(get(BASE + read).with(user(sessionUser(DEMO_USER_ID, username, role))))
+                    .andExpect(status().isForbidden());
+        }
+        verifyNoInteractions(autoSpottingService);
+    }
+
+    @Test
+    void demoClientUser_isForbidden_evenWithANonDemoEmailAndAdminRole() throws Exception {
+        // A host-provisioned user: ordinary email, admin role, but attached to the is_demo client.
+        User demoClientUser = userRecord(DEMO_USER_ID, "someone@gmail.com", "someone@gmail.com", "ROLE_XAMOPS_ADMIN");
+        com.xammer.cloud.domain.Client demoClient = new com.xammer.cloud.domain.Client("Demo Workspace");
+        demoClient.setId(900L);
+        demoClient.setDemo(true);
+        demoClientUser.setClient(demoClient);
+        when(userRepository.findById(DEMO_USER_ID)).thenReturn(Optional.of(demoClientUser));
+        clearInvocations(autoSpottingService);
+        for (String read : READS) {
+            mvc.perform(get(BASE + read)
+                    .with(user(sessionUser(DEMO_USER_ID, "someone@gmail.com", "ROLE_XAMOPS_ADMIN"))))
                     .andExpect(status().isForbidden());
         }
         verifyNoInteractions(autoSpottingService);

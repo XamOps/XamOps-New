@@ -67,6 +67,7 @@ class K8sAutomationAccessServiceTest {
     private KubernetesClusterConfigRepository clusterConfigRepository;
     private UserRepository userRepository;
     private UserTabAccessRepository userTabAccessRepository;
+    private DemoClientMembership demoClientMembership;
     private K8sAutomationAccessService service;
 
     @BeforeEach
@@ -76,8 +77,9 @@ class K8sAutomationAccessServiceTest {
         clusterConfigRepository = mock(KubernetesClusterConfigRepository.class);
         userRepository = mock(UserRepository.class);
         userTabAccessRepository = mock(UserTabAccessRepository.class);
+        demoClientMembership = new DemoClientMembership(userRepository);
         service = new K8sAutomationAccessService(cloudAccountAccessService, cloudAccountRepository,
-                clusterConfigRepository, userRepository, userTabAccessRepository);
+                clusterConfigRepository, userRepository, userTabAccessRepository, demoClientMembership);
         when(cloudAccountRepository.findByAwsAccountId(anyString())).thenReturn(List.of());
         when(cloudAccountRepository.findById(anyLong())).thenReturn(Optional.empty());
         when(clusterConfigRepository.findByCloudAccountIdAndClusterName(anyLong(), anyString()))
@@ -115,6 +117,19 @@ class K8sAutomationAccessServiceTest {
         u.setUsername("user-" + id);
         u.setEmail(email);
         u.setRole(role);
+        when(userRepository.findById(id)).thenReturn(Optional.of(u));
+    }
+
+    private void demoClientUserRow(long id, String email, String role) {
+        User u = new User();
+        u.setId(id);
+        u.setUsername("user-" + id);
+        u.setEmail(email);
+        u.setRole(role);
+        com.xammer.cloud.domain.Client client = new com.xammer.cloud.domain.Client("Demo Workspace");
+        client.setId(900L);
+        client.setDemo(true);
+        u.setClient(client);
         when(userRepository.findById(id)).thenReturn(Optional.of(u));
     }
 
@@ -360,6 +375,21 @@ class K8sAutomationAccessServiceTest {
         assertThat(d.detail()).isNull();
         assertThat(d.firstRefusal()).get().extracting(K8sAutomationRefusedException::getReason)
                 .isEqualTo(K8sAutomationReason.DEMO);
+    }
+
+    @Test
+    void aDemoClientUserIsRefusedAsDemo_evenWithANonDemoEmail() {
+        // Host-provisioned demo user: ordinary email, but attached to the is_demo client.
+        demoClientUserRow(4L, "someone@gmail.com", "XAMOPS");
+        assertThat(service.userDecision(principal(4L, "someone@gmail.com")).reasons())
+                .containsExactly(K8sAutomationReason.DEMO);
+    }
+
+    @Test
+    void aNonDemoClientUserWithANonDemoEmailIsStillAllowed() {
+        // The user's client defaults to is_demo=false (no client set), so neither demo gate fires.
+        userRow(5L, "real.user@corp.example", "XAMOPS");
+        assertThat(service.userDecision(principal(5L, "real.user@corp.example")).canChangeAutomation()).isTrue();
     }
 
     @Test

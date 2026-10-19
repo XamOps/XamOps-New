@@ -7,6 +7,7 @@ import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.repository.UserTabAccessRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CloudAccountAccessService;
+import com.xammer.cloud.security.DemoClientMembership;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -97,13 +98,15 @@ public class AutomationWritePermission {
     private final CloudAccountAccessService accessService;
     private final UserRepository userRepository;
     private final UserTabAccessRepository tabAccessRepository;
+    private final DemoClientMembership demoClientMembership;
     private final Supplier<Long> impersonatedUserId;
 
     @Autowired
     public AutomationWritePermission(CloudAccountAccessService accessService,
                                      UserRepository userRepository,
-                                     UserTabAccessRepository tabAccessRepository) {
-        this(accessService, userRepository, tabAccessRepository,
+                                     UserTabAccessRepository tabAccessRepository,
+                                     DemoClientMembership demoClientMembership) {
+        this(accessService, userRepository, tabAccessRepository, demoClientMembership,
                 ImpersonationContext::getImpersonatedUserId);
     }
 
@@ -111,10 +114,12 @@ public class AutomationWritePermission {
     AutomationWritePermission(CloudAccountAccessService accessService,
                               UserRepository userRepository,
                               UserTabAccessRepository tabAccessRepository,
+                              DemoClientMembership demoClientMembership,
                               Supplier<Long> impersonatedUserId) {
         this.accessService = accessService;
         this.userRepository = userRepository;
         this.tabAccessRepository = tabAccessRepository;
+        this.demoClientMembership = demoClientMembership;
         this.impersonatedUserId = impersonatedUserId;
     }
 
@@ -142,6 +147,11 @@ public class AutomationWritePermission {
 
         String email = user.getEmail() == null ? "" : user.getEmail().trim().toLowerCase(Locale.ROOT);
         if (DEMO_EMAILS.contains(email)) {
+            return new Decision(false, ReasonCode.DEMO, Detail.DEMO,
+                    "This is the shared demo identity, so nothing is applied to a real cluster.",
+                    ReasonCode.DEMO.refusalCode());
+        }
+        if (demoClientMembership.isDemoClientUser(user.getId())) {
             return new Decision(false, ReasonCode.DEMO, Detail.DEMO,
                     "This is the shared demo identity, so nothing is applied to a real cluster.",
                     ReasonCode.DEMO.refusalCode());

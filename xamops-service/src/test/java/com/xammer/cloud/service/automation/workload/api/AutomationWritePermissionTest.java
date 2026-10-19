@@ -8,6 +8,7 @@ import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.repository.UserTabAccessRepository;
 import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CloudAccountAccessService;
+import com.xammer.cloud.security.DemoClientMembership;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,7 @@ class AutomationWritePermissionTest {
     private CloudAccountAccessService accessService;
     private UserRepository userRepository;
     private UserTabAccessRepository tabAccessRepository;
+    private DemoClientMembership demoClientMembership;
     private Long impersonatedUserId;
 
     @BeforeEach
@@ -45,9 +47,12 @@ class AutomationWritePermissionTest {
         accessService = mock(CloudAccountAccessService.class);
         userRepository = mock(UserRepository.class);
         tabAccessRepository = mock(UserTabAccessRepository.class);
+        demoClientMembership = mock(DemoClientMembership.class);
         impersonatedUserId = null;
         when(accessService.canAccess(any(), any())).thenReturn(true);
         when(tabAccessRepository.findTabNamesByUserId(any())).thenReturn(List.of());
+        // Default: not a demo-client user, so existing assertions are unaffected.
+        when(demoClientMembership.isDemoClientUser(any())).thenReturn(false);
     }
 
     @Test
@@ -115,6 +120,30 @@ class AutomationWritePermissionTest {
             assertThat(decision.refusalCode()).isEqualTo("K8S_DEMO");
             assertThat(decision.message()).contains("shared demo identity");
         }
+    }
+
+    @Test
+    @DisplayName("a user on the shared demo client is refused as DEMO, alongside the email check")
+    void aDemoClientUserIsRefusedAsDemo() {
+        // Ordinary email, ordinary role, but attached to the is_demo client.
+        givenUser("real.user@example.com", "ROLE_XAMOPS");
+        when(demoClientMembership.isDemoClientUser(10L)).thenReturn(true);
+
+        AutomationWritePermission.Decision decision = permission().decide(principal(), account());
+
+        assertThat(decision.permitted()).isFalse();
+        assertThat(decision.reason()).isEqualTo(ReasonCode.DEMO);
+        assertThat(decision.refusalCode()).isEqualTo("K8S_DEMO");
+        assertThat(decision.message()).contains("shared demo identity");
+    }
+
+    @Test
+    @DisplayName("a non-demo-client user with a non-demo email is still allowed")
+    void aNonDemoClientUserWithANonDemoEmailIsPermitted() {
+        givenUser("real.user@example.com", "ROLE_XAMOPS");
+        when(demoClientMembership.isDemoClientUser(10L)).thenReturn(false);
+
+        assertThat(permission().decide(principal(), account()).permitted()).isTrue();
     }
 
     @Test
@@ -228,7 +257,7 @@ class AutomationWritePermissionTest {
     private AutomationWritePermission permission() {
         Supplier<Long> impersonation = () -> impersonatedUserId;
         return new AutomationWritePermission(accessService, userRepository, tabAccessRepository,
-                impersonation);
+                demoClientMembership, impersonation);
     }
 
     private void givenUser(String email, String role) {

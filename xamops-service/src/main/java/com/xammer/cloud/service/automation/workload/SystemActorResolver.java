@@ -40,9 +40,11 @@ import java.util.Optional;
  * <h2>Hibernate session note</h2>
  *
  * The loop runs on a {@code @Scheduled} thread with no open session, so this method is
- * {@link Transactional} (read-only): {@link UserRepository#findByClientId} is read and every field this
- * resolver touches ({@code id}, {@code role}, {@code email}) is a non-lazy scalar read inside that
- * transaction, so no LAZY association is traversed off the scheduled thread.
+ * {@link Transactional} (read-only): {@link UserRepository#findByClientId} is read inside that
+ * transaction. The scalar fields this resolver touches ({@code id}, {@code role}, {@code email}) are
+ * non-lazy reads, and the LAZY {@code Client} association read by {@code isDemoClient} is loaded
+ * inside this <em>same</em> read-only transaction (the Hibernate session is still open), so no LAZY
+ * association is traversed off the scheduled thread.
  */
 @Service
 public class SystemActorResolver {
@@ -69,7 +71,7 @@ public class SystemActorResolver {
         Optional<User> candidate = userRepository.findByClientId(clientId).stream()
                 .filter(user -> user.getCreatedBy() == null)
                 .filter(SystemActorResolver::hasWriteRole)
-                .filter(SystemActorResolver::isNotDemo)
+                .filter(user -> isNotDemo(user) && !isDemoClient(user))
                 .min(java.util.Comparator.comparing(User::getId,
                         java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
         if (candidate.isEmpty()) {
@@ -95,6 +97,17 @@ public class SystemActorResolver {
     private static boolean isNotDemo(User user) {
         String email = user.getEmail() == null ? "" : user.getEmail().trim().toLowerCase(Locale.ROOT);
         return !AutomationWritePermission.DEMO_EMAILS.contains(email);
+    }
+
+    /**
+     * Whether the user is on the shared read-only demo client ({@code client.is_demo = true}). The
+     * client-is-demo signal added alongside the demo-email check: a demo-client user is never chosen
+     * as a system actor, so the auto-apply loop can never act as a demo identity. The LAZY
+     * {@code Client} association is traversed safely here because {@code resolve(...)} runs inside a
+     * {@code @Transactional(readOnly = true)} transaction (see the Hibernate session note).
+     */
+    private static boolean isDemoClient(User u) {
+        return u.getClient() != null && u.getClient().isDemo();
     }
 
     /**

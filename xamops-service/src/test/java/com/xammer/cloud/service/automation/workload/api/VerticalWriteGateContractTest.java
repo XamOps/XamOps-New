@@ -125,7 +125,8 @@ class VerticalWriteGateContractTest {
                 .thenReturn(List.of("cloudops-dashboard", AutomationWritePermission.TAB_CLOUDK8S));
 
         AutomationWritePermission permission = new AutomationWritePermission(accessService,
-                userRepository, tabAccessRepository, () -> null);
+                userRepository, tabAccessRepository,
+                mock(com.xammer.cloud.security.DemoClientMembership.class), () -> null);
         VerticalApplyService applyService = new VerticalApplyService(
                 new WorkloadAutoscalingProperties(true, true, true), permission, List.of(),
                 mock(ClusterWorkloadInventory.class),

@@ -71,7 +71,7 @@ class AgentControllerAutoscalingPolicyTest {
 
         K8sAutomationAccessService accessService = new K8sAutomationAccessService(mock(CloudAccountAccessService.class),
                 cloudAccountRepository, clusterConfigRepository, mock(UserRepository.class),
-                mock(UserTabAccessRepository.class));
+                mock(UserTabAccessRepository.class), mock(com.xammer.cloud.security.DemoClientMembership.class));
         controller = new AgentController(ingest, mock(DbAgentService.class), clusterConfigRepository, cacheRepository,
                 mock(AgentEventRepository.class), mock(RedisCacheService.class), cloudAccountRepository,
                 mock(SreInvestigationService.class), mock(OpenObserveService.class),
