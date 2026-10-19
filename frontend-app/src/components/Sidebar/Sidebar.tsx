@@ -303,6 +303,9 @@ const Sidebar: React.FC = () => {
                   {isTabAllowed('all-invoices') && <NavItem href="/billops-admin-invoices" icon="fas fa-file-invoice" label="Billing" isActive={isActive('/billops-admin-invoices')} />}
                   {isTabAllowed('credit-requests') && <NavItem href="/billops-admin-credits" icon="fas fa-coins" label="Credit" isActive={isActive('/billops-admin-credits')} />}
                   {isTabAllowed('client-details') && <NavItem href="/billops-client-details" icon="fas fa-users-cog" label="Accounts" isActive={isActive('/billops-client-details')} />}
+                  {/* Demo Users — a sub-item of Accounts: the real, stored sign-in activity of
+                      everyone who has logged in on the demo host (demo.xamops.com). */}
+                  {isTabAllowed('demo-users') && <NavItem href="/billops-admin-demo-users" icon="fas fa-user-clock" label="Demo Users" isActive={isActive('/billops-admin-demo-users')} />}
                   {isTabAllowed('agreement-admin') && <NavItem href="/billops-admin-agreements" icon="fas fa-file-signature" label="Agreement" isActive={isActive('/billops-admin-agreements')} />}
                   {isTabAllowed('autospotting-admin') && <NavItem href="/autospotting-admin" icon="fas fa-magic" label="AutoSpotting" isActive={isActive('/autospotting-admin')} />}
                   {isTabAllowed('historical-billing') && <NavItem href="/billops-admin-historical-billing" icon="fas fa-history" label="Historical Billing" isActive={isActive('/billops-admin-historical-billing')} />}

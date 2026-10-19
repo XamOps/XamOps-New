@@ -17,10 +17,42 @@ export const DEMO_EMAILS: Record<string, 'ROLE_XAMOPS' | 'ROLE_BILLOPS_ADMIN'> =
 export const DEMO_MODE_KEY = 'demo_mode';
 export const DEMO_ROLE_KEY = 'demo_role';
 
+/**
+ * The host that always runs in demo mode. Any user who signs in on this host
+ * (with any email, via Google/Microsoft) is shown the shared read-only demo
+ * estate — demo mode is not gated by the DEMO_EMAILS allowlist there.
+ */
+const DEMO_HOST = 'demo.xamops.com';
+
+/**
+ * Returns true when the current browser host is the demo host.
+ *
+ * Honours a `VITE_DEMO_HOST` build-time override (so the demo behaviour can be
+ * exercised on a preview/staging hostname) and otherwise compares the live
+ * hostname to {@link DEMO_HOST}. The `import.meta.env` read is wrapped in a
+ * try/catch so this module still compiles and runs in non-Vite contexts
+ * (e.g. the vitest/jsdom test runner, which does not define `import.meta.env`).
+ */
+export function isDemoHost(): boolean {
+  let override: string | undefined;
+  try {
+    const raw = (import.meta as any)?.env?.VITE_DEMO_HOST;
+    if (typeof raw === 'string' && raw.trim()) override = raw.trim();
+  } catch {
+    // import.meta.env not available (non-Vite runtime) — fall through to the default host.
+  }
+  if (override) return window.location.hostname === override;
+  return window.location.hostname === DEMO_HOST;
+}
+
 /** Call this after the user profile is loaded to activate demo mode if applicable. */
 export function activateDemoModeIfNeeded(email: string | undefined): void {
   if (!email) return;
-  const role = DEMO_EMAILS[email.toLowerCase()];
+  // On the demo host every signed-in user sees the demo estate, so the role is
+  // forced to ROLE_XAMOPS regardless of email. On the live host we fall back to
+  // the existing DEMO_EMAILS allowlist mapping.
+  const hostForced = isDemoHost();
+  const role = hostForced ? 'ROLE_XAMOPS' : DEMO_EMAILS[email.toLowerCase()];
   if (role) {
     // Wipe any stale localStorage caches (e.g. DbOps 12-hour cache) so the
     // demo always starts fresh and shows our mock data, not old null values.

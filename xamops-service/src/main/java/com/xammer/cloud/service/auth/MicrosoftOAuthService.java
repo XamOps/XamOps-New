@@ -46,6 +46,11 @@ public class MicrosoftOAuthService {
     @Value("${microsoft.oauth.client-secret:}")
     private String clientSecret;
 
+    // EXTERNAL CONSOLE TASK: the demo host reuses this same flow, so its callback URL
+    // https://demo.xamops.com/api/auth/microsoft/callback must be registered as an additional
+    // Redirect URI on the app registration in Microsoft Entra, alongside the live one. Without it,
+    // Microsoft sign-in on demo.xamops.com fails with redirect_uri_mismatch. Comment only — nothing
+    // here changes; the redirect URI itself is supplied per-environment via config.
     @Value("${microsoft.oauth.redirect-uri:}")
     private String redirectUri;
 

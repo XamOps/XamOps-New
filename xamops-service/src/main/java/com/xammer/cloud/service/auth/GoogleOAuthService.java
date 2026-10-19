@@ -41,6 +41,11 @@ public class GoogleOAuthService {
     @Value("${google.oauth.client-secret:}")
     private String clientSecret;
 
+    // EXTERNAL CONSOLE TASK: the demo host reuses this same flow, so its callback URL
+    // https://demo.xamops.com/api/auth/google/callback must be registered as an additional
+    // Authorized redirect URI in the Google Cloud Console OAuth client, alongside the live one.
+    // Without it, Google sign-in on demo.xamops.com fails with redirect_uri_mismatch. Comment
+    // only — nothing here changes; the redirect URI itself is supplied per-environment via config.
     @Value("${google.oauth.redirect-uri:}")
     private String redirectUri;
 

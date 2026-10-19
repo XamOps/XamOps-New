@@ -182,6 +182,7 @@ const BillOpsAdminUserManagerPage = lazy(() => import('./pages/BillOpsAdminUserM
 // credential per customer on a 180-day expiry needs a table that can be sorted by expiry.
 const DspmAdminPage = lazy(() => import('./pages/DspmAdminPage'));
 const ClientDetailsPage = lazy(() => import('./pages/ClientDetailsPage'));
+const BillOpsAdminDemoUsersPage = lazy(() => import('./pages/BillOpsAdminDemoUsersPage'));
 const BillOpsClientIntakePage = lazy(() => import('./pages/BillOpsClientIntakePage'));
 
 // AccessOps — Identity Management (temporarily hidden)
@@ -297,6 +298,7 @@ const BILLOPS_ADMIN_TAB_ROUTES: Record<string, string> = {
     'credit-requests': '/billops-admin-credits',
     'agreement-admin': '/billops-admin-agreements',
     'client-details': '/billops-client-details',
+    'demo-users': '/billops-admin-demo-users',
     'autospotting-admin': '/autospotting-admin',
     'historical-billing': '/billops-admin-historical-billing',
     'client-intake': '/billops-client-intake',
@@ -612,6 +614,7 @@ const AppContent: React.FC = () => {
                             <Route path="/billops-invoices" element={<InvoicesPage />} />
                             <Route path="/billops-gcp-billing" element={<GcpBillingPage />} />
                             <Route path="/billops-client-details" element={<ClientDetailsPage />} />
+                            <Route path="/billops-admin-demo-users" element={<BillOpsAdminDemoUsersPage />} />
                             <Route path="/billops-credits" element={<CreditsPage />} />
                             <Route path="/billops-tickets" element={<BillOpsTicketsPage />} />
                             <Route path="/billops-ticket-detail" element={<BillOpsTicketDetailPage />} />
