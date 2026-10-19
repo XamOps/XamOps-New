@@ -92,17 +92,33 @@ public class AutoscalerDashboardDto {
 
     // ─── Nested DTOs ─────────────────────────────────────────────────────────
 
+    /**
+     * Agent liveness and node-actuator state — two distinct axes that must not be conflated.
+     *
+     * <p>{@code agentHealthy} reflects <em>agent liveness</em> only (has the agent checked in),
+     * computed from {@code KubernetesClusterConfig.isAgentActive()} — the identical predicate the
+     * vertical automation read ({@code VerticalAutomationReadService.agentPath}) uses, so the node
+     * dashboard and the vertical page can never disagree about the same agent. It is independent of
+     * whether the node actuator is enabled.
+     *
+     * <p>{@code actuatorState} ({@code ACTIVE} / {@code DISABLED}) carries the node-actuator's state
+     * as its own field: an analysis-only cluster reports {@code DISABLED} here, never as
+     * {@code agentHealthy=false}. {@code mode} ({@code full|scoped|disabled}) is the actuator scope,
+     * and the component flags below are actuator-component health, not agent health.
+     */
     public static class AgentStatusDto {
-        /** Is the main agent pod healthy (reported by agent heartbeat) */
+        /** Agent liveness only — {@code config.isAgentActive()}; NOT actuator state (see class doc). */
         private boolean agentHealthy;
-        /** Is the cluster-controller component healthy */
+        /** Is the cluster-controller component healthy (actuator component, not agent liveness) */
         private boolean clusterControllerHealthy;
-        /** Is the Evictor component healthy */
+        /** Is the Evictor component healthy (actuator component, not agent liveness) */
         private boolean evictorHealthy;
-        /** Is the Workload Autoscaler component healthy */
+        /** Is the Workload Autoscaler component healthy (actuator component, not agent liveness) */
         private boolean workloadAutoscalerHealthy;
-        /** full | scoped | disabled */
+        /** full | scoped | disabled — the actuator scope, not agent health */
         private String mode;
+        /** Node-actuator state carried as its own field: ACTIVE when autoscaling is enabled, else DISABLED. */
+        private String actuatorState;
         /** ISO timestamp of last agent sync (from kubernetes_cluster_config.last_agent_checkin) */
         private String lastSyncAt;
         /** Agent version string (from kubernetes_cluster_config.agent_version) */
@@ -118,6 +134,8 @@ public class AutoscalerDashboardDto {
         public void setWorkloadAutoscalerHealthy(boolean v) { this.workloadAutoscalerHealthy = v; }
         public String getMode() { return mode; }
         public void setMode(String mode) { this.mode = mode; }
+        public String getActuatorState() { return actuatorState; }
+        public void setActuatorState(String actuatorState) { this.actuatorState = actuatorState; }
         public String getLastSyncAt() { return lastSyncAt; }
         public void setLastSyncAt(String lastSyncAt) { this.lastSyncAt = lastSyncAt; }
         public String getAgentVersion() { return agentVersion; }
@@ -139,7 +157,12 @@ public class AutoscalerDashboardDto {
         private int avgNodeUtilizationCpu;
         /** Average memory utilization across all managed nodes */
         private int avgNodeUtilizationMemory;
-        /** Total nodes under autoscaler management */
+        /**
+         * Nodes under <em>active autoscaler actuation</em> (0 when the cluster is analysis-only).
+         * This is the actuation count, NOT the observed fleet size — it is sourced only from the
+         * agent-pushed autoscaling-metrics and is never backfilled from the node-fleet endpoint.
+         * A 0 here means "none actuated" (see {@link AgentStatusDto#actuatorState}), not "agent blind".
+         */
         private int totalManagedNodes;
 
         public int getNodesSavedToday() { return nodesSavedToday; }

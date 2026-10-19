@@ -381,6 +381,8 @@ export interface AutoscalerAgentStatus {
   evictorHealthy: boolean;
   workloadAutoscalerHealthy: boolean;
   mode: AutoscalerMode;
+  /** Node-actuator state, independent of agent liveness. DISABLED = analysis-only cluster. */
+  actuatorState?: 'ACTIVE' | 'DISABLED';
   lastSyncAt: string;
   agentVersion: string;
 }

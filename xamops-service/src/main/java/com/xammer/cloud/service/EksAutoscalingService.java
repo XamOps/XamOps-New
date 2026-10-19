@@ -147,7 +147,10 @@ public class EksAutoscalingService {
         dto.setAutoscalingEnabled(enabled);
         dto.setPolicySource(policy.policySource());
         dto.setAgentPolicyBlockedBy(block != null ? block.name() : null);
-        dto.setAgentStatus(enabled ? buildAgentStatus(config, bundle) : disabledAgentStatus(config));
+        AgentStatusDto agentStatus = enabled ? buildAgentStatus(config, bundle) : disabledAgentStatus(config);
+        // Actuator state is its own axis, derived from the actuator flag — never agent liveness.
+        agentStatus.setActuatorState(enabled ? "ACTIVE" : "DISABLED");
+        dto.setAgentStatus(agentStatus);
         dto.setScaleOutPolicy(bundle.getScaleOutPolicy());
         dto.setEvictorPolicy(bundle.getEvictorPolicy());
         dto.setWorkloadRightsizerPolicy(bundle.getWorkloadRightsizerPolicy());
@@ -325,7 +328,9 @@ public class EksAutoscalingService {
     private AgentStatusDto disabledAgentStatus(KubernetesClusterConfig config) {
         AgentStatusDto status = new AgentStatusDto();
         status.setMode("disabled");
-        status.setAgentHealthy(false);
+        // Agent liveness is independent of the actuator being disabled: reuse the vertical read's
+        // predicate (config.isAgentActive()) so a live agent on an analysis-only cluster reads healthy.
+        status.setAgentHealthy(config.isAgentActive());
         status.setClusterControllerHealthy(false);
         status.setEvictorHealthy(false);
         status.setWorkloadAutoscalerHealthy(false);
@@ -337,7 +342,9 @@ public class EksAutoscalingService {
         AgentStatusDto dto = new AgentStatusDto();
 
         boolean agentActive = config.isAgentActive();
-        dto.setAgentHealthy(agentActive && "active".equals(config.getAgentStatus()));
+        // Agent liveness = config.isAgentActive() alone — byte-for-byte the vertical read's agentPath
+        // predicate — so the node dashboard and the vertical page never disagree about the same agent.
+        dto.setAgentHealthy(agentActive);
         dto.setAgentVersion(config.getAgentVersion() != null ? config.getAgentVersion() : "unknown");
         dto.setLastSyncAt(config.getLastAgentCheckin() != null
                 ? config.getLastAgentCheckin().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)

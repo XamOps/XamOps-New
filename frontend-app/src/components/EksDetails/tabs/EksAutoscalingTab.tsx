@@ -344,11 +344,16 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
     avgNodeUtilizationMemory: 0, totalManagedNodes: 0
   };
 
+  // When the node actuator is analysis-only its components legitimately aren't running — that must
+  // not be read as "agent down". Overall health tracks the agent plus (only) the actuator components
+  // that are expected to run when the actuator is active.
+  const actuatorDisabled = agentStatus.actuatorState === 'DISABLED';
   const allHealthy =
     agentStatus.agentHealthy &&
-    agentStatus.clusterControllerHealthy &&
-    agentStatus.evictorHealthy &&
-    agentStatus.workloadAutoscalerHealthy;
+    (actuatorDisabled ||
+      (agentStatus.clusterControllerHealthy &&
+        agentStatus.evictorHealthy &&
+        agentStatus.workloadAutoscalerHealthy));
 
   // ── Utility: blank new template ────────────────────────────────────────────
   const blankTemplate = (): NodeTemplate => ({
@@ -431,20 +436,28 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
         {/* Component status grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5 pt-5 border-t border-[rgba(0,0,0,0.06)]">
           {[
-            { label: 'Agent', key: 'agentHealthy', icon: 'fa-satellite-dish' },
-            { label: 'Cluster Controller', key: 'clusterControllerHealthy', icon: 'fa-cogs' },
-            { label: 'Evictor', key: 'evictorHealthy', icon: 'fa-compress-arrows-alt' },
-            { label: 'Workload Rightsizer', key: 'workloadAutoscalerHealthy', icon: 'fa-weight' },
+            { label: 'Agent', key: 'agentHealthy', icon: 'fa-satellite-dish', isAgent: true },
+            { label: 'Cluster Controller', key: 'clusterControllerHealthy', icon: 'fa-cogs', isAgent: false },
+            { label: 'Evictor', key: 'evictorHealthy', icon: 'fa-compress-arrows-alt', isAgent: false },
+            { label: 'Workload Rightsizer', key: 'workloadAutoscalerHealthy', icon: 'fa-weight', isAgent: false },
           ].map(comp => {
+            // The Agent row always reflects real agent liveness. The actuator-component rows read
+            // "Analysis-only" (neutral) rather than "Offline" when the actuator is merely disabled.
+            const analysisOnly = !comp.isAgent && actuatorDisabled;
             const healthy = agentStatus[comp.key as keyof typeof agentStatus] as boolean;
+            const tone = analysisOnly
+              ? { box: 'bg-[rgba(0,0,0,0.02)] border-[rgba(0,0,0,0.1)]', text: 'text-[rgba(0,0,0,0.55)]' }
+              : healthy
+                ? { box: 'bg-[#dafbe1] border-[#aceebb]', text: 'text-[#1a7f37]' }
+                : { box: 'bg-[#ffebe9] border-[rgba(255,129,130,0.4)]', text: 'text-[#cf222e]' };
             return (
-              <div key={comp.key} className={`rounded-md p-3 border ${healthy ? 'bg-[#dafbe1] border-[#aceebb]' : 'bg-[#ffebe9] border-[rgba(255,129,130,0.4)]'}`}>
+              <div key={comp.key} className={`rounded-md p-3 border ${tone.box}`}>
                 <div className="flex items-center gap-2 mb-1">
-                  <i className={`fas ${comp.icon} text-xs ${healthy ? 'text-[#1a7f37]' : 'text-[#cf222e]'}`}></i>
+                  <i className={`fas ${comp.icon} text-xs ${tone.text}`}></i>
                   <span className="text-[11px] font-medium text-[rgba(0,0,0,0.5)]">{comp.label}</span>
                 </div>
-                <div className={`text-[11px] font-semibold ${healthy ? 'text-[#1a7f37]' : 'text-[#cf222e]'}`}>
-                  {healthy ? 'Healthy' : 'Offline'}
+                <div className={`text-[11px] font-semibold ${tone.text}`}>
+                  {analysisOnly ? 'Analysis-only' : healthy ? 'Healthy' : 'Offline'}
                 </div>
               </div>
             );
@@ -485,7 +498,7 @@ const EksAutoscalingTab: React.FC<{ eksData: any }> = (_props) => {
         {[
           { label: 'Avg CPU Utilization', value: kpis.avgNodeUtilizationCpu, color: 'bg-purple-500' },
           { label: 'Avg Memory Utilization', value: kpis.avgNodeUtilizationMemory, color: 'bg-blue-500' },
-          { label: 'Managed Nodes', value: null, display: `${kpis.totalManagedNodes} nodes`, color: 'bg-gray-700' },
+          { label: 'Actuated nodes', value: null, display: `${kpis.totalManagedNodes} nodes`, color: 'bg-gray-700' },
         ].map(m => (
           <div key={m.label} className="bg-white rounded-lg border border-[rgba(0,0,0,0.12)] p-4">
             <div className="flex justify-between items-center mb-2">

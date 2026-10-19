@@ -160,6 +160,85 @@ class EksAutoscalingServiceTest {
         assertThat(dto.getAgentPolicyBlockedBy()).isNull();
     }
 
+    // ── agentStatus: agent liveness vs node-actuator state (D2) ───────────
+
+    @Test
+    void analysisOnlyClusterWithLiveAgent_reportsAgentHealthyAndActuatorDisabled() {
+        // autoscalingEnabled=false (set in setUp) + a live agent (checked in just now).
+        config.setLastAgentCheckin(LocalDateTime.now());
+
+        AutoscalerDashboardDto.AgentStatusDto status = service.getDashboard(config).getAgentStatus();
+
+        assertThat(status.isAgentHealthy()).isTrue();
+        assertThat(status.getActuatorState()).isEqualTo("DISABLED");
+        assertThat(status.getMode()).isEqualTo("disabled");
+    }
+
+    @Test
+    void disabledActuatorWithNoLiveAgent_reportsAgentUnhealthyAndActuatorDisabled() {
+        // autoscalingEnabled=false + no checkin ⇒ isAgentActive()==false.
+        config.setLastAgentCheckin(null);
+
+        AutoscalerDashboardDto.AgentStatusDto status = service.getDashboard(config).getAgentStatus();
+
+        assertThat(status.isAgentHealthy()).isFalse();
+        assertThat(status.getActuatorState()).isEqualTo("DISABLED");
+        assertThat(status.getMode()).isEqualTo("disabled");
+    }
+
+    @Test
+    void enabledActuator_reportsActuatorActive_andAgentHealthFollowsLiveness() {
+        config.setAutoscalingEnabled(true);
+        // Live agent whose detail status string is NOT "active" — the stricter old conjunction would
+        // have read this unhealthy; agentHealthy must now follow isAgentActive() alone.
+        config.setLastAgentCheckin(LocalDateTime.now());
+        config.setAgentStatus("syncing");
+
+        AutoscalerDashboardDto.AgentStatusDto status = service.getDashboard(config).getAgentStatus();
+
+        assertThat(status.getActuatorState()).isEqualTo("ACTIVE");
+        assertThat(status.isAgentHealthy()).isTrue();
+    }
+
+    @Test
+    void agentHealthyEqualsIsAgentActiveOnBothActuatorBranches() {
+        // Parity with the vertical read's source (config.isAgentActive()) on BOTH branches, including
+        // the enabled + getAgentStatus()!="active" case the stricter conjunction used to fail.
+        config.setLastAgentCheckin(LocalDateTime.now());
+        config.setAgentStatus("syncing");
+
+        config.setAutoscalingEnabled(false);
+        assertThat(service.getDashboard(config).getAgentStatus().isAgentHealthy())
+                .isEqualTo(config.isAgentActive());
+
+        config.setAutoscalingEnabled(true);
+        assertThat(service.getDashboard(config).getAgentStatus().isAgentHealthy())
+                .isEqualTo(config.isAgentActive());
+
+        // And a stale agent reads unhealthy on both branches.
+        config.setLastAgentCheckin(LocalDateTime.now().minusHours(1));
+        config.setAutoscalingEnabled(false);
+        assertThat(service.getDashboard(config).getAgentStatus().isAgentHealthy())
+                .isEqualTo(config.isAgentActive());
+        config.setAutoscalingEnabled(true);
+        assertThat(service.getDashboard(config).getAgentStatus().isAgentHealthy())
+                .isEqualTo(config.isAgentActive());
+    }
+
+    @Test
+    void totalManagedNodesIsNotBackfilledFromTheFleet() {
+        // Regression anchor reproducing evidence/08-node.json: analysis-only cluster, live agent,
+        // no pushed metrics ⇒ 0 actuated nodes (NOT the observed fleet count), honest actuatorState.
+        config.setLastAgentCheckin(LocalDateTime.now());
+
+        AutoscalerDashboardDto dto = service.getDashboard(config);
+
+        assertThat(dto.getKpis().getTotalManagedNodes())
+                .as("actuated-node count is not backfilled from the fleet").isZero();
+        assertThat(dto.getAgentStatus().isAgentHealthy()).isTrue();
+        assertThat(dto.getAgentStatus().getActuatorState()).isEqualTo("DISABLED");
+    }
+
     @Test
     void disabledWithAStoredBundle_returnsTheStoredSections() {
         storeRow(EksAutoscalingService.DT_POLICY,
