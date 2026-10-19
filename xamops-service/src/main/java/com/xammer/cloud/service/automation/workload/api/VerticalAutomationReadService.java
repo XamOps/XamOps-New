@@ -34,6 +34,7 @@ import com.xammer.cloud.service.automation.workload.cost.WorkloadCostAttribution
 import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
 import com.xammer.cloud.service.automation.workload.inventory.WorkloadPods;
 import com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader;
+import com.xammer.cloud.service.automation.workload.policy.WorkloadActionRecorder;
 import com.xammer.cloud.service.automation.workload.policy.WorkloadPolicyService;
 import com.xammer.cloud.service.automation.workload.usage.ContainerUsageAggregate;
 import com.xammer.cloud.service.automation.workload.usage.RpsQuery;
@@ -502,17 +503,33 @@ public class VerticalAutomationReadService {
      *
      * <p>{@code notEvaluated} workloads keep {@code lastAction} null regardless, because that path
      * does not consult this map.
+     *
+     * <p>The rows the activity log added (FEAT-007) are skipped — test runs, refusals, applies that
+     * changed no pod, and HPA rows — so {@code lastAction} is exactly what it was before they existed.
      */
-    private Map<String, VerticalWorkloadDto.LastActionDto> lastActions(Long clusterConfigId) {
+    Map<String, VerticalWorkloadDto.LastActionDto> lastActions(Long clusterConfigId) {
         Map<String, VerticalWorkloadDto.LastActionDto> byKey = new java.util.HashMap<>();
         for (WorkloadVerticalAction action
                 : actionRepository.findByClusterConfigIdOrderByAppliedAtDesc(clusterConfigId)) {
+            if (!isLastActionCandidate(action)) {
+                continue;
+            }
             String key = WorkloadPolicyService.key(action.getNamespace(), action.getWorkloadKind(),
                     action.getWorkloadName());
             byKey.computeIfAbsent(key, ignored -> new VerticalWorkloadDto.LastActionDto(
                     action.getAppliedAt(), action.getDryRun(), action.getOutcome()));
         }
         return byKey;
+    }
+
+    /** A row of the kind endpoint 1 has always reported: a real resize or a mode change. */
+    private static boolean isLastActionCandidate(WorkloadVerticalAction action) {
+        String outcome = action.getOutcome();
+        return !Boolean.TRUE.equals(action.getDryRun())
+                && !WorkloadActionRecorder.OUTCOME_TEST_RUN.equals(outcome)
+                && !WorkloadActionRecorder.OUTCOME_REFUSED.equals(outcome)
+                && !WorkloadActionRecorder.OUTCOME_NOT_CHANGED.equals(outcome)
+                && !WorkloadActionRecorder.KIND_HPA.equals(action.getWorkloadKind());
     }
 
     /**

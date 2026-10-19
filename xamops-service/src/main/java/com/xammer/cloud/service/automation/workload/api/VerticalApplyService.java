@@ -186,11 +186,39 @@ public class VerticalApplyService {
      * {@link ActionTrigger#AUTO} here. <strong>The gate order is identical for both</strong>: the
      * trigger only labels the recorded action, it changes no check.
      *
+     * <p>A refusal is recorded for the activity log only when a user asked
+     * ({@link #recordsRefusal}), then rethrown unchanged, so the response is the same either way.
+     *
      * @param trigger who initiated the apply; the recorded action's {@code trigger_source}
      */
     public ApplyResponseDto apply(ClientUserDetails principal, CloudAccount account,
                                   ClusterTarget target, WorkloadRef ref, ApplyRequestDto request,
                                   ActionTrigger trigger) {
+        try {
+            return applyGated(principal, account, target, ref, request, trigger);
+        } catch (ApplyRefusedException refused) {
+            if (recordsRefusal(trigger, refused.code())) {
+                actionRecorder.recordRefusal(target == null ? null : target.clientId(), target, ref,
+                        trigger, request != null && Boolean.TRUE.equals(request.dryRun()),
+                        refused.code(), refused.getMessage(), clock.instant());
+            }
+            throw refused;
+        }
+    }
+
+    /**
+     * Whether a refusal goes into the activity log: a user's, so they can see what was declined and
+     * why. Never the automatic loop's, which would add a row every cycle it retries, and never the
+     * shared demo identity's, which must leave no trace on a real cluster's history.
+     */
+    static boolean recordsRefusal(ActionTrigger trigger, String code) {
+        return (trigger == null || trigger == ActionTrigger.MANUAL)
+                && !ReasonCode.DEMO.refusalCode().equals(code);
+    }
+
+    private ApplyResponseDto applyGated(ClientUserDetails principal, CloudAccount account,
+                                        ClusterTarget target, WorkloadRef ref, ApplyRequestDto request,
+                                        ActionTrigger trigger) {
         requirePermission(principal, account);
         requireWriteConnection(account);
         requireControllerReady();
@@ -287,6 +315,12 @@ public class VerticalApplyService {
             // cooldown stamp above does.
             actionRecorder.record(target.clientId(), target, workload.ref(), trigger,
                     command.dryRun(), targets, proof, appliedAt);
+        } else if (proof != null) {
+            // A test run, or a real apply that changed no pod (a deferral put back and proved back,
+            // a declined patch): recorded for the activity log only. It starts no cooldown, and
+            // endpoint 1's lastAction skips it, exactly as before this row existed.
+            actionRecorder.recordAttempt(target.clientId(), target, workload.ref(), trigger,
+                    command.dryRun(), targets, proof, clock.instant());
         }
 
         logger.info("Vertical apply {} for {} on {}: state {} outcome {}",

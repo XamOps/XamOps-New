@@ -74,6 +74,52 @@ class VerticalAutomationReadServiceTest {
             "dep-uid-1");
 
     @Test
+    @DisplayName("lastAction skips the activity log's rows: newer test runs, refusals, put-backs and HPA rows leave the APPLIED row")
+    void lastActionIgnoresTheActivityLogRows() {
+        com.xammer.cloud.repository.WorkloadVerticalActionRepository actions =
+                mock(com.xammer.cloud.repository.WorkloadVerticalActionRepository.class);
+        // Newest first, as the repository returns them.
+        when(actions.findByClusterConfigIdOrderByAppliedAtDesc(42L)).thenReturn(List.of(
+                action("Deployment", "TEST_RUN", true, "2026-10-13T09:00:00Z"),
+                action("Deployment", "APPLIED", true, "2026-10-13T08:30:00Z"),
+                action("Deployment", "REFUSED", false, "2026-10-13T08:00:00Z"),
+                action("Deployment", "NOT_CHANGED", false, "2026-10-13T07:00:00Z"),
+                action("HorizontalPodAutoscaler", "APPLIED", false, "2026-10-13T06:30:00Z"),
+                action("Deployment", "APPLIED", false, "2026-10-13T06:00:00Z"),
+                action("Deployment", "FAILED", false, "2026-10-13T05:00:00Z")));
+        VerticalAutomationReadService service = new VerticalAutomationReadService(
+                new WorkloadAutoscalingProperties(false, false),
+                VerticalReadServiceFixtures.metricsProperties("OFF", 24), new NoMetricsSourceProvider(),
+                List.of(), new ClusterWorkloadInventory(), new UpstreamVpaReader(),
+                VerticalReadServiceFixtures.noStoredPolicies(), actions,
+                java.time.Clock.fixed(VerticalReadServiceFixtures.CYCLE_AT, java.time.ZoneOffset.UTC), () -> 0L);
+
+        Map<String, VerticalWorkloadDto.LastActionDto> lastActions = service.lastActions(42L);
+
+        assertThat(lastActions)
+                .as("the HPA row is not a workload's lastAction either")
+                .hasSize(1);
+        assertThat(lastActions.get(WorkloadPolicyService.key("team-a", "Deployment", "overprovisioned-api")))
+                .isEqualTo(new VerticalWorkloadDto.LastActionDto(
+                        java.time.Instant.parse("2026-10-13T06:00:00Z"), false, "APPLIED"));
+    }
+
+    private static com.xammer.cloud.domain.WorkloadVerticalAction action(String kind, String outcome,
+                                                                         boolean dryRun, String appliedAt) {
+        com.xammer.cloud.domain.WorkloadVerticalAction action = new com.xammer.cloud.domain.WorkloadVerticalAction();
+        action.setClientId(7L);
+        action.setClusterConfigId(42L);
+        action.setNamespace("team-a");
+        action.setWorkloadKind(kind);
+        action.setWorkloadName("overprovisioned-api");
+        action.setTriggerSource("MANUAL");
+        action.setDryRun(dryRun);
+        action.setOutcome(outcome);
+        action.setAppliedAt(java.time.Instant.parse(appliedAt));
+        return action;
+    }
+
+    @Test
     @DisplayName("with the master switch off: gated, empty, and NO provider is invoked")
     void theDefaultStateTouchesNothing() {
         RecordingProvider provider = new RecordingProvider();

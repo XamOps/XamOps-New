@@ -3,6 +3,7 @@ package com.xammer.cloud.service.automation.workload.api;
 import com.xammer.cloud.domain.Client;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.service.automation.workload.ActionTrigger;
 import com.xammer.cloud.service.automation.workload.HorizontalAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.HpaView;
 import com.xammer.cloud.service.automation.workload.NativeVpaMode;
@@ -24,6 +25,7 @@ import com.xammer.cloud.service.automation.workload.execute.HpaPatchClient;
 import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
 import com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader;
 import com.xammer.cloud.service.automation.workload.inventory.WorkloadPods;
+import com.xammer.cloud.service.automation.workload.policy.WorkloadActionRecorder;
 import com.xammer.cloud.service.automation.workload.policy.WorkloadPolicyService;
 import com.xammer.cloud.service.automation.workload.usage.VerticalMetricsProperties;
 import io.fabric8.kubernetes.api.model.autoscaling.v2.HorizontalPodAutoscaler;
@@ -45,8 +47,10 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -443,7 +447,137 @@ class HpaApplyServiceTest {
                 .isEqualTo(Instant.parse("2026-10-13T12:00:00Z").plus(HpaApplyService.COMMAND_VALIDITY));
     }
 
+    // ---------------------------------------------------------------- the activity log (FEAT-007)
+
+    @Test
+    @DisplayName("activity log: an applied HPA change is recorded with the live bounds before and the new ones after")
+    void anAppliedChangeIsRecorded() {
+        WorkloadActionRecorder recorder = mock(WorkloadActionRecorder.class);
+
+        recordingService(recorder).apply(principal(), readWriteAccount(), TARGET, REF, body(false));
+
+        verify(recorder).recordHpa(eq(7L), eq(TARGET), eq("team-b"), eq("php-apache"), eq(ActionTrigger.MANUAL),
+                eq(false), eq(new WorkloadActionRecorder.HpaBounds(1, 5, 50)),
+                eq(new WorkloadActionRecorder.HpaBounds(1, 8, 50)), eq("APPLIED"), isNull(), anyString(),
+                eq(Instant.parse("2026-10-13T12:00:00Z")));
+        verify(recorder, never()).recordRefusal(any(), any(), any(), any(), anyBoolean(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("activity log: an HPA dry run is recorded as a test run")
+    void aDryRunIsRecordedAsATestRun() {
+        WorkloadActionRecorder recorder = mock(WorkloadActionRecorder.class);
+
+        recordingService(recorder).apply(principal(), readWriteAccount(), TARGET, REF, body(true));
+
+        verify(recorder).recordHpa(eq(7L), eq(TARGET), eq("team-b"), eq("php-apache"), eq(ActionTrigger.MANUAL),
+                eq(true), any(), eq(new WorkloadActionRecorder.HpaBounds(1, 8, 50)),
+                eq(WorkloadActionRecorder.OUTCOME_TEST_RUN), any(), anyString(), any());
+    }
+
+    @Test
+    @DisplayName("activity log: a failed patch is recorded once, as FAILED with its detail, not again as a refusal")
+    void aFailedPatchIsRecordedOnce() {
+        WorkloadActionRecorder recorder = mock(WorkloadActionRecorder.class);
+        String detail = "The API server refused the patch of HPA team-b/php-apache: HTTP 403.";
+        org.mockito.Mockito.doReturn(HpaApplyOutcome.failed(command(null, 8, null, false), detail))
+                .when(executor).submit(any(), any(), any());
+
+        VerticalApplyService.ApplyRefusedException refusal = catchRefusal(() -> recordingService(recorder)
+                .apply(principal(), readWriteAccount(), TARGET, REF, body(false)));
+
+        assertThat(refusal.code()).isEqualTo("K8S_APPLY_FAILED");
+        verify(recorder).recordHpa(any(), any(), eq("team-b"), eq("php-apache"), any(), eq(false), any(), any(),
+                eq("FAILED"), eq(detail), eq("corr-1"), any());
+        verify(recorder, never()).recordRefusal(any(), any(), any(), any(), anyBoolean(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("activity log: a safety-rule refusal is recorded against the HPA, with its code and message")
+    void aRefusalIsRecordedAgainstTheHpa() {
+        WorkloadActionRecorder recorder = mock(WorkloadActionRecorder.class);
+        when(policyService.resolve(any(), any(), any())).thenReturn(METRICS.defaultsPolicy()
+                .withLastAppliedAt(Instant.parse("2026-10-13T11:59:00Z")));
+
+        VerticalApplyService.ApplyRefusedException refusal = catchRefusal(() -> recordingService(recorder)
+                .apply(principal(), readWriteAccount(), TARGET, REF, new HpaApplyRequestDto(null, 8, null, false)));
+
+        verify(recorder).recordRefusal(eq(7L), eq(TARGET),
+                eq(WorkloadRef.of("team-b", WorkloadActionRecorder.KIND_HPA, "php-apache")),
+                eq(ActionTrigger.MANUAL), eq(false), eq("K8S_INVALID_POLICY"), eq(refusal.getMessage()),
+                eq(Instant.parse("2026-10-13T12:00:00Z")));
+        verify(recorder, never()).recordHpa(any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any(),
+                any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("activity log: a refusal before the HPA is read is recorded under the workload's name, and says so")
+    void anEarlyRefusalNamesTheWorkload() {
+        WorkloadActionRecorder recorder = mock(WorkloadActionRecorder.class);
+        CloudAccount readOnly = readWriteAccount();
+        readOnly.setAccessType("read-only");
+
+        VerticalApplyService.ApplyRefusedException refusal = catchRefusal(() -> recordingService(recorder)
+                .apply(principal(), readOnly, TARGET, REF, body(true)));
+
+        assertThat(refusal.code()).isEqualTo("K8S_READ_ONLY_CONNECTION");
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(recorder).recordRefusal(eq(7L), eq(TARGET),
+                eq(WorkloadRef.of("team-b", WorkloadActionRecorder.KIND_HPA, "php-apache")),
+                eq(ActionTrigger.MANUAL), eq(true), eq("K8S_READ_ONLY_CONNECTION"), message.capture(), any());
+        assertThat(message.getValue())
+                .startsWith(refusal.getMessage())
+                .contains("Recorded under the name of Deployment team-b/php-apache");
+    }
+
+    @Test
+    @DisplayName("activity log: the demo identity's refusal is never recorded")
+    void aDemoRefusalIsNotRecorded() {
+        WorkloadActionRecorder recorder = mock(WorkloadActionRecorder.class);
+        when(writePermission.decide(any(), any())).thenReturn(new AutomationWritePermission.Decision(false,
+                ReasonCode.DEMO, AutomationWritePermission.Detail.DEMO, "Demo.", "K8S_DEMO"));
+
+        assertThat(catchRefusal(() -> recordingService(recorder)
+                .apply(principal(), readWriteAccount(), TARGET, REF, body(true))).code()).isEqualTo("K8S_DEMO");
+        verifyNoInteractions(recorder);
+    }
+
+    @Test
+    @DisplayName("activity log: recording changes no response — applied, test run and failure answer byte for byte the same")
+    void recordingChangesNoResponse() throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper();
+        WorkloadActionRecorder recorder = mock(WorkloadActionRecorder.class);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            HpaActionCommand command = invocation.getArgument(0);
+            return HpaApplyOutcome.applied(new HpaActionCommand("corr-1", TARGET, REF, "team-b", "php-apache",
+                    command.minReplicas(), command.maxReplicas(), command.targetUtilizationPct(), "12345",
+                    command.dryRun(), command.notValidAfter()), command.dryRun());
+        }).when(executor).submit(any(), any(), any());
+
+        for (boolean dryRun : new boolean[]{false, true}) {
+            assertThat(json.writeValueAsString(recordingService(recorder)
+                    .apply(principal(), readWriteAccount(), TARGET, REF, body(dryRun))))
+                    .isEqualTo(json.writeValueAsString(service()
+                            .apply(principal(), readWriteAccount(), TARGET, REF, body(dryRun))));
+        }
+
+        org.mockito.Mockito.doReturn(HpaApplyOutcome.failed(command(null, 8, null, false), "Rejected."))
+                .when(executor).submit(any(), any(), any());
+        VerticalApplyService.ApplyRefusedException recorded = catchRefusal(() -> recordingService(recorder)
+                .apply(principal(), readWriteAccount(), TARGET, REF, body(false)));
+        VerticalApplyService.ApplyRefusedException plain = catchRefusal(() -> service()
+                .apply(principal(), readWriteAccount(), TARGET, REF, body(false)));
+        assertThat(recorded.status()).isEqualTo(plain.status());
+        assertThat(json.writeValueAsString(recorded.body())).isEqualTo(json.writeValueAsString(plain.body()));
+    }
+
     // ---------------------------------------------------------------- fixtures
+
+    private HpaApplyService recordingService(WorkloadActionRecorder recorder) {
+        return new HpaApplyService(new HorizontalAutoscalingProperties(true, true, true), writePermission,
+                List.of(provider), inventory, vpaReader, patchClient, executor, policyService, recorder,
+                METRICS, FIXED);
+    }
 
     private void givenExecutorApplies() {
         when(executor.submit(any(), any(), any())).thenAnswer(invocation -> {
