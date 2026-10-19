@@ -888,8 +888,16 @@ public final class WorkloadAutoscalingEngine {
 
             ResourceEnvelope recommended = ResourceEnvelope.recommendation(
                     current, newCpuRequest, newCpuLimit, newMemRequest, newMemLimit);
+            // Confidence annotates a recommendation (it never gates). It is attached only here,
+            // where a recommendation exists, from the measured aggregate -- the engine stays pure
+            // and reads NO ConfidenceProperties; the band/belowFloor are placed later in the mapper.
+            ContainerUsageAggregate usage = container.usage();
+            ContainerDecision.ConfidenceView confidence = new ContainerDecision.ConfidenceView(
+                    ConfidenceScore.of(usage.sampleCoverage(), usage.cpuMeanMillis(),
+                            usage.cpuStddevMillis()),
+                    usage.sampleCoverage(), policy.windowHours());
             return new ContainerDecision(container.name(), qosClass, current, recommended,
-                    List.copyOf(reasons), changeKind(current));
+                    List.copyOf(reasons), changeKind(current), confidence);
         }
 
         /** Direction against the current request. An unset request counts as an increase. */

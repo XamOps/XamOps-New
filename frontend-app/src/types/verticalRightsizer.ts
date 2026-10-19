@@ -31,6 +31,19 @@ export interface UpstreamVpaWire {
   observedAt: string | null;
 }
 
+/**
+ * The confidence annotation on a recommended container (FEAT-001). `null` when there is no
+ * recommendation — the UI renders a dash, never a zero. `band` is HIGH/MEDIUM/LOW, placed by the
+ * backend mapper from its configurable cut points; `belowFloor` drives the chip tone only.
+ */
+export interface ConfidenceWire {
+  score: number;
+  band: string;
+  sampleCoverage: number;
+  windowHours: number;
+  belowFloor: boolean;
+}
+
 export interface VerticalContainerWire {
   name: string;
   qosClass: string | null;
@@ -44,6 +57,11 @@ export interface VerticalContainerWire {
    * own size (what new pods start at), not what every pod runs. Absent from older builds.
    */
   podsDisagree?: boolean | null;
+  /**
+   * The 0..1 confidence in this container's recommendation. `null`/absent when there is no
+   * recommendation (or an older build that predates it) — rendered as a dash.
+   */
+  confidence?: ConfidenceWire | null;
 }
 
 export interface VerticalWorkloadRefWire {
@@ -172,6 +190,18 @@ export interface UpstreamVpaView {
   observedAt: string | null;
 }
 
+/**
+ * The confidence view (FEAT-001): the measured score plus the band and tone inputs. `null` on a
+ * container with no recommendation, so the UI renders a dash rather than a fabricated zero.
+ */
+export interface ConfidenceView {
+  score: number;
+  band: 'HIGH' | 'MEDIUM' | 'LOW';
+  sampleCoverage: number;
+  windowHours: number;
+  belowFloor: boolean;
+}
+
 export interface ContainerView {
   name: string;
   qosClass: string | null;
@@ -182,6 +212,8 @@ export interface ContainerView {
   upstreamVpa: UpstreamVpaView | null;
   /** The live pods run different sizes for this container right now. */
   podsDisagree: boolean;
+  /** The recommendation's confidence, or null when there is no recommendation. */
+  confidence: ConfidenceView | null;
 }
 
 export interface ProvenanceView {

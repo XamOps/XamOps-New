@@ -15,6 +15,7 @@ import type {
   ApplyContainerRequest,
   CallerRefusal,
   CodeView,
+  ConfidenceView,
   ContainerView,
   EngineView,
   ManualApplyGate,
@@ -135,6 +136,26 @@ const adaptUpstreamVpa = (
   };
 };
 
+/**
+ * The recommendation's confidence, or null. A band the backend does not recognise is dropped to
+ * null rather than guessed — the chip then shows nothing, which is honest. Confidence is carried
+ * only when a recommendation is; a container without one has `confidence: null`.
+ */
+const adaptConfidence = (container: VerticalContainerWire): ConfidenceView | null => {
+  const c = container.confidence;
+  if (!c || container.recommended === null) return null;
+  if (typeof c.score !== 'number' || !Number.isFinite(c.score)) return null;
+  const band = c.band === 'HIGH' || c.band === 'MEDIUM' || c.band === 'LOW' ? c.band : null;
+  if (band === null) return null;
+  return {
+    score: c.score,
+    band,
+    sampleCoverage: typeof c.sampleCoverage === 'number' && Number.isFinite(c.sampleCoverage) ? c.sampleCoverage : 0,
+    windowHours: typeof c.windowHours === 'number' && Number.isFinite(c.windowHours) ? c.windowHours : 0,
+    belowFloor: c.belowFloor === true,
+  };
+};
+
 const adaptContainer = (
   container: VerticalContainerWire,
   anomalies: string[],
@@ -149,6 +170,7 @@ const adaptContainer = (
   reasons: parseCodes(container.reasons),
   upstreamVpa: adaptUpstreamVpa(container, anomalies, where),
   podsDisagree: container.podsDisagree === true,
+  confidence: adaptConfidence(container),
 });
 
 const adaptProvenance = (workload: VerticalWorkloadWire): ProvenanceView | null => {
@@ -253,6 +275,24 @@ export const formatCoverage = (coverage: number | null): string =>
   coverage === null || coverage === undefined || !Number.isFinite(coverage)
     ? DASH
     : `${Math.round(coverage * 100)}%`;
+
+/** The band in plain words, for the confidence chip label. */
+export const confidenceBandWord = (band: ConfidenceView['band']): string =>
+  band === 'HIGH' ? 'High' : band === 'MEDIUM' ? 'Medium' : 'Low';
+
+/** The score to two decimals, e.g. `0.82`. */
+export const formatConfidenceScore = (score: number): string => score.toFixed(2);
+
+/**
+ * The chip's "why" sub-line, built off the same coverage the score used, so the chip and the score
+ * never disagree: e.g. `96% window coverage over 24h`.
+ */
+export const confidenceWhy = (confidence: ConfidenceView): string =>
+  `${formatCoverage(confidence.sampleCoverage)} window coverage over ${confidence.windowHours}h`;
+
+/** The full one-line label, e.g. `0.82 · High · 96% window coverage over 24h`. */
+export const confidenceLine = (confidence: ConfidenceView): string =>
+  `${formatConfidenceScore(confidence.score)} · ${confidenceBandWord(confidence.band)} · ${confidenceWhy(confidence)}`;
 
 export const formatCount = (value: number | null | undefined): string =>
   value === null || value === undefined || !Number.isFinite(value) ? DASH : String(value);

@@ -20,6 +20,8 @@ import {
   endpointOne,
   json,
   renderAt,
+  res,
+  wire,
 } from './fixtures';
 
 const mockedFetch = apiClient.fetch as unknown as ReturnType<typeof vi.fn>;
@@ -294,5 +296,36 @@ describe('Workload autoscaler › Workloads › one workload (UI v3 plan §2 "Wo
     expect(await screen.findByRole('table', { name: 'Workloads at a glance' })).toBeInTheDocument();
     expect(currentSearch().has('workload')).toBe(false);
     expect(gets()).toHaveLength(1);
+  });
+
+  it('renders the confidence chip for a recommended container, with its why sub-line (FEAT-001)', async () => {
+    const scored = wire('scored-api', 'team-a', {
+      containers: [{
+        name: 'api', qosClass: 'Burstable', current: res(1000, 1024, 1000, 1024), recommended: res(25, 256, 25, 256),
+        reasons: ['LIMIT_MOVED'], upstreamVpa: null,
+        confidence: { score: 0.82, band: 'HIGH', sampleCoverage: 0.96, windowHours: 24, belowFloor: false },
+      }],
+    });
+    mockedFetch.mockImplementation(async () => json(200, endpointOne([scored])));
+    detail('team-a/Deployment/scored-api');
+    await screen.findByText('Where it is now');
+
+    const confidence = document.querySelector<HTMLElement>('[data-confidence]')!;
+    expect(confidence).toHaveTextContent('0.82 · High');
+    expect(confidence).toHaveTextContent('96% window coverage over 24h');
+  });
+
+  it('shows no confidence block when nothing is recommended', async () => {
+    const noRec = wire('rightsized', 'team-a', {
+      containers: [{
+        name: 'api', qosClass: 'Burstable', current: res(100, 256), recommended: null,
+        reasons: ['WITHIN_HYSTERESIS'], upstreamVpa: null, confidence: null,
+      }],
+    });
+    mockedFetch.mockImplementation(async () => json(200, endpointOne([noRec])));
+    detail('team-a/Deployment/rightsized');
+    await screen.findByText('Where it is now');
+
+    expect(document.querySelector('[data-confidence]')).toBeNull();
   });
 });

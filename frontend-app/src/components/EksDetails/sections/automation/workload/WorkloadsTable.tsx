@@ -6,9 +6,10 @@
  * Filters (status, namespace, text) are client-side; the row name opens the workload's detail.
  */
 import { useId, useMemo, useState } from 'react';
-import { formatMib, formatMillis, DASH } from '../../../../../api/verticalRightsizerAdapter';
-import type { ApplyResult, WorkloadView } from '../../../../../types/verticalRightsizer';
+import { formatMib, formatMillis, confidenceLine, DASH } from '../../../../../api/verticalRightsizerAdapter';
+import type { ApplyResult, ConfidenceView, WorkloadView } from '../../../../../types/verticalRightsizer';
 import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
+import { ConfidenceChip } from '../../../../CloudK8s/shared/status/ConfidenceChip';
 import { StepIndicator } from '../../../../CloudK8s/shared/status/StepIndicator';
 import { Delta } from '../../../../CloudK8s/shared/status/Delta';
 import { MiniBar } from '../../../../CloudK8s/shared/charts/MiniBar';
@@ -58,6 +59,18 @@ function pairText(pair: RequestPair, format: (v: number) => string): string {
 
 const millis = (v: number) => formatMillis({ kind: 'value', value: v });
 const mib = (v: number) => formatMib({ kind: 'value', value: v });
+
+/**
+ * The confidence to show on the row: the primary recommended container's. "Primary" is the
+ * most-impactful recommended container, approximated by the largest current CPU request, so a
+ * sidecar's recommendation does not speak for the workload. Null when nothing is recommended.
+ */
+function primaryConfidence(workload: WorkloadView): ConfidenceView | null {
+  const scored = workload.containers.filter((c) => c.confidence !== null);
+  if (scored.length === 0) return null;
+  const cpuOf = (c: (typeof scored)[number]) => (c.current.cpuRequestM.kind === 'value' ? c.current.cpuRequestM.value : -1);
+  return scored.reduce((best, c) => (cpuOf(c) > cpuOf(best) ? c : best)).confidence;
+}
 
 const UNKNOWN_TITLE: Record<string, string> = {
   'replicas-unknown': "XamOps didn't get this workload's replica count, so the total isn't known.",
@@ -160,6 +173,7 @@ export function WorkloadsTable({ workloads, detailHref, applyingIds, applyResult
               <th scope="col" className="px-4 py-2 font-semibold" title="m = millicores. 1000m = 1 vCPU.">CPU request (now → suggested)</th>
               <th scope="col" className="px-4 py-2 font-semibold">Memory request (now → suggested)</th>
               <th scope="col" className="px-4 py-2 font-semibold">Freed or more</th>
+              <th scope="col" className="px-4 py-2 font-semibold" title="How much to trust the suggestion: window coverage and how steady CPU use was.">Confidence</th>
               <th scope="col" className="px-4 py-2 font-semibold">CPU request vs suggestion</th>
               <th scope="col" className="px-4 py-2 font-semibold">Stage</th>
               <th scope="col" className="px-4 py-2 font-semibold">
@@ -174,6 +188,7 @@ export function WorkloadsTable({ workloads, detailHref, applyingIds, applyResult
               const cpu = podRequests(w, 'cpu');
               const mem = podRequests(w, 'memory');
               const life = workloadLifecycle(w, { applying: applyingIds.has(w.id), reply: applyResults[w.id], replyAt: replyAt[w.id], now });
+              const confidence = primaryConfidence(w);
               const barMax = Math.max(cpu.now ?? 0, cpu.suggested ?? 0);
               return (
                 <tr key={w.id} data-workload-row={w.id} className="align-top">
@@ -189,6 +204,15 @@ export function WorkloadsTable({ workloads, detailHref, applyingIds, applyResult
                   <td className={`whitespace-nowrap px-4 py-2.5 tabular-nums ${INK}`}>{pairText(cpu, millis)}</td>
                   <td className={`whitespace-nowrap px-4 py-2.5 tabular-nums ${INK}`}>{pairText(mem, mib)}</td>
                   <td className="whitespace-nowrap px-4 py-2.5"><FreedCell workload={w} /></td>
+                  <td className="whitespace-nowrap px-4 py-2.5">
+                    {confidence ? (
+                      <span title={confidenceLine(confidence)}>
+                        <ConfidenceChip confidence={confidence} compact />
+                      </span>
+                    ) : (
+                      <span className={`text-[12px] ${FAINT}`}>{DASH}</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5">
                     <MiniBar
                       value={cpu.now}

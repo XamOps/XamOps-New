@@ -1,5 +1,7 @@
 package com.xammer.cloud.service.automation.workload.api;
 
+import com.xammer.cloud.service.automation.workload.ConfidenceProperties;
+import com.xammer.cloud.service.automation.workload.ConfidenceScore;
 import com.xammer.cloud.service.automation.workload.ContainerDecision;
 import com.xammer.cloud.service.automation.workload.HorizontalDecision;
 import com.xammer.cloud.service.automation.workload.Quantities;
@@ -39,6 +41,9 @@ import java.util.stream.Stream;
  */
 public final class VerticalDecisionMapper {
 
+    /** The safe defaults (floor 0.5, high 0.8), used by the overloads that predate confidence. */
+    private static final ConfidenceProperties DEFAULT_CONFIDENCE = new ConfidenceProperties(0.5, 0.8);
+
     private VerticalDecisionMapper() {
     }
 
@@ -50,7 +55,8 @@ public final class VerticalDecisionMapper {
     public static VerticalWorkloadDto toDto(WorkloadSnapshot snapshot, WorkloadPolicy policy,
                                             WorkloadDecision decision,
                                             WorkloadAutoscalingProperties gate) {
-        return toDto(snapshot, policy, decision, gate, UpstreamVpaReader.View.none(), null);
+        return toDto(snapshot, policy, decision, gate, UpstreamVpaReader.View.none(), null,
+                DEFAULT_CONFIDENCE);
     }
 
     /**
@@ -64,7 +70,7 @@ public final class VerticalDecisionMapper {
                                             WorkloadDecision decision,
                                             WorkloadAutoscalingProperties gate,
                                             UpstreamVpaReader.View upstream) {
-        return toDto(snapshot, policy, decision, gate, upstream, null);
+        return toDto(snapshot, policy, decision, gate, upstream, null, DEFAULT_CONFIDENCE);
     }
 
     /**
@@ -77,8 +83,23 @@ public final class VerticalDecisionMapper {
                                             WorkloadAutoscalingProperties gate,
                                             UpstreamVpaReader.View upstream,
                                             VerticalWorkloadDto.LastActionDto lastAction) {
+        return toDto(snapshot, policy, decision, gate, upstream, lastAction, DEFAULT_CONFIDENCE);
+    }
+
+    /**
+     * @param confidence the band edges for the confidence chip. The band and {@code belowFloor} are
+     *                   placed <strong>here</strong> — the only place the configurable cut points are
+     *                   read — so the pure engine never sees them. Never null.
+     */
+    public static VerticalWorkloadDto toDto(WorkloadSnapshot snapshot, WorkloadPolicy policy,
+                                            WorkloadDecision decision,
+                                            WorkloadAutoscalingProperties gate,
+                                            UpstreamVpaReader.View upstream,
+                                            VerticalWorkloadDto.LastActionDto lastAction,
+                                            ConfidenceProperties confidence) {
         Objects.requireNonNull(gate, "gate");
         Objects.requireNonNull(upstream, "upstream");
+        Objects.requireNonNull(confidence, "confidence");
         Map<String, UpstreamVpaReader.ContainerTarget> targets = upstream.forWorkload(snapshot.ref());
         return new VerticalWorkloadDto(
                 new VerticalWorkloadDto.WorkloadRefDto(
@@ -92,7 +113,7 @@ public final class VerticalDecisionMapper {
                 findings(decision, upstream),
                 decision.containers().stream()
                         .map(container -> container(container, targets.get(container.containerName()),
-                                podsDisagree(snapshot, container.containerName())))
+                                podsDisagree(snapshot, container.containerName()), confidence))
                         .toList(),
                 lastAction,                 // the newest recorded action, or null when none exists
                 decision.autoApplyEligible() && gate.isAutoApplyPermitted(),
@@ -155,7 +176,8 @@ public final class VerticalDecisionMapper {
 
     private static VerticalWorkloadDto.ContainerDto container(ContainerDecision decision,
                                                               UpstreamVpaReader.ContainerTarget vpa,
-                                                              boolean podsDisagree) {
+                                                              boolean podsDisagree,
+                                                              ConfidenceProperties confidence) {
         return new VerticalWorkloadDto.ContainerDto(
                 decision.containerName(),
                 decision.qosClass().wireName(),
@@ -163,7 +185,23 @@ public final class VerticalDecisionMapper {
                 resources(decision.recommended()),
                 decision.reasons().stream().map(Enum::name).toList(),
                 upstreamVpa(vpa),
-                podsDisagree);
+                podsDisagree,
+                confidence(decision.confidence(), confidence));
+    }
+
+    /**
+     * Places the presentational band and {@code belowFloor} from the configured cut points. Null
+     * when there is no confidence view (i.e. no recommendation) — the UI renders a dash, not a zero.
+     */
+    private static VerticalWorkloadDto.ConfidenceDto confidence(
+            ContainerDecision.ConfidenceView view, ConfidenceProperties props) {
+        if (view == null) {
+            return null;
+        }
+        String band = ConfidenceScore.band(view.score(), props.floor(), props.highThreshold()).name();
+        boolean belowFloor = view.score() < props.floor();
+        return new VerticalWorkloadDto.ConfidenceDto(view.score(), band, view.sampleCoverage(),
+                view.windowHours(), belowFloor);
     }
 
     private static boolean podsDisagree(WorkloadSnapshot snapshot, String containerName) {

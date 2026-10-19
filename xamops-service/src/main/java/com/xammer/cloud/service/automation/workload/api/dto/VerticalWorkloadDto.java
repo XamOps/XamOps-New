@@ -64,17 +64,40 @@ public record VerticalWorkloadDto(WorkloadRefDto ref,
      */
     public record ContainerDto(String name, String qosClass, ResourcesDto current,
                                ResourcesDto recommended, List<String> reasons,
-                               UpstreamVpaDto upstreamVpa, boolean podsDisagree) {
+                               UpstreamVpaDto upstreamVpa, boolean podsDisagree,
+                               ConfidenceDto confidence) {
 
         public ContainerDto {
             reasons = reasons == null ? List.of() : List.copyOf(reasons);
         }
 
-        /** A container whose live pods agree. */
+        /** A container whose live pods agree, before confidence was carried. */
         public ContainerDto(String name, String qosClass, ResourcesDto current, ResourcesDto recommended,
                             List<String> reasons, UpstreamVpaDto upstreamVpa) {
-            this(name, qosClass, current, recommended, reasons, upstreamVpa, false);
+            this(name, qosClass, current, recommended, reasons, upstreamVpa, false, null);
         }
+
+        /** The pre-confidence shape with an explicit podsDisagree flag. */
+        public ContainerDto(String name, String qosClass, ResourcesDto current, ResourcesDto recommended,
+                            List<String> reasons, UpstreamVpaDto upstreamVpa, boolean podsDisagree) {
+            this(name, qosClass, current, recommended, reasons, upstreamVpa, podsDisagree, null);
+        }
+    }
+
+    /**
+     * The confidence annotation on a recommended container, or {@code null} when there is no
+     * recommendation — the UI renders a dash, never a zero.
+     *
+     * @param score          the {@code [0,1]} measured score
+     * @param band           {@code HIGH}/{@code MEDIUM}/{@code LOW}, placed in the mapper from the
+     *                       configurable cut points
+     * @param sampleCoverage the coverage the score used, for the chip's "why" line
+     * @param windowHours    the window the measurement covered
+     * @param belowFloor     UI chip-tone only: {@code score < floor}. <strong>Never read by any gate
+     *                       or by {@code autoApplyEligible}.</strong>
+     */
+    public record ConfidenceDto(double score, String band, double sampleCoverage, int windowHours,
+                                boolean belowFloor) {
     }
 
     /**

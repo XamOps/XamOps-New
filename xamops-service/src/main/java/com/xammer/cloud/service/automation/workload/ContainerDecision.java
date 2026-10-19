@@ -33,13 +33,30 @@ import java.util.Set;
  * @param recommended   the complete decided envelope, or null when no change is recommended
  * @param reasons       why — including why nothing moved
  * @param changeKind    direction, measured against the current request
+ * @param confidence    the measured confidence facts, <strong>non-null exactly when
+ *                      {@code recommended != null}</strong> and null otherwise — a confidence score
+ *                      with no recommendation to qualify is meaningless. Carries measured facts only
+ *                      (score, the coverage used, the window); the presentational band and
+ *                      {@code belowFloor} are computed downstream in the mapper from the configurable
+ *                      cut points, so the pure engine never reads config.
  */
 public record ContainerDecision(String containerName,
                                 QosClass qosClass,
                                 ResourceEnvelope current,
                                 ResourceEnvelope recommended,
                                 List<ContainerReason> reasons,
-                                ChangeKind changeKind) {
+                                ChangeKind changeKind,
+                                ConfidenceView confidence) {
+
+    /**
+     * The measured confidence facts attached to a recommendation.
+     *
+     * @param score          the {@code [0,1]} score from {@link ConfidenceScore#of}
+     * @param sampleCoverage the aggregate's coverage the score used, carried for the UI "why" line
+     * @param windowHours    the policy window the measurement covered
+     */
+    public record ConfidenceView(double score, double sampleCoverage, int windowHours) {
+    }
 
     public ContainerDecision {
         if (containerName == null || containerName.isBlank()) {
@@ -65,6 +82,18 @@ public record ContainerDecision(String containerName,
                     "a container with no recommendation must say why; silence is what made the Go "
                             + "output unreviewable");
         }
+        if (recommended == null && confidence != null) {
+            throw new IllegalArgumentException(
+                    "a confidence score with no recommendation to qualify is meaningless: confidence "
+                            + "is attached exactly when there is a recommendation");
+        }
+    }
+
+    /** The shape every caller used before confidence: no confidence view attached. */
+    public ContainerDecision(String containerName, QosClass qosClass, ResourceEnvelope current,
+                             ResourceEnvelope recommended, List<ContainerReason> reasons,
+                             ChangeKind changeKind) {
+        this(containerName, qosClass, current, recommended, reasons, changeKind, null);
     }
 
     public boolean hasRecommendation() {

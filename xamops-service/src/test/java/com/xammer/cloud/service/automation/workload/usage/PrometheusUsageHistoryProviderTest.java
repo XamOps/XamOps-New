@@ -91,6 +91,29 @@ class PrometheusUsageHistoryProviderTest {
     }
 
     @Test
+    @DisplayName("CPU mean and stddev populate when measured, stay null on NaN, and don't move coverage")
+    void cpuMeanAndStddevPopulateOrStayNull() throws Exception {
+        Map<String, ContainerUsageAggregate> aggregates =
+                provider(healthy()).aggregates(access(), query());
+
+        ContainerUsageAggregate app = aggregates.get("app");
+        assertThat(app.cpuMeanMillis())
+                .as("Prometheus already evaluated the * 1000, so the body carries millicores")
+                .isEqualTo(100L);
+        assertThat(app.cpuStddevMillis()).isEqualTo(20L);
+
+        ContainerUsageAggregate sidecar = aggregates.get("logshipper");
+        assertThat(sidecar.cpuMeanMillis()).isEqualTo(5L);
+        assertThat(sidecar.cpuStddevMillis())
+                .as("Prometheus answered NaN for the stddev; it stays null, never a fabricated zero")
+                .isNull();
+
+        assertThat(app.sampleCoverage())
+                .as("the two added queries must not change the measured coverage")
+                .isEqualTo(1.0);
+    }
+
+    @Test
     @DisplayName("at() answers exactly the policy percentile; a neighbour throws")
     void onlyTheRequestedPercentileIsAnswerable() throws Exception {
         Map<String, ContainerUsageAggregate> aggregates =
@@ -138,7 +161,7 @@ class PrometheusUsageHistoryProviderTest {
 
         provider(transport).aggregates(access(), query());
 
-        assertThat(transport.queries).hasSize(7);
+        assertThat(transport.queries).hasSize(9);
         for (String promql : transport.queries) {
             assertThat(promql).contains("namespace=\"dev-sim\"");
             assertThat(promql).contains(
@@ -374,6 +397,8 @@ class PrometheusUsageHistoryProviderTest {
         transport.override("count_over_time", "sample-count.json");
         transport.override("min_over_time(timestamp", "first-sample.json");
         transport.override("max_over_time(timestamp", "last-sample.json");
+        transport.override("avg_over_time", "cpu-mean.json");
+        transport.override("stddev_over_time", "cpu-stddev.json");
         return transport;
     }
 

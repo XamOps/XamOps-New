@@ -24,6 +24,11 @@ import java.time.Instant;
  * @param windowEnd         exclusive end of the observed window
  * @param sampleCoverage    observed / expected samples, in [0,1]
  * @param sourceName        which provider produced this, reported as the recommendation's basis
+ * @param cpuMeanMillis     mean of the measured CPU rate, millicores; {@code null} when Prometheus
+ *                          returned no finite value (the confidence volatility half then degrades to
+ *                          neutral rather than reading a fabricated zero)
+ * @param cpuStddevMillis   population standard deviation of the measured CPU rate, millicores;
+ *                          {@code null} on the same honest-absence terms as {@code cpuMeanMillis}
  */
 public record ContainerUsageAggregate(String containerName,
                                       PercentileSet cpuMillis,
@@ -33,7 +38,9 @@ public record ContainerUsageAggregate(String containerName,
                                       Instant windowStart,
                                       Instant windowEnd,
                                       double sampleCoverage,
-                                      String sourceName) {
+                                      String sourceName,
+                                      Long cpuMeanMillis,
+                                      Long cpuStddevMillis) {
 
     public ContainerUsageAggregate {
         if (containerName == null || containerName.isBlank()) {
@@ -60,6 +67,24 @@ public record ContainerUsageAggregate(String containerName,
             throw new IllegalArgumentException(
                     "sourceName is mandatory: a recommendation must state where its numbers came from");
         }
+        if (cpuMeanMillis != null && cpuMeanMillis < 0) {
+            throw new IllegalArgumentException("cpuMeanMillis cannot be negative: " + cpuMeanMillis);
+        }
+        if (cpuStddevMillis != null && cpuStddevMillis < 0) {
+            throw new IllegalArgumentException("cpuStddevMillis cannot be negative: " + cpuStddevMillis);
+        }
+    }
+
+    /**
+     * The shape every caller used before the confidence score added the two CPU volatility scalars:
+     * both default to {@code null}, so existing fixtures compile and read as "no volatility data",
+     * which is the honest neutral case.
+     */
+    public ContainerUsageAggregate(String containerName, PercentileSet cpuMillis, PercentileSet memBytes,
+                                   double cpuThrottleRatio, int oomKillsInWindow, Instant windowStart,
+                                   Instant windowEnd, double sampleCoverage, String sourceName) {
+        this(containerName, cpuMillis, memBytes, cpuThrottleRatio, oomKillsInWindow, windowStart,
+                windowEnd, sampleCoverage, sourceName, null, null);
     }
 
     public Duration window() {

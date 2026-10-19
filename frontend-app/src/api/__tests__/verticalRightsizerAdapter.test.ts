@@ -180,6 +180,88 @@ describe('verticalRightsizerAdapter resources', () => {
   });
 });
 
+describe('verticalRightsizerAdapter confidence (FEAT-001)', () => {
+  it('carries the confidence block on a recommended container', () => {
+    const view = adaptEngineResponse({
+      engine,
+      gateReasons: [],
+      workloads: [
+        workload({
+          containers: [
+            {
+              name: 'api',
+              qosClass: 'Guaranteed',
+              current: { cpuRequestM: 1000, memRequestMi: 1024, cpuLimitM: 1000, memLimitMi: 1024 },
+              recommended: { cpuRequestM: 25, memRequestMi: 250, cpuLimitM: 25, memLimitMi: 250 },
+              reasons: ['FLOOR_CLAMPED'],
+              upstreamVpa: null,
+              confidence: { score: 0.82, band: 'HIGH', sampleCoverage: 0.96, windowHours: 24, belowFloor: false },
+            },
+          ],
+        }),
+      ],
+    });
+    expect(view.workloads[0].containers[0].confidence).toEqual({
+      score: 0.82,
+      band: 'HIGH',
+      sampleCoverage: 0.96,
+      windowHours: 24,
+      belowFloor: false,
+    });
+  });
+
+  it('is null when there is no recommendation, even if the wire carries a block', () => {
+    const view = adaptEngineResponse({
+      engine,
+      gateReasons: [],
+      workloads: [
+        workload({
+          containers: [
+            {
+              name: 'api',
+              qosClass: 'Guaranteed',
+              current: { cpuRequestM: 100, memRequestMi: 128, cpuLimitM: null, memLimitMi: null },
+              recommended: null,
+              reasons: ['WITHIN_HYSTERESIS'],
+              upstreamVpa: null,
+              confidence: { score: 0.9, band: 'HIGH', sampleCoverage: 1, windowHours: 24, belowFloor: false },
+            },
+          ],
+        }),
+      ],
+    });
+    expect(view.workloads[0].containers[0].confidence).toBeNull();
+  });
+
+  it('is null when the wire omits it (older build)', () => {
+    const view = adaptEngineResponse({ engine, gateReasons: [], workloads: [workload()] });
+    expect(view.workloads[0].containers[0].confidence).toBeNull();
+  });
+
+  it('drops an unrecognised band rather than guessing', () => {
+    const view = adaptEngineResponse({
+      engine,
+      gateReasons: [],
+      workloads: [
+        workload({
+          containers: [
+            {
+              name: 'api',
+              qosClass: 'Guaranteed',
+              current: { cpuRequestM: 1000, memRequestMi: 1024, cpuLimitM: 1000, memLimitMi: 1024 },
+              recommended: { cpuRequestM: 25, memRequestMi: 250, cpuLimitM: 25, memLimitMi: 250 },
+              reasons: ['FLOOR_CLAMPED'],
+              upstreamVpa: null,
+              confidence: { score: 0.5, band: 'MYSTERY', sampleCoverage: 0.6, windowHours: 24, belowFloor: false },
+            },
+          ],
+        }),
+      ],
+    });
+    expect(view.workloads[0].containers[0].confidence).toBeNull();
+  });
+});
+
 describe('toApplyContainer', () => {
   it('sends only the fields that actually move', () => {
     const view = adaptEngineResponse({ engine, gateReasons: [], workloads: [workload()] });

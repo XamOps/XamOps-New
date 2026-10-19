@@ -66,7 +66,8 @@
         },
         "reasons" : [ "FLOOR_CLAMPED", "LIMIT_MOVED" ],
         "upstreamVpa" : null,
-        "podsDisagree" : false
+        "podsDisagree" : false,
+        "confidence" : null
       } ],
       "lastAction" : null,
       "autoApplyEligible" : false,

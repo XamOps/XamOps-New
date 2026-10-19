@@ -1,7 +1,9 @@
 package com.xammer.cloud.service.automation.workload.api;
 
+import com.xammer.cloud.service.automation.workload.ConfidenceProperties;
 import com.xammer.cloud.service.automation.workload.ContainerSnapshot;
 import com.xammer.cloud.service.automation.workload.ContainerUsageFixtures;
+import com.xammer.cloud.service.automation.workload.usage.ContainerUsageAggregate;
 import com.xammer.cloud.service.automation.workload.HpaView;
 import com.xammer.cloud.service.automation.workload.NodeCapacity;
 import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
@@ -304,6 +306,113 @@ class VerticalDecisionMapperTest {
         assertThat(dto.lastAction()).isEqualTo(recorded);
         assertThat(dto.lastAction().outcome()).isEqualTo("APPLIED");
         assertThat(dto.lastAction().dryRun()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a recommended container carries a ConfidenceDto; its coverage equals the aggregate's")
+    void aRecommendationCarriesConfidence() {
+        WorkloadSnapshot snapshot = guaranteedOverprovisioned();   // coverage 1.0, no mean/stddev
+        WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded());
+
+        VerticalWorkloadDto.ContainerDto container =
+                VerticalDecisionMapper.toDto(snapshot, policy, decision, GATE).containers().get(0);
+
+        assertThat(container.recommended()).isNotNull();
+        assertThat(container.confidence()).isNotNull();
+        // coverage 1.0, mean/stddev null -> volatility 1.0 -> score 1.0
+        assertThat(container.confidence().score()).isEqualTo(1.0);
+        assertThat(container.confidence().sampleCoverage()).isEqualTo(1.0);
+        assertThat(container.confidence().windowHours()).isEqualTo(24);
+        assertThat(container.confidence().band()).isEqualTo("HIGH");
+        assertThat(container.confidence().belowFloor()).isFalse();
+    }
+
+    @Test
+    @DisplayName("no recommendation carries a null confidence")
+    void noRecommendationCarriesNullConfidence() {
+        WorkloadRef ref = WorkloadRef.of("prod-sim", "Deployment", "rightsized-worker");
+        WorkloadSnapshot snapshot = new WorkloadSnapshot(ref, 3, false, false, null, null, null, List.of(
+                new ContainerSnapshot("worker", new ResourceEnvelope(80, null, 64 * MI, null),
+                        ContainerUsageFixtures.usage("worker", 48, 41 * MI))));
+        WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded());
+
+        VerticalWorkloadDto.ContainerDto container =
+                VerticalDecisionMapper.toDto(snapshot, policy, decision, GATE).containers().get(0);
+
+        assertThat(container.recommended()).isNull();
+        assertThat(container.confidence())
+                .as("a confidence with no recommendation to qualify is meaningless")
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("the band and belowFloor are read from the injected cut points, not a baked literal")
+    void bandIsReadFromConfiguredCutPoints() {
+        // A moderately-noisy series so the score lands between plausible cut points.
+        WorkloadRef ref = WorkloadRef.of("team-a", "Deployment", "noisy-api");
+        WorkloadSnapshot snapshot = new WorkloadSnapshot(ref, 2, false, false, null, null, null, List.of(
+                new ContainerSnapshot("api", new ResourceEnvelope(1000, 1000, 1024 * MI, 1024 * MI),
+                        volatileUsage("api", 0.7, 600L, 300L))));   // coverage 0.7, CV 0.5 -> 0.6
+        WorkloadDecision decision = engine.decide(snapshot, policy, NodeCapacity.unbounded());
+
+        double score = decision.containers().get(0).confidence().score();
+        assertThat(score).isEqualTo(0.6);
+
+        // floor 0.5, high 0.8 -> 0.6 is MEDIUM, above floor
+        VerticalWorkloadDto.ContainerDto medium = VerticalDecisionMapper.toDto(snapshot, policy, decision,
+                GATE, com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader.View.none(),
+                null, new ConfidenceProperties(0.5, 0.8)).containers().get(0);
+        assertThat(medium.confidence().band()).isEqualTo("MEDIUM");
+        assertThat(medium.confidence().belowFloor()).isFalse();
+
+        // Raise the floor above the score: same score is now LOW and below the floor.
+        VerticalWorkloadDto.ContainerDto low = VerticalDecisionMapper.toDto(snapshot, policy, decision,
+                GATE, com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader.View.none(),
+                null, new ConfidenceProperties(0.65, 0.9)).containers().get(0);
+        assertThat(low.confidence().band()).isEqualTo("LOW");
+        assertThat(low.confidence().belowFloor()).isTrue();
+
+        // Lower the high cut below the score: same score is now HIGH.
+        VerticalWorkloadDto.ContainerDto high = VerticalDecisionMapper.toDto(snapshot, policy, decision,
+                GATE, com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader.View.none(),
+                null, new ConfidenceProperties(0.3, 0.55)).containers().get(0);
+        assertThat(high.confidence().band()).isEqualTo("HIGH");
+    }
+
+    @Test
+    @DisplayName("belowFloor never changes autoApplyEligible")
+    void belowFloorDoesNotGateAutoApply() {
+        WorkloadPolicy auto = WorkloadPolicyDefaults.policy(WorkloadMode.AUTO);
+        WorkloadRef ref = WorkloadRef.of("team-a", "Deployment", "noisy-api");
+        WorkloadSnapshot snapshot = new WorkloadSnapshot(ref, 2, false, false, null, null, null, List.of(
+                new ContainerSnapshot("api", new ResourceEnvelope(1000, 1000, 1024 * MI, 1024 * MI),
+                        volatileUsage("api", 0.7, 600L, 300L))));
+        WorkloadDecision decision = engine.decide(snapshot, auto, NodeCapacity.unbounded());
+
+        // A floor above the score makes belowFloor true, yet autoApplyEligible is unchanged: the
+        // wire value is engine AND gate, and neither reads belowFloor.
+        WorkloadAutoscalingProperties gateOn = new WorkloadAutoscalingProperties(true, true);
+        VerticalWorkloadDto belowFloorDto = VerticalDecisionMapper.toDto(snapshot, auto, decision, gateOn,
+                com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader.View.none(),
+                null, new ConfidenceProperties(0.9, 0.95));
+        VerticalWorkloadDto aboveFloorDto = VerticalDecisionMapper.toDto(snapshot, auto, decision, gateOn,
+                com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader.View.none(),
+                null, new ConfidenceProperties(0.1, 0.2));
+
+        assertThat(belowFloorDto.containers().get(0).confidence().belowFloor()).isTrue();
+        assertThat(aboveFloorDto.containers().get(0).confidence().belowFloor()).isFalse();
+        assertThat(belowFloorDto.autoApplyEligible())
+                .as("belowFloor must not move the auto-apply decision")
+                .isEqualTo(aboveFloorDto.autoApplyEligible());
+    }
+
+    private static ContainerUsageAggregate volatileUsage(String container, double coverage,
+                                                         long cpuMeanMillis, long cpuStddevMillis) {
+        return new ContainerUsageAggregate(container,
+                com.xammer.cloud.service.automation.workload.usage.PercentileSet.single(95, 600),
+                com.xammer.cloud.service.automation.workload.usage.PercentileSet.single(95, 419_430L),
+                0.0, 0, ContainerUsageFixtures.WINDOW_START, ContainerUsageFixtures.NOW,
+                coverage, "test", cpuMeanMillis, cpuStddevMillis);
     }
 
     private static WorkloadSnapshot guaranteedOverprovisioned() {

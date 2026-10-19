@@ -70,6 +70,36 @@ public final class PromQl {
     }
 
     /**
+     * The mean of the measured CPU rate per container, in <strong>millicores</strong>.
+     *
+     * <p>{@code avg_over_time} over the <strong>identical</strong> {@code rate(...[5m])} subquery
+     * {@link #cpuPercentileMillis} uses, so the mean describes the same distribution the percentile
+     * came from. Paired with {@link #cpuStddevMillis} it is the coefficient-of-variation input the
+     * confidence score's volatility half reads — never a differently-windowed rate.
+     */
+    public static String cpuMeanMillis(Selector selector, int windowHours, int offsetSeconds) {
+        return "max by (container) (avg_over_time(rate(container_cpu_usage_seconds_total{"
+                + selector.labels() + "}[" + CPU_RATE_WINDOW + "])"
+                + subquery(windowHours, offsetSeconds) + ")) * 1000";
+    }
+
+    /**
+     * The population standard deviation of the measured CPU rate per container, in
+     * <strong>millicores</strong>.
+     *
+     * <p>{@code stddev_over_time} over the <strong>identical</strong> {@code rate(...[5m])} subquery
+     * {@link #cpuPercentileMillis} uses. With {@link #cpuMeanMillis} this is the pair the confidence
+     * score divides into a coefficient of variation; an absent or {@code NaN} result is left unset
+     * (the provider drops non-finite values), so volatility degrades honestly rather than reading as
+     * zero.
+     */
+    public static String cpuStddevMillis(Selector selector, int windowHours, int offsetSeconds) {
+        return "max by (container) (stddev_over_time(rate(container_cpu_usage_seconds_total{"
+                + selector.labels() + "}[" + CPU_RATE_WINDOW + "])"
+                + subquery(windowHours, offsetSeconds) + ")) * 1000";
+    }
+
+    /**
      * The memory working-set <strong>maximum</strong> over the window, in bytes.
      *
      * <p>Max rather than a percentile, deliberately: a memory shortfall OOM-kills immediately and

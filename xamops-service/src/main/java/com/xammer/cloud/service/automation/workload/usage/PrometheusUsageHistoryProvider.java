@@ -108,11 +108,17 @@ public class PrometheusUsageHistoryProvider implements UsageHistoryProvider {
                 PromQl.firstSampleTimestamp(selector, window, offset));
         Map<String, Double> lastSeen = vectorByContainer(client,
                 PromQl.lastSampleTimestamp(selector, window, offset));
+        // The confidence volatility half: the mean and stddev of the SAME rate(...) subquery the
+        // percentile is taken over. A missing or NaN value stays absent, never coerced to zero.
+        Map<String, Double> cpuMean = vectorByContainer(client,
+                PromQl.cpuMeanMillis(selector, window, offset));
+        Map<String, Double> cpuStddev = vectorByContainer(client,
+                PromQl.cpuStddevMillis(selector, window, offset));
 
         Map<String, ContainerUsageAggregate> byContainer = new LinkedHashMap<>();
         for (String container : query.containerNames()) {
             byContainer.put(container, aggregate(container, query, cpu, memory, throttle, oom, samples,
-                    firstSeen, lastSeen));
+                    firstSeen, lastSeen, cpuMean, cpuStddev));
         }
         return byContainer;
     }
@@ -122,7 +128,8 @@ public class PrometheusUsageHistoryProvider implements UsageHistoryProvider {
                                               Map<String, Double> cpu, Map<String, Double> memory,
                                               Map<String, Double> throttle, Map<String, Double> oom,
                                               Map<String, Double> samples, Map<String, Double> firstSeen,
-                                              Map<String, Double> lastSeen)
+                                              Map<String, Double> lastSeen, Map<String, Double> cpuMean,
+                                              Map<String, Double> cpuStddev)
             throws UsageUnavailableException {
         Double cpuMillis = cpu.get(container);
         Double memBytes = memory.get(container);
@@ -173,7 +180,12 @@ public class PrometheusUsageHistoryProvider implements UsageHistoryProvider {
                 new PercentileSet(Map.of(query.percentile(), nonNegative(memBytes)), nonNegative(memBytes)),
                 ratio(throttle.get(container)),
                 kills(oom.get(container)),
-                windowStart, windowEnd, coverage, SOURCE_NAME);
+                windowStart, windowEnd, coverage, SOURCE_NAME,
+                // Mean/stddev are the confidence volatility inputs. Absent (NaN/no series) stays
+                // null -- vectorByContainer already dropped non-finite values -- so the score
+                // degrades to neutral volatility rather than inventing a zero.
+                millis(cpuMean.get(container)),
+                millis(cpuStddev.get(container)));
     }
 
     /**
@@ -260,6 +272,17 @@ public class PrometheusUsageHistoryProvider implements UsageHistoryProvider {
     }
 
     private static long nonNegative(double value) {
+        return Math.max(0L, Math.round(value));
+    }
+
+    /**
+     * A nullable millicore scalar: absent stays {@code null} (no volatility data), present is rounded
+     * and floored at zero. Never a fabricated zero for an absent series — that is why it is nullable.
+     */
+    private static Long millis(Double value) {
+        if (value == null) {
+            return null;
+        }
         return Math.max(0L, Math.round(value));
     }
 

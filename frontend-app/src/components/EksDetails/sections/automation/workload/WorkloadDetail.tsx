@@ -33,6 +33,7 @@ import type {
   VerticalResourcesWire,
   WorkloadView,
 } from '../../../../../types/verticalRightsizer';
+import { ConfidenceChip } from '../../../../CloudK8s/shared/status/ConfidenceChip';
 import { NowBanner } from '../../../../CloudK8s/shared/status/NowBanner';
 import { nowSentence, type WorkloadDetailInputs } from '../../../../CloudK8s/shared/status/nowSentence';
 import { StepIndicator } from '../../../../CloudK8s/shared/status/StepIndicator';
@@ -351,7 +352,27 @@ function SizesCard({ workload }: { workload: WorkloadView }) {
           <Bars mode="grouped" data={mem} bars={SIZE_BARS} xKey="container" height={200} ariaLabel={`Memory per container for ${workload.ref.name}`} />
         </div>
       </div>
+      <ConfidencePerContainer workload={workload} />
     </ChartCard>
+  );
+}
+
+/** One confidence chip per recommended container, with the "why" sub-line (FEAT-001). */
+function ConfidencePerContainer({ workload }: { workload: WorkloadView }) {
+  const scored = workload.containers.filter((c) => c.confidence !== null);
+  if (scored.length === 0) return null;
+  return (
+    <div className="mt-4 border-t pt-3" style={{ borderColor: 'rgba(0,0,0,0.06)' }} data-confidence="" data-k8s-kit="">
+      <p className={`mb-2 text-[11px] font-semibold ${MUTED}`}>How much to trust each suggestion</p>
+      <ul className="flex flex-col gap-2">
+        {scored.map((c) => (
+          <li key={c.name} className="flex flex-wrap items-center gap-2">
+            <span className={`text-[12px] ${INK}`}>{c.name}</span>
+            <ConfidenceChip confidence={c.confidence!} />
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

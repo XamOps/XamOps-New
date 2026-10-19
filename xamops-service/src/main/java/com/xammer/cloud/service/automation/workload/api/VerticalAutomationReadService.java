@@ -3,6 +3,7 @@ package com.xammer.cloud.service.automation.workload.api;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
 import com.xammer.cloud.domain.WorkloadVerticalAction;
 import com.xammer.cloud.repository.WorkloadVerticalActionRepository;
+import com.xammer.cloud.service.automation.workload.ConfidenceProperties;
 import com.xammer.cloud.service.automation.workload.ContainerSnapshot;
 import com.xammer.cloud.service.automation.workload.NodeCapacity;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingEngine;
@@ -96,6 +97,7 @@ public class VerticalAutomationReadService {
 
     private final WorkloadAutoscalingProperties properties;
     private final VerticalMetricsProperties metricsProperties;
+    private final ConfidenceProperties confidenceProperties;
     private final UsageHistoryProvider usageProvider;
     private final List<ClusterAccessProvider> accessProviders;
     private final ClusterWorkloadInventory inventory;
@@ -116,14 +118,16 @@ public class VerticalAutomationReadService {
     @Autowired
     public VerticalAutomationReadService(WorkloadAutoscalingProperties properties,
                                          VerticalMetricsProperties metricsProperties,
+                                         ConfidenceProperties confidenceProperties,
                                          UsageHistoryProvider usageProvider,
                                          List<ClusterAccessProvider> accessProviders,
                                          ClusterWorkloadInventory inventory,
                                          UpstreamVpaReader vpaReader,
                                          WorkloadPolicyService policyService,
                                          WorkloadVerticalActionRepository actionRepository) {
-        this(properties, metricsProperties, usageProvider, accessProviders, inventory, vpaReader,
-                policyService, actionRepository, Clock.systemUTC(), System::nanoTime);
+        this(properties, metricsProperties, confidenceProperties, usageProvider, accessProviders,
+                inventory, vpaReader, policyService, actionRepository, Clock.systemUTC(),
+                System::nanoTime);
     }
 
     /**
@@ -132,6 +136,7 @@ public class VerticalAutomationReadService {
      */
     VerticalAutomationReadService(WorkloadAutoscalingProperties properties,
                                   VerticalMetricsProperties metricsProperties,
+                                  ConfidenceProperties confidenceProperties,
                                   UsageHistoryProvider usageProvider,
                                   List<ClusterAccessProvider> accessProviders,
                                   ClusterWorkloadInventory inventory,
@@ -142,6 +147,7 @@ public class VerticalAutomationReadService {
                                   LongSupplier nanoClock) {
         this.properties = properties;
         this.metricsProperties = metricsProperties;
+        this.confidenceProperties = confidenceProperties;
         this.usageProvider = usageProvider;
         this.inventory = inventory;
         this.vpaReader = vpaReader;
@@ -325,7 +331,8 @@ public class VerticalAutomationReadService {
             }
             WorkloadDecision decision = engine.decide(snapshot, policy, capacity);
             workloads.add(VerticalDecisionMapper.toDto(snapshot, policy, decision, properties,
-                    upstreamVpa, lastActions.get(WorkloadPolicyService.key(workload.ref()))));
+                    upstreamVpa, lastActions.get(WorkloadPolicyService.key(workload.ref())),
+                    confidenceProperties));
         }
         return Evaluation.completed(at, workloads);
     }

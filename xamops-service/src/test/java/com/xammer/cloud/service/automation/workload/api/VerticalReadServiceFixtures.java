@@ -1,6 +1,7 @@
 package com.xammer.cloud.service.automation.workload.api;
 
 import com.xammer.cloud.repository.WorkloadVerticalActionRepository;
+import com.xammer.cloud.service.automation.workload.ConfidenceProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicy;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessProvider;
@@ -59,7 +60,8 @@ public final class VerticalReadServiceFixtures {
                                                         UpstreamVpaReader vpaReader,
                                                         WorkloadPolicyService policyService,
                                                         LongSupplier nanoClock) {
-        return new VerticalAutomationReadService(properties, metricsProperties, usageProvider,
+        return new VerticalAutomationReadService(properties, metricsProperties,
+                new ConfidenceProperties(0.5, 0.8), usageProvider,
                 accessProviders, inventory, vpaReader, policyService, noActions(),
                 Clock.fixed(CYCLE_AT, ZoneOffset.UTC), nanoClock);
     }
