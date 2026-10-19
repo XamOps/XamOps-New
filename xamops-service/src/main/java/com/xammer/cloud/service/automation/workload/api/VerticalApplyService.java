@@ -5,6 +5,7 @@ import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.service.automation.workload.ActionTrigger;
 import com.xammer.cloud.service.automation.workload.ApplyMethod;
 import com.xammer.cloud.service.automation.workload.HpaView;
+import com.xammer.cloud.service.automation.workload.NativeVpaMode;
 import com.xammer.cloud.service.automation.workload.QosRules;
 import com.xammer.cloud.service.automation.workload.Quantities;
 import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
@@ -27,6 +28,7 @@ import com.xammer.cloud.service.automation.workload.execute.ContainerApplyTarget
 import com.xammer.cloud.service.automation.workload.execute.DirectInPlaceResizeExecutor;
 import com.xammer.cloud.service.automation.workload.execute.ResizeProof;
 import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
+import com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader;
 import com.xammer.cloud.service.automation.workload.policy.WorkloadActionRecorder;
 import com.xammer.cloud.service.automation.workload.policy.WorkloadPolicyService;
 import com.xammer.cloud.service.automation.workload.usage.VerticalMetricsProperties;
@@ -115,6 +117,7 @@ public class VerticalApplyService {
     private final AutomationWritePermission writePermission;
     private final List<ClusterAccessProvider> accessProviders;
     private final ClusterWorkloadInventory inventory;
+    private final UpstreamVpaReader vpaReader;
     private final DirectInPlaceResizeExecutor executor;
     private final WorkloadPolicyService policyService;
     private final WorkloadActionRecorder actionRecorder;
@@ -131,11 +134,12 @@ public class VerticalApplyService {
                                AutomationWritePermission writePermission,
                                List<ClusterAccessProvider> accessProviders,
                                ClusterWorkloadInventory inventory,
+                               UpstreamVpaReader vpaReader,
                                DirectInPlaceResizeExecutor executor,
                                WorkloadPolicyService policyService,
                                WorkloadActionRecorder actionRecorder,
                                VerticalMetricsProperties metricsProperties) {
-        this(properties, writePermission, accessProviders, inventory, executor, policyService,
+        this(properties, writePermission, accessProviders, inventory, vpaReader, executor, policyService,
                 actionRecorder, metricsProperties, Clock.systemUTC());
     }
 
@@ -143,6 +147,7 @@ public class VerticalApplyService {
                          AutomationWritePermission writePermission,
                          List<ClusterAccessProvider> accessProviders,
                          ClusterWorkloadInventory inventory,
+                         UpstreamVpaReader vpaReader,
                          DirectInPlaceResizeExecutor executor,
                          WorkloadPolicyService policyService,
                          WorkloadActionRecorder actionRecorder,
@@ -151,6 +156,7 @@ public class VerticalApplyService {
         this.properties = properties;
         this.writePermission = writePermission;
         this.inventory = inventory;
+        this.vpaReader = vpaReader;
         this.executor = executor;
         this.policyService = policyService;
         this.actionRecorder = actionRecorder;
@@ -249,6 +255,10 @@ public class VerticalApplyService {
             throw invalid("name", "POLICY_OFF: rightsizing is off for " + workload.ref().describe()
                     + ", so XamOps does not change it. Nothing was sent to the cluster.");
         }
+        // VPA-guard-first (design D1.3b): before re-validation, which could otherwise surface a
+        // floor/QoS refusal instead of the more actionable VPA ownership. A mutating or unreadable
+        // native VPA is refused for dry runs and real applies alike, before the executor is reached.
+        requireNativeVpaClear(access, workload.ref());
         List<ContainerApplyTarget> targets = revalidate(submitted, workload, policy);
         // The engine's holds, dry runs included, so a dry run predicts the real apply.
         requireEngineHoldsClear(workload, policy, submitted);
@@ -575,6 +585,31 @@ public class VerticalApplyService {
                         + " memory request changes how many replicas it runs. Memory is left"
                         + " alone; CPU can still be applied.");
             }
+        }
+    }
+
+    /**
+     * The write-path VPA coexistence guard (design §D1.3b): XamOps must never write pod requests on
+     * a workload a mutating native VPA owns. Reuses the same {@link UpstreamVpaReader} and the same
+     * open {@link ClusterAccess} client the engine read surface uses — no second interpretation of
+     * {@code updateMode}, no new RBAC.
+     *
+     * <p>Fail closed: an unreadable VPA ({@code 403}/{@code 404}) refuses the apply with
+     * {@code VPA_NOT_READABLE}, a mutating VPA with {@code VPA_MANAGED}. {@code NONE}/{@code OFF}
+     * fall through. Refused with the existing {@code K8S_INVALID_POLICY} shape, the rule named at the
+     * head of the message, exactly like the engine's other holds. Runs for dry runs too, so a dry
+     * run returns the refusal instead of {@code ACCEPTED/DRY_RUN}.
+     */
+    private void requireNativeVpaClear(ClusterAccess access, WorkloadRef ref) {
+        NativeVpaMode mode = vpaReader.read(access.client()).modeFor(ref);
+        if (mode == NativeVpaMode.UNREADABLE) {
+            throw invalid("name", "VPA_NOT_READABLE: XamOps could not read whether a native VPA owns "
+                    + ref.describe() + ", so it will not change it. Nothing was sent to the cluster.");
+        }
+        if (mode.refusesVertical()) {
+            throw invalid("name", "VPA_MANAGED: a native VerticalPodAutoscaler in a mutating update"
+                    + " mode owns " + ref.describe() + ", so XamOps will not change its pod resources."
+                    + " Nothing was sent to the cluster.");
         }
     }
 

@@ -160,6 +160,9 @@ function toWorkload(wire: VerticalWorkloadWire): VerticalWorkload {
         }
       : null,
     provenance: wire.provenance ?? null,
+    horizontal: Array.isArray(wire.horizontal?.reasons)
+      ? { reasons: wire.horizontal.reasons.filter((r) => typeof r === 'string') }
+      : undefined,
     invalidValue: containers.some((c) => c.invalidValue),
     qosChange: containers.some((c) => c.qosChange),
     belowFloor: containers.some((c) => c.belowFloor),

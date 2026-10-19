@@ -8,10 +8,11 @@ const res = (cpu: number | null, mem: number | null): Resources => ({ cpuRequest
 const base = toVerticalEngineView(demoVerticalStatus('prod-eks-cluster')!).workloads.find((w) => w.ref.name === 'grafana')!;
 
 /** A workload with one container, built from the demo's grafana entry. */
-function workload(over: { skipReason?: unknown; current?: Resources; recommended?: Resources | null; reasons?: string[] }): VerticalWorkload {
+function workload(over: { skipReason?: unknown; current?: Resources; recommended?: Resources | null; reasons?: string[]; horizontal?: { reasons: string[] } }): VerticalWorkload {
   return {
     ...base,
     skipReason: (over.skipReason ?? null) as VerticalWorkload['skipReason'],
+    horizontal: over.horizontal,
     containers: [{
       ...base.containers[0],
       current: over.current ?? res(100, 256),
@@ -25,7 +26,7 @@ describe('workload buckets (glossary §2), first matching rule wins', () => {
   it.each([
     ['POLICY_OFF is Skipped, before anything else', workload({ skipReason: 'POLICY_OFF' }), true, 'Skipped'],
     ['a workload no node can fit is Not running', workload({ recommended: res(400, 256) }), true, 'Not running'],
-    ['a VPA that changes pods leaves it alone, even as a code this UI does not know yet', workload({ skipReason: { kind: 'unknown', raw: 'VPA_MANAGED' } }), false, 'Left alone'],
+    ['a mutating native VPA (engine shape: VPA_MANAGED on horizontal.reasons, skipReason null, no recommendation) leaves it alone', workload({ horizontal: { reasons: ['VPA_MANAGED'] } }), false, 'Left alone'],
     ['too little history is Not enough data', workload({ skipReason: 'INSUFFICIENT_HISTORY' }), false, 'Not enough data'],
     ['any other skip reason is Skipped', workload({ skipReason: 'LOCKED' }), false, 'Skipped'],
     ['suggestions only for unset requests leave it alone', workload({ current: res(null, null), recommended: res(60, 250), reasons: ['REQUESTS_UNSET'] }), false, 'Left alone'],

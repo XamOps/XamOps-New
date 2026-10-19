@@ -1093,6 +1093,98 @@ class WorkloadAutoscalingEngineTest {
         assertThat(decision.hpa().reasons()).contains(HpaReason.VPA_NOT_READABLE);
     }
 
+    @Test
+    @DisplayName("16d: a MUTATING snapshot carries VPA_MANAGED on the horizontal read surface, with no "
+            + "vertical recommendation and auto-apply off")
+    void aMutatingVpaSurfacesOnTheHorizontalReadSurface() {
+        // The read surface the UI consumes is WorkloadDecision.horizontal().reasons(), mapped from
+        // hpa.reasons(). It must carry VPA_MANAGED and the vertical half must be empty, even under an
+        // AUTO policy, which proves the freeze (not the mode) blocks auto-apply.
+        WorkloadPolicy auto = WorkloadPolicyDefaults.policy(WorkloadMode.AUTO);
+        WorkloadRef ref = WorkloadRef.of("prod-sim", "Deployment", "overprovisioned-api");
+        WorkloadSnapshot base = ReferenceWorkloads.overprovisionedApi();
+        WorkloadSnapshot mutating = new WorkloadSnapshot(ref, base.replicas(), false, false,
+                null, null, null, NativeVpaMode.MUTATING, base.containers());
+
+        WorkloadDecision decision = engine.decide(mutating, auto, NodeCapacity.unbounded());
+
+        assertThat(decision.skipReason())
+                .as("the refusal is not a gate-level skip; the decision stays NORMAL")
+                .isNull();
+        assertThat(decision.vertical().hasRecommendations())
+                .as("the vertical half is frozen, so there is nothing to apply")
+                .isFalse();
+        assertThat(decision.autoApplyEligible()).isFalse();
+        assertThat(decision.horizontal().reasons()).contains(HpaReason.VPA_MANAGED.name());
+        assertThat(decision.hpa().reasons()).contains(HpaReason.VPA_MANAGED);
+    }
+
+    @Test
+    @DisplayName("16e: an UNREADABLE snapshot surfaces VPA_NOT_READABLE on the horizontal read surface")
+    void anUnreadableVpaSurfacesOnTheHorizontalReadSurface() {
+        WorkloadRef ref = WorkloadRef.of("prod-sim", "Deployment", "overprovisioned-api");
+        WorkloadSnapshot base = ReferenceWorkloads.overprovisionedApi();
+        WorkloadSnapshot unreadable = new WorkloadSnapshot(ref, base.replicas(), false, false,
+                null, null, null, NativeVpaMode.UNREADABLE, base.containers());
+
+        WorkloadDecision decision = engine.decide(unreadable, recommend, NodeCapacity.unbounded());
+
+        assertThat(decision.vertical().hasRecommendations()).isFalse();
+        assertThat(decision.autoApplyEligible()).isFalse();
+        assertThat(decision.horizontal().reasons()).contains(HpaReason.VPA_NOT_READABLE.name());
+    }
+
+    @Test
+    @DisplayName("16f: OFF and NONE evaluate the vertical half normally and carry no VPA reason")
+    void offAndNoneEvaluateVerticalNormally() {
+        WorkloadRef ref = WorkloadRef.of("prod-sim", "Deployment", "overprovisioned-api");
+        WorkloadSnapshot base = ReferenceWorkloads.overprovisionedApi();
+
+        for (NativeVpaMode mode : List.of(NativeVpaMode.OFF, NativeVpaMode.NONE)) {
+            WorkloadSnapshot snapshot = new WorkloadSnapshot(ref, base.replicas(), false, false,
+                    null, null, null, mode, base.containers());
+
+            WorkloadDecision decision = engine.decide(snapshot, recommend, NodeCapacity.unbounded());
+
+            assertThat(decision.vertical().hasRecommendations())
+                    .as("%s does not freeze the vertical half", mode)
+                    .isTrue();
+            assertThat(decision.horizontal().reasons())
+                    .doesNotContain(HpaReason.VPA_MANAGED.name(), HpaReason.VPA_NOT_READABLE.name());
+        }
+    }
+
+    @Test
+    @DisplayName("16g: a MUTATING VPA still lets the HPA raise its max when demand is unmet (bound tune survives)")
+    void theHpaBoundTuneSurvivesTheVpaFreeze() {
+        // The key coexistence guard: a mutating VPA freezes the vertical half, but an HPA pinned at
+        // its ceiling with unmet demand STILL gets its max raised. The two controllers write
+        // different resources, so a mutating VPA does not stop a bound tune.
+        HpaView hpa = phpApacheStuckHpa();
+        WorkloadRef ref = WorkloadRef.of("team-b", "Deployment", "php-apache");
+        WorkloadSnapshot snapshot = new WorkloadSnapshot(ref, 5, false, false, hpa, null, null,
+                NativeVpaMode.MUTATING, List.of(
+                        ReferenceWorkloads.container("php-apache",
+                                ReferenceWorkloads.burstable(200, null, 64 * MI, null),
+                                ReferenceWorkloads.usage("php-apache", 320, 400 * MI))));
+
+        WorkloadDecision decision = engine.decide(snapshot, recommend, NodeCapacity.unbounded());
+
+        assertThat(decision.vertical().hasRecommendations())
+                .as("no pod request is written when a mutating VPA owns the workload")
+                .isFalse();
+        HpaDecision hpaDecision = decision.hpa();
+        assertThat(hpaDecision.reasons()).contains(HpaReason.VPA_MANAGED, HpaReason.AT_MAX_UNMET_DEMAND);
+        assertThat(hpaDecision.state()).isEqualTo(HpaDecision.State.CHANGE);
+        assertThat(hpaDecision.maxReplicas())
+                .as("ceil(5 × 64 ÷ 50) = 7, capped to +3 => 8")
+                .isEqualTo(8);
+        // The read surface the UI consumes carries both the freeze reason and the bound change.
+        assertThat(decision.horizontal().reasons()).contains(HpaReason.VPA_MANAGED.name());
+        assertThat(decision.horizontal().state()).isEqualTo(HorizontalDecision.State.CHANGE);
+        assertThat(decision.horizontal().maxReplicas()).isEqualTo(8);
+    }
+
     // ============================================================ remaining gates and invariants
 
     @Test

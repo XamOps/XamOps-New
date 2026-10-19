@@ -372,6 +372,21 @@ describe('policies and left alone', () => {
     expect(rules[1].sentence).toContain('single replica');
     expect(rules[3].sentence).toContain('xamops.io/lock: active');
   });
+
+  it('lists VPA_MANAGED from the horizontal reasons, with skipReason null and no recommendation', () => {
+    // The real engine shape for a mutating native VPA: the refusal rides on horizontal.reasons[],
+    // not skipReason, and every container is frozen (recommended null).
+    const vpa = wire('vpa-owned', {
+      skipReason: null,
+      horizontal: { state: 'CHANGE', minReplicas: null, maxReplicas: null, targetCpuUtilizationPct: null, reasons: ['VPA_MANAGED'] },
+      containers: [{ name: 'app', qosClass: 'Burstable', current: res(100, 256), recommended: null, reasons: [], upstreamVpa: null }],
+    });
+    const rules = leftAloneRules(view([vpa]).workloads);
+    const managed = rules.find((r) => r.id === 'VPA_MANAGED');
+    expect(managed).toBeDefined();
+    expect(managed!.label).toBe('Changed by a Kubernetes VPA');
+    expect(managed!.workloads.map((w) => w.ref.name)).toEqual(['vpa-owned']);
+  });
 });
 
 describe('feature cards', () => {

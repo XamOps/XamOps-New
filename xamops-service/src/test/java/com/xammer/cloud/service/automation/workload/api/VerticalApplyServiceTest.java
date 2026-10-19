@@ -22,7 +22,9 @@ import com.xammer.cloud.service.automation.workload.execute.ActionSubmission;
 import com.xammer.cloud.service.automation.workload.execute.ContainerApplyTarget;
 import com.xammer.cloud.service.automation.workload.execute.DirectInPlaceResizeExecutor;
 import com.xammer.cloud.service.automation.workload.execute.ResizeProof;
+import com.xammer.cloud.service.automation.workload.NativeVpaMode;
 import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
+import com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader;
 import com.xammer.cloud.service.automation.workload.inventory.WorkloadPods;
 import com.xammer.cloud.service.automation.workload.policy.WorkloadPolicyService;
 import com.xammer.cloud.service.automation.workload.usage.VerticalMetricsProperties;
@@ -75,6 +77,7 @@ class VerticalApplyServiceTest {
 
     private AutomationWritePermission writePermission;
     private ClusterWorkloadInventory inventory;
+    private UpstreamVpaReader vpaReader;
     private DirectInPlaceResizeExecutor executor;
     private WorkloadPolicyService policyService;
     private com.xammer.cloud.service.automation.workload.policy.WorkloadActionRecorder actionRecorder;
@@ -86,6 +89,9 @@ class VerticalApplyServiceTest {
         when(writePermission.decide(any(), any()))
                 .thenReturn(new AutomationWritePermission.Decision(true, null, null, null, null));
         inventory = mock(ClusterWorkloadInventory.class);
+        vpaReader = mock(UpstreamVpaReader.class);
+        // No native VPA by default, so the existing assertions are unaffected by the new guard.
+        when(vpaReader.read(any())).thenReturn(UpstreamVpaReader.View.none());
         executor = mock(DirectInPlaceResizeExecutor.class);
         policyService = mock(WorkloadPolicyService.class);
         actionRecorder = mock(com.xammer.cloud.service.automation.workload.policy.WorkloadActionRecorder.class);
@@ -693,6 +699,61 @@ class VerticalApplyServiceTest {
                 .result().terminal()).isEqualTo("APPLIED");
     }
 
+    // ---------------------------------------------------------------- the native VPA guard (D1)
+
+    @Test
+    @DisplayName("a mutating native VPA refuses the apply with VPA_MANAGED, dry run and real, and sends nothing")
+    void aMutatingVpaIsRefusedBeforeSubmit() {
+        givenNativeVpaMode(NativeVpaMode.MUTATING);
+
+        for (boolean dryRun : List.of(true, false)) {
+            VerticalApplyService.ApplyRefusedException refusal =
+                    refuse(principal(), readWriteAccount(), body(dryRun));
+            assertThat(refusal.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(refusal.code()).isEqualTo("K8S_INVALID_POLICY");
+            assertThat(refusal.field()).isEqualTo("name");
+            assertThat(refusal.getMessage()).startsWith("VPA_MANAGED:");
+        }
+        verify(executor, never()).submit(any(), any(), any());
+        verify(policyService, never()).recordApplied(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("an unreadable native VPA fails closed with VPA_NOT_READABLE, and sends nothing")
+    void anUnreadableVpaFailsClosed() {
+        givenNativeVpaMode(NativeVpaMode.UNREADABLE);
+
+        for (boolean dryRun : List.of(true, false)) {
+            VerticalApplyService.ApplyRefusedException refusal =
+                    refuse(principal(), readWriteAccount(), body(dryRun));
+            assertThat(refusal.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(refusal.code()).isEqualTo("K8S_INVALID_POLICY");
+            assertThat(refusal.field()).isEqualTo("name");
+            assertThat(refusal.getMessage()).startsWith("VPA_NOT_READABLE:");
+        }
+        verify(executor, never()).submit(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("an Off-mode native VPA does not block: it is shown, not fought, so the apply proceeds")
+    void anOffModeVpaDoesNotBlockTheApply() {
+        givenNativeVpaMode(NativeVpaMode.OFF);
+        givenExecutorApplies();
+
+        assertThat(service().apply(principal(), readWriteAccount(), TARGET, REF, body(false))
+                .result().terminal()).isEqualTo("APPLIED");
+    }
+
+    @Test
+    @DisplayName("no native VPA proceeds to the existing checks and applies")
+    void noNativeVpaProceeds() {
+        givenNativeVpaMode(NativeVpaMode.NONE);
+        givenExecutorApplies();
+
+        assertThat(service().apply(principal(), readWriteAccount(), TARGET, REF, body(false))
+                .result().terminal()).isEqualTo("APPLIED");
+    }
+
     @Test
     @DisplayName("once the cooldown has elapsed, the next apply goes through and is recorded")
     void anApplyAfterTheCooldownGoesThrough() {
@@ -962,7 +1023,7 @@ class VerticalApplyServiceTest {
         // An unready controller is refused.
         VerticalApplyService notReady = new VerticalApplyService(
                 new WorkloadAutoscalingProperties(true, false, true), writePermission, List.of(provider),
-                inventory, executor, policyService, actionRecorder, METRICS, FIXED);
+                inventory, vpaReader, executor, policyService, actionRecorder, METRICS, FIXED);
         assertThat(catchRefusal(() -> notReady.setMode(principal(), readWriteAccount(), TARGET, REF, "AUTO"))
                 .code()).isEqualTo("K8S_CONTROLLER_NOT_READY");
 
@@ -1089,7 +1150,7 @@ class VerticalApplyServiceTest {
 
     private VerticalApplyService service(WorkloadAutoscalingProperties properties) {
         return new VerticalApplyService(properties, writePermission, List.of(provider), inventory,
-                executor, policyService, actionRecorder, METRICS, FIXED);
+                vpaReader, executor, policyService, actionRecorder, METRICS, FIXED);
     }
 
     private static ApplyRequestDto body(boolean dryRun) {
@@ -1099,6 +1160,17 @@ class VerticalApplyServiceTest {
 
     private static ClusterWorkloadInventory.Workload workload() {
         return workload(GUARANTEED_1CPU_1GI);
+    }
+
+    private void givenNativeVpaMode(NativeVpaMode mode) {
+        UpstreamVpaReader.View view = switch (mode) {
+            case UNREADABLE -> UpstreamVpaReader.View.notReadable();
+            case NONE -> UpstreamVpaReader.View.none();
+            // A readable view that maps this workload's ref to the given mode.
+            case OFF, MUTATING -> new UpstreamVpaReader.View(Map.of(),
+                    Map.of(UpstreamVpaReader.key(REF), mode), true);
+        };
+        when(vpaReader.read(any())).thenReturn(view);
     }
 
     private void givenInventory(ClusterWorkloadInventory.Workload workload) {

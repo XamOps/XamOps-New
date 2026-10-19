@@ -963,6 +963,10 @@ export function leftAloneRules(workloads: readonly WorkloadView[]): LeftAloneRul
         add(raw, raw === 'VPA_MANAGED' ? LEFT_ALONE_LABEL.VPA_MANAGED : `Other: ${skip.raw}`, w);
       }
     }
+    // A mutating native VPA rides on the horizontal half's reasons (not skipReason), so a
+    // VPA-managed workload with no HPA would otherwise list no protection at all.
+    const hz = (w.horizontal?.reasons ?? []).map((r) => r.replace(/^K8S_/, ''));
+    if (hz.includes('VPA_MANAGED')) add('VPA_MANAGED', LEFT_ALONE_LABEL.VPA_MANAGED, w);
     const reasons = w.containers.flatMap((c) => c.reasons);
     if (hasCode(reasons, 'HPA_CPU_MANAGED') || hasCode(reasons, 'HPA_MEMORY_MANAGED')) add('HPA_MANAGED', LEFT_ALONE_LABEL.HPA_MANAGED, w);
     if (hasCode(reasons, 'REQUESTS_UNSET')) add('REQUESTS_UNSET', LEFT_ALONE_LABEL.REQUESTS_UNSET, w);

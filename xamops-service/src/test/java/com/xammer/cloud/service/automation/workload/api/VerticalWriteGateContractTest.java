@@ -128,7 +128,9 @@ class VerticalWriteGateContractTest {
                 userRepository, tabAccessRepository, () -> null);
         VerticalApplyService applyService = new VerticalApplyService(
                 new WorkloadAutoscalingProperties(true, true, true), permission, List.of(),
-                mock(ClusterWorkloadInventory.class), mock(DirectInPlaceResizeExecutor.class),
+                mock(ClusterWorkloadInventory.class),
+                mock(com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader.class),
+                mock(DirectInPlaceResizeExecutor.class),
                 mock(WorkloadPolicyService.class),
                 mock(com.xammer.cloud.service.automation.workload.policy.WorkloadActionRecorder.class),
                 VerticalReadServiceFixtures.metricsProperties("RECOMMEND", 72),

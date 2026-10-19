@@ -65,8 +65,8 @@ export interface VerticalWorkloadWire {
   /** False for every workload this run; not displayed. */
   autoApplyEligible: boolean;
   provenance?: VerticalProvenanceWire;
-  /** NOT_EVALUATED this run; not displayed. */
-  horizontal?: { state: string };
+  /** The horizontal half; `reasons` carries VPA_MANAGED / VPA_NOT_READABLE when a native VPA owns it. */
+  horizontal?: { state: string; reasons?: string[] };
 }
 
 /** Endpoint 1, `GET /api/eks/automation/vertical/{cluster}` (contract §2.1). */
@@ -195,6 +195,12 @@ export interface VerticalWorkload {
   containers: VerticalContainer[];
   lastAction: { at: string; dryRun: boolean; outcome: Known<ActionOutcome> } | null;
   provenance: VerticalProvenanceWire | null;
+  /**
+   * The horizontal half's reason codes (HpaReason names), e.g. `VPA_MANAGED` /
+   * `VPA_NOT_READABLE` when a native VPA owns the workload. The engine carries the VPA refusal here
+   * rather than on `skipReason`, so the vertical read surfaces must inspect it.
+   */
+  horizontal?: { reasons: string[] };
   /** Any container flagged. */
   invalidValue: boolean;
   qosChange: boolean;

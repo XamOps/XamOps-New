@@ -54,6 +54,11 @@ export function workloadBucket(workload: VerticalWorkload, notRunning = false): 
   const skip = workload.skipReason === null ? null : raw(workload.skipReason);
   if (skip === 'POLICY_OFF') return 'Skipped';
   if (notRunning) return 'Not running';
+  // A mutating native VPA owns the workload: the engine carries VPA_MANAGED on the horizontal half,
+  // not on skipReason, so read it here or a VPA-managed workload with no HPA mislabels as
+  // 'Right-sized'.
+  const hz = (workload.horizontal?.reasons ?? []).map(raw);
+  if (hz.includes('VPA_MANAGED')) return 'Left alone';
   if (skip === 'VPA_MANAGED') return 'Left alone';
   if (skip === 'INSUFFICIENT_HISTORY') return 'Not enough data';
   if (skip !== null) return 'Skipped';
