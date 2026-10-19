@@ -50,6 +50,25 @@ public class DataInitializer implements CommandLineRunner {
         // 3. Seed demo users (always, not gated on DB being empty)
         createDemoUserIfMissing("Xammer Admin", "demo.xamops@xammer.in", "password", "ROLE_XAMOPS", defaultClient);
         createDemoUserIfMissing("Xammer BillOps", "demo.billops@xammer.in", "password", "ROLE_BILLOPS_ADMIN", defaultClient);
+
+        // 4. Ensure exactly one shared read-only demo client exists (idempotent by the is_demo flag)
+        createDemoClientIfMissing();
+    }
+
+    private void createDemoClientIfMissing() {
+        if (clientRepository.findFirstByDemoTrue().isPresent()) {
+            return;
+        }
+        clientRepository.findByName("Demo Workspace").ifPresentOrElse(existing -> {
+            existing.setDemo(true);
+            clientRepository.save(existing);
+            logger.info("Marked existing 'Demo Workspace' client as demo.");
+        }, () -> {
+            Client demo = new Client("Demo Workspace");
+            demo.setDemo(true);
+            clientRepository.save(demo);
+            logger.info("Demo client created: Demo Workspace (is_demo=true).");
+        });
     }
 
     private void createSuperAdminIfMissing(Client client) {

@@ -69,6 +69,9 @@ public class Client {
             columnDefinition = "boolean default false")
     private boolean whatsappNotificationsEnabled = false;
 
+    @Column(name = "is_demo", nullable = false, columnDefinition = "boolean default false")
+    private boolean demo = false;
+
     // --- Trial lifecycle (mirrors xamops-service Client; same `client` table) ---
     @Column(name = "plan_type")
     private String planType; // PAID | TRIAL

@@ -26,6 +26,9 @@ public class Client {
     @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean starred = false;
 
+    @Column(name = "is_demo", nullable = false, columnDefinition = "boolean default false")
+    private boolean demo = false;
+
     /**
      * Whether this client may connect their own cloud accounts to XamSecure.
      *
