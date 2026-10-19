@@ -20,9 +20,14 @@ const TESTED = wire('overprovisioned-api', 'team-a', { ...OVERPROVISIONED, lastA
 const FAILED = wire('throttled-encoder', 'prod-sim', { ...THROTTLED, lastAction: { at: iso(5 * 60_000), dryRun: false, outcome: 'FAILED' } });
 const MODE = wire('solo', 'team-b', { ...SOLO, lastAction: { at: iso(2 * 24 * 3600_000), dryRun: false, outcome: 'POLICY_CHANGE' } });
 
+// The RCA sub-route the RootCausePanel reads (FEAT-002). Its honest empty body keeps the panel in
+// its empty state without adding causes to the assertions above.
+const RCA_EMPTY = { generatedAt: iso(0), windowHours: 24, analyzed: { actionRows: 0, workloads: 0 }, causes: [], dependencies: [{ kind: 'OOM_EVICTION', needs: 'Kubernetes Warning events persisted server-side' }] };
+
 function serve(body: unknown = endpointOne([TESTED, FAILED, IDLE, MODE]), status = 200) {
   mockedFetch.mockImplementation(async (url: string, init?: RequestInit) => {
     if (method(init) !== 'GET') throw new Error(`unexpected write ${method(init)} ${url}`);
+    if (url.includes('/rca')) return json(200, RCA_EMPTY);
     return json(status, body);
   });
 }
@@ -56,7 +61,9 @@ describe('Automation › Activity (UI v3 plan §2)', () => {
   it("reads endpoint 1 once and lists each workload's latest change, newest first, coloured by result", async () => {
     page();
     await screen.findByRole('table', { name: LATEST_CHANGE_CAPTION });
-    expect(mockedFetch).toHaveBeenCalledTimes(1);
+    // Endpoint 1 is read exactly once; the RootCausePanel reads the /rca sub-route once more.
+    const endpointOneCalls = mockedFetch.mock.calls.filter(([url]) => !String(url).includes('/rca'));
+    expect(endpointOneCalls).toHaveLength(1);
     expect(workloadNames().map((t) => t.split('Deployment')[0])).toEqual(['throttled-encoder', 'idle-batch-listener', 'overprovisioned-api', 'solo']);
     const rows = [...latestTable().querySelectorAll('tbody tr')];
     expect(rows.map((tr) => tr.querySelector('[data-tone]')?.getAttribute('data-tone'))).toEqual(['bad', 'good', 'info', 'info']);

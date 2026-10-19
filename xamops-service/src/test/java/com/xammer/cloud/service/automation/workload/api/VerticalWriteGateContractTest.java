@@ -148,7 +148,10 @@ class VerticalWriteGateContractTest {
         when(readService.read(any(), any())).thenReturn(engineView());
 
         VerticalAutomationController controller = new VerticalAutomationController(
-                accessService, configs, readService, applyService);
+                accessService, configs, readService, applyService,
+                mock(com.xammer.cloud.service.automation.workload.rca.RcaReadService.class),
+                new com.xammer.cloud.service.automation.workload.rca.RcaProperties(
+                        24, 10, 2, 3, 2, 2, 3));
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())

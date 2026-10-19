@@ -13,6 +13,8 @@ import com.xammer.cloud.service.auth.TrialService;
 import com.xammer.cloud.service.automation.workload.api.VerticalApplyService;
 import com.xammer.cloud.service.automation.workload.api.VerticalAutomationController;
 import com.xammer.cloud.service.automation.workload.api.VerticalAutomationReadService;
+import com.xammer.cloud.service.automation.workload.rca.RcaProperties;
+import com.xammer.cloud.service.automation.workload.rca.RcaReadService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -78,6 +80,10 @@ class VerticalAutomationUnauthenticatedTest {
     private VerticalAutomationReadService readService;
     @MockitoBean
     private VerticalApplyService applyService;
+    @MockitoBean
+    private RcaReadService rcaReadService;
+    @MockitoBean
+    private RcaProperties rcaProperties;
 
     @MockitoBean
     private UserRepository userRepository;
@@ -110,7 +116,8 @@ class VerticalAutomationUnauthenticatedTest {
 
         // A 401 from the entry point rather than from the controller: nothing downstream ran, so
         // no tenancy check was relied on to refuse this.
-        verifyNoInteractions(accessService, clusterConfigRepository, readService, applyService);
+        verifyNoInteractions(accessService, clusterConfigRepository, readService, applyService,
+                rcaReadService);
     }
 
     @Test
@@ -128,7 +135,10 @@ class VerticalAutomationUnauthenticatedTest {
         mvc.perform(post(BASE + "/xamops-test-cluster/workloads/team-a/Deployment/api/apply")
                         .contentType("application/json").content("{}"))
                 .andExpect(status().isUnauthorized());
-        verifyNoInteractions(applyService);
+        // The read-only RCA sub-route is covered by the same catch-all: 401 without a session.
+        mvc.perform(get(BASE + "/xamops-test-cluster/rca" + QUERY))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(applyService, rcaReadService);
     }
 
     @Test
@@ -140,6 +150,7 @@ class VerticalAutomationUnauthenticatedTest {
                         .header("Authorization", "Bearer not-a-real-token"))
                 .andExpect(status().isUnauthorized());
 
-        verifyNoInteractions(accessService, clusterConfigRepository, readService, applyService);
+        verifyNoInteractions(accessService, clusterConfigRepository, readService, applyService,
+                rcaReadService);
     }
 }

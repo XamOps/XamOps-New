@@ -64,6 +64,7 @@ class VerticalAutomationControllerTest {
     private CloudAccountAccessService accessService;
     private KubernetesClusterConfigRepository clusterConfigRepository;
     private VerticalApplyService applyService;
+    private com.xammer.cloud.service.automation.workload.rca.RcaReadService rcaReadService;
     private CloudAccount account;
 
     @BeforeEach
@@ -71,6 +72,7 @@ class VerticalAutomationControllerTest {
         accessService = mock(CloudAccountAccessService.class);
         clusterConfigRepository = mock(KubernetesClusterConfigRepository.class);
         applyService = mock(VerticalApplyService.class);
+        rcaReadService = mock(com.xammer.cloud.service.automation.workload.rca.RcaReadService.class);
 
         Client client = new Client();
         client.setId(7L);
@@ -227,6 +229,82 @@ class VerticalAutomationControllerTest {
         mvc(exploding).perform(get(BASE + "/xamops-test-cluster" + QUERY))
                 .andExpect(jsonPath("$.field").doesNotExist())
                 .andExpect(jsonPath("$.code").doesNotExist());
+    }
+
+    // ------------------------------------------------------------------ RCA sub-route (FEAT-002)
+
+    private static final String RCA = "/xamops-test-cluster/rca";
+
+    private com.xammer.cloud.service.automation.workload.api.dto.RcaResponseDto rcaBody(int windowHours) {
+        return new com.xammer.cloud.service.automation.workload.api.dto.RcaResponseDto(
+                java.time.Instant.parse("2026-10-18T00:00:00Z"), windowHours,
+                new com.xammer.cloud.service.automation.workload.api.dto.RcaResponseDto.AnalyzedDto(0, 0),
+                List.of(), List.of());
+    }
+
+    @Test
+    @DisplayName("rca without windowHours reads with the configured default window")
+    void rcaDefaultsTheWindowFromConfig() throws Exception {
+        givenClusterConfigByPrimaryKey();
+        when(rcaReadService.read(any(), eq(24))).thenReturn(rcaBody(24));
+
+        mvc().perform(get(BASE + RCA + QUERY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.windowHours").value(24))
+                .andExpect(jsonPath("$.causes").isEmpty())
+                .andExpect(jsonPath("$.analyzed.actionRows").value(0));
+    }
+
+    @Test
+    @DisplayName("windowHours=9999 is clamped to 168; windowHours=0 is clamped to 1")
+    void rcaClampsTheWindowToASaneRange() throws Exception {
+        givenClusterConfigByPrimaryKey();
+        when(rcaReadService.read(any(), eq(168))).thenReturn(rcaBody(168));
+        when(rcaReadService.read(any(), eq(1))).thenReturn(rcaBody(1));
+
+        mvc().perform(get(BASE + RCA + QUERY + "&windowHours=9999"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.windowHours").value(168));
+
+        mvc().perform(get(BASE + RCA + QUERY + "&windowHours=0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.windowHours").value(1));
+    }
+
+    @Test
+    @DisplayName("a non-numeric windowHours is 400 via the reused shape path, not a 500")
+    void rcaRejectsAMalformedWindowHoursAsA400() throws Exception {
+        givenClusterConfigByPrimaryKey();
+
+        mvc().perform(get(BASE + RCA + QUERY + "&windowHours=abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("K8S_INVALID_REQUEST"))
+                .andExpect(jsonPath("$.field").value("windowHours"));
+
+        verifyNoInteractions(rcaReadService);
+    }
+
+    @Test
+    @DisplayName("rca on an unregistered cluster is 404 K8S_CLUSTER_NOT_REGISTERED")
+    void rcaOnAnUnregisteredClusterIsNotFound() throws Exception {
+        when(clusterConfigRepository.findByCloudAccountIdAndClusterName(any(), any()))
+                .thenReturn(Optional.empty());
+
+        mvc().perform(get(BASE + RCA + QUERY))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("K8S_CLUSTER_NOT_REGISTERED"));
+
+        verifyNoInteractions(rcaReadService);
+    }
+
+    @Test
+    @DisplayName("another tenant cannot read rca, and no cluster lookup or analysis happens")
+    void rcaIsTenantScoped() throws Exception {
+        mvc().perform(get(BASE + "/xamops-test-cluster/rca?accountId=" + FOREIGN_ID
+                        + "&region=ap-south-1"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(clusterConfigRepository, rcaReadService);
     }
 
     // ------------------------------------------------------------------ endpoint 3, apply
@@ -478,7 +556,9 @@ class VerticalAutomationControllerTest {
 
     private MockMvc mvc(VerticalAutomationReadService readService) {
         VerticalAutomationController controller = new VerticalAutomationController(
-                accessService, clusterConfigRepository, readService, applyService);
+                accessService, clusterConfigRepository, readService, applyService, rcaReadService,
+                new com.xammer.cloud.service.automation.workload.rca.RcaProperties(
+                        24, 10, 2, 3, 2, 2, 3));
         return MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())

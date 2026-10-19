@@ -10,8 +10,11 @@ import com.xammer.cloud.service.automation.workload.access.ClusterAccessExceptio
 import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
 import com.xammer.cloud.service.automation.workload.api.dto.ApplyRequestDto;
 import com.xammer.cloud.service.automation.workload.api.dto.ApplyResponseDto;
+import com.xammer.cloud.service.automation.workload.api.dto.RcaResponseDto;
 import com.xammer.cloud.service.automation.workload.api.dto.RefusalDto;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalEngineResponse;
+import com.xammer.cloud.service.automation.workload.rca.RcaProperties;
+import com.xammer.cloud.service.automation.workload.rca.RcaReadService;
 import com.xammer.cloud.service.automation.workload.usage.UsageUnavailableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -77,20 +80,33 @@ public class VerticalAutomationController {
     /** RFC 1123 label-ish, which is what a namespace and a workload name both are. */
     private static final Pattern K8S_NAME = Pattern.compile("^[a-z0-9]([a-z0-9.\\-]{0,251}[a-z0-9])?$");
     private static final Pattern K8S_KIND = Pattern.compile("^[A-Za-z]{1,32}$");
+    /**
+     * {@code windowHours} shape: one to four digits. Bound as a String and shaped here so a
+     * non-numeric value becomes a 400 through the reused {@link ParameterShapeException} path rather
+     * than a 500 from an unhandled type-mismatch. The four-digit cap keeps the parse below overflow
+     * before the {@code [1,168]} clamp.
+     */
+    private static final Pattern WINDOW_HOURS_PATTERN = Pattern.compile("^[0-9]{1,4}$");
 
     private final CloudAccountAccessService accessService;
     private final KubernetesClusterConfigRepository clusterConfigRepository;
     private final VerticalAutomationReadService readService;
     private final VerticalApplyService applyService;
+    private final RcaReadService rcaReadService;
+    private final RcaProperties rcaProperties;
 
     public VerticalAutomationController(CloudAccountAccessService accessService,
                                         KubernetesClusterConfigRepository clusterConfigRepository,
                                         VerticalAutomationReadService readService,
-                                        VerticalApplyService applyService) {
+                                        VerticalApplyService applyService,
+                                        RcaReadService rcaReadService,
+                                        RcaProperties rcaProperties) {
         this.accessService = accessService;
         this.clusterConfigRepository = clusterConfigRepository;
         this.readService = readService;
         this.applyService = applyService;
+        this.rcaReadService = rcaReadService;
+        this.rcaProperties = rcaProperties;
     }
 
     /**
@@ -124,6 +140,51 @@ public class VerticalAutomationController {
         VerticalApplyService.WriteGates writeGates = applyService.callerWriteGates(principal, account);
         return readService.read(target, config)
                 .withWriteGates(writeGates.codes(), writeGates.details());
+    }
+
+    /**
+     * Root-cause analysis over this cluster's durable apply/refuse/expire history (FEAT-002).
+     *
+     * <p><strong>Read-only.</strong> It makes no AWS or cluster call at all — a pure DB read of the
+     * tenant-scoped {@code vertical_workload_action} rows plus a pure analyzer — so it works even
+     * with the master switch off. It reuses the same {@link #requireShape}, {@code requireAwsAccess}
+     * and {@link #requireClusterConfig} the read endpoint uses, so the same 400/401/403/404 mappings
+     * and the same {@code authenticated()} coverage apply, with no {@code SecurityConfig} edit.
+     *
+     * <p>{@code windowHours} is optional and bound as a String: when present it is shaped by
+     * {@link #WINDOW_HOURS_PATTERN} (a non-numeric or over-long value is a 400 through the reused
+     * {@link ParameterShapeException} path, never a 500), then parsed and <strong>clamped</strong> to
+     * {@code max(1, min(168, parsed))} — a syntactically valid out-of-range value is clamped, not
+     * rejected. Absent uses the configured default.
+     */
+    @GetMapping("/{cluster}/rca")
+    public RcaResponseDto rca(@AuthenticationPrincipal ClientUserDetails principal,
+                              @PathVariable("cluster") String cluster,
+                              @RequestParam("accountId") String accountId,
+                              @RequestParam("region") String region,
+                              @RequestParam(value = "windowHours", required = false) String windowHours) {
+        requireShape(cluster, CLUSTER_NAME, "cluster");
+        requireShape(accountId, AWS_ACCOUNT_ID, "accountId");
+        requireShape(region, REGION, "region");
+
+        int window;
+        if (windowHours == null) {
+            window = rcaProperties.windowHours();
+        } else {
+            requireShape(windowHours, WINDOW_HOURS_PATTERN, "windowHours");
+            int parsed = Integer.parseInt(windowHours.trim());
+            window = Math.max(1, Math.min(168, parsed));
+        }
+
+        // Throws AccessDeniedException -> 403 if the caller is not entitled to this AWS account.
+        CloudAccount account = accessService.requireAwsAccess(principal, accountId);
+        KubernetesClusterConfig config = requireClusterConfig(account, cluster);
+
+        ClusterTarget target = new ClusterTarget(
+                account.getClient() == null ? null : account.getClient().getId(),
+                config.getId(), account.getAwsAccountId(), cluster, region);
+
+        return rcaReadService.read(target, window);
     }
 
     /**

@@ -34,6 +34,7 @@ import {
 } from '../automationDerivations';
 import { CARD, FAINT, FOCUS, INK, MUTED, Notice, ReadFailureCard } from '../automationUi';
 import { LatestChangeTable } from './LatestChangeTable';
+import { RootCausePanel } from './RootCausePanel';
 
 export interface ActivityPageProps {
   clusterName: string;
@@ -223,6 +224,7 @@ export function ActivityPage({ clusterName, accountId, region, eksData }: Activi
       {view && (
         <>
           <ActivityKpiRow rows={rows} />
+          <RootCausePanel clusterName={clusterName} accountId={accountId} region={region} />
           <section className={`${CARD} px-4 py-3`} aria-labelledby={tableTitle} data-activity-latest="">
             <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
               <div>
