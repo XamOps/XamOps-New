@@ -1,0 +1,32 @@
+{
+  "project_type": "Spring Boot 4 multi-module Maven monorepo (xamops-platform); the module changed here is xamops-service, a cloud cost/security backend integrating AWS SDK v2, Azure ARM REST, and GCP gapic clients.",
+  "language": "Java 25",
+  "build_system": "Apache Maven 3.9.12 reactor, parent spring-boot-starter-parent 4.0.8. No mvnw wrapper — use system mvn. Lombok is wired as an annotationProcessorPath in the parent pom (JDK 25 disables implicit annotation processing), and -parameters is set. Modules: service-registry, permissions-common, xamops-service, billops, media-ops-service, api-gateway.",
+  "test_framework": "JUnit 5 (Jupiter) + Mockito + AssertJ. Unit tests live under xamops-service/src/test/java. Example to mirror: com.xammer.cloud.service.AwsClientProviderWriteClientTest (mocks StsClient + AwsPermissionInterceptor, asserts client caching with isSameAs).",
+  "build_command": "mvn -q -pl xamops-service -am compile",
+  "test_command": "mvn -q -pl xamops-service -am test (targeted: add -Dtest=ClassName, e.g. -Dtest='Azure*')",
+  "verification_instructions": "Run all mvn commands with cwd = the worktree root /Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/thread-leak-fix (or pass -f <worktree>/pom.xml). Relative paths resolve against the PARENT workspace, so always use the worktree absolute path. Per FEAT: compile the module, then run the relevant unit tests (Azure* for the Azure feature, the new caching tests for AWS/GCP). Final integration: full module compile + full module test, no new failures.",
+  "snapshot_or_generated_files": null,
+  "environment_constraints": "ALL work happens in the git worktree /Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/thread-leak-fix on branch thread-leak-fix (NOT the main checkout /Users/admin/Desktop/xam-latest/XamOps-New). Never push; commit locally only. Do not touch the unrelated .worktrees/mediaops-load-hardening worktree. Artifacts live under /Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/thread-leak-fix (outside the worktree, never committed).",
+  "contribution_requirements": "CONTRIBUTING.md only concerns not committing machine-specific absolute Java paths into .vscode/settings.json — not relevant to these source changes. No other contribution gates. README is a placeholder. No .kiro/steering files exist.",
+  "key_patterns": "AwsClientProvider: private final Map<String,Object> clientCache = new ConcurrentHashMap<>(); generic getClient(Class,builder,account,region) keys on awsAccountId+':'+ClassSimpleName+':'+region and applies getClientOverrideConfig (permission interceptor); HOST clients use key 'HOST:'+ClassSimpleName+':'+region with DefaultCredentialsProvider and NO interceptor (see getHostAthenaClient/getHostS3Client); getRoleCredentialsProvider cached on 'ROLE_CREDS:'+arn+':'+extId; auto-refresh creds via StsAssumeRoleCredentialsProvider.builder().stsClient(stsClient).refreshRequest(...).  AzureArmClient (@Service) is the shared pooled HttpClient: methods get(uri,token)->Optional<String>, post(uri,token,body), getQuietly(uri,token)->Optional (empties on failure), list(url,token)->List<JsonNode> (follows nextLink), getToken(subscriptionId); throws AzureArmClient.AzureArmException on 401/403 (message contains 'HTTP 401'/'HTTP 403'/'denied access'), returns empty on 404/other non-2xx. AzureRightsizingService is the reference migration. GCP GcpClientProvider: each getXxxClient(projectId)->Optional<XxxClient> via XxxClient.create(settings); getCredentials is @Cacheable but clients are not. Mirror AWS cache with ConcurrentHashMap keyed clientType+':'+projectId via computeIfAbsent; preserve Optional contract and per-method IOException logging; never cache a null create result.",
+  "relevant_files": [
+    "xamops-service/src/main/java/com/xammer/cloud/service/AwsClientProvider.java",
+    "xamops-service/src/test/java/com/xammer/cloud/service/AwsClientProviderWriteClientTest.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/azure/AzureArmClient.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/azure/AzureRightsizingService.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/azure/AzurePerformanceService.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/azure/AzureAlertsService.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/azure/AzureSecurityService.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/azure/AzureReservationService.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/azure/AzureDbOpsService.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/gcp/GcpClientProvider.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/gcp/GcpBudgetService.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/gcp/GcpDataService.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/gcp/GcpOptimizationService.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/gcp/GcpCostInsightsService.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/gcp/CspBillingQueryService.java",
+    "xamops-service/src/main/java/com/xammer/cloud/service/war/GcpWarService.java"
+  ],
+  "directory_structure": "xamops-service/src/main/java/com/xammer/cloud/service/ holds AwsClientProvider.java; its azure/ subpackage holds AzureArmClient + the Azure services; its gcp/ subpackage holds GcpClientProvider + GCP services; war/ and war/gcp/ hold Well-Architected checks that call the GCP provider indirectly. Tests mirror under src/test/java/com/xammer/cloud/service/{azure,gcp,...}. The per-call HttpClient.newHttpClient() sites are: AzurePerformanceService ~130, AzureSecurityService ~160, AzureAlertsService ~107, AzureReservationService ~141, AzureDbOpsService ~1266. AzureArmClient and AzureRetailPricingService already use a single cached client (correct — leave them)."
+}

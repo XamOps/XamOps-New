@@ -1,0 +1,7 @@
+{
+  "task_id": "thread-leak-fix",
+  "task_description": "Fix a confirmed production SDK/HTTP client thread leak in xamops-service. Clients that start background threads (AWS SDK v2 sdk-ScheduledExecutor, java.net.http.HttpClient selector/worker threads, GCP gapic gRPC channels) are rebuilt per API call and never closed, growing threads unbounded (374-408 vs healthy ~65-90) until the service hangs with nginx 504/502. Fix client lifecycle only: build once and reuse (cache), or close after use. Do NOT change call behavior, credentials, regions, timeouts, or the permission-tracking interceptor.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}

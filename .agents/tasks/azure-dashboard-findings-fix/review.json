@@ -1,0 +1,16 @@
+{
+  "verdict": "APPROVED",
+  "findings": [
+    {
+      "severity": "non-blocking",
+      "label": "Alerts card total counts SECURITY items that render no detail",
+      "detail": "computeAlertSummary sets total: raw.length, so merged Defender SECURITY items raise the alert total even though the anomaly TopList only plots ANOMALY rows with usage > 0. Consistent with the AWS/GCP shared route behavior and not a regression; noted so the headline number is understood as alerts+findings, not anomalies alone."
+    },
+    {
+      "severity": "non-blocking",
+      "label": "AzureDashboardFindingsServiceTest uses reflection on private builders",
+      "detail": "The payload-discipline test invokes getAndSetOptimizationSummary / getAndSetSecurityPosture reflectively, so a future rename of those private methods breaks the test at runtime rather than compile time. Maintenance note, not a defect; the assertions pin the correct absence-vs-false-zero behavior."
+    }
+  ],
+  "reviewDoc": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/azure-dashboard-findings-fix/review.md"
+}

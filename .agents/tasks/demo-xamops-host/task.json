@@ -1,0 +1,7 @@
+{
+  "task_id": "task-demo-xamops-host",
+  "task_description": "Host-driven demo at demo.xamops.com: on the demo host, any Google/Microsoft OAuth sign-in is auto-provisioned onto a single shared read-only 'Demo Workspace' client (client.is_demo=true) with role ROLE_XAMOPS, dropped into the existing ROLE_XAMOPS mock-data demo while the header shows the user's own email; each sign-in is recorded via the existing SessionService->UserActivityService LOGIN path; a new BillOps-admin 'Demo Users' screen reads those rows back. live.xamops.com stays byte-for-byte unchanged. All work is in the worktree /Users/admin/Desktop/xam-latest/XamOps-New/.worktrees/demo-xamops-host on branch feature/demo-xamops-host.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004", "FEAT-005"],
+  "blocked_reason": null
+}

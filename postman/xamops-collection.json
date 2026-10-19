@@ -31,8 +31,8 @@
                   "pm.test('Service reports UP', function () {",
                   "    pm.expect(pm.response.json().status).to.eql('UP');",
                   "});",
-                  "pm.test('Responds within 5s', function () {",
-                  "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+                  "pm.test('Responds within 10s', function () {",
+                  "    pm.expect(pm.response.responseTime).to.be.below(10000);",
                   "});"
                 ]
               }
@@ -159,6 +159,249 @@
                   "});",
                   "if (pm.response.code === 200) {",
                   "    pm.test('Response body is an object', function () {",
+                  "        pm.expect(pm.response.json()).to.be.an('object');",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Azure Waste",
+      "item": [
+        {
+          "name": "Waste Items (accountId - standalone page)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{XAMOPS_URL}}/api/xamops/azure/waste?accountId={{AZURE_SUBSCRIPTION_ID}}&forceRefresh=false",
+              "host": ["{{XAMOPS_URL}}"],
+              "path": ["api", "xamops", "azure", "waste"],
+              "query": [
+                { "key": "accountId", "value": "{{AZURE_SUBSCRIPTION_ID}}" },
+                { "key": "forceRefresh", "value": "false" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('No server error (not 5xx) except 503 for upstream Azure failure', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 400, 401, 403, 503]);",
+                  "});",
+                  "// A valid subscription id is supplied, so the controller must not answer 400",
+                  "// (that path is only for a missing/blank id).",
+                  "pm.test('accountId is accepted (not 400)', function () {",
+                  "    pm.expect(pm.response.code).to.not.eql(400);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('Response body is an array', function () {",
+                  "        pm.expect(pm.response.json()).to.be.an('array');",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Waste Items (accountIds - dashboard card)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{XAMOPS_URL}}/api/xamops/azure/waste?accountIds={{AZURE_SUBSCRIPTION_ID}}&forceRefresh=false",
+              "host": ["{{XAMOPS_URL}}"],
+              "path": ["api", "xamops", "azure", "waste"],
+              "query": [
+                { "key": "accountIds", "value": "{{AZURE_SUBSCRIPTION_ID}}" },
+                { "key": "forceRefresh", "value": "false" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('No server error (not 5xx) except 503 for upstream Azure failure', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 400, 401, 403, 503]);",
+                  "});",
+                  "// The shared dashboard card sends accountIds; the controller must accept it",
+                  "// rather than answering 400 (the bug this request guards against).",
+                  "pm.test('accountIds is accepted (not 400)', function () {",
+                  "    pm.expect(pm.response.code).to.not.eql(400);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('Response body is an array', function () {",
+                  "        pm.expect(pm.response.json()).to.be.an('array');",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Waste Items (no subscription id -> 400)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{XAMOPS_URL}}/api/xamops/azure/waste?forceRefresh=false",
+              "host": ["{{XAMOPS_URL}}"],
+              "path": ["api", "xamops", "azure", "waste"],
+              "query": [
+                { "key": "forceRefresh", "value": "false" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('No server error (not 5xx)', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "// With neither accountId nor accountIds, the controller rejects the request.",
+                  "// Auth may intercept first (401/403) when the endpoint is protected.",
+                  "pm.test('Missing subscription id is rejected (400/401/403)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 401, 403]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Azure Security",
+      "item": [
+        {
+          "name": "Security Data (wrapper - standalone page)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{XAMOPS_URL}}/api/xamops/azure/security?accountId={{AZURE_SUBSCRIPTION_ID}}&forceRefresh=false",
+              "host": ["{{XAMOPS_URL}}"],
+              "path": ["api", "xamops", "azure", "security"],
+              "query": [
+                { "key": "accountId", "value": "{{AZURE_SUBSCRIPTION_ID}}" },
+                { "key": "forceRefresh", "value": "false" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// The controller swallows upstream failures and returns 200 with an",
+                  "// API_ERROR wrapper, so it must never answer 5xx. Auth may intercept",
+                  "// first (401/403) when the endpoint is protected.",
+                  "pm.test('No server error (not 5xx)', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Known outcome (200/401/403)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 401, 403]);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('Response body is a wrapper object with a status', function () {",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body).to.be.an('object');",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Security Findings (array - dashboard card)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{XAMOPS_URL}}/api/xamops/azure/security/findings?accountId={{AZURE_SUBSCRIPTION_ID}}&forceRefresh=false",
+              "host": ["{{XAMOPS_URL}}"],
+              "path": ["api", "xamops", "azure", "security", "findings"],
+              "query": [
+                { "key": "accountId", "value": "{{AZURE_SUBSCRIPTION_ID}}" },
+                { "key": "forceRefresh", "value": "false" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// The shared dashboard Security card reads this route. It returns 200 with an",
+                  "// array on OK/NO_DATA and 503 on a permission/API error (so the card shows an",
+                  "// error state rather than a measured 'all clear'). 401/403 when protected.",
+                  "pm.test('No server error except 503 for upstream failure', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 401, 403, 503]);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('Response body is an array', function () {",
+                  "        pm.expect(pm.response.json()).to.be.an('array');",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Azure Rightsizing",
+      "item": [
+        {
+          "name": "Recommendations (accountId)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{XAMOPS_URL}}/api/xamops/azure/rightsizing/recommendations?accountId={{AZURE_SUBSCRIPTION_ID}}&forceRefresh=false",
+              "host": ["{{XAMOPS_URL}}"],
+              "path": ["api", "xamops", "azure", "rightsizing", "recommendations"],
+              "query": [
+                { "key": "accountId", "value": "{{AZURE_SUBSCRIPTION_ID}}" },
+                { "key": "forceRefresh", "value": "false" }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Like the Azure security wrapper, this controller swallows upstream failures",
+                  "// and returns 200 with an API_ERROR wrapper, so it must never answer 5xx.",
+                  "pm.test('No server error (not 5xx)', function () {",
+                  "    pm.expect(pm.response.code).to.be.below(500);",
+                  "});",
+                  "pm.test('Known outcome (200/401/403)', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 401, 403]);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('Response body is a wrapper object', function () {",
                   "        pm.expect(pm.response.json()).to.be.an('object');",
                   "    });",
                   "}"

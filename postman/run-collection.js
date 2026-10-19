@@ -103,16 +103,17 @@ function sendRequest(request) {
 // Minimal chai-style expectation + pm shim to run the collections' test scripts.
 function makeExpect(fails) {
   return function expect(actual) {
-    const api = {
-      to: null,
-      _negate: false,
+    const state = { negate: false };
+    const assert = (cond, msg) => {
+      const ok = state.negate ? !cond : cond;
+      if (!ok) throw new Error(state.negate ? 'not: ' + msg : msg);
     };
-    const assert = (cond, msg) => { if (api._negate ? cond : !cond) throw new Error(msg); };
     const chain = {
       get to() { return chain; },
       get be() { return chain; },
       get have() { return chain; },
       get an() { return chain.a; },
+      get not() { state.negate = !state.negate; return chain; },
       a(type) {
         const t = Array.isArray(actual) ? 'array' : typeof actual;
         assert(t === type, `expected ${JSON.stringify(actual)} to be a ${type}`);

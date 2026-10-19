@@ -2,11 +2,18 @@ package com.xammer.billops.repository;
 
 import com.xammer.billops.domain.SupportMessage;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 
 public interface SupportMessageRepository extends JpaRepository<SupportMessage, Long> {
+
+    /** Removes all support chat messages for this user when the user is deleted. */
+    @Modifying
+    @Transactional
+    void deleteByUserId(Long userId);
 
     // Find all messages, ordered by time (Admin Inbox - Raw View)
     List<SupportMessage> findAllByOrderByTimestampDesc();

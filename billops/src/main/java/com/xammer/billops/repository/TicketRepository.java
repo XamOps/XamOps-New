@@ -2,6 +2,7 @@ package com.xammer.billops.repository;
 
 import com.xammer.cloud.domain.Ticket;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying; // <-- IMPORT
 import org.springframework.data.jpa.repository.Query; // <-- IMPORT
 import org.springframework.data.repository.query.Param; // <-- IMPORT
 import java.util.List; // <-- IMPORT
@@ -9,6 +10,16 @@ import java.time.LocalDateTime;
 import org.springframework.transaction.annotation.Transactional;
 
 public interface TicketRepository extends JpaRepository<Ticket, Long> {
+
+    /**
+     * Clears the creator back-reference for every ticket created by the given user.
+     * creator_user_id is nullable, so detaching preserves the ticket history while
+     * releasing the foreign key that blocks deleting the app_user row.
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE Ticket t SET t.creator = NULL WHERE t.creator.id = :userId")
+    void detachCreator(@Param("userId") Long userId);
 
     // Lightweight list query — no replies join, just metadata + creator + client
     @Query("SELECT DISTINCT t FROM Ticket t LEFT JOIN FETCH t.creator LEFT JOIN FETCH t.client")

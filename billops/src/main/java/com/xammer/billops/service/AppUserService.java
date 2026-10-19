@@ -4,8 +4,17 @@ import com.xammer.cloud.domain.AppUser;
 import com.xammer.billops.domain.Client;
 import com.xammer.billops.domain.UserTabAccess;
 import com.xammer.billops.dto.UserDTO;
+import com.xammer.billops.repository.AgreementRepository;
 import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.ClientRepository;
+import com.xammer.billops.repository.CreditRequestRepository;
+import com.xammer.billops.repository.SupportMessageRepository;
+import com.xammer.billops.repository.SupportTicketStatusRepository;
+import com.xammer.billops.repository.TicketReplyRepository;
+import com.xammer.billops.repository.TicketRcaRepository;
+import com.xammer.billops.repository.TicketRepository;
+import com.xammer.billops.repository.UserCloudAccountAccessRepository;
+import com.xammer.billops.repository.UserPlatformConnectionRepository;
 import com.xammer.billops.repository.UserTabAccessRepository;
 import com.xammer.cloud.messaging.MessagingProperties;
 import com.xammer.cloud.messaging.PhoneNumbers;
@@ -36,6 +45,33 @@ public class AppUserService {
 
     @Autowired
     private UserTabAccessRepository userTabAccessRepository;
+
+    @Autowired
+    private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
+
+    @Autowired
+    private TicketRepository ticketRepository;
+
+    @Autowired
+    private TicketReplyRepository ticketReplyRepository;
+
+    @Autowired
+    private TicketRcaRepository ticketRcaRepository;
+
+    @Autowired
+    private AgreementRepository agreementRepository;
+
+    @Autowired
+    private CreditRequestRepository creditRequestRepository;
+
+    @Autowired
+    private SupportMessageRepository supportMessageRepository;
+
+    @Autowired
+    private SupportTicketStatusRepository supportTicketStatusRepository;
+
+    @Autowired
+    private UserPlatformConnectionRepository userPlatformConnectionRepository;
 
     @Autowired
     private JavaMailSender mailSender;
@@ -253,8 +289,41 @@ public class AppUserService {
         Client client = user.getClient();
         Long clientId = client != null ? client.getId() : null;
 
-        // Remove any sidebar tab-access rows first to avoid orphaned/foreign-key rows
+        // Every table below carries a foreign key back to app_user. PostgreSQL rejects the
+        // user delete while any of them still references the row (constraint violation ->
+        // DataIntegrityViolationException -> HTTP 500), so each reference must be released
+        // first. This is the bug behind "Delete Failed / HTTP 500" when deleting a user who
+        // had raised tickets: ticket.creator_user_id still pointed at the user.
+
+        // 1. Soft references (nullable FKs) — detach so the history/content is preserved.
+        //    ticket.creator_user_id and ticket_reply.user_id allow NULL, so we keep the
+        //    tickets and replies but drop the link to the departing user.
+        ticketRepository.detachCreator(id);
+        ticketReplyRepository.detachAuthor(id);
+
+        //    app_user.created_by self-references the parent admin; detaching keeps any
+        //    sub-users this user created (they simply become primary users).
+        appUserRepository.detachChildrenCreatedBy(id);
+
+        // 2. Hard references (NOT NULL FKs) — these rows cannot exist without the user,
+        //    so they are removed outright.
+        ticketRcaRepository.deleteByGeneratedByUserId(id);
+        agreementRepository.deleteByUploadedByUserId(id);
+        creditRequestRepository.deleteByUserId(id);
+
+        // 3. Integration tables owned by xamops-service (shared DB, no JPA entity here).
+        //    They FK to app_user, so they must be cleared or the delete fails.
+        appUserRepository.deleteFinOpsReportSchedulesByUserId(id);
+        appUserRepository.deleteGithubIntegrationConfigByUserId(id);
+        appUserRepository.deleteJenkinsIntegrationConfigByUserId(id);
+        appUserRepository.deleteSonarqubeProjectsByUserId(id);
+
+        // 4. Per-user access / mapping / support rows that belong solely to this user.
         userTabAccessRepository.deleteByUserId(id);
+        userCloudAccountAccessRepository.deleteByUserId(id);
+        userPlatformConnectionRepository.deleteByUserId(id);
+        supportMessageRepository.deleteByUserId(id);
+        supportTicketStatusRepository.deleteByUserId(id);
 
         // Use direct JPQL delete to bypass Hibernate entity lifecycle nullability checks
         appUserRepository.deleteByIdDirect(id);

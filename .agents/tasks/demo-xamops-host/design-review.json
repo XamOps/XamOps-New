@@ -1,0 +1,38 @@
+{
+  "verdict": "CHANGES_REQUESTED",
+  "findings": [
+    {
+      "id": 1,
+      "severity": "HIGH",
+      "title": "findByName instructed to be ADDED to ClientRepository where it already exists",
+      "where": "Module 1.4 (resolving/seeding the demo client) and Finding 4 resolution row",
+      "problem": "xamops ClientRepository already declares Optional<Client> findByName(String name) (used by GoogleAuthController.uniqueClientName). Re-adding it is a duplicate method declaration and fails compilation of xamops-service, breaking AC-36.",
+      "fix": "Add only Optional<Client> findFirstByDemoTrue(); to ClientRepository. Reuse the existing findByName(String) as-is. Update both the Module 1.4 text and the Finding 4 row."
+    },
+    {
+      "id": 2,
+      "severity": "MEDIUM",
+      "title": "Design drops 'display name' field required by AC-28 / R8",
+      "where": "Module 2.3 (Name column dropped), DemoUserDto record, Module 3.6 table columns",
+      "problem": "R8 and AC-28 list 'display name' as a required (non-optional) returned field; only 'last IP' is optional. The design removes it entirely, so AC-28 as written cannot pass. The reasoning (persisted username == email; no name column on User) is factually correct and verified, but the design resolves the conflict by silently dropping a required field instead of reconciling design and requirements.",
+      "fix": "Either (a) keep a name field in DemoUserDto sourced from AppUser.username and render a Name column (satisfies AC-28 literally, column currently equals Email), or (b) formally amend AC-28/R8 to drop 'display name' and record the deviation. Surface the choice explicitly rather than burying it in a design note."
+    },
+    {
+      "id": 3,
+      "severity": "NIT",
+      "title": "Wrong file path cited for billops User entity",
+      "where": "Module 2.2 (billops User minimal mapping paragraph)",
+      "problem": "Cites billops/src/main/java/com/xammer/billops/domain/User.java, which does not exist. Actual path is billops/src/main/java/com/xammer/cloud/domain/User.java (package com.xammer.cloud.domain) — which the same paragraph also names correctly, contradicting itself. The minimal-mapping conclusion is verified correct.",
+      "fix": "Replace the com/xammer/billops/domain/User.java path with com/xammer/cloud/domain/User.java."
+    },
+    {
+      "id": 4,
+      "severity": "NIT",
+      "title": "Billops impersonation constant name quoted imprecisely",
+      "where": "requirements A10 and design Module 2.2",
+      "problem": "Refers to the billops UserActivityEvent constant as IMPERSONATION_STARTED; the actual constant is ACTION_IMPERSONATION_STARTED (value 'IMPERSONATION_STARTED'), alongside OUTCOME_SUCCESS. Not material to the query but imprecise for an implementer adding a login constant.",
+      "fix": "Refer to it as ACTION_IMPERSONATION_STARTED; if adding a login constant, name it ACTION_LOGIN = \"LOGIN\" to mirror the xamops copy."
+    }
+  ],
+  "reviewDoc": "/Users/admin/Desktop/xam-latest/XamOps-New/.agents/tasks/demo-xamops-host/design-review.md"
+}

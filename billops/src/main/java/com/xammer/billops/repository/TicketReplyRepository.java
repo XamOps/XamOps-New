@@ -2,6 +2,7 @@ package com.xammer.billops.repository;
 
 import com.xammer.cloud.domain.TicketReply;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -11,6 +12,16 @@ import java.util.List;
 
 @Repository
 public interface TicketReplyRepository extends JpaRepository<TicketReply, Long> {
+
+    /**
+     * Clears the author back-reference on every reply written by the given user.
+     * ticket_reply.user_id is nullable, so detaching keeps the reply text intact while
+     * releasing the foreign key that would otherwise block deleting the app_user row.
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE TicketReply r SET r.author = NULL WHERE r.author.id = :userId")
+    void detachAuthor(@Param("userId") Long userId);
 
     /**
      * Fetches all replies belonging to the same ticket as the given reply, with their
