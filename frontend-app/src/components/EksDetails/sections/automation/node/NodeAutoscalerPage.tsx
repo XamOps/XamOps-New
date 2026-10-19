@@ -11,7 +11,8 @@
  *  - on-demand and Spot nodes, and the last rebalance in words;
  *  - "What node autoscaling would do now": one row per part, each "Not available yet" with why.
  * There are no controls and no settings forms: nothing on this page sends a request but reads. The
- * cluster's CPU over time needs the usage feed, so that chart says so.
+ * cluster's CPU over 3 days (used, reserved but unused, not requested, up to allocatable) comes from
+ * the usage feed (FEAT-004, scope=cluster).
  */
 import { useId, type ReactNode } from 'react';
 import { useK8sCapabilities } from '../../../../../hooks/useK8sCapabilities';
@@ -45,6 +46,7 @@ import {
   type NodeKpis,
 } from '../automationDerivations';
 import { CARD, Card, DIVIDE, FAINT, INK, MUTED, RULE } from '../automationUi';
+import { ClusterUsageCard } from '../insightCards';
 
 export interface NodeAutoscalerPageProps {
   clusterName: string;
@@ -342,10 +344,13 @@ export function NodeAutoscalerPage({ clusterName, accountId, region, eksData }: 
         </p>
       </Card>
       <Levers levers={levers} />
-      <ChartCard
+      <ClusterUsageCard
+        clusterName={clusterName}
+        accountId={accountId}
+        region={region}
         title="CPU: what pods can use, reserve and use"
-        source="Usage feed (planned): allocatable, requested and used CPU for the whole cluster from Prometheus in your cluster, 3 days at 1-hour steps."
-        state={{ kind: 'history-pending', from: 'It will come from Prometheus in your cluster: what the nodes give pods, what pods reserve and what they use.' }}
+        resources={['cpu']}
+        total="allocatable"
       />
     </div>
   );

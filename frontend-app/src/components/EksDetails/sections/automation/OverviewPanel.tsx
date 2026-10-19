@@ -1,20 +1,25 @@
 /**
  * Automation › Overview (UI v3 plan §2 "Overview"; design-delta §3.1, §4.1, §4.2; glossary §3, §4,
- * §10). What XamOps can automate on this cluster, what it is doing now and what it has done, from
- * three real sources:
- *  - endpoint 1, read once (`useAutomationRead`): the Now sentence, the KPI row, How it works, the
- *    latest change per workload over 7 days, the feature cards' Workload autoscaler, HPA and VPA
- *    state, and the suggested side of the namespace chart;
- *  - the XamOps agent's dashboard (`eksData`): requested and used by namespace, HPAs, who changes
- *    the node count;
+ * §10). What XamOps can automate on this cluster, what it is doing now and what it has done, each
+ * part from a real source, read once:
+ *  - endpoint 1 (`useAutomationRead`): the Now sentence, the KPI row, How it works, the feature
+ *    cards' Workload autoscaler, HPA and VPA state, which workloads are in place, and the suggested
+ *    side of the namespace chart;
+ *  - the activity log (FEAT-007, its last 7 days): the 7-day timeline and what Saving now frees; and
+ *    its per-day summary (FEAT-005): Changes, last 7 days. A backend without the log keeps each
+ *    workload's latest change from endpoint 1, and says so;
+ *  - the usage feed (FEAT-004): the cluster's CPU and memory over 3 days, and each namespace's
+ *    average use;
+ *  - the XamOps agent's dashboard (`eksData`): requested by namespace (and used, without the usage
+ *    feed), HPAs, who changes the node count;
  *  - capabilities: the access overlays, the Access block and "What automation can do on this
  *    cluster today" (one row per capability, with the server's message for anything not ready).
- * A time series has no source yet, so its card says "History arrives with the usage feed". When the
- * read carries the FEAT-002 cost roll-up, the KPI row leads with the cluster's real monthly cost
- * (and savings when a recommendation frees money); without it, savings fall back to freed vCPU and
- * memory, never a fabricated $0.
+ * When the read carries the FEAT-002 cost roll-up, the KPI row leads with the cluster's real monthly
+ * cost (and "Can save now" with its $/mo when a recommendation frees money); without it, savings fall
+ * back to freed vCPU and memory, never a fabricated $0. "Saving now" stays in vCPU and memory: the
+ * roll-up prices what a suggestion would still free, not what a change already freed.
  */
-import { useId, useState, type ReactNode } from 'react';
+import { useId, useMemo, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { inPageState } from '../../../../utils/inPageNavigation';
 import { formatMonthlyUsd } from '../../../../api/verticalRightsizerAdapter';
@@ -26,10 +31,14 @@ import {
   type K8sCapabilitiesValue,
 } from '../../../../hooks/useK8sCapabilities';
 import useAutomationRead from '../../../../hooks/useAutomationRead';
+import useAutomationActivity, { useActivitySummary, type UseAutomationActivityState } from '../../../../hooks/useAutomationActivity';
+import useAutomationUsage from '../../../../hooks/useAutomationUsage';
+import type { InsightReadState } from '../../../../hooks/useInsightRead';
 import type { UseEksDashboardReturn } from '../../../../hooks/useEksDashboard';
 import type { AutomationReadResult } from '../../../../api/automationReadApi';
 import type { ActionId, CapabilitiesDto, Capability, ReadinessKey } from '../../../../types/k8sAutomation';
 import type { VerticalEngineView } from '../../../../types/verticalRightsizer';
+import type { ActivitySummaryView } from '../../../../types/automationActivity';
 import { AccessBanner } from '../../../CloudK8s/shared/AccessBanner';
 import { StatusMark } from '../../../CloudK8s/shared/StatusMark';
 import { NowBanner } from '../../../CloudK8s/shared/status/NowBanner';
@@ -67,6 +76,10 @@ import {
   type Resource,
 } from './automationDerivations';
 import { CARD, FAINT, INK, InPageLink, MUTED, ReadFailureCard, readFailureText } from './automationUi';
+import { dayLabel, feedTimeline, feedWeekCounts, savingNow, weekCounts, type WeekCounts } from './activity/activityInsights';
+import { activityResultChip } from './activity/activityText';
+import { ClusterUsageCard, ResourceToggle } from './insightCards';
+import { sourceService } from './insightCharts';
 
 /** The workload row while the vertical engine is switched off (V7). */
 export const NOT_TURNED_ON_TEXT = 'Not turned on in this environment';
@@ -373,7 +386,92 @@ function overviewSentence(clusterName: string, result: AutomationReadResult | nu
   return nowSentence('automation-overview', inputs);
 }
 
-function Kpis({ view, now }: { view: VerticalEngineView; now: number }) {
+/**
+ * "Saving now" (glossary §10): what the changes in place free, in vCPU and memory. Its $ is a dash:
+ * the FEAT-002 cost read prices what a suggestion would still free, not capacity already freed.
+ * Which workloads are in place comes from endpoint 1; each one's amount from the activity log's
+ * before and after for that same change. Unknown amounts are left out and counted as such.
+ */
+function SavingNowKpi({ view, feed }: { view: VerticalEngineView; feed: UseAutomationActivityState }) {
+  const s = savingNow(view.workloads, feed.entries);
+  const pods = s.counted.reduce((n, c) => n + c.pods, 0);
+  const who = s.counted.length === 1 ? s.counted[0].workload.ref.name : `${s.counted.length} workloads`;
+  return (
+    <KpiCard tone="good" icon="mdi:check-circle" label="Saving now" value={s.counted.length > 0 ? formatVcpu(s.cpuM) : '—'}>
+      {s.counted.length > 0 ? (
+        <>
+          {s.memMi > 0 && <p>{formatMemory(s.memMi)} memory freed</p>}
+          <p>{`${who}, in place on ${pods} ${pods === 1 ? 'pod' : 'pods'}`}</p>
+        </>
+      ) : (
+        <p>
+          {s.inPlace === 0
+            ? 'No change is in place now'
+            : `${s.inPlace} in place, but the activity log doesn't hold the size before for ${s.inPlace === 1 ? 'it' : 'them'}`}
+        </p>
+      )}
+      {s.counted.length > 0 && s.notCounted > 0 && (
+        <p>{`${s.notCounted} more in place, not counted: the size before isn't recorded, or the change is older than 7 days`}</p>
+      )}
+      {s.raised > 0 && <p>{`${s.raised} raised a request, so ${s.raised === 1 ? 'it frees' : 'they free'} nothing`}</p>}
+      {view.cost && (
+        <p data-saving-now-usd="">
+          In $: <span title="The cost read prices what a suggestion would still free, not what a change already freed.">—</span>, the cost
+          read prices suggestions still to come
+        </p>
+      )}
+      <p>From the activity log&apos;s before and after. A rollout since then would undo a change.</p>
+    </KpiCard>
+  );
+}
+
+/** "Changes, last 7 days": per IST day from the summary, else the feed's entries, else endpoint 1. */
+function ChangesKpi({ k, feed, summary, now }: {
+  k: ReturnType<typeof automationKpis>;
+  feed: UseAutomationActivityState;
+  summary: InsightReadState<ActivitySummaryView>;
+  now: number;
+}) {
+  let week: WeekCounts | null = null;
+  let basis: string;
+  if (summary.result?.kind === 'ok' && (week = weekCounts(summary.result.view)) !== null) {
+    basis = week.since ? `counted per IST day since ${dayLabel(week.since)}, when XamOps began recording every kind of change` : 'counted per IST day, by result';
+  } else if (feed.result?.kind === 'ok') {
+    week = feedWeekCounts(feed.entries, now);
+    basis = feed.hasOlder ? `the newest ${feed.entries.length} entries in the activity log` : 'entries in the activity log';
+  } else {
+    basis = 'latest change per workload';
+  }
+  if (!week) {
+    return (
+      <KpiCard tone="info" icon="mdi:history" label="Changes, last 7 days" value={k.changes7d}>
+        <p>{basis}</p>
+        {k.changes7dByResult.length > 0 && (
+          <div className="flex flex-wrap gap-1 pt-0.5">
+            {k.changes7dByResult.map((r) => (
+              <StatusChip key={r.key} tone={r.tone} icon={r.icon} label={`${r.label}: ${r.count}`} weight="normal" />
+            ))}
+          </div>
+        )}
+      </KpiCard>
+    );
+  }
+  return (
+    <KpiCard tone="info" icon="mdi:history" label="Changes, last 7 days" value={week.total}>
+      {week.byResult.length > 0 && (
+        <div className="flex flex-wrap gap-1 pt-0.5">
+          {week.byResult.map((r) => (
+            <StatusChip key={r.key} tone={r.tone} icon={r.icon} label={`${r.label}: ${r.count}`} weight="normal" />
+          ))}
+        </div>
+      )}
+      {week.testRuns > 0 && <p>{`${week.testRuns} of the ${week.total} ${week.testRuns === 1 ? 'was a test run' : 'were test runs'}: nothing was sent.`}</p>}
+      <p>{basis}</p>
+    </KpiCard>
+  );
+}
+
+function Kpis({ view, now, feed, summary }: { view: VerticalEngineView; now: number; feed: UseAutomationActivityState; summary: InsightReadState<ActivitySummaryView> }) {
   const k = automationKpis(view.workloads, now);
   const unknownSave = k.overProvisioned > 0 && k.canSave.counted === 0;
   // FEAT-002: when the cluster cost roll-up carries a real $/mo saving, the card leads with it (the
@@ -393,15 +491,23 @@ function Kpis({ view, now }: { view: VerticalEngineView; now: number }) {
           <p>what these workloads reserve, at the nodes&apos; live AWS price</p>
         </KpiCard>
       )}
-      {/* "Applied live", not "Saving now": endpoint 1's lastAction has no before and after, so a raise
-          for a workload that needed more counts here too (the Workloads page's "Applied"). */}
-      <KpiCard tone="good" icon="mdi:check-circle" label="Applied live" value={k.liveApplied}>
-        <p>{k.liveApplied === 1 ? 'workload' : 'workloads'} whose latest change was applied live</p>
-        <p>
-          Before and after: <span title="Not recorded yet: XamOps keeps the size before a change once the activity feed is on.">—</span>, recorded
-          once the activity feed is on
-        </p>
-      </KpiCard>
+      {feed.result?.kind === 'ok' ? (
+        <SavingNowKpi view={view} feed={feed} />
+      ) : (
+        // Without the activity log: "Applied live", not "Saving now". Endpoint 1's lastAction has no
+        // before and after, so a raise for a workload that needed more counts here too.
+        <KpiCard tone="good" icon="mdi:check-circle" label="Applied live" value={k.liveApplied}>
+          <p>{k.liveApplied === 1 ? 'workload' : 'workloads'} whose latest change was applied live</p>
+          {feed.result && feed.result.kind !== 'not-deployed' ? (
+            <p>Before and after: —, XamOps couldn&apos;t read the activity log just now</p>
+          ) : (
+            <p>
+              Before and after: <span title="Not recorded yet: XamOps keeps the size before a change once the activity feed is on.">—</span>, recorded
+              once the activity feed is on
+            </p>
+          )}
+        </KpiCard>
+      )}
       <KpiCard
         tone="warn"
         icon="mdi:arrow-collapse-down"
@@ -420,21 +526,76 @@ function Kpis({ view, now }: { view: VerticalEngineView; now: number }) {
       <KpiCard tone="warn" icon="mdi:speedometer" label="Needs more" value={k.needsMore}>
         <p>{k.needsMore > 0 ? `+${formatCapacity(k.needsMoreAdds.cpuM, k.needsMoreAdds.memMi)} added if applied` : 'No workload needs more'}</p>
       </KpiCard>
-      <KpiCard tone="info" icon="mdi:history" label="Changes, last 7 days" value={k.changes7d}>
-        <p>latest change per workload</p>
-        {k.changes7dByResult.length > 0 && (
-          <div className="flex flex-wrap gap-1 pt-0.5">
-            {k.changes7dByResult.map((r) => (
-              <StatusChip key={r.key} tone={r.tone} icon={r.icon} label={`${r.label}: ${r.count}`} weight="normal" />
-            ))}
-          </div>
-        )}
-      </KpiCard>
+      <ChangesKpi k={k} feed={feed} summary={summary} now={now} />
     </div>
   );
 }
 
-function Timeline({ result, now }: { result: AutomationReadResult | null; now: number }) {
+/** How many entries the Overview reads for its 7-day timeline (the feed's page limit). */
+export const TIMELINE_ENTRY_LIMIT = 200;
+
+/** The 7-day timeline from the activity feed: every entry, one lane per workload or HPA. */
+function FeedTimeline({ feed, now }: { feed: UseAutomationActivityState; now: number }) {
+  const t = feedTimeline(feed.entries, now);
+  const notes = [
+    'Every change XamOps recorded in the last 7 days, one lane per workload or HPA, coloured by result. A hollow dot is a test run: nothing was sent.',
+    t.hiddenLanes > 0 ? `${t.hiddenLanes} more ${t.hiddenLanes === 1 ? 'lane is' : 'lanes are'} on Automation › Activity.` : null,
+    feed.hasOlder ? `Shows the newest ${feed.entries.length} entries of the week.` : null,
+  ].filter(Boolean);
+  return (
+    <ChartCard
+      title="What automation did, last 7 days"
+      subline={notes.join(' ')}
+      source={`Activity log (FEAT-007, GET /api/eks/automation/activity/{cluster}?from=…&limit=${TIMELINE_ENTRY_LIMIT}): every entry XamOps recorded, newest first, 7 days.`}
+      state={t.lanes.length === 0 ? { kind: 'unavailable', reason: 'XamOps recorded no change on this cluster in the last 7 days.' } : { kind: 'ok' }}
+      table={
+        t.placed.length > 0 ? (
+          <ChartDataTable
+            caption="What automation did, last 7 days"
+            rowHeader="Workload"
+            columns={[{ key: 'when', header: 'When' }, { key: 'result', header: 'Result' }, { key: 'kind', header: 'Live or test' }]}
+            rows={t.placed.map((e) => ({
+              key: e.id,
+              label: e.target.name ?? '—',
+              values: {
+                when: e.at !== null ? istShort(e.at) : '—',
+                result: activityResultChip(e).label,
+                kind: e.dryRun || e.result === 'test-run' ? 'Test run' : e.action === 'mode-change' ? 'Setting' : 'Live',
+              },
+            }))}
+          />
+        ) : undefined
+      }
+    >
+      <div className="overflow-x-auto">
+        <LanesTimeline lanes={t.lanes} width={720} ariaLabel="Every change XamOps recorded, last 7 days, one lane per workload or HPA" />
+        <div className={`ml-[120px] flex w-[600px] justify-between text-[11px] ${FAINT}`} aria-hidden="true">
+          <span>{istShort(now - 7 * DAY_MS)}</span>
+          <span>now</span>
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {t.results.map((r) => (
+          <StatusChip key={r.label} tone={r.tone} icon={r.icon} label={r.label} weight="normal" />
+        ))}
+      </div>
+    </ChartCard>
+  );
+}
+
+function Timeline({ result, feed, now }: { result: AutomationReadResult | null; feed: UseAutomationActivityState; now: number }) {
+  if (feed.result?.kind === 'ok') return <FeedTimeline feed={feed} now={now} />;
+  if (feed.loading && !feed.result) {
+    return (
+      <ChartCard
+        title="What automation did, last 7 days"
+        source="Activity log (FEAT-007, GET /api/eks/automation/activity/{cluster}): every entry XamOps recorded, newest first, 7 days."
+        state={{ kind: 'loading' }}
+      />
+    );
+  }
+  // A backend without the activity log (or one that couldn't read it): each workload's latest change.
+  const feedFailed = feed.result !== null && feed.result.kind !== 'not-deployed';
   const view = result?.kind === 'ok' ? result.view.vertical : null;
   const changes = view ? recentChanges(view.workloads, now) : [];
   const lanes = timelineLanes(changes, now);
@@ -447,7 +608,11 @@ function Timeline({ result, now }: { result: AutomationReadResult | null; now: n
   return (
     <ChartCard
       title="What automation did, last 7 days"
-      subline="Shows only the latest change XamOps recorded for each workload. The full history arrives with the activity feed."
+      subline={
+        feedFailed
+          ? "XamOps couldn't read the activity log just now, so this shows only the latest change it recorded for each workload."
+          : 'Shows only the latest change XamOps recorded for each workload. The full history arrives with the activity feed.'
+      }
       source="Workload autoscaler (endpoint 1, GET /api/eks/automation/vertical/{cluster}): each workload's lastAction, 7 days."
       state={state}
       table={
@@ -549,10 +714,37 @@ const NAMESPACE_BARS = [
   { dataKey: 'suggested', name: 'Suggested', kind: 'suggested' as const },
 ];
 
-function NamespaceChart({ result, eksData }: { result: AutomationReadResult | null; eksData?: UseEksDashboardReturn }) {
+const MIB_BYTES = 1024 * 1024;
+
+function NamespaceChart({
+  result,
+  eksData,
+  clusterName,
+  accountId,
+  region,
+}: {
+  result: AutomationReadResult | null;
+  eksData?: UseEksDashboardReturn;
+  clusterName: string;
+  accountId: string;
+  region: string;
+}) {
   const [resource, setResource] = useState<Resource>('cpu');
   const view = result?.kind === 'ok' ? result.view.vertical : null;
-  const rollup = view ? namespaceRollup(view.workloads, eksData?.dashboard, resource) : null;
+  // Used, as the 72-hour average Prometheus measured (design-delta §3.1), once the usage feed answers;
+  // until then, or without it, the XamOps agent's namespace reading.
+  const usage = useAutomationUsage({ clusterName, accountId, region }, view ? { scope: 'namespace', resource, window: '72h' } : null);
+  const usageView = usage.result?.kind === 'ok' && !usage.result.view.unavailable && usage.result.view.namespaces ? usage.result.view : null;
+  const agentRollup = view ? namespaceRollup(view.workloads, eksData?.dashboard, resource) : null;
+  const rollup = agentRollup && usageView
+    ? {
+      ...agentRollup,
+      rows: agentRollup.rows.map((r) => {
+        const avg = usageView.namespaces!.find((n) => n.namespace === r.namespace)?.usedAvg ?? null;
+        return { ...r, used: avg === null ? null : resource === 'cpu' ? avg * 1000 : avg / MIB_BYTES };
+      }),
+    }
+    : agentRollup;
   const cpu = resource === 'cpu';
   const unit = (v: number | null) => (v === null ? null : cpu ? Number((v / 1000).toFixed(3)) : Number((v / 1024).toFixed(3)));
   const text = (v: number | null) => (v === null ? '—' : cpu ? formatVcpu(v) : formatMemory(v));
@@ -564,8 +756,14 @@ function NamespaceChart({ result, eksData }: { result: AutomationReadResult | nu
   return (
     <ChartCard
       title={cpu ? 'CPU by namespace: requested, used and suggested' : 'Memory by namespace: requested, used and suggested'}
-      subline="Only namespaces with analysed workloads. Suggested is what the namespace would request with every XamOps suggestion applied; pods XamOps doesn't size stay at their request."
-      source="Requested: the XamOps agent's pods (k8sPods). Used: the XamOps agent's namespace use (namespaceUtilization). Suggested: Workload autoscaler (endpoint 1), (request now − suggested) × replicas."
+      subline={`Only namespaces with analysed workloads. ${
+        usageView ? 'Used is the average over the last 3 days. ' : ''
+      }Suggested is what the namespace would request with every XamOps suggestion applied; pods XamOps doesn't size stay at their request.`}
+      source={
+        usageView
+          ? `Requested: the XamOps agent's pods (k8sPods). Used: usage feed (FEAT-004, GET /api/eks/automation/usage/{cluster}?scope=namespace&window=72h), ${sourceService(usageView.source)}, the mean of each namespace's use over 3 days. Suggested: Workload autoscaler (endpoint 1), (request now − suggested) × replicas.`
+          : "Requested: the XamOps agent's pods (k8sPods). Used: the XamOps agent's namespace use (namespaceUtilization). Suggested: Workload autoscaler (endpoint 1), (request now − suggested) × replicas."
+      }
       state={state}
       table={
         rows.length > 0 && state.kind === 'ok' ? (
@@ -580,19 +778,7 @@ function NamespaceChart({ result, eksData }: { result: AutomationReadResult | nu
     >
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <SeriesLegend items={NAMESPACE_BARS.map((b) => ({ label: b.name, kind: b.kind }))} />
-        <div role="group" aria-label="Resource" className="inline-flex overflow-hidden rounded-lg border border-[rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.16)]">
-          {(['cpu', 'memory'] as const).map((r) => (
-            <button
-              key={r}
-              type="button"
-              aria-pressed={resource === r}
-              onClick={() => setResource(r)}
-              className={`px-3 py-1 text-[12px] font-semibold ${resource === r ? 'bg-[rgba(0,0,0,0.88)] text-white dark:bg-[rgba(255,255,255,0.92)] dark:text-black' : `bg-white dark:bg-[#141414] ${MUTED}`}`}
-            >
-              {r === 'cpu' ? 'CPU' : 'Memory'}
-            </button>
-          ))}
-        </div>
+        <ResourceToggle value={resource} onChange={setResource} />
       </div>
       <Bars
         mode="grouped"
@@ -632,6 +818,12 @@ export interface OverviewPanelProps {
 export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs = {} }: OverviewPanelProps) {
   const caps = useK8sCapabilities();
   const read = useAutomationRead({ clusterName, accountId, region });
+  // The activity log's last 7 days, read once for the timeline and Saving now; fixed at mount, so it
+  // isn't re-read on every render.
+  const [weekAgo] = useState(() => new Date(Math.floor((Date.now() - 7 * DAY_MS) / 60_000) * 60_000).toISOString());
+  const feedFilters = useMemo(() => ({ features: [], results: [], q: '', from: weekAgo }), [weekAgo]);
+  const feed = useAutomationActivity({ clusterName, accountId, region, filters: feedFilters, limit: TIMELINE_ENTRY_LIMIT });
+  const summary = useActivitySummary({ clusterName, accountId, region }, 7);
   const location = useLocation();
   const now = Date.now();
   const view = read.result?.kind === 'ok' ? read.result.view.vertical : null;
@@ -643,20 +835,16 @@ export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs =
       <NowBanner sentence={sentence} />
       {read.loading && !read.result && <div className="skeleton h-28 rounded-lg" />}
       {read.result && read.result.kind !== 'ok' && <ReadFailureCard failure={read.result} onRetry={read.reload} />}
-      {view && <Kpis view={view} now={now} />}
+      {view && <Kpis view={view} now={now} feed={feed} summary={summary} />}
       <HowItWorks
         chips={view ? howItWorksChips(view, now) : {}}
         policiesHref={hrefs.policies}
         policiesLinkState={inPageState(location)}
       />
-      <Timeline result={read.result} now={now} />
+      <Timeline result={read.result} feed={feed} now={now} />
       <FeatureCards result={read.result} caps={caps} clusterName={clusterName} eksData={eksData} hrefs={hrefs} now={now} />
-      <NamespaceChart result={read.result} eksData={eksData} />
-      <ChartCard
-        title="CPU and memory over time"
-        source="Usage feed (planned): requested and used by namespace from Prometheus in your cluster (kube-state-metrics and cAdvisor), 3 days at 1-hour steps."
-        state={{ kind: 'history-pending', from: 'It will come from Prometheus in your cluster: requested and used CPU and memory, over the last 3 days.' }}
-      />
+      <NamespaceChart result={read.result} eksData={eksData} clusterName={clusterName} accountId={accountId} region={region} />
+      <ClusterUsageCard clusterName={clusterName} accountId={accountId} region={region} title="CPU and memory over time" total="capacity" />
       <AccessBlock caps={caps} clusterName={clusterName} />
       <TodayTable
         caps={caps}

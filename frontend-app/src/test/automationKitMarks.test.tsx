@@ -104,7 +104,8 @@ describe('every Automation page keeps the legacy dark CSS off its v3 parts (data
     ['HPA', 'hpa', '', 'HPAs on this cluster'],
     ['an HPA detail', 'hpa', '&hpa=production%2Fworker-hpa', "XamOps's suggestion"],
     ['VPA', 'vpa', '', 'Kubernetes VPA coexistence'],
-    ['Activity', 'activity', '', 'Latest change per workload'],
+    // The demo serves the activity feed (FEAT-007), so Activity lists every recorded change.
+    ['Activity', 'activity', '', 'Every change XamOps recorded'],
   ])('%s', async (_name, sub, extra, landmark) => {
     renderSub(sub, extra);
     expect((await screen.findAllByText(landmark, {}, { timeout: 5000 })).length).toBeGreaterThan(0);

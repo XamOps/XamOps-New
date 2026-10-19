@@ -14,6 +14,7 @@ import { getDemoRole } from './demoConfig';
 import { buildDemoComplianceReport } from './complianceReportDemo';
 import * as xamops from './xamopsMockData';
 import * as k8sAutomation from './k8sAutomationMockData';
+import * as k8sSeries from './k8sAutomationSeriesMockData';
 import * as identity from './xamopsIdentityMockData';
 import * as billops from './billopsAdminMockData';
 import * as xamsecure from './xamsecureMockData';
@@ -538,6 +539,83 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(k8sAutomation.DEMO_WRITE_REFUSED, 403);
   // The HPA apply (Automation › HPA), refused by path the same way.
   if (/\/api\/eks\/automation\/hpa\/[^/?]+\/[^/?]+\/[^/?]+\/apply(\?|$)/.test(url))
+    return makeResponse(k8sAutomation.DEMO_WRITE_REFUSED, 403);
+  // One HPA's history (FEAT-004, Automation › HPA): GET-only on the server; a method other than GET is
+  // refused, never answered with the read.
+  {
+    const history = /\/api\/eks\/automation\/hpa\/([^/?]+)\/([^/?]+)\/([^/?]+)\/history(\?|$)/.exec(url);
+    if (history) {
+      if (method.toUpperCase() !== 'GET') return makeResponse(k8sAutomation.DEMO_WRITE_REFUSED, 403);
+      const answer = k8sSeries.demoHpaHistory(
+        decodeURIComponent(history[1]),
+        decodeURIComponent(history[2]),
+        decodeURIComponent(history[3]),
+        param(url, 'window'),
+      );
+      return makeResponse(answer.body, answer.status);
+    }
+  }
+  // Anything else under the HPA prefix is not a read the demo answers: refused, never sent.
+  if (url.includes('/api/eks/automation/hpa/'))
+    return makeResponse(k8sAutomation.DEMO_WRITE_REFUSED, 403);
+
+  // The usage time series and the sparklines (FEAT-004): GET-only, validated as the server does.
+  {
+    const sparklines = /\/api\/eks\/automation\/usage\/([^/?]+)\/sparklines(\?|$)/.exec(url);
+    const usage = sparklines ? null : /\/api\/eks\/automation\/usage\/([^/?]+)(\?|$)/.exec(url);
+    if (sparklines || usage) {
+      if (method.toUpperCase() !== 'GET') return makeResponse(k8sAutomation.DEMO_WRITE_REFUSED, 403);
+      const answer = sparklines
+        ? k8sSeries.demoSparklines(decodeURIComponent(sparklines[1]), param(url, 'resource'), param(url, 'window'))
+        : k8sSeries.demoUsage(decodeURIComponent(usage![1]), {
+          scope: param(url, 'scope'),
+          resource: param(url, 'resource'),
+          window: param(url, 'window'),
+          namespace: param(url, 'namespace'),
+          kind: param(url, 'kind'),
+          name: param(url, 'name'),
+          from: param(url, 'from'),
+          to: param(url, 'to'),
+          step: param(url, 'step'),
+        });
+      return makeResponse(answer.body, answer.status);
+    }
+  }
+  // Anything else under the usage prefix is not a path the server has: refused, never sent.
+  if (url.includes('/api/eks/automation/usage'))
+    return makeResponse(k8sAutomation.DEMO_WRITE_REFUSED, 403);
+
+  // The activity summary (FEAT-005, Automation › Activity and Overview): GET-only, per IST day.
+  {
+    const summary = /\/api\/eks\/automation\/activity\/([^/?]+)\/summary(\?|$)/.exec(url);
+    if (summary) {
+      if (method.toUpperCase() !== 'GET') return makeResponse(k8sAutomation.DEMO_WRITE_REFUSED, 403);
+      const answer = k8sAutomation.demoActivitySummary(decodeURIComponent(summary[1]), { days: param(url, 'days'), feature: param(url, 'feature') });
+      return makeResponse(answer.body, answer.status);
+    }
+  }
+
+  // The activity feed (FEAT-007, Automation › Activity): GET-only on the server, filtered and paged
+  // here the way the server does it. A method other than GET is refused, never answered with the
+  // read (apiFetch passes no method, so its calls read as GET).
+  {
+    const activity = /\/api\/eks\/automation\/activity\/([^/?]+)(\?|$)/.exec(url);
+    if (activity) {
+      if (method.toUpperCase() !== 'GET') return makeResponse(k8sAutomation.DEMO_WRITE_REFUSED, 403);
+      const page = k8sAutomation.demoActivityPage(decodeURIComponent(activity[1]), {
+        feature: param(url, 'feature'),
+        result: param(url, 'result'),
+        q: param(url, 'q'),
+        limit: param(url, 'limit'),
+        cursor: param(url, 'cursor'),
+        from: param(url, 'from'),
+        to: param(url, 'to'),
+      });
+      return page ? makeResponse(page) : makeResponse(k8sAutomation.DEMO_CLUSTER_NOT_REGISTERED, 404);
+    }
+  }
+  // Anything else under the feed's prefix is not a path the server has: refused, never sent.
+  if (url.includes('/api/eks/automation/activity'))
     return makeResponse(k8sAutomation.DEMO_WRITE_REFUSED, 403);
 
   // Vertical engine, endpoint 1 (plan P7): an unrouted engine path would reach the real backend.

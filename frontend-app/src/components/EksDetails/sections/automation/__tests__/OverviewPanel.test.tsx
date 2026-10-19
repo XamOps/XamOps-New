@@ -89,16 +89,44 @@ const DASHBOARD = {
 const json = (status: number, body: unknown): Response =>
   ({ status, ok: status >= 200 && status < 300, text: async () => (body === null ? '' : JSON.stringify(body)) }) as unknown as Response;
 
-/** Serves endpoint 1; anything else is a test failure. */
-function serve(status = 200, body: unknown = ENDPOINT_1) {
-  mockedFetch.mockImplementation(async (url: string) => {
-    if (!String(url).startsWith('/api/eks/automation/vertical/')) throw new Error(`unexpected request ${url}`);
-    return json(status, body);
+type Answer = { status: number; body: unknown } | ((url: URL) => { status: number; body: unknown });
+
+/** A backend without a Phase-2 endpoint: the dispatcher's untyped 404. */
+const NOT_DEPLOYED = { status: 404, body: null };
+
+/**
+ * Serves endpoint 1 and the Phase-2 reads (FEAT-004/005/007): by default a backend without them (an
+ * untyped 404, Phase 1's view); a write, or any other request, is a test failure.
+ */
+function serve(
+  status = 200,
+  body: unknown = ENDPOINT_1,
+  { feed = NOT_DEPLOYED, summary = NOT_DEPLOYED, usage = NOT_DEPLOYED }: { feed?: Answer; summary?: Answer; usage?: Answer } = {},
+) {
+  mockedFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+    if ((init?.method ?? 'GET') !== 'GET') throw new Error(`unexpected write ${url}`);
+    const u = new URL(String(url), 'http://test');
+    const pick = (a: Answer) => (typeof a === 'function' ? a(u) : a);
+    if (u.pathname.startsWith('/api/eks/automation/vertical/')) return json(status, body);
+    if (/\/api\/eks\/automation\/activity\/[^/]+\/summary$/.test(u.pathname)) {
+      const a = pick(summary);
+      return json(a.status, a.body);
+    }
+    if (u.pathname.startsWith('/api/eks/automation/activity/')) {
+      const a = pick(feed);
+      return json(a.status, a.body);
+    }
+    if (u.pathname.startsWith('/api/eks/automation/usage/')) {
+      const a = pick(usage);
+      return json(a.status, a.body);
+    }
+    throw new Error(`unexpected request ${url}`);
   });
 }
 
 const endpointOneGets = () =>
   mockedFetch.mock.calls.filter(([url, init]) => String(url).startsWith('/api/eks/automation/vertical/') && (init?.method ?? 'GET') === 'GET');
+const getsTo = (pattern: RegExp) => mockedFetch.mock.calls.map(([url]) => new URL(String(url), 'http://test')).filter((u) => pattern.test(u.pathname));
 
 function fixture(accountId: 'demo-aws-001' | 'demo-aws-002', edit?: (dto: CapabilitiesDto) => void): CapabilitiesDto {
   const dto = demoCapabilities(accountId)!;
@@ -264,13 +292,22 @@ describe('Automation › Overview (§9.1)', () => {
     expect(within(agent).getByRole('link', { name: 'Set up monitoring' })).toBeInTheDocument();
   });
 
-  it('reads endpoint 1 exactly once (one GET), and makes no other request', async () => {
+  it('reads each source once: endpoint 1, the activity log and its summary, and the usage feed for each chart', async () => {
     await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { eksData: DASHBOARD });
     await screen.findByText(/XamOps is watching 3 workloads/);
+    await waitFor(() => expect(mockedFetch).toHaveBeenCalledTimes(5));
     expect(getCapabilities).toHaveBeenCalledTimes(1);
-    expect(mockedFetch).toHaveBeenCalledTimes(1);
     expect(endpointOneGets()).toHaveLength(1);
-    expect(String(mockedFetch.mock.calls[0][0])).toBe('/api/eks/automation/vertical/prod-eks-cluster?accountId=demo-aws-001&region=us-east-1');
+    expect(String(endpointOneGets()[0][0])).toBe('/api/eks/automation/vertical/prod-eks-cluster?accountId=demo-aws-001&region=us-east-1');
+    const feed = getsTo(/\/activity\/prod-eks-cluster$/);
+    expect(feed).toHaveLength(1);
+    expect(feed[0].searchParams.get('limit')).toBe('200');
+    // The last 7 days, to the minute.
+    expect(Date.now() - Date.parse(feed[0].searchParams.get('from')!)).toBeGreaterThanOrEqual(7 * 24 * 3600_000);
+    expect(Date.now() - Date.parse(feed[0].searchParams.get('from')!)).toBeLessThan(7 * 24 * 3600_000 + 120_000);
+    expect(getsTo(/\/activity\/prod-eks-cluster\/summary$/).map((u) => u.searchParams.get('days'))).toEqual(['7']);
+    const usage = getsTo(/\/usage\/prod-eks-cluster$/).map((u) => `${u.searchParams.get('scope')}:${u.searchParams.get('resource')}:${u.searchParams.get('window')}`).sort();
+    expect(usage).toEqual(['cluster:cpu:72h', 'namespace:cpu:72h']);
   });
 
   describe('v3 visuals from endpoint 1, the agent and capabilities (FEAT-002)', () => {
@@ -389,12 +426,12 @@ describe('Automation › Overview (§9.1)', () => {
       expect(screen.getByRole('heading', { name: 'Memory by namespace: requested, used and suggested' })).toBeInTheDocument();
     });
 
-    it('shows the honest empty states: no agent pods, and history waiting for the usage feed', async () => {
+    it('shows the honest empty states: no agent pods, and no usage chart from a backend without the usage feed', async () => {
       await renderPanel(fixture('demo-aws-001'));
       await waitFor(() => expect(card('CPU by namespace: requested, used and suggested')).toHaveTextContent("The XamOps agent hasn't reported this cluster's pods"));
-      const overTime = card('CPU and memory over time');
-      expect(overTime).toHaveTextContent('History arrives with the usage feed');
-      expect(overTime.querySelector('svg.recharts-surface')).toBeNull();
+      // An untyped 404 from the usage feed: the card isn't rendered (automation-v2 design §7).
+      await waitFor(() => expect(getsTo(/\/usage\//).length).toBeGreaterThan(0));
+      await waitFor(() => expect(screen.queryByRole('heading', { name: 'CPU and memory over time' })).toBeNull());
     });
 
     it('when endpoint 1 fails: each endpoint-1 panel says so, and capabilities still render', async () => {
@@ -427,5 +464,211 @@ describe('Automation › Overview (§9.1)', () => {
       await waitFor(() => expect(document.querySelector('[data-feature-card="workload"]')).toHaveTextContent("Can't reach the cluster"));
       expect(document.querySelector('[data-read-failure]')).toHaveTextContent("XamOps can't reach this cluster's API server");
     });
+  });
+});
+
+// ─── Phase 2 (FEAT-006): the activity log, its summary and the usage feed ────
+
+const MI = 1024 * 1024;
+const IDLE_AT = ENDPOINT_1.workloads![2].lastAction!.at!;
+const sizes = (cpuRequestMillis: number, memRequestMi: number) => ({ cpuRequestMillis, cpuLimitMillis: null, memRequestBytes: memRequestMi * MI, memLimitBytes: null });
+
+/** The activity log's week: idle-batch-listener's in-place change (the one endpoint 1 reports), a test run, a put-back and an HPA change. */
+const FEED = {
+  engine: { enabled: true },
+  nextCursor: null,
+  entries: [
+    {
+      id: 7, at: IDLE_AT, feature: 'VERTICAL', origin: 'MANUAL', who: 'A user', action: 'RESIZE',
+      target: { namespace: 'dev-sim', kind: 'Deployment', name: 'idle-batch-listener' }, dryRun: false, outcome: 'APPLIED', result: 'APPLIED', terminal: 'APPLIED', restartFree: true,
+      change: { containers: [{ container: 'sleeper', before: sizes(100, 128), beforeBasis: 'OBSERVED', after: sizes(20, 128), requested: sizes(20, 128) }] },
+      proof: { restartFree: true, reverted: null, pods: ['a', 'b', 'c'].map((p) => ({ pod: `idle-batch-listener-${p}`, uidChanged: false, restartsBefore: 0, restartsAfter: 0, ready: true, revert: null })) },
+      detail: null, reference: 'r-7',
+    },
+    {
+      id: 6, at: iso(30 * 60_000), feature: 'VERTICAL', origin: 'MANUAL', who: 'A user', action: 'RESIZE',
+      target: { namespace: 'team-a', kind: 'Deployment', name: 'overprovisioned-api' }, dryRun: true, outcome: 'TEST_RUN', result: 'TEST_RUN', terminal: 'DRY_RUN', restartFree: false,
+      change: { containers: [{ container: 'api', before: null, beforeBasis: null, after: null, requested: sizes(25, 256) }] }, proof: null, detail: null, reference: null,
+    },
+    {
+      id: 5, at: iso(60 * 60_000), feature: 'VERTICAL', origin: 'MANUAL', who: 'A user', action: 'RESIZE',
+      target: { namespace: 'prod-sim', kind: 'Deployment', name: 'throttled-encoder' }, dryRun: false, outcome: 'NOT_CHANGED', result: 'PUT_BACK', terminal: 'DEFERRED', restartFree: true,
+      change: null, proof: null, detail: 'Deferred. Revert: REVERTED.', reference: null,
+    },
+    {
+      id: 4, at: iso(2 * 24 * 3600_000), feature: 'HPA', origin: 'MANUAL', who: 'A user', action: 'HPA_CHANGE',
+      target: { namespace: 'team-b', kind: 'HorizontalPodAutoscaler', name: 'php-apache' }, dryRun: false, outcome: 'APPLIED', result: 'APPLIED', terminal: null, restartFree: false,
+      change: { hpa: { before: { minReplicas: 1, maxReplicas: 5, targetUtilizationPct: 50 }, after: { minReplicas: 1, maxReplicas: 8, targetUtilizationPct: 50 } } }, proof: null, detail: null, reference: null,
+    },
+  ],
+};
+
+const istDay = (msAgo: number) => new Date(Date.now() - msAgo + 5.5 * 3600_000).toISOString().slice(0, 10);
+/** The summary lists only the last two days: XamOps began recording every kind of change yesterday. */
+const SUMMARY = {
+  engine: { enabled: true }, timezone: 'Asia/Kolkata', from: istDay(6 * 24 * 3600_000), to: istDay(0),
+  firstRecordedAt: iso(9 * 24 * 3600_000), completeSince: iso(30 * 3600_000), truncated: false,
+  days: [
+    { date: istDay(24 * 3600_000), applied: 1, putBack: 0, refused: 1, testRuns: 0, failed: 0, byFeature: {} },
+    { date: istDay(0), applied: 2, putBack: 1, refused: 0, testRuns: 2, failed: 0, byFeature: {} },
+  ],
+};
+
+const U_END = Math.floor(Date.now() / 60_000) * 60;
+const U_TIMES = Array.from({ length: 145 }, (_, i) => U_END - 72 * 3600 + i * 1800);
+const isoSec = (sec: number) => new Date(sec * 1000).toISOString().replace('.000Z', 'Z');
+
+/** scope=cluster, 72 h at 30 min: 1.5 vCPU used (one point unmeasured), 2 requested, 3.86 allocatable, 4 provisioned. */
+function clusterUsage(resource = 'cpu', firstIndex = 0) {
+  const pts = (v: (i: number) => number | null) => U_TIMES.map((t, i) => [t, i < firstIndex ? null : v(i)]);
+  const k = resource === 'cpu' ? 1 : 1024 ** 3;
+  return {
+    schemaVersion: 1, scope: 'cluster', resource, unit: resource === 'cpu' ? 'cores' : 'bytes', workloadRef: null, window: '72h', stepSeconds: 1800,
+    start: isoSec(U_TIMES[0]), end: isoSec(U_TIMES[144]), source: { type: 'PROMETHEUS_PROXY', service: 'monitoring/prometheus-server:80' },
+    series: [
+      { key: 'used', kind: 'used', label: 'Used', points: pts((i) => (i === 100 ? null : 1.5 * k)), query: 'sum(rate(...))' },
+      { key: 'request', kind: 'request', label: 'Requested', points: pts(() => 2 * k), query: 'sum(requests)' },
+      { key: 'allocatable', kind: 'allocatable', label: 'Allocatable', points: pts(() => 3.86 * k), query: 'sum(allocatable)' },
+      { key: 'capacity', kind: 'capacity', label: 'Provisioned', points: pts(() => 4 * k), query: 'sum(capacity)' },
+    ],
+    namespaces: null,
+    coverage: { firstSampleAt: isoSec(U_TIMES[firstIndex]), covered: (145 - firstIndex - 1) / 145 },
+    unavailable: null,
+  };
+}
+
+const namespaceUsage = {
+  schemaVersion: 1, scope: 'namespace', resource: 'cpu', unit: 'cores', workloadRef: null, window: '72h', stepSeconds: 1800,
+  start: isoSec(U_TIMES[0]), end: isoSec(U_TIMES[144]), source: { type: 'PROMETHEUS_PROXY', service: 'monitoring/prometheus-server:80' },
+  series: [],
+  namespaces: [{ namespace: 'team-a', requestedNow: 2, usedAvg: 0.08, series: [] }],
+  coverage: { firstSampleAt: isoSec(U_TIMES[0]), covered: 1 },
+  unavailable: null,
+};
+
+/** scope=cluster or scope=namespace, by the query. */
+const usageAnswer = (cluster = clusterUsage()) => (u: URL) =>
+  ({ status: 200, body: u.searchParams.get('scope') === 'namespace' ? namespaceUsage : u.searchParams.get('resource') === 'memory' ? clusterUsage('memory') : cluster });
+
+describe('Automation › Overview: the activity log, its summary and the usage feed (FEAT-006)', () => {
+  beforeEach(() => {
+    getCapabilities.mockReset();
+    mockedFetch.mockReset();
+    serve(200, ENDPOINT_1, { feed: { status: 200, body: FEED }, summary: { status: 200, body: SUMMARY }, usage: usageAnswer() });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('places every entry of the last 7 days on the timeline, one lane per workload or HPA, with its source dot', async () => {
+    await renderPanel(fixture('demo-aws-001'));
+    const timeline = await waitFor(() => {
+      const el = card('What automation did, last 7 days');
+      expect(el.querySelectorAll('[data-lane]')).toHaveLength(4);
+      return el;
+    });
+    expect(timeline).toHaveTextContent('Every change XamOps recorded in the last 7 days, one lane per workload or HPA');
+    expect(timeline.querySelector('[data-chart-source]')).toHaveTextContent('Activity log (FEAT-007, GET /api/eks/automation/activity/{cluster}?from=…&limit=200)');
+    expect([...timeline.querySelectorAll('[data-lane]')].map((l) => l.getAttribute('data-lane'))).toEqual(['idle-batch-listener', 'overprovisioned-api', 'throttled-encoder', 'php-apache']);
+    expect(timeline.querySelector('[data-lane="php-apache"] [data-feature-dot="hpa"]')).not.toBeNull();
+    // A test run is a hollow dot: nothing was sent.
+    expect(timeline.querySelector('[data-lane="overprovisioned-api"] circle[fill="none"]')).not.toBeNull();
+    const rows = [...timeline.querySelectorAll('tbody tr')].map((tr) => tr.textContent);
+    expect(rows).toHaveLength(4);
+    expect(rows[1]).toContain('Test run');
+    expect(rows[2]).toContain('Deferred, put back');
+  });
+
+  it("shows Saving now from the change endpoint 1 says is in place, sized by the log's before and after", async () => {
+    await renderPanel(fixture('demo-aws-001'));
+    const saving = await waitFor(() => kpi('Saving now'));
+    // (100m − 20m) × the 3 pods it resized; memory didn't move.
+    expect(saving).toHaveTextContent('0.24 vCPU');
+    expect(saving).toHaveTextContent('idle-batch-listener, in place on 3 pods');
+    expect(saving).not.toHaveTextContent('memory freed');
+    expect(document.querySelector('[data-overview-kpis]')).not.toHaveTextContent('Applied live');
+  });
+
+  it("leaves Saving now at — when the log doesn't hold the size before, and says why", async () => {
+    const legacy = { ...FEED, entries: [{ ...FEED.entries[0], change: { containers: [{ ...FEED.entries[0].change!.containers![0], beforeBasis: 'REQUESTED' }] } }] };
+    serve(200, ENDPOINT_1, { feed: { status: 200, body: legacy }, summary: { status: 200, body: SUMMARY }, usage: usageAnswer() });
+    await renderPanel(fixture('demo-aws-001'));
+    const saving = await waitFor(() => kpi('Saving now'));
+    expect(saving).toHaveTextContent('—');
+    expect(saving).toHaveTextContent("1 in place, but the activity log doesn't hold the size before for it");
+  });
+
+  it('counts the changes of the last 7 days per IST day from the summary, since the day it began recording', async () => {
+    await renderPanel(fixture('demo-aws-001'));
+    const changes = await waitFor(() => {
+      const el = kpi('Changes, last 7 days');
+      expect(el).toHaveTextContent('Applied: 3');
+      return el;
+    });
+    expect(changes).toHaveTextContent('7');
+    expect(changes).toHaveTextContent('Deferred or put back: 1');
+    expect(changes).toHaveTextContent('Refused: 1');
+    expect(changes).toHaveTextContent('Test runs: 2');
+    expect(changes).toHaveTextContent('2 of the 7 were test runs: nothing was sent.');
+    expect(changes).toHaveTextContent(/counted per IST day since .+, when XamOps began recording every kind of change/);
+  });
+
+  it('stacks the cluster\'s CPU over 3 days with the provisioned line, a gap where nothing was measured, and a memory switch', async () => {
+    const user = userEvent.setup();
+    await renderPanel(fixture('demo-aws-001'));
+    const chart = await waitFor(() => {
+      const el = card('CPU and memory over time');
+      expect(el.querySelectorAll('tbody tr')).toHaveLength(145);
+      return el;
+    });
+    const rows = [...chart.querySelectorAll('tbody tr')];
+    expect([...rows[0].querySelectorAll('td')].map((td) => td.textContent)).toEqual(['1.50 vCPU', '2.00 vCPU', '3.86 vCPU', '4.00 vCPU']);
+    expect([...rows[100].querySelectorAll('td')].map((td) => td.textContent)).toEqual(['—', '2.00 vCPU', '3.86 vCPU', '4.00 vCPU']);
+    expect(chart.querySelector('[data-chart-source]')).toHaveTextContent('Prometheus monitoring/prometheus-server:80');
+    expect(chart.querySelector('[data-chart-source]')).toHaveTextContent('step 30 min, 3 days.');
+    expect(chart).toHaveTextContent('Provisioned (line)');
+    await user.click(within(chart).getByRole('button', { name: 'Memory' }));
+    await waitFor(() => expect(getsTo(/\/usage\//).some((u) => u.searchParams.get('scope') === 'cluster' && u.searchParams.get('resource') === 'memory')).toBe(true));
+    await waitFor(() => expect([...card('CPU and memory over time').querySelectorAll('tbody tr')][0]).toHaveTextContent('1.50 GiB'));
+  });
+
+  it('says how much history Prometheus keeps when it is shorter than the window', async () => {
+    serve(200, ENDPOINT_1, { feed: { status: 200, body: FEED }, summary: { status: 200, body: SUMMARY }, usage: usageAnswer(clusterUsage('cpu', 49)) });
+    await renderPanel(fixture('demo-aws-001'));
+    await waitFor(() => expect(card('CPU and memory over time').querySelector('[data-chart-partial]')).toHaveTextContent(/Prometheus keeps 2 days here\. No data before .+\./));
+  });
+
+  it('names an unavailable source in words, and offers Retry when the read failed', async () => {
+    const user = userEvent.setup();
+    serve(200, ENDPOINT_1, {
+      feed: { status: 200, body: FEED },
+      summary: { status: 200, body: SUMMARY },
+      usage: (u) => (u.searchParams.get('scope') === 'cluster'
+        ? { status: 200, body: { ...clusterUsage(), series: [], coverage: null, unavailable: { code: 'CLUSTER_ACCESS_NOT_CONFIGURED', message: 'No access entry.' } } }
+        : { status: 200, body: namespaceUsage }),
+    });
+    await renderPanel(fixture('demo-aws-001'));
+    await waitFor(() => expect(card('CPU and memory over time').querySelector('[data-empty="unavailable"]')).toHaveTextContent("XamOps can't sign in to this cluster, so it can't read Prometheus there."));
+
+    serve(200, ENDPOINT_1, { usage: { status: 502, body: { message: 'Bad gateway' } } });
+    await user.click(within(card('CPU and memory over time')).getByRole('button', { name: 'Memory' }));
+    const failed = await waitFor(() => {
+      const el = card('CPU and memory over time').querySelector<HTMLElement>('[data-empty="error"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(failed).toHaveTextContent('Bad gateway');
+    serve(200, ENDPOINT_1, { usage: usageAnswer() });
+    await user.click(within(failed).getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(card('CPU and memory over time').querySelectorAll('tbody tr')).toHaveLength(145));
+  });
+
+  it("uses Prometheus's 3-day average for each namespace's use, and names it", async () => {
+    await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { eksData: DASHBOARD });
+    const chart = card('CPU by namespace: requested, used and suggested');
+    await waitFor(() => {
+      const teamA = within(chart).getByRole('rowheader', { name: 'team-a', hidden: true }).closest('tr')!;
+      // 0.08 cores on average (the agent's reading was 40m).
+      expect([...teamA.querySelectorAll('td')].map((td) => td.textContent)).toEqual(['2.00 vCPU', '0.08 vCPU', '0.05 vCPU']);
+    });
+    expect(chart.querySelector('[data-chart-source]')).toHaveTextContent("the mean of each namespace's use over 3 days");
   });
 });

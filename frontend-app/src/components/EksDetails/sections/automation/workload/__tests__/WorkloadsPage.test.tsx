@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -23,12 +23,43 @@ import {
 
 const mockedFetch = apiClient.fetch as unknown as ReturnType<typeof vi.fn>;
 
-const gets = () => mockedFetch.mock.calls.filter(([, init]) => ((init as RequestInit | undefined)?.method ?? 'GET') === 'GET');
+const isFeed = (url: unknown) => String(url).includes('/api/eks/automation/activity/');
+const isUsage = (url: unknown) => String(url).includes('/api/eks/automation/usage/');
+/** Endpoint-1 reads; the activity feed and the usage feed (FEAT-004) are counted apart. */
+const gets = () => mockedFetch.mock.calls.filter(([url, init]) => ((init as RequestInit | undefined)?.method ?? 'GET') === 'GET' && !isFeed(url) && !isUsage(url));
+const feedGets = () => mockedFetch.mock.calls.filter(([url]) => isFeed(url));
+const sparklineGets = () => mockedFetch.mock.calls.filter(([url]) => String(url).includes('/sparklines')).map(([url]) => new URL(String(url), 'http://test'));
 const writes = () => mockedFetch.mock.calls.filter(([, init]) => ((init as RequestInit | undefined)?.method ?? 'GET') !== 'GET');
 
-function serveRead(body: unknown = endpointOne(), status = 200) {
+const S_END = Math.floor(Date.now() / 60_000) * 60;
+const S_TIMES = Array.from({ length: 73 }, (_, i) => S_END - 72 * 3600 + i * 3600);
+const isoSec = (sec: number) => new Date(sec * 1000).toISOString().replace('.000Z', 'Z');
+const spark = (namespace: string, name: string, used: (i: number) => number | null, request: number | null) => ({
+  ref: { namespace, kind: 'Deployment', name },
+  used: S_TIMES.map((t, i) => [t, used(i)]),
+  request: S_TIMES.map((t) => [t, request]),
+});
+/** The sparklines batch: overprovisioned-api busy, idle-batch-listener with no pod running; solo not in the answer. */
+const SPARKLINES = {
+  schemaVersion: 1, resource: 'cpu', unit: 'cores', window: '72h', stepSeconds: 3600, start: isoSec(S_TIMES[0]), end: isoSec(S_TIMES[72]),
+  source: { type: 'PROMETHEUS_PROXY', service: 'monitoring/prometheus-server:80' },
+  queries: { used: 'sum by (namespace, pod, container) (rate(...))', request: 'max by (namespace, pod, container) (requests)' },
+  workloads: [
+    spark('dev-sim', 'idle-batch-listener', () => null, null),
+    spark('prod-sim', 'throttled-encoder', (i) => (i === 30 ? null : 0.049), 0.01),
+    spark('team-a', 'overprovisioned-api', (i) => 0.02 + (i % 5) * 0.004, 1),
+  ],
+  unavailable: null,
+};
+
+/** Endpoint 1 for every read; the feed answers empty; `sparklines` answers the table's batch. */
+function serveRead(body: unknown = endpointOne(), status = 200, sparklines: { status: number; body: unknown } = { status: 200, body: SPARKLINES }) {
   mockedFetch.mockImplementation(async (url: string, init?: RequestInit) => {
     if ((init?.method ?? 'GET') !== 'GET') throw new Error(`unexpected write ${url}`);
+    if (isFeed(url)) return json(200, { engine: { enabled: true }, entries: [], nextCursor: null });
+    if (String(url).includes('/sparklines')) return json(sparklines.status, sparklines.body);
+    // A workload's usage chart, on its detail: a backend without it.
+    if (isUsage(url)) return json(404, null);
     return json(status, body);
   });
 }
@@ -111,7 +142,7 @@ describe('Workload autoscaler › Workloads (UI v3 plan §2)', () => {
     expect(over.querySelector('[data-delta="saved"]')).toHaveTextContent('1.95 vCPU · 1.5 GiB');
     expect(over.querySelector('[data-mini-bar]')).not.toBeNull();
     expect(over.querySelector('[data-step-indicator]')).toHaveTextContent('Suggestion ready');
-    expect(over.querySelector('[data-sparkline="empty"]')).not.toBeNull();
+    await waitFor(() => expect(over.querySelector('svg[data-sparkline]')).not.toBeNull());
 
     const throttled = table().querySelector<HTMLElement>('[data-workload-row="prod-sim/Deployment/throttled-encoder"]')!;
     expect(throttled.querySelector('[data-tone="bad"]')).toHaveTextContent('Needs more CPU (throttled)');
@@ -122,7 +153,42 @@ describe('Workload autoscaler › Workloads (UI v3 plan §2)', () => {
     expect(table().querySelector('[data-workload-row="team-b/Deployment/solo"] [data-step-indicator]')).toHaveTextContent('Not sized: 1 replica');
 
     const header = within(table()).getByRole('columnheader', { name: /Last 3 days/ });
-    expect(header).toHaveTextContent('History arrives with the usage feed');
+    expect(header).toHaveTextContent('Busiest pod: CPU use and its request');
+  });
+
+  it("draws each row's 3-day sparkline from one sparklines read: use against request, no pod running, or a dash", async () => {
+    page();
+    await screen.findByRole('button', { name: 'Apply overprovisioned-api' });
+    const row = (id: string) => table().querySelector<HTMLElement>(`[data-workload-row="${id}"]`)!;
+    await waitFor(() => expect(row('team-a/Deployment/overprovisioned-api').querySelector('svg[data-sparkline]')).not.toBeNull());
+    expect(sparklineGets()).toHaveLength(1);
+    expect(sparklineGets()[0].searchParams.get('resource')).toBe('cpu');
+    expect(sparklineGets()[0].searchParams.get('window')).toBe('72h');
+    // Use and the request it's compared with, on one scale from 0.
+    const over = row('team-a/Deployment/overprovisioned-api');
+    expect(over.querySelectorAll('svg[data-sparkline] path')).toHaveLength(2);
+    expect(over.querySelector('[data-sparkline-cell]')).toHaveAttribute('title', 'CPU use of the busiest pod, last 3 days: 20m to 36m, request 1000m.');
+    // A gap breaks the line: the hour nothing was measured is not drawn as 0.
+    const encoder = row('prod-sim/Deployment/throttled-encoder').querySelector('svg[data-sparkline] path:not([data-sparkline-reference])')!;
+    expect((encoder.getAttribute('d')!.match(/M/g) ?? []).length).toBe(2);
+    expect(row('dev-sim/Deployment/idle-batch-listener').querySelector('[data-sparkline="empty"]')).toHaveTextContent('no pod running');
+    // A workload the answer doesn't list is a dash.
+    expect(row('team-b/Deployment/solo')).toHaveTextContent('—');
+    expect(document.querySelector('[data-sparkline-source]')).toHaveTextContent('Source: usage feed (FEAT-004, GET /api/eks/automation/usage/{cluster}/sparklines?resource=cpu&window=72h), Prometheus monitoring/prometheus-server:80');
+  });
+
+  it('leaves the sparkline column out for a backend without the usage feed, and says why when Prometheus has none', async () => {
+    serveRead(endpointOne(), 200, { status: 404, body: null });
+    page();
+    await screen.findByRole('button', { name: 'Apply overprovisioned-api' });
+    await waitFor(() => expect(sparklineGets()).toHaveLength(1));
+    await waitFor(() => expect(within(table()).queryByRole('columnheader', { name: /Last 3 days/ })).toBeNull());
+    cleanup();
+    mockedFetch.mockReset();
+    serveRead(endpointOne(), 200, { status: 200, body: { ...SPARKLINES, workloads: [], unavailable: { code: 'NO_METRICS_SOURCE', message: 'No Prometheus.' } } });
+    page();
+    await screen.findByRole('button', { name: 'Apply overprovisioned-api' });
+    await waitFor(() => expect(within(table()).getByRole('columnheader', { name: /Last 3 days/ })).toHaveTextContent('No Prometheus answered in this cluster, so there is no history to draw.'));
   });
 
   it('filters by status, namespace and text, on the page', async () => {
@@ -157,6 +223,8 @@ describe('Workload autoscaler › Workloads (UI v3 plan §2)', () => {
     expect(await screen.findByText('Where it is now')).toBeInTheDocument();
     expect(document.querySelector('[data-workload-detail="prod-sim/Deployment/throttled-encoder"]')).not.toBeNull();
     expect(gets()).toHaveLength(1);
+    // The detail's "Recent changes" reads the activity feed, once.
+    await waitFor(() => expect(feedGets()).toHaveLength(1));
   });
 
   it('removes a malformed ?workload= with replace and says so', async () => {

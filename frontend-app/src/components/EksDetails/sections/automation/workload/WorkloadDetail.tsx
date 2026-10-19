@@ -8,15 +8,29 @@
  *    put-back rows from `pods[].revert`;
  *  - What changed, per pod, from the same reply: same pod or replaced, restarts before and after,
  *    ready, and what each container runs now;
- *  - request now, suggested and limit per container (endpoint 1), and the latest recorded change;
- *  - the time series and cost charts, each in its honest empty state with the source it needs;
+ *  - request now, suggested and limit per container (endpoint 1), and its recent changes from the
+ *    activity log (endpoint 1's latest change without it);
+ *  - CPU and memory over the look-back window, and CPU around the latest change applied live, from
+ *    the usage feed (the same pods the suggestion reads); cost per day is the current priced rate
+ *    from the FEAT-002 cost read (never a series: no daily history is kept); whether the new size took
+ *    effect stays in its honest empty state, with the source it needs;
  *  - the workload's own card (Apply, test run, mode switch, why and how), through the page's single
  *    read, so nothing is fetched twice and every gate stays the tab's.
  */
-import { useId } from 'react';
+import { useId, useMemo } from 'react';
 import { Icon } from '@iconify/react';
 import EksAutomationTab from '../../../tabs/EksAutomationTab';
 import type { UseVerticalRightsizerState } from '../../../../../hooks/useVerticalRightsizer';
+import useAutomationActivity, { type UseAutomationActivityState } from '../../../../../hooks/useAutomationActivity';
+import type { ActivityEntryView } from '../../../../../types/automationActivity';
+import {
+  actionText,
+  activityResultChip,
+  containerChangeText,
+  modeChangeText,
+  proofChip,
+  whoText,
+} from '../activity/activityText';
 import {
   DASH,
   formatMib,
@@ -27,6 +41,7 @@ import {
   writeGateText,
 } from '../../../../../api/verticalRightsizerAdapter';
 import { costUnavailableText } from '../verticalCopy';
+import { formatMoney } from '../../../../../utils/k8sQuantities';
 import type {
   ApplyOutcomeWire,
   ApplyPodProofWire,
@@ -65,6 +80,7 @@ import {
   workloadStatusChip,
 } from '../automationDerivations';
 import { CARD, Card, FAINT, INK, InPageLink, LINK, MUTED, RULE } from '../automationUi';
+import { ImpactCard, WorkloadUsageCard, latestLiveChange } from './workloadCharts';
 
 export interface WorkloadDetailProps {
   clusterName: string;
@@ -417,32 +433,138 @@ function CostCard({ workload }: { workload: WorkloadView }) {
   );
 }
 
-function RecentChange({ workload }: { workload: WorkloadView }) {
+/** How many of the workload's feed entries "Recent changes" shows. */
+export const RECENT_CHANGES_SHOWN = 5;
+
+/** Endpoint 1's newest change for the workload: the view for a backend without the activity feed. */
+function LastActionLine({ workload }: { workload: WorkloadView }) {
   const a = workload.lastAction;
   const result = a ? actionResult(a.outcome, a.dryRun) : null;
   const at = instantMs(a?.at);
+  return a && result ? (
+    <div className="flex flex-wrap items-center gap-2 text-[12px]">
+      <span className={`tabular-nums ${INK}`} title={a.at ?? undefined}>{at !== null ? istShort(at) : DASH}</span>
+      <StatusChip tone={result.tone} icon={result.icon} label={result.label} />
+      <span className={MUTED}>{a.dryRun === true ? 'Test run' : 'Live'}</span>
+    </div>
+  ) : (
+    <p className={`text-[12px] ${MUTED}`}>XamOps hasn&apos;t recorded a change to this workload.</p>
+  );
+}
+
+/** One feed entry, on one line: when, what changed, the result and the proof. */
+function RecentEntry({ entry }: { entry: ActivityEntryView }) {
+  const chip = activityResultChip(entry);
+  const proof = proofChip(entry);
+  const change = entry.action === 'mode-change'
+    ? modeChangeText(entry)
+    : entry.containers
+      .flatMap((c) => containerChangeText(c, entry).map((l) => `${c.container}: ${l.field} ${l.text}${l.note ? `, ${l.note}` : ''}`))
+      .join('; ');
   return (
-    <Card title="Recent change">
-      {a && result ? (
-        <div className="flex flex-wrap items-center gap-2 text-[12px]">
-          <span className={`tabular-nums ${INK}`} title={a.at ?? undefined}>{at !== null ? istShort(at) : DASH}</span>
-          <StatusChip tone={result.tone} icon={result.icon} label={result.label} />
-          <span className={MUTED}>{a.dryRun === true ? 'Test run' : 'Live'}</span>
-        </div>
-      ) : (
-        <p className={`text-[12px] ${MUTED}`}>XamOps hasn&apos;t recorded a change to this workload.</p>
-      )}
+    <li className="flex flex-wrap items-center gap-2 py-1.5 text-[12px]" data-recent-entry={entry.id}>
+      <span className={`whitespace-nowrap tabular-nums ${INK}`} title={entry.atRaw ? `${entry.atRaw} (UTC)` : undefined}>
+        {entry.at !== null ? istShort(entry.at) : DASH}
+      </span>
+      <StatusChip tone={chip.tone} icon={chip.icon} label={chip.label} />
+      {proof && <StatusChip tone={proof.tone} icon={proof.icon} label={proof.label} weight="normal" />}
+      <span className={`min-w-0 flex-1 break-words ${MUTED}`}>{change || actionText(entry)}</span>
+      <span className={FAINT}>{whoText(entry)}</span>
+    </li>
+  );
+}
+
+/**
+ * "Cost per day" (owner decision A, superseding plan §1.4): the workload's current priced rate from
+ * the FEAT-002 cost read, never a series. The cost engine keeps no daily history, so a line or bars
+ * drawn over the window would be one number repeated. The per-day figure is the monthly cost over
+ * the backend's own hours per month; a dash and the backend's reason when it isn't priced.
+ */
+export function CostPerDayCard({ workload, hoursPerMonth }: { workload: WorkloadView; hoursPerMonth: number | null }) {
+  const cost = workload.cost;
+  const source = 'Source: Workload autoscaler (endpoint 1): the node\'s live AWS price, attributed per workload. No daily history is kept.';
+  if (!cost) {
+    return (
+      <ChartCard
+        title="Cost per day"
+        source={source}
+        state={{ kind: 'unavailable', reason: 'XamOps didn\'t price this workload: the cost read is off in this environment.' }}
+      />
+    );
+  }
+  if (cost.monthlyCost === null) {
+    return <ChartCard title="Cost per day" source={source} state={{ kind: 'unavailable', reason: `${DASH} ${costUnavailableText(cost.reason)}` }} />;
+  }
+  const perDay = hoursPerMonth !== null && hoursPerMonth > 0 ? (cost.monthlyCost * 24) / hoursPerMonth : null;
+  return (
+    <ChartCard title="Cost per day" source={source} subline={cost.note ?? undefined}>
+      <div className="space-y-1 py-2" data-cost-per-day="">
+        <p className={`text-[22px] font-semibold tabular-nums ${INK}`}>{perDay !== null ? `${formatMoney(perDay)}/day` : formatMonthlyUsd(cost.monthlyCost)}</p>
+        <p className={`text-[12px] ${MUTED}`}>
+          {perDay !== null
+            ? `At today's price: ${formatMonthlyUsd(cost.monthlyCost)} over ${hoursPerMonth} hours a month.`
+            : "At today's price, per month: the backend didn't say how many hours a month it counts."}
+          {cost.capacityTypeInferred ? ' Assumed on-demand (no capacity-type label on the node).' : ''}
+        </p>
+        <p className={`text-[12px] ${MUTED}`}>XamOps keeps no daily cost history, so there is no series to draw.</p>
+      </div>
+    </ChartCard>
+  );
+}
+
+/**
+ * "Recent changes": the workload's last few entries in the activity feed (FEAT-007), read by name
+ * and matched exactly on namespace, kind and name. A backend without the feed shows endpoint 1's
+ * newest change instead, and says what it leaves out.
+ */
+function RecentChanges({ feed, workload }: { feed: UseAutomationActivityState; workload: WorkloadView }) {
+  const { namespace, kind, name } = workload.ref;
+  const mine = feed.result?.kind === 'ok'
+    ? feed.entries.filter((e) => e.target.namespace === namespace && e.target.kind === kind && e.target.name === name).slice(0, RECENT_CHANGES_SHOWN)
+    : [];
+  return (
+    <Card title="Recent changes">
+      <div data-recent-changes={feed.result?.kind ?? 'loading'}>
+        {feed.loading && !feed.result ? (
+          <div className="skeleton h-8 rounded dark:bg-none dark:bg-[rgba(255,255,255,0.06)]" aria-busy="true" />
+        ) : feed.result?.kind === 'ok' ? (
+          mine.length > 0 ? (
+            <ul className={`divide-y ${RULE}`}>
+              {mine.map((e) => <RecentEntry key={e.id} entry={e} />)}
+            </ul>
+          ) : (
+            <p className={`text-[12px] ${MUTED}`}>XamOps hasn&apos;t recorded a change to this workload.</p>
+          )
+        ) : (
+          <>
+            <LastActionLine workload={workload} />
+            {feed.result && feed.result.kind !== 'not-deployed' && (
+              <p className={`mt-1 text-[12px] ${MUTED}`}>
+                {`Couldn't read the activity log, so this is the newest change endpoint 1 reports${feed.result.kind === 'error' || feed.result.kind === 'refused' || feed.result.kind === 'cluster-not-registered' ? `: ${feed.result.message}` : '.'}`}
+              </p>
+            )}
+          </>
+        )}
+      </div>
       <p className={`mt-2 text-[11px] ${FAINT}`}>
-        Source: Workload autoscaler (endpoint 1): lastAction, the newest change XamOps recorded for this workload. Test runs
-        and changes that were put back aren&apos;t recorded yet.
+        {feed.result?.kind === 'ok'
+          ? `Source: the activity log, the newest ${RECENT_CHANGES_SHOWN} entries for this workload: changes, test runs, put-backs and refusals. Every change is on Automation › Activity.`
+          : "Source: Workload autoscaler (endpoint 1): lastAction, the newest change XamOps recorded for this workload. Test runs and changes that were put back need the activity log."}
       </p>
     </Card>
   );
 }
 
+/** The workload's entries in the activity log: read by name, then matched exactly on its ref. */
+const RECENT_FEED_LIMIT = 20;
+
 export function WorkloadDetail({ clusterName, accountId, region, workload, controller, replyAt, listHref, now }: WorkloadDetailProps) {
+  // One read of the activity log for this workload, shared by "Recent changes" and the impact chart.
+  const feedFilters = useMemo(() => ({ features: ['VERTICAL' as const], results: [], q: workload.ref.name }), [workload.ref.name]);
+  const feed = useAutomationActivity({ clusterName, accountId, region, filters: feedFilters, limit: RECENT_FEED_LIMIT });
   const reply = controller.applyResults[workload.id];
   const applying = controller.applyingIds.has(workload.id);
+  const change = latestLiveChange(workload, feed.result?.kind === 'ok' ? feed.entries : null, reply, replyAt);
   const life = workloadLifecycle(workload, { applying, reply, replyAt, now });
   const sentence = nowSentence('workload-detail', sentenceInputs(workload, reply, replyAt, now));
   const outcome = stepperOutcome(applying, reply);
@@ -485,24 +607,14 @@ export function WorkloadDetail({ clusterName, accountId, region, workload, contr
 
       <SizesCard workload={workload} />
       <CostCard workload={workload} />
-      <RecentChange workload={workload} />
+      <RecentChanges feed={feed} workload={workload} />
+
+      <WorkloadUsageCard clusterName={clusterName} accountId={accountId} region={region} workload={workload} />
+      {/* Shown only when a change was applied live (keyed by it, so a new change reads its own window). */}
+      {change && <ImpactCard key={change.at} clusterName={clusterName} accountId={accountId} region={region} workload={workload} change={change} />}
 
       <div className="grid gap-4 md:grid-cols-2">
-        <ChartCard
-          title="CPU and memory over the window"
-          source="Usage feed (planned): this workload's pods from Prometheus in your cluster, the same pods the suggestion reads; request, limit and use."
-          state={{ kind: 'history-pending', from: "It will come from Prometheus in your cluster: this workload's use, request and limit over the look-back window." }}
-        />
-        <ChartCard
-          title="Impact around the change"
-          source="Usage feed (planned): the test pod's request, limit and use from 3 hours before the change."
-          state={{ kind: 'history-pending', from: "It will come from Prometheus in your cluster: the test pod's CPU around the time of the change." }}
-        />
-        <ChartCard
-          title="Cost per day"
-          source="Prices (planned): what the workload reserves per day, at list price."
-          state={{ kind: 'unavailable', reason: "Needs CPU and memory prices, which XamOps doesn't read yet." }}
-        />
+        <CostPerDayCard workload={workload} hoursPerMonth={controller.result?.kind === 'ok' ? controller.result.view.cost?.hoursPerMonth ?? null : null} />
         <ChartCard
           title="Did the new size take effect?"
           source="cgroup series (planned): the limit declared in the pod spec against the limit in effect on the node."

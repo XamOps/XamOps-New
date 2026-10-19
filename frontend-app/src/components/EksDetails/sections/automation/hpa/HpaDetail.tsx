@@ -6,12 +6,15 @@
  * scales on, CPU now against its target and, when the agent reported all three, what the HPA itself
  * asks for by its own formula), a banner while it is held at its maximum, its conditions in plain
  * words, the "Works with XamOps" checks, XamOps's decision with the same gated Apply as the list,
- * and the two history charts, which need kube-state-metrics' series XamOps doesn't read yet.
+ * and its history (FEAT-004, kube-state-metrics): replicas and CPU against the target, the time at
+ * its maximum, and every change of its replica count.
  */
 import type { ReactNode } from 'react';
 import { Icon } from '@iconify/react';
 import { DASH, hpaApplyGate } from '../../../../../api/hpaAdapter';
 import type { UseHpaAutomationState } from '../../../../../hooks/useHpaAutomation';
+import type { InsightReadState } from '../../../../../hooks/useInsightRead';
+import type { HpaHistoryView } from '../../../../../types/automationInsights';
 import type { HpaPageView } from '../../../../../types/hpaAutomation';
 import { FeatureMark } from '../../../../CloudK8s/shared/status/FeatureMark';
 import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
@@ -20,7 +23,7 @@ import { RangeBar } from '../../../../CloudK8s/shared/charts/RangeBar';
 import { hpaConditionText, hpaWants, hpaWorksChecks, rowHasFlag, type HpaRow } from '../automationDerivations';
 import { CARD, Card, DIVIDE, FAINT, INK, InPageLink, LINK, MUTED, RULE } from '../automationUi';
 import { HpaDecisionPanel } from './HpaDecision';
-import { FROM_AGENT, HpaHistoryCards } from './hpaShared';
+import { FROM_AGENT, HpaChangesCard, HpaHistoryCards } from './hpaShared';
 
 export interface HpaDetailProps {
   row: HpaRow;
@@ -32,6 +35,8 @@ export interface HpaDetailProps {
   state: UseHpaAutomationState;
   /** The HPA list (this page without `?hpa=`). */
   listHref: string;
+  /** This HPA's history (FEAT-004), read by the page; null when it wasn't read. */
+  history?: InsightReadState<HpaHistoryView> | null;
 }
 
 const n = (v: number | null | undefined): string => (v === null || v === undefined ? DASH : String(v));
@@ -46,7 +51,7 @@ function Tile({ label, children, sub }: { label: string; children: ReactNode; su
   );
 }
 
-export function HpaDetail({ row, view, engineRead, dryRun, onDryRun, state, listHref }: HpaDetailProps) {
+export function HpaDetail({ row, view, engineRead, dryRun, onDryRun, state, listHref, history = null }: HpaDetailProps) {
   const live = row.live;
   const wants = live ? hpaWants(live) : null;
   const atMax = rowHasFlag(row, 'at-max');
@@ -171,7 +176,12 @@ export function HpaDetail({ row, view, engineRead, dryRun, onDryRun, state, list
         )}
       </Card>
 
-      <HpaHistoryCards subject={row.name} />
+      {history && (
+        <>
+          <HpaHistoryCards subject={row.name} read={history} />
+          <HpaChangesCard subject={row.name} read={history} />
+        </>
+      )}
     </div>
   );
 }

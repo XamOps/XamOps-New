@@ -5,17 +5,22 @@ import HpaPage, { MALFORMED_HPA_NOTICE, missingHpaNotice } from '../HpaPage';
 import { currentSearch, renderAt } from '../../workload/__tests__/fixtures';
 import type { UseEksDashboardReturn } from '../../../../../../hooks/useEksDashboard';
 import { adaptHpaPage } from '../../../../../../api/hpaAdapter';
-import { fetchHpaPage, applyHpaRecommendation } from '../../../../../../api/hpaApi';
+import { fetchHpaPage, applyHpaRecommendation, fetchHpaHistory } from '../../../../../../api/hpaApi';
+import { adaptHpaHistory } from '../../../../../../api/automationInsightsAdapter';
+import type { HpaHistoryResponseWire } from '../../../../../../types/automationInsights';
 import type { VerticalEngineResponseWire, VerticalWorkloadWire } from '../../../../../../types/verticalRightsizer';
 
 vi.mock('../../../../../../api/hpaApi', () => ({
   fetchHpaPage: vi.fn(),
   applyHpaRecommendation: vi.fn(),
   hpaApplyUrl: vi.fn(),
+  // FEAT-004's history read; each test starts with a backend that doesn't serve it (beforeEach).
+  fetchHpaHistory: vi.fn(),
 }));
 
 const mockedRead = fetchHpaPage as unknown as ReturnType<typeof vi.fn>;
 const mockedApply = applyHpaRecommendation as unknown as ReturnType<typeof vi.fn>;
+const mockedHistory = fetchHpaHistory as unknown as ReturnType<typeof vi.fn>;
 
 const engine: VerticalEngineResponseWire['engine'] = {
   enabled: true,
@@ -68,6 +73,7 @@ const renderTab = () => render(<MemoryRouter><HpaPage clusterName="c1" accountId
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockedHistory.mockImplementation(async () => ({ kind: 'not-deployed' }));
 });
 
 // Moved verbatim from main's EksHpaTab.test.tsx ("EksHpaTab — HPA decision + Apply gating") when the
@@ -213,16 +219,138 @@ describe('HpaPage — HPAs on this cluster (UI v3 plan §2 "HPA")', () => {
     expect(await screen.findByText(/Test run passed/i)).toBeInTheDocument();
   });
 
-  it('links each HPA to its detail with ?hpa=<namespace>/<name>, and keeps the history charts honest', async () => {
+  it('links each HPA to its detail with ?hpa=<namespace>/<name>, and draws no history a backend without it can\'t serve', async () => {
     resolveWith({ engine, gateReasons: [], workloads: [phpApache()] });
     hpaPage();
     await rowOf('team-b/php-apache');
     const href = new URL(screen.getByRole('link', { name: 'Details for php-apache' }).getAttribute('href')!, 'http://test');
     expect(href.searchParams.get('hpa')).toBe('team-b/php-apache');
     expect(href.searchParams.get('sub')).toBe('hpa');
-    const pending = [...document.querySelectorAll('[data-empty="history-pending"]')];
-    expect(pending).toHaveLength(2);
-    for (const p of pending) expect(p).toHaveTextContent('kube-state-metrics');
+    // An untyped 404 (no history endpoint): the history cards and the "Last scaled" column aren't rendered.
+    await waitFor(() => expect(mockedHistory).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole('columnheader', { name: 'Last scaled' })).toBeNull());
+    expect(screen.queryByRole('heading', { name: 'Replicas and CPU use, together' })).toBeNull();
+    expect(document.querySelector('[data-empty="history-pending"]')).toBeNull();
+  });
+});
+
+// ─── Phase 2 (FEAT-006): the HPA history, from kube-state-metrics ─────────────
+
+const H_START = Date.UTC(2026, 9, 14, 0, 0, 0) / 1000;
+const STEP = 1800;
+/** php-apache's history: 5 of 1–5 throughout, CPU 64% against 50%, at its maximum all but its first hour. */
+function phpHistory(over: Partial<HpaHistoryResponseWire> = {}): HpaHistoryResponseWire {
+  const times = Array.from({ length: 145 }, (_, i) => H_START + i * STEP);
+  const series = (key: string, label: string, unit: string, value: (i: number) => number | null) => ({
+    key, label, unit, points: times.map((t, i) => [t, value(i)] as [number, number | null]), query: `max(kube_horizontalpodautoscaler_${key}{namespace="team-b",horizontalpodautoscaler="php-apache"})`,
+  });
+  const iso = (sec: number) => new Date(sec * 1000).toISOString().replace('.000Z', 'Z');
+  return {
+    schemaVersion: 1, namespace: 'team-b', name: 'php-apache', window: '72h', stepSeconds: STEP,
+    start: iso(times[0]), end: iso(times[times.length - 1]),
+    source: { type: 'PROMETHEUS_PROXY', service: 'monitoring/prometheus-server:80' },
+    series: [
+      series('currentReplicas', 'Replicas running', 'replicas', (i) => (i < 2 ? 4 : 5)),
+      series('minReplicas', 'Minimum', 'replicas', () => 1),
+      series('maxReplicas', 'Maximum', 'replicas', () => 5),
+      // One step nothing measured: a gap, never 0.
+      series('cpuUtilization', 'CPU used', 'percent', (i) => (i === 10 ? null : 64)),
+      series('cpuTarget', 'Target', 'percent', () => 50),
+    ],
+    atMax: {
+      share: 0.9861, minutesAtMax: 4260, minutesMeasured: 4320,
+      runs: [{ from: iso(times[2]), to: null }], runsTruncated: false, since: iso(times[2]), stepSeconds: 60,
+      query: 'max(current) >= bool max(max)',
+    },
+    changes: [{ at: iso(times[2]), from: 4, to: 5 }],
+    changesTruncated: false,
+    firstSampleAt: iso(times[0]),
+    unavailable: null,
+    ...over,
+  };
+}
+const historyOk = (wire: HpaHistoryResponseWire = phpHistory()) => ({ kind: 'ok', view: adaptHpaHistory(wire) });
+const card = (title: string) => screen.getByRole('heading', { name: title }).closest('section') as HTMLElement;
+
+describe('HpaPage — the HPA history (FEAT-004 → FEAT-006)', () => {
+  it('reads each HPA once and draws replicas and CPU against the target, with the time at its maximum', async () => {
+    resolveWith({ engine, gateReasons: [], workloads: [phpApache()] });
+    mockedHistory.mockImplementation(async () => historyOk());
+    hpaPage();
+    await rowOf('team-b/php-apache');
+    await screen.findByRole('heading', { name: 'Replicas and CPU use, together' });
+    expect(mockedHistory).toHaveBeenCalledTimes(1);
+    expect(mockedHistory.mock.calls[0].slice(0, 5)).toEqual(['c1', { namespace: 'team-b', name: 'php-apache' }, '123456789012', 'ap-south-1', '72h']);
+
+    const replicas = card('Replicas and CPU use, together');
+    expect(replicas.querySelector('[data-chart-source]')).toHaveTextContent('kube_horizontalpodautoscaler_status_current_replicas');
+    expect(replicas.querySelector('[data-chart-source]')).toHaveTextContent('step 30 min, 3 days.');
+    const rows = [...replicas.querySelectorAll('tbody tr')];
+    expect(rows).toHaveLength(145);
+    expect([...rows[0].querySelectorAll('td')].map((td) => td.textContent)).toEqual(['4', '1', '5', '64%', '50%']);
+    // The step Prometheus didn't measure is a dash, never 0%.
+    expect([...rows[10].querySelectorAll('td')].map((td) => td.textContent)).toEqual(['5', '1', '5', '—', '50%']);
+
+    const strip = card('Time at its maximum, last 3 days');
+    expect(strip).toHaveTextContent('98.61% of the last 3 days · below it for 1 h');
+    expect(strip).toHaveTextContent('At its maximum: 71 h');
+    expect(strip.querySelector('[data-time-strip]')).not.toBeNull();
+    expect(strip.querySelector('[data-chart-source]')).toHaveTextContent('>= bool kube_horizontalpodautoscaler_spec_max_replicas, step 1 min, 3 days.');
+
+    // The table's "Last scaled", from the same read.
+    expect(screen.getByRole('columnheader', { name: 'Last scaled' })).toBeInTheDocument();
+    expect(document.querySelector('[data-hpa-last-scaled="team-b/php-apache"]')).toHaveTextContent('1 change in 3 days');
+  });
+
+  it('flags an HPA that never scaled in the window', async () => {
+    resolveWith({ engine, gateReasons: [], workloads: [phpApache()] });
+    mockedHistory.mockImplementation(async () => historyOk(phpHistory({ changes: [] })));
+    hpaPage();
+    const row = await rowOf('team-b/php-apache');
+    await waitFor(() => expect(document.querySelector('[data-hpa-last-scaled="team-b/php-apache"]')).toHaveTextContent('Not in 3 days'));
+    expect(row).toHaveTextContent('Never scales: no change in 3 days');
+  });
+
+  it('says why in words when Prometheus has no data, and offers Retry when the read failed', async () => {
+    resolveWith({ engine, gateReasons: [], workloads: [phpApache()] });
+    mockedHistory.mockImplementation(async () => historyOk(phpHistory({ series: [], atMax: null, unavailable: { code: 'METRICS_TIMEOUT', message: 'Prometheus timed out.' } })));
+    hpaPage();
+    await rowOf('team-b/php-apache');
+    await waitFor(() => expect(card('Replicas and CPU use, together').querySelector('[data-empty="unavailable"]')).toHaveTextContent('Prometheus in the cluster took too long to answer.'));
+    cleanup();
+
+    mockedHistory.mockImplementation(async () => ({ kind: 'error', message: 'HTTP 502' }));
+    hpaPage();
+    await rowOf('team-b/php-apache');
+    const failed = await waitFor(() => {
+      const el = card('Time at its maximum, last 3 days').querySelector<HTMLElement>('[data-empty="error"]');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(failed).toHaveTextContent('HTTP 502');
+    mockedHistory.mockImplementation(async () => historyOk());
+    fireEvent.click(within(failed).getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(card('Time at its maximum, last 3 days')).toHaveTextContent('98.61% of the last 3 days'));
+  });
+
+  it('marks history shorter than the window as partial, with "Prometheus keeps … here"', async () => {
+    resolveWith({ engine, gateReasons: [], workloads: [phpApache()] });
+    const late = phpHistory();
+    mockedHistory.mockImplementation(async () => historyOk({ ...late, firstSampleAt: new Date((H_START + 48 * STEP) * 1000).toISOString() }));
+    hpaPage();
+    await rowOf('team-b/php-apache');
+    await waitFor(() => expect(card('Replicas and CPU use, together').querySelector('[data-chart-partial]')).toHaveTextContent('Prometheus keeps 2 days here.'));
+  });
+
+  it('shows the detail\'s history and every replica change', async () => {
+    resolveWith({ engine, gateReasons: [], workloads: [phpApache()] });
+    mockedHistory.mockImplementation(async () => historyOk());
+    hpaPage(`${HPA_PAGE}&hpa=${encodeURIComponent('team-b/php-apache')}`);
+    await waitFor(() => expect(document.querySelector('[data-hpa-detail="team-b/php-apache"]')).not.toBeNull());
+    await screen.findByRole('heading', { name: 'Replicas and CPU use, together' });
+    const changes = card('Replica changes, last 3 days');
+    expect(changes).toHaveTextContent('4 → 5 replicas');
+    expect(mockedHistory).toHaveBeenCalledTimes(1);
   });
 });
 

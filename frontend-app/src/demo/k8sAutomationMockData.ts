@@ -23,6 +23,7 @@ import type {
   ReadinessKey,
 } from '../types/k8sAutomation';
 import type { VerticalStatusWire, VerticalWorkloadWire } from '../types/verticalRecommendations';
+import type { ActivityEntryWire, ActivityPageWire } from '../types/automationActivity';
 import { READINESS_KEYS } from '../types/k8sAutomation';
 
 /** The §6.7 messages, as the server sends them while a key is not ready. */
@@ -43,6 +44,20 @@ export const DEMO_READINESS_MESSAGES: Record<ReadinessKey, string> = {
 export const DEMO_K8S_ACCOUNTS = ['demo-aws-001', 'demo-aws-002'] as const;
 
 const ago = (now: number, seconds: number) => new Date(now - seconds * 1000).toISOString();
+
+/**
+ * When each demo activity entry happened, in seconds before now. Shared by endpoint 1's
+ * `lastAction` and the activity feed, so the two always tell the same story.
+ */
+const DEMO_ACTIVITY_AGO = {
+  apiServerPutBack: 12 * 60,
+  apiStagingTestRun: 25 * 60,
+  frontendRefused: 2 * 3600 + 10 * 60,
+  workerHpa: 5 * 3600 + 4 * 60,
+  grafanaApplied: 26 * 3600 + 13 * 60,
+  alertmanagerMode: 3 * 24 * 3600 + 2 * 3600,
+  apiServerLegacyFailed: 4 * 24 * 3600 + 5 * 3600,
+} as const;
 
 function readiness(): Record<string, CapabilitiesReadiness> {
   return Object.fromEntries(READINESS_KEYS.map((key) => [key, {
@@ -196,10 +211,13 @@ export function demoVerticalStatus(cluster: string, now: number = Date.now()): V
     engine: engine(true),
     gateReasons: ['CONTROLLER_NOT_READY'],
     workloads: [
-      // Throttled: the request goes up and the limit moves with it. Priced on-demand (real quote).
+      // Throttled: the request goes up and the limit moves with it. Priced on-demand (real quote). Its
+      // raise was deferred twice by a full node (the activity feed): endpoint 1 reports the older,
+      // pre-put-back failure, because a deferral XamOps put back changed no pod and isn't a lastAction.
       w('production', 'Deployment', 'api-server', {
         replicas: 3, findings: ['THROTTLED'],
         containers: [{ name: 'api-server', qosClass: 'Burstable', current: res(256, 512, 512, 1024), recommended: res(400, 512, 800, 1024), reasons: ['LIMIT_MOVED'] }],
+        lastAction: { at: ago(now, DEMO_ACTIVITY_AGO.apiServerLegacyFailed), dryRun: false, outcome: 'FAILED' },
         cost: {
           monthlyCost: 38.4, monthlySavings: 0, reason: null, source: 'PRICE_LIST',
           capacityType: 'on-demand', capacityTypeInferred: false,
@@ -216,9 +234,11 @@ export function demoVerticalStatus(cluster: string, now: number = Date.now()): V
         replicas: 2, gitopsManaged: true,
         containers: [{ name: 'frontend', qosClass: 'Burstable', current: res(50, 128, 200, 256), recommended: res(110, 250, 200, 256), reasons: [] }],
       }),
-      // Every container within hysteresis: no change recommended.
+      // Every container within hysteresis: no change recommended. Its size is the one a user applied
+      // a day ago (the activity feed's grafana entry), so endpoint 1 reports that change.
       w('monitoring', 'Deployment', 'grafana', {
         containers: [{ name: 'grafana', qosClass: 'Burstable', current: res(100, 256, 300, 512), recommended: null, reasons: ['WITHIN_HYSTERESIS'] }],
+        lastAction: { at: ago(now, DEMO_ACTIVITY_AGO.grafanaApplied), dryRun: false, outcome: 'APPLIED' },
       }),
       // Idle: decreased to the safe floors. Over-provisioned with a real monthly saving.
       w('staging', 'Deployment', 'api-staging', {
@@ -246,10 +266,12 @@ export function demoVerticalStatus(cluster: string, now: number = Date.now()): V
         mode: 'OFF', skipReason: 'POLICY_OFF',
         containers: [{ name: 'prometheus', qosClass: 'Guaranteed', current: res(500, 2048, 1000, 4096), recommended: null, reasons: [] }],
       }),
-      // A CPU decrease; memory is already under the floor and isn't raised without demand. Unpriced:
+      // A CPU decrease; memory is already under the floor and isn't raised without demand. A user
+      // switched it from Off to Suggest only three days ago (the activity feed's mode change). Unpriced:
       // the node type isn't known, so the savings cell falls to a dash + reason (§3.5 fail-honest).
       w('monitoring', 'StatefulSet', 'alertmanager', {
         containers: [{ name: 'alertmanager', qosClass: 'Burstable', current: res(50, 128, 200, 256), recommended: res(30, 128, 200, 256), reasons: ['BELOW_FLOOR_NO_RAISE'] }],
+        lastAction: { at: ago(now, DEMO_ACTIVITY_AGO.alertmanagerMode), dryRun: false, outcome: 'POLICY_CHANGE' },
         cost: {
           monthlyCost: null, monthlySavings: null, reason: 'UNKNOWN_INSTANCE_TYPE', source: null,
           capacityType: null, capacityTypeInferred: false, note: null,
@@ -326,4 +348,222 @@ export function demoNodeFleet(cluster: string, now: number = Date.now()): Automa
 export function demoRebalanceStatus(cluster: string): AutomationRebalanceStatus | null {
   if (!isNodeCluster(cluster)) return null;
   return { status: 'idle', message: 'No rebalance has been run yet' };
+}
+
+// ── Activity feed (FEAT-007): GET /api/eks/automation/activity/{cluster} ────────────────────────
+// prod-eks-cluster's own workloads, in the shapes the real xamops-test-1 history produced: a raise
+// the kubelet deferred and XamOps put back (throttled-encoder), a test run, a refused apply, an HPA
+// bound change (php-apache), a restart-free in-place apply (idle-batch-listener), a mode switch, and
+// one row written before the activity log existed, whose "before" is the target it asked for. Every
+// entry is a user's: no demo workload runs in Apply automatically. eu has no history; any other
+// cluster isn't registered.
+
+const MI = 1024 * 1024;
+
+const sizes = (cpuRequestMillis: number | null, cpuLimitMillis: number | null, memRequestMi: number | null, memLimitMi: number | null) => ({
+  cpuRequestMillis,
+  cpuLimitMillis,
+  memRequestBytes: memRequestMi === null ? null : memRequestMi * MI,
+  memLimitBytes: memLimitMi === null ? null : memLimitMi * MI,
+});
+
+function demoActivityEntries(now: number): ActivityEntryWire[] {
+  const a = DEMO_ACTIVITY_AGO;
+  return [
+    {
+      id: 108, at: ago(now, a.apiServerPutBack), feature: 'VERTICAL', origin: 'MANUAL', who: 'A user', action: 'RESIZE',
+      target: { namespace: 'production', kind: 'Deployment', name: 'api-server' },
+      dryRun: false, outcome: 'NOT_CHANGED', result: 'PUT_BACK', terminal: 'DEFERRED', restartFree: true,
+      change: { containers: [{ container: 'api-server', before: sizes(256, 512, 512, 1024), beforeBasis: 'OBSERVED', after: sizes(256, 512, 512, 1024), requested: sizes(400, 800, null, null) }], hpa: null, mode: null },
+      proof: {
+        restartFree: true,
+        reverted: true,
+        pods: [{
+          pod: 'api-server-7d4b9c6f5-x2kfp', node: null, uidChanged: false, restartsBefore: 0, restartsAfter: 0, ready: true,
+          revert: { state: 'REVERTED', detail: 'Put back to the size it ran before, and confirmed in the pod status.' },
+        }],
+      },
+      detail: "The kubelet deferred the resize of pod production/api-server-7d4b9c6f5-x2kfp because its node has no room for it right now (Node didn't have enough resource: cpu, requested: 400, used: 1880, capacity: 1930). Revert: REVERTED.",
+      reference: '3f1c9e2a-6b7d-4e1f-9a05-c2d8b7e41a90',
+    },
+    {
+      id: 107, at: ago(now, a.apiStagingTestRun), feature: 'VERTICAL', origin: 'MANUAL', who: 'A user', action: 'RESIZE',
+      target: { namespace: 'staging', kind: 'Deployment', name: 'api-staging' },
+      dryRun: true, outcome: 'TEST_RUN', result: 'TEST_RUN', terminal: 'DRY_RUN', restartFree: false,
+      change: { containers: [{ container: 'api-server', before: null, beforeBasis: null, after: null, requested: sizes(25, null, 250, null) }], hpa: null, mode: null },
+      proof: null,
+      detail: 'Dry run: no patch was sent to the cluster, so nothing was applied.',
+      reference: '7b8d4cda-1e52-4c3b-8f6a-0d9e2b17c4f3',
+    },
+    {
+      id: 106, at: ago(now, a.frontendRefused), feature: 'VERTICAL', origin: 'MANUAL', who: 'A user', action: 'RESIZE',
+      target: { namespace: 'production', kind: 'Deployment', name: 'frontend' },
+      dryRun: false, outcome: 'REFUSED', result: 'REFUSED', terminal: null, restartFree: false,
+      change: null, proof: null,
+      detail: 'K8S_GITOPS_MANAGED: Template persistence is not available for production/Deployment/frontend: XamOps does not patch a workload template, and whether this workload\'s template is owned by Argo CD or Flux cannot be established. Use IN_PLACE, which resizes the running pods without restarting them.',
+      reference: null,
+    },
+    {
+      id: 105, at: ago(now, a.workerHpa), feature: 'HPA', origin: 'MANUAL', who: 'A user', action: 'HPA_CHANGE',
+      target: { namespace: 'production', kind: 'HorizontalPodAutoscaler', name: 'worker-hpa' },
+      dryRun: false, outcome: 'APPLIED', result: 'APPLIED', terminal: null, restartFree: false,
+      change: { containers: null, hpa: { before: { minReplicas: 1, maxReplicas: 4, targetUtilizationPct: 60 }, after: { minReplicas: 1, maxReplicas: 5, targetUtilizationPct: 60 } }, mode: null },
+      proof: null,
+      detail: null,
+      reference: 'c5c6b919-13c6-4af2-a5cf-7dcacf0f8c0d',
+    },
+    {
+      id: 104, at: ago(now, a.grafanaApplied), feature: 'VERTICAL', origin: 'MANUAL', who: 'A user', action: 'RESIZE',
+      target: { namespace: 'monitoring', kind: 'Deployment', name: 'grafana' },
+      dryRun: false, outcome: 'APPLIED', result: 'APPLIED', terminal: 'APPLIED', restartFree: true,
+      change: { containers: [{ container: 'grafana', before: sizes(250, 300, 384, 512), beforeBasis: 'OBSERVED', after: sizes(100, 300, 256, 512), requested: sizes(100, null, 256, null) }], hpa: null, mode: null },
+      proof: {
+        restartFree: true,
+        reverted: null,
+        pods: [{ pod: 'grafana-6c9f8d7b5-q4mzt', node: null, uidChanged: false, restartsBefore: 0, restartsAfter: 0, ready: true, revert: null }],
+      },
+      detail: null,
+      reference: '2a6f0c81-9d34-4b7e-a1c5-58e0f3d92b46',
+    },
+    {
+      id: 103, at: ago(now, a.alertmanagerMode), feature: 'VERTICAL', origin: 'MANUAL', who: 'A user', action: 'MODE_CHANGE',
+      target: { namespace: 'monitoring', kind: 'StatefulSet', name: 'alertmanager' },
+      dryRun: false, outcome: 'POLICY_CHANGE', result: null, terminal: null, restartFree: false,
+      change: { containers: null, hpa: null, mode: { from: 'OFF', to: 'RECOMMEND' } },
+      proof: null,
+      detail: 'Mode changed from OFF to RECOMMEND.',
+      reference: null,
+    },
+    {
+      // Written before the activity log: its "before" is the target it asked for, and the deferral
+      // reads as the failure it was published as.
+      id: 102, at: ago(now, a.apiServerLegacyFailed), feature: 'VERTICAL', origin: 'MANUAL', who: 'A user', action: 'RESIZE',
+      target: { namespace: 'production', kind: 'Deployment', name: 'api-server' },
+      dryRun: false, outcome: 'FAILED', result: 'FAILED', terminal: null, restartFree: true,
+      change: { containers: [{ container: 'api-server', before: sizes(400, 800, null, null), beforeBasis: 'REQUESTED', after: sizes(400, 800, 512, 1024), requested: sizes(400, 800, null, null) }], hpa: null, mode: null },
+      proof: null,
+      detail: "Kubernetes deferred the resize: the node didn't have enough CPU (requested: 400, used: 1880, capacity: 1930).",
+      reference: null,
+    },
+  ];
+}
+
+export interface DemoActivityQuery {
+  feature: string;
+  result: string;
+  q: string;
+  limit: string;
+  cursor: string;
+  /** ISO-8601 bounds; empty when not given. */
+  from?: string;
+  to?: string;
+}
+
+/**
+ * `GET /api/eks/automation/activity/{cluster}` for the demo clusters, filtered and paged the way the
+ * server does it (feature, result, name contains, limit, an opaque cursor), or null for a cluster the
+ * demo doesn't register.
+ */
+export function demoActivityPage(cluster: string, query: DemoActivityQuery, now: number = Date.now()): ActivityPageWire | null {
+  if (!isNodeCluster(cluster)) return null;
+  const all = cluster === 'prod-eks-cluster' ? demoActivityEntries(now) : [];
+  const csv = (v: string) => v.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+  const features = csv(query.feature);
+  const results = csv(query.result);
+  const q = query.q.trim().toLowerCase();
+  const from = query.from ? Date.parse(query.from) : NaN;
+  const to = query.to ? Date.parse(query.to) : NaN;
+  const matching = all.filter((e) =>
+    (features.length === 0 || features.includes(e.feature ?? ''))
+    && (results.length === 0 || results.includes(e.result ?? ''))
+    && (q === '' || (e.target?.name ?? '').toLowerCase().includes(q))
+    && (!Number.isFinite(from) || Date.parse(e.at ?? '') >= from)
+    && (!Number.isFinite(to) || Date.parse(e.at ?? '') <= to));
+  const parsedLimit = Number.parseInt(query.limit, 10);
+  const limit = Number.isFinite(parsedLimit) && parsedLimit >= 1 && parsedLimit <= 200 ? parsedLimit : 50;
+  const offsetMatch = /^demo-(\d+)$/.exec(query.cursor);
+  const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
+  const page = matching.slice(offset, offset + limit);
+  const next = offset + limit < matching.length ? `demo-${offset + limit}` : null;
+  return { engine: { enabled: true }, entries: page, nextCursor: next };
+}
+
+// ── Activity summary (FEAT-005): GET /api/eks/automation/activity/{cluster}/summary ─────────────
+// The same demo entries counted per Asia/Kolkata day with their own `result`, the way the server
+// counts the feed. As on the server, a day before the first record, or before the first row only the
+// full activity log writes (`completeSince`: a test run, a put-back, an HPA change or a resize stored
+// with its proof), is left out, never zero-filled. Mode changes have no result and aren't counted.
+
+const IST_OFFSET_MS = 5.5 * 3600 * 1000;
+const istDate = (ms: number) => new Date(ms + IST_OFFSET_MS).toISOString().slice(0, 10);
+
+type DayCounts = { applied: number; putBack: number; refused: number; testRuns: number; failed: number };
+
+const COUNT_KEY: Record<string, keyof DayCounts> = {
+  APPLIED: 'applied',
+  PUT_BACK: 'putBack',
+  REFUSED: 'refused',
+  TEST_RUN: 'testRuns',
+  FAILED: 'failed',
+};
+
+const zero = (): DayCounts => ({ applied: 0, putBack: 0, refused: 0, testRuns: 0, failed: 0 });
+
+/** Written only by the full activity log (FEAT-005's completeSince rule). */
+const fullLogRow = (e: ActivityEntryWire): boolean =>
+  e.outcome === 'TEST_RUN' || e.outcome === 'NOT_CHANGED' || e.feature === 'HPA' || (e.action === 'RESIZE' && !!e.terminal);
+
+export interface DemoSummaryAnswer {
+  status: number;
+  body: unknown;
+}
+
+export function demoActivitySummary(cluster: string, query: { days: string; feature: string }, now: number = Date.now()): DemoSummaryAnswer {
+  if (!isNodeCluster(cluster)) return { status: 404, body: DEMO_CLUSTER_NOT_REGISTERED };
+  const days = query.days === '' ? 7 : Number(query.days);
+  if (!Number.isInteger(days) || days < 1 || days > 30) {
+    return { status: 400, body: { ...DEMO_CLUSTER_NOT_REGISTERED, code: 'K8S_INVALID_REQUEST', message: 'days must be 1 to 30.', field: 'days' } };
+  }
+  const wanted = query.feature.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+  if (wanted.some((f) => f !== 'VERTICAL' && f !== 'HPA')) {
+    return { status: 400, body: { ...DEMO_CLUSTER_NOT_REGISTERED, code: 'K8S_INVALID_REQUEST', message: 'feature must be VERTICAL or HPA.', field: 'feature' } };
+  }
+  const features = wanted.length > 0 ? ['VERTICAL', 'HPA'].filter((f) => wanted.includes(f)) : ['VERTICAL', 'HPA'];
+  const entries = (cluster === 'prod-eks-cluster' ? demoActivityEntries(now) : []).filter((e) => features.includes(e.feature ?? ''));
+  const to = istDate(now);
+  const from = istDate(now - (days - 1) * 24 * 3600 * 1000);
+  const times = (list: ActivityEntryWire[]) => list.map((e) => Date.parse(e.at ?? '')).filter(Number.isFinite);
+  const first = times(entries);
+  const complete = times(entries.filter(fullLogRow));
+  const firstRecordedAt = first.length > 0 ? Math.min(...first) : null;
+  const completeSince = complete.length > 0 ? Math.min(...complete) : null;
+  const listed: Array<DayCounts & { date: string; byFeature: Record<string, DayCounts> }> = [];
+  if (firstRecordedAt !== null && completeSince !== null) {
+    const startDay = [from, istDate(firstRecordedAt), istDate(completeSince)].sort().reverse()[0];
+    for (let t = Date.parse(`${startDay}T00:00:00Z`); new Date(t).toISOString().slice(0, 10) <= to; t += 24 * 3600 * 1000) {
+      const date = new Date(t).toISOString().slice(0, 10);
+      const total = zero();
+      const byFeature: Record<string, DayCounts> = Object.fromEntries(features.map((f) => [f, zero()]));
+      for (const e of entries) {
+        const key = COUNT_KEY[e.result ?? ''];
+        if (!key || istDate(Date.parse(e.at ?? '')) !== date) continue;
+        total[key] += 1;
+        byFeature[e.feature ?? 'VERTICAL'][key] += 1;
+      }
+      listed.push({ date, ...total, byFeature });
+    }
+  }
+  return {
+    status: 200,
+    body: {
+      engine: { enabled: true },
+      timezone: 'Asia/Kolkata',
+      from,
+      to,
+      firstRecordedAt: firstRecordedAt !== null ? new Date(firstRecordedAt).toISOString() : null,
+      completeSince: completeSince !== null ? new Date(completeSince).toISOString() : null,
+      truncated: false,
+      days: listed,
+    },
+  };
 }

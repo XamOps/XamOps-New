@@ -10,7 +10,7 @@ export { ChartDataTable } from './ChartDataTable';
 export type { ChartDataTableProps, ChartDataColumn, ChartDataRow } from './ChartDataTable';
 export { ChartDefs } from './ChartDefs';
 export { TimeSeriesChart } from './TimeSeriesChart';
-export type { TimeSeriesChartProps, TimeSeriesSeries, TimeSeriesBand, TimeSeriesMarker } from './TimeSeriesChart';
+export type { TimeSeriesChartProps, TimeSeriesSeries, TimeSeriesBand, TimeSeriesMarker, TimeSeriesReference } from './TimeSeriesChart';
 export { StackedArea } from './StackedArea';
 export type { StackedAreaProps, StackedLayer } from './StackedArea';
 export { Bars, logDomain } from './Bars';

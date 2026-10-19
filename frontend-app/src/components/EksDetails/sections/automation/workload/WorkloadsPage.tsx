@@ -17,6 +17,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import EksAutomationTab from '../../../tabs/EksAutomationTab';
 import useVerticalRightsizer from '../../../../../hooks/useVerticalRightsizer';
+import { useAutomationSparklines } from '../../../../../hooks/useAutomationUsage';
 import { DASH, formatInstant, formatMonthlyUsd } from '../../../../../api/verticalRightsizerAdapter';
 import { formatMoney } from '../../../../../utils/k8sQuantities';
 import { inPageState } from '../../../../../utils/inPageNavigation';
@@ -227,6 +228,10 @@ export function WorkloadsPage({ clusterName, accountId, region, workloadsHref, p
   const selected = parsed && view ? view.workloads.find((w) => w.id === workloadParamOf(parsed)) ?? null : null;
   const missing = parsed !== null && view !== null && selected === null ? raw : null;
   const derived = view ? { k: automationKpis(view.workloads, now), chips: howItWorksChips(view, now) } : null;
+  // The table's sparklines: one read for every row, made only while the list is what shows (not for a
+  // workload's detail), alongside endpoint 1.
+  const listShown = parsed === null || (view !== null && selected === null);
+  const sparklines = useAutomationSparklines({ clusterName, accountId, region }, listShown ? 'cpu' : null);
 
   if (selected && view) {
     return (
@@ -289,6 +294,7 @@ export function WorkloadsPage({ clusterName, accountId, region, workloadsHref, p
               applyResults={state.applyResults}
               replyAt={replyAt}
               now={now}
+              sparklines={sparklines}
             />
           )}
         </>

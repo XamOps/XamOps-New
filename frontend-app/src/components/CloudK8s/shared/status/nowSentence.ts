@@ -206,13 +206,19 @@ export interface NodeAutoscalerInputs {
 
 /** Automation › Activity (give what XamOps did today, by result), over each workload's latest change. */
 export interface ActivityInputs {
-  /** Workloads with a recorded latest change. `undefined` = endpoint 1 failed. */
+  /**
+   * What the counts are over: each workload's latest change from endpoint 1 (`latest`, the default)
+   * or the entries of the activity feed (`feed`, FEAT-007), where a deferral XamOps put back counts
+   * as `deferred`.
+   */
+  basis?: 'latest' | 'feed';
+  /** Workloads with a recorded latest change, or feed entries read. `undefined` = the read failed. */
   recorded?: number;
-  /** Today's latest changes, by result. */
+  /** Today's latest changes (or feed entries), by result. */
   today?: { applied: number; deferred: number; refused: number; failed: number; testRuns: number };
   /** Workloads whose latest change was applied live and is in place now. */
   inPlace?: readonly string[];
-  /** Workloads whose latest change detected a restart. */
+  /** Workloads whose latest change (or a feed entry) detected a restart. */
   restarted?: readonly string[];
 }
 
@@ -615,15 +621,17 @@ export function activitySentence(inputs: ActivityInputs): NowSentence {
     return { clauses, chips };
   }
 
+  const feed = inputs.basis === 'feed';
   const t = inputs.today;
   if (t) {
     const parts: string[] = [];
     if (t.applied > 0) parts.push(`${t.applied} applied`);
-    if (t.deferred > 0) parts.push(`${t.deferred} deferred`);
+    if (t.deferred > 0) parts.push(feed ? `${t.deferred} deferred and put back` : `${t.deferred} deferred`);
     if (t.refused > 0) parts.push(`${t.refused} refused`);
     if (t.failed > 0) parts.push(`${t.failed} failed`);
     if (t.testRuns > 0) parts.push(count(t.testRuns, 'test run'));
-    clauses.push(parts.length > 0 ? `Today, by each workload's latest change: ${listWords(parts)}.` : "No workload's latest change is from today.");
+    if (feed) clauses.push(parts.length > 0 ? `Today XamOps recorded ${listWords(parts)}.` : 'XamOps recorded nothing on this cluster today.');
+    else clauses.push(parts.length > 0 ? `Today, by each workload's latest change: ${listWords(parts)}.` : "No workload's latest change is from today.");
     if (t.applied > 0) chips.push(CHIP_GOOD(`${t.applied} applied today`));
     if (t.deferred > 0) chips.push(CHIP_WARN(`${t.deferred} deferred today`));
     if (t.refused + t.failed > 0) chips.push({ tone: 'bad', icon: 'mdi:alert-octagon-outline', label: `${t.refused + t.failed} refused or failed today` });

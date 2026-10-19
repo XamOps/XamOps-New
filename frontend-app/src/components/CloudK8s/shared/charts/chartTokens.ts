@@ -126,7 +126,7 @@ export const MONEY: Record<MoneyKind, MoneyStyle> = {
  * pattern is referenced as `url(#id)`; the audit checks the id resolves to a `<pattern>` in the same
  * surface. Hatches are drawn in the series/band colour, so they still carry one meaning.
  */
-export type HatchKind = 'suggested' | 'noHistory' | 'notInEffect' | 'freed';
+export type HatchKind = 'suggested' | 'noHistory' | 'notInEffect' | 'freed' | 'atMax';
 
 export interface HatchStyle {
   id: string;
@@ -143,14 +143,18 @@ export const HATCH: Record<HatchKind, HatchStyle> = {
   notInEffect: { id: 'k8s-hatch-not-in-effect', stroke: 'rgb(var(--k8s-series-limit))' },
   // Freed request band: the money-saved hue, hatched.
   freed: { id: 'k8s-hatch-freed', stroke: 'rgb(var(--k8s-money-saved))' },
+  // The zone above an HPA's target while it is held at its maximum (glossary §10): the hue of a
+  // declared bound (the limit), hatched.
+  atMax: { id: 'k8s-hatch-at-max', stroke: 'rgb(var(--k8s-series-limit))' },
 };
 
 /**
- * Status tone colours as `rgb(var(--k8s-status-…))`, for the one in-plot place a chart draws a
- * status tone: the LanesTimeline outcome dots (design-delta §2.1 "timeline markers", §3.1). The
- * design-rule guard only lets the `fill-status-*` CLASSES live in the status components, so the
- * timeline reads these raw vars from here (raw `var(--k8s-…)` is allowed in this file) and passes
- * them as inline `fill`/`stroke`, keeping charts/ free of status classes.
+ * Status tone colours as `rgb(var(--k8s-status-…))`, for the in-plot places a chart draws a result's
+ * status tone: the LanesTimeline outcome dots (design-delta §2.1 "timeline markers", §3.1) and the
+ * changes-per-day bars stacked by result (Bars `tone`), each beside the result chips that name them.
+ * The design-rule guard only lets the `fill-status-*` CLASSES live in the status components, so the
+ * charts read these raw vars from here (raw `var(--k8s-…)` is allowed in this file) and pass them as
+ * inline `fill`/`stroke`, keeping charts/ free of status classes.
  */
 export type SeriesTone = 'good' | 'warn' | 'bad' | 'info' | 'off';
 

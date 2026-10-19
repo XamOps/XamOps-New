@@ -3,8 +3,8 @@
  * The colour discipline is covered by colourAudit.test.tsx; these tests cover behaviour: the exact
  * empty / partial copy, the source line, and the deterministic SVG the primitives draw.
  */
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 
 import ChartCard, { EMPTY_COPY } from '../ChartCard';
 import ChartDataTable from '../ChartDataTable';
@@ -110,9 +110,51 @@ describe('ChartCard empty / partial states (glossary §10)', () => {
     expect(screen.getByText('Data table')).toBeTruthy();
     expect(screen.getByText('10m')).toBeTruthy();
   });
+
+  it('partial draws the chart and says how much history there is', () => {
+    const { container } = render(
+      <ChartCard title="t" source="s" state={{ kind: 'partial', note: 'Prometheus keeps 3 days here. No data before Oct 11.' }}>
+        <svg data-testid="drawn" />
+      </ChartCard>,
+    );
+    expect(screen.getByTestId('drawn')).toBeTruthy();
+    expect(container.querySelector('[data-chart-partial]')?.textContent).toBe('Prometheus keeps 3 days here. No data before Oct 11.');
+  });
+
+  it('loading shows a skeleton in the chart\'s place and no chart, and error says what happened with Retry', () => {
+    const loading = render(
+      <ChartCard title="t" source="s" state={{ kind: 'loading' }}>
+        <svg data-testid="never-drawn" />
+      </ChartCard>,
+    );
+    expect(loading.container.querySelector('[data-empty="loading"][aria-busy="true"]')).toBeTruthy();
+    expect(screen.queryByTestId('never-drawn')).toBeNull();
+    loading.unmount();
+    const onRetry = vi.fn();
+    const failed = render(<ChartCard title="t" source="s" state={{ kind: 'error', message: "Couldn't read this chart's data: HTTP 502", onRetry }} />);
+    expect(failed.container.querySelector('[data-empty="error"]')?.textContent).toContain('HTTP 502');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps its view switch in the header in every state, so a failed resource can be switched back', () => {
+    render(<ChartCard title="t" source="s" state={{ kind: 'error', message: 'x' }} actions={<button type="button">CPU</button>} />);
+    expect(screen.getByRole('button', { name: 'CPU' }).closest('header')).toBeTruthy();
+  });
 });
 
 describe('Sparkline', () => {
+  it('draws a reference line (the request) on the same scale from 0, so the two heights compare', () => {
+    const { container } = render(<Sparkline values={[5, 10]} reference={[20, 20]} width={72} height={20} ariaLabel="s" />);
+    const ref = container.querySelector('path[data-sparkline-reference]')!;
+    const used = container.querySelector('path:not([data-sparkline-reference])')!;
+    expect(ref.getAttribute('class')).toContain('stroke-series-requested');
+    expect(used.getAttribute('class')).toContain('stroke-series-used');
+    // 20 is the top of the shared scale (y = pad), 10 is halfway, 5 a quarter up.
+    expect(ref.getAttribute('d')).toBe('M2.00 2.00 L70.00 2.00');
+    expect(used.getAttribute('d')).toBe('M2.00 14.00 L70.00 10.00');
+  });
+
   it('draws one deterministic path for the values', () => {
     const a = render(<Sparkline values={[1, 2, 3, 2]} ariaLabel="s" />);
     const d1 = a.container.querySelector('path')!.getAttribute('d');

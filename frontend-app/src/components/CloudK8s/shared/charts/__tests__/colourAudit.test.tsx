@@ -317,6 +317,48 @@ function AllComponents() {
       />
       <ChartCard title="CPU and memory over time" source="Usage feed (planned)." state={{ kind: 'history-pending', from: 'Prometheus in your cluster.' }} />
       <ChartCard title="Cost per day" source="Prices (planned)." state={{ kind: 'unavailable', reason: "Needs prices XamOps doesn't read yet." }} />
+
+      {/* Phase 2 (FEAT-006): the states, view switch and marks the wired charts add. */}
+      <ChartCard title="Partial" source="Usage feed." state={{ kind: 'partial', note: 'Prometheus keeps 3 days here.' }} actions={<button type="button">CPU</button>}>
+        <TimeSeriesChart
+          width={420}
+          data={TS_DATA}
+          series={TS_SERIES.slice(0, 3)}
+          xKey="t"
+          bands={[
+            { kind: 'freed', x1: '10:00', x2: '11:00', y1: 14, y2: 20, label: 'Freed' },
+            { kind: 'atMax', x1: '09:00', x2: '10:00', y1: 20 },
+          ]}
+          references={[{ y: 14, kind: 'suggested', label: 'Suggested now' }, { y: 30, kind: 'limit' }]}
+          tickFormat={(v) => `${v}m`}
+          ariaLabel="Use against request, with the suggestion now"
+        />
+      </ChartCard>
+      <ChartCard title="Loading" source="Usage feed." state={{ kind: 'loading' }} />
+      <ChartCard title="Error" source="Usage feed." state={{ kind: 'error', message: 'HTTP 502', onRetry: () => {} }} />
+      <StackedArea
+        width={420}
+        data={STACK_DATA}
+        xKey="t"
+        layers={[{ dataKey: 'ns1', kind: 'used', name: 'Used', shade: 0.55 }, { dataKey: 'ns2', kind: 'requested', name: 'Reserved, unused', shade: 0.3 }]}
+        bands={[{ kind: 'noHistory', x1: 'a', x2: 'b', label: 'No data before' }]}
+        total={{ dataKey: 'sys', kind: 'capacity', name: 'Provisioned' }}
+        ariaLabel="Cluster CPU stack"
+      />
+      <Bars
+        mode="day"
+        width={420}
+        xKey="day"
+        data={[{ day: 'Mon', applied: 2, refused: 1, tests: 1 }, { day: 'Tue', applied: null, refused: null, tests: null }]}
+        bars={[
+          { dataKey: 'applied', kind: 'capacity', tone: 'good', name: 'Applied', stackId: 'day' },
+          { dataKey: 'refused', kind: 'capacity', tone: 'bad', name: 'Refused', stackId: 'day' },
+          { dataKey: 'tests', kind: 'capacity', tone: 'info', name: 'Test runs', stackId: 'day' },
+        ]}
+        ariaLabel="Changes per day, by result"
+      />
+      <Sparkline values={[0.02, null, 0.03, 0.025]} reference={[0.1, 0.1, 0.1, 0.1]} ariaLabel="use against request" />
+      <SeriesLegend items={[{ label: 'Zone above the target while at the maximum', kind: 'limit', hatch: 'atMax' }]} />
       {(['workload', 'node', 'hpa', 'vpa'] as const).map((f) => (
         <FeatureMark key={f} feature={f} />
       ))}

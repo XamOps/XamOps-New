@@ -11,7 +11,11 @@ vi.mock('../../../../../../api/k8sAutomationApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../../../api/k8sAutomationApi')>();
   return { ...actual, getCapabilities, getAutomationDashboard, getNodeFleet, getRebalanceStatus };
 });
+// The usage feed (FEAT-004) is read through apiClient; every other read above is mocked.
+vi.mock('../../../../../../utils/apiClient', () => ({ default: { fetch: vi.fn() } }));
 
+import apiClient from '../../../../../../utils/apiClient';
+import { demoUsage } from '../../../../../../demo/k8sAutomationSeriesMockData';
 import { K8sApiError } from '../../../../../../api/k8sAutomationApi';
 import { K8sCapabilitiesProvider } from '../../../../../../hooks/useK8sCapabilities';
 import { demoAutomationDashboard, demoCapabilities, demoNodeFleet } from '../../../../../../demo/k8sAutomationMockData';
@@ -58,11 +62,28 @@ async function page(dto: CapabilitiesDto = caps(), eksData: UseEksDashboardRetur
 
 const lever = (id: string) => document.querySelector<HTMLElement>(`[data-node-lever="${id}"]`)!;
 
+const mockedFetch = apiClient.fetch as unknown as ReturnType<typeof vi.fn>;
+const json = (status: number, body: unknown): Response =>
+  ({ status, ok: status >= 200 && status < 300, text: async () => (body === null ? '' : JSON.stringify(body)) }) as unknown as Response;
+/** The usage feed answers from the demo fixture (prod-eks-cluster), or `answer` when given. */
+function serveUsage(answer?: { status: number; body: unknown }) {
+  mockedFetch.mockImplementation(async (url: string) => {
+    const u = new URL(String(url), 'http://test');
+    if (!u.pathname.startsWith('/api/eks/automation/usage/')) throw new Error(`unexpected request ${url}`);
+    if (answer) return json(answer.status, answer.body);
+    const p = (k: string) => u.searchParams.get(k) ?? '';
+    const a = demoUsage(CLUSTER, { scope: p('scope'), resource: p('resource'), window: p('window'), namespace: p('namespace'), kind: p('kind'), name: p('name'), from: p('from'), to: p('to'), step: p('step') });
+    return json(a.status, a.body);
+  });
+}
+const usageCalls = () => mockedFetch.mock.calls.map(([url]) => new URL(String(url), 'http://test'));
+
 describe('Automation › Node autoscaler (UI v3 plan §2)', () => {
   beforeEach(() => {
     getAutomationDashboard.mockResolvedValue(demoAutomationDashboard(CLUSTER));
     getNodeFleet.mockResolvedValue(demoNodeFleet(CLUSTER));
     getRebalanceStatus.mockResolvedValue({ status: 'idle', message: 'No rebalance has been run yet' });
+    serveUsage();
   });
   afterEach(() => vi.clearAllMocks());
 
@@ -101,7 +122,29 @@ describe('Automation › Node autoscaler (UI v3 plan §2)', () => {
     const row = within(cpu).getByRole('rowheader', { name: 'ip-172-31-9-125.ap-south-1.compute.internal', hidden: true }).closest('tr')!;
     expect([...row.querySelectorAll('td')].map((td) => td.textContent)).toEqual(['1 vCPU', '1.93 vCPU', '52%']);
     expect(screen.getByRole('heading', { name: 'Pods on each node' })).toBeInTheDocument();
-    expect(document.querySelector('[data-empty="history-pending"]')).toHaveTextContent('History arrives with the usage feed');
+  });
+
+  it("stacks the cluster's CPU over 3 days up to allocatable, from one usage read", async () => {
+    await page();
+    const chart = await waitFor(() => {
+      const el = screen.getByRole('heading', { name: 'CPU: what pods can use, reserve and use' }).closest('section')!;
+      expect(el.querySelectorAll('tbody tr')).toHaveLength(145);
+      return el;
+    });
+    expect(usageCalls().map((u) => `${u.searchParams.get('scope')}:${u.searchParams.get('resource')}:${u.searchParams.get('window')}`)).toEqual(['cluster:cpu:72h']);
+    // The demo cluster's allocatable CPU at every point, and no memory switch on this CPU-only card.
+    const first = [...chart.querySelectorAll('tbody tr')][0];
+    expect(first.querySelectorAll('td')[2]).toHaveTextContent('25.52 vCPU');
+    expect(within(chart).queryByRole('button', { name: 'Memory' })).toBeNull();
+    expect(chart).toHaveTextContent('The layers add up to what the nodes give pods (allocatable); the line is allocatable.');
+    expect(chart.querySelector('[data-chart-source]')).toHaveTextContent('scope=cluster&resource=cpu&window=72h');
+  });
+
+  it('renders no cluster CPU chart for a backend without the usage feed', async () => {
+    serveUsage({ status: 404, body: null });
+    await page();
+    await waitFor(() => expect(usageCalls()).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'CPU: what pods can use, reserve and use' })).toBeNull());
   });
 
   it('marks every part "Not available yet" with its reason; without the automation agent, says it is needed', async () => {

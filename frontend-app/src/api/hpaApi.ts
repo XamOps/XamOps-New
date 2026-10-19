@@ -2,9 +2,11 @@
  * Typed client for the HPA automation endpoints (`/api/eks/automation/hpa/**`, FEAT-002).
  *
  * The read path reuses the vertical rightsizer endpoint (one `GET` per cluster carries the HPA
- * decision in each workload's `horizontal` block), so only the **apply** lives here:
+ * decision in each workload's `horizontal` block), so only the **apply** and one HPA's **history**
+ * (FEAT-004, read-only) live here:
  *
  *   POST /api/eks/automation/hpa/{cluster}/{namespace}/{name}/apply?accountId=&region=
+ *   GET  /api/eks/automation/hpa/{cluster}/{namespace}/{hpaName}/history?accountId=&region=&window=
  *
  * `{name}` is the workload (Deployment) name; the backend resolves the HPA that targets it. Status
  * codes are read off the response, because the two interesting ones are deployment states, not
@@ -16,6 +18,14 @@ import apiClient from '../utils/apiClient';
 import { parseCode } from './verticalRightsizerAdapter';
 import { verticalReadUrl } from './verticalRightsizerApi';
 import { adaptHpaPage } from './hpaAdapter';
+import { readInsight, isObject } from './insightRead';
+import { adaptHpaHistory } from './automationInsightsAdapter';
+import type {
+  HpaHistoryResponseWire,
+  HpaHistoryView,
+  HpaHistoryWindow,
+  InsightReadResult,
+} from '../types/automationInsights';
 import type {
   VerticalEngineResponseWire,
   VerticalRefusalWire,
@@ -43,6 +53,17 @@ export const hpaApplyUrl = (
   `${BASE}/${seg(cluster)}/${seg(ref.namespace)}/${seg(ref.name)}/apply` +
   `?accountId=${seg(accountId)}&region=${seg(region)}`;
 
+/** One HPA's history URL (FEAT-004). `{name}` is the HPA's own name, not the workload's. */
+export const hpaHistoryUrl = (
+  cluster: string,
+  hpa: { namespace: string; name: string },
+  accountId: string,
+  region: string,
+  window: HpaHistoryWindow,
+): string =>
+  `${BASE}/${seg(cluster)}/${seg(hpa.namespace)}/${seg(hpa.name)}/history` +
+  `?accountId=${seg(accountId)}&region=${seg(region)}&window=${window}`;
+
 const readJson = async <T>(response: Response): Promise<T | null> => {
   try {
     const text = await response.text();
@@ -52,6 +73,29 @@ const readJson = async <T>(response: Response): Promise<T | null> => {
     return null;
   }
 };
+
+const isHpaHistoryWire = (body: unknown): body is HpaHistoryResponseWire =>
+  isObject(body) && (Array.isArray(body.series) || isObject(body.unavailable));
+
+/**
+ * One HPA's replicas, bounds and CPU against its target over a window, from kube-state-metrics in
+ * the cluster, with the time it spent at its maximum and every change of its replica count (60 s
+ * samples). Read-only; a source failure is a `200` with `unavailable` set.
+ */
+export const fetchHpaHistory = (
+  cluster: string,
+  hpa: { namespace: string; name: string },
+  accountId: string,
+  region: string,
+  window: HpaHistoryWindow,
+  signal?: AbortSignal,
+): Promise<InsightReadResult<HpaHistoryView>> =>
+  readInsight(hpaHistoryUrl(cluster, hpa, accountId, region, window), {
+    isWire: isHpaHistoryWire,
+    adapt: adaptHpaHistory,
+    what: 'The HPA history',
+    signal,
+  });
 
 const refusalMessage = (body: HpaRefusalWire | null, fallback: string): string => {
   const message = body?.message;
