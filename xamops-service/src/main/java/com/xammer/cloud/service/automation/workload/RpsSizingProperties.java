@@ -2,6 +2,7 @@ package com.xammer.cloud.service.automation.workload;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -48,6 +49,13 @@ public class RpsSizingProperties {
     private final double targetUtil;
     private final Double capacityPerReplicaRps;
 
+    /**
+     * The production constructor Spring binds through. It is explicitly {@code @Autowired} because
+     * this class declares more than one constructor (the private canonical one behind {@link #of}):
+     * with multiple constructors and none marked, Spring falls back to looking for a no-arg
+     * constructor, finds none, and the bean fails to instantiate at context startup.
+     */
+    @Autowired
     public RpsSizingProperties(
             @Value("${" + ENABLED_KEY + ":false}") boolean enabled,
             @Value("${" + METRIC_KEY + ":}") String metric,
