@@ -73,6 +73,28 @@ export interface VerticalHorizontalWire {
   reasons: string[] | null;
 }
 
+/** Real $ cost + savings for one workload (FEAT-002, design §5.1). See `verticalRightsizer.ts` for the rules. */
+export interface WorkloadCostWire {
+  monthlyCost: number | null;
+  monthlySavings: number | null;
+  reason: string | null;
+  source: string | null;
+  capacityType: string | null;
+  capacityTypeInferred?: boolean | null;
+  note: string | null;
+}
+
+/** The cluster cost roll-up (FEAT-002, design §5.1). */
+export interface CostSummaryWire {
+  currency: string;
+  hoursPerMonth: number;
+  monthlySavings: number | null;
+  monthlySavingsUnavailableReason: string | null;
+  clusterMonthlyCost: number | null;
+  pricedWorkloads: number;
+  unpricedWorkloads: number;
+}
+
 export interface VerticalWorkloadWire {
   ref: VerticalWorkloadRefWire;
   policy: VerticalPolicyWire | null;
@@ -86,6 +108,8 @@ export interface VerticalWorkloadWire {
   autoApplyEligible: boolean;
   provenance: VerticalProvenanceWire | null;
   horizontal: VerticalHorizontalWire | null;
+  /** Real $ cost + savings (FEAT-002); null/absent when unavailable or the feature is off. */
+  cost?: WorkloadCostWire | null;
 }
 
 export interface VerticalEngineWire {
@@ -107,6 +131,8 @@ export interface VerticalEngineResponseWire {
   engine: VerticalEngineWire;
   gateReasons: string[] | null;
   workloads: VerticalWorkloadWire[] | null;
+  /** The cluster cost roll-up (FEAT-002); null/absent when unavailable or the feature is off. */
+  cost?: CostSummaryWire | null;
 }
 
 /** A refusal body: `{ code, message, field? }`. */

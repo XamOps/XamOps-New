@@ -19,6 +19,8 @@ import {
   type ActionsPageWire,
   type ApplySubmissionView,
   type ApplySubmissionWire,
+  type CostSummaryView,
+  type CostSummaryWire,
   type Known,
   type Resources,
   type Unknown,
@@ -170,6 +172,26 @@ function toWorkload(wire: VerticalWorkloadWire): VerticalWorkload {
   };
 }
 
+// ── Cost roll-up (FEAT-002) ──────────────────────────────────────────────────
+
+/** A money field kept as-is when a real finite number (incl. a true 0), else null. */
+const costMoney = (raw: number | null | undefined): number | null =>
+  typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+
+/** The cluster cost roll-up, or null when the wire carried none (feature off / older build). */
+export function toCostSummary(wire: CostSummaryWire | null | undefined): CostSummaryView | null {
+  if (!wire) return null;
+  return {
+    currency: wire.currency ?? 'USD',
+    hoursPerMonth: typeof wire.hoursPerMonth === 'number' && Number.isFinite(wire.hoursPerMonth) ? wire.hoursPerMonth : 0,
+    monthlySavings: costMoney(wire.monthlySavings),
+    monthlySavingsUnavailableReason: wire.monthlySavingsUnavailableReason ?? null,
+    clusterMonthlyCost: costMoney(wire.clusterMonthlyCost),
+    pricedWorkloads: typeof wire.pricedWorkloads === 'number' ? wire.pricedWorkloads : 0,
+    unpricedWorkloads: typeof wire.unpricedWorkloads === 'number' ? wire.unpricedWorkloads : 0,
+  };
+}
+
 // ── Engine status → view ─────────────────────────────────────────────────────
 
 /** The §8.1 state from a `200`, evaluated top to bottom: V7, V0, V2, V3, else V4. */
@@ -216,6 +238,7 @@ export function toVerticalEngineView(wire: VerticalStatusWire): VerticalEngineVi
     gateReasons,
     workloads,
     allWorkloadsOff: workloads.length > 0 && workloads.every((w) => w.skipReason === 'POLICY_OFF'),
+    cost: toCostSummary(wire.cost),
   };
 }
 

@@ -100,6 +100,50 @@ export interface VerticalHorizontalWire {
   rpsFormula?: string | null;
 }
 
+/**
+ * Real $ cost + savings for one workload (FEAT-002, design §5.1), additive on the read response.
+ *
+ * Every money field follows the same rule the resources fields do: `null` means **unavailable** —
+ * the backend could not price the node, so the UI renders a dash plus `reason` — and a `0` is only
+ * ever a true computed zero (a recommendation that frees nothing), never a stand-in for unknown.
+ * Absent from a build that predates cost (and from every response while the feature is off).
+ */
+export interface WorkloadCostWire {
+  /** Current $/mo the workload reserves, or null + reason when unavailable. */
+  monthlyCost: number | null;
+  /** $/mo the recommendation frees, or null + reason; a real 0 means it frees nothing. */
+  monthlySavings: number | null;
+  /** Machine reason code when either money field is null, e.g. `NO_LIVE_PRICE`. */
+  reason: string | null;
+  /** `PRICE_LIST` | `SPOT_HISTORY`, or null when unavailable. */
+  source: string | null;
+  /** `on-demand` | `spot`, or null. */
+  capacityType: string | null;
+  /**
+   * True when the node carried no capacity-type label: the price is a real on-demand rate but may be
+   * wrong if the node is actually spot, so the UI shows an "assumed on-demand" qualifier. Absent/false
+   * on a labelled node.
+   */
+  capacityTypeInferred?: boolean | null;
+  /** A provenance sentence for a tooltip, e.g. "AWS Price List on-demand rate for m5.large…". */
+  note: string | null;
+}
+
+/**
+ * The cluster roll-up (FEAT-002, design §5.1), additive on the status response. `monthlySavings` and
+ * `clusterMonthlyCost` are null (with `monthlySavingsUnavailableReason` set) when nothing was
+ * priceable, never a fabricated 0. Absent from a build that predates cost / while the feature is off.
+ */
+export interface CostSummaryWire {
+  currency: string;
+  hoursPerMonth: number;
+  monthlySavings: number | null;
+  monthlySavingsUnavailableReason: string | null;
+  clusterMonthlyCost: number | null;
+  pricedWorkloads: number;
+  unpricedWorkloads: number;
+}
+
 export interface VerticalWorkloadWire {
   ref: VerticalWorkloadRefWire;
   policy: VerticalPolicyWire | null;
@@ -113,6 +157,8 @@ export interface VerticalWorkloadWire {
   autoApplyEligible: boolean;
   provenance: VerticalProvenanceWire | null;
   horizontal: VerticalHorizontalWire | null;
+  /** Real $ cost + savings (FEAT-002); null/absent when unavailable or the feature is off. */
+  cost?: WorkloadCostWire | null;
 }
 
 export interface VerticalEngineWire {
@@ -144,6 +190,8 @@ export interface VerticalEngineResponseWire {
    * that never evaluated them, which must not read as "permitted".
    */
   writeGatesChecked?: boolean | null;
+  /** The cluster cost roll-up (FEAT-002); null/absent when unavailable or the feature is off. */
+  cost?: CostSummaryWire | null;
 }
 
 /** A refusal body: `{ code, message, field?, detail? }`. */
@@ -231,6 +279,32 @@ export interface ProvenanceView {
   policySource: string | null;
 }
 
+/**
+ * One workload's cost in the view (FEAT-002). The money fields stay `number | null` — `null` is
+ * unavailable (render a dash + `reason`), and a `0` is a true computed zero. `capacityTypeInferred`
+ * is coerced to a plain boolean so the "assumed on-demand" qualifier is a simple check.
+ */
+export interface WorkloadCostView {
+  monthlyCost: number | null;
+  monthlySavings: number | null;
+  reason: string | null;
+  source: string | null;
+  capacityType: string | null;
+  capacityTypeInferred: boolean;
+  note: string | null;
+}
+
+/** The cluster cost roll-up in the view (FEAT-002). `null` money fields render as a dash. */
+export interface CostSummaryView {
+  currency: string;
+  hoursPerMonth: number;
+  monthlySavings: number | null;
+  monthlySavingsUnavailableReason: string | null;
+  clusterMonthlyCost: number | null;
+  pricedWorkloads: number;
+  unpricedWorkloads: number;
+}
+
 export interface WorkloadView {
   /** `namespace/kind/name`, stable enough to key a row. */
   id: string;
@@ -256,6 +330,8 @@ export interface WorkloadView {
   applyBlockedBy: CodeView | null;
   provenance: ProvenanceView | null;
   horizontal: VerticalHorizontalWire | null;
+  /** Real $ cost + savings (FEAT-002), or null when the response carried none. */
+  cost: WorkloadCostView | null;
 }
 
 /**
@@ -303,6 +379,8 @@ export interface VerticalEngineView {
    * Surfaced in the UI rather than silently rendered as `—`, because it means the payload lied.
    */
   anomalies: string[];
+  /** The cluster cost roll-up (FEAT-002), or null when the response carried none. */
+  cost: CostSummaryView | null;
 }
 
 // ─── Read result ─────────────────────────────────────────────────────────────

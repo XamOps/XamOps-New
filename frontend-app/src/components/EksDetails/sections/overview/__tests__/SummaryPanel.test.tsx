@@ -24,7 +24,7 @@ import type { CapabilitiesDto } from '../../../../../types/k8sAutomation';
 import { CAPACITY_TERMS } from '../../../../CloudK8s/shared/CapacityDonut';
 import { NOT_MONITORED_TITLE } from '../../../../CloudK8s/shared/NotMonitoredPanel';
 import SummaryPanel, {
-  ALERTS_HREF, ATTENTION_TITLE, AUTOMATION_TITLE, CLUSTER_TITLE, COST_TITLE, FREED_TOOLTIP, NODES_TITLE, NODE_AUTOSCALER,
+  ALERTS_HREF, ATTENTION_TITLE, AUTOMATION_TITLE, CLUSTER_TITLE, COST_TITLE, NODES_TITLE, NODE_AUTOSCALER,
   PODS_TITLE, REVIEW_SUGGESTIONS, USED_NOT_REPORTED, VIEW_ALL_ALERTS, VIEW_PENDING_PODS, WORKLOAD_AUTOSCALER,
 } from '../SummaryPanel';
 
@@ -217,11 +217,13 @@ describe('Overview › Summary, laid out like the cast.ai Dashboard (23b)', () =
     const buckets = [...card.querySelectorAll('[data-bucket]')].map((b) => `${(b as HTMLElement).dataset.bucket}=${b.querySelector('dd')!.textContent}`);
     expect(buckets).toEqual(['Over-provisioned=2', 'Needs more resources=3', 'Right-sized=1', 'Left alone=1', 'Skipped=2']);
     expect(card).toHaveTextContent('9 workloads analysed · 3 need more resources');
-    // api-staging frees 75m and 6Mi, alertmanager 20m; one replica each. Capacity, not dollars.
-    const freed = card.querySelector('[data-freed]')!;
-    expect(freed).toHaveTextContent('Could free 0.10 vCPU and 6Mi');
-    expect(freed).toHaveAttribute('title', FREED_TOOLTIP);
-    expect(card).not.toHaveTextContent('$');
+    // FEAT-002: the demo now carries a cost roll-up ($6.84/mo saved, 2 of 3 priced), so the money
+    // figure leads via Delta and the freed-capacity figure is no longer the headline.
+    const savings = card.querySelector('[data-money-savings]')!;
+    expect(savings).toHaveTextContent('$7/mo'); // formatMoney renders whole dollars above $1 (6.84 → $7)
+    expect(savings).toHaveTextContent('saved');
+    expect(card.querySelector('[data-priced-line]')).toHaveTextContent('2 of 3 priced');
+    expect(card.querySelector('[data-freed]')).toBeNull();
     const target = resolved(within(card).getByRole('link', { name: REVIEW_SUGGESTIONS }).getAttribute('href')!);
     expect([target.tab, target.sub, target.corrected]).toEqual(['automation', 'workload-autoscaler', null]);
   });

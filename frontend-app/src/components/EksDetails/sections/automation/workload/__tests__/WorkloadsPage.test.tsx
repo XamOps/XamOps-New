@@ -17,6 +17,8 @@ import {
   endpointOne,
   json,
   renderAt,
+  res,
+  wire,
 } from './fixtures';
 
 const mockedFetch = apiClient.fetch as unknown as ReturnType<typeof vi.fn>;
@@ -191,5 +193,58 @@ describe('Workload autoscaler › Workloads (UI v3 plan §2)', () => {
     expect(document.querySelector('[data-now-banner]')).toHaveTextContent("XamOps couldn't read its workloads just now.");
     expect(document.querySelector('[data-kpi-tone]')).toBeNull();
     expect(gets()).toHaveLength(1);
+  });
+
+  describe('cost column + KPI (FEAT-002)', () => {
+    const priced = wire('priced-api', 'team-a', {
+      replicas: 2,
+      containers: [{ name: 'api', qosClass: 'Burstable', current: res(1000, 1024, 1000, 1024), recommended: res(25, 256, 25, 256), reasons: ['LIMIT_MOVED'], upstreamVpa: null }],
+      cost: { monthlyCost: 20, monthlySavings: 6.84, reason: null, source: 'PRICE_LIST', capacityType: 'on-demand', capacityTypeInferred: false, note: 'AWS Price List on-demand rate' },
+    });
+    const inferred = wire('inferred-api', 'team-a', {
+      replicas: 2,
+      containers: [{ name: 'api', qosClass: 'Burstable', current: res(1000, 1024, 1000, 1024), recommended: res(25, 256, 25, 256), reasons: ['LIMIT_MOVED'], upstreamVpa: null }],
+      cost: { monthlyCost: 30, monthlySavings: 4.2, reason: null, source: 'PRICE_LIST', capacityType: 'on-demand', capacityTypeInferred: true, note: null },
+    });
+    const unpriced = wire('unpriced-api', 'team-a', {
+      replicas: 2,
+      containers: [{ name: 'api', qosClass: 'Burstable', current: res(1000, 1024, 1000, 1024), recommended: res(25, 256, 25, 256), reasons: ['LIMIT_MOVED'], upstreamVpa: null }],
+      cost: { monthlyCost: null, monthlySavings: null, reason: 'NO_LIVE_PRICE', source: null, capacityType: null, capacityTypeInferred: false, note: null },
+    });
+    const withCost = endpointOne([priced, inferred, unpriced], {
+      cost: { currency: 'USD', hoursPerMonth: 730, monthlySavings: 11.04, monthlySavingsUnavailableReason: null, clusterMonthlyCost: 50, pricedWorkloads: 2, unpricedWorkloads: 1 },
+    });
+
+    const rowOf = (name: string) =>
+      [...table().querySelectorAll('[data-workload-row]')].find((r) => r.querySelector('th a')?.textContent === name) as HTMLElement;
+
+    it('renders $X/mo via Delta when real, a dash + reason tooltip when null, and "assumed on-demand" when inferred', async () => {
+      serveRead(withCost);
+      page();
+      await screen.findByRole('table', { name: 'Workloads at a glance' });
+
+      // formatMoney renders whole dollars above $1 (6.84 → $7), two sig-figs under $1.
+      const savings = (name: string) => rowOf(name).querySelector('td:nth-child(6)') as HTMLElement;
+      expect(savings('priced-api').querySelector('[data-delta="saved"]')).toHaveTextContent('$7/mo');
+
+      const unpricedCell = savings('unpriced-api');
+      expect(unpricedCell.querySelector('[data-delta]')).toBeNull();
+      expect(unpricedCell).toHaveTextContent('—');
+      expect(unpricedCell.querySelector('span[title]')!.getAttribute('title')).toContain('No live AWS price');
+
+      const inferredCell = savings('inferred-api');
+      expect(inferredCell.querySelector('[data-delta="saved"]')).toHaveTextContent('$4/mo');
+      expect(inferredCell.querySelector('span[title]')!.getAttribute('title')).toContain('Assumed on-demand');
+    });
+
+    it('leads the "Can save now" KPI with the cost roll-up and an "n of m priced" sub-line, never $0', async () => {
+      serveRead(withCost);
+      page();
+      await screen.findByRole('table', { name: 'Workloads at a glance' });
+      const card = kpi('Can save now');
+      expect(card.querySelector('[data-delta="saved"]')).toHaveTextContent('$11/mo');
+      expect(card.querySelector('[data-priced-line]')).toHaveTextContent('2 of 3 priced');
+      expect(card).not.toHaveTextContent('$0');
+    });
   });
 });

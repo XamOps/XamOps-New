@@ -33,6 +33,29 @@ export const modeText = (mode: VerticalWorkload['policy']['mode']) => text(MODE_
 export const skipReasonText = (reason: NonNullable<VerticalWorkload['skipReason']>) => text(SKIP_REASON_LABELS, reason);
 export const findingText = (finding: VerticalWorkload['findings'][number]) => text(FINDING_LABELS, finding);
 
+// ── Cost-unavailable reasons (FEAT-002, design §3.5, §5.1) ───────────────────
+
+/**
+ * Why a cost or savings figure is a dash, keyed by the backend's machine reason code
+ * (`WorkloadCostDto.reason`), the same way the skip/gate codes above map to text. An unknown code
+ * falls back to its own raw string via {@link costUnavailableText}.
+ */
+export const COST_UNAVAILABLE_LABELS = {
+  NO_LIVE_PRICE: 'No live AWS price for this node type.',
+  NO_SPOT_HISTORY: 'No recent spot price for this node.',
+  UNKNOWN_INSTANCE_TYPE: "This node's instance type isn't known.",
+  FARGATE_UNPRICEABLE: 'Fargate nodes are not priced per instance type.',
+  NODE_CAPACITY_UNKNOWN: "This node's size isn't readable, so cost can't be attributed.",
+  NODE_ZONE_UNKNOWN: "This spot node's zone isn't known, so its price can't be read.",
+  PRICING_DISABLED: 'Cost pricing is off in this environment.',
+} as const;
+
+/** The sentence for a cost-unavailable reason code; the raw code for anything not mapped. */
+export const costUnavailableText = (reason: string | null | undefined): string => {
+  if (!reason) return 'Cost unavailable.';
+  return (COST_UNAVAILABLE_LABELS as Record<string, string>)[reason] ?? reason;
+};
+
 // ── Workload status buckets (glossary §2) ────────────────────────────────────
 
 /** The Overview's KPI split, in the glossary's order; only the non-zero ones are listed. */

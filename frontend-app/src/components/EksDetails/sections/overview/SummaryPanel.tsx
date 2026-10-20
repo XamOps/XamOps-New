@@ -35,7 +35,9 @@ import {
 } from '../../../../utils/k8sQuantities';
 import { displayVersion, resolveClusterVersion } from '../../../../utils/k8sVersion';
 import { inPageState } from '../../../../utils/inPageNavigation';
+import { formatMonthlyUsd } from '../../../../api/verticalRightsizerAdapter';
 import { CapacityDonut } from '../../../CloudK8s/shared/CapacityDonut';
+import { Delta } from '../../../CloudK8s/shared/status/Delta';
 import { K8sDataTable, type ColumnDef } from '../../../CloudK8s/shared/K8sDataTable';
 import { NotMonitoredPanel } from '../../../CloudK8s/shared/NotMonitoredPanel';
 import { SourceLabel, formatAgo } from '../../../CloudK8s/shared/SourceLabel';
@@ -474,11 +476,16 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
     const isNotRunning = (w: VerticalWorkload) => derived.notRunning.has(workloadKey(w.ref.namespace, w.ref.kind, w.ref.name));
     const over = workloads.filter((w) => workloadBucket(w, isNotRunning(w)) === 'Over-provisioned');
     const heldByHpa = workloads.filter((w) => w.containers.some((c) => c.reasons.some((r) => raw(r) === 'HPA_CPU_MANAGED' || raw(r) === 'HPA_MEMORY_MANAGED'))).length;
+    // FEAT-002: the cluster cost roll-up from the read response. `monthlySavings` is null when
+    // nothing was priceable (render a dash / fall back to freed capacity), never a fabricated 0.
+    const cost = vertical.view?.cost ?? null;
     return {
       workloads,
       buckets: bucketCounts(workloads, isNotRunning),
       freed: freedCapacity(over, dashboard),
       heldByHpa: vertical.view ? heldByHpa : null,
+      monthlySavings: cost ? cost.monthlySavings : null,
+      priced: cost ? { priced: cost.pricedWorkloads, unpriced: cost.unpricedWorkloads } : null,
     };
   }, [vertical.view, derived.notRunning, dashboard]);
 
@@ -634,12 +641,22 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
         ))}
 
         <Card title={WORKLOAD_AUTOSCALER} label={`${WORKLOAD_AUTOSCALER} summary`}>
-          {analysed > 0 && (engine.freed.cpuM > 0 || engine.freed.memMi > 0) ? (
+          {/* FEAT-002: when the cluster cost roll-up carries a real $/mo saving, lead with it via
+              Delta (SummaryPanel is in the scope-status-money allow-list); otherwise keep the freed
+              vCPU/GiB figure. A null roll-up never renders `$0`. */}
+          {analysed > 0 && engine.monthlySavings !== null ? (
+            <p className="text-[20px] font-semibold leading-snug" data-money-savings="">
+              <Delta direction="saved" amount={`${formatMonthlyUsd(engine.monthlySavings)}`} suffix="saved" />
+            </p>
+          ) : analysed > 0 && (engine.freed.cpuM > 0 || engine.freed.memMi > 0) ? (
             <p className="text-[20px] font-semibold leading-snug tabular-nums text-[rgba(0,0,0,0.88)]" title={FREED_TOOLTIP} data-freed="">
               {`Could free ${formatVcpu(engine.freed.cpuM)} and ${formatGib(engine.freed.memMi)}`}
             </p>
           ) : (
             <StatusMark state={workloadStatus.state} label={workloadStatus.status} className="text-[13px]" />
+          )}
+          {analysed > 0 && engine.monthlySavings !== null && engine.priced !== null && (
+            <p className={secondary} data-priced-line="">{`${engine.priced.priced} of ${engine.priced.priced + engine.priced.unpriced} priced`}</p>
           )}
           {analysed > 0 ? (
             <>

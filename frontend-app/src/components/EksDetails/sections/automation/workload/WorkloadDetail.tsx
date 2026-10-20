@@ -21,10 +21,12 @@ import {
   DASH,
   formatMib,
   formatMillis,
+  formatMonthlyUsd,
   workloadWindowHours,
   windowWords,
   writeGateText,
 } from '../../../../../api/verticalRightsizerAdapter';
+import { costUnavailableText } from '../verticalCopy';
 import type {
   ApplyOutcomeWire,
   ApplyPodProofWire,
@@ -34,6 +36,7 @@ import type {
   WorkloadView,
 } from '../../../../../types/verticalRightsizer';
 import { ConfidenceChip } from '../../../../CloudK8s/shared/status/ConfidenceChip';
+import { Delta } from '../../../../CloudK8s/shared/status/Delta';
 import { NowBanner } from '../../../../CloudK8s/shared/status/NowBanner';
 import { nowSentence, type WorkloadDetailInputs } from '../../../../CloudK8s/shared/status/nowSentence';
 import { StepIndicator } from '../../../../CloudK8s/shared/status/StepIndicator';
@@ -376,6 +379,44 @@ function ConfidencePerContainer({ workload }: { workload: WorkloadView }) {
   );
 }
 
+/**
+ * Cost (FEAT-002): `Current cost` (plain ink — a cost is not a saving, so no money tone) and
+ * `Est. monthly savings` (via Delta, which carries the money tone + arrow). Each is a dash +
+ * `cost.reason`/`cost.note` tooltip when unavailable; a true 0 is a real "$0/mo". When the price is
+ * inferred (no capacity-type label) a muted "assumed on-demand" qualifier sits beside both figures.
+ * The whole card is hidden when the response carried no cost at all (feature off / older build).
+ */
+function CostCard({ workload }: { workload: WorkloadView }) {
+  const cost = workload.cost;
+  if (!cost) return null;
+  const assumed = cost.capacityTypeInferred;
+  const costTitle = cost.monthlyCost === null ? costUnavailableText(cost.reason) : cost.note ?? undefined;
+  const savingsTitle = cost.monthlySavings === null ? costUnavailableText(cost.reason) : cost.note ?? undefined;
+  return (
+    <Card title="Cost">
+      <dl className="grid grid-cols-[minmax(0,10rem)_minmax(0,1fr)] gap-x-3 gap-y-2 text-[13px]" data-cost="">
+        <dt className={MUTED}>Current cost</dt>
+        <dd className={`tabular-nums ${INK}`} title={costTitle}>
+          {cost.monthlyCost === null ? <span className={FAINT}>{DASH}</span> : formatMonthlyUsd(cost.monthlyCost)}
+          {assumed && <span className={`ml-2 text-[12px] ${MUTED}`} data-assumed-on-demand="">assumed on-demand</span>}
+        </dd>
+        <dt className={MUTED}>Est. monthly savings</dt>
+        <dd className="tabular-nums" title={savingsTitle}>
+          {cost.monthlySavings === null ? (
+            <span className={FAINT}>{DASH}</span>
+          ) : (
+            <Delta direction="saved" amount={formatMonthlyUsd(cost.monthlySavings)} />
+          )}
+          {assumed && <span className={`ml-2 text-[12px] ${MUTED}`} data-assumed-on-demand="">assumed on-demand</span>}
+        </dd>
+      </dl>
+      <p className={`mt-2 text-[11px] ${FAINT}`}>
+        Source: Workload autoscaler (endpoint 1): the node&apos;s live AWS price, attributed per workload.
+      </p>
+    </Card>
+  );
+}
+
 function RecentChange({ workload }: { workload: WorkloadView }) {
   const a = workload.lastAction;
   const result = a ? actionResult(a.outcome, a.dryRun) : null;
@@ -443,6 +484,7 @@ export function WorkloadDetail({ clusterName, accountId, region, workload, contr
       {live && <WhatChanged outcome={live} replyAt={replyAt} />}
 
       <SizesCard workload={workload} />
+      <CostCard workload={workload} />
       <RecentChange workload={workload} />
 
       <div className="grid gap-4 md:grid-cols-2">

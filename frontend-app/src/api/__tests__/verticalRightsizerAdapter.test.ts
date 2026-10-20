@@ -6,8 +6,10 @@ import {
   formatCoverage,
   formatMib,
   formatMillis,
+  formatMonthlyUsd,
   parseCode,
   toApplyContainer,
+  workloadStatus,
 } from '../verticalRightsizerAdapter';
 import { applyVerticalRecommendation, fetchVerticalEngine, verticalApplyUrl } from '../verticalRightsizerApi';
 import type { VerticalEngineResponseWire, VerticalWorkloadWire } from '../../types/verticalRightsizer';
@@ -317,6 +319,105 @@ describe('toApplyContainer', () => {
       ],
     });
     expect(toApplyContainer(view.workloads[0].containers[0])).toBeNull();
+  });
+});
+
+describe('verticalRightsizerAdapter cost (FEAT-002)', () => {
+  it('formatMonthlyUsd renders "$X/mo" for a real number and a dash for null, never $0 for unknown', () => {
+    expect(formatMonthlyUsd(42)).toBe('$42/mo');
+    expect(formatMonthlyUsd(0.37)).toBe('$0.37/mo');
+    expect(formatMonthlyUsd(0)).toBe('$0/mo'); // a true computed zero is a real "$0/mo"
+    expect(formatMonthlyUsd(null)).toBe(DASH);
+    expect(formatMonthlyUsd(undefined)).toBe(DASH);
+    expect(formatMonthlyUsd(Number.NaN)).toBe(DASH);
+  });
+
+  it('adapts the per-workload and roll-up cost, carrying a true 0 and coercing capacityTypeInferred', () => {
+    const view = adaptEngineResponse({
+      engine,
+      gateReasons: [],
+      cost: {
+        currency: 'USD', hoursPerMonth: 730, monthlySavings: 6.84, monthlySavingsUnavailableReason: null,
+        clusterMonthlyCost: 47.52, pricedWorkloads: 2, unpricedWorkloads: 1,
+      },
+      workloads: [
+        workload({
+          cost: {
+            monthlyCost: 12.34, monthlySavings: 0, reason: null, source: 'PRICE_LIST',
+            capacityType: 'on-demand', capacityTypeInferred: true, note: 'AWS Price List on-demand rate',
+          },
+        }),
+      ],
+    });
+    expect(view.cost).toEqual({
+      currency: 'USD', hoursPerMonth: 730, monthlySavings: 6.84, monthlySavingsUnavailableReason: null,
+      clusterMonthlyCost: 47.52, pricedWorkloads: 2, unpricedWorkloads: 1,
+    });
+    expect(view.workloads[0].cost).toEqual({
+      monthlyCost: 12.34, monthlySavings: 0, reason: null, source: 'PRICE_LIST',
+      capacityType: 'on-demand', capacityTypeInferred: true, note: 'AWS Price List on-demand rate',
+    });
+  });
+
+  it('carries null + reason when a workload is unpriced, and null cost when the response omits it', () => {
+    const view = adaptEngineResponse({
+      engine,
+      gateReasons: [],
+      workloads: [
+        workload({ cost: { monthlyCost: null, monthlySavings: null, reason: 'NO_LIVE_PRICE', source: null, capacityType: null, capacityTypeInferred: false, note: null } }),
+      ],
+    });
+    expect(view.workloads[0].cost).toMatchObject({ monthlyCost: null, monthlySavings: null, reason: 'NO_LIVE_PRICE', capacityTypeInferred: false });
+
+    const older = adaptEngineResponse({ engine, gateReasons: [], workloads: [workload()] });
+    expect(older.cost).toBeNull();
+    expect(older.workloads[0].cost).toBeNull();
+  });
+
+  it('over-provisioned status leads with $X/mo when savings are real, keeping freed capacity secondary', () => {
+    const view = adaptEngineResponse({
+      engine,
+      gateReasons: [],
+      workloads: [
+        workload({
+          replicas: 1,
+          containers: [{
+            name: 'api', qosClass: 'Burstable',
+            current: { cpuRequestM: 1000, memRequestMi: 1024, cpuLimitM: 1000, memLimitMi: 1024 },
+            recommended: { cpuRequestM: 500, memRequestMi: 512, cpuLimitM: 1000, memLimitMi: 1024 },
+            reasons: [], upstreamVpa: null,
+          }],
+          cost: { monthlyCost: 20, monthlySavings: 6.84, reason: null, source: 'PRICE_LIST', capacityType: 'on-demand', capacityTypeInferred: false, note: null },
+        }),
+      ],
+    });
+    const status = workloadStatus(view.workloads[0]);
+    expect(status.status).toBe('Over-provisioned');
+    expect(status.detail).toContain('$7/mo saved'); // formatMoney renders whole dollars above $1
+    expect(status.detail).toMatch(/vCPU|memory/);
+  });
+
+  it('over-provisioned status falls to freed capacity + a reason when savings are unavailable', () => {
+    const view = adaptEngineResponse({
+      engine,
+      gateReasons: [],
+      workloads: [
+        workload({
+          replicas: 1,
+          containers: [{
+            name: 'api', qosClass: 'Burstable',
+            current: { cpuRequestM: 1000, memRequestMi: 1024, cpuLimitM: 1000, memLimitMi: 1024 },
+            recommended: { cpuRequestM: 500, memRequestMi: 512, cpuLimitM: 1000, memLimitMi: 1024 },
+            reasons: [], upstreamVpa: null,
+          }],
+          cost: { monthlyCost: null, monthlySavings: null, reason: 'NO_LIVE_PRICE', source: null, capacityType: null, capacityTypeInferred: false, note: null },
+        }),
+      ],
+    });
+    const status = workloadStatus(view.workloads[0]);
+    expect(status.status).toBe('Over-provisioned');
+    expect(status.detail).toContain('cost unavailable (NO_LIVE_PRICE)');
+    expect(status.detail).not.toContain('$');
   });
 });
 

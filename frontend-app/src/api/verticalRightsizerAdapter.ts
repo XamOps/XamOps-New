@@ -23,14 +23,19 @@ import type {
   ProvenanceView,
   ResourcesView,
   UpstreamVpaView,
+  CostSummaryView,
+  CostSummaryWire,
   VerticalContainerWire,
   VerticalEngineResponseWire,
   VerticalEngineView,
   VerticalResourcesWire,
   VerticalWorkloadWire,
+  WorkloadCostView,
+  WorkloadCostWire,
   WorkloadView,
 } from '../types/verticalRightsizer';
 import { formatIST } from '../utils/timeUtils';
+import { formatMoney } from '../utils/k8sQuantities';
 
 /** Rendered for anything the engine did not measure. Never `0`, never a guess. */
 export const DASH = '—';
@@ -187,6 +192,42 @@ const adaptProvenance = (workload: VerticalWorkloadWire): ProvenanceView | null 
   };
 };
 
+/** A money field, kept as-is when it is a real finite number (incl. a true 0), else null. */
+const money = (raw: number | null | undefined): number | null =>
+  typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+
+/**
+ * One workload's cost (FEAT-002), or null when the wire carried none. The money fields keep their
+ * value (a true 0 is a real "frees nothing"); a non-number is null, which the UI renders as a dash
+ * with `reason`. `capacityTypeInferred` is coerced to a plain boolean.
+ */
+const adaptWorkloadCost = (wire: WorkloadCostWire | null | undefined): WorkloadCostView | null => {
+  if (!wire) return null;
+  return {
+    monthlyCost: money(wire.monthlyCost),
+    monthlySavings: money(wire.monthlySavings),
+    reason: wire.reason ?? null,
+    source: wire.source ?? null,
+    capacityType: wire.capacityType ?? null,
+    capacityTypeInferred: wire.capacityTypeInferred === true,
+    note: wire.note ?? null,
+  };
+};
+
+/** The cluster cost roll-up (FEAT-002), or null when the wire carried none. */
+const adaptCostSummary = (wire: CostSummaryWire | null | undefined): CostSummaryView | null => {
+  if (!wire) return null;
+  return {
+    currency: wire.currency ?? 'USD',
+    hoursPerMonth: typeof wire.hoursPerMonth === 'number' && Number.isFinite(wire.hoursPerMonth) ? wire.hoursPerMonth : 0,
+    monthlySavings: money(wire.monthlySavings),
+    monthlySavingsUnavailableReason: wire.monthlySavingsUnavailableReason ?? null,
+    clusterMonthlyCost: money(wire.clusterMonthlyCost),
+    pricedWorkloads: typeof wire.pricedWorkloads === 'number' ? wire.pricedWorkloads : 0,
+    unpricedWorkloads: typeof wire.unpricedWorkloads === 'number' ? wire.unpricedWorkloads : 0,
+  };
+};
+
 export const workloadId = (workload: VerticalWorkloadWire): string =>
   `${workload.ref.namespace}/${workload.ref.kind}/${workload.ref.name}`;
 
@@ -216,6 +257,7 @@ const adaptWorkload = (
     applyBlockedBy: workload.autoApplyEligible === true ? null : (skipReason ?? gateReasons[0] ?? null),
     provenance: adaptProvenance(workload),
     horizontal: workload.horizontal ?? null,
+    cost: adaptWorkloadCost(workload.cost),
   };
 };
 
@@ -260,6 +302,7 @@ export const adaptEngineResponse = (wire: VerticalEngineResponseWire): VerticalE
     writeGatesChecked: wire?.writeGatesChecked === true,
     workloads: (wire?.workloads ?? []).map((w) => adaptWorkload(w, gateReasons, anomalies)),
     anomalies,
+    cost: adaptCostSummary(wire?.cost),
   };
 };
 
@@ -497,6 +540,14 @@ export const modeText = (mode: string | null | undefined): string => {
 export const formatMemoryMi = (mi: number): string =>
   mi < 1024 ? `${mi}Mi` : `${Number((mi / 1024).toFixed(2))} GiB`;
 
+/**
+ * A monthly dollar figure as "$X/mo" (FEAT-002), reusing `formatMoney` from k8sQuantities (two
+ * significant digits under $1, whole dollars above). `null` is unavailable and renders a dash, never
+ * `$0` — a real computed 0 is "$0/mo", which is correct for a recommendation that frees nothing.
+ */
+export const formatMonthlyUsd = (amount: number | null | undefined): string =>
+  amount === null || amount === undefined || !Number.isFinite(amount) ? DASH : `${formatMoney(amount)}/mo`;
+
 const hasCode = (codes: CodeView[], code: string): boolean =>
   codes.some((c) => c.kind === 'known' && c.code === code);
 
@@ -594,6 +645,23 @@ export const workloadStatus = (workload: WorkloadView): WorkloadStatusText => {
     const parts: string[] = [];
     if (cpuFreed > 0) parts.push(`${((cpuFreed * times) / 1000).toFixed(2)} vCPU`);
     if (memFreed > 0) parts.push(`${formatMemoryMi(memFreed * times)} memory`);
+    const freedClause = perPod ? `${parts.join(' and ')} per pod` : parts.join(' and ');
+    // FEAT-002: when a real $/mo saving exists, lead with it and keep freed vCPU/GiB as the
+    // secondary clause; when it is null, show freed capacity plus a muted "cost unavailable" note
+    // carrying the backend reason. A true computed 0 ("$0/mo") is a real saving, not unavailable.
+    const cost = workload.cost;
+    if (cost && cost.monthlySavings !== null) {
+      return {
+        status: 'Over-provisioned',
+        detail: `${formatMonthlyUsd(cost.monthlySavings)} saved, freeing ${freedClause}`,
+      };
+    }
+    if (cost && cost.reason) {
+      return {
+        status: 'Over-provisioned',
+        detail: `Could free ${freedClause} · cost unavailable (${cost.reason})`,
+      };
+    }
     return {
       status: 'Over-provisioned',
       detail: perPod ? `Could free up to ${parts.join(' and ')} per pod` : `Could free ${parts.join(' and ')}`,

@@ -328,4 +328,65 @@ describe('Workload autoscaler › Workloads › one workload (UI v3 plan §2 "Wo
 
     expect(document.querySelector('[data-confidence]')).toBeNull();
   });
+
+  describe('cost rows (FEAT-002)', () => {
+    it('shows Current cost (plain ink) and Est. monthly savings (via Delta) when priced', async () => {
+      const w = wire('priced-api', 'team-a', {
+        containers: [{ name: 'api', qosClass: 'Burstable', current: res(1000, 1024, 1000, 1024), recommended: res(25, 256, 25, 256), reasons: ['LIMIT_MOVED'], upstreamVpa: null }],
+        cost: { monthlyCost: 12.34, monthlySavings: 6.84, reason: null, source: 'PRICE_LIST', capacityType: 'on-demand', capacityTypeInferred: false, note: 'AWS Price List on-demand rate' },
+      });
+      mockedFetch.mockImplementation(async () => json(200, endpointOne([w])));
+      detail('team-a/Deployment/priced-api');
+      await screen.findByText('Where it is now');
+
+      const cost = document.querySelector<HTMLElement>('[data-cost]')!;
+      expect(cost).toHaveTextContent('Current cost');
+      // formatMoney renders whole dollars above $1 (12.34 → $12, 6.84 → $7).
+      expect(cost).toHaveTextContent('$12/mo');
+      // The savings figure carries the money tone via Delta; current cost does not.
+      expect(cost.querySelector('[data-delta="saved"]')).toHaveTextContent('$7/mo');
+      expect(cost.querySelector('[data-assumed-on-demand]')).toBeNull();
+    });
+
+    it('shows a dash + reason tooltip when the money is unavailable', async () => {
+      const w = wire('unpriced-api', 'team-a', {
+        containers: [{ name: 'api', qosClass: 'Burstable', current: res(1000, 1024, 1000, 1024), recommended: res(25, 256, 25, 256), reasons: ['LIMIT_MOVED'], upstreamVpa: null }],
+        cost: { monthlyCost: null, monthlySavings: null, reason: 'NO_LIVE_PRICE', source: null, capacityType: null, capacityTypeInferred: false, note: null },
+      });
+      mockedFetch.mockImplementation(async () => json(200, endpointOne([w])));
+      detail('team-a/Deployment/unpriced-api');
+      await screen.findByText('Where it is now');
+
+      const cost = document.querySelector<HTMLElement>('[data-cost]')!;
+      expect(cost.querySelector('[data-delta]')).toBeNull();
+      expect(cost).toHaveTextContent('—');
+      const dd = cost.querySelectorAll('dd');
+      expect(dd[0].getAttribute('title')).toContain('No live AWS price');
+    });
+
+    it('appends "assumed on-demand" beside both figures when capacityTypeInferred', async () => {
+      const w = wire('inferred-api', 'team-a', {
+        containers: [{ name: 'api', qosClass: 'Burstable', current: res(1000, 1024, 1000, 1024), recommended: res(25, 256, 25, 256), reasons: ['LIMIT_MOVED'], upstreamVpa: null }],
+        cost: { monthlyCost: 30, monthlySavings: 4.2, reason: null, source: 'PRICE_LIST', capacityType: 'on-demand', capacityTypeInferred: true, note: null },
+      });
+      mockedFetch.mockImplementation(async () => json(200, endpointOne([w])));
+      detail('team-a/Deployment/inferred-api');
+      await screen.findByText('Where it is now');
+
+      const cost = document.querySelector<HTMLElement>('[data-cost]')!;
+      expect(cost.querySelectorAll('[data-assumed-on-demand]')).toHaveLength(2);
+      expect(cost.querySelector('[data-assumed-on-demand]')).toHaveTextContent('assumed on-demand');
+    });
+
+    it('renders no cost card when the response carried no cost (feature off / older build)', async () => {
+      const w = wire('no-cost-api', 'team-a', {
+        containers: [{ name: 'api', qosClass: 'Burstable', current: res(1000, 1024, 1000, 1024), recommended: res(25, 256, 25, 256), reasons: ['LIMIT_MOVED'], upstreamVpa: null }],
+      });
+      mockedFetch.mockImplementation(async () => json(200, endpointOne([w])));
+      detail('team-a/Deployment/no-cost-api');
+      await screen.findByText('Where it is now');
+
+      expect(document.querySelector('[data-cost]')).toBeNull();
+    });
+  });
 });

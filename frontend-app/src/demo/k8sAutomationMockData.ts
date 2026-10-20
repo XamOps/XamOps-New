@@ -196,10 +196,15 @@ export function demoVerticalStatus(cluster: string, now: number = Date.now()): V
     engine: engine(true),
     gateReasons: ['CONTROLLER_NOT_READY'],
     workloads: [
-      // Throttled: the request goes up and the limit moves with it.
+      // Throttled: the request goes up and the limit moves with it. Priced on-demand (real quote).
       w('production', 'Deployment', 'api-server', {
         replicas: 3, findings: ['THROTTLED'],
         containers: [{ name: 'api-server', qosClass: 'Burstable', current: res(256, 512, 512, 1024), recommended: res(400, 512, 800, 1024), reasons: ['LIMIT_MOVED'] }],
+        cost: {
+          monthlyCost: 38.4, monthlySavings: 0, reason: null, source: 'PRICE_LIST',
+          capacityType: 'on-demand', capacityTypeInferred: false,
+          note: 'AWS Price List on-demand rate for m5.large in us-east-1',
+        },
       }),
       // An HPA scales on CPU, so the CPU request is held.
       w('production', 'Deployment', 'worker', {
@@ -215,11 +220,17 @@ export function demoVerticalStatus(cluster: string, now: number = Date.now()): V
       w('monitoring', 'Deployment', 'grafana', {
         containers: [{ name: 'grafana', qosClass: 'Burstable', current: res(100, 256, 300, 512), recommended: null, reasons: ['WITHIN_HYSTERESIS'] }],
       }),
-      // Idle: decreased to the safe floors.
+      // Idle: decreased to the safe floors. Over-provisioned with a real monthly saving.
       w('staging', 'Deployment', 'api-staging', {
         findings: ['IDLE'],
         containers: [{ name: 'api-server', qosClass: 'Burstable', current: res(100, 256, 300, 512), recommended: res(25, 250, 300, 512), reasons: ['FLOOR_CLAMPED'] }],
+        cost: {
+          monthlyCost: 9.12, monthlySavings: 6.84, reason: null, source: 'SPOT_HISTORY',
+          capacityType: 'spot', capacityTypeInferred: false,
+          note: 'EC2 spot price for m5.large in us-east-1a',
+        },
       }),
+      // Requests unset elsewhere; here one workload is left unpriced to show the dash + reason path.
       // Requests unset: an advisory recommendation only.
       w('staging', 'Deployment', 'worker-staging', {
         findings: ['REQUESTS_UNSET'],
@@ -235,11 +246,20 @@ export function demoVerticalStatus(cluster: string, now: number = Date.now()): V
         mode: 'OFF', skipReason: 'POLICY_OFF',
         containers: [{ name: 'prometheus', qosClass: 'Guaranteed', current: res(500, 2048, 1000, 4096), recommended: null, reasons: [] }],
       }),
-      // A CPU decrease; memory is already under the floor and isn't raised without demand.
+      // A CPU decrease; memory is already under the floor and isn't raised without demand. Unpriced:
+      // the node type isn't known, so the savings cell falls to a dash + reason (§3.5 fail-honest).
       w('monitoring', 'StatefulSet', 'alertmanager', {
         containers: [{ name: 'alertmanager', qosClass: 'Burstable', current: res(50, 128, 200, 256), recommended: res(30, 128, 200, 256), reasons: ['BELOW_FLOOR_NO_RAISE'] }],
+        cost: {
+          monthlyCost: null, monthlySavings: null, reason: 'UNKNOWN_INSTANCE_TYPE', source: null,
+          capacityType: null, capacityTypeInferred: false, note: null,
+        },
       }),
     ],
+    cost: {
+      currency: 'USD', hoursPerMonth: 730, monthlySavings: 6.84, monthlySavingsUnavailableReason: null,
+      clusterMonthlyCost: 47.52, pricedWorkloads: 2, unpricedWorkloads: 1,
+    },
   };
 }
 

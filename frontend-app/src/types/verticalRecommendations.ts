@@ -67,6 +67,39 @@ export interface VerticalWorkloadWire {
   provenance?: VerticalProvenanceWire;
   /** The horizontal half; `reasons` carries VPA_MANAGED / VPA_NOT_READABLE when a native VPA owns it. */
   horizontal?: { state: string; reasons?: string[] };
+  /**
+   * Real $ cost + savings (FEAT-002); null/absent when unavailable or the feature is off. The view
+   * model this adapter builds does not surface per-workload cost (SummaryPanel shows only the
+   * roll-up), but the field is carried on the wire so the demo fixtures mirror the real response and
+   * the parallel `verticalRightsizer` adapter — which does render it — reads the same payload.
+   */
+  cost?: WorkloadCostWire | null;
+}
+
+/** Per-workload cost on the wire (FEAT-002, design §5.1). See `verticalRightsizer.ts` for the rules. */
+export interface WorkloadCostWire {
+  monthlyCost: number | null;
+  monthlySavings: number | null;
+  reason: string | null;
+  source: string | null;
+  capacityType: string | null;
+  capacityTypeInferred?: boolean | null;
+  note: string | null;
+}
+
+/**
+ * The cluster cost roll-up (FEAT-002, design §5.1), additive on the status response. `monthlySavings`
+ * and `clusterMonthlyCost` are null (with `monthlySavingsUnavailableReason` set) when nothing was
+ * priceable, never a fabricated 0. Absent from a build that predates cost / while the feature is off.
+ */
+export interface CostSummaryWire {
+  currency: string;
+  hoursPerMonth: number;
+  monthlySavings: number | null;
+  monthlySavingsUnavailableReason: string | null;
+  clusterMonthlyCost: number | null;
+  pricedWorkloads: number;
+  unpricedWorkloads: number;
 }
 
 /** Endpoint 1, `GET /api/eks/automation/vertical/{cluster}` (contract §2.1). */
@@ -87,6 +120,8 @@ export interface VerticalStatusWire {
   /** Shared gate codes, no prefix. */
   gateReasons: string[];
   workloads: VerticalWorkloadWire[];
+  /** The cluster cost roll-up (FEAT-002); null/absent when unavailable or the feature is off. */
+  cost?: CostSummaryWire | null;
 }
 
 /** Endpoint 3 body (contract §3.2): per container, a null or omitted field leaves it alone. */
@@ -209,6 +244,17 @@ export interface VerticalWorkload {
   hpaConflict: boolean;
 }
 
+/** The cluster cost roll-up in the view (FEAT-002). `null` money fields render as a dash. */
+export interface CostSummaryView {
+  currency: string;
+  hoursPerMonth: number;
+  monthlySavings: number | null;
+  monthlySavingsUnavailableReason: string | null;
+  clusterMonthlyCost: number | null;
+  pricedWorkloads: number;
+  unpricedWorkloads: number;
+}
+
 export interface VerticalEngineView {
   state: VerticalStateFromStatus;
   enabled: boolean;
@@ -222,6 +268,8 @@ export interface VerticalEngineView {
   workloads: VerticalWorkload[];
   /** Every listed workload is skipped with POLICY_OFF: "Workloads start Off" (§8.1). */
   allWorkloadsOff: boolean;
+  /** The cluster cost roll-up (FEAT-002), or null when the response carried none. */
+  cost: CostSummaryView | null;
 }
 
 export interface ApplySubmissionView {

@@ -15,6 +15,7 @@
 import { useId, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { inPageState } from '../../../../utils/inPageNavigation';
+import { formatMonthlyUsd } from '../../../../api/verticalRightsizerAdapter';
 import {
   LOADING_CAPABILITY,
   findCluster,
@@ -32,6 +33,7 @@ import { NowBanner } from '../../../CloudK8s/shared/status/NowBanner';
 import { HowItWorks } from '../../../CloudK8s/shared/status/HowItWorks';
 import { FeatureMark, type Feature } from '../../../CloudK8s/shared/status/FeatureMark';
 import { KpiCard } from '../../../CloudK8s/shared/status/KpiCard';
+import { Delta } from '../../../CloudK8s/shared/status/Delta';
 import { StatusChip } from '../../../CloudK8s/shared/status/StatusChip';
 import { nowSentence, type AutomationOverviewInputs, type NowSentence } from '../../../CloudK8s/shared/status/nowSentence';
 import { Bars } from '../../../CloudK8s/shared/charts/Bars';
@@ -371,6 +373,11 @@ function overviewSentence(clusterName: string, result: AutomationReadResult | nu
 function Kpis({ view, now }: { view: VerticalEngineView; now: number }) {
   const k = automationKpis(view.workloads, now);
   const unknownSave = k.overProvisioned > 0 && k.canSave.counted === 0;
+  // FEAT-002: when the cluster cost roll-up carries a real $/mo saving, the card leads with it (the
+  // money tone + arrow live inside Delta, so this file writes no money class); the freed vCPU/GiB
+  // stay as the grey sub-line. A null roll-up keeps the freed-capacity figure, never a `$0`.
+  const cost = view.cost;
+  const moneyValue = cost && cost.monthlySavings !== null;
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-overview-kpis="">
       {/* "Applied live", not "Saving now": endpoint 1's lastAction has no before and after, so a raise
@@ -382,8 +389,18 @@ function Kpis({ view, now }: { view: VerticalEngineView; now: number }) {
           once the activity feed is on
         </p>
       </KpiCard>
-      <KpiCard tone="warn" icon="mdi:arrow-collapse-down" label="Can save now" value={unknownSave ? '—' : formatVcpu(k.canSave.cpuM)}>
-        <p>{unknownSave ? "The replica counts aren't known, so the amount isn't either" : `${formatMemory(k.canSave.memMi)} memory`}</p>
+      <KpiCard
+        tone="warn"
+        icon="mdi:arrow-collapse-down"
+        label="Can save now"
+        value={moneyValue ? <Delta direction="saved" amount={formatMonthlyUsd(cost!.monthlySavings)} /> : unknownSave ? '—' : formatVcpu(k.canSave.cpuM)}
+      >
+        {moneyValue && cost && (
+          <p data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</p>
+        )}
+        {moneyValue
+          ? (unknownSave ? <p>Freed capacity isn&apos;t known: replica counts are missing</p> : <p>{`Frees ${formatVcpu(k.canSave.cpuM)} and ${formatMemory(k.canSave.memMi)}`}</p>)
+          : <p>{unknownSave ? "The replica counts aren't known, so the amount isn't either" : `${formatMemory(k.canSave.memMi)} memory`}</p>}
         <p>{k.overProvisioned} over-provisioned {k.overProvisioned === 1 ? 'workload' : 'workloads'}, waiting for you</p>
         {k.notCounted > 0 && !unknownSave && <p>{k.notCounted} not counted: replicas or pod sizes unknown</p>}
       </KpiCard>

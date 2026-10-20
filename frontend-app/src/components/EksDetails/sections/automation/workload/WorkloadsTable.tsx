@@ -6,8 +6,9 @@
  * Filters (status, namespace, text) are client-side; the row name opens the workload's detail.
  */
 import { useId, useMemo, useState } from 'react';
-import { formatMib, formatMillis, confidenceLine, DASH } from '../../../../../api/verticalRightsizerAdapter';
+import { formatMib, formatMillis, formatMonthlyUsd, confidenceLine, DASH } from '../../../../../api/verticalRightsizerAdapter';
 import type { ApplyResult, ConfidenceView, WorkloadView } from '../../../../../types/verticalRightsizer';
+import { costUnavailableText } from '../verticalCopy';
 import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
 import { ConfidenceChip } from '../../../../CloudK8s/shared/status/ConfidenceChip';
 import { StepIndicator } from '../../../../CloudK8s/shared/status/StepIndicator';
@@ -101,6 +102,31 @@ function FreedCell({ workload }: { workload: WorkloadView }) {
   );
 }
 
+/**
+ * Est. savings / mo (FEAT-002): the real $/mo saving via Delta (money tone + arrow inside Delta, so
+ * this file writes no money class), or a plain dash + `cost.reason` tooltip when unavailable. An
+ * inferred capacity type adds the muted "assumed on-demand" qualifier to the tooltip. A true 0 is a
+ * real "$0/mo" (the recommendation frees nothing), not a dash.
+ */
+function SavingsCell({ workload }: { workload: WorkloadView }) {
+  const cost = workload.cost;
+  const assumed = cost?.capacityTypeInferred ? ' Assumed on-demand (no capacity-type label on the node).' : '';
+  if (!cost || cost.monthlySavings === null) {
+    const title = `${costUnavailableText(cost?.reason)}${assumed}`.trim();
+    return (
+      <span className={`text-[12px] ${FAINT}`} title={title}>
+        {DASH}
+      </span>
+    );
+  }
+  const title = `${cost.note ?? ''}${assumed}`.trim() || undefined;
+  return (
+    <span title={title}>
+      <Delta direction="saved" amount={formatMonthlyUsd(cost.monthlySavings)} />
+    </span>
+  );
+}
+
 export function WorkloadsTable({ workloads, detailHref, applyingIds, applyResults, replyAt, now }: WorkloadsTableProps) {
   const [status, setStatus] = useState('all');
   const [namespace, setNamespace] = useState('all');
@@ -173,6 +199,7 @@ export function WorkloadsTable({ workloads, detailHref, applyingIds, applyResult
               <th scope="col" className="px-4 py-2 font-semibold" title="m = millicores. 1000m = 1 vCPU.">CPU request (now → suggested)</th>
               <th scope="col" className="px-4 py-2 font-semibold">Memory request (now → suggested)</th>
               <th scope="col" className="px-4 py-2 font-semibold">Freed or more</th>
+              <th scope="col" className="px-4 py-2 text-right font-semibold" title="Estimated monthly saving from the suggestion, at the node's live AWS price.">Est. savings / mo</th>
               <th scope="col" className="px-4 py-2 font-semibold" title="How much to trust the suggestion: window coverage and how steady CPU use was.">Confidence</th>
               <th scope="col" className="px-4 py-2 font-semibold">CPU request vs suggestion</th>
               <th scope="col" className="px-4 py-2 font-semibold">Stage</th>
@@ -204,6 +231,7 @@ export function WorkloadsTable({ workloads, detailHref, applyingIds, applyResult
                   <td className={`whitespace-nowrap px-4 py-2.5 tabular-nums ${INK}`}>{pairText(cpu, millis)}</td>
                   <td className={`whitespace-nowrap px-4 py-2.5 tabular-nums ${INK}`}>{pairText(mem, mib)}</td>
                   <td className="whitespace-nowrap px-4 py-2.5"><FreedCell workload={w} /></td>
+                  <td className="whitespace-nowrap px-4 py-2.5 text-right"><SavingsCell workload={w} /></td>
                   <td className="whitespace-nowrap px-4 py-2.5">
                     {confidence ? (
                       <span title={confidenceLine(confidence)}>

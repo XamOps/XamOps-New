@@ -17,12 +17,13 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import EksAutomationTab from '../../../tabs/EksAutomationTab';
 import useVerticalRightsizer from '../../../../../hooks/useVerticalRightsizer';
-import { formatInstant } from '../../../../../api/verticalRightsizerAdapter';
+import { formatInstant, formatMonthlyUsd } from '../../../../../api/verticalRightsizerAdapter';
 import { inPageState } from '../../../../../utils/inPageNavigation';
-import type { ApplyResult, WorkloadView } from '../../../../../types/verticalRightsizer';
+import type { ApplyResult, CostSummaryView, WorkloadView } from '../../../../../types/verticalRightsizer';
 import { NowBanner } from '../../../../CloudK8s/shared/status/NowBanner';
 import { HowItWorks } from '../../../../CloudK8s/shared/status/HowItWorks';
 import { KpiCard } from '../../../../CloudK8s/shared/status/KpiCard';
+import { Delta } from '../../../../CloudK8s/shared/status/Delta';
 import { nowSentence, type NowSentence } from '../../../../CloudK8s/shared/status/nowSentence';
 import { Bars } from '../../../../CloudK8s/shared/charts/Bars';
 import { ChartCard } from '../../../../CloudK8s/shared/charts/ChartCard';
@@ -85,12 +86,17 @@ function readyNames(names: string[]): string[] {
   return names.length <= 3 ? names : [...names.slice(0, 3), `and ${names.length - 3} more`];
 }
 
-function KpiRow({ k, workloads }: { k: AutomationKpis; workloads: readonly WorkloadView[] }) {
+function KpiRow({ k, workloads, cost }: { k: AutomationKpis; workloads: readonly WorkloadView[]; cost: CostSummaryView | null }) {
   const buckets = new Map<string, number>();
   for (const w of workloads) {
     const label = workloadStatusChip(w).label.replace(/^(Needs more).*$/, '$1').replace(/^(Left alone).*$/, '$1').replace(/^(Skipped).*$/, '$1');
     buckets.set(label, (buckets.get(label) ?? 0) + 1);
   }
+  const unknownSave = k.overProvisioned > 0 && k.canSave.counted === 0;
+  // FEAT-002: lead the "Can save now" card with the cost roll-up's $/mo saving (via Delta, which
+  // carries the money tone), keeping freed vCPU/GiB as the grey sub-line; null roll-up → freed
+  // capacity, never `$0`.
+  const moneyValue = cost && cost.monthlySavings !== null;
   return (
     // data-k8s-kit: the KPI cards and the note under them carry their own dark colours.
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-k8s-kit="">
@@ -101,12 +107,17 @@ function KpiRow({ k, workloads }: { k: AutomationKpis; workloads: readonly Workl
         tone="warn"
         icon="mdi:arrow-collapse-down"
         label="Can save now"
-        value={k.overProvisioned > 0 && k.canSave.counted === 0 ? '—' : formatVcpu(k.canSave.cpuM)}
+        value={moneyValue ? <Delta direction="saved" amount={formatMonthlyUsd(cost!.monthlySavings)} /> : unknownSave ? '—' : formatVcpu(k.canSave.cpuM)}
       >
+        {moneyValue && cost && (
+          <p data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</p>
+        )}
         <p>
-          {k.overProvisioned > 0 && k.canSave.counted === 0
+          {unknownSave
             ? "The replica counts aren't known, so the amount isn't either"
-            : `${formatMemory(k.canSave.memMi)} memory, freed across every pod`}
+            : moneyValue
+              ? `Frees ${formatVcpu(k.canSave.cpuM)} and ${formatMemory(k.canSave.memMi)} across every pod`
+              : `${formatMemory(k.canSave.memMi)} memory, freed across every pod`}
         </p>
         <p>{k.overProvisioned} over-provisioned, waiting for you</p>
       </KpiCard>
@@ -256,7 +267,7 @@ export function WorkloadsPage({ clusterName, accountId, region, workloadsHref, p
             policiesHref={policiesHref}
             policiesLinkState={inPageState(location)}
           />
-          <KpiRow k={derived.k} workloads={view.workloads} />
+          <KpiRow k={derived.k} workloads={view.workloads} cost={view.cost} />
           <TopSavings workloads={view.workloads} />
           {view.workloads.length > 0 && (
             <WorkloadsTable
