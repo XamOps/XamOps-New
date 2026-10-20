@@ -13,6 +13,7 @@ import com.xammer.cloud.service.automation.workload.execute.ResizeProof;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -61,7 +62,16 @@ public class WorkloadActionRecorder {
      *                  recorded outcome and its pod observations are the "after" side
      * @param appliedAt the instant the change was applied
      */
-    @Transactional
+    // REQUIRES_NEW: this audit row is an IDENTITY INSERT, and the auto-apply loop
+    // ({@code AutomaticApplyService.applyOnePerReadyCluster}) scans inside a {@code readOnly=true}
+    // transaction so its LAZY {@code CloudAccount.client} reads resolve off the scheduled thread. On
+    // PostgreSQL a Spring read-only transaction reaches the DB as {@code BEGIN READ ONLY}, so an
+    // INSERT that joined it would fail with "cannot execute INSERT in a read-only transaction" and
+    // the automatic resize would reach the pods but never be recorded. Committing in its own
+    // read-write transaction is what makes the write land; the manual path (endpoint 3) runs under no
+    // enclosing transaction, so a new one here is simply its own. The call crosses a bean boundary
+    // from {@code VerticalApplyService}, so the proxy honours this propagation.
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(Long clientId, ClusterTarget target, WorkloadRef ref, ActionTrigger trigger,
                        boolean dryRun, List<ContainerApplyTarget> submitted, ResizeProof proof,
                        Instant appliedAt) {

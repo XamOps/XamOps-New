@@ -11,6 +11,7 @@ import com.xammer.cloud.service.automation.workload.WorkloadRef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -105,7 +106,16 @@ public class WorkloadPolicyService {
      * @param inForce the policy that was resolved for this apply, used only when a row has to be
      *                created; null falls back to the bare defaults, whose mode is {@code OFF}
      */
-    @Transactional
+    // REQUIRES_NEW: the cooldown stamp is a write, and the auto-apply loop
+    // ({@code AutomaticApplyService.applyOnePerReadyCluster}) scans inside a {@code readOnly=true}
+    // transaction so its LAZY {@code CloudAccount.client} reads resolve off the scheduled thread. On
+    // PostgreSQL a Spring read-only transaction reaches the DB as {@code BEGIN READ ONLY}, so an
+    // UPDATE joining it fails with "cannot execute UPDATE in a read-only transaction". Suspending the
+    // read-only scan and committing this write in its own read-write transaction is what lets an
+    // automatic resize actually stamp the cooldown; the manual path (endpoint 3) runs under no
+    // enclosing transaction, so a new one here is simply its own. Same reasoning as
+    // {@code WorkloadActionRecorder.record}; both calls cross a bean boundary, so the proxy honours it.
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordApplied(Long clientId, Long clusterConfigId, WorkloadRef ref,
                               WorkloadPolicy inForce, Instant appliedAt) {
         if (clusterConfigId == null || ref == null || appliedAt == null) {
