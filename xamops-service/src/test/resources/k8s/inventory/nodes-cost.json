@@ -1,0 +1,111 @@
+{
+  "apiVersion": "v1",
+  "kind": "NodeList",
+  "metadata": {
+    "resourceVersion": "1"
+  },
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "Node",
+      "metadata": {
+        "name": "on-demand-node",
+        "uid": "node-on-demand",
+        "labels": {
+          "node.kubernetes.io/instance-type": "m5.large",
+          "karpenter.sh/capacity-type": "on-demand",
+          "topology.kubernetes.io/zone": "ap-south-1a"
+        }
+      },
+      "spec": {},
+      "status": {
+        "allocatable": {
+          "cpu": "1930m",
+          "memory": "7600Mi",
+          "pods": "17"
+        },
+        "capacity": {
+          "cpu": "2",
+          "memory": "8Gi",
+          "pods": "17"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Node",
+      "metadata": {
+        "name": "spot-node",
+        "uid": "node-spot",
+        "labels": {
+          "node.kubernetes.io/instance-type": "m5.large",
+          "karpenter.sh/capacity-type": "spot",
+          "topology.kubernetes.io/zone": "ap-south-1b"
+        }
+      },
+      "spec": {},
+      "status": {
+        "allocatable": {
+          "cpu": "1930m",
+          "memory": "7600Mi",
+          "pods": "17"
+        },
+        "capacity": {
+          "cpu": "2",
+          "memory": "8Gi",
+          "pods": "17"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Node",
+      "metadata": {
+        "name": "unlabeled-node",
+        "uid": "node-unlabeled",
+        "labels": {
+          "node.kubernetes.io/instance-type": "m5.large",
+          "topology.kubernetes.io/zone": "ap-south-1c"
+        }
+      },
+      "spec": {},
+      "status": {
+        "allocatable": {
+          "cpu": "1930m",
+          "memory": "7600Mi",
+          "pods": "17"
+        },
+        "capacity": {
+          "cpu": "2",
+          "memory": "8Gi",
+          "pods": "17"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Node",
+      "metadata": {
+        "name": "fargate-node",
+        "uid": "node-fargate",
+        "labels": {
+          "eks.amazonaws.com/compute-type": "fargate",
+          "topology.kubernetes.io/zone": "ap-south-1a"
+        }
+      },
+      "spec": {},
+      "status": {
+        "allocatable": {
+          "cpu": "250m",
+          "memory": "512Mi",
+          "pods": "1"
+        },
+        "capacity": {
+          "cpu": "250m",
+          "memory": "512Mi",
+          "pods": "1"
+        }
+      }
+    }
+  ]
+}

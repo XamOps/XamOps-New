@@ -61,6 +61,10 @@ class VerticalAutomationReadServiceTest {
     private static final ClusterTarget TARGET =
             new ClusterTarget(7L, 42L, "102227938259", "xamops-test-cluster", "ap-south-1");
 
+    /** Inert account for the read signature; the cost feature is off in these fixtures. */
+    private static final com.xammer.cloud.domain.CloudAccount ACCOUNT =
+            new com.xammer.cloud.domain.CloudAccount("acct", "ext", "read-only", null);
+
     private static final long MI = 1024L * 1024L;
     private static final WorkloadRef API = new WorkloadRef("team-a", "Deployment", "overprovisioned-api",
             "dep-uid-1");
@@ -73,7 +77,7 @@ class VerticalAutomationReadServiceTest {
                 new WorkloadAutoscalingProperties(false, false),
                 new NoMetricsSourceProvider(), List.of(provider));
 
-        VerticalEngineResponse response = service.read(TARGET, config(null));
+        VerticalEngineResponse response = service.read(ACCOUNT, TARGET, config(null));
 
         assertThat(response.engine().enabled()).isFalse();
         assertThat(response.engine().ready()).isFalse();
@@ -98,7 +102,7 @@ class VerticalAutomationReadServiceTest {
                 new WorkloadAutoscalingProperties(false, false),
                 new NoMetricsSourceProvider(), List.of(new RecordingProvider()));
 
-        VerticalEngineResponse response = service.read(TARGET, config(null));
+        VerticalEngineResponse response = service.read(ACCOUNT, TARGET, config(null));
 
         // Guessing NOT_CONFIGURED would send a customer to fix an access entry that may already be
         // correct. Null means "not checked", which the UI's view model already types as nullable.
@@ -114,7 +118,7 @@ class VerticalAutomationReadServiceTest {
                 new WorkloadAutoscalingProperties(false, false),
                 new NoMetricsSourceProvider(), List.of());
 
-        VerticalEngineResponse.LastCycle lastCycle = service.read(TARGET, config(null)).engine().lastCycle();
+        VerticalEngineResponse.LastCycle lastCycle = service.read(ACCOUNT, TARGET, config(null)).engine().lastCycle();
 
         assertThat(lastCycle.at()).isNull();
         assertThat(lastCycle.evaluated()).isNull();
@@ -128,7 +132,7 @@ class VerticalAutomationReadServiceTest {
                 new WorkloadAutoscalingProperties(false, false),
                 new NoMetricsSourceProvider(), List.of());
 
-        VerticalEngineResponse response = service.read(TARGET, config(LocalDateTime.now().minusMinutes(2)));
+        VerticalEngineResponse response = service.read(ACCOUNT, TARGET, config(LocalDateTime.now().minusMinutes(2)));
 
         assertThat(response.engine().executionPath()).isEqualTo("AGENT");
         assertThat(response.engine().executionPathDetail().agent().available()).isTrue();
@@ -143,7 +147,7 @@ class VerticalAutomationReadServiceTest {
                 new WorkloadAutoscalingProperties(false, false),
                 new NoMetricsSourceProvider(), List.of());
 
-        VerticalEngineResponse response = service.read(TARGET, config(LocalDateTime.now().minusHours(3)));
+        VerticalEngineResponse response = service.read(ACCOUNT, TARGET, config(LocalDateTime.now().minusHours(3)));
 
         assertThat(response.engine().executionPath()).isEqualTo("NONE");
         assertThat(response.engine().executionPathDetail().agent().available()).isFalse();
@@ -160,7 +164,7 @@ class VerticalAutomationReadServiceTest {
                 new WorkloadAutoscalingProperties(true, true),
                 new NoMetricsSourceProvider(), List.of(failing));
 
-        VerticalEngineResponse response = service.read(TARGET, config(null));
+        VerticalEngineResponse response = service.read(ACCOUNT, TARGET, config(null));
 
         assertThat(response.engine().clusterAccess()).isEqualTo("UNREACHABLE");
         assertThat(response.engine().executionPathDetail().direct().reason())
@@ -184,7 +188,7 @@ class VerticalAutomationReadServiceTest {
                 new WorkloadAutoscalingProperties(true, true),
                 new NoMetricsSourceProvider(), List.of(kubeconfigPath, eksPath));
 
-        service.read(TARGET, config(null));
+        service.read(ACCOUNT, TARGET, config(null));
 
         assertThat(eksPath.opened)
                 .as("for a cluster reached through a connected AWS account, the customer's own role "
@@ -218,7 +222,7 @@ class VerticalAutomationReadServiceTest {
                 new WorkloadAutoscalingProperties(true, true),
                 new NoMetricsSourceProvider(), List.of(failing));
 
-        VerticalEngineResponse response = service.read(TARGET, config(null));
+        VerticalEngineResponse response = service.read(ACCOUNT, TARGET, config(null));
 
         assertThat(response.engine().clusterAccess()).isEqualTo("NOT_CONFIGURED");
         assertThat(response.gateReasons()).contains(ReasonCode.CLUSTER_ACCESS_NOT_CONFIGURED.name());
@@ -231,7 +235,7 @@ class VerticalAutomationReadServiceTest {
                 new WorkloadAutoscalingProperties(true, true),
                 new NoMetricsSourceProvider(), List.of(opening()));
 
-        VerticalEngineResponse response = service.read(TARGET, config(null));
+        VerticalEngineResponse response = service.read(ACCOUNT, TARGET, config(null));
 
         assertThat(response.gateReasons()).contains(ReasonCode.NO_METRICS_SOURCE.name());
         assertThat(response.workloads()).isEmpty();
@@ -251,9 +255,9 @@ class VerticalAutomationReadServiceTest {
                 new WorkloadAutoscalingProperties(true, true),
                 new NoMetricsSourceProvider(), List.of(provider), () -> now[0]);
 
-        VerticalEngineResponse first = service.read(TARGET, config(null));
+        VerticalEngineResponse first = service.read(ACCOUNT, TARGET, config(null));
         now[0] += VerticalAutomationReadService.PROBE_TTL.toNanos() / 2;
-        VerticalEngineResponse second = service.read(TARGET, config(null));
+        VerticalEngineResponse second = service.read(ACCOUNT, TARGET, config(null));
 
         assertThat(provider.opened).isEqualTo(1);
         assertThat(second.engine().clusterAccess())
@@ -273,9 +277,9 @@ class VerticalAutomationReadServiceTest {
                 new WorkloadAutoscalingProperties(true, true),
                 new NoMetricsSourceProvider(), List.of(provider), () -> now[0]);
 
-        service.read(TARGET, config(null));
+        service.read(ACCOUNT, TARGET, config(null));
         now[0] += VerticalAutomationReadService.PROBE_TTL.toNanos();
-        service.read(TARGET, config(null));
+        service.read(ACCOUNT, TARGET, config(null));
 
         assertThat(provider.opened).isEqualTo(2);
     }
@@ -289,8 +293,8 @@ class VerticalAutomationReadServiceTest {
                 new WorkloadAutoscalingProperties(true, true),
                 new NoMetricsSourceProvider(), List.of(provider), () -> now[0]);
 
-        service.read(TARGET, config(null));
-        service.read(new ClusterTarget(7L, 43L, "102227938259", "another-cluster", "ap-south-1"),
+        service.read(ACCOUNT, TARGET, config(null));
+        service.read(ACCOUNT, new ClusterTarget(7L, 43L, "102227938259", "another-cluster", "ap-south-1"),
                 config(null));
 
         assertThat(provider.opened)
@@ -307,9 +311,9 @@ class VerticalAutomationReadServiceTest {
         VerticalAutomationReadService service = service(usage, emptyInventory(), VerticalReadServiceFixtures
                 .noStoredPolicies(), "RECOMMEND", 24, () -> now[0]);
 
-        service.read(TARGET, config(null));
+        service.read(ACCOUNT, TARGET, config(null));
         now[0] += VerticalAutomationReadService.PROBE_TTL.toNanos() / 2;
-        service.read(TARGET, config(null));
+        service.read(ACCOUNT, TARGET, config(null));
 
         assertThat(usage.reachabilityProbes)
                 .as("the probe is a real Prometheus query, so it is cached like the access probe")
@@ -324,7 +328,7 @@ class VerticalAutomationReadServiceTest {
         VerticalAutomationReadService service = service(new FakeUsage(), inventory(overprovisionedApi()),
                 VerticalReadServiceFixtures.noStoredPolicies(), "RECOMMEND", 24);
 
-        VerticalEngineResponse response = service.read(TARGET, config(null));
+        VerticalEngineResponse response = service.read(ACCOUNT, TARGET, config(null));
 
         assertThat(response.engine().metricsSource().reachable()).isTrue();
         assertThat(response.engine().metricsSource().name()).isEqualTo("fake-prometheus");
@@ -342,7 +346,7 @@ class VerticalAutomationReadServiceTest {
         VerticalAutomationReadService service = service(new FakeUsage(), inventory(overprovisionedApi()),
                 VerticalReadServiceFixtures.noStoredPolicies(), "RECOMMEND", 24);
 
-        VerticalWorkloadDto dto = service.read(TARGET, config(null)).workloads().get(0);
+        VerticalWorkloadDto dto = service.read(ACCOUNT, TARGET, config(null)).workloads().get(0);
 
         assertThat(dto.ref().namespace()).isEqualTo("team-a");
         assertThat(dto.ref().name()).isEqualTo("overprovisioned-api");
@@ -370,7 +374,7 @@ class VerticalAutomationReadServiceTest {
         VerticalAutomationReadService withDefaults = service(usage, inventory(overprovisionedApi()),
                 VerticalReadServiceFixtures.noStoredPolicies(), "RECOMMEND", 72);
 
-        VerticalWorkloadDto fromDefaults = withDefaults.read(TARGET, config(null)).workloads().get(0);
+        VerticalWorkloadDto fromDefaults = withDefaults.read(ACCOUNT, TARGET, config(null)).workloads().get(0);
 
         assertThat(fromDefaults.provenance().policySource()).isEqualTo("DEFAULTS");
         assertThat(fromDefaults.provenance().windowHours()).isEqualTo(72);
@@ -386,7 +390,7 @@ class VerticalAutomationReadServiceTest {
                 VerticalReadServiceFixtures.storedPolicies(
                         Map.of(WorkloadPolicyService.key(API), row)), "RECOMMEND", 72);
 
-        VerticalWorkloadDto fromRow = withRow.read(TARGET, config(null)).workloads().get(0);
+        VerticalWorkloadDto fromRow = withRow.read(ACCOUNT, TARGET, config(null)).workloads().get(0);
 
         assertThat(fromRow.provenance().policySource())
                 .as("a stored row is never overridden, or the reported provenance would be a lie")
@@ -405,7 +409,7 @@ class VerticalAutomationReadServiceTest {
         VerticalMetricsProperties uat = VerticalReadServiceFixtures.metricsProperties("RECOMMEND", 72);
         VerticalWorkloadDto before = service(new FakeUsage(), inventory(overprovisionedApi()),
                 VerticalReadServiceFixtures.noStoredPolicies(), "RECOMMEND", 72)
-                .read(TARGET, config(null)).workloads().get(0);
+                .read(ACCOUNT, TARGET, config(null)).workloads().get(0);
 
         // Applied two hours before this cycle, so the 60-minute cooldown has elapsed.
         policies.recordApplied(7L, 42L, API, uat.defaultsPolicy(),
@@ -415,7 +419,7 @@ class VerticalAutomationReadServiceTest {
         when(table.findByClusterConfigId(42L)).thenReturn(List.of(written.getValue()));
 
         VerticalWorkloadDto after = service(new FakeUsage(), inventory(overprovisionedApi()),
-                policies, "RECOMMEND", 72).read(TARGET, config(null)).workloads().get(0);
+                policies, "RECOMMEND", 72).read(ACCOUNT, TARGET, config(null)).workloads().get(0);
 
         assertThat(after.policy()).as("the same mode and policy values as before the Apply")
                 .isEqualTo(before.policy());
@@ -434,7 +438,7 @@ class VerticalAutomationReadServiceTest {
     void theUsageQueryIsOwnerScoped() {
         FakeUsage usage = new FakeUsage();
         service(usage, inventory(overprovisionedApi()), VerticalReadServiceFixtures.noStoredPolicies(),
-                "RECOMMEND", 24).read(TARGET, config(null));
+                "RECOMMEND", 24).read(ACCOUNT, TARGET, config(null));
 
         UsageQuery query = usage.lastQuery;
         assertThat(query.ref().namespace()).isEqualTo("team-a");
@@ -452,7 +456,7 @@ class VerticalAutomationReadServiceTest {
         // window that means 36h of uninterrupted pod life before anything can be recommended.
         FakeUsage usage = new FakeUsage();
         service(usage, inventory(overprovisionedApi()), VerticalReadServiceFixtures.noStoredPolicies(),
-                "RECOMMEND", 24).read(TARGET, config(null));
+                "RECOMMEND", 24).read(ACCOUNT, TARGET, config(null));
 
         assertThat(usage.lastQuery.podNameRules())
                 .containsExactly(PodNameRule.replicaSetPods("overprovisioned-api-aaa"),
@@ -467,7 +471,7 @@ class VerticalAutomationReadServiceTest {
                 inventory(overprovisionedApi()), VerticalReadServiceFixtures.noStoredPolicies(),
                 "RECOMMEND", 24);
 
-        VerticalEngineResponse response = service.read(TARGET, config(null));
+        VerticalEngineResponse response = service.read(ACCOUNT, TARGET, config(null));
 
         assertThat(response.workloads()).hasSize(1);
         VerticalWorkloadDto dto = response.workloads().get(0);
@@ -495,7 +499,7 @@ class VerticalAutomationReadServiceTest {
                 inventory(overprovisionedApi()), VerticalReadServiceFixtures.noStoredPolicies(),
                 "RECOMMEND", 24);
 
-        VerticalEngineResponse response = service.read(TARGET, config(null));
+        VerticalEngineResponse response = service.read(ACCOUNT, TARGET, config(null));
 
         assertThat(response.workloads())
                 .as("a partial list the reader cannot tell is partial is worse than none")
@@ -514,7 +518,7 @@ class VerticalAutomationReadServiceTest {
         VerticalAutomationReadService service = service(new FakeUsage(), inventory,
                 VerticalReadServiceFixtures.noStoredPolicies(), "RECOMMEND", 24);
 
-        VerticalEngineResponse response = service.read(TARGET, config(null));
+        VerticalEngineResponse response = service.read(ACCOUNT, TARGET, config(null));
 
         assertThat(response.workloads()).isEmpty();
         assertThat(response.engine().lastCycle().error()).contains("allocatable");
@@ -530,7 +534,7 @@ class VerticalAutomationReadServiceTest {
         VerticalAutomationReadService service = service(new FakeUsage(), inventory(noPods),
                 VerticalReadServiceFixtures.noStoredPolicies(), "RECOMMEND", 24);
 
-        VerticalWorkloadDto dto = service.read(TARGET, config(null)).workloads().get(0);
+        VerticalWorkloadDto dto = service.read(ACCOUNT, TARGET, config(null)).workloads().get(0);
 
         assertThat(dto.skipReason()).isEqualTo(ReasonCode.INSUFFICIENT_HISTORY.name());
         assertThat(dto.containers()).isEmpty();
@@ -547,7 +551,7 @@ class VerticalAutomationReadServiceTest {
                 new FakeUsage(), List.of(opening()), inventory(overprovisionedApi()), vpaReader,
                 VerticalReadServiceFixtures.noStoredPolicies(), () -> 0L);
 
-        VerticalWorkloadDto dto = service.read(TARGET, config(null)).workloads().get(0);
+        VerticalWorkloadDto dto = service.read(ACCOUNT, TARGET, config(null)).workloads().get(0);
 
         assertThat(dto.findings()).contains(UpstreamVpaReader.FINDING_NOT_READABLE);
         assertThat(dto.containers().get(0).upstreamVpa()).isNull();
@@ -567,7 +571,7 @@ class VerticalAutomationReadServiceTest {
                 new FakeUsage(), List.of(opening()), inventory(overprovisionedApi()), vpaReader,
                 VerticalReadServiceFixtures.noStoredPolicies(), () -> 0L);
 
-        VerticalWorkloadDto dto = service.read(TARGET, config(null)).workloads().get(0);
+        VerticalWorkloadDto dto = service.read(ACCOUNT, TARGET, config(null)).workloads().get(0);
         VerticalWorkloadDto.ContainerDto container = dto.containers().get(0);
 
         assertThat(container.upstreamVpa()).isNotNull();
@@ -589,7 +593,7 @@ class VerticalAutomationReadServiceTest {
                 VerticalReadServiceFixtures.rpsOff());
 
         VerticalWorkloadDto.HorizontalDto horizontal =
-                service.read(TARGET, config(null)).workloads().get(0).horizontal();
+                service.read(ACCOUNT, TARGET, config(null)).workloads().get(0).horizontal();
 
         assertThat(horizontal.rpsReplicas()).isNull();
         assertThat(horizontal.rpsReason()).isEqualTo("NO_RPS_SOURCE");
@@ -607,7 +611,7 @@ class VerticalAutomationReadServiceTest {
                 RpsSizingProperties.of(true, "http_requests_total", 0.70, null));
 
         VerticalWorkloadDto.HorizontalDto horizontal =
-                service.read(TARGET, config(null)).workloads().get(0).horizontal();
+                service.read(ACCOUNT, TARGET, config(null)).workloads().get(0).horizontal();
 
         assertThat(horizontal.rpsReplicas()).isNull();
         assertThat(horizontal.rpsReason()).isEqualTo("NO_CAPACITY_BASIS");
@@ -624,7 +628,7 @@ class VerticalAutomationReadServiceTest {
                 RpsSizingProperties.of(true, "http_requests_total", 0.70, 50.0));
 
         VerticalWorkloadDto.HorizontalDto horizontal =
-                service.read(TARGET, config(null)).workloads().get(0).horizontal();
+                service.read(ACCOUNT, TARGET, config(null)).workloads().get(0).horizontal();
 
         // ceil(1200 / 50 / 0.70) = ceil(34.28...) = 35, no HPA range so unbounded.
         assertThat(horizontal.rpsReplicas()).isEqualTo(35);
@@ -643,7 +647,7 @@ class VerticalAutomationReadServiceTest {
                 RpsSizingProperties.of(true, "http_requests_total", 0.70, 50.0));
 
         VerticalWorkloadDto.HorizontalDto horizontal =
-                service.read(TARGET, config(null)).workloads().get(0).horizontal();
+                service.read(ACCOUNT, TARGET, config(null)).workloads().get(0).horizontal();
 
         // raw 35 clamped to the HPA's [2,10] -> 10.
         assertThat(horizontal.rpsReplicas()).isEqualTo(10);
@@ -658,7 +662,7 @@ class VerticalAutomationReadServiceTest {
         usage.observedRps = java.util.OptionalDouble.of(1200.0);
         service(usage, inventory(overprovisionedApi()), VerticalReadServiceFixtures.noStoredPolicies(),
                 "RECOMMEND", 24, RpsSizingProperties.of(true, "http_requests_total", 0.70, 50.0))
-                .read(TARGET, config(null));
+                .read(ACCOUNT, TARGET, config(null));
 
         RpsQuery query = usage.lastRpsQuery;
         assertThat(query).isNotNull();

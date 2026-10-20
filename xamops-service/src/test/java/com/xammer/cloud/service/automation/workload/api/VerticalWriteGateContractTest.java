@@ -148,7 +148,7 @@ class VerticalWriteGateContractTest {
         // 72h), as real DTOs. The engine half is not what this contract is about, so it is built
         // rather than measured; everything about the caller is computed by the real classes.
         VerticalAutomationReadService readService = mock(VerticalAutomationReadService.class);
-        when(readService.read(any(), any())).thenReturn(engineView());
+        when(readService.read(any(), any(), any())).thenReturn(engineView());
 
         VerticalAutomationController controller = new VerticalAutomationController(
                 accessService, configs, readService, applyService,

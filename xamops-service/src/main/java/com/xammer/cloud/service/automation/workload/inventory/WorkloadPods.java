@@ -74,8 +74,10 @@ public record WorkloadPods(WorkloadRef ref, List<Pod> pods, List<PodNameRule> na
      * @param uid   {@code metadata.uid} — identity that survives a name being reused
      * @param ready whether its {@code Ready} condition was True at the read, or null when not known.
      *              The executor prefers a Ready pod as the canary (review-2 item 14)
+     * @param nodeName the node this pod runs on ({@code spec.nodeName}), or null when not read. Used
+     *               by the cost attribution to price a pod against its node (FEAT-001 §3.0)
      */
-    public record Pod(String name, String uid, Boolean ready) {
+    public record Pod(String name, String uid, Boolean ready, String nodeName) {
 
         public Pod {
             if (name == null || name.isBlank()) {
@@ -83,9 +85,14 @@ public record WorkloadPods(WorkloadRef ref, List<Pod> pods, List<PodNameRule> na
             }
         }
 
+        /** A pod whose node is not carried (the pre-cost 3-arg shape, delegated). */
+        public Pod(String name, String uid, Boolean ready) {
+            this(name, uid, ready, null);
+        }
+
         /** A pod whose readiness was not read. */
         public Pod(String name, String uid) {
-            this(name, uid, null);
+            this(name, uid, null, null);
         }
     }
 

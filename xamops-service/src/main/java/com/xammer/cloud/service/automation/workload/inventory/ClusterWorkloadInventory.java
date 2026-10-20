@@ -94,6 +94,7 @@ public class ClusterWorkloadInventory {
                 client.policy().v1().podDisruptionBudget().inAnyNamespace().list().getItems();
         List<Node> nodes = client.nodes().list().getItems();
 
+        Map<String, NodeFacts> nodesByName = nodesByName(nodes);
         Map<String, List<Pod>> podsByOwnerUid = podsByOwnerUid(pods);
         Map<String, List<ReplicaSet>> replicaSetsByOwnerUid = replicaSetsByOwnerUid(replicaSets);
 
@@ -126,7 +127,7 @@ public class ClusterWorkloadInventory {
                 workloads.add(workload);
             }
         }
-        return new Inventory(List.copyOf(workloads), capacity(nodes));
+        return new Inventory(List.copyOf(workloads), capacity(nodes), nodesByName);
     }
 
     // ---------------------------------------------------------------- one workload
@@ -181,7 +182,7 @@ public class ClusterWorkloadInventory {
                 List.copyOf(containers),
                 new WorkloadPods(ref, livePods.stream()
                         .map(pod -> new WorkloadPods.Pod(pod.getMetadata().getName(),
-                                pod.getMetadata().getUid(), isReady(pod)))
+                                pod.getMetadata().getUid(), isReady(pod), nodeNameOf(pod)))
                         .toList(),
                         podNameRules,
                         skipped(ownedPods, otherRevisionPods)));
@@ -878,6 +879,163 @@ public class ClusterWorkloadInventory {
         return new NodeCapacity(maxCpuMillis, maxMemBytes);
     }
 
+    // ---------------------------------------------------------------- node facts (FEAT-001 §3.0)
+
+    static final String LABEL_INSTANCE_TYPE = "node.kubernetes.io/instance-type";
+    static final String LABEL_INSTANCE_TYPE_BETA = "beta.kubernetes.io/instance-type";
+    static final String LABEL_CAPACITY_KARPENTER = "karpenter.sh/capacity-type";
+    static final String LABEL_CAPACITY_EKS = "eks.amazonaws.com/capacityType";
+    static final String LABEL_ZONE = "topology.kubernetes.io/zone";
+    static final String LABEL_ZONE_BETA = "failure-domain.beta.kubernetes.io/zone";
+    static final String LABEL_COMPUTE_TYPE = "eks.amazonaws.com/compute-type";
+    static final String COMPUTE_TYPE_FARGATE = "fargate";
+
+    /**
+     * Pricing facts per node, extracted from the already-listed {@code client.nodes()} (no new API
+     * call). Nothing here is ever a fabricated zero: an unreadable or non-positive capacity leaves
+     * {@code capacityVcpus}/{@code capacityMemGiB} as {@code null} ({@code NODE_CAPACITY_UNKNOWN}
+     * downstream), never 0.
+     *
+     * @param instanceType          the EC2 instance type, or null when no label is present
+     * @param capacityType          {@code spot} / {@code on-demand}, or null when no label (inferred)
+     * @param capacityTypeInferred  true when no capacity-type label was present (on-demand assumed)
+     * @param zone                  the node's availability zone, or null
+     * @param fargate               true when the node is Fargate (unpriceable per instance-type)
+     * @param capacityVcpus         status.capacity cpu in whole cores, or null when unreadable/<=0
+     * @param capacityMemGiB        status.capacity memory in GiB, or null when unreadable/<=0
+     * @param allocatableCpuMillis  status.allocatable cpu in millicores, or null when unreadable/<=0
+     * @param allocatableMemBytes   status.allocatable memory in bytes, or null when unreadable/<=0
+     */
+    public record NodeFacts(String instanceType, String capacityType, boolean capacityTypeInferred,
+                            String zone, boolean fargate, Double capacityVcpus, Double capacityMemGiB,
+                            Integer allocatableCpuMillis, Long allocatableMemBytes) {
+    }
+
+    private static Map<String, NodeFacts> nodesByName(List<Node> nodes) {
+        Map<String, NodeFacts> byName = new LinkedHashMap<>();
+        for (Node node : nodes) {
+            if (node.getMetadata() == null || node.getMetadata().getName() == null) {
+                continue;
+            }
+            byName.put(node.getMetadata().getName(), nodeFacts(node));
+        }
+        return byName;
+    }
+
+    private static NodeFacts nodeFacts(Node node) {
+        Map<String, String> labels = node.getMetadata() == null || node.getMetadata().getLabels() == null
+                ? Map.of() : node.getMetadata().getLabels();
+
+        String instanceType = firstNonBlank(labels.get(LABEL_INSTANCE_TYPE),
+                labels.get(LABEL_INSTANCE_TYPE_BETA));
+
+        String capacityLabel = firstNonBlank(labels.get(LABEL_CAPACITY_KARPENTER),
+                labels.get(LABEL_CAPACITY_EKS));
+        boolean capacityTypeInferred = capacityLabel == null;
+        String capacityType = capacityTypeInferred ? null : capacityLabel.trim().toLowerCase(Locale.ROOT);
+
+        String zone = firstNonBlank(labels.get(LABEL_ZONE), labels.get(LABEL_ZONE_BETA));
+
+        boolean fargate = COMPUTE_TYPE_FARGATE.equalsIgnoreCase(labels.get(LABEL_COMPUTE_TYPE))
+                || instanceType == null;
+
+        Map<String, Quantity> capacity = node.getStatus() == null ? null : node.getStatus().getCapacity();
+        Double capacityVcpus = positiveOrNull(cores(capacity, "node capacity cpu", node));
+        Double capacityMemGiB = positiveOrNull(gib(capacity, "node capacity memory", node));
+
+        Map<String, Quantity> allocatable =
+                node.getStatus() == null ? null : node.getStatus().getAllocatable();
+        Integer allocatableCpuMillis = positiveIntOrNull(allocCpu(allocatable, node));
+        Long allocatableMemBytes = positiveLongOrNull(allocMem(allocatable, node));
+
+        return new NodeFacts(instanceType, capacityType, capacityTypeInferred, zone, fargate,
+                capacityVcpus, capacityMemGiB, allocatableCpuMillis, allocatableMemBytes);
+    }
+
+    private static String nodeNameOf(Pod pod) {
+        return pod.getSpec() == null ? null : pod.getSpec().getNodeName();
+    }
+
+    private static String firstNonBlank(String a, String b) {
+        if (a != null && !a.isBlank()) {
+            return a.trim();
+        }
+        if (b != null && !b.isBlank()) {
+            return b.trim();
+        }
+        return null;
+    }
+
+    private static Double cores(Map<String, Quantity> values, String field, Node node) {
+        Quantity quantity = values == null ? null : values.get(CPU);
+        if (quantity == null) {
+            return null;
+        }
+        try {
+            return Quantities.cpuCores(quantity.toString(), field);
+        } catch (QuantityParseException unreadable) {
+            logger.debug("Unreadable {} on node {}: {}", field, nodeName(node), unreadable.getMessage());
+            return null;
+        }
+    }
+
+    private static Double gib(Map<String, Quantity> values, String field, Node node) {
+        Quantity quantity = values == null ? null : values.get(MEMORY);
+        if (quantity == null) {
+            return null;
+        }
+        try {
+            return Quantities.memGiB(quantity.toString(), field);
+        } catch (QuantityParseException unreadable) {
+            logger.debug("Unreadable {} on node {}: {}", field, nodeName(node), unreadable.getMessage());
+            return null;
+        }
+    }
+
+    private static Integer allocCpu(Map<String, Quantity> values, Node node) {
+        Quantity quantity = values == null ? null : values.get(CPU);
+        if (quantity == null) {
+            return null;
+        }
+        try {
+            return Quantities.cpuMillis(quantity.toString(), "node allocatable cpu");
+        } catch (QuantityParseException unreadable) {
+            logger.debug("Unreadable node allocatable cpu on {}: {}", nodeName(node),
+                    unreadable.getMessage());
+            return null;
+        }
+    }
+
+    private static Long allocMem(Map<String, Quantity> values, Node node) {
+        Quantity quantity = values == null ? null : values.get(MEMORY);
+        if (quantity == null) {
+            return null;
+        }
+        try {
+            return Quantities.memBytes(quantity.toString(), "node allocatable memory");
+        } catch (QuantityParseException unreadable) {
+            logger.debug("Unreadable node allocatable memory on {}: {}", nodeName(node),
+                    unreadable.getMessage());
+            return null;
+        }
+    }
+
+    private static String nodeName(Node node) {
+        return node.getMetadata() == null ? "?" : node.getMetadata().getName();
+    }
+
+    private static Double positiveOrNull(Double value) {
+        return value != null && value > 0 ? value : null;
+    }
+
+    private static Integer positiveIntOrNull(Integer value) {
+        return value != null && value > 0 ? value : null;
+    }
+
+    private static Long positiveLongOrNull(Long value) {
+        return value != null && value > 0 ? value : null;
+    }
+
     private static int replicas(Integer declared) {
         return declared == null ? 1 : Math.max(0, declared);
     }
@@ -892,10 +1050,17 @@ public class ClusterWorkloadInventory {
      * @param workloads every candidate workload, protected namespaces already excluded
      * @param capacity  the largest schedulable node, or null when the cluster reports none
      */
-    public record Inventory(List<Workload> workloads, NodeCapacity capacity) {
+    public record Inventory(List<Workload> workloads, NodeCapacity capacity,
+                            Map<String, NodeFacts> nodesByName) {
 
         public Inventory {
             workloads = workloads == null ? List.of() : List.copyOf(workloads);
+            nodesByName = nodesByName == null ? Map.of() : Map.copyOf(nodesByName);
+        }
+
+        /** The pre-cost shape with no node facts, for callers that do not price. */
+        public Inventory(List<Workload> workloads, NodeCapacity capacity) {
+            this(workloads, capacity, Map.of());
         }
     }
 

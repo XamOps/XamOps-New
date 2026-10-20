@@ -85,7 +85,7 @@ class AutomaticApplyServiceTest {
         when(clusterConfigRepository.findAll()).thenReturn(List.of(config(42L)));
         when(cloudAccountRepository.findById(3L)).thenReturn(Optional.of(readWriteAccount()));
         when(systemActorResolver.resolve(7L)).thenReturn(Optional.of(systemActor()));
-        when(readService.read(any(), any())).thenReturn(response(eligibleWorkload()));
+        when(readService.read(any(), any(), any())).thenReturn(response(eligibleWorkload()));
         when(applyService.apply(any(), any(), any(), any(), any(), any()))
                 .thenReturn(accepted());
 
@@ -152,7 +152,7 @@ class AutomaticApplyServiceTest {
     @Test
     @DisplayName("at most one workload is applied per cluster per cycle, even when several are eligible")
     void atMostOneApplyPerClusterPerCycle() {
-        when(readService.read(any(), any())).thenReturn(response(
+        when(readService.read(any(), any(), any())).thenReturn(response(
                 eligibleWorkload("team-a", "api"),
                 eligibleWorkload("team-a", "worker"),
                 eligibleWorkload("team-b", "db")));
@@ -167,7 +167,7 @@ class AutomaticApplyServiceTest {
     void onlyAutoAndEligibleIsSelected() {
         VerticalWorkloadDto recommend = workload("ns", "recommend-mode", "RECOMMEND", true, true);
         VerticalWorkloadDto ineligible = workload("ns", "not-eligible", "AUTO", false, true);
-        when(readService.read(any(), any())).thenReturn(response(recommend, ineligible));
+        when(readService.read(any(), any(), any())).thenReturn(response(recommend, ineligible));
 
         service().runCycle();
 
@@ -183,7 +183,7 @@ class AutomaticApplyServiceTest {
                 new VerticalWorkloadDto.ResourcesDto(1000, 1024L, 1000, 1024L);
         VerticalWorkloadDto.ResourcesDto recommended =
                 new VerticalWorkloadDto.ResourcesDto(500, 1024L, null, 2048L);
-        when(readService.read(any(), any())).thenReturn(response(
+        when(readService.read(any(), any(), any())).thenReturn(response(
                 workloadWith("ns", "api", current, recommended)));
 
         service().runCycle();
@@ -214,7 +214,7 @@ class AutomaticApplyServiceTest {
     @Test
     @DisplayName("a cluster whose read is not ready / access not configured is skipped")
     void aNotReadyClusterIsSkipped() {
-        when(readService.read(any(), any())).thenReturn(responseWithGate("CONTROLLER_NOT_READY"));
+        when(readService.read(any(), any(), any())).thenReturn(responseWithGate("CONTROLLER_NOT_READY"));
 
         service().runCycle();
 
@@ -227,7 +227,7 @@ class AutomaticApplyServiceTest {
         VerticalEngineResponse unreachable = new VerticalEngineResponse(
                 engineStatus("UNREACHABLE"), List.of("CLUSTER_UNREACHABLE"),
                 List.of(eligibleWorkload()));
-        when(readService.read(any(), any())).thenReturn(unreachable);
+        when(readService.read(any(), any(), any())).thenReturn(unreachable);
 
         service().runCycle();
 
@@ -241,7 +241,7 @@ class AutomaticApplyServiceTest {
 
         service().runCycle();
 
-        verify(readService, never()).read(any(), any());
+        verify(readService, never()).read(any(), any(), any());
         verify(applyService, never()).apply(any(), any(), any(), any(), any(), any());
     }
 
@@ -348,7 +348,7 @@ class AutomaticApplyServiceTest {
     @Test
     @DisplayName("a skipped cluster logs a concrete reason, not a bare skip")
     void aSkippedClusterLogsAConcreteReason() {
-        when(readService.read(any(), any())).thenReturn(responseWithGate("CONTROLLER_NOT_READY"));
+        when(readService.read(any(), any(), any())).thenReturn(responseWithGate("CONTROLLER_NOT_READY"));
 
         service().runCycle();
 
@@ -377,10 +377,10 @@ class AutomaticApplyServiceTest {
         AutomaticApplyService applied = service();
         applied.runCycle();
 
-        when(readService.read(any(), any())).thenReturn(responseWithGate("CONTROLLER_NOT_READY"));
+        when(readService.read(any(), any(), any())).thenReturn(responseWithGate("CONTROLLER_NOT_READY"));
         service().runCycle();
 
-        when(readService.read(any(), any())).thenReturn(response(eligibleWorkload()));
+        when(readService.read(any(), any(), any())).thenReturn(response(eligibleWorkload()));
         when(applyService.apply(any(), any(), any(), any(), any(), any()))
                 .thenThrow(new RuntimeException("the kubelet declined"));
         service().runCycle();

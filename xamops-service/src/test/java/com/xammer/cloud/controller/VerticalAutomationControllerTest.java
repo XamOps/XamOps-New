@@ -223,7 +223,7 @@ class VerticalAutomationControllerTest {
         // "The clientId is mandatory: tenant scoping is not optional parameter is missing...".
         givenClusterConfigByPrimaryKey();
         VerticalAutomationReadService exploding = mock(VerticalAutomationReadService.class);
-        when(exploding.read(any(), any()))
+        when(exploding.read(any(), any(), any()))
                 .thenThrow(new IllegalArgumentException("clientId is mandatory: tenant scoping is not optional"));
 
         mvc(exploding).perform(get(BASE + "/xamops-test-cluster" + QUERY))

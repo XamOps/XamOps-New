@@ -18,6 +18,8 @@ import java.util.List;
  * @param autoApplyEligible whether this may be applied without a human naming the numbers
  * @param provenance        where the numbers came from (addition to §11.5)
  * @param horizontal        modelled; {@code NOT_EVALUATED} in this release (addition to §11.5)
+ * @param cost              real {@code $} cost + savings (FEAT-001), or null when the cost feature is
+ *                          off / this workload could not be priced
  */
 public record VerticalWorkloadDto(WorkloadRefDto ref,
                                   PolicyDto policy,
@@ -30,11 +32,28 @@ public record VerticalWorkloadDto(WorkloadRefDto ref,
                                   LastActionDto lastAction,
                                   boolean autoApplyEligible,
                                   ProvenanceDto provenance,
-                                  HorizontalDto horizontal) {
+                                  HorizontalDto horizontal,
+                                  WorkloadCostDto cost) {
 
     public VerticalWorkloadDto {
         findings = findings == null ? List.of() : List.copyOf(findings);
         containers = containers == null ? List.of() : List.copyOf(containers);
+    }
+
+    /** The pre-cost shape: {@code cost} delegates to null, for callers built before FEAT-001. */
+    public VerticalWorkloadDto(WorkloadRefDto ref, PolicyDto policy, Integer replicas, HpaDto hpa,
+                               Boolean gitopsManaged, String skipReason, List<String> findings,
+                               List<ContainerDto> containers, LastActionDto lastAction,
+                               boolean autoApplyEligible, ProvenanceDto provenance,
+                               HorizontalDto horizontal) {
+        this(ref, policy, replicas, hpa, gitopsManaged, skipReason, findings, containers, lastAction,
+                autoApplyEligible, provenance, horizontal, null);
+    }
+
+    /** This workload with its cost annotation attached, every other field unchanged. */
+    public VerticalWorkloadDto withCost(WorkloadCostDto cost) {
+        return new VerticalWorkloadDto(ref, policy, replicas, hpa, gitopsManaged, skipReason, findings,
+                containers, lastAction, autoApplyEligible, provenance, horizontal, cost);
     }
 
     public record WorkloadRefDto(String namespace, String kind, String name) {

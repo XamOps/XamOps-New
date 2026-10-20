@@ -20,9 +20,17 @@ import com.xammer.cloud.service.automation.workload.access.ClusterAccess;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessException;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessProvider;
 import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
+import com.xammer.cloud.domain.CloudAccount;
+import com.xammer.cloud.service.automation.workload.api.dto.CostSummaryDto;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalEngineResponse;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalWorkloadDto;
+import com.xammer.cloud.service.automation.workload.api.dto.WorkloadCostDto;
+import com.xammer.cloud.service.automation.workload.cost.K8sCostProperties;
+import com.xammer.cloud.service.automation.workload.cost.NodeRate;
+import com.xammer.cloud.service.automation.workload.cost.NodeRateResolver;
+import com.xammer.cloud.service.automation.workload.cost.WorkloadCostAttributionService;
 import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
+import com.xammer.cloud.service.automation.workload.inventory.WorkloadPods;
 import com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader;
 import com.xammer.cloud.service.automation.workload.policy.WorkloadPolicyService;
 import com.xammer.cloud.service.automation.workload.usage.ContainerUsageAggregate;
@@ -112,6 +120,9 @@ public class VerticalAutomationReadService {
     private final UpstreamVpaReader vpaReader;
     private final WorkloadPolicyService policyService;
     private final WorkloadVerticalActionRepository actionRepository;
+    private final NodeRateResolver nodeRateResolver;
+    private final WorkloadCostAttributionService costAttributionService;
+    private final K8sCostProperties costProperties;
     private final WorkloadAutoscalingEngine engine;
     private final Clock clock;
     private final LongSupplier nanoClock;
@@ -133,9 +144,13 @@ public class VerticalAutomationReadService {
                                          ClusterWorkloadInventory inventory,
                                          UpstreamVpaReader vpaReader,
                                          WorkloadPolicyService policyService,
-                                         WorkloadVerticalActionRepository actionRepository) {
+                                         WorkloadVerticalActionRepository actionRepository,
+                                         NodeRateResolver nodeRateResolver,
+                                         WorkloadCostAttributionService costAttributionService,
+                                         K8sCostProperties costProperties) {
         this(properties, metricsProperties, confidenceProperties, rpsProperties, usageProvider,
                 accessProviders, inventory, vpaReader, policyService, actionRepository,
+                nodeRateResolver, costAttributionService, costProperties,
                 Clock.systemUTC(), System::nanoTime);
     }
 
@@ -153,6 +168,9 @@ public class VerticalAutomationReadService {
                                   UpstreamVpaReader vpaReader,
                                   WorkloadPolicyService policyService,
                                   WorkloadVerticalActionRepository actionRepository,
+                                  NodeRateResolver nodeRateResolver,
+                                  WorkloadCostAttributionService costAttributionService,
+                                  K8sCostProperties costProperties,
                                   Clock clock,
                                   LongSupplier nanoClock) {
         this.properties = properties;
@@ -164,6 +182,9 @@ public class VerticalAutomationReadService {
         this.vpaReader = vpaReader;
         this.policyService = policyService;
         this.actionRepository = actionRepository;
+        this.nodeRateResolver = nodeRateResolver;
+        this.costAttributionService = costAttributionService;
+        this.costProperties = costProperties;
         this.clock = clock;
         this.nanoClock = nanoClock;
         this.engine = new WorkloadAutoscalingEngine(clock);
@@ -176,14 +197,15 @@ public class VerticalAutomationReadService {
         this.accessProviders = List.copyOf(ordered);
     }
 
-    public VerticalEngineResponse read(ClusterTarget target, KubernetesClusterConfig config) {
+    public VerticalEngineResponse read(CloudAccount account, ClusterTarget target,
+                                       KubernetesClusterConfig config) {
         List<String> gateReasons = new ArrayList<>();
 
         if (!properties.isEnabled() || !properties.isReady()) {
             gateReasons.add(ReasonCode.CONTROLLER_NOT_READY.name());
         }
 
-        Attempt attempt = attempt(target);
+        Attempt attempt = attempt(account, target);
 
         if (attempt.direct().reason() != null && !gateReasons.contains(attempt.direct().reason())) {
             gateReasons.add(attempt.direct().reason());
@@ -221,7 +243,8 @@ public class VerticalAutomationReadService {
                         attempt.metricsReachable() ? usageProvider.sourceName() : null),
                 attempt.evaluation().lastCycle());
 
-        return new VerticalEngineResponse(engineStatus, gateReasons, attempt.evaluation().workloads());
+        return new VerticalEngineResponse(engineStatus, gateReasons,
+                attempt.evaluation().workloads(), Map.of(), false, attempt.evaluation().cost());
     }
 
     // ------------------------------------------------------------------ access + evaluation
@@ -236,7 +259,7 @@ public class VerticalAutomationReadService {
      * unreachable, which is a statement about the engine and not about the customer's cluster: while
      * the switch is off the engine may not query any source, so none can supply it percentiles.
      */
-    private Attempt attempt(ClusterTarget target) {
+    private Attempt attempt(CloudAccount account, ClusterTarget target) {
         if (!properties.isEnabled()) {
             return new Attempt(new DirectPath(false, null, null), false, Evaluation.notRun());
         }
@@ -271,7 +294,7 @@ public class VerticalAutomationReadService {
             DirectPath direct = new DirectPath(true, null, ACCESS_CONFIGURED);
             boolean metricsReachable = fresh ? cached.metricsReachable() : usageProvider.reachable(access);
             Evaluation evaluation = metricsReachable
-                    ? evaluate(access, target)
+                    ? evaluate(access, account, target)
                     : Evaluation.gated(clock.instant(), ReasonCode.NO_METRICS_SOURCE.name());
             probeCache.put(key, new ProbeEntry(direct, metricsReachable,
                     fresh ? cached.expiresAtNanos() : now + PROBE_TTL.toNanos()));
@@ -293,7 +316,7 @@ public class VerticalAutomationReadService {
      * not about one workload's history — publishes <strong>no</strong> workloads plus the gate code,
      * rather than a partial list the reader cannot tell is partial.
      */
-    private Evaluation evaluate(ClusterAccess access, ClusterTarget target) {
+    private Evaluation evaluate(ClusterAccess access, CloudAccount account, ClusterTarget target) {
         Instant at = clock.instant();
         ClusterWorkloadInventory.Inventory cluster;
         try {
@@ -314,6 +337,11 @@ public class VerticalAutomationReadService {
         Map<String, WorkloadPolicy> storedPolicies = policyService.resolveAll(target.clusterConfigId());
         Map<String, VerticalWorkloadDto.LastActionDto> lastActions =
                 lastActions(target.clusterConfigId());
+
+        boolean costEnabled = costProperties.enabled();
+        Map<String, NodeRate> nodeRates = costEnabled
+                ? resolveNodeRates(account, target, cluster)
+                : Map.of();
 
         List<VerticalWorkloadDto> workloads = new ArrayList<>();
         for (ClusterWorkloadInventory.Workload workload : cluster.workloads()) {
@@ -346,11 +374,51 @@ public class VerticalAutomationReadService {
             decision = decision.withRps(rpsProperties.enabled()
                     ? rpsAdvisory(access, workload, policy)
                     : RpsReplicaRecommendation.noRpsSource());
-            workloads.add(VerticalDecisionMapper.toDto(snapshot, policy, decision, properties,
+            VerticalWorkloadDto dto = VerticalDecisionMapper.toDto(snapshot, policy, decision, properties,
                     upstreamVpa, lastActions.get(WorkloadPolicyService.key(workload.ref())),
-                    confidenceProperties));
+                    confidenceProperties);
+            if (costEnabled) {
+                dto = dto.withCost(costAttributionService.attribute(workload, decision.containers(),
+                        cluster.nodesByName(), nodeRates));
+            }
+            workloads.add(dto);
         }
-        return Evaluation.completed(at, workloads);
+        CostSummaryDto costSummary = costEnabled
+                ? costAttributionService.summary(workloads.stream().map(VerticalWorkloadDto::cost).toList())
+                : null;
+        return Evaluation.completed(at, workloads, costSummary);
+    }
+
+    /**
+     * Resolve a {@link NodeRate} for every node that hosts a live pod of an evaluated workload,
+     * passing {@code account} + the cluster {@code region} so the spot path uses the entitled
+     * credential and the account-qualified spot cache key (§4). The node-derived region is never
+     * used for pricing — the on-demand lookup is keyed on {@link ClusterTarget#region()}.
+     */
+    private Map<String, NodeRate> resolveNodeRates(CloudAccount account, ClusterTarget target,
+                                                   ClusterWorkloadInventory.Inventory cluster) {
+        Map<String, NodeRate> rates = new java.util.HashMap<>();
+        String region = target.region();
+        for (ClusterWorkloadInventory.Workload workload : cluster.workloads()) {
+            for (WorkloadPods.Pod pod : workload.pods().pods()) {
+                String nodeName = pod.nodeName();
+                if (nodeName == null || rates.containsKey(nodeName)) {
+                    continue;
+                }
+                ClusterWorkloadInventory.NodeFacts facts = cluster.nodesByName().get(nodeName);
+                if (facts == null) {
+                    continue;
+                }
+                NodeRate rate = facts.fargate()
+                        ? NodeRate.unpriceable(NodeRate.Reason.FARGATE_UNPRICEABLE,
+                                "Fargate node is not priced per instance-type", facts.instanceType(),
+                                facts.capacityType(), facts.zone(), region)
+                        : nodeRateResolver.resolve(account, facts.instanceType(), facts.capacityType(),
+                                facts.zone(), region);
+                rates.put(nodeName, rate);
+            }
+        }
+        return rates;
     }
 
     /**
@@ -537,33 +605,34 @@ public class VerticalAutomationReadService {
      * all — never a fabricated timestamp.
      */
     private record Evaluation(List<VerticalWorkloadDto> workloads, List<String> gateReasons,
-                              VerticalEngineResponse.LastCycle lastCycle) {
+                              VerticalEngineResponse.LastCycle lastCycle, CostSummaryDto cost) {
 
         /** No cycle ran: the engine is gated, or the cluster was never reached. */
         private static Evaluation notRun() {
-            return new Evaluation(List.of(), List.of(), VerticalEngineResponse.LastCycle.never());
+            return new Evaluation(List.of(), List.of(), VerticalEngineResponse.LastCycle.never(), null);
         }
 
-        private static Evaluation completed(Instant at, List<VerticalWorkloadDto> workloads) {
+        private static Evaluation completed(Instant at, List<VerticalWorkloadDto> workloads,
+                                            CostSummaryDto cost) {
             return new Evaluation(List.copyOf(workloads), List.of(),
-                    new VerticalEngineResponse.LastCycle(at, workloads.size(), null));
+                    new VerticalEngineResponse.LastCycle(at, workloads.size(), null), cost);
         }
 
         /** The cycle ran and failed cluster-wide: no workloads, and the error is named. */
         private static Evaluation failed(Instant at, String error) {
             return new Evaluation(List.of(), List.of(),
-                    new VerticalEngineResponse.LastCycle(at, 0, error));
+                    new VerticalEngineResponse.LastCycle(at, 0, error), null);
         }
 
         private static Evaluation failedGate(Instant at, String gateReason, String error) {
             return new Evaluation(List.of(), List.of(gateReason),
-                    new VerticalEngineResponse.LastCycle(at, 0, error));
+                    new VerticalEngineResponse.LastCycle(at, 0, error), null);
         }
 
         /** The cycle was not attempted because a gate stopped it; the gate is reported, not an error. */
         private static Evaluation gated(Instant at, String gateReason) {
             return new Evaluation(List.of(), List.of(gateReason),
-                    new VerticalEngineResponse.LastCycle(at, 0, null));
+                    new VerticalEngineResponse.LastCycle(at, 0, null), null);
         }
     }
 

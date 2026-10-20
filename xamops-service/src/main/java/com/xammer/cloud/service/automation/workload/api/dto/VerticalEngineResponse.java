@@ -37,7 +37,8 @@ import java.util.Map;
 public record VerticalEngineResponse(EngineStatus engine, List<String> gateReasons,
                                      List<VerticalWorkloadDto> workloads,
                                      Map<String, String> gateDetails,
-                                     boolean writeGatesChecked) {
+                                     boolean writeGatesChecked,
+                                     CostSummaryDto cost) {
 
     public VerticalEngineResponse {
         gateReasons = gateReasons == null ? List.of() : List.copyOf(gateReasons);
@@ -57,7 +58,14 @@ public record VerticalEngineResponse(EngineStatus engine, List<String> gateReaso
     /** The engine's own view, before the caller's write gates are known. */
     public VerticalEngineResponse(EngineStatus engine, List<String> gateReasons,
                                   List<VerticalWorkloadDto> workloads) {
-        this(engine, gateReasons, workloads, Map.of(), false);
+        this(engine, gateReasons, workloads, Map.of(), false, null);
+    }
+
+    /** The pre-cost 5-arg shape, delegating {@code cost = null}, for callers built before FEAT-001. */
+    public VerticalEngineResponse(EngineStatus engine, List<String> gateReasons,
+                                  List<VerticalWorkloadDto> workloads, Map<String, String> gateDetails,
+                                  boolean writeGatesChecked) {
+        this(engine, gateReasons, workloads, gateDetails, writeGatesChecked, null);
     }
 
     /**
@@ -80,7 +88,7 @@ public record VerticalEngineResponse(EngineStatus engine, List<String> gateReaso
                 }
             });
         }
-        return new VerticalEngineResponse(engine, merged, workloads, mergedDetails, true);
+        return new VerticalEngineResponse(engine, merged, workloads, mergedDetails, true, cost);
     }
 
     /**

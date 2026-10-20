@@ -6,6 +6,9 @@ import com.xammer.cloud.service.automation.workload.RpsSizingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicy;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessProvider;
+import com.xammer.cloud.service.automation.workload.cost.K8sCostProperties;
+import com.xammer.cloud.service.automation.workload.cost.NodeRateResolver;
+import com.xammer.cloud.service.automation.workload.cost.WorkloadCostAttributionService;
 import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
 import com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader;
 import com.xammer.cloud.service.automation.workload.policy.WorkloadPolicyService;
@@ -82,6 +85,8 @@ public final class VerticalReadServiceFixtures {
         return new VerticalAutomationReadService(properties, metricsProperties,
                 new ConfidenceProperties(0.5, 0.8), rpsProperties, usageProvider,
                 accessProviders, inventory, vpaReader, policyService, noActions(),
+                mock(NodeRateResolver.class), mock(WorkloadCostAttributionService.class),
+                K8sCostProperties.disabled(),
                 Clock.fixed(CYCLE_AT, ZoneOffset.UTC), nanoClock);
     }
 

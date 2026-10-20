@@ -81,6 +81,34 @@ public final class Quantities {
     }
 
     /**
+     * Reads a CPU quantity as whole cores (a {@code double}), for the cost-weight split basis.
+     *
+     * <p>{@code "2" -> 2.0}, {@code "250m" -> 0.25}, {@code "1500m" -> 1.5}. Delegates to the
+     * field-carrying {@link #cpuMillis(String, String)} so the throw-on-null/blank/unparseable/
+     * negative {@link QuantityParseException} contract and the {@code field} name are preserved —
+     * the {@code NODE_CAPACITY_UNKNOWN} reason relies on {@code field} to say which quantity was
+     * unreadable.
+     *
+     * @throws QuantityParseException on null, blank, unparseable or negative input
+     */
+    public static double cpuCores(String quantity, String field) {
+        return cpuMillis(quantity, field) / 1000.0;
+    }
+
+    /**
+     * Reads a memory quantity as whole GiB (a {@code double}), for the cost-weight split basis.
+     *
+     * <p>{@code "4Gi" -> 4.0}, {@code "512Mi" -> 0.5}. Delegates to the field-carrying
+     * {@link #memBytes(String, String)} so the throw-on-null/blank/unparseable/negative
+     * {@link QuantityParseException} contract and the {@code field} name are preserved.
+     *
+     * @throws QuantityParseException on null, blank, unparseable or negative input
+     */
+    public static double memGiB(String quantity, String field) {
+        return memBytes(quantity, field) / (1024d * 1024 * 1024);
+    }
+
+    /**
      * Formats millicores back as a Kubernetes CPU quantity.
      *
      * <p>Always the {@code m} suffix, even for whole cores ({@code 1000 -> "1000m"}), because a

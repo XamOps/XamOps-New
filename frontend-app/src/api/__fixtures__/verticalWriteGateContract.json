@@ -91,12 +91,14 @@
         "rpsReplicas" : null,
         "rpsReason" : null,
         "rpsFormula" : null
-      }
+      },
+      "cost" : null
     } ],
     "gateDetails" : {
       "NO_USER_PERMISSION" : "TAB_GRANT"
     },
-    "writeGatesChecked" : true
+    "writeGatesChecked" : true,
+    "cost" : null
   },
   "applyStatus" : 403,
   "apply" : {

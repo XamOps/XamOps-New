@@ -138,7 +138,7 @@ public class VerticalAutomationController {
         // writeGatesChecked, which is what lets the UI tell "checked, and permitted" apart from a
         // response that never checked (a frontend deployed ahead of its backend).
         VerticalApplyService.WriteGates writeGates = applyService.callerWriteGates(principal, account);
-        return readService.read(target, config)
+        return readService.read(account, target, config)
                 .withWriteGates(writeGates.codes(), writeGates.details());
     }
 

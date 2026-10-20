@@ -234,7 +234,7 @@ public class AutomaticApplyService {
         ClusterTarget target = new ClusterTarget(clientId, clusterConfigId, account.getAwsAccountId(),
                 config.getClusterName(), config.getRegion());
 
-        VerticalEngineResponse read = readService.read(target, config);
+        VerticalEngineResponse read = readService.read(account, target, config);
         if (!clusterIsApplyable(read)) {
             // Not ready, access not configured, unreachable, or a read gate is set: these would be
             // refused downstream, so the loop does not attempt an apply or trip the breaker.
