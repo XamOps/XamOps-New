@@ -223,8 +223,9 @@ describe('Workload autoscaler › Workloads (UI v3 plan §2)', () => {
       page();
       await screen.findByRole('table', { name: 'Workloads at a glance' });
 
-      // formatMoney renders whole dollars above $1 (6.84 → $7), two sig-figs under $1.
-      const savings = (name: string) => rowOf(name).querySelector('td:nth-child(6)') as HTMLElement;
+      // formatMoney renders whole dollars above $1 (6.84 → $7), two sig-figs under $1. The savings
+      // cell is the 7th column (Monthly cost sits before it); select it by its Delta/dash content.
+      const savings = (name: string) => rowOf(name).querySelector('td:nth-child(7)') as HTMLElement;
       expect(savings('priced-api').querySelector('[data-delta="saved"]')).toHaveTextContent('$7/mo');
 
       const unpricedCell = savings('unpriced-api');
@@ -245,6 +246,58 @@ describe('Workload autoscaler › Workloads (UI v3 plan §2)', () => {
       expect(card.querySelector('[data-delta="saved"]')).toHaveTextContent('$11/mo');
       expect(card.querySelector('[data-priced-line]')).toHaveTextContent('2 of 3 priced');
       expect(card).not.toHaveTextContent('$0');
+    });
+
+    // Regression for the live UAT break: the backend returns real $ cost (cluster $23.67,
+    // per-workload $2.50+), but every monthlySavings is 0.0 (no rightsizing recommendation yet,
+    // which is correct). Before the fix, the only cost surface on this page was keyed off
+    // monthlySavings, so the page showed only "$0/mo saved" and dropped the real cost the payload
+    // carried — the user saw no cost anywhere. The cluster cost KPI and the per-workload Monthly
+    // cost column must render the real figures independently of savings.
+    describe('real cost with no savings yet (live UAT shape)', () => {
+      const priced = (name: string, monthlyCost: number) =>
+        wire(name, 'dev-sim', {
+          replicas: 2,
+          containers: [{ name: 'c', qosClass: 'Burstable', current: res(25, 128, 50, 256), recommended: null, reasons: ['BELOW_FLOOR_NO_RAISE'], upstreamVpa: null }],
+          cost: { monthlyCost, monthlySavings: 0.0, reason: null, source: 'PRICE_LIST', capacityType: 'on_demand', capacityTypeInferred: false, note: 'AWS Price List on-demand rate for t3.medium in ap-south-1' },
+        });
+      // One workload the backend could not price, like unschedulable-giant in the live payload.
+      const unpriced = wire('unschedulable-giant', 'team-a', {
+        replicas: 1,
+        skipReason: 'INSUFFICIENT_HISTORY',
+        containers: [],
+        cost: null,
+      });
+      const liveShape = endpointOne([priced('idle-batch-listener', 2.5000662697924256), priced('php-apache', 10.286852497315364), unpriced], {
+        cost: { currency: 'USD', hoursPerMonth: 730, monthlySavings: 0.0, monthlySavingsUnavailableReason: null, clusterMonthlyCost: 23.670027275035324, pricedWorkloads: 8, unpricedWorkloads: 1 },
+      });
+
+      const rowOf = (name: string) =>
+        [...table().querySelectorAll('[data-workload-row]')].find((r) => r.querySelector('th a')?.textContent === name) as HTMLElement;
+
+      it('shows the cluster monthly cost KPI from clusterMonthlyCost, even though savings are $0', async () => {
+        serveRead(liveShape);
+        page();
+        await screen.findByRole('table', { name: 'Workloads at a glance' });
+        const card = kpi('Monthly cost');
+        // formatMoney renders whole dollars above $1: 23.67 → $24.
+        expect(card).toHaveTextContent('$24');
+        expect(card.querySelector('[data-priced-line]')).toHaveTextContent('8 of 9 priced');
+      });
+
+      it('shows each workload its real Monthly cost, not just the $0 saving', async () => {
+        serveRead(liveShape);
+        page();
+        await screen.findByRole('table', { name: 'Workloads at a glance' });
+        // The Monthly cost column surfaces cost.monthlyCost (2.50 → $3, 10.29 → $10).
+        const costCell = (name: string) => rowOf(name).querySelector('[data-workload-cost]') as HTMLElement;
+        expect(costCell('idle-batch-listener')).toHaveTextContent('$3/mo');
+        expect(costCell('php-apache')).toHaveTextContent('$10/mo');
+        // The unpriced workload shows a dash, never a fabricated $0.
+        const giant = costCell('unschedulable-giant');
+        expect(giant).toHaveTextContent('—');
+        expect(giant).not.toHaveTextContent('$0');
+      });
     });
   });
 });

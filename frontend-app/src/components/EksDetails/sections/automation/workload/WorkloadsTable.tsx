@@ -103,6 +103,32 @@ function FreedCell({ workload }: { workload: WorkloadView }) {
 }
 
 /**
+ * Monthly cost (FEAT-002): the workload's real $/mo the backend priced (`cost.monthlyCost`), in
+ * plain ink — a cost is not a saving, so no money tone. A dash + `cost.reason` tooltip when the
+ * node could not be priced (never a fabricated $0), and the muted "assumed on-demand" qualifier is
+ * folded into the tooltip when the capacity type was inferred. This is the figure that renders even
+ * when there is no recommendation yet, so a cost product's list always shows cost.
+ */
+function CostCell({ workload }: { workload: WorkloadView }) {
+  const cost = workload.cost;
+  const assumed = cost?.capacityTypeInferred ? ' Assumed on-demand (no capacity-type label on the node).' : '';
+  if (!cost || cost.monthlyCost === null) {
+    const title = `${costUnavailableText(cost?.reason)}${assumed}`.trim();
+    return (
+      <span className={`text-[12px] ${FAINT}`} data-workload-cost="" title={title}>
+        {DASH}
+      </span>
+    );
+  }
+  const title = `${cost.note ?? ''}${assumed}`.trim() || undefined;
+  return (
+    <span className={`tabular-nums ${INK}`} data-workload-cost="" title={title}>
+      {formatMonthlyUsd(cost.monthlyCost)}
+    </span>
+  );
+}
+
+/**
  * Est. savings / mo (FEAT-002): the real $/mo saving via Delta (money tone + arrow inside Delta, so
  * this file writes no money class), or a plain dash + `cost.reason` tooltip when unavailable. An
  * inferred capacity type adds the muted "assumed on-demand" qualifier to the tooltip. A true 0 is a
@@ -199,6 +225,7 @@ export function WorkloadsTable({ workloads, detailHref, applyingIds, applyResult
               <th scope="col" className="px-4 py-2 font-semibold" title="m = millicores. 1000m = 1 vCPU.">CPU request (now → suggested)</th>
               <th scope="col" className="px-4 py-2 font-semibold">Memory request (now → suggested)</th>
               <th scope="col" className="px-4 py-2 font-semibold">Freed or more</th>
+              <th scope="col" className="px-4 py-2 text-right font-semibold" title="What this workload reserves per month, at the node's live AWS price.">Monthly cost</th>
               <th scope="col" className="px-4 py-2 text-right font-semibold" title="Estimated monthly saving from the suggestion, at the node's live AWS price.">Est. savings / mo</th>
               <th scope="col" className="px-4 py-2 font-semibold" title="How much to trust the suggestion: window coverage and how steady CPU use was.">Confidence</th>
               <th scope="col" className="px-4 py-2 font-semibold">CPU request vs suggestion</th>
@@ -231,6 +258,7 @@ export function WorkloadsTable({ workloads, detailHref, applyingIds, applyResult
                   <td className={`whitespace-nowrap px-4 py-2.5 tabular-nums ${INK}`}>{pairText(cpu, millis)}</td>
                   <td className={`whitespace-nowrap px-4 py-2.5 tabular-nums ${INK}`}>{pairText(mem, mib)}</td>
                   <td className="whitespace-nowrap px-4 py-2.5"><FreedCell workload={w} /></td>
+                  <td className="whitespace-nowrap px-4 py-2.5 text-right"><CostCell workload={w} /></td>
                   <td className="whitespace-nowrap px-4 py-2.5 text-right"><SavingsCell workload={w} /></td>
                   <td className="whitespace-nowrap px-4 py-2.5">
                     {confidence ? (

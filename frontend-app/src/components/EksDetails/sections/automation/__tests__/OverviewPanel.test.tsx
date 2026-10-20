@@ -315,6 +315,22 @@ describe('Automation › Overview (§9.1)', () => {
       expect(changes).toHaveTextContent('Applied: 1');
     });
 
+    // Regression for the live UAT break: when the read carries the cost roll-up, the cluster's real
+    // monthly cost must render on the Overview even though every saving is a true $0 (no
+    // recommendation yet). Without the roll-up (ENDPOINT_1 above) no cost card shows.
+    it('shows the cluster Monthly cost KPI from clusterMonthlyCost, independent of savings', async () => {
+      serve(200, {
+        ...ENDPOINT_1,
+        cost: { currency: 'USD', hoursPerMonth: 730, monthlySavings: 0.0, monthlySavingsUnavailableReason: null, clusterMonthlyCost: 23.670027275035324, pricedWorkloads: 8, unpricedWorkloads: 1 },
+      });
+      await renderPanel(fixture('demo-aws-001'));
+      await waitFor(() => expect(document.querySelector('[data-overview-kpis]')).not.toBeNull());
+      const monthly = kpi('Monthly cost');
+      // formatMoney renders whole dollars above $1: 23.67 → $24.
+      expect(monthly).toHaveTextContent('$24');
+      expect(monthly.querySelector('[data-priced-line]')).toHaveTextContent('8 of 9 priced');
+    });
+
     it('lights How it works from this cluster: suggestions waiting, the confirmed change and the wait', async () => {
       await renderPanel(fixture('demo-aws-001'));
       await waitFor(() => expect(document.querySelector('[data-how-step="decide"]')).toHaveTextContent('2 suggestions'));

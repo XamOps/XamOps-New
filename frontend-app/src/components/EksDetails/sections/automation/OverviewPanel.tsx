@@ -9,13 +9,16 @@
  *    the node count;
  *  - capabilities: the access overlays, the Access block and "What automation can do on this
  *    cluster today" (one row per capability, with the server's message for anything not ready).
- * A time series has no source yet, so its card says "History arrives with the usage feed". No
- * dollar figure appears: prices aren't read, so savings are freed vCPU and memory.
+ * A time series has no source yet, so its card says "History arrives with the usage feed". When the
+ * read carries the FEAT-002 cost roll-up, the KPI row leads with the cluster's real monthly cost
+ * (and savings when a recommendation frees money); without it, savings fall back to freed vCPU and
+ * memory, never a fabricated $0.
  */
 import { useId, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { inPageState } from '../../../../utils/inPageNavigation';
 import { formatMonthlyUsd } from '../../../../api/verticalRightsizerAdapter';
+import { formatMoney } from '../../../../utils/k8sQuantities';
 import {
   LOADING_CAPABILITY,
   findCluster,
@@ -378,8 +381,18 @@ function Kpis({ view, now }: { view: VerticalEngineView; now: number }) {
   // stay as the grey sub-line. A null roll-up keeps the freed-capacity figure, never a `$0`.
   const cost = view.cost;
   const moneyValue = cost && cost.monthlySavings !== null;
+  // The cluster's real monthly cost, shown independently of savings: with no recommendation yet
+  // every saving is a true $0, but the cluster still costs real money, so this figure proves cost
+  // is flowing. A null roll-up (feature off / nothing priceable) renders a dash, never a fake $0.
+  const clusterCost = cost && cost.clusterMonthlyCost !== null;
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-overview-kpis="">
+      {cost && (
+        <KpiCard tone="info" icon="mdi:cash" label="Monthly cost" value={clusterCost ? formatMoney(cost.clusterMonthlyCost) : '—'}>
+          <p data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</p>
+          <p>what these workloads reserve, at the nodes&apos; live AWS price</p>
+        </KpiCard>
+      )}
       {/* "Applied live", not "Saving now": endpoint 1's lastAction has no before and after, so a raise
           for a workload that needed more counts here too (the Workloads page's "Applied"). */}
       <KpiCard tone="good" icon="mdi:check-circle" label="Applied live" value={k.liveApplied}>

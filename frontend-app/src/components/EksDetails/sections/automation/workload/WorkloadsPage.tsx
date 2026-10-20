@@ -17,7 +17,8 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import EksAutomationTab from '../../../tabs/EksAutomationTab';
 import useVerticalRightsizer from '../../../../../hooks/useVerticalRightsizer';
-import { formatInstant, formatMonthlyUsd } from '../../../../../api/verticalRightsizerAdapter';
+import { DASH, formatInstant, formatMonthlyUsd } from '../../../../../api/verticalRightsizerAdapter';
+import { formatMoney } from '../../../../../utils/k8sQuantities';
 import { inPageState } from '../../../../../utils/inPageNavigation';
 import type { ApplyResult, CostSummaryView, WorkloadView } from '../../../../../types/verticalRightsizer';
 import { NowBanner } from '../../../../CloudK8s/shared/status/NowBanner';
@@ -97,12 +98,23 @@ function KpiRow({ k, workloads, cost }: { k: AutomationKpis; workloads: readonly
   // carries the money tone), keeping freed vCPU/GiB as the grey sub-line; null roll-up → freed
   // capacity, never `$0`.
   const moneyValue = cost && cost.monthlySavings !== null;
+  // The cluster's real monthly cost (clusterMonthlyCost), shown independently of savings: with no
+  // recommendation yet every saving is a true $0, but the cluster still costs real money, so this
+  // is the figure that proves cost is flowing. A null roll-up (feature off / nothing priceable)
+  // renders a dash, never a fabricated $0.
+  const clusterCost = cost && cost.clusterMonthlyCost !== null;
   return (
     // data-k8s-kit: the KPI cards and the note under them carry their own dark colours.
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-k8s-kit="">
       <KpiCard tone="info" icon="mdi:view-grid-outline" label="Workloads analysed" value={k.analysed}>
         <p>{[...buckets.entries()].map(([label, n]) => `${label} ${n}`).join(' · ') || 'No workloads'}</p>
       </KpiCard>
+      {cost && (
+        <KpiCard tone="info" icon="mdi:cash" label="Monthly cost" value={clusterCost ? formatMoney(cost.clusterMonthlyCost) : DASH}>
+          <p data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</p>
+          <p>what these workloads reserve, at the nodes&apos; live AWS price</p>
+        </KpiCard>
+      )}
       <KpiCard
         tone="warn"
         icon="mdi:arrow-collapse-down"
