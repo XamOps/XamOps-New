@@ -90,6 +90,29 @@ public final class VerticalReadServiceFixtures {
                 Clock.fixed(CYCLE_AT, ZoneOffset.UTC), nanoClock);
     }
 
+    /**
+     * The full seam with the cost feature wired to real/stub collaborators, so the roll-ups built in
+     * {@code evaluate(...)} are exercised end to end: a real {@link WorkloadCostAttributionService}
+     * over the supplied {@link K8sCostProperties}, and the caller's own (stub) {@link NodeRateResolver}.
+     */
+    public static VerticalAutomationReadService costService(WorkloadAutoscalingProperties properties,
+                                                            VerticalMetricsProperties metricsProperties,
+                                                            UsageHistoryProvider usageProvider,
+                                                            List<ClusterAccessProvider> accessProviders,
+                                                            ClusterWorkloadInventory inventory,
+                                                            UpstreamVpaReader vpaReader,
+                                                            WorkloadPolicyService policyService,
+                                                            NodeRateResolver nodeRateResolver,
+                                                            K8sCostProperties costProperties,
+                                                            LongSupplier nanoClock) {
+        return new VerticalAutomationReadService(properties, metricsProperties,
+                new ConfidenceProperties(0.5, 0.8), rpsOff(), usageProvider,
+                accessProviders, inventory, vpaReader, policyService, noActions(),
+                nodeRateResolver, new WorkloadCostAttributionService(costProperties),
+                costProperties,
+                Clock.fixed(CYCLE_AT, ZoneOffset.UTC), nanoClock);
+    }
+
     /** The default-off F3 properties: feature disabled, so every workload is NO_RPS_SOURCE. */
     public static RpsSizingProperties rpsOff() {
         return RpsSizingProperties.of(false, "", 0.70, null);

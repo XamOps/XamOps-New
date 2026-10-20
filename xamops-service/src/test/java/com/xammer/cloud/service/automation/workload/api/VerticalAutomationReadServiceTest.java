@@ -23,6 +23,10 @@ import com.xammer.cloud.service.automation.workload.access.EksClusterAccessProvi
 import com.xammer.cloud.service.automation.workload.access.KubeconfigClusterAccessProvider;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalEngineResponse;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalWorkloadDto;
+import com.xammer.cloud.service.automation.workload.cost.K8sCostProperties;
+import com.xammer.cloud.service.automation.workload.cost.NodeRate;
+import com.xammer.cloud.service.automation.workload.cost.NodeRateResolver;
+import com.xammer.cloud.service.automation.workload.cost.WorkloadCostAttributionService;
 import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
 import com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader;
 import com.xammer.cloud.service.automation.workload.policy.WorkloadPolicyService;
@@ -675,6 +679,135 @@ class VerticalAutomationReadServiceTest {
         assertThat(query.metricExpr()).isEqualTo("http_requests_total");
     }
 
+    // ---------------------------------------------------------------- FEAT-001: cost roll-ups
+
+    @Test
+    @DisplayName("flag ON: nodeCosts is the FULL fleet — one entry per node, including an idle node")
+    void nodeCostsCoverTheWholeFleetIncludingAnIdleNode() {
+        // Two workloads on PRICED_NODE in team-a; IDLE_NODE hosts no evaluated pod but is in the fleet.
+        StubResolver resolver = new StubResolver();
+        VerticalAutomationReadService service = costService(resolver, costInventory(), K8sCostProperties.enabledDefaults());
+
+        var cost = service.read(ACCOUNT, TARGET, config(null)).cost();
+
+        assertThat(cost).isNotNull();
+        assertThat(cost.nodeCosts()).as("the roll-up is the full fleet, not the pod-hosting subset")
+                .extracting(c -> c.nodeName())
+                .containsExactlyInAnyOrder(PRICED_NODE, IDLE_NODE, FARGATE_NODE);
+
+        var priced = cost.nodeCosts().stream().filter(c -> c.nodeName().equals(PRICED_NODE)).findFirst().orElseThrow();
+        // $0.096/hr × 730 = 70.08 (the KNOWN rate).
+        assertThat(priced.monthlyCost()).isCloseTo(70.08, org.assertj.core.data.Offset.offset(0.001));
+        assertThat(priced.source()).isEqualTo("PRICE_LIST");
+        assertThat(priced.reason()).isNull();
+
+        var idle = cost.nodeCosts().stream().filter(c -> c.nodeName().equals(IDLE_NODE)).findFirst().orElseThrow();
+        // The idle node hosts no evaluated pod, so it was never in the attribution map; it is still
+        // priced for the fleet at the same KNOWN rate.
+        assertThat(idle.monthlyCost()).isCloseTo(70.08, org.assertj.core.data.Offset.offset(0.001));
+
+        var fargate = cost.nodeCosts().stream().filter(c -> c.nodeName().equals(FARGATE_NODE)).findFirst().orElseThrow();
+        assertThat(fargate.monthlyCost()).as("an unpriceable node is a dash + reason, never 0").isNull();
+        assertThat(fargate.reason()).isEqualTo("FARGATE_UNPRICEABLE");
+
+        // Resolver calls: PRICED_NODE once (during attribution, since it hosts an evaluated pod) and
+        // IDLE_NODE once (the only genuinely-missing priceable node the fleet step fills). The fleet
+        // step REUSES the already-resolved PRICED_NODE rather than resolving it again, and the Fargate
+        // node is short-circuited without any resolve. So exactly 2, never 3+.
+        assertThat(resolver.calls)
+                .as("the fleet step reuses already-resolved rates and never resolves Fargate")
+                .isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("flag ON: namespaceCosts group by ref().namespace(), summing only priceable workloads")
+    void namespaceCostsGroupByRefNamespace() {
+        StubResolver resolver = new StubResolver();
+        VerticalAutomationReadService service = costService(resolver, costInventory(), K8sCostProperties.enabledDefaults());
+
+        var cost = service.read(ACCOUNT, TARGET, config(null)).cost();
+
+        var teamA = cost.namespaceCosts().stream().filter(n -> n.namespace().equals("team-a")).findFirst().orElseThrow();
+        // team-a: one workload on PRICED_NODE (priceable) + one on FARGATE_NODE (unpriceable).
+        assertThat(teamA.pricedWorkloads()).isEqualTo(1);
+        assertThat(teamA.unpricedWorkloads()).isEqualTo(1);
+        assertThat(teamA.monthlyCost()).as("sums only the priceable workload").isNotNull().isGreaterThan(0.0);
+
+        var teamB = cost.namespaceCosts().stream().filter(n -> n.namespace().equals("team-b")).findFirst().orElseThrow();
+        // team-b: its one workload runs on FARGATE_NODE => all-unpriceable namespace.
+        assertThat(teamB.pricedWorkloads()).isZero();
+        assertThat(teamB.monthlyCost()).as("all-unpriceable namespace is null, never 0").isNull();
+    }
+
+    @Test
+    @DisplayName("flag ON, all nodes unpriceable: clusterMonthlyCost == null WITH a full all-dash fleet")
+    void allUnpriceableHasNullClusterCostButFullFleet() {
+        // Every workload runs on FARGATE_NODE; the fleet is all three nodes, each unpriceable.
+        StubResolver resolver = new StubResolver();
+        VerticalAutomationReadService service = costService(resolver, allUnpriceableInventory(),
+                K8sCostProperties.enabledDefaults());
+
+        var cost = service.read(ACCOUNT, TARGET, config(null)).cost();
+
+        assertThat(cost).as("flag ON => cost is not null even when nothing is priceable").isNotNull();
+        assertThat(cost.clusterMonthlyCost()).as("nothing priceable => null, never 0").isNull();
+        assertThat(cost.monthlySavingsUnavailableReason()).isNotNull();
+        assertThat(cost.nodeCosts()).as("the fleet list is non-null and full even when all-dash")
+                .hasSize(1);
+        assertThat(cost.nodeCosts()).allSatisfy(c -> {
+            assertThat(c.monthlyCost()).isNull();
+            assertThat(c.reason()).isEqualTo("FARGATE_UNPRICEABLE");
+        });
+    }
+
+    @Test
+    @DisplayName("flag OFF: cost == null and the resolver is never called")
+    void flagOffMakesNoResolverCallAndNullCost() {
+        StubResolver resolver = new StubResolver();
+        VerticalAutomationReadService service = costService(resolver, costInventory(), K8sCostProperties.disabled());
+
+        var cost = service.read(ACCOUNT, TARGET, config(null)).cost();
+
+        assertThat(cost).as("flag OFF => cost is null; nodeCosts/namespaceCosts never built").isNull();
+        assertThat(resolver.calls).as("flag OFF => no AWS/resolver call at all").isZero();
+    }
+
+    @Test
+    @DisplayName("withRollups identity: the attached lists ride a summary whose Σ fields are preserved")
+    void withRollupsPreservesTheSummaryFields() {
+        StubResolver resolver = new StubResolver();
+        VerticalAutomationReadService service = costService(resolver, costInventory(), K8sCostProperties.enabledDefaults());
+
+        var cost = service.read(ACCOUNT, TARGET, config(null)).cost();
+
+        // What summary(...) would have computed from the same per-workload costs:
+        var summaryOnly = new WorkloadCostAttributionService(K8sCostProperties.enabledDefaults())
+                .summary(service.read(ACCOUNT, TARGET, config(null)).workloads().stream()
+                        .map(VerticalWorkloadDto::cost).toList());
+
+        assertThat(cost.currency()).isEqualTo(summaryOnly.currency());
+        assertThat(cost.hoursPerMonth()).isEqualTo(summaryOnly.hoursPerMonth());
+        assertThat(cost.clusterMonthlyCost()).isEqualTo(summaryOnly.clusterMonthlyCost());
+        assertThat(cost.pricedWorkloads()).isEqualTo(summaryOnly.pricedWorkloads());
+        assertThat(cost.unpricedWorkloads()).isEqualTo(summaryOnly.unpricedWorkloads());
+        assertThat(cost.nodeCosts()).as("the fleet roll-up is attached by withRollups").isNotNull();
+        assertThat(cost.namespaceCosts()).as("the namespace roll-up is attached by withRollups").isNotNull();
+    }
+
+    @Test
+    @DisplayName("a null monthlyCost serializes to JSON null, never 0")
+    void nullMonthlyCostSerializesAsNull() throws Exception {
+        StubResolver resolver = new StubResolver();
+        VerticalAutomationReadService service = costService(resolver, costInventory(), K8sCostProperties.enabledDefaults());
+
+        var cost = service.read(ACCOUNT, TARGET, config(null)).cost();
+        var fargate = cost.nodeCosts().stream().filter(c -> c.nodeName().equals(FARGATE_NODE)).findFirst().orElseThrow();
+
+        String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(fargate);
+        assertThat(json).contains("\"monthlyCost\":null");
+        assertThat(json).doesNotContain("\"monthlyCost\":0");
+    }
+
     // ---------------------------------------------------------------- fixtures
 
     private VerticalAutomationReadService service(UsageHistoryProvider usage,
@@ -744,6 +877,111 @@ class VerticalAutomationReadServiceTest {
 
     private static ResourceEnvelope burstable() {
         return new ResourceEnvelope(200, 500, 256 * MI, 512 * MI);
+    }
+
+    // ---- FEAT-001 cost fixtures ------------------------------------------------------------
+
+    private static final long GI = 1024L * 1024 * 1024;
+    private static final String PRICED_NODE = "ip-priced";
+    private static final String IDLE_NODE = "ip-idle";
+    private static final String FARGATE_NODE = "fargate-xyz";
+    /** The KNOWN on-demand rate the stub resolver returns, so per-node/cluster $ are assertable. */
+    private static final double KNOWN_USD_PER_HOUR = 0.096;
+
+    /** A real read service with the cost feature on, a real attribution service, and a stub resolver. */
+    private VerticalAutomationReadService costService(StubResolver resolver,
+                                                      ClusterWorkloadInventory inventory,
+                                                      K8sCostProperties cost) {
+        UpstreamVpaReader vpaReader = mock(UpstreamVpaReader.class);
+        when(vpaReader.read(any())).thenReturn(UpstreamVpaReader.View.none());
+        return VerticalReadServiceFixtures.costService(new WorkloadAutoscalingProperties(true, true),
+                VerticalReadServiceFixtures.metricsProperties("RECOMMEND", 24), new FakeUsage(),
+                List.of(opening()), inventory, vpaReader, VerticalReadServiceFixtures.noStoredPolicies(),
+                resolver.resolver, cost, () -> 0L);
+    }
+
+    /** m5.large node facts: 2 vCPU / 8 GiB, 2000m / 8Gi allocatable — priceable when the rate is. */
+    private static ClusterWorkloadInventory.NodeFacts m5Large() {
+        return new ClusterWorkloadInventory.NodeFacts("m5.large", "on-demand", false, "ap-south-1a",
+                false, 2.0, 8.0, 2000, 8 * GI);
+    }
+
+    /** A Fargate node: unpriceable per instance type (fargate == true). */
+    private static ClusterWorkloadInventory.NodeFacts fargateFacts() {
+        return new ClusterWorkloadInventory.NodeFacts(null, null, true, "ap-south-1a", true, null, null,
+                null, null);
+    }
+
+    private static ClusterWorkloadInventory.Workload workloadOn(WorkloadRef ref, String nodeName) {
+        // Two replicas, so the engine does not gate it as SINGLE_REPLICA and a real decision (with
+        // containers) is produced for the cost attribution to price.
+        return new ClusterWorkloadInventory.Workload(ref, 2, false, false, null, null,
+                List.of(new ClusterWorkloadInventory.ContainerSpec("app",
+                        new ResourceEnvelope(1000, 1000, 4L * GI, 4L * GI), Map.of())),
+                new WorkloadPods(ref, List.of(
+                        new WorkloadPods.Pod(ref.name() + "-0", "uid-" + ref.name() + "-0", true, nodeName),
+                        new WorkloadPods.Pod(ref.name() + "-1", "uid-" + ref.name() + "-1", true, nodeName))));
+    }
+
+    /**
+     * A fleet of three nodes: PRICED_NODE and IDLE_NODE are m5.large (priceable), FARGATE_NODE is
+     * Fargate. team-a has one workload on PRICED_NODE (priceable) and one on FARGATE_NODE
+     * (unpriceable); team-b has one workload on FARGATE_NODE. IDLE_NODE hosts no evaluated pod.
+     */
+    private static ClusterWorkloadInventory costInventory() {
+        ClusterWorkloadInventory.Workload a1 = workloadOn(
+                new WorkloadRef("team-a", "Deployment", "priced-api", "uid-a1"), PRICED_NODE);
+        ClusterWorkloadInventory.Workload a2 = workloadOn(
+                new WorkloadRef("team-a", "Deployment", "fargate-api", "uid-a2"), FARGATE_NODE);
+        ClusterWorkloadInventory.Workload b1 = workloadOn(
+                new WorkloadRef("team-b", "Deployment", "batch", "uid-b1"), FARGATE_NODE);
+        Map<String, ClusterWorkloadInventory.NodeFacts> nodes = new java.util.LinkedHashMap<>();
+        nodes.put(PRICED_NODE, m5Large());
+        nodes.put(IDLE_NODE, m5Large());
+        nodes.put(FARGATE_NODE, fargateFacts());
+        return costInventoryOf(List.of(a1, a2, b1), nodes);
+    }
+
+    /** Every workload on the Fargate node, and a single-node Fargate fleet. */
+    private static ClusterWorkloadInventory allUnpriceableInventory() {
+        ClusterWorkloadInventory.Workload a1 = workloadOn(
+                new WorkloadRef("team-a", "Deployment", "fargate-api", "uid-a1"), FARGATE_NODE);
+        Map<String, ClusterWorkloadInventory.NodeFacts> nodes =
+                Map.of(FARGATE_NODE, fargateFacts());
+        return costInventoryOf(List.of(a1), nodes);
+    }
+
+    private static ClusterWorkloadInventory costInventoryOf(
+            List<ClusterWorkloadInventory.Workload> workloads,
+            Map<String, ClusterWorkloadInventory.NodeFacts> nodesByName) {
+        ClusterWorkloadInventory inventory = mock(ClusterWorkloadInventory.class);
+        when(inventory.read(any())).thenReturn(new ClusterWorkloadInventory.Inventory(
+                workloads, NodeCapacity.t3Medium(), nodesByName));
+        return inventory;
+    }
+
+    /**
+     * A {@link NodeRateResolver} that returns the KNOWN on-demand rate for whatever instance type it
+     * is asked for, counting the calls so the "resolve at most once per distinct missing node shape"
+     * contract is assertable. A Mockito stub rather than a subclass, since the resolver's
+     * convenience constructor is package-private to {@code ...cost}.
+     */
+    private static final class StubResolver {
+        private int calls;
+        private final NodeRateResolver resolver;
+
+        private StubResolver() {
+            resolver = mock(NodeRateResolver.class);
+            when(resolver.resolve(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+                calls++;
+                String instanceType = invocation.getArgument(1);
+                String capacityType = invocation.getArgument(2);
+                String zone = invocation.getArgument(3);
+                String region = invocation.getArgument(4);
+                return NodeRate.priceable(KNOWN_USD_PER_HOUR, NodeRate.Source.PRICE_LIST, "known",
+                        instanceType, capacityType, zone, region);
+            });
+        }
     }
 
     private static WorkloadPolicy storedRow(WorkloadMode mode, int windowHours) {

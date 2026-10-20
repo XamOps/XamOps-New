@@ -200,6 +200,12 @@ class WorkloadCostAttributionServiceTest {
         assertThat(summary.pricedWorkloads()).isEqualTo(2);
         assertThat(summary.unpricedWorkloads()).isEqualTo(1);
         assertThat(summary.currency()).isEqualTo("USD");
+        assertThat(summary.nodeCosts())
+                .as("summary() owns only the workload-Σ; the fleet roll-up is attached later in evaluate()")
+                .isNull();
+        assertThat(summary.namespaceCosts())
+                .as("summary() owns only the workload-Σ; the namespace roll-up is attached later in evaluate()")
+                .isNull();
     }
 
     @Test

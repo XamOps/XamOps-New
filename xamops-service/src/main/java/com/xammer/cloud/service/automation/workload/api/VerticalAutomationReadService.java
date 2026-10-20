@@ -22,6 +22,8 @@ import com.xammer.cloud.service.automation.workload.access.ClusterAccessProvider
 import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.service.automation.workload.api.dto.CostSummaryDto;
+import com.xammer.cloud.service.automation.workload.api.dto.NamespaceCostDto;
+import com.xammer.cloud.service.automation.workload.api.dto.NodeCostDto;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalEngineResponse;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalWorkloadDto;
 import com.xammer.cloud.service.automation.workload.api.dto.WorkloadCostDto;
@@ -383,9 +385,33 @@ public class VerticalAutomationReadService {
             }
             workloads.add(dto);
         }
-        CostSummaryDto costSummary = costEnabled
-                ? costAttributionService.summary(workloads.stream().map(VerticalWorkloadDto::cost).toList())
-                : null;
+        CostSummaryDto costSummary = null;
+        if (costEnabled) {
+            // Full-fleet per-node roll-up over cluster.nodesByName() (NOT the attribution map, which
+            // only visits pod-hosting nodes) so a DaemonSet-only/idle node is never silently dropped.
+            Map<String, NodeRate> fleetRates = resolveFleetNodeRates(account, target, cluster, nodeRates);
+            List<NodeCostDto> nodeCosts = fleetRates.entrySet().stream()
+                    .map(e -> toNodeCost(e.getKey(), cluster.nodesByName().get(e.getKey()), e.getValue()))
+                    .toList();
+
+            // Namespace roll-up: group the evaluated VerticalWorkloadDtos by ref().namespace() (the
+            // WorkloadCostDto carries no namespace), summing only the priceable monthly cost.
+            Map<String, List<VerticalWorkloadDto>> byNs = workloads.stream()
+                    .collect(java.util.stream.Collectors.groupingBy(w -> w.ref().namespace()));
+            List<NamespaceCostDto> namespaceCosts = byNs.entrySet().stream().map(e -> {
+                List<WorkloadCostDto> cs = e.getValue().stream().map(VerticalWorkloadDto::cost).toList();
+                int priced = (int) cs.stream().filter(c -> c != null && c.monthlyCost() != null).count();
+                int unpriced = cs.size() - priced;
+                Double monthly = priced == 0 ? null
+                        : cs.stream().filter(c -> c != null && c.monthlyCost() != null)
+                                .mapToDouble(WorkloadCostDto::monthlyCost).sum();
+                return new NamespaceCostDto(e.getKey(), monthly, priced, unpriced);
+            }).toList();
+
+            costSummary = costAttributionService
+                    .summary(workloads.stream().map(VerticalWorkloadDto::cost).toList())
+                    .withRollups(nodeCosts, namespaceCosts);
+        }
         return Evaluation.completed(at, workloads, costSummary);
     }
 
@@ -419,6 +445,54 @@ public class VerticalAutomationReadService {
             }
         }
         return rates;
+    }
+
+    /**
+     * The FULL-FLEET node rates: every node in {@code cluster.nodesByName()}, not only the ones that
+     * host an evaluated pod. Starts from the already-resolved {@code attributionRates} (so a node
+     * already priced for attribution is reused, not re-resolved) and fills each missing node with one
+     * cached resolver call per missing node — Fargate / no-instance-type nodes are unpriceable up
+     * front, the rest go through {@link NodeRateResolver#resolve}. The result is keyed by node name.
+     */
+    private Map<String, NodeRate> resolveFleetNodeRates(CloudAccount account, ClusterTarget target,
+                                                        ClusterWorkloadInventory.Inventory cluster,
+                                                        Map<String, NodeRate> attributionRates) {
+        Map<String, NodeRate> fleetRates = new java.util.HashMap<>(attributionRates);
+        String region = target.region();
+        for (Map.Entry<String, ClusterWorkloadInventory.NodeFacts> entry
+                : cluster.nodesByName().entrySet()) {
+            fleetRates.computeIfAbsent(entry.getKey(), nodeName -> {
+                ClusterWorkloadInventory.NodeFacts f = entry.getValue();
+                return f.fargate()
+                        ? NodeRate.unpriceable(NodeRate.Reason.FARGATE_UNPRICEABLE,
+                                "node is not priced per instance type (Fargate or no instance-type"
+                                        + " label)", f.instanceType(), f.capacityType(), f.zone(),
+                                region)
+                        : nodeRateResolver.resolve(account, f.instanceType(), f.capacityType(),
+                                f.zone(), region);
+            });
+        }
+        return fleetRates;
+    }
+
+    /**
+     * One {@code (nodeName, NodeRate)} as a {@link NodeCostDto}: {@code usdPerHour × hoursPerMonth}
+     * when priceable, else {@code null} money + the machine {@link NodeRate.Reason}. Carries the
+     * node's identity from the {@link ClusterWorkloadInventory.NodeFacts} where the rate did not.
+     */
+    private NodeCostDto toNodeCost(String nodeName, ClusterWorkloadInventory.NodeFacts facts,
+                                   NodeRate rate) {
+        Double monthly = rate.priceable()
+                ? rate.usdPerHour() * costProperties.hoursPerMonth()
+                : null;
+        String instanceType = rate.instanceType() != null ? rate.instanceType()
+                : (facts == null ? null : facts.instanceType());
+        String capacityType = rate.capacityType() != null ? rate.capacityType()
+                : (facts == null ? null : facts.capacityType());
+        String source = rate.source() == null ? null : rate.source().name();
+        String reason = rate.reason() == null ? null : rate.reason().name();
+        return new NodeCostDto(nodeName, instanceType, capacityType, rate.capacityTypeInferred(),
+                monthly, source, reason, rate.note());
     }
 
     /**
