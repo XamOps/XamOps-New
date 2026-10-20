@@ -14,6 +14,9 @@ import { activityResultChip } from './activityText';
 
 const refKey = (t: { namespace: string | null; kind: string | null; name: string | null }) => `${t.namespace ?? ''}/${t.kind ?? ''}/${t.name ?? ''}`;
 
+/** The short word for a kind in a lane label. */
+const KIND_WORD: Record<string, string> = { HorizontalPodAutoscaler: 'HPA' };
+
 // ─── The 7-day timeline ──────────────────────────────────────────────────────
 
 export interface FeedTimeline {
@@ -41,13 +44,17 @@ export function feedTimeline(entries: readonly ActivityEntryView[], now: number,
   }
   const ordered = [...groups.values()].sort((a, b) => Math.max(...b.map((e) => e.at!)) - Math.max(...a.map((e) => e.at!)));
   const shown = ordered.slice(0, maxLanes);
-  const names = new Map<string, number>();
-  for (const g of shown) names.set(g[0].target.name ?? '', (names.get(g[0].target.name ?? '') ?? 0) + 1);
   const lanes: Lane[] = shown.map((g) => {
     const head = g[0];
     const name = head.target.name ?? '—';
+    // A shared name is told apart by its namespace; an HPA usually shares its workload's name in the
+    // same namespace, so there the workload keeps the name and the other kind says what it is.
+    const twins = shown.filter((o) => o !== g && (o[0].target.name ?? '') === (head.target.name ?? ''));
+    const qualified = twins.some((o) => o[0].target.namespace !== head.target.namespace) ? `${head.target.namespace ?? '—'}/${name}` : name;
+    const kind = head.target.kind ?? '';
+    const kindTwin = kind !== '' && kind !== 'Deployment' && twins.some((o) => o[0].target.namespace === head.target.namespace);
     return {
-      name: (names.get(head.target.name ?? '') ?? 0) > 1 ? `${head.target.namespace ?? '—'}/${name}` : name,
+      name: kindTwin ? `${qualified} (${KIND_WORD[kind] ?? kind})` : qualified,
       feature: (head.feature ?? 'workload') as FeatureAccent,
       entries: g.map((e) => {
         const chip = activityResultChip(e);

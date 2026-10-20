@@ -14,6 +14,8 @@ import { DASH, formatMemoryMi } from '../../../../api/verticalRightsizerAdapter'
 import { DAY_MS } from './automationDerivations';
 
 const HOUR_MS = 3_600_000;
+/** A window that ended longer ago than this is in the past: its samples won't arrive later. */
+const PAST_WINDOW_MS = 15 * 60_000;
 
 // ─── Time labels (IST) ───────────────────────────────────────────────────────
 
@@ -182,11 +184,21 @@ export interface CoverageInfo {
  * A late first sample means the history is shorter than the window ("No data before {time}");
  * samples missing only in the middle are gaps, and the note says so.
  */
-export function coverageInfo(view: Pick<UsageView, 'start' | 'end' | 'stepSeconds' | 'coverage'>, formatTime: (ms: number) => string): CoverageInfo {
+export function coverageInfo(
+  view: Pick<UsageView, 'start' | 'end' | 'stepSeconds' | 'coverage'>,
+  formatTime: (ms: number) => string,
+  now: number = Date.now(),
+): CoverageInfo {
   const c = view.coverage;
   if (!c) return { state: { kind: 'ok' }, noDataBefore: null };
   if (c.firstSampleAt === null || c.covered === 0) {
-    return { state: { kind: 'unavailable', reason: 'Prometheus in your cluster has no samples for this window yet.' }, noDataBefore: null };
+    // A window that ended a while ago (the impact chart's, around an older change) won't fill in
+    // later, so "yet" would be wrong there: the likely reason is how far back Prometheus keeps history.
+    const past = view.start !== null && view.end !== null && view.end < now - PAST_WINDOW_MS;
+    const reason = past
+      ? `Prometheus in your cluster has no samples from ${formatTime(view.start!)} to ${formatTime(view.end!)}: its history may not reach back that far.`
+      : 'Prometheus in your cluster has no samples for this window yet.';
+    return { state: { kind: 'unavailable', reason }, noDataBefore: null };
   }
   if (c.covered === null || c.covered >= 0.999) return { state: { kind: 'ok' }, noDataBefore: null };
   const step = (view.stepSeconds ?? 0) * 1000;

@@ -79,7 +79,7 @@ import {
   workloadLifecycle,
   workloadStatusChip,
 } from '../automationDerivations';
-import { CARD, Card, FAINT, INK, InPageLink, LINK, MUTED, RULE } from '../automationUi';
+import { CARD, Card, DIVIDE, FAINT, INK, InPageLink, LINK, MUTED, RULE } from '../automationUi';
 import { ImpactCard, WorkloadUsageCard, latestLiveChange } from './workloadCharts';
 
 export interface WorkloadDetailProps {
@@ -529,7 +529,7 @@ function RecentChanges({ feed, workload }: { feed: UseAutomationActivityState; w
           <div className="skeleton h-8 rounded dark:bg-none dark:bg-[rgba(255,255,255,0.06)]" aria-busy="true" />
         ) : feed.result?.kind === 'ok' ? (
           mine.length > 0 ? (
-            <ul className={`divide-y ${RULE}`}>
+            <ul className={`divide-y ${DIVIDE}`}>
               {mine.map((e) => <RecentEntry key={e.id} entry={e} />)}
             </ul>
           ) : (

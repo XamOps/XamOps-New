@@ -96,10 +96,12 @@ export function LanesTimeline({
       {lanes.map((lane, li) => {
         const cy = li * laneHeight + laneHeight / 2;
         return (
-          <g key={lane.name} data-lane={lane.name}>
+          // The index keeps the key unique even when two lanes carry the same label.
+          <g key={`${li}-${lane.name}`} data-lane={lane.name}>
             {/* The feature accent dot at the lane's left: the only feature colour in a plot area. */}
             <circle cx={LABEL_W - 10} cy={cy} r={DOT_R} fill={FEATURE_COLOR[lane.feature]} data-feature-dot={lane.feature} />
-            <text x="0" y={cy + 3} className="fill-current text-[11px]" fillOpacity={0.72}>
+            {/* Its own ink, not the page's inherited colour (the legacy CSS paints that slate). */}
+            <text x="0" y={cy + 3} className="fill-[rgba(0,0,0,0.72)] text-[11px] dark:fill-[rgba(255,255,255,0.72)]">
               {lane.name}
             </text>
             {/* Greyscale baseline. */}

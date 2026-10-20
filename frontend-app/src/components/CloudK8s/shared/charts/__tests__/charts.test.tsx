@@ -12,6 +12,7 @@ import Sparkline from '../Sparkline';
 import MiniBar from '../MiniBar';
 import TimeStrip from '../TimeStrip';
 import LanesTimeline from '../LanesTimeline';
+import TimeSeriesChart, { bandYBounds } from '../TimeSeriesChart';
 import SeriesLegend from '../SeriesLegend';
 import RangeBar, { rangeBarText } from '../RangeBar';
 import Bars, { logDomain } from '../Bars';
@@ -237,6 +238,59 @@ describe('LanesTimeline', () => {
       <LanesTimeline lanes={[{ name: 'w', feature: 'node', entries: [] }]} noHistoryBefore={0.2} />,
     );
     expect(container.querySelector('[data-no-history]')).toBeTruthy();
+  });
+
+  it('paints lane labels in its own neutral ink (never the inherited page colour) and keeps two same-named lanes', () => {
+    const { container } = render(
+      <LanesTimeline
+        lanes={[
+          { name: 'php-apache', feature: 'workload', entries: [{ at: 0.5, tone: 'bad' }] },
+          { name: 'php-apache', feature: 'hpa', entries: [{ at: 0.6, tone: 'info', dryRun: true }] },
+        ]}
+      />,
+    );
+    expect(container.querySelectorAll('[data-lane="php-apache"]')).toHaveLength(2);
+    for (const label of container.querySelectorAll('[data-lane] text')) {
+      expect(label.getAttribute('class')).toContain('fill-[rgba(0,0,0,0.72)]');
+      expect(label.getAttribute('class')).toContain('dark:fill-[rgba(255,255,255,0.72)]');
+      expect(label.getAttribute('class')).not.toContain('fill-current');
+    }
+  });
+});
+
+describe('TimeSeriesChart bands', () => {
+  it('passes a band bounded below only as y2, which recharts fills up to the top of the plot', () => {
+    // recharts 3.8 fills a missing y2 down to the bottom of the plot (ReferenceArea getRect), so "from
+    // y1 up" has to be sent as y2 with no y1: the zone above an HPA's target sits above the target.
+    expect(bandYBounds({ y1: 50 })).toEqual({ y1: undefined, y2: 50 });
+    expect(bandYBounds({ y1: 100, y2: 250 })).toEqual({ y1: 100, y2: 250 });
+    expect(bandYBounds({})).toEqual({ y1: undefined, y2: undefined });
+  });
+
+  it('draws the zone above the target between the target and the top of the plot', () => {
+    const data = [
+      { x: 'a', cpu: 60, target: 50 },
+      { x: 'b', cpu: 70, target: 50 },
+      { x: 'c', cpu: 65, target: 50 },
+    ];
+    const { container } = render(
+      <TimeSeriesChart
+        width={400}
+        height={200}
+        data={data}
+        series={[{ dataKey: 'cpu', kind: 'used', name: 'CPU used' }, { dataKey: 'target', kind: 'limit', name: 'Target', lineOnly: true }]}
+        xKey="x"
+        bands={[{ kind: 'atMax', x1: 'a', x2: 'c', y1: 50 }]}
+      />,
+    );
+    const area = container.querySelector('.recharts-reference-area path, .recharts-reference-area rect');
+    expect(area).not.toBeNull();
+    const ys = (area!.getAttribute('d') ?? '').match(/-?\d+(\.\d+)?/g)!.map(Number).filter((_, i) => i % 2 === 1);
+    const top = Math.min(...ys);
+    const bottom = Math.max(...ys);
+    // The plot's top margin is 12 px: the band reaches it, and stops well above the bottom (0 at 196 px).
+    expect(top).toBeLessThanOrEqual(13);
+    expect(bottom).toBeLessThan(150);
   });
 });
 

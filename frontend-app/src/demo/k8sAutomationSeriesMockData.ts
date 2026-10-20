@@ -77,11 +77,17 @@ interface DemoWorkload {
   seed: number;
 }
 
+/**
+ * Each workload's use agrees with what the rest of the demo says about it: grafana is right-sized at
+ * 100m / 256Mi (endpoint 1: within hysteresis), so its busiest pod stays under both, before and after
+ * the change a user applied; worker's pods run at about 45% of their 100m request, the CPU
+ * utilisation worker-hpa reports.
+ */
 const WORKLOADS: DemoWorkload[] = [
   { namespace: 'production', kind: 'Deployment', name: 'api-server', pods: 3, cpu: 0.3, cpuSwing: 0.18, mem: 500 * MIB, cpuRequest: 0.256, cpuLimit: 0.512, memRequest: 512 * MIB, memLimit: 1024 * MIB, seed: 1 },
-  { namespace: 'production', kind: 'Deployment', name: 'worker', pods: 2, cpu: 0.17, cpuSwing: 0.25, mem: 250 * MIB, cpuRequest: 0.1, cpuLimit: 0.4, memRequest: 256 * MIB, memLimit: 512 * MIB, seed: 2 },
+  { namespace: 'production', kind: 'Deployment', name: 'worker', pods: 2, cpu: 0.047, cpuSwing: 0.4, mem: 250 * MIB, cpuRequest: 0.1, cpuLimit: 0.4, memRequest: 256 * MIB, memLimit: 512 * MIB, seed: 2 },
   { namespace: 'production', kind: 'Deployment', name: 'frontend', pods: 2, cpu: 0.09, cpuSwing: 0.3, mem: 176 * MIB, cpuRequest: 0.05, cpuLimit: 0.2, memRequest: 128 * MIB, memLimit: 256 * MIB, seed: 3 },
-  { namespace: 'monitoring', kind: 'Deployment', name: 'grafana', pods: 1, cpu: 0.13, cpuSwing: 0.15, mem: 320 * MIB, cpuRequest: 0.1, cpuLimit: 0.3, memRequest: 256 * MIB, memLimit: 512 * MIB, seed: 4 },
+  { namespace: 'monitoring', kind: 'Deployment', name: 'grafana', pods: 1, cpu: 0.065, cpuSwing: 0.15, mem: 190 * MIB, cpuRequest: 0.1, cpuLimit: 0.3, memRequest: 256 * MIB, memLimit: 512 * MIB, seed: 4 },
   { namespace: 'staging', kind: 'Deployment', name: 'api-staging', pods: 1, cpu: 0.008, cpuSwing: 0.4, mem: 200 * MIB, cpuRequest: 0.1, cpuLimit: 0.3, memRequest: 256 * MIB, memLimit: 512 * MIB, seed: 5 },
   { namespace: 'staging', kind: 'Deployment', name: 'worker-staging', pods: 1, cpu: 0.07, cpuSwing: 0.2, mem: 128 * MIB, cpuRequest: null, cpuLimit: 0.2, memRequest: null, memLimit: 256 * MIB, seed: 6 },
   { namespace: 'kube-system', kind: 'Deployment', name: 'coredns', pods: 2, cpu: 0.016, cpuSwing: 0.2, mem: 29 * MIB, cpuRequest: 0.1, cpuLimit: null, memRequest: 70 * MIB, memLimit: 170 * MIB, seed: 7 },

@@ -12,7 +12,7 @@ import { useId } from 'react';
 import { Area, AreaChart, CartesianGrid, Line, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ChartDefs, chartIdSuffix, hatchId } from './ChartDefs';
 import { HATCH, SERIES, type SeriesKind } from './chartTokens';
-import type { TimeSeriesBand } from './TimeSeriesChart';
+import { bandYBounds, type TimeSeriesBand } from './TimeSeriesChart';
 
 export interface StackedLayer {
   dataKey: string;
@@ -64,8 +64,7 @@ export function StackedArea({ data, layers, xKey, total, bands = [], height = 22
           key={`band-${i}`}
           x1={band.x1}
           x2={band.x2}
-          y1={band.y1}
-          y2={band.y2}
+          {...bandYBounds(band)}
           fill={`url(#${hatchId(HATCH[band.kind].id, suffix)})`}
           fillOpacity={1}
           stroke="none"

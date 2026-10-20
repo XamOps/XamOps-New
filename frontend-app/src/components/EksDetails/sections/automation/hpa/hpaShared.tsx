@@ -284,7 +284,11 @@ export const HpaChangesCard: FC<{ subject: string; read: InsightReadState<HpaHis
         ) : h.state.kind === 'unavailable' || h.state.kind === 'error' ? (
           <p className={`text-[12px] ${MUTED}`}>{h.state.kind === 'unavailable' ? h.state.reason : h.state.message}</p>
         ) : changes.length === 0 ? (
-          <p className={`text-[12px] ${MUTED}`}>{`${subject} didn't change its replica count in the window: it never scaled.`}</p>
+          <p className={`text-[12px] ${MUTED}`}>
+            {heldAtMaxThroughout(h.view)
+              ? `${subject} didn't change its replica count in the window: it was held at its maximum the whole time.`
+              : `${subject} didn't change its replica count in the window: it never scaled.`}
+          </p>
         ) : (
           <ul className={`divide-y ${DIVIDE}`}>
             {changes.map((c) => (
@@ -305,6 +309,12 @@ export const HpaChangesCard: FC<{ subject: string; read: InsightReadState<HpaHis
   );
 };
 
+/** Whether the HPA ran at its maximum every minute its history measured. */
+function heldAtMaxThroughout(view: HpaHistoryView | null | undefined): boolean {
+  const a = view?.atMax ?? null;
+  return !!a && a.minutesMeasured !== null && a.minutesMeasured > 0 && a.minutesAtMax === a.minutesMeasured;
+}
+
 /** The table's "Last scaled" words for one HPA, from its history. */
 export function lastScaled(read: InsightReadState<HpaHistoryView> | null): { text: string; sub: string | null; never: boolean; title?: string } {
   if (!read) return { text: DASH, sub: 'history read for the first HPAs only', never: false };
@@ -315,7 +325,13 @@ export function lastScaled(read: InsightReadState<HpaHistoryView> | null): { tex
     return { text: DASH, sub: 'from kube-state-metrics', never: false, title: h.state.kind === 'unavailable' ? h.state.reason : h.state.message };
   }
   const changes = h.view?.changes ?? [];
-  if (changes.length === 0) return { text: 'Not in 3 days', sub: 'never scaled in the window', never: true };
+  if (changes.length === 0) {
+    // Held at its maximum every minute measured: it didn't move because it couldn't add pods, which
+    // is not "never scales".
+    return heldAtMaxThroughout(h.view)
+      ? { text: 'Not in 3 days', sub: 'held at its maximum the whole window', never: false }
+      : { text: 'Not in 3 days', sub: 'never scaled in the window', never: true };
+  }
   const last = changes[changes.length - 1];
   const n = h.view?.changesTruncated ? '200+' : String(changes.length);
   return { text: istShort(last.at), sub: `${n} ${changes.length === 1 && !h.view?.changesTruncated ? 'change' : 'changes'} in 3 days`, never: false };

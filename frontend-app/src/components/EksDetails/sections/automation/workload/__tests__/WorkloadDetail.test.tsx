@@ -403,6 +403,10 @@ describe('Workload autoscaler › Workloads › one workload (UI v3 plan §2 "Wo
     expect(applied).toHaveTextContent('A user');
     expect(refused.querySelector('[data-tone="bad"]')).toHaveTextContent('Refused: nothing was sent');
     expect(recent).toHaveTextContent('Source: the activity log');
+    // The lines between entries take the kit's divider colours (a border colour on the list never
+    // reaches them, which left Tailwind's bright default between entries in dark mode).
+    expect(applied.parentElement!.getAttribute('class')).toContain('divide-[rgba(0,0,0,0.08)]');
+    expect(applied.parentElement!.getAttribute('class')).toContain('dark:divide-[rgba(255,255,255,0.1)]');
     const url = feedGets()[0];
     expect(url.searchParams.get('feature')).toBe('VERTICAL');
     expect(url.searchParams.get('q')).toBe('overprovisioned-api');

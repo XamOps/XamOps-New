@@ -311,6 +311,20 @@ describe('HpaPage — the HPA history (FEAT-004 → FEAT-006)', () => {
     expect(row).toHaveTextContent('Never scales: no change in 3 days');
   });
 
+  it('does not call an HPA held at its maximum the whole window one that never scales (live xamops-test-1)', async () => {
+    resolveWith({ engine, gateReasons: [], workloads: [phpApache()] });
+    const base = phpHistory();
+    const pinned = phpHistory({
+      changes: [],
+      atMax: { ...base.atMax!, share: 1, minutesAtMax: 4321, minutesMeasured: 4321, runs: [{ from: base.start!, to: null }], since: base.start! },
+    });
+    mockedHistory.mockImplementation(async () => historyOk(pinned));
+    hpaPage();
+    const row = await rowOf('team-b/php-apache');
+    await waitFor(() => expect(document.querySelector('[data-hpa-last-scaled="team-b/php-apache"]')).toHaveTextContent('held at its maximum the whole window'));
+    expect(row).not.toHaveTextContent('Never scales');
+  });
+
   it('says why in words when Prometheus has no data, and offers Retry when the read failed', async () => {
     resolveWith({ engine, gateReasons: [], workloads: [phpApache()] });
     mockedHistory.mockImplementation(async () => historyOk(phpHistory({ series: [], atMax: null, unavailable: { code: 'METRICS_TIMEOUT', message: 'Prometheus timed out.' } })));

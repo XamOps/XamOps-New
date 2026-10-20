@@ -636,6 +636,24 @@ describe('demo router — usage, sparklines, HPA history and the activity summar
     expect(staging.coverage.covered).toBeLessThan(1);
   });
 
+  it("keeps each workload's use in line with the rest of the demo: grafana right-sized, worker near its HPA's 45%", async () => {
+    // grafana: endpoint 1 calls it right-sized at 100m / 256Mi, and the feed records a user cutting it
+    // from 250m / 384Mi, so its busiest pod stays under its request at every point, before and after.
+    for (const resource of ['cpu', 'memory']) {
+      const body = await readDemoBody(usage('prod-eks-cluster', `scope=workload&resource=${resource}&window=72h&namespace=monitoring&kind=Deployment&name=grafana`));
+      const used = body.series.find((s: any) => s.kind === 'used').points;
+      const request = body.series.find((s: any) => s.kind === 'request').points;
+      used.forEach((p: [number, number | null], i: number) => {
+        if (p[1] !== null) expect(p[1]).toBeLessThan(request[i][1]);
+      });
+    }
+    // worker: worker-hpa reports its CPU at about 45% of the 100m request (78% while at its maximum).
+    const worker = await readDemoBody(usage('prod-eks-cluster', 'scope=workload&resource=cpu&window=72h&namespace=production&kind=Deployment&name=worker'));
+    const values = worker.series.find((s: any) => s.kind === 'used').points.map((p: [number, number | null]) => p[1]).filter((v: number | null) => v !== null);
+    expect(Math.min(...values)).toBeGreaterThan(0.03);
+    expect(Math.max(...values)).toBeLessThan(0.08);
+  });
+
   it('answers a custom window around a change at 1-minute steps, as the impact chart asks', async () => {
     const to = new Date(Math.floor(Date.now() / 60_000) * 60_000).toISOString();
     const from = new Date(Date.parse(to) - 3 * 3600_000).toISOString();

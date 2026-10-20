@@ -51,6 +51,16 @@ export interface TimeSeriesBand {
   label?: string;
 }
 
+/**
+ * A band's vertical bounds as recharts' ReferenceArea reads them. recharts fills a missing `y2` down
+ * to the bottom of the plot, so a band bounded below only ("from y1 up to the top", the zone above an
+ * HPA's target) is passed as `y2` with no `y1`, which recharts fills up to the top.
+ */
+export function bandYBounds(band: Pick<TimeSeriesBand, 'y1' | 'y2'>): { y1?: number; y2?: number } {
+  if (band.y1 !== undefined && band.y2 === undefined) return { y1: undefined, y2: band.y1 };
+  return { y1: band.y1, y2: band.y2 };
+}
+
 export interface TimeSeriesMarker {
   x: number | string;
   label?: string;
@@ -119,8 +129,7 @@ export function TimeSeriesChart({
           key={`band-${i}`}
           x1={band.x1}
           x2={band.x2}
-          y1={band.y1}
-          y2={band.y2}
+          {...bandYBounds(band)}
           fill={`url(#${hatchId(HATCH[band.kind].id, suffix)})`}
           fillOpacity={1}
           stroke="none"
