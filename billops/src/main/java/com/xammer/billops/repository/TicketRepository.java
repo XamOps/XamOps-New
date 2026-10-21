@@ -12,14 +12,25 @@ import org.springframework.transaction.annotation.Transactional;
 public interface TicketRepository extends JpaRepository<Ticket, Long> {
 
     /**
-     * Clears the creator back-reference for every ticket created by the given user.
-     * creator_user_id is nullable, so detaching preserves the ticket history while
-     * releasing the foreign key that blocks deleting the app_user row.
+     * Snapshots the creator's username into creator_username, then clears the creator FK, for
+     * every ticket created by the given user. creator_user_id is nullable, so detaching preserves
+     * the ticket history while releasing the foreign key that blocks deleting the app_user row;
+     * the snapshot keeps the original creator's name visible after the user is gone.
+     *
+     * <p>COALESCE so a username already captured at ticket creation is not overwritten, and only
+     * tickets that still point at this user are touched. Native query because it reads from
+     * app_user (the FK target) to resolve the name in a single statement.
      */
     @Modifying
     @Transactional
-    @Query("UPDATE Ticket t SET t.creator = NULL WHERE t.creator.id = :userId")
-    void detachCreator(@Param("userId") Long userId);
+    @Query(value =
+        "UPDATE ticket t "
+        + "SET creator_username = COALESCE(t.creator_username, u.username), "
+        + "    creator_user_id = NULL "
+        + "FROM app_user u "
+        + "WHERE t.creator_user_id = :userId AND u.id = :userId",
+        nativeQuery = true)
+    void snapshotAndDetachCreator(@Param("userId") Long userId);
 
     // Lightweight list query — no replies join, just metadata + creator + client
     @Query("SELECT DISTINCT t FROM Ticket t LEFT JOIN FETCH t.creator LEFT JOIN FETCH t.client")

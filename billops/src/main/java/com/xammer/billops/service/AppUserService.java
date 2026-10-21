@@ -297,8 +297,10 @@ public class AppUserService {
 
         // 1. Soft references (nullable FKs) — detach so the history/content is preserved.
         //    ticket.creator_user_id and ticket_reply.user_id allow NULL, so we keep the
-        //    tickets and replies but drop the link to the departing user.
-        ticketRepository.detachCreator(id);
+        //    tickets and replies but drop the link to the departing user. For tickets we first
+        //    snapshot the creator's username into ticket.creator_username so the UI can still
+        //    show who originally raised the ticket after this user is deleted.
+        ticketRepository.snapshotAndDetachCreator(id);
         ticketReplyRepository.detachAuthor(id);
 
         //    app_user.created_by self-references the parent admin; detaching keeps any

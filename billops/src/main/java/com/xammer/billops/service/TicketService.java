@@ -107,6 +107,10 @@ public class TicketService {
         ticket.setAccountId(ticketDto.getAccountId());
         ticket.setRegion(ticketDto.getRegion());
         ticket.setCreator(creator);
+        // Snapshot the creator's name as plain text so it survives if the user is later deleted.
+        if (creator != null) {
+            ticket.setCreatorUsername(creator.getUsername());
+        }
 
         // SLA clock starts running the moment the ticket is created — the ball is in support's court.
         ticket.setSlaActiveMs(0L);
@@ -166,6 +170,10 @@ public class TicketService {
         ticket.setAccountId(ticketDto.getAccountId());
         ticket.setRegion(ticketDto.getRegion());
         ticket.setCreator(creator);
+        // Snapshot the creator's name as plain text so it survives if the user is later deleted.
+        if (creator != null) {
+            ticket.setCreatorUsername(creator.getUsername());
+        }
 
         // Admin-raised ticket: the customer has not engaged yet, so the SLA clock starts PAUSED.
         // It only begins once the customer acknowledges by replying (resumeSlaClock in
@@ -1575,6 +1583,10 @@ public class TicketService {
             dto.setCreatorId(ticket.getCreator().getId());
             dto.setCreatorUsername(ticket.getCreator().getUsername());
             dto.setCreatorEmail(ticket.getCreator().getEmail());
+        } else if (ticket.getCreatorUsername() != null) {
+            // Creator user was deleted; fall back to the name snapshot taken at creation/deletion
+            // so "Raised By" still shows who opened the ticket.
+            dto.setCreatorUsername(ticket.getCreatorUsername());
         }
         dto.setHasUnreadUserReply(ticket.isHasNewUserReply());
         dto.setHasUnreadAdminReply(!ticket.isHasNewUserReply() && ticket.getChatStartedAt() != null);
@@ -1616,6 +1628,10 @@ public class TicketService {
             dto.setCreatorId(ticket.getCreator().getId());
             dto.setCreatorUsername(ticket.getCreator().getUsername());
             dto.setCreatorEmail(ticket.getCreator().getEmail());
+        } else if (ticket.getCreatorUsername() != null) {
+            // Creator user was deleted; fall back to the name snapshot taken at creation/deletion
+            // so "Raised By" still shows who opened the ticket.
+            dto.setCreatorUsername(ticket.getCreatorUsername());
         }
 
         if (ticket.getReplies() != null) {
