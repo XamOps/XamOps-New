@@ -14,8 +14,15 @@ import { Icon } from '@iconify/react';
 import { inPageState } from '../../../../utils/inPageNavigation';
 import { codeText } from '../../../../api/verticalRightsizerAdapter';
 import type { CodeView } from '../../../../types/verticalRightsizer';
+import { Surface } from '../../../CloudK8s/shared/Surface';
 
-export const CARD = 'rounded-lg border border-[rgba(0,0,0,0.08)] bg-white dark:border-[rgba(255,255,255,0.1)] dark:bg-[#141414]';
+/**
+ * The automation pages' card chrome is the one Surface `grouped` tier (DESIGN §3): CARD carries the
+ * tier's radius + border + bg so a card that can't use the component (ReadFailureCard) still matches
+ * it, and Card itself delegates to <Surface tier="grouped">. Border aligned to the Surface token
+ * rgba(0,0,0,0.07)/dark 0.09 and the one radius rounded-[10px].
+ */
+export const CARD = 'rounded-[10px] border border-[rgba(0,0,0,0.07)] bg-white dark:border-[rgba(255,255,255,0.09)] dark:bg-[#141414]';
 export const INK = 'text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]';
 export const MUTED = 'text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]';
 /** Tertiary text (source lines, gate reasons, dash explanations): 0.56 is 4.9:1 on white, AA at 11–12 px. */
@@ -89,7 +96,7 @@ export function Card({
   labelledBy?: string;
 }) {
   return (
-    <section className={`${CARD} px-4 py-3 ${className}`} aria-labelledby={labelledBy} data-k8s-kit="">
+    <Surface tier="grouped" as="section" className={className} aria-labelledby={labelledBy}>
       {(title || aside) && (
         <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
           {title && (
@@ -101,7 +108,7 @@ export function Card({
         </div>
       )}
       {children}
-    </section>
+    </Surface>
   );
 }
 

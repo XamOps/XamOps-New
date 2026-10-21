@@ -107,6 +107,10 @@ describe('Overview › Summary, laid out like the cast.ai Dashboard (23b)', () =
     expect(document.body).not.toHaveTextContent(/over time/i);
     expect(document.body).not.toHaveTextContent(/list price/i);
     expect(document.body).not.toHaveTextContent(/score/i);
+    // FEAT-002: exactly one hero number (text-[52px]) on the panel.
+    const panel = document.querySelector('[data-panel="overview-summary"]')!;
+    const heroes = [...panel.querySelectorAll('[class]')].filter((el) => (el.getAttribute('class') ?? '').includes('text-[52px]'));
+    expect(heroes.length).toBe(1);
   });
 
   it('describes the cluster from the link and the agent', async () => {
@@ -122,7 +126,8 @@ describe('Overview › Summary, laid out like the cast.ai Dashboard (23b)', () =
   it('counts nodes by capacity type, names instance types and node groups, and shows unused requests', async () => {
     renderPanel({ dashboard: clone((d) => { d.clusterOverview.cpuUsageMillicores = 1000; }) });
     const nodes = await screen.findByRole('region', { name: NODES_TITLE });
-    expect(nodes).toHaveTextContent(/^Nodes6/);
+    // FEAT-002: the node count is the hero KPI strip; the Nodes region keeps the breakdown.
+    expect(document.querySelector('[data-kpi="nodes"]')).toHaveTextContent('Nodes6');
     const chip = (label: string) => nodes.querySelector(`[data-capacity-type="${label}"]`);
     expect(chip('On-demand')).toHaveTextContent('On-demand3');
     expect(chip('Spot')).toHaveTextContent('Spot3');
@@ -142,8 +147,9 @@ describe('Overview › Summary, laid out like the cast.ai Dashboard (23b)', () =
 
   it('splits pods into running on a node and waiting for one, linking to the pending pods', async () => {
     renderPanel();
+    // FEAT-002: the pod total moved into the hero KPI strip; the Pods region keeps the placement detail.
+    expect(document.querySelector('[data-kpi="pods"]')).toHaveTextContent('Pods18');
     const pods = await screen.findByRole('region', { name: PODS_TITLE });
-    expect(pods).toHaveTextContent(/^Pods18/);
     expect(pods.querySelector('[data-pod-placement]')).toHaveTextContent('16 running on a node · 2 waiting for a node');
     expect(pods.querySelector('[data-unschedulable]')).toBeNull();
     const link = within(pods).getByRole('link', { name: VIEW_PENDING_PODS });
@@ -175,16 +181,35 @@ describe('Overview › Summary, laid out like the cast.ai Dashboard (23b)', () =
 
   it('shows cost as the cost source reports it, in whole dollars', async () => {
     renderPanel();
+    // FEAT-002: cost is the hero number; the supporting line folds "Today $X · from {source}".
     const cost = await screen.findByRole('region', { name: COST_TITLE });
     expect(cost).toHaveTextContent('$1,480/mo');
     expect(cost).toHaveTextContent('Today $49');
-    expect(cost).toHaveTextContent('From XamOps cost exporter (Prometheus)');
+    expect(cost).toHaveTextContent('from XamOps cost exporter (Prometheus)');
   });
 
-  it('never shows $0 for a cluster without a cost source', async () => {
+  it('never shows $0 for a cluster without a cost source: falls back to freed capacity', async () => {
+    // FEAT-002: with no priced cost source the hero shows the honest freed-capacity figure (the
+    // demo engine is over-provisioned), never a fabricated $0 and never a value animated up from 0.
     renderPanel({ dashboard: clone((d) => { delete d.agentCostMetrics; delete d.openCost; delete d.costMetrics; }) });
     const cost = await screen.findByRole('region', { name: COST_TITLE });
-    expect(cost).toHaveTextContent('$—');
+    await waitFor(() => expect(cost.querySelector('[data-hero-freed]')).not.toBeNull());
+    expect(cost.querySelector('[data-hero-freed]')).toHaveTextContent(/Could free/);
+    expect(cost).toHaveTextContent('no priced cost source for this cluster');
+    expect(cost).not.toHaveTextContent('$0');
+    expect(cost.querySelector('[data-hero-cost]')).toBeNull();
+  });
+
+  it('shows a plain dash when there is neither a cost source nor any freed capacity', async () => {
+    // No cost source AND the engine read returns no workloads → no freed figure, so the hero is a
+    // plain "$—" with the honest reason, still never a fabricated $0.
+    renderPanel({
+      dashboard: clone((d) => { delete d.agentCostMetrics; delete d.openCost; delete d.costMetrics; }),
+      engine: { ...demoVerticalStatus(PROD), workloads: [] },
+    });
+    const cost = await screen.findByRole('region', { name: COST_TITLE });
+    await waitFor(() => expect(cost.querySelector('[data-hero-dash]')).not.toBeNull());
+    expect(cost.querySelector('[data-hero-dash]')).toHaveTextContent('$—');
     expect(cost).toHaveTextContent('No cost source reported for this cluster.');
     expect(cost).not.toHaveTextContent('$0');
   });
@@ -285,7 +310,7 @@ describe('Overview › Summary, laid out like the cast.ai Dashboard (23b)', () =
     renderPanel({ caps: new K8sApiError({ status: 500, code: 'K8S_INTERNAL' }) });
     const sources = await screen.findByRole('region', { name: 'Data sources' });
     await waitFor(() => expect(sources).toHaveTextContent("Couldn't check data sources."));
-    expect(region(NODES_TITLE)).toHaveTextContent(/^Nodes6/);
+    expect(document.querySelector('[data-kpi="nodes"]')).toHaveTextContent('Nodes6');
     expect(region(NODE_AUTOSCALER)).toHaveTextContent('Unknown');
   });
 
