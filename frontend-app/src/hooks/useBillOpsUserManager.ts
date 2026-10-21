@@ -315,6 +315,48 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
     }, [pendingDeleteId, getCsrfToken, fetchUsers]);
 
     /**
+     * Move a user to a different client. Returns true on success.
+     */
+    const moveUserToClient = useCallback(async (userId: string, targetClientId: string | number): Promise<boolean> => {
+        try {
+            const response = await fetch(`/api/billops/users/${userId}/client`, {
+                method: 'PATCH',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-XSRF-TOKEN': getCsrfToken()
+                },
+                body: JSON.stringify({ clientId: targetClientId })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                setNotification({
+                    type: 'error',
+                    title: 'Move Failed',
+                    message: errorText || 'An error occurred while moving the user.'
+                });
+                return false;
+            }
+
+            await fetchUsers();
+            setNotification({
+                type: 'success',
+                title: 'User Moved',
+                message: 'The user has been moved to the selected client.'
+            });
+            return true;
+        } catch (err) {
+            setNotification({
+                type: 'error',
+                title: 'Move Failed',
+                message: err instanceof Error ? err.message : 'An unexpected error occurred.'
+            });
+            return false;
+        }
+    }, [getCsrfToken, fetchUsers]);
+
+    /**
      * Update a field in the selected user form
      */
     const updateSelectedUser = useCallback((field: keyof BillOpsUserFormData, value: string | string[]) => {
@@ -363,6 +405,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
         cancelEdit,
         saveUser,
         deleteUser,
+        moveUserToClient,
         updateSelectedUser,
         toggleTab,
         clearNotification

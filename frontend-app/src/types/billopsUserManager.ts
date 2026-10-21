@@ -15,6 +15,7 @@ export type BillOpsRole = 'ROLE_BILLOPS' | 'ROLE_BILLOPS_ADMIN' | 'ROLE_BILLOPS_
  */
 export interface BillOpsUser {
     id: string;
+    clientId?: string | number | null;  // current client id (backend returns Long); used for move-between-clients
     clientName: string;
     username: string;
     email: string;
@@ -75,6 +76,7 @@ export interface UseBillOpsUserManagerResult {
     cancelEdit: () => void;
     saveUser: () => Promise<void>;
     deleteUser: (id: string) => void;
+    moveUserToClient: (userId: string, targetClientId: string | number) => Promise<boolean>;
     updateSelectedUser: (field: keyof BillOpsUserFormData, value: string | string[]) => void;
     toggleTab: (tabKey: string) => void;
     clearNotification: () => void;

@@ -281,6 +281,76 @@ public class AppUserService {
         return savedUser;
     }
 
+    /**
+     * Moves a user to another existing client, keeping the user tree consistent in every case.
+     *
+     * <p>Only client membership changes — tickets, credit requests, agreements and access rows
+     * stay with each user, so nothing is lost. The tree stays valid because:
+     * <ul>
+     *   <li><b>Primary user with sub-users:</b> the primary and <em>all</em> of its sub-users move
+     *       together, so the family is never split across two clients.</li>
+     *   <li><b>Sub-user:</b> moving it to a different client detaches it from its parent
+     *       (created_by cleared) so it becomes a primary user on the destination client. A
+     *       sub-user can never end up pointing at a parent that lives in another client.</li>
+     *   <li><b>Plain primary user:</b> just changes client.</li>
+     * </ul>
+     *
+     * <p>If the old client is left with no users, it is cleaned up, same as {@link #deleteUser}.
+     *
+     * @param userId          the user to move
+     * @param targetClientId  the client to move them to (must already exist)
+     * @return the updated user
+     */
+    @Transactional
+    public AppUser moveUserToClient(Long userId, Long targetClientId) {
+        AppUser user = appUserRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        Client target = clientRepository.findById(targetClientId)
+                .orElseThrow(() -> new RuntimeException("Target client not found: " + targetClientId));
+
+        Client oldClient = user.getClient();
+        Long oldClientId = oldClient != null ? oldClient.getId() : null;
+
+        if (oldClientId != null && oldClientId.equals(targetClientId)) {
+            // Already on the target client — nothing to do.
+            return user;
+        }
+
+        boolean isSubUser = user.getCreatedBy() != null;
+        if (isSubUser) {
+            // A sub-user cannot keep a parent that lives in a different client, so detach it:
+            // it becomes a standalone primary user on the destination client.
+            user.setCreatedBy(null);
+            user.setClient(target);
+            log.info("Moved sub-user {} ('{}') from client {} to client {} ('{}') as a primary user",
+                    userId, user.getUsername(), oldClientId, targetClientId, target.getName());
+        } else {
+            // Primary user: move it and bring its sub-users along so the family stays together.
+            user.setClient(target);
+            List<AppUser> subUsers = appUserRepository.findByCreatedBy(userId);
+            for (AppUser sub : subUsers) {
+                sub.setClient(target);
+            }
+            if (!subUsers.isEmpty()) {
+                appUserRepository.saveAll(subUsers);
+            }
+            log.info("Moved primary user {} ('{}') and {} sub-user(s) from client {} to client {} ('{}')",
+                    userId, user.getUsername(), subUsers.size(), oldClientId, targetClientId, target.getName());
+        }
+
+        AppUser saved = appUserRepository.save(user);
+
+        // If the old client is now empty, remove it (same housekeeping as deleteUser).
+        if (oldClientId != null) {
+            long remaining = appUserRepository.findByClientId(oldClientId).size();
+            if (remaining == 0) {
+                clientRepository.deleteById(oldClientId);
+                log.info("Removed now-empty client {} after moving its last user(s)", oldClientId);
+            }
+        }
+        return saved;
+    }
+
     @Transactional
     public void deleteUser(Long id) {
         AppUser user = appUserRepository.findById(id)

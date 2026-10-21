@@ -71,4 +71,38 @@ public class UserManagementController {
         service.deleteUser(id);
         return ResponseEntity.noContent().build();
     }
+
+    /** Request body for moving a user to a different client. */
+    public static class MoveUserRequest {
+        private Long clientId;
+        public Long getClientId() { return clientId; }
+        public void setClientId(Long clientId) { this.clientId = clientId; }
+    }
+
+    /**
+     * Moves a user to a different (existing) client. Only the client association changes; the
+     * user's tickets, credits, agreements and access all stay with the user.
+     */
+    @PatchMapping("/{id}/client")
+    public ResponseEntity<?> moveUserToClient(@PathVariable Long id, @RequestBody MoveUserRequest request) {
+        if (request == null || request.getClientId() == null) {
+            return ResponseEntity.badRequest().body("Target clientId is required.");
+        }
+        try {
+            AppUser moved = service.moveUserToClient(id, request.getClientId());
+
+            UserDTO result = new UserDTO();
+            result.setId(moved.getId());
+            result.setUsername(moved.getUsername());
+            result.setEmail(moved.getEmail());
+            result.setRole(moved.getRole());
+            result.setClientId(moved.getClient() != null ? moved.getClient().getId() : null);
+            result.setClientName(moved.getClient() != null ? moved.getClient().getName() : "Unknown");
+            result.setContact(moved.getContact());
+            result.setDesignation(moved.getDesignation());
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
 }

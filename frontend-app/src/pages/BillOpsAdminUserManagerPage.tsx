@@ -55,9 +55,42 @@ const FieldSelect: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = ({ 
 const BillOpsAdminUserManagerPage: React.FC = () => {
   const {
     users, loading, error, isEditing, selectedUser, roles,
-    newUser, editUser, cancelEdit, saveUser, deleteUser, updateSelectedUser,
+    newUser, editUser, cancelEdit, saveUser, deleteUser, moveUserToClient, updateSelectedUser,
     notification, clearNotification, pendingDeleteId, confirmDelete, cancelDelete,
   } = useBillOpsUserManager();
+
+  /* ── Move-user-between-clients modal state ── */
+  const [moveUser, setMoveUser]             = useState<BillOpsUser | null>(null);
+  const [moveTargetClientId, setMoveTargetClientId] = useState<string>('');
+  const [moveSubmitting, setMoveSubmitting] = useState(false);
+
+  // Distinct clients (id + name), derived from the user list — no extra endpoint needed.
+  const clientOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const u of users) {
+      if (u.clientId != null && u.clientName) map.set(String(u.clientId), u.clientName);
+    }
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [users]);
+
+  const openMoveModal = (user: BillOpsUser) => {
+    setMoveUser(user);
+    setMoveTargetClientId('');
+  };
+  const closeMoveModal = () => {
+    setMoveUser(null);
+    setMoveTargetClientId('');
+    setMoveSubmitting(false);
+  };
+  const confirmMove = async () => {
+    if (!moveUser || !moveTargetClientId) return;
+    setMoveSubmitting(true);
+    const ok = await moveUserToClient(moveUser.id, moveTargetClientId);
+    setMoveSubmitting(false);
+    if (ok) closeMoveModal();
+  };
 
   const [searchQuery, setSearchQuery]     = useState('');
   const [filterRole, setFilterRole]       = useState<BillOpsRole | ''>('');
@@ -150,6 +183,65 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
         onConfirm={confirmDelete}
         onCancel={cancelDelete}
       />
+
+      {/* ── Move user to another client ── */}
+      {moveUser && ReactDOM.createPortal(
+        <div
+          className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-4"
+          onClick={closeMoveModal}
+        >
+          <div
+            className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-[rgba(0,0,0,0.08)] overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center gap-2">
+              <Icon icon="mdi:swap-horizontal" width={18} className="text-indigo-600" />
+              <h3 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Move user to another client</h3>
+            </div>
+
+            <div className="px-5 py-4 space-y-4">
+              <div className="text-xs text-[rgba(0,0,0,0.6)]">
+                Moving <strong className="text-[rgba(0,0,0,0.88)]">@{moveUser.username}</strong> from{' '}
+                <strong className="text-[rgba(0,0,0,0.88)]">{moveUser.clientName}</strong>. The user keeps all
+                their tickets, credits and access — only the client changes.
+              </div>
+
+              <div>
+                <FormLabel icon="mdi:office-building-outline" text="Destination client" />
+                <FieldSelect
+                  value={moveTargetClientId}
+                  onChange={e => setMoveTargetClientId(e.target.value)}
+                >
+                  <option value="">Select a client…</option>
+                  {clientOptions
+                    .filter(c => String(c.id) !== String(moveUser.clientId))
+                    .map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                </FieldSelect>
+              </div>
+            </div>
+
+            <div className="px-5 py-4 border-t border-[rgba(0,0,0,0.06)] flex items-center justify-end gap-2">
+              <button
+                onClick={closeMoveModal}
+                className="px-3 py-2 text-xs font-semibold text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.04)] rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmMove}
+                disabled={!moveTargetClientId || moveSubmitting}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <Icon icon="mdi:swap-horizontal" width={13} />
+                {moveSubmitting ? 'Moving…' : 'Move user'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Error */}
       {error && (
@@ -566,6 +658,13 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                                         <Icon icon="mdi:pencil-outline" width={11} />
                                       </button>
                                       <button
+                                        onClick={() => openMoveModal(primary)}
+                                        title="Move to another client"
+                                        className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-semibold bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 rounded-md transition-colors"
+                                      >
+                                        <Icon icon="mdi:swap-horizontal" width={11} />
+                                      </button>
+                                      <button
                                         onClick={() => deleteUser(primary.id)}
                                         title="Delete user"
                                         className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-semibold bg-rose-50 border border-rose-100 text-rose-500 hover:bg-rose-100 rounded-md transition-colors"
@@ -607,6 +706,13 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                                             className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-semibold bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.06)] rounded-md transition-colors"
                                           >
                                             <Icon icon="mdi:pencil-outline" width={11} />
+                                          </button>
+                                          <button
+                                            onClick={() => openMoveModal(sub)}
+                                            title="Move to another client"
+                                            className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-semibold bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 rounded-md transition-colors"
+                                          >
+                                            <Icon icon="mdi:swap-horizontal" width={11} />
                                           </button>
                                           <button
                                             onClick={() => deleteUser(sub.id)}
