@@ -361,6 +361,53 @@ describe('Automation › Activity: the activity feed (FEAT-007)', () => {
     expect(Date.now() - from).toBeGreaterThan(7 * 24 * 3600_000 - 60_000);
     expect(Date.now() - from).toBeLessThan(7 * 24 * 3600_000 + 60_000);
   });
+
+  it('keeps "Last 90 days" inside the server\'s limit on every read, however long the page stays open', async () => {
+    // Only Date is faked: Testing Library's waitFor and the search's debounce keep real timers.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const DAY = 24 * 3600_000;
+      const picked = Date.parse('2026-10-20T09:30:41.250Z');
+      vi.setSystemTime(picked);
+      const sent: Array<{ from: string | null; refused: boolean }> = [];
+      serve((url) => {
+        const from = url.searchParams.get('from');
+        // AutomationActivityController.requireRange, on a server clock 4 minutes ahead of this browser's.
+        const refused = from !== null && Date.now() + 4 * 60_000 - Date.parse(from) > 90 * DAY;
+        sent.push({ from, refused });
+        if (refused) return { status: 400, body: { code: 'K8S_INVALID_REQUEST', field: 'from', message: 'from and to may be at most 90 days apart.' } };
+        return url.searchParams.get('cursor') === 'page-2'
+          ? { status: 200, body: feedPage([MODE, LEGACY], null) }
+          : { status: 200, body: feedPage([PUT_BACK, APPLIED, TEST_RUN, HPA_CHANGE, REFUSED], 'page-2') };
+      });
+      const user = userEvent.setup();
+      page();
+      await screen.findByRole('table', { name: ACTIVITY_FEED_CAPTION });
+      await user.selectOptions(screen.getByLabelText('Time'), '90d');
+      await waitFor(() => expect(lastFeedCall().searchParams.has('from')).toBe(true));
+      await waitFor(() => expect(feedRows()).toHaveLength(5));
+
+      // Ten minutes later, on the same page: a filter, then Load older.
+      vi.setSystemTime(picked + 10 * 60_000);
+      const results = within(document.querySelector<HTMLElement>('[data-activity-results]')!);
+      await user.click(results.getByRole('button', { name: 'Applied' }));
+      await waitFor(() => expect(lastFeedCall().searchParams.get('result')).toBe('APPLIED'));
+      await waitFor(() => expect(feedRows()).toHaveLength(5));
+      await user.click(screen.getByRole('button', { name: 'Load older' }));
+      await waitFor(() => expect(feedRows()).toHaveLength(7));
+      expect(lastFeedCall().searchParams.get('cursor')).toBe('page-2');
+
+      expect(document.querySelector('[data-activity-failure]')).toBeNull();
+      expect(screen.queryByText(/Couldn't load older entries/)).toBeNull();
+      const ranged = sent.filter((s) => s.from !== null);
+      expect(ranged.length).toBeGreaterThanOrEqual(3);
+      expect(ranged.filter((s) => s.refused)).toEqual([]);
+      // Each read asks for the 90 days before it was sent, not before the pick.
+      expect(Date.parse(ranged[ranged.length - 1].from!) - Date.parse(ranged[0].from!)).toBe(10 * 60_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('Automation › Activity: a backend without the feed (latest change per workload)', () => {

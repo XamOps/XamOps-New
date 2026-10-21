@@ -1,43 +1,50 @@
 package com.xammer.cloud.service.automation.workload.api;
 
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 import com.xammer.cloud.service.automation.workload.HorizontalAutoscalingProperties;
-import com.xammer.cloud.service.automation.workload.HpaView;
-import com.xammer.cloud.service.automation.workload.PodNameRule;
-import com.xammer.cloud.service.automation.workload.WorkloadRef;
+import com.xammer.cloud.service.automation.workload.access.ClusterAccess;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessProvider;
+import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
 import com.xammer.cloud.service.automation.workload.api.dto.HpaHistoriesDto;
 import com.xammer.cloud.service.automation.workload.api.dto.HpaHistoryDto;
 import com.xammer.cloud.service.automation.workload.api.dto.UsageSeriesDto;
-import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
 import com.xammer.cloud.service.automation.workload.usage.PromQl;
 import com.xammer.cloud.service.automation.workload.usage.PrometheusRangeReader;
 import com.xammer.cloud.service.automation.workload.usage.UsageUnavailableException;
+import io.fabric8.kubernetes.client.Config;
+import io.fabric8.kubernetes.client.ConfigBuilder;
+import io.fabric8.kubernetes.client.KubernetesClient;
+import io.fabric8.kubernetes.client.KubernetesClientBuilder;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.xammer.cloud.service.automation.workload.api.UsageFixtures.END;
 import static com.xammer.cloud.service.automation.workload.api.UsageFixtures.FakeTransport;
 import static com.xammer.cloud.service.automation.workload.api.UsageFixtures.METRICS;
 import static com.xammer.cloud.service.automation.workload.api.UsageFixtures.NOW;
 import static com.xammer.cloud.service.automation.workload.api.UsageFixtures.TARGET;
-import static com.xammer.cloud.service.automation.workload.api.UsageFixtures.deployment;
-import static com.xammer.cloud.service.automation.workload.api.UsageFixtures.inventory;
 import static com.xammer.cloud.service.automation.workload.api.UsageFixtures.matrix;
-import static com.xammer.cloud.service.automation.workload.api.UsageFixtures.phpApache;
 import static com.xammer.cloud.service.automation.workload.api.UsageFixtures.series;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
  * One HPA's history against recorded-shape kube-state-metrics matrices: the series at the window's
@@ -74,7 +81,7 @@ class HpaHistoryServiceTest {
                 .on("kube_horizontalpodautoscaler_spec_target_metric", 600,
                         matrix(series(Map.of(), START, 600, "50", "50")));
 
-        HpaHistoryDto history = service(true, transport, inventory(), opening(), () -> 0L)
+        HpaHistoryDto history = service(true, transport, opening(), () -> 0L)
                 .history(TARGET, "team-b", "php-apache", DAY);
 
         assertThat(history.unavailable()).isNull();
@@ -163,28 +170,27 @@ class HpaHistoryServiceTest {
     }
 
     @Test
-    @DisplayName("an HPA neither Prometheus nor the inventory knows is a 404 naming the field")
-    void anUnknownHpaIsNotFound() {
-        FakeTransport transport = new FakeTransport();
-        HpaHistoryService service = service(true, transport, inventory(phpApache()), opening(), () -> 0L);
+    @DisplayName("an HPA neither Prometheus nor the cluster has is a 404 naming the field")
+    void anUnknownHpaIsNotFound() throws IOException {
+        try (ApiServer cluster = new ApiServer(PHP_APACHE)) {
+            HpaHistoryService service = service(true, new FakeTransport(), List.of(cluster.provider()), () -> 0L);
 
-        UnknownTargetException unknown = assertThrows(UnknownTargetException.class,
-                () -> service.history(TARGET, "team-b", "nope", DAY));
+            UnknownTargetException unknown = assertThrows(UnknownTargetException.class,
+                    () -> service.history(TARGET, "team-b", "nope", DAY));
 
-        assertThat(unknown.field()).isEqualTo("name");
-        assertThat(unknown.getMessage()).contains("team-b/nope");
+            assertThat(unknown.field()).isEqualTo("name");
+            assertThat(unknown.getMessage()).contains("team-b/nope");
+        }
     }
 
     @Test
     @DisplayName("an HPA the cluster has but Prometheus has no samples for is a 200 with every point null")
-    void aKnownHpaWithoutHistoryIsHonestlyEmpty() {
-        WorkloadRef ref = new WorkloadRef("team-b", "Deployment", "php-apache", "uid-php-apache");
-        ClusterWorkloadInventory.Workload withHpa = deployment("team-b", "php-apache",
-                List.of("php-apache-7cd5b774b6-4s8nf"), List.of(PodNameRule.replicaSetPods("php-apache-7cd5b774b6")),
-                HpaView.cpuHpa("php-apache", ref, 50, 1, 5), "php-apache");
-
-        HpaHistoryDto history = service(true, new FakeTransport(), inventory(withHpa), opening(), () -> 0L)
-                .history(TARGET, "team-b", "php-apache", DAY);
+    void aKnownHpaWithoutHistoryIsHonestlyEmpty() throws IOException {
+        HpaHistoryDto history;
+        try (ApiServer cluster = new ApiServer(PHP_APACHE)) {
+            history = service(true, new FakeTransport(), List.of(cluster.provider()), () -> 0L)
+                    .history(TARGET, "team-b", "php-apache", DAY);
+        }
 
         assertThat(history.unavailable()).isNull();
         assertThat(history.series()).hasSize(5).allSatisfy(series ->
@@ -202,17 +208,15 @@ class HpaHistoryServiceTest {
     void theHorizontalSwitchGatesEveryCall() {
         FakeTransport transport = new FakeTransport();
         UsageFixtures.OpeningProvider provider = new UsageFixtures.OpeningProvider();
-        ClusterWorkloadInventory inventory = mock(ClusterWorkloadInventory.class);
 
-        HpaHistoryDto history = service(false, transport, inventory, List.of(provider), () -> 0L)
+        HpaHistoryDto history = service(false, transport, List.of(provider), () -> 0L)
                 .history(TARGET, "team-b", "php-apache", DAY);
 
         assertThat(history.unavailable().code()).isEqualTo("ENGINE_DISABLED");
         assertThat(history.series()).isEmpty();
         assertThat(history.atMax()).isNull();
-        assertThat(provider.opened).isZero();
+        assertThat(provider.opened).as("no cluster connection, so no API server read").isZero();
         assertThat(transport.asked).isEmpty();
-        verifyNoInteractions(inventory);
     }
 
     @Test
@@ -222,9 +226,9 @@ class HpaHistoryServiceTest {
         refused.failure = new UsageUnavailableException(UsageUnavailableException.Kind.NO_METRICS_SOURCE,
                 "Prometheus at monitoring/prometheus-server:80 could not be queried (HTTP 503).");
 
-        HpaHistoryDto noSource = service(true, refused, inventory(), opening(), () -> 0L)
+        HpaHistoryDto noSource = service(true, refused, opening(), () -> 0L)
                 .history(TARGET, "team-b", "php-apache", DAY);
-        HpaHistoryDto noAccess = service(true, new FakeTransport(), inventory(), List.of(), () -> 0L)
+        HpaHistoryDto noAccess = service(true, new FakeTransport(), List.of(), () -> 0L)
                 .history(TARGET, "team-b", "php-apache", DAY);
 
         assertThat(noSource.unavailable().code()).isEqualTo("NO_METRICS_SOURCE");
@@ -240,7 +244,7 @@ class HpaHistoryServiceTest {
         AtomicLong nanos = new AtomicLong(0);
         FakeTransport transport = new FakeTransport()
                 .on("kube_horizontalpodautoscaler_spec_max_replicas", matrix(series(Map.of(), START, 600, "5")));
-        HpaHistoryService service = service(true, transport, inventory(), opening(), nanos::get);
+        HpaHistoryService service = service(true, transport, opening(), nanos::get);
 
         HpaHistoryDto first = service.history(TARGET, "team-b", "php-apache", DAY);
         assertThat(service.history(TARGET, "team-b", "php-apache", DAY)).isSameAs(first);
@@ -275,7 +279,7 @@ class HpaHistoryServiceTest {
                         series(hpa("production", "worker-hpa"), START, 600, "10")));
         UsageFixtures.OpeningProvider provider = new UsageFixtures.OpeningProvider();
 
-        HpaHistoriesDto batch = service(true, transport, inventory(), List.of(provider), () -> 0L)
+        HpaHistoriesDto batch = service(true, transport, List.of(provider), () -> 0L)
                 .histories(TARGET, List.of(PHP_APACHE, WORKER, PHP_APACHE), DAY);
 
         assertThat(provider.opened).as("one connection for the whole list").isEqualTo(1);
@@ -335,9 +339,9 @@ class HpaHistoryServiceTest {
                 .on("kube_horizontalpodautoscaler_spec_target_metric", 600,
                         matrix(series(hpa("team-b", "php-apache"), START, 600, "50", "50")));
 
-        HpaHistoryDto one = service(true, transport.get(), inventory(), opening(), () -> 0L)
+        HpaHistoryDto one = service(true, transport.get(), opening(), () -> 0L)
                 .history(TARGET, "team-b", "php-apache", DAY);
-        HpaHistoryDto inBatch = service(true, transport.get(), inventory(), opening(), () -> 0L)
+        HpaHistoryDto inBatch = service(true, transport.get(), opening(), () -> 0L)
                 .histories(TARGET, List.of(PHP_APACHE), DAY).histories().get(0);
 
         assertThat(one.atMax().minutesAtMax()).isPositive();
@@ -346,18 +350,17 @@ class HpaHistoryServiceTest {
 
     @Test
     @DisplayName("in the list's read an HPA nobody knows is listed as missing, and a known quiet one is all nulls")
-    void aBatchListsTheHpasNobodyKnows() {
-        WorkloadRef ref = new WorkloadRef("team-b", "Deployment", "php-apache", "uid-php-apache");
-        ClusterWorkloadInventory.Workload withHpa = deployment("team-b", "php-apache",
-                List.of("php-apache-7cd5b774b6-4s8nf"), List.of(PodNameRule.replicaSetPods("php-apache-7cd5b774b6")),
-                HpaView.cpuHpa("php-apache", ref, 50, 1, 5), "php-apache");
+    void aBatchListsTheHpasNobodyKnows() throws IOException {
         FakeTransport transport = new FakeTransport()
                 .on("kube_horizontalpodautoscaler_spec_max_replicas", 600,
                         matrix(series(hpa("production", "worker-hpa"), START, 600, "10")));
         PromQl.HpaSelector gone = new PromQl.HpaSelector("team-c", "gone");
 
-        HpaHistoriesDto batch = service(true, transport, inventory(withHpa), opening(), () -> 0L)
-                .histories(TARGET, List.of(PHP_APACHE, WORKER, gone), DAY);
+        HpaHistoriesDto batch;
+        try (ApiServer cluster = new ApiServer(PHP_APACHE, WORKER)) {
+            batch = service(true, transport, List.of(cluster.provider()), () -> 0L)
+                    .histories(TARGET, List.of(PHP_APACHE, WORKER, gone), DAY);
+        }
 
         assertThat(batch.histories()).extracting(HpaHistoryDto::name).containsExactly("php-apache", "worker-hpa");
         HpaHistoryDto quiet = batch.histories().get(0);
@@ -375,9 +378,9 @@ class HpaHistoryServiceTest {
         refused.failure = new UsageUnavailableException(UsageUnavailableException.Kind.NO_METRICS_SOURCE,
                 "Prometheus at monitoring/prometheus-server:80 could not be queried (HTTP 503).");
 
-        HpaHistoriesDto noSource = service(true, refused, inventory(), opening(), () -> 0L)
+        HpaHistoriesDto noSource = service(true, refused, opening(), () -> 0L)
                 .histories(TARGET, List.of(PHP_APACHE, WORKER), DAY);
-        HpaHistoriesDto noAccess = service(true, new FakeTransport(), inventory(), List.of(), () -> 0L)
+        HpaHistoriesDto noAccess = service(true, new FakeTransport(), List.of(), () -> 0L)
                 .histories(TARGET, List.of(PHP_APACHE, WORKER), DAY);
 
         assertThat(noSource.histories()).extracting(HpaHistoryDto::name).containsExactly("php-apache", "worker-hpa");
@@ -396,16 +399,14 @@ class HpaHistoryServiceTest {
     void aBatchIsGatedByTheHorizontalSwitch() {
         FakeTransport transport = new FakeTransport();
         UsageFixtures.OpeningProvider provider = new UsageFixtures.OpeningProvider();
-        ClusterWorkloadInventory inventory = mock(ClusterWorkloadInventory.class);
 
-        HpaHistoriesDto batch = service(false, transport, inventory, List.of(provider), () -> 0L)
+        HpaHistoriesDto batch = service(false, transport, List.of(provider), () -> 0L)
                 .histories(TARGET, List.of(PHP_APACHE, WORKER), DAY);
 
         assertThat(batch.histories()).extracting(history -> history.unavailable().code())
                 .containsExactly("ENGINE_DISABLED", "ENGINE_DISABLED");
-        assertThat(provider.opened).isZero();
+        assertThat(provider.opened).as("no cluster connection, so no API server read").isZero();
         assertThat(transport.asked).isEmpty();
-        verifyNoInteractions(inventory);
     }
 
     @Test
@@ -416,7 +417,7 @@ class HpaHistoryServiceTest {
                 .on("kube_horizontalpodautoscaler_spec_max_replicas",
                         matrix(series(hpa("team-b", "php-apache"), START, 600, "5"),
                                 series(hpa("production", "worker-hpa"), START, 600, "10")));
-        HpaHistoryService service = service(true, transport, inventory(), opening(), nanos::get);
+        HpaHistoryService service = service(true, transport, opening(), nanos::get);
 
         HpaHistoriesDto first = service.histories(TARGET, List.of(PHP_APACHE, WORKER), DAY);
         assertThat(service.histories(TARGET, List.of(WORKER, PHP_APACHE), DAY)).isSameAs(first);
@@ -425,6 +426,161 @@ class HpaHistoryServiceTest {
         nanos.addAndGet(Duration.ofSeconds(60).toNanos());
         service.histories(TARGET, List.of(PHP_APACHE, WORKER), DAY);
         assertThat(transport.asked).hasSize(14);
+    }
+
+    // ------------------------------------------------------------------ whether a quiet HPA exists
+
+    @Test
+    @DisplayName("a quiet HPA the engine doesn't analyse is a 200 with every point null, decided by one get of the HPA")
+    void aQuietHpaOutsideTheAnalysedWorkloadsExists() throws IOException {
+        try (ApiServer cluster = new ApiServer(new PromQl.HpaSelector("kube-system", "coredns"))) {
+            HpaHistoryDto history = service(true, new FakeTransport(), List.of(cluster.provider()),
+                    () -> 0L).history(TARGET, "kube-system", "coredns", DAY);
+
+            assertThat(history.unavailable()).isNull();
+            assertThat(history.series()).hasSize(5).allSatisfy(series ->
+                    assertThat(series.points()).hasSize(145).allSatisfy(point -> assertThat(point.v()).isNull()));
+            assertThat(history.atMax().share()).isNull();
+            assertThat(cluster.asked).as("one get of that HPA, never the cluster's workloads")
+                    .containsExactly("/apis/autoscaling/v2/namespaces/kube-system/horizontalpodautoscalers/coredns");
+        }
+    }
+
+    @Test
+    @DisplayName("in the list's read a quiet HPA the cluster has is all nulls and one it lacks is missing, from one HPA list")
+    void aBatchDecidesExistenceFromTheClustersHpas() throws IOException {
+        PromQl.HpaSelector unanalysed = new PromQl.HpaSelector("production", "api-server-hpa");
+        PromQl.HpaSelector gone = new PromQl.HpaSelector("team-c", "gone");
+        FakeTransport transport = new FakeTransport()
+                .on("kube_horizontalpodautoscaler_spec_max_replicas", 600,
+                        matrix(series(hpa("production", "worker-hpa"), START, 600, "10")));
+        try (ApiServer cluster = new ApiServer(unanalysed, WORKER)) {
+            HpaHistoriesDto batch = service(true, transport, List.of(cluster.provider()), () -> 0L)
+                    .histories(TARGET, List.of(unanalysed, WORKER, gone), DAY);
+
+            assertThat(batch.histories()).extracting(HpaHistoryDto::name).containsExactly("api-server-hpa", "worker-hpa");
+            HpaHistoryDto quiet = batch.histories().get(0);
+            assertThat(quiet.unavailable()).isNull();
+            assertThat(quiet.series()).allSatisfy(series ->
+                    assertThat(series.points()).allSatisfy(point -> assertThat(point.v()).isNull()));
+            assertThat(batch.missing()).containsExactly(new HpaHistoriesDto.HpaRef("team-c", "gone"));
+            assertThat(cluster.asked).as("one list of the cluster's HPAs for every quiet one")
+                    .containsExactly("/apis/autoscaling/v2/horizontalpodautoscalers");
+        }
+    }
+
+    @Test
+    @DisplayName("an API server that refuses the HPA read is typed as access not configured, nothing invented")
+    void aRefusedHpaReadIsTyped() throws IOException {
+        try (ApiServer cluster = new ApiServer()) {
+            cluster.deny = true;
+            HpaHistoryDto one = service(true, new FakeTransport(), List.of(cluster.provider()), () -> 0L)
+                    .history(TARGET, "team-b", "php-apache", DAY);
+            HpaHistoriesDto batch = service(true, new FakeTransport(), List.of(cluster.provider()),
+                    () -> 0L).histories(TARGET, List.of(PHP_APACHE, WORKER), DAY);
+
+            assertThat(one.unavailable().code()).isEqualTo("CLUSTER_ACCESS_NOT_CONFIGURED");
+            assertThat(one.series()).isEmpty();
+            assertThat(batch.histories()).extracting(history -> history.unavailable().code())
+                    .containsExactly("CLUSTER_ACCESS_NOT_CONFIGURED", "CLUSTER_ACCESS_NOT_CONFIGURED");
+            assertThat(batch.missing()).isEmpty();
+        }
+    }
+
+    /**
+     * A fake API server on {@code 127.0.0.1:0} with the cluster's HPAs, read by a real fabric8 client
+     * (as {@code ClusterWorkloadInventoryTest} does): the list of every HPA and a get of one, a 404
+     * for an HPA it doesn't have, a 403 for everything when {@link #deny} is set. It records every
+     * path it was asked.
+     */
+    private static final class ApiServer implements AutoCloseable {
+
+        private static final String LIST = "/apis/autoscaling/v2/horizontalpodautoscalers";
+        private static final Pattern ONE =
+                Pattern.compile("^/apis/autoscaling/v2/namespaces/([^/]+)/horizontalpodautoscalers/([^/]+)$");
+
+        final List<String> asked = new CopyOnWriteArrayList<>();
+        volatile boolean deny;
+        private final Set<PromQl.HpaSelector> hpas;
+        private final HttpServer server;
+        private final String url;
+
+        ApiServer(PromQl.HpaSelector... hpas) throws IOException {
+            this.hpas = Set.of(hpas);
+            this.server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            this.server.createContext("/", this::respond);
+            this.server.start();
+            this.url = "http://127.0.0.1:" + server.getAddress().getPort();
+        }
+
+        ClusterAccessProvider provider() {
+            return new ClusterAccessProvider() {
+                @Override
+                public String providerName() {
+                    return "fake-api-server";
+                }
+
+                @Override
+                public boolean supports(ClusterTarget target) {
+                    return true;
+                }
+
+                @Override
+                public ClusterAccess open(ClusterTarget target) {
+                    // Config.empty(): nothing is read from this machine's kubeconfig or environment.
+                    KubernetesClient client = new KubernetesClientBuilder()
+                            .withConfig(new ConfigBuilder(Config.empty()).withMasterUrl(url).build())
+                            .build();
+                    return new ClusterAccess(client, url, "xamops-test-1", "ap-south-1", "fake-api-server");
+                }
+            };
+        }
+
+        private void respond(HttpExchange exchange) throws IOException {
+            String path = exchange.getRequestURI().getPath();
+            asked.add(path);
+            Matcher one = ONE.matcher(path);
+            int status;
+            String body;
+            if (deny) {
+                status = 403;
+                body = status(403, "Forbidden", "horizontalpodautoscalers.autoscaling is forbidden");
+            } else if (LIST.equals(path)) {
+                status = 200;
+                body = "{\"apiVersion\":\"autoscaling/v2\",\"kind\":\"HorizontalPodAutoscalerList\","
+                        + "\"metadata\":{\"resourceVersion\":\"1\"},\"items\":["
+                        + hpas.stream().map(ApiServer::hpaJson).reduce((a, b) -> a + "," + b).orElse("") + "]}";
+            } else if (one.matches() && hpas.contains(new PromQl.HpaSelector(one.group(1), one.group(2)))) {
+                status = 200;
+                body = hpaJson(new PromQl.HpaSelector(one.group(1), one.group(2)));
+            } else {
+                status = 404;
+                body = status(404, "NotFound", "not found: " + path);
+            }
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(status, bytes.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(bytes);
+            }
+        }
+
+        private static String hpaJson(PromQl.HpaSelector hpa) {
+            return "{\"apiVersion\":\"autoscaling/v2\",\"kind\":\"HorizontalPodAutoscaler\",\"metadata\":{"
+                    + "\"namespace\":\"" + hpa.namespace() + "\",\"name\":\"" + hpa.name() + "\"},\"spec\":{"
+                    + "\"minReplicas\":1,\"maxReplicas\":5,\"scaleTargetRef\":{\"apiVersion\":\"apps/v1\","
+                    + "\"kind\":\"Deployment\",\"name\":\"" + hpa.name() + "\"}}}";
+        }
+
+        private static String status(int code, String reason, String message) {
+            return "{\"kind\":\"Status\",\"apiVersion\":\"v1\",\"status\":\"Failure\",\"message\":\"" + message
+                    + "\",\"reason\":\"" + reason + "\",\"code\":" + code + "}";
+        }
+
+        @Override
+        public void close() {
+            server.stop(0);
+        }
     }
 
     // ------------------------------------------------------------------ helpers
@@ -456,10 +612,9 @@ class HpaHistoryServiceTest {
     }
 
     private static HpaHistoryService service(boolean enabled, FakeTransport transport,
-                                             ClusterWorkloadInventory inventory,
                                              List<ClusterAccessProvider> providers, LongSupplier nanoClock) {
         return new HpaHistoryService(new HorizontalAutoscalingProperties(enabled, false),
-                new PrometheusRangeReader(transport, METRICS), providers, inventory,
+                new PrometheusRangeReader(transport, METRICS), providers,
                 Clock.fixed(NOW, ZoneOffset.UTC), nanoClock);
     }
 }

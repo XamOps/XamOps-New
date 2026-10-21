@@ -5,7 +5,7 @@
  * or after the cluster or the filters changed, is dropped.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { activitySummaryUrl, fetchActivity, fetchActivitySummary } from '../api/automationActivityApi';
+import { activitySummaryUrl, fetchActivity, fetchActivitySummary, rangeFrom } from '../api/automationActivityApi';
 import type {
   ActivityEntryView,
   ActivityFeatureWire,
@@ -24,6 +24,12 @@ export interface ActivityFilters {
   target?: { namespace: string; kind: string; name: string } | null;
   /** Entries at or after this instant (ISO-8601, UTC); the caller fixes it, so it doesn't move every render. */
   from?: string | null;
+  /**
+   * Entries in the last `since` ms instead: turned into the server's `from` when each request is sent
+   * (the first page, Load older and Retry alike), so a page left open never asks for more than the
+   * server's 90 days. Ignored when `from` is given.
+   */
+  since?: number | null;
 }
 
 export const NO_ACTIVITY_FILTERS: ActivityFilters = { features: [], results: [], q: '' };
@@ -93,6 +99,9 @@ export const useAutomationActivity = ({
   const resultKey = filters.results.join(',');
   const q = filters.q.trim();
   const from = filters.from ?? null;
+  const since = filters.since ?? null;
+  // The server's `from` for a request sent now.
+  const fromNow = (): string | null => from ?? rangeFrom(since, Date.now());
   const targetNamespace = filters.target?.namespace ?? null;
   const targetKind = filters.target?.kind ?? null;
   const targetName = filters.target?.name ?? null;
@@ -118,7 +127,7 @@ export const useAutomationActivity = ({
       results: resultKey ? (resultKey.split(',') as ActivityResultWire[]) : [],
       q,
       target,
-      from,
+      from: fromNow(),
       limit,
     })
       .then((next) => {
@@ -132,9 +141,9 @@ export const useAutomationActivity = ({
       .finally(() => {
         if (mounted.current && generation.current === mine) setLoading(false);
       });
-    // target is rebuilt from its three strings, which are the dependencies.
+    // target is rebuilt from its three strings, and fromNow from `from` and `since`, which are the dependencies.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clusterName, accountId, region, featureKey, resultKey, q, targetNamespace, targetKind, targetName, from, limit, reloadToken]);
+  }, [clusterName, accountId, region, featureKey, resultKey, q, targetNamespace, targetKind, targetName, from, since, limit, reloadToken]);
 
   const loadOlder = useCallback(() => {
     if (!clusterName || !accountId || !region || !cursor || loadingOlder) return;
@@ -146,7 +155,7 @@ export const useAutomationActivity = ({
       results: resultKey ? (resultKey.split(',') as ActivityResultWire[]) : [],
       q,
       target,
-      from,
+      from: fromNow(),
       limit,
       cursor,
     })
@@ -166,9 +175,9 @@ export const useAutomationActivity = ({
       .finally(() => {
         if (mounted.current && generation.current === mine) setLoadingOlder(false);
       });
-    // target is rebuilt from its three strings, which are the dependencies.
+    // target is rebuilt from its three strings, and fromNow from `from` and `since`, which are the dependencies.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clusterName, accountId, region, cursor, loadingOlder, featureKey, resultKey, q, targetNamespace, targetKind, targetName, from, limit]);
+  }, [clusterName, accountId, region, cursor, loadingOlder, featureKey, resultKey, q, targetNamespace, targetKind, targetName, from, since, limit]);
 
   const reload = useCallback(() => setReloadToken((t) => t + 1), []);
 

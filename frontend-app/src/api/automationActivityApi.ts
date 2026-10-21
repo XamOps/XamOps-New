@@ -31,6 +31,29 @@ const seg = (value: string): string => encodeURIComponent(value);
 export const ACTIVITY_PAGE_LIMIT = 50;
 export const ACTIVITY_QUERY_MAX = 100;
 
+const MINUTE_MS = 60_000;
+
+/** The server refuses a `from` more than 90 days before its own clock (AutomationActivityService.MAX_RANGE). */
+export const ACTIVITY_MAX_RANGE_MS = 90 * 24 * 60 * MINUTE_MS;
+
+/**
+ * How far inside the server's limit the widest range stays: room for the request's way to the server
+ * and for a server clock running a few minutes ahead of this browser's, so "Last 90 days" is never
+ * refused. It leaves out at most the oldest 5 minutes of the 90 days.
+ */
+export const RANGE_LIMIT_MARGIN_MS = 5 * MINUTE_MS;
+
+/**
+ * The server's `from` for "the last `spanMs`", measured to `now`: the moment the request is sent, so a
+ * page left open never asks for more than the server allows. Rounded up to the minute, never earlier
+ * than the server's limit allows; null for no span ("All time").
+ */
+export function rangeFrom(spanMs: number | null, now: number): string | null {
+  if (spanMs === null) return null;
+  const span = Math.min(spanMs, ACTIVITY_MAX_RANGE_MS - RANGE_LIMIT_MARGIN_MS);
+  return new Date(Math.ceil((now - span) / MINUTE_MS) * MINUTE_MS).toISOString();
+}
+
 export const activityUrl = (cluster: string, accountId: string, region: string, query: ActivityQuery = {}): string => {
   const params = [`accountId=${seg(accountId)}`, `region=${seg(region)}`];
   if (query.features && query.features.length > 0) params.push(`feature=${seg(query.features.join(','))}`);

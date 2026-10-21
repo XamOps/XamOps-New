@@ -39,7 +39,6 @@ import { ChartDataTable } from '../../../../CloudK8s/shared/charts/ChartDataTabl
 import { eventRows, type EventRow } from '../../overview/EventsPanel';
 import {
   DAY_MS,
-  MINUTE_MS,
   SCALING_EVENT_REASON,
   activityKpis,
   latestChangeRows,
@@ -79,7 +78,10 @@ export const SUMMARY_DAYS = 7;
 
 export type TimeRange = 'all' | '24h' | '7d' | '30d' | '90d';
 
-/** The time filter: the server's `from`, at most 90 days back (its limit). */
+/**
+ * The time filter: the server's `from`, at most 90 days back (its limit). The span is measured when
+ * each request is sent (rangeFrom in automationActivityApi.ts), never when the range is picked.
+ */
 export const TIME_RANGES: ReadonlyArray<{ id: TimeRange; label: string; ms: number | null }> = [
   { id: 'all', label: 'All time', ms: null },
   { id: '24h', label: 'Last 24 hours', ms: DAY_MS },
@@ -87,26 +89,6 @@ export const TIME_RANGES: ReadonlyArray<{ id: TimeRange; label: string; ms: numb
   { id: '30d', label: 'Last 30 days', ms: 30 * DAY_MS },
   { id: '90d', label: 'Last 90 days', ms: 90 * DAY_MS },
 ];
-
-/** The server refuses a `from` more than 90 days before its own clock (AutomationActivityService.MAX_RANGE). */
-export const ACTIVITY_MAX_RANGE_MS = 90 * DAY_MS;
-
-/**
- * How far inside the server's limit the widest range stays: room for the request's way to the server
- * and for a server clock running a few minutes ahead of this browser's, so "Last 90 days" is never
- * refused. It leaves out at most the oldest 5 minutes of the 90 days.
- */
-export const RANGE_LIMIT_MARGIN_MS = 5 * MINUTE_MS;
-
-/**
- * The server's `from` for a time filter picked at `now`: fixed to the minute (so it doesn't move every
- * render), rounded up, never earlier than the server's limit allows; null for "All time".
- */
-export function rangeFrom(spanMs: number | null, now: number): string | null {
-  if (spanMs === null) return null;
-  const span = Math.min(spanMs, ACTIVITY_MAX_RANGE_MS - RANGE_LIMIT_MARGIN_MS);
-  return new Date(Math.ceil((now - span) / MINUTE_MS) * MINUTE_MS).toISOString();
-}
 
 /**
  * "Changes per day, by result" (glossary §10; design-delta §3.1), from the activity summary: one bar
@@ -459,17 +441,18 @@ export function ActivityPage({ clusterName, accountId, region, eksData }: Activi
     const t = window.setTimeout(() => setQ(search.trim().slice(0, ACTIVITY_QUERY_MAX)), 300);
     return () => window.clearTimeout(t);
   }, [search]);
-  // The time filter is the server's `from`, fixed (to the minute) when it is picked.
-  const from = useMemo(() => rangeFrom(TIME_RANGES.find((r) => r.id === range)?.ms ?? null, Date.now()), [range]);
+  // The time filter is a span: the hook turns it into the server's `from` as each request is sent, so
+  // a search, chip, Retry or Load older an hour after the pick still asks for the last 90 days at most.
+  const since = TIME_RANGES.find((r) => r.id === range)?.ms ?? null;
   const filters = useMemo<ActivityFilters>(() => ({
     features: source === 'all' ? [] : [source === 'hpa' ? 'HPA' : 'VERTICAL'],
     results: resultFilter === 'all' ? [] : [RESULT_WIRE[resultFilter]],
     q,
-    from,
-  }), [source, resultFilter, q, from]);
+    since,
+  }), [source, resultFilter, q, since]);
   const feed = useAutomationActivity({ clusterName, accountId, region, filters });
   const summary = useActivitySummary({ clusterName, accountId, region }, SUMMARY_DAYS);
-  const filtered = filters.features.length > 0 || filters.results.length > 0 || q !== '' || from !== null;
+  const filtered = filters.features.length > 0 || filters.results.length > 0 || q !== '' || since !== null;
   const notDeployed = feed.result?.kind === 'not-deployed';
 
   const [latestSentence, setLatestSentence] = useState<NowSentence | null>(null);

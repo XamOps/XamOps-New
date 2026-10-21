@@ -12,6 +12,7 @@ import org.springframework.core.annotation.AnnotationAwareOrderComparator;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Opens a cluster for the read-only history endpoints exactly the way endpoint 1 does: the
@@ -64,6 +65,24 @@ final class ClusterOpener {
             }
             throw new ClusterAccessException(ClusterAccessException.Kind.CLUSTER_UNREACHABLE,
                     "XamOps could not read this cluster's workloads: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * One read of the cluster's HPA objects, with a failure typed as {@link #readInventory} types
+     * it: the API server refusing it (401/403) is access that is not configured, anything else is a
+     * cluster that could not be read.
+     */
+    static <T> T readHpas(Supplier<T> read) throws ClusterAccessException {
+        try {
+            return read.get();
+        } catch (RuntimeException e) {
+            if (denied(e)) {
+                throw new ClusterAccessException(ClusterAccessException.Kind.CLUSTER_ACCESS_NOT_CONFIGURED,
+                        "XamOps is not allowed to read this cluster's HPAs: " + e.getMessage(), e);
+            }
+            throw new ClusterAccessException(ClusterAccessException.Kind.CLUSTER_UNREACHABLE,
+                    "XamOps could not read this cluster's HPAs: " + e.getMessage(), e);
         }
     }
 

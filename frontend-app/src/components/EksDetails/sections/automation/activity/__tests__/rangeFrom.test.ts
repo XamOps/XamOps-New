@@ -1,10 +1,12 @@
 /**
  * The Activity page's time filter against the server's rule (AutomationActivityController
  * .requireRange): a `from` more than 90 days before the server's own clock is a 400, so "Last 90
- * days" must stay inside it after the request's way there and a server clock a little ahead.
+ * days" must stay inside it after the request's way there and a server clock a little ahead, on
+ * every request, however long after the pick it is sent (ActivityPage.test.tsx holds the page to it).
  */
 import { describe, expect, it } from 'vitest';
-import { ACTIVITY_MAX_RANGE_MS, RANGE_LIMIT_MARGIN_MS, TIME_RANGES, rangeFrom } from '../ActivityPage';
+import { ACTIVITY_MAX_RANGE_MS, RANGE_LIMIT_MARGIN_MS, rangeFrom } from '../../../../../../api/automationActivityApi';
+import { TIME_RANGES } from '../ActivityPage';
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -30,6 +32,17 @@ describe('rangeFrom: the server\'s `from` for each time filter', () => {
     }
   });
 
+  it('measured when the request is sent, a page left open stays inside the limit; one fixed at the pick does not', () => {
+    const ninety = TIME_RANGES.find((r) => r.id === '90d')!.ms;
+    const picked = base + 41_250;
+    const fixedAtPick = rangeFrom(ninety, picked)!;
+    for (const later of [6 * MINUTE, 10 * MINUTE, 3 * 60 * MINUTE, 2 * DAY]) {
+      const sent = picked + later;
+      expect(serverAccepts(rangeFrom(ninety, sent)!, sent + 4 * MINUTE), `${later} ms after the pick`).toBe(true);
+      expect(serverAccepts(fixedAtPick, sent), `fixed at the pick, ${later} ms after it`).toBe(false);
+    }
+  });
+
   it('the rounding down it replaces was refused every time', () => {
     for (const now of nows) {
       const floored = new Date(Math.floor((now - 90 * DAY) / MINUTE) * MINUTE).toISOString();
@@ -37,7 +50,7 @@ describe('rangeFrom: the server\'s `from` for each time filter', () => {
     }
   });
 
-  it('fixes every other range to the minute, rounded up, and "All time" sends none', () => {
+  it('rounds every other range up to the minute, and "All time" sends none', () => {
     const now = base + 42_123;
     for (const range of TIME_RANGES.filter((r) => r.ms !== null && r.id !== '90d')) {
       const from = Date.parse(rangeFrom(range.ms, now)!);

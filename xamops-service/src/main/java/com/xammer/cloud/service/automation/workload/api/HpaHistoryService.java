@@ -1,7 +1,6 @@
 package com.xammer.cloud.service.automation.workload.api;
 
 import com.xammer.cloud.service.automation.workload.HorizontalAutoscalingProperties;
-import com.xammer.cloud.service.automation.workload.HpaView;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccess;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessException;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessProvider;
@@ -9,9 +8,9 @@ import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
 import com.xammer.cloud.service.automation.workload.api.dto.HpaHistoriesDto;
 import com.xammer.cloud.service.automation.workload.api.dto.HpaHistoryDto;
 import com.xammer.cloud.service.automation.workload.api.dto.UsageSeriesDto;
-import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
 import com.xammer.cloud.service.automation.workload.usage.PromQl;
 import com.xammer.cloud.service.automation.workload.usage.PrometheusRangeReader;
+import io.fabric8.kubernetes.api.model.autoscaling.v2.HorizontalPodAutoscaler;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,9 +44,12 @@ import java.util.function.LongSupplier;
  *
  * <h2>An unknown HPA is a 404, a quiet one is not</h2>
  *
- * When Prometheus holds no sample for the HPA in the window, the inventory decides: an HPA the
- * cluster has (kube-state-metrics missing, or created a moment ago) answers {@code 200} with every
- * point null; one the cluster does not have is {@link UnknownTargetException} ({@code 404}).
+ * When Prometheus holds no sample for the HPA in the window, the cluster's own HPA objects decide
+ * (one get of that HPA; one list of the cluster's HPAs for the list page), never the engine's
+ * inventory, which leaves out protected namespaces and HPAs that scale nothing it analyses. An HPA
+ * the cluster has (kube-state-metrics missing, a namespace it doesn't watch, or created a moment ago)
+ * answers {@code 200} with every point null; one the cluster does not have is
+ * {@link UnknownTargetException} ({@code 404}).
  *
  * <h2>The list reads every HPA at once</h2>
  *
@@ -75,7 +77,6 @@ public class HpaHistoryService {
     private final HorizontalAutoscalingProperties properties;
     private final PrometheusRangeReader reader;
     private final ClusterOpener opener;
-    private final ClusterWorkloadInventory inventory;
     private final Clock clock;
     private final ResponseCache<HpaHistoryDto> cache;
     private final ResponseCache<HpaHistoriesDto> batchCache;
@@ -84,21 +85,18 @@ public class HpaHistoryService {
     @Autowired
     public HpaHistoryService(HorizontalAutoscalingProperties properties,
                              PrometheusRangeReader reader,
-                             List<ClusterAccessProvider> accessProviders,
-                             ClusterWorkloadInventory inventory) {
-        this(properties, reader, accessProviders, inventory, Clock.systemUTC(), System::nanoTime);
+                             List<ClusterAccessProvider> accessProviders) {
+        this(properties, reader, accessProviders, Clock.systemUTC(), System::nanoTime);
     }
 
     HpaHistoryService(HorizontalAutoscalingProperties properties,
                       PrometheusRangeReader reader,
                       List<ClusterAccessProvider> accessProviders,
-                      ClusterWorkloadInventory inventory,
                       Clock clock,
                       LongSupplier nanoClock) {
         this.properties = properties;
         this.reader = reader;
         this.opener = new ClusterOpener(accessProviders);
-        this.inventory = inventory;
         this.clock = clock;
         this.cache = new ResponseCache<>(CACHE_TTL, nanoClock);
         this.batchCache = new ResponseCache<>(CACHE_TTL, nanoClock);
@@ -152,7 +150,7 @@ public class HpaHistoryService {
             Double[] atMax = SeriesPoints.first(reader.read(client, atMaxQuery, detail), detail);
             Double[] current = SeriesPoints.first(reader.read(client, specs.get(0).query(), detail), detail);
 
-            if (!sampled(values, atMax, current) && !knownHpas(client).contains(hpa)) {
+            if (!sampled(values, atMax, current) && !hpaExists(client, hpa)) {
                 throw new UnknownTargetException("name", "This cluster has no HPA " + namespace + "/" + name
                         + ", and Prometheus holds no history for one.");
             }
@@ -244,7 +242,7 @@ public class HpaHistoryService {
                 Double[] ownCurrent = current.getOrDefault(hpa, new Double[detail.points()]);
                 if (!sampled(own, ownAtMax, ownCurrent)) {
                     if (known == null) {
-                        known = knownHpas(client);
+                        known = clusterHpas(client);
                     }
                     if (!known.contains(hpa)) {
                         missing.add(new HpaHistoriesDto.HpaRef(hpa.namespace(), hpa.name()));
@@ -324,21 +322,28 @@ public class HpaHistoryService {
                 atMax(atMax, detail, atMaxQuery), changes.changes(), changes.truncated(), firstSampleAt, null);
     }
 
-    /** The HPAs in the cluster's inventory, each attached to a workload the engine analyses. */
-    private Set<PromQl.HpaSelector> knownHpas(KubernetesClient client) throws ClusterAccessException {
-        Set<PromQl.HpaSelector> known = new HashSet<>();
-        for (ClusterWorkloadInventory.Workload workload : ClusterOpener.readInventory(inventory, client).workloads()) {
-            HpaView view = workload.hpa();
-            if (view == null) {
+    /** Whether the cluster has this HPA: one get of the HPA object (null when the API server has none). */
+    private static boolean hpaExists(KubernetesClient client, PromQl.HpaSelector hpa) throws ClusterAccessException {
+        return ClusterOpener.readHpas(() -> client.autoscaling().v2().horizontalPodAutoscalers()
+                .inNamespace(hpa.namespace()).withName(hpa.name()).get()) != null;
+    }
+
+    /** Every HPA the cluster has, in any namespace: one list of the HPA objects. */
+    private static Set<PromQl.HpaSelector> clusterHpas(KubernetesClient client) throws ClusterAccessException {
+        List<HorizontalPodAutoscaler> items = ClusterOpener.readHpas(() -> client.autoscaling().v2()
+                .horizontalPodAutoscalers().inAnyNamespace().list().getItems());
+        Set<PromQl.HpaSelector> hpas = new HashSet<>();
+        for (HorizontalPodAutoscaler item : items == null ? List.<HorizontalPodAutoscaler>of() : items) {
+            if (item == null || item.getMetadata() == null) {
                 continue;
             }
             try {
-                known.add(new PromQl.HpaSelector(view.namespace(), view.name()));
+                hpas.add(new PromQl.HpaSelector(item.getMetadata().getNamespace(), item.getMetadata().getName()));
             } catch (IllegalArgumentException notAKubernetesName) {
-                // Not a name the caller could have asked for.
+                // Not a name the caller could have asked for (a null one included).
             }
         }
-        return known;
+        return hpas;
     }
 
     /**
