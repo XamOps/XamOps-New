@@ -25,7 +25,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import type { BillOpsUser, BillOpsUserFormData, BillOpsRole, UseBillOpsUserManagerResult } from '../types/billopsUserManager';
+import type { BillOpsUser, BillOpsUserFormData, BillOpsRole, ClientCloudAccount, UseBillOpsUserManagerResult } from '../types/billopsUserManager';
 
 const EMPTY_FORM: BillOpsUserFormData = {
     id: '',
@@ -38,6 +38,7 @@ const EMPTY_FORM: BillOpsUserFormData = {
     designation: '',
     parentId: '',
     allowedTabs: [],
+    accountAccessIds: [],
 };
 
 const AVAILABLE_ROLES: BillOpsRole[] = ['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB', 'ROLE_XAMOPS'];
@@ -162,6 +163,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             designation: user.designation || '',
             parentId: user.parentId != null ? String(user.parentId) : '',
             allowedTabs: user.allowedTabs || [],
+            accountAccessIds: user.accountAccessIds || [],
         });
         setIsEditing(true);
     }, []);
@@ -359,7 +361,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
     /**
      * Update a field in the selected user form
      */
-    const updateSelectedUser = useCallback((field: keyof BillOpsUserFormData, value: string | string[]) => {
+    const updateSelectedUser = useCallback((field: keyof BillOpsUserFormData, value: string | string[] | (string | number)[]) => {
         setSelectedUser(prev => ({
             ...prev,
             [field]: value
@@ -377,6 +379,40 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             else allowedTabs.splice(index, 1);
             return { ...prev, allowedTabs };
         });
+    }, []);
+
+    /**
+     * Toggle a cloud-account id in the selected user's accountAccessIds list.
+     * Empty list = access to every cloud account of the client (see ClientDetailsPage.handleLoginAs).
+     */
+    const toggleAccount = useCallback((accountId: string | number) => {
+        setSelectedUser(prev => {
+            const accountAccessIds = [...prev.accountAccessIds];
+            const index = accountAccessIds.findIndex(id => String(id) === String(accountId));
+            if (index === -1) accountAccessIds.push(accountId);
+            else accountAccessIds.splice(index, 1);
+            return { ...prev, accountAccessIds };
+        });
+    }, []);
+
+    /**
+     * Fetch the cloud accounts belonging to a client, for the account-access picker.
+     * This GET relies on the session cookie; no CSRF token is needed.
+     */
+    const fetchClientCloudAccounts = useCallback(async (clientId: string | number): Promise<ClientCloudAccount[]> => {
+        try {
+            const response = await fetch(`/api/billops/users/clients/${clientId}/cloud-accounts`, {
+                method: 'GET',
+                credentials: 'include'
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            return await response.json();
+        } catch (err) {
+            console.error('[UserManager] Failed to fetch client cloud accounts:', err);
+            return [];
+        }
     }, []);
 
     return {
@@ -408,6 +444,8 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
         moveUserToClient,
         updateSelectedUser,
         toggleTab,
+        toggleAccount,
+        fetchClientCloudAccounts,
         clearNotification
     };
 };

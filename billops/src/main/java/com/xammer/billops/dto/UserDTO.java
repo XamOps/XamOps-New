@@ -17,6 +17,7 @@ public class UserDTO {
     private String designation;
     private Long parentId;  // maps to AppUser.createdBy — null = primary user, set = sub-user
     private List<String> allowedTabs;  // XamOps sidebar tab keys (only used when role == ROLE_XAMOPS)
+    private List<Long> accountAccessIds;  // cloud_account ids this user may access — null = leave unchanged, empty = all
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -40,4 +41,6 @@ public class UserDTO {
     public void setParentId(Long parentId) { this.parentId = parentId; }
     public List<String> getAllowedTabs() { return allowedTabs; }
     public void setAllowedTabs(List<String> allowedTabs) { this.allowedTabs = allowedTabs; }
+    public List<Long> getAccountAccessIds() { return accountAccessIds; }
+    public void setAccountAccessIds(List<Long> accountAccessIds) { this.accountAccessIds = accountAccessIds; }
 }

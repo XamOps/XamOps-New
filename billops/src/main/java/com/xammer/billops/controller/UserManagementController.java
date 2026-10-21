@@ -1,13 +1,17 @@
 package com.xammer.billops.controller;
 
+import com.xammer.billops.dto.ClientCloudAccountDTO;
 import com.xammer.billops.dto.UserDTO;
+import com.xammer.billops.domain.CloudAccount;
 import com.xammer.cloud.domain.AppUser;
+import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.service.AppUserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/billops/users")
@@ -16,9 +20,34 @@ public class UserManagementController {
     @Autowired
     private AppUserService service;
 
+    @Autowired
+    private CloudAccountRepository cloudAccountRepository;
+
     @GetMapping
     public List<UserDTO> getAllUsers() {
         return service.getAllUsers();
+    }
+
+    /**
+     * Lightweight list of a client's cloud accounts, used by the user-manager modal to render the
+     * per-user cloud-account access picker. {@code accountId} is the provider-specific identifier
+     * (first non-null of AWS / GCP / Azure id), matching what ClientDetailsPage already shows.
+     */
+    @GetMapping("/clients/{clientId}/cloud-accounts")
+    public List<ClientCloudAccountDTO> getClientCloudAccounts(@PathVariable Long clientId) {
+        return cloudAccountRepository.findByClientId(clientId).stream()
+                .map(ca -> new ClientCloudAccountDTO(
+                        ca.getId(),
+                        ca.getAccountName(),
+                        ca.getProvider(),
+                        deriveAccountId(ca)))
+                .collect(Collectors.toList());
+    }
+
+    private static String deriveAccountId(CloudAccount ca) {
+        if (ca.getAwsAccountId() != null) return ca.getAwsAccountId();
+        if (ca.getGcpProjectId() != null) return ca.getGcpProjectId();
+        return ca.getAzureSubscriptionId();
     }
 
     @PostMapping
@@ -36,6 +65,7 @@ public class UserManagementController {
             result.setContact(created.getContact());
             result.setDesignation(created.getDesignation());
             result.setAllowedTabs(dto.getAllowedTabs());
+            result.setAccountAccessIds(dto.getAccountAccessIds());
 
             return ResponseEntity.ok(result);
         } catch (Exception e) {
@@ -59,6 +89,7 @@ public class UserManagementController {
             result.setContact(updated.getContact());
             result.setDesignation(updated.getDesignation());
             result.setAllowedTabs(dto.getAllowedTabs());
+            result.setAccountAccessIds(dto.getAccountAccessIds());
 
             return ResponseEntity.ok(result);
         } catch (Exception e) {

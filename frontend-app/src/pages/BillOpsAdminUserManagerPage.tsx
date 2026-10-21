@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useBillOpsUserManager } from '../hooks/useBillOpsUserManager';
-import type { BillOpsUser, BillOpsRole } from '../types/billopsUserManager';
+import type { BillOpsUser, BillOpsRole, ClientCloudAccount } from '../types/billopsUserManager';
 import NotificationModal from '../components/Shared/NotificationModal';
 import TrialManagementSection from '../components/BillOps/TrialManagementSection';
 import { AlertDialog } from '../components/ui';
@@ -56,8 +56,40 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
   const {
     users, loading, error, isEditing, selectedUser, roles,
     newUser, editUser, cancelEdit, saveUser, deleteUser, moveUserToClient, updateSelectedUser,
+    toggleAccount, fetchClientCloudAccounts,
     notification, clearNotification, pendingDeleteId, confirmDelete, cancelDelete,
   } = useBillOpsUserManager();
+
+  /* ── Cloud-account access picker state (loaded for the edited user's client) ── */
+  const [clientAccounts, setClientAccounts] = useState<ClientCloudAccount[]>([]);
+
+  // Resolve the client id of the user being edited. The form keys off clientName, so map the
+  // selected form id → its user row to read clientId; fall back to matching clientName.
+  const editingClientId = useMemo<string | number | null>(() => {
+    if (!isEditing) return null;
+    if (selectedUser.id) {
+      const u = users.find(x => String(x.id) === String(selectedUser.id));
+      if (u?.clientId != null) return u.clientId;
+    }
+    if (selectedUser.clientName) {
+      const u = users.find(x => x.clientName === selectedUser.clientName && x.clientId != null);
+      if (u?.clientId != null) return u.clientId;
+    }
+    return null;
+  }, [isEditing, selectedUser.id, selectedUser.clientName, users]);
+
+  // Load the client's cloud accounts whenever the modal opens or the resolved client changes.
+  useEffect(() => {
+    let cancelled = false;
+    if (isEditing && editingClientId != null) {
+      fetchClientCloudAccounts(editingClientId).then(accounts => {
+        if (!cancelled) setClientAccounts(accounts);
+      });
+    } else {
+      setClientAccounts([]);
+    }
+    return () => { cancelled = true; };
+  }, [isEditing, editingClientId, fetchClientCloudAccounts]);
 
   /* ── Move-user-between-clients modal state ── */
   const [moveUser, setMoveUser]             = useState<BillOpsUser | null>(null);
@@ -398,6 +430,60 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                             ))}
                           </div>
                         </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Cloud Account Access (any role; shown once the client's accounts load) ── */}
+              {clientAccounts.length > 0 && (
+                <div className="pt-1">
+                  <div className="flex items-center justify-between mb-2">
+                    <FormLabel icon="mdi:cloud-lock-outline" text="Cloud Account Access" />
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <button
+                        type="button"
+                        onClick={() => updateSelectedUser('accountAccessIds', clientAccounts.map(a => a.id))}
+                        className="text-[10px] font-semibold text-[rgba(0,0,0,0.6)] hover:text-black"
+                      >
+                        Select all
+                      </button>
+                      <span className="text-[rgba(0,0,0,0.15)]">|</span>
+                      <button
+                        type="button"
+                        onClick={() => updateSelectedUser('accountAccessIds', [])}
+                        className="text-[10px] font-semibold text-rose-500 hover:text-rose-700"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-[rgba(0,0,0,0.4)] mb-3">
+                    Leave all unchecked to grant access to every cloud account for this client. Selecting specific accounts restricts the user to only those.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-[280px] overflow-y-auto pr-1">
+                    {clientAccounts.map(acc => {
+                      const checked = selectedUser.accountAccessIds.some(id => String(id) === String(acc.id));
+                      return (
+                        <label
+                          key={acc.id}
+                          className="flex items-center gap-2 px-2.5 py-2 border border-[rgba(0,0,0,0.06)] rounded-lg cursor-pointer hover:bg-[rgba(0,0,0,0.02)] transition-colors"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleAccount(acc.id)}
+                            className="w-3.5 h-3.5 rounded accent-[rgba(0,0,0,0.88)] cursor-pointer flex-shrink-0"
+                          />
+                          <Icon icon="mdi:cloud-outline" width={13} color="rgba(0,0,0,0.45)" />
+                          <span className="flex flex-col min-w-0">
+                            <span className="text-[11px] font-medium text-[rgba(0,0,0,0.7)] truncate">{acc.name}</span>
+                            <span className="text-[10px] text-[rgba(0,0,0,0.4)] truncate">
+                              {acc.provider}{acc.accountId ? ` · ${acc.accountId}` : ''}
+                            </span>
+                          </span>
+                        </label>
                       );
                     })}
                   </div>

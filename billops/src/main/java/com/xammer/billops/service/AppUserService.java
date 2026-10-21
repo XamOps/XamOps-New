@@ -2,11 +2,14 @@ package com.xammer.billops.service;
 
 import com.xammer.cloud.domain.AppUser;
 import com.xammer.billops.domain.Client;
+import com.xammer.billops.domain.CloudAccount;
+import com.xammer.billops.domain.UserCloudAccountAccess;
 import com.xammer.billops.domain.UserTabAccess;
 import com.xammer.billops.dto.UserDTO;
 import com.xammer.billops.repository.AgreementRepository;
 import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.ClientRepository;
+import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.CreditRequestRepository;
 import com.xammer.billops.repository.SupportMessageRepository;
 import com.xammer.billops.repository.SupportTicketStatusRepository;
@@ -48,6 +51,9 @@ public class AppUserService {
 
     @Autowired
     private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
+
+    @Autowired
+    private CloudAccountRepository cloudAccountRepository;
 
     @Autowired
     private TicketRepository ticketRepository;
@@ -172,6 +178,15 @@ public class AppUserService {
             }
         }
 
+        // Assign cloud-account access (any role). A null list means "none specified" (→ all
+        // accounts on read); an explicit list stores one row per resolvable cloud account.
+        if (dto.getAccountAccessIds() != null) {
+            for (Long accountId : dto.getAccountAccessIds()) {
+                cloudAccountRepository.findById(accountId).ifPresent(cloudAccount ->
+                        userCloudAccountAccessRepository.save(new UserCloudAccountAccess(savedUser, cloudAccount)));
+            }
+        }
+
         // Send welcome email with credentials
         try {
             sendWelcomeEmail(dto.getEmail(), dto.getUsername(), dto.getPassword());
@@ -229,6 +244,7 @@ public class AppUserService {
             if ("ROLE_XAMOPS".equals(user.getRole())) {
                 dto.setAllowedTabs(userTabAccessRepository.findTabNamesByUserId(user.getId()));
             }
+            dto.setAccountAccessIds(userCloudAccountAccessRepository.findCloudAccountIdsByUserId(user.getId()));
             return dto;
         }).collect(Collectors.toList());
     }
@@ -275,6 +291,17 @@ public class AppUserService {
             userTabAccessRepository.deleteByUserId(savedUser.getId());
             for (String tabName : dto.getAllowedTabs()) {
                 userTabAccessRepository.save(new UserTabAccess(savedUser, tabName));
+            }
+        }
+
+        // Sync cloud-account access — same null/empty contract as tab access above.
+        // A null accountAccessIds means "leave unchanged"; an explicit (possibly empty) list
+        // replaces the current assignment (empty → zero rows → "all access" on read).
+        if (dto.getAccountAccessIds() != null) {
+            userCloudAccountAccessRepository.deleteByUserId(savedUser.getId());
+            for (Long accountId : dto.getAccountAccessIds()) {
+                cloudAccountRepository.findById(accountId).ifPresent(cloudAccount ->
+                        userCloudAccountAccessRepository.save(new UserCloudAccountAccess(savedUser, cloudAccount)));
             }
         }
 
