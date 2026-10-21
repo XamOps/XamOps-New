@@ -1,13 +1,21 @@
 import React, { useMemo } from 'react';
 import { Icon } from '@iconify/react';
 import { Link } from 'react-router-dom';
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, Legend as ReLegend } from 'recharts';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, Legend as ReLegend } from 'recharts';
 import type {
   XamSecureSummary, IssueSummary, PageResp, ThreatDetection, ThreatStoriesSummary, VulnerabilityDashboard,
 } from '../../types/xamsecure';
 import { SEVERITY_ORDER } from '../../types/xamsecure';
 import SeverityChip from './SeverityChip';
 import TrendDelta from './TrendDelta';
+import LightTooltip from './ui/LightTooltip';
+import ChartGradients, { areaGradientId } from './ui/ChartGradients';
+import ThreatFunnel from './ui/ThreatFunnel';
+import TrendBars from './ui/TrendBars';
+import MiniFlowSVG from './ui/MiniFlowSVG';
+import CountUp from './ui/CountUp';
+import RevealCard from './ui/RevealCard';
+import { usePrefersReducedMotion } from './ui/usePrefersReducedMotion';
 
 /** Upwind severity palette (matches the Vulnerabilities tab). */
 const SEV_COLOR = { CRITICAL: '#dc2626', HIGH: '#f97316', OTHER: '#3b82f6' } as const;
@@ -54,34 +62,10 @@ function last7Days(): { key: string; label: string }[] {
   return out;
 }
 
-/** Minimal greyscale bar chart. */
-const BarChart: React.FC<{ data: { label: string; value: number }[] }> = ({ data }) => {
-  const max = Math.max(1, ...data.map((d) => d.value));
-  return (
-    <div className="flex items-end justify-between gap-1 h-28">
-      {data.map((d) => (
-        <div key={d.label} className="flex-1 flex flex-col items-center gap-1">
-          <div className="w-full flex items-end justify-center" style={{ height: '84px' }}>
-            <div
-              className="w-full max-w-[24px] rounded-t"
-              style={{
-                height: `${Math.round((d.value / max) * 84)}px`,
-                minHeight: d.value > 0 ? 4 : 0,
-                backgroundColor: SEV_COLOR.OTHER,
-              }}
-              title={`${d.label}: ${d.value}`}
-            />
-          </div>
-          <span className="text-[9px] text-gray-400 whitespace-nowrap">{d.label}</span>
-        </div>
-      ))}
-    </div>
-  );
-};
-
 const OverviewTab: React.FC<Props> = ({
   summary, issues, threats, stories, vulnDashboard, isLoading, onOpenStory,
 }) => {
+  const reducedMotion = usePrefersReducedMotion();
   const days = useMemo(() => last7Days(), []);
   const activeStories = stories?.activeCount ?? 0;
   const storyList = stories?.stories ?? [];
@@ -149,8 +133,14 @@ const OverviewTab: React.FC<Props> = ({
 
   return (
     <div className="space-y-4">
+      {/* Signature data-flow banner (decorative, static under reduced motion) */}
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm px-5 py-2 overflow-hidden">
+        <MiniFlowSVG />
+      </div>
+
       {/* Row 1 — Findings summary · Top findings */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <RevealCard>
         <Panel title="Security issues findings summary" action={<AllLink to="/xamsecure/issues" label="All findings" />}>
           <table className="w-full text-xs">
             <thead>
@@ -170,7 +160,9 @@ const OverviewTab: React.FC<Props> = ({
           </table>
           <p className="mt-3 text-[10px] text-gray-400">{totalIssues} total issues</p>
         </Panel>
+        </RevealCard>
 
+        <RevealCard delay={0.06}>
         <Panel title="Top security issues findings" action={<AllLink to="/xamsecure/issues" label="All findings" />}>
           <div className="space-y-0.5">
             <div className="flex items-center justify-between text-[10px] uppercase text-gray-400 pb-1.5 border-b border-gray-100">
@@ -190,10 +182,12 @@ const OverviewTab: React.FC<Props> = ({
             )}
           </div>
         </Panel>
+        </RevealCard>
       </div>
 
       {/* Row 2 — Active stories · Threat funnel · Detections over time */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <RevealCard>
         <Panel title="Active threat stories">
           {/* The stories themselves are the point, so list them as buttons that open the
               detail panel. The bare count told you something was wrong with no way in. */}
@@ -229,7 +223,7 @@ const OverviewTab: React.FC<Props> = ({
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center text-center py-6">
-              <p className="text-6xl font-extrabold text-gray-900">{activeStories}</p>
+              <CountUp value={activeStories} className="text-6xl font-extrabold text-gray-900" />
               <p className="mt-3 text-sm font-bold text-gray-700">Active threat stories</p>
               <p className="mt-1 text-[11px] text-gray-400">
                 {activeStories === 0
@@ -239,15 +233,15 @@ const OverviewTab: React.FC<Props> = ({
             </div>
           )}
         </Panel>
+        </RevealCard>
 
+        <RevealCard delay={0.06}>
         <Panel title="Noise to signal threat funnel" action={<AllLink to="/xamsecure/threats" label="All threats" />}>
-          <div className="flex items-center justify-around py-6">
-            <FunnelStat label="Events" value={threatEvents} />
-            <FunnelStat label="Detections" value={threatDetections} />
-            <FunnelStat label="Stories" value={activeStories} />
-          </div>
+          <ThreatFunnel events={threatEvents} detections={threatDetections} stories={activeStories} />
         </Panel>
+        </RevealCard>
 
+        <RevealCard delay={0.12}>
         <Panel title="Vulnerability findings by severity">
           <div className="flex items-center justify-between gap-2 mb-2">
             <p className="text-[10px] text-gray-400">Last 7 days</p>
@@ -259,30 +253,36 @@ const OverviewTab: React.FC<Props> = ({
             <div style={{ width: '100%', height: 150 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={vulnDashboard?.severityOverTime ?? []} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <ChartGradients />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(15,23,42,0.06)" vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 9, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={34} />
-                  <Tooltip />
+                  <Tooltip content={<LightTooltip />} cursor={{ stroke: 'rgba(15,23,42,0.12)', strokeWidth: 1 }} />
                   <ReLegend wrapperStyle={{ fontSize: 10 }} />
-                  <Area type="monotone" dataKey="CRITICAL" name="Critical" stackId="1" stroke={SEV_COLOR.CRITICAL} fill={SEV_COLOR.CRITICAL} fillOpacity={0.85} />
-                  <Area type="monotone" dataKey="HIGH" name="High" stackId="1" stroke={SEV_COLOR.HIGH} fill={SEV_COLOR.HIGH} fillOpacity={0.85} />
-                  <Area type="monotone" dataKey="OTHER" name="Other" stackId="1" stroke={SEV_COLOR.OTHER} fill={SEV_COLOR.OTHER} fillOpacity={0.85} />
+                  <Area type="monotone" dataKey="CRITICAL" name="Critical" stackId="1" stroke={SEV_COLOR.CRITICAL} strokeWidth={1.5} fill={`url(#${areaGradientId('CRITICAL')})`} isAnimationActive={!reducedMotion} animationDuration={600} animationEasing="ease-out" />
+                  <Area type="monotone" dataKey="HIGH" name="High" stackId="1" stroke={SEV_COLOR.HIGH} strokeWidth={1.5} fill={`url(#${areaGradientId('HIGH')})`} isAnimationActive={!reducedMotion} animationDuration={600} animationEasing="ease-out" />
+                  <Area type="monotone" dataKey="OTHER" name="Other" stackId="1" stroke={SEV_COLOR.OTHER} strokeWidth={1.5} fill={`url(#${areaGradientId('OTHER')})`} isAnimationActive={!reducedMotion} animationDuration={600} animationEasing="ease-out" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           )}
         </Panel>
+        </RevealCard>
       </div>
 
       {/* Row 3 — Findings over time · New issues · Threat feed */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <RevealCard>
         <Panel title="Findings over time"
                action={issuesTrend
                  ? <TrendDelta from={issuesTrend.from} to={issuesTrend.to} label="over 7 days" />
                  : undefined}>
           <p className="text-[10px] text-gray-400 mb-2">Cumulative open issues · last 7 days</p>
-          <BarChart data={findingsOverTime} />
+          <TrendBars data={findingsOverTime} />
         </Panel>
+        </RevealCard>
 
+        <RevealCard delay={0.06}>
         <Panel title="New security issues">
           <div className="flex items-center justify-around py-8">
             <FunnelStat label="Critical" value={findingsBySeverity.CRITICAL ?? 0} color="#dc2626" />
@@ -290,7 +290,9 @@ const OverviewTab: React.FC<Props> = ({
             <FunnelStat label="Other" value={(findingsBySeverity.MEDIUM ?? 0) + (findingsBySeverity.LOW ?? 0)} color="#3b82f6" />
           </div>
         </Panel>
+        </RevealCard>
 
+        <RevealCard delay={0.12}>
         <Panel title={`Threat feed highlights (${threatFeed.length})`}
                action={<AllLink to="/xamsecure/threats" label="All feed items" />}>
           <div className="space-y-0.5">
@@ -310,9 +312,11 @@ const OverviewTab: React.FC<Props> = ({
             )}
           </div>
         </Panel>
+        </RevealCard>
       </div>
 
       {/* Data freshness */}
+      <RevealCard>
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Data Freshness</p>
         <div className="space-y-1.5">
@@ -333,13 +337,14 @@ const OverviewTab: React.FC<Props> = ({
           )}
         </div>
       </div>
+      </RevealCard>
     </div>
   );
 };
 
 const FunnelStat: React.FC<{ label: string; value: number; color?: string }> = ({ label, value, color }) => (
   <div className="text-center">
-    <p className="text-3xl font-extrabold" style={{ color: color ?? '#111827' }}>{value}</p>
+    <CountUp value={value} className="text-3xl font-extrabold block" style={{ color: color ?? '#111827' }} />
     <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{label}</p>
   </div>
 );
