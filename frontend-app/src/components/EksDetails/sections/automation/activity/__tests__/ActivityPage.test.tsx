@@ -356,8 +356,10 @@ describe('Automation › Activity: the activity feed (FEAT-007)', () => {
     await user.selectOptions(screen.getByLabelText('Time'), '7d');
     await waitFor(() => expect(lastFeedCall().searchParams.has('from')).toBe(true));
     const from = Date.parse(lastFeedCall().searchParams.get('from')!);
-    expect(Date.now() - from).toBeGreaterThanOrEqual(7 * 24 * 3600_000);
-    expect(Date.now() - from).toBeLessThan(7 * 24 * 3600_000 + 120_000);
+    // Fixed to the minute, rounded up (rangeFrom.test.ts holds the 90-day option to the server's rule).
+    expect(from % 60_000).toBe(0);
+    expect(Date.now() - from).toBeGreaterThan(7 * 24 * 3600_000 - 60_000);
+    expect(Date.now() - from).toBeLessThan(7 * 24 * 3600_000 + 60_000);
   });
 });
 

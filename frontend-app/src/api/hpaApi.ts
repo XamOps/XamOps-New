@@ -2,11 +2,12 @@
  * Typed client for the HPA automation endpoints (`/api/eks/automation/hpa/**`, FEAT-002).
  *
  * The read path reuses the vertical rightsizer endpoint (one `GET` per cluster carries the HPA
- * decision in each workload's `horizontal` block), so only the **apply** and one HPA's **history**
+ * decision in each workload's `horizontal` block), so only the **apply** and the HPAs' **history**
  * (FEAT-004, read-only) live here:
  *
  *   POST /api/eks/automation/hpa/{cluster}/{namespace}/{name}/apply?accountId=&region=
  *   GET  /api/eks/automation/hpa/{cluster}/{namespace}/{hpaName}/history?accountId=&region=&window=
+ *   GET  /api/eks/automation/hpa/{cluster}/history?accountId=&region=&window=&hpas=ns/name,…
  *
  * `{name}` is the workload (Deployment) name; the backend resolves the HPA that targets it. Status
  * codes are read off the response, because the two interesting ones are deployment states, not
@@ -21,6 +22,7 @@ import { adaptHpaPage } from './hpaAdapter';
 import { readInsight, isObject } from './insightRead';
 import { adaptHpaHistory } from './automationInsightsAdapter';
 import type {
+  HpaHistoriesResponseWire,
   HpaHistoryResponseWire,
   HpaHistoryView,
   HpaHistoryWindow,
@@ -96,6 +98,65 @@ export const fetchHpaHistory = (
     what: 'The HPA history',
     signal,
   });
+
+/** The HPA list's one history read: every HPA named, `namespace/name`, comma-separated. */
+export const hpaHistoriesUrl = (
+  cluster: string,
+  hpas: ReadonlyArray<{ namespace: string; name: string }>,
+  accountId: string,
+  region: string,
+  window: HpaHistoryWindow,
+): string =>
+  `${BASE}/${seg(cluster)}/history?accountId=${seg(accountId)}&region=${seg(region)}&window=${window}` +
+  `&hpas=${seg(hpas.map((hpa) => `${hpa.namespace}/${hpa.name}`).join(','))}`;
+
+const isHpaHistoriesWire = (body: unknown): body is HpaHistoriesResponseWire =>
+  isObject(body) && Array.isArray(body.histories);
+
+/**
+ * Several HPAs' histories with one read, for the HPA list: one cluster connection on the server
+ * rather than one per HPA. Each HPA's answer is what {@link fetchHpaHistory} gives for it: its
+ * history (its own `unavailable` included), the refusal for an HPA the cluster doesn't have, or the
+ * read's own failure, the same for every HPA.
+ */
+export async function fetchHpaHistories(
+  cluster: string,
+  hpas: ReadonlyArray<{ namespace: string; name: string }>,
+  accountId: string,
+  region: string,
+  window: HpaHistoryWindow,
+  signal?: AbortSignal,
+): Promise<Record<string, InsightReadResult<HpaHistoryView>>> {
+  const read = await readInsight(hpaHistoriesUrl(cluster, hpas, accountId, region, window), {
+    isWire: isHpaHistoriesWire,
+    adapt: (wire: HpaHistoriesResponseWire) => wire,
+    what: 'The HPA history',
+    signal,
+  });
+  const results: Record<string, InsightReadResult<HpaHistoryView>> = {};
+  for (const hpa of hpas) {
+    const id = `${hpa.namespace}/${hpa.name}`;
+    if (read.kind !== 'ok') {
+      results[id] = read;
+      continue;
+    }
+    const entry = (read.view.histories ?? []).find((h) => h?.namespace === hpa.namespace && h?.name === hpa.name);
+    if (entry && isHpaHistoryWire(entry)) {
+      results[id] = { kind: 'ok', view: adaptHpaHistory(entry) };
+    } else if ((read.view.missing ?? []).some((m) => m?.namespace === hpa.namespace && m?.name === hpa.name)) {
+      // The one-HPA read's 404 for an HPA neither Prometheus nor the cluster knows.
+      results[id] = {
+        kind: 'refused',
+        code: parseCode('K8S_INVALID_REQUEST')!,
+        message: `This cluster has no HPA ${id}, and Prometheus holds no history for one.`,
+        field: 'name',
+      };
+    } else {
+      results[id] = { kind: 'error', message: `The HPA history answered without ${id}.` };
+    }
+  }
+  return results;
+}
 
 const refusalMessage = (body: HpaRefusalWire | null, fallback: string): string => {
   const message = body?.message;

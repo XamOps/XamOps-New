@@ -59,19 +59,19 @@ import java.util.concurrent.ConcurrentHashMap;
  * skips them, reports the same {@code lastAction} it always did.
  *
  * <p>Every new row stores {@code after_json} as an object,
- * {@code {"terminal", "reverted", "containers": [{container, observedBefore, observedAfter}],
- * "pods": [{pod, node, uidChanged, restartsBefore, restartsAfter, ready, revert}]}}, so a put-back
- * deferral and the per-pod proof can be shown. Rows written before this build hold an array of the
- * observed sizes, and the reader handles both.
+ * {@code {"terminal", "reverted", "containers": [{container, cpuRequestMillis, cpuLimitMillis,
+ * memRequestBytes, memLimitBytes, observedBefore, observedAfter}], "pods": [{pod, node, changed,
+ * uidChanged, restartsBefore, restartsAfter, ready, revert}]}}, so a put-back deferral and the
+ * per-pod proof can be shown. Rows written before this build hold an array of the observed sizes,
+ * and the reader handles both; each container of the object keeps that array's flat fields too.
  *
  * <p>The new write methods are <strong>fail-soft</strong>: they catch everything, log one WARN per
  * cluster per {@link #WARNING_INTERVAL} and return, so the audit can never fail an apply. They are
  * deliberately not {@code @Transactional}, since a failed save inside a transaction that annotation
  * opened would mark it rollback-only and surface at commit, in the caller. Each save instead runs in
- * a transaction of its own ({@code REQUIRES_NEW}) that the catch sits outside of: the automatic loop
- * calls the apply inside a read-only transaction, and a failed insert that joined it would mark that
- * transaction rollback-only and, on PostgreSQL, abort it for every cluster still to come in the
- * cycle.
+ * a transaction of its own ({@code REQUIRES_NEW}) that the catch sits outside of, so a failed insert
+ * never joins, and never marks rollback-only, a transaction its caller may hold, whichever path the
+ * apply came from.
  *
  * <p>Tenant-scoped by {@code clientId} <em>and</em> {@code clusterConfigId}, never the ambiguous
  * {@code cloud_account_id}.
@@ -434,6 +434,13 @@ public class WorkloadActionRecorder {
      *
      * <p>{@code terminal} is the first key, so a reader can classify a row by its prefix. A pod's
      * {@code node} is not part of the proof, so it is written as null rather than guessed.
+     *
+     * <p>Each container also keeps the flat fields a row written before the activity log held
+     * ({@code cpuRequestMillis}, {@code cpuLimitMillis}, {@code memRequestBytes},
+     * {@code memLimitBytes}: the observed-after size, each one only when known), so a reader of that
+     * older shape reads the same numbers from a new row. Main's root-cause analysis reads
+     * {@code containers[].cpuRequestMillis}. Each pod says whether it ended at a size other than it
+     * had before ({@code changed}), so a pod put back is not counted as resized.
      */
     static String proofJson(ResizeProof proof) {
         Map<String, Object> json = new LinkedHashMap<>();
@@ -445,8 +452,15 @@ public class WorkloadActionRecorder {
             for (ResizeProof.ContainerProof container : proof.pods().get(0).containers()) {
                 Map<String, Object> fields = new LinkedHashMap<>();
                 fields.put("container", container.name());
+                ResourceEnvelope after = container.observedAfter();
+                if (after != null) {
+                    putIfPresent(fields, "cpuRequestMillis", after.cpuRequestMillis());
+                    putIfPresent(fields, "cpuLimitMillis", after.cpuLimitMillis());
+                    putIfPresent(fields, "memRequestBytes", after.memRequestBytes());
+                    putIfPresent(fields, "memLimitBytes", after.memLimitBytes());
+                }
                 fields.put("observedBefore", envelope(container.observedBefore()));
-                fields.put("observedAfter", envelope(container.observedAfter()));
+                fields.put("observedAfter", envelope(after));
                 containers.add(fields);
             }
         }
@@ -457,6 +471,7 @@ public class WorkloadActionRecorder {
             Map<String, Object> fields = new LinkedHashMap<>();
             fields.put("pod", pod.podName());
             fields.put("node", null);
+            fields.put("changed", pod.changed());
             fields.put("uidChanged", pod.uidBefore() == null || pod.uidAfter() == null
                     ? null : !pod.uidBefore().equals(pod.uidAfter()));
             fields.put("restartsBefore", restarts(pod, true));

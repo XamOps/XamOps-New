@@ -184,7 +184,9 @@ const sumOrNull = (values: Array<number | null | undefined>): number | null =>
 
 /**
  * The latest change applied live to this workload: this session's apply reply when it is the newest,
- * else the activity log's newest live APPLIED resize, else endpoint 1's lastAction (time only).
+ * else the activity log's newest live APPLIED resize, else endpoint 1's lastAction (time only), which
+ * also stands in when the entries read hold no live change (it is older than them, or there is no
+ * activity log).
  */
 export function latestLiveChange(
   workload: WorkloadView,
@@ -203,19 +205,17 @@ export function latestLiveChange(
       from: 'reply',
     });
   }
-  if (entries) {
-    const { namespace, kind, name } = workload.ref;
-    const e = entries.find((x) =>
-      x.action === 'resize' && !x.dryRun && x.result === 'applied' && x.at !== null
-      && x.target.namespace === namespace && x.target.kind === kind && x.target.name === name);
-    if (e && e.at !== null) {
-      candidates.push({
-        at: e.at,
-        beforeM: e.beforeNotRecorded ? null : sumOrNull(e.containers.map((c) => c.before?.cpuRequestM)),
-        afterM: sumOrNull(e.containers.map((c) => c.after?.cpuRequestM)),
-        from: 'feed',
-      });
-    }
+  const { namespace, kind, name } = workload.ref;
+  const e = entries?.find((x) =>
+    x.action === 'resize' && !x.dryRun && x.result === 'applied' && x.at !== null
+    && x.target.namespace === namespace && x.target.kind === kind && x.target.name === name);
+  if (e && e.at !== null) {
+    candidates.push({
+      at: e.at,
+      beforeM: e.beforeNotRecorded ? null : sumOrNull(e.containers.map((c) => c.before?.cpuRequestM)),
+      afterM: sumOrNull(e.containers.map((c) => c.after?.cpuRequestM)),
+      from: 'feed',
+    });
   } else if (isLiveApplied(workload.lastAction)) {
     const at = instantMs(workload.lastAction?.at);
     if (at !== null) candidates.push({ at, beforeM: null, afterM: null, from: 'endpoint-1' });

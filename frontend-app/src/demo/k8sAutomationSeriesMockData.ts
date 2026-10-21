@@ -416,6 +416,30 @@ function stepAt(steps: Array<[number, number]>, ago: number): number {
   return value;
 }
 
+const HPA_REF = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?\/[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/;
+
+/**
+ * `GET /api/eks/automation/hpa/{cluster}/history?hpas=ns/name,…`, the HPA list's one read: each HPA
+ * answered as its own read answers it, an HPA the demo cluster doesn't have listed in `missing`.
+ */
+export function demoHpaHistories(cluster: string, hpas: string, window: string, nowMs: number = Date.now()): DemoAnswer {
+  const refs = [...new Set(hpas.split(',').map((ref) => ref.trim()))];
+  if (hpas.trim() === '' || refs.length > 20 || refs.some((ref) => !HPA_REF.test(ref))) {
+    return invalid('The hpas parameter is missing or malformed.', 'hpas');
+  }
+  const histories: unknown[] = [];
+  const missing: Array<{ namespace: string; name: string }> = [];
+  for (const ref of refs) {
+    const [namespace, name] = ref.split('/');
+    const one = demoHpaHistory(cluster, namespace, name, window, nowMs);
+    if (one.status === 200) histories.push(one.body);
+    else if (one.status === 404 && (one.body as { field?: string | null }).field === 'name') missing.push({ namespace, name });
+    // Not registered, or a bad window: the whole read answers so, as on the server.
+    else return one;
+  }
+  return { status: 200, body: { schemaVersion: 1, window, histories, missing } };
+}
+
 /** `GET /api/eks/automation/hpa/{cluster}/{namespace}/{name}/history`. */
 export function demoHpaHistory(cluster: string, namespace: string, name: string, window: string, nowMs: number = Date.now()): DemoAnswer {
   if (!isDemoCluster(cluster)) return NOT_REGISTERED;

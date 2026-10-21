@@ -6,6 +6,7 @@ import com.xammer.cloud.service.automation.workload.access.ClusterAccess;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessException;
 import com.xammer.cloud.service.automation.workload.access.ClusterAccessProvider;
 import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
+import com.xammer.cloud.service.automation.workload.api.dto.HpaHistoriesDto;
 import com.xammer.cloud.service.automation.workload.api.dto.HpaHistoryDto;
 import com.xammer.cloud.service.automation.workload.api.dto.UsageSeriesDto;
 import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
@@ -21,8 +22,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Objects;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.LongSupplier;
 
 /**
@@ -43,6 +48,13 @@ import java.util.function.LongSupplier;
  * When Prometheus holds no sample for the HPA in the window, the inventory decides: an HPA the
  * cluster has (kube-state-metrics missing, or created a moment ago) answers {@code 200} with every
  * point null; one the cluster does not have is {@link UnknownTargetException} ({@code 404}).
+ *
+ * <h2>The list reads every HPA at once</h2>
+ *
+ * {@link #histories} answers the HPA list: one cluster connection and the same seven queries, each
+ * grouped by the namespace and HPA labels, for every HPA on the page, rather than a connection
+ * (an EKS {@code DescribeCluster}, a token and a probe) and seven queries per HPA. Each HPA's entry is
+ * what {@link #history} answers for it. The detail page keeps the one-HPA read.
  *
  * <p>Gated by {@code xamops.automation.horizontal.enabled}: switched off, no cluster call is made and
  * the answer is {@code ENGINE_DISABLED}. Cached for 60 s per {@code clientId:clusterConfigId:args}.
@@ -66,6 +78,7 @@ public class HpaHistoryService {
     private final ClusterWorkloadInventory inventory;
     private final Clock clock;
     private final ResponseCache<HpaHistoryDto> cache;
+    private final ResponseCache<HpaHistoriesDto> batchCache;
     private final SourceWarnings warnings;
 
     @Autowired
@@ -88,6 +101,7 @@ public class HpaHistoryService {
         this.inventory = inventory;
         this.clock = clock;
         this.cache = new ResponseCache<>(CACHE_TTL, nanoClock);
+        this.batchCache = new ResponseCache<>(CACHE_TTL, nanoClock);
         this.warnings = new SourceWarnings(nanoClock);
     }
 
@@ -138,27 +152,11 @@ public class HpaHistoryService {
             Double[] atMax = SeriesPoints.first(reader.read(client, atMaxQuery, detail), detail);
             Double[] current = SeriesPoints.first(reader.read(client, specs.get(0).query(), detail), detail);
 
-            boolean sampled = SeriesPoints.anySample(atMax) || SeriesPoints.anySample(current)
-                    || values.stream().anyMatch(SeriesPoints::anySample);
-            if (!sampled && !known(client, namespace, name)) {
+            if (!sampled(values, atMax, current) && !knownHpas(client).contains(hpa)) {
                 throw new UnknownTargetException("name", "This cluster has no HPA " + namespace + "/" + name
                         + ", and Prometheus holds no history for one.");
             }
-
-            List<HpaHistoryDto.Series> series = new ArrayList<>();
-            Instant firstSampleAt = earliest(SeriesPoints.firstSample(atMax, detail),
-                    SeriesPoints.firstSample(current, detail));
-            for (int i = 0; i < specs.size(); i++) {
-                SeriesSpec spec = specs.get(i);
-                series.add(new HpaHistoryDto.Series(spec.key(), spec.label(), spec.unit(),
-                        SeriesPoints.points(values.get(i), grid), spec.query()));
-                firstSampleAt = earliest(firstSampleAt, SeriesPoints.firstSample(values.get(i), grid));
-            }
-            Changes changes = changes(current, detail);
-            return new HpaHistoryDto(AutomationUsageService.SCHEMA_VERSION, namespace, name, window.label(),
-                    grid.stepSeconds(), grid.start(), grid.end(), source(), series,
-                    atMax(atMax, detail, atMaxQuery), changes.changes(), changes.truncated(), firstSampleAt,
-                    null);
+            return assemble(namespace, name, window, grid, specs, values, atMax, current, atMaxQuery);
         } catch (ClusterAccessException e) {
             warn(target, SOURCE_CLUSTER, e.reasonCode(), e.getMessage());
             return unavailable(namespace, name, window, grid, e.reasonCode(), e.getMessage());
@@ -173,12 +171,174 @@ public class HpaHistoryService {
         }
     }
 
-    /** Whether the cluster's inventory has this HPA, attached to a workload the engine analyses. */
-    private boolean known(KubernetesClient client, String namespace, String name) throws ClusterAccessException {
-        return ClusterOpener.readInventory(inventory, client).workloads().stream()
-                .map(ClusterWorkloadInventory.Workload::hpa)
-                .filter(Objects::nonNull)
-                .anyMatch((HpaView view) -> namespace.equals(view.namespace()) && name.equals(view.name()));
+    // ------------------------------------------------------------------ several HPAs, one read
+
+    /**
+     * Several HPAs' histories for the HPA list, with one cluster connection and seven queries in all:
+     * each series is read for every HPA at once, grouped by the namespace and HPA labels, and handed
+     * to each HPA by those labels. Every entry is what {@link #history} answers for that HPA; an HPA
+     * neither Prometheus nor the cluster knows is listed in {@code missing}, where the one-HPA read
+     * answers {@code 404}. Gated and cached like {@link #history}.
+     *
+     * @param hpas   at least one; a repeat is read once, the order kept
+     * @param window a fixed window: {@code 24h}, {@code 72h} or {@code 168h}
+     */
+    public HpaHistoriesDto histories(ClusterTarget target, List<PromQl.HpaSelector> hpas, UsageWindow window) {
+        if (window.isCustom()) {
+            throw new IllegalArgumentException("HPA history is read over a fixed window");
+        }
+        List<PromQl.HpaSelector> asked = new ArrayList<>(new LinkedHashSet<>(hpas));
+        if (asked.isEmpty()) {
+            throw new IllegalArgumentException("a batch HPA history read needs at least one HPA");
+        }
+        PrometheusRangeReader.Grid grid = window.grid(clock.instant());
+        if (!properties.isEnabled()) {
+            return allUnavailable(asked, window, grid, AutomationUsageService.ENGINE_DISABLED,
+                    "HPA automation is switched off in this environment, so XamOps reads no HPA history"
+                            + " from the cluster.");
+        }
+        String key = target.clientId() + ":" + target.clusterConfigId() + ":" + target.region() + ":hpas:"
+                + asked.stream().map(hpa -> hpa.namespace() + "/" + hpa.name()).sorted()
+                .reduce((a, b) -> a + "," + b).orElseThrow()
+                + ":" + window.cacheKey();
+        HpaHistoriesDto cached = batchCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        HpaHistoriesDto response = readAll(target, asked, window, grid);
+        batchCache.put(key, response);
+        return response;
+    }
+
+    private HpaHistoriesDto readAll(ClusterTarget target, List<PromQl.HpaSelector> asked, UsageWindow window,
+                                    PrometheusRangeReader.Grid grid) {
+        PromQl.HpaBatchSelector batch = new PromQl.HpaBatchSelector(asked);
+        PrometheusRangeReader.Grid detail = grid.withStep(DETAIL_STEP_SECONDS);
+        List<SeriesSpec> specs = List.of(
+                new SeriesSpec("currentReplicas", "Replicas running", "replicas",
+                        PromQl.seriesHpasCurrentReplicas(batch)),
+                new SeriesSpec("minReplicas", "Minimum", "replicas", PromQl.seriesHpasMinReplicas(batch)),
+                new SeriesSpec("maxReplicas", "Maximum", "replicas", PromQl.seriesHpasMaxReplicas(batch)),
+                new SeriesSpec("cpuUtilization", "CPU used", "percent", PromQl.seriesHpasCpuUtilization(batch)),
+                new SeriesSpec("cpuTarget", "Target", "percent", PromQl.seriesHpasCpuTarget(batch)));
+        String atMaxQuery = PromQl.seriesHpasAtMax(batch);
+
+        try (ClusterAccess access = opener.open(target)) {
+            KubernetesClient client = access.client();
+            List<Map<PromQl.HpaSelector, Double[]>> values = new ArrayList<>();
+            for (SeriesSpec spec : specs) {
+                values.add(byHpa(reader.read(client, spec.query(), grid)));
+            }
+            Map<PromQl.HpaSelector, Double[]> atMax = byHpa(reader.read(client, atMaxQuery, detail));
+            Map<PromQl.HpaSelector, Double[]> current = byHpa(reader.read(client, specs.get(0).query(), detail));
+
+            List<HpaHistoryDto> histories = new ArrayList<>();
+            List<HpaHistoriesDto.HpaRef> missing = new ArrayList<>();
+            Set<PromQl.HpaSelector> known = null;
+            for (PromQl.HpaSelector hpa : asked) {
+                List<Double[]> own = new ArrayList<>();
+                for (Map<PromQl.HpaSelector, Double[]> answered : values) {
+                    own.add(answered.getOrDefault(hpa, new Double[grid.points()]));
+                }
+                Double[] ownAtMax = atMax.getOrDefault(hpa, new Double[detail.points()]);
+                Double[] ownCurrent = current.getOrDefault(hpa, new Double[detail.points()]);
+                if (!sampled(own, ownAtMax, ownCurrent)) {
+                    if (known == null) {
+                        known = knownHpas(client);
+                    }
+                    if (!known.contains(hpa)) {
+                        missing.add(new HpaHistoriesDto.HpaRef(hpa.namespace(), hpa.name()));
+                        continue;
+                    }
+                }
+                histories.add(assemble(hpa.namespace(), hpa.name(), window, grid, specs, own, ownAtMax, ownCurrent,
+                        atMaxQuery));
+            }
+            return new HpaHistoriesDto(AutomationUsageService.SCHEMA_VERSION, window.label(), histories, missing);
+        } catch (ClusterAccessException e) {
+            warn(target, SOURCE_CLUSTER, e.reasonCode(), e.getMessage());
+            return allUnavailable(asked, window, grid, e.reasonCode(), e.getMessage());
+        } catch (PrometheusRangeReader.RangeQueryException e) {
+            if (e.code() == PrometheusRangeReader.RangeQueryException.Code.METRICS_UNREADABLE) {
+                logger.error("HPA history for {} HPAs on {} is unreadable: {} The body starts: {}",
+                        asked.size(), target.describe(), e.getMessage(), e.bodyPrefix());
+            } else {
+                warn(target, SOURCE_PROMETHEUS, e.code().name(), e.getMessage());
+            }
+            return allUnavailable(asked, window, grid, e.code().name(), e.getMessage());
+        }
+    }
+
+    /**
+     * The batch answer's series by the HPA its labels name. A series without both labels names no
+     * HPA and is dropped, and so, by the caller, is one of a pair it did not ask for.
+     */
+    private static Map<PromQl.HpaSelector, Double[]> byHpa(List<PrometheusRangeReader.Series> answered) {
+        Map<PromQl.HpaSelector, Double[]> byHpa = new HashMap<>();
+        for (PrometheusRangeReader.Series series : answered) {
+            String namespace = series.label(PromQl.HPA_NAMESPACE_LABEL);
+            String name = series.label(PromQl.HPA_NAME_LABEL);
+            if (namespace == null || name == null) {
+                continue;
+            }
+            try {
+                byHpa.putIfAbsent(new PromQl.HpaSelector(namespace, name), series.values());
+            } catch (IllegalArgumentException notAKubernetesName) {
+                // Not a name the caller could have asked for.
+            }
+        }
+        return byHpa;
+    }
+
+    private HpaHistoriesDto allUnavailable(List<PromQl.HpaSelector> asked, UsageWindow window,
+                                           PrometheusRangeReader.Grid grid, String code, String message) {
+        return new HpaHistoriesDto(AutomationUsageService.SCHEMA_VERSION, window.label(), asked.stream()
+                .map(hpa -> unavailable(hpa.namespace(), hpa.name(), window, grid, code, message))
+                .toList(), List.of());
+    }
+
+    // ------------------------------------------------------------------ one HPA's answer
+
+    private static boolean sampled(List<Double[]> values, Double[] atMax, Double[] current) {
+        return SeriesPoints.anySample(atMax) || SeriesPoints.anySample(current)
+                || values.stream().anyMatch(SeriesPoints::anySample);
+    }
+
+    /** One HPA's answer from its series at the window step and its 60-second samples. */
+    private HpaHistoryDto assemble(String namespace, String name, UsageWindow window, PrometheusRangeReader.Grid grid,
+                                   List<SeriesSpec> specs, List<Double[]> values, Double[] atMax, Double[] current,
+                                   String atMaxQuery) {
+        PrometheusRangeReader.Grid detail = grid.withStep(DETAIL_STEP_SECONDS);
+        List<HpaHistoryDto.Series> series = new ArrayList<>();
+        Instant firstSampleAt = earliest(SeriesPoints.firstSample(atMax, detail),
+                SeriesPoints.firstSample(current, detail));
+        for (int i = 0; i < specs.size(); i++) {
+            SeriesSpec spec = specs.get(i);
+            series.add(new HpaHistoryDto.Series(spec.key(), spec.label(), spec.unit(),
+                    SeriesPoints.points(values.get(i), grid), spec.query()));
+            firstSampleAt = earliest(firstSampleAt, SeriesPoints.firstSample(values.get(i), grid));
+        }
+        Changes changes = changes(current, detail);
+        return new HpaHistoryDto(AutomationUsageService.SCHEMA_VERSION, namespace, name, window.label(),
+                grid.stepSeconds(), grid.start(), grid.end(), source(), series,
+                atMax(atMax, detail, atMaxQuery), changes.changes(), changes.truncated(), firstSampleAt, null);
+    }
+
+    /** The HPAs in the cluster's inventory, each attached to a workload the engine analyses. */
+    private Set<PromQl.HpaSelector> knownHpas(KubernetesClient client) throws ClusterAccessException {
+        Set<PromQl.HpaSelector> known = new HashSet<>();
+        for (ClusterWorkloadInventory.Workload workload : ClusterOpener.readInventory(inventory, client).workloads()) {
+            HpaView view = workload.hpa();
+            if (view == null) {
+                continue;
+            }
+            try {
+                known.add(new PromQl.HpaSelector(view.namespace(), view.name()));
+            } catch (IllegalArgumentException notAKubernetesName) {
+                // Not a name the caller could have asked for.
+            }
+        }
+        return known;
     }
 
     /**

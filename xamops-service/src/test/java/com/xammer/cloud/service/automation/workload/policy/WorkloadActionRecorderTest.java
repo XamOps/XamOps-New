@@ -104,11 +104,66 @@ class WorkloadActionRecorderTest {
         JsonNode pod = after.at("/pods/0");
         assertThat(pod.get("pod").asText()).isEqualTo("throttled-encoder-mcw8q");
         assertThat(pod.get("node").isNull()).as("the proof holds no node, so none is guessed").isTrue();
+        assertThat(pod.get("changed").asBoolean()).as("the pod runs the new size").isTrue();
         assertThat(pod.get("uidChanged").asBoolean()).isFalse();
         assertThat(pod.get("restartsBefore").asInt()).isZero();
         assertThat(pod.get("restartsAfter").asInt()).isZero();
         assertThat(pod.get("ready").asBoolean()).isTrue();
         assertThat(pod.get("revert").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("each container keeps the older rows' flat sizes, the observed-after ones, for readers of that shape")
+    void eachContainerKeepsTheLegacyFlatSizes() throws Exception {
+        recorder.record(7L, TARGET, REF, ActionTrigger.MANUAL, false, SUBMITTED, applied(), AT);
+
+        String afterJson = saved().getAfterJson();
+        assertThat(afterJson).as("terminal stays the first key").startsWith("{\"terminal\":\"APPLIED\"");
+        JsonNode container = JSON.readTree(afterJson).at("/containers/0");
+        assertThat(container.get("cpuRequestMillis").asInt()).isEqualTo(ASKED.cpuRequestMillis());
+        assertThat(container.get("cpuLimitMillis").asInt()).isEqualTo(ASKED.cpuLimitMillis());
+        assertThat(container.get("memRequestBytes").asLong()).isEqualTo(ASKED.memRequestBytes());
+        assertThat(container.get("memLimitBytes").asLong()).isEqualTo(ASKED.memLimitBytes());
+        assertThat(container.get("observedAfter").get("cpuRequestMillis").asInt())
+                .as("the flat fields are the observed-after size")
+                .isEqualTo(container.get("cpuRequestMillis").asInt());
+        assertThat(legacyCpuRequestMillis(afterJson))
+                .as("read the way a reader of the older array shape reads it (origin/main RcaAnalyzer.cpuRequestMillis)")
+                .isEqualTo(63L);
+    }
+
+    @Test
+    @DisplayName("a container observed with no size afterwards gets no flat sizes, as the older rows wrote it")
+    void aContainerWithoutAnObservedSizeGetsNoFlatSizes() throws Exception {
+        ResizeProof unobserved = new ResizeProof(ResizeProof.Outcome.APPLIED, null, false,
+                List.of(new ResizeProof.ContainerResult("encoder", ResizeProof.ContainerState.APPLIED, null,
+                        ASKED, false)),
+                List.of(new ResizeProof.PodProof("throttled-encoder-mcw8q", "uid-1", "uid-1", true,
+                        List.of(new ResizeProof.ContainerProof("encoder", "containerd://c1", "containerd://c1",
+                                0, 0, BEFORE, null)))));
+
+        recorder.record(7L, TARGET, REF, ActionTrigger.MANUAL, false, SUBMITTED, unobserved, AT);
+
+        JsonNode container = JSON.readTree(saved().getAfterJson()).at("/containers/0");
+        assertThat(container.has("cpuRequestMillis")).isFalse();
+        assertThat(container.has("memLimitBytes")).isFalse();
+        assertThat(container.get("observedAfter").isNull()).isTrue();
+        assertThat(container.get("observedBefore").get("cpuRequestMillis").asInt()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("a partial apply says per pod which one runs the new size and which one was put back")
+    void eachPodSaysWhetherItChanged() throws Exception {
+        recorder.record(7L, TARGET, REF, ActionTrigger.MANUAL, false, SUBMITTED, partlyApplied(), AT);
+
+        WorkloadVerticalAction row = saved();
+        assertThat(row.getOutcome()).isEqualTo("PARTIALLY_APPLIED");
+        JsonNode pods = JSON.readTree(row.getAfterJson()).get("pods");
+        assertThat(pods).hasSize(2);
+        assertThat(pods.get(0).get("changed").asBoolean()).isTrue();
+        assertThat(pods.get(0).get("revert").isNull()).isTrue();
+        assertThat(pods.get(1).get("changed").asBoolean()).as("put back: it runs its old size").isFalse();
+        assertThat(pods.get(1).at("/revert/state").asText()).isEqualTo("REVERTED");
     }
 
     @Test
@@ -255,7 +310,8 @@ class WorkloadActionRecorderTest {
         owned.recordRefusal(7L, TARGET, REF, ActionTrigger.MANUAL, false, "K8S_INVALID_POLICY", "No.", AT);
         verify(transactions).commit(status);
 
-        // The automatic loop applies inside a read-only transaction; an insert there fails like this.
+        // An insert can fail inside its own transaction, as one in a read-only transaction does on
+        // PostgreSQL; the failure is rolled back there and never reaches the caller.
         when(repository.save(any())).thenThrow(new IllegalStateException("cannot execute INSERT in a read-only transaction"));
         assertThatCode(() -> {
             owned.recordAttempt(7L, TARGET, REF, ActionTrigger.AUTO, false, SUBMITTED, deferredPutBack(), AT);
@@ -292,6 +348,40 @@ class WorkloadActionRecorderTest {
                 List.of(new ResizeProof.PodProof("throttled-encoder-mcw8q", "uid-1", "uid-1", true,
                         List.of(new ResizeProof.ContainerProof("encoder", "containerd://c1", "containerd://c1",
                                 0, 0, BEFORE, ASKED)))));
+    }
+
+    /** The canary took the new size; the second pod was declined for room and put back. */
+    private static ResizeProof partlyApplied() {
+        return new ResizeProof(ResizeProof.Outcome.PARTIALLY_APPLIED,
+                "1 of 2 pods resized; the other was put back.", false,
+                List.of(new ResizeProof.ContainerResult("encoder", ResizeProof.ContainerState.APPLIED, null,
+                        ASKED, false)),
+                List.of(new ResizeProof.PodProof("throttled-encoder-mcw8q", "uid-1", "uid-1", true,
+                                List.of(new ResizeProof.ContainerProof("encoder", "containerd://c1",
+                                        "containerd://c1", 0, 0, BEFORE, ASKED))),
+                        new ResizeProof.PodProof("throttled-encoder-x7k2p", "uid-2", "uid-2", true,
+                                List.of(new ResizeProof.ContainerProof("encoder", "containerd://c2",
+                                        "containerd://c2", 0, 0, BEFORE, BEFORE)),
+                                new ResizeProof.Revert(ResizeProof.RevertState.REVERTED,
+                                        "XamOps put pod prod-sim/throttled-encoder-x7k2p back to its previous size."),
+                                "cpu")));
+    }
+
+    /**
+     * {@code containers[].cpuRequestMillis} read the way origin/main's {@code RcaAnalyzer.cpuRequestMillis}
+     * reads {@code after_json}: an array, or an object's {@code containers}, then the first container
+     * with a numeric value.
+     */
+    private static Long legacyCpuRequestMillis(String afterJson) throws Exception {
+        JsonNode node = JSON.readTree(afterJson);
+        JsonNode containers = node.isArray() ? node : node.get("containers");
+        for (JsonNode container : containers) {
+            JsonNode value = container.get("cpuRequestMillis");
+            if (value != null && value.isNumber()) {
+                return value.asLong();
+            }
+        }
+        return null;
     }
 
     private static ResizeProof deferredPutBack() {

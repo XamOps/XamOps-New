@@ -14,8 +14,10 @@ import com.xammer.cloud.service.automation.workload.api.HpaAutomationController;
 import com.xammer.cloud.service.automation.workload.api.HpaHistoryService;
 import com.xammer.cloud.service.automation.workload.api.UnknownTargetException;
 import com.xammer.cloud.service.automation.workload.api.UsageWindow;
+import com.xammer.cloud.service.automation.workload.api.dto.HpaHistoriesDto;
 import com.xammer.cloud.service.automation.workload.api.dto.HpaHistoryDto;
 import com.xammer.cloud.service.automation.workload.api.dto.UsageSeriesDto;
+import com.xammer.cloud.service.automation.workload.usage.PromQl;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -205,6 +207,77 @@ class HpaHistoryControllerTest {
         assertThat(HpaAutomationController.class.getMethod("history", ClientUserDetails.class, String.class,
                 String.class, String.class, String.class, String.class, String.class)
                 .isAnnotationPresent(GetMapping.class)).isTrue();
+        assertThat(HpaAutomationController.class.getMethod("histories", ClientUserDetails.class, String.class,
+                String.class, String.class, String.class, String.class)
+                .isAnnotationPresent(GetMapping.class)).isTrue();
+    }
+
+    // ------------------------------------------------------------------ the HPA list's one read
+
+    private static final String BATCH = "/api/eks/automation/hpa/xamops-test-cluster/history";
+
+    @Test
+    @DisplayName("the list's read names its HPAs once each, in order, and answers every entry and the missing ones")
+    void aBatchReadIsTenantScopedAndShaped() throws Exception {
+        givenClusterConfigByPrimaryKey();
+        when(historyService.histories(any(), any(), any())).thenReturn(new HpaHistoriesDto(1, "72h",
+                List.of(sample()), List.of(new HpaHistoriesDto.HpaRef("team-c", "gone"))));
+
+        mvc().perform(get(BATCH + QUERY + "&window=72h&hpas=team-b/php-apache,team-c/gone,team-b/php-apache"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.schemaVersion").value(1))
+                .andExpect(jsonPath("$.window").value("72h"))
+                .andExpect(jsonPath("$.histories[0].namespace").value("team-b"))
+                .andExpect(jsonPath("$.histories[0].name").value("php-apache"))
+                .andExpect(jsonPath("$.histories[0].series[0].key").value("currentReplicas"))
+                .andExpect(jsonPath("$.histories[0].atMax.share").value(0.9993))
+                .andExpect(jsonPath("$.missing[0].namespace").value("team-c"))
+                .andExpect(jsonPath("$.missing[0].name").value("gone"));
+
+        ArgumentCaptor<ClusterTarget> target = ArgumentCaptor.forClass(ClusterTarget.class);
+        verify(historyService).histories(target.capture(), eq(List.of(
+                        new PromQl.HpaSelector("team-b", "php-apache"), new PromQl.HpaSelector("team-c", "gone"))),
+                eq(UsageWindow.fixed("72h").orElseThrow()));
+        assertThat(target.getValue().clientId()).isEqualTo(7L);
+        assertThat(target.getValue().clusterConfigId()).isEqualTo(42L);
+    }
+
+    @Test
+    @DisplayName("the list's hpas is required and exact: namespace/name pairs, at most 20, else 400 before any lookup")
+    void theBatchHpasAreValidatedFirst() throws Exception {
+        StringBuilder tooMany = new StringBuilder();
+        for (int i = 0; i <= 20; i++) {
+            tooMany.append(i == 0 ? "" : ",").append("team-b/hpa-").append(i);
+        }
+        for (String hpas : List.of("", "team-b", "/php-apache", "team-b/", "team-b/php/apache", "Team_B/php-apache",
+                "team-b/PHP", "team-b/php-apache,", tooMany.toString())) {
+            mvc().perform(get(BATCH + QUERY + "&window=72h&hpas=" + hpas))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("K8S_INVALID_REQUEST"))
+                    .andExpect(jsonPath("$.field").value("hpas"));
+        }
+        mvc().perform(get(BATCH + QUERY + "&window=72h"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.field").value("hpas"));
+        mvc().perform(get(BATCH + QUERY + "&window=6h&hpas=team-b/php-apache"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.field").value("window"));
+
+        verifyNoInteractions(clusterConfigRepository, historyService);
+    }
+
+    @Test
+    @DisplayName("the list's read is refused for another tenant with no lookup, and 404 for an unregistered cluster")
+    void theBatchTenancyIsEnforced() throws Exception {
+        mvc().perform(get(BATCH + "?accountId=" + FOREIGN_ID + "&region=ap-south-1&window=72h&hpas=team-b/php-apache"))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(clusterConfigRepository, historyService);
+
+        when(clusterConfigRepository.findByCloudAccountIdAndClusterName(any(), any())).thenReturn(Optional.empty());
+        mvc().perform(get(BATCH + QUERY + "&window=72h&hpas=team-b/php-apache"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("K8S_CLUSTER_NOT_REGISTERED"));
+        verifyNoInteractions(historyService);
     }
 
     // ------------------------------------------------------------------ helpers

@@ -94,6 +94,92 @@ class WorkloadVerticalActionRepositoryTest {
         assertThat(repository.findByClusterConfigIdOrderByAppliedAtDesc(12L)).isEmpty();
     }
 
+    // ---------------------------------------------------------------- endpoint 1's lastAction
+
+    private static final List<String> NOT_A_LAST_ACTION = List.of("TEST_RUN", "REFUSED", "NOT_CHANGED");
+    private static final String HPA = "HorizontalPodAutoscaler";
+
+    @Test
+    void lastActionsAreTheNewestQualifyingRowPerWorkloadOfTheCluster() {
+        // Newer than the APPLIED row: a test run, a dry-run APPLIED, a refusal, a put-back and an HPA row.
+        repository.saveAndFlush(action(1L, 10L, "team-a", "api", "FAILED", Instant.parse("2026-10-13T05:00:00Z")));
+        repository.saveAndFlush(action(1L, 10L, "team-a", "api", "APPLIED", Instant.parse("2026-10-13T06:00:00Z")));
+        WorkloadVerticalAction hpa = action(1L, 10L, "team-a", "api", "APPLIED", Instant.parse("2026-10-13T06:30:00Z"));
+        hpa.setWorkloadKind(HPA);
+        repository.saveAndFlush(hpa);
+        repository.saveAndFlush(action(1L, 10L, "team-a", "api", "NOT_CHANGED", Instant.parse("2026-10-13T07:00:00Z")));
+        repository.saveAndFlush(action(1L, 10L, "team-a", "api", "REFUSED", Instant.parse("2026-10-13T08:00:00Z")));
+        WorkloadVerticalAction dryApplied = action(1L, 10L, "team-a", "api", "APPLIED", Instant.parse("2026-10-13T08:30:00Z"));
+        dryApplied.setDryRun(true);
+        repository.saveAndFlush(dryApplied);
+        WorkloadVerticalAction testRun = action(1L, 10L, "team-a", "api", "TEST_RUN", Instant.parse("2026-10-13T09:00:00Z"));
+        testRun.setDryRun(true);
+        repository.saveAndFlush(testRun);
+        // Another workload whose newest row is a mode change; one with no applied_at; another cluster.
+        repository.saveAndFlush(action(1L, 10L, "team-b", "worker", "APPLIED", Instant.parse("2026-10-13T04:00:00Z")));
+        repository.saveAndFlush(action(1L, 10L, "team-b", "worker", "POLICY_CHANGE", Instant.parse("2026-10-13T04:30:00Z")));
+        repository.saveAndFlush(action(1L, 10L, "team-c", "undated", "APPLIED", null));
+        repository.saveAndFlush(action(1L, 11L, "team-a", "api", "APPLIED", Instant.parse("2026-10-13T10:00:00Z")));
+
+        List<WorkloadVerticalActionRepository.LastActionRow> rows =
+                repository.findLastActions(10L, NOT_A_LAST_ACTION, HPA);
+
+        assertThat(rows).containsExactly(
+                new WorkloadVerticalActionRepository.LastActionRow("team-a", "Deployment", "api",
+                        Instant.parse("2026-10-13T06:00:00Z"), false, "APPLIED"),
+                new WorkloadVerticalActionRepository.LastActionRow("team-b", "Deployment", "worker",
+                        Instant.parse("2026-10-13T04:30:00Z"), false, "POLICY_CHANGE"));
+    }
+
+    @Test
+    void twoQualifyingRowsOfOneWorkloadAtTheSameInstantBothComeBackTheHigherIdFirst() {
+        Instant at = Instant.parse("2026-10-13T06:00:00Z");
+        repository.saveAndFlush(action(1L, 10L, "team-a", "api", "FAILED", at));
+        repository.saveAndFlush(action(1L, 10L, "team-a", "api", "APPLIED", at));
+
+        assertThat(repository.findLastActions(10L, NOT_A_LAST_ACTION, HPA))
+                .extracting(WorkloadVerticalActionRepository.LastActionRow::outcome)
+                .containsExactly("APPLIED", "FAILED");
+    }
+
+    @Test
+    void lastActionsMatchTheFirstQualifyingRowOfTheWholeHistoryNewestFirst() {
+        // A deterministic mix of every row kind over four workloads, at distinct instants: the query's
+        // first row per workload must be the row the read service used to keep from the full history.
+        String[] outcomes = {"APPLIED", "PARTIALLY_APPLIED", "FAILED", "EXPIRED", "POLICY_CHANGE", "TEST_RUN",
+                "REFUSED", "NOT_CHANGED"};
+        String[] names = {"api", "worker", "encoder", "listener"};
+        java.util.Random random = new java.util.Random(20261020L);
+        for (int i = 0; i < 160; i++) {
+            WorkloadVerticalAction row = action(1L, 10L, "ns-" + (i % 2), names[random.nextInt(names.length)],
+                    outcomes[random.nextInt(outcomes.length)], Instant.parse("2026-10-01T00:00:00Z").plusSeconds(61L * i));
+            row.setDryRun(random.nextInt(5) == 0);
+            if (random.nextInt(7) == 0) {
+                row.setWorkloadKind(HPA);
+            }
+            repository.save(row);
+        }
+        repository.flush();
+
+        java.util.Map<String, WorkloadVerticalActionRepository.LastActionRow> before = new java.util.LinkedHashMap<>();
+        for (WorkloadVerticalAction row : repository.findByClusterConfigIdOrderByAppliedAtDesc(10L)) {
+            boolean candidate = !Boolean.TRUE.equals(row.getDryRun()) && !NOT_A_LAST_ACTION.contains(row.getOutcome())
+                    && !HPA.equals(row.getWorkloadKind());
+            if (candidate) {
+                before.putIfAbsent(row.getNamespace() + "/" + row.getWorkloadKind() + "/" + row.getWorkloadName(),
+                        new WorkloadVerticalActionRepository.LastActionRow(row.getNamespace(), row.getWorkloadKind(),
+                                row.getWorkloadName(), row.getAppliedAt(), row.getDryRun(), row.getOutcome()));
+            }
+        }
+        java.util.Map<String, WorkloadVerticalActionRepository.LastActionRow> now = new java.util.LinkedHashMap<>();
+        for (WorkloadVerticalActionRepository.LastActionRow row : repository.findLastActions(10L, NOT_A_LAST_ACTION, HPA)) {
+            now.putIfAbsent(row.namespace() + "/" + row.workloadKind() + "/" + row.workloadName(), row);
+        }
+
+        assertThat(before).hasSizeGreaterThan(4);
+        assertThat(now).isEqualTo(before);
+    }
+
     // ---------------------------------------------------------------- the activity feed's page (FEAT-007)
 
     private static final Instant T1 = Instant.parse("2026-10-13T05:00:00Z");
@@ -170,6 +256,14 @@ class WorkloadVerticalActionRepositoryTest {
                 .as("a LIKE wildcard in the text matches only itself")
                 .containsExactly(underscore.getId());
         assertThat(ids(WorkloadVerticalActionRepository.nameContains("%"))).isEmpty();
+        assertThat(ids(WorkloadVerticalActionRepository.nameIs("api")))
+                .as("exact: a name that only contains it is not it")
+                .containsExactly(dryRun.getId());
+        assertThat(ids(WorkloadVerticalActionRepository.namespaceIs("team-b"))).containsExactly(hpa.getId());
+        assertThat(ids(WorkloadVerticalActionRepository.namespaceIs("team-a")
+                .and(WorkloadVerticalActionRepository.kindIs("Deployment"))
+                .and(WorkloadVerticalActionRepository.nameIs("Worker-API"))))
+                .containsExactly(applied.getId());
     }
 
     @Test

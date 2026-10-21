@@ -48,6 +48,8 @@ class VerticalAutomationSecurityCoverageTest {
             "/api/eks/automation/usage/xamops-test-cluster",
             "/api/eks/automation/usage/xamops-test-cluster/sparklines",
             "/api/eks/automation/hpa/xamops-test-cluster/team-b/php-apache/history",
+            // The HPA list's batch history read, on the same catch-all.
+            "/api/eks/automation/hpa/xamops-test-cluster/history",
             // The activity feed and its per-day summary (FEAT-005), read-only, on the same catch-all.
             "/api/eks/automation/activity/xamops-test-cluster",
             "/api/eks/automation/activity/xamops-test-cluster/summary");

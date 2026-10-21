@@ -201,6 +201,44 @@ class AutomationActivityControllerTest {
     }
 
     @Test
+    @DisplayName("an exact namespace, kind and name reach the query, so one workload's own entries are read")
+    void theExactTargetReachesTheQuery() throws Exception {
+        mvc().perform(get(BASE).param("accountId", AWS_ID).param("region", "ap-south-1")
+                        .param("feature", "VERTICAL").param("namespace", " team-b ").param("kind", "Deployment")
+                        .param("name", "php-apache").param("limit", "20"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<AutomationActivityService.Query> query =
+                ArgumentCaptor.forClass(AutomationActivityService.Query.class);
+        verify(service).page(eq(TARGET), query.capture());
+        assertThat(query.getValue().namespace()).isEqualTo("team-b");
+        assertThat(query.getValue().kind()).isEqualTo("Deployment");
+        assertThat(query.getValue().name()).isEqualTo("php-apache");
+        assertThat(query.getValue().nameContains()).isNull();
+
+        mvc().perform(get(BASE + QUERY)).andExpect(status().isOk());
+        verify(service, org.mockito.Mockito.times(2)).page(eq(TARGET), query.capture());
+        assertThat(query.getValue().namespace()).as("none given, none filtered").isNull();
+        assertThat(query.getValue().kind()).isNull();
+        assertThat(query.getValue().name()).isNull();
+    }
+
+    @Test
+    @DisplayName("the widest range the Activity page sends, a few minutes inside 90 days of now, passes the rule")
+    void theWidestRangeThePageSendsPasses() throws Exception {
+        String from = Instant.now().minus(java.time.Duration.ofDays(90)).plus(java.time.Duration.ofMinutes(5))
+                .truncatedTo(java.time.temporal.ChronoUnit.MINUTES).toString();
+
+        mvc().perform(get(BASE + QUERY + "&from=" + from)).andExpect(status().isOk());
+
+        String pastTheLimit = Instant.now().minus(java.time.Duration.ofDays(90)).minus(java.time.Duration.ofMinutes(1))
+                .toString();
+        mvc().perform(get(BASE + QUERY + "&from=" + pastTheLimit))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.field").value("from"));
+    }
+
+    @Test
     @DisplayName("a full page carries the cursor of the next one, which continues after its last entry")
     void aFullPageCarriesTheNextCursor() throws Exception {
         List<WorkloadVerticalAction> rows = new ArrayList<>();
@@ -260,6 +298,10 @@ class AutomationActivityControllerTest {
                 Map.entry(Map.of("limit", "ten"), "limit"),
                 Map.entry(Map.of("cursor", "not-a-cursor!"), "cursor"),
                 Map.entry(Map.of("cursor", "a".repeat(129)), "cursor"),
+                Map.entry(Map.of("namespace", "Team_B"), "namespace"),
+                Map.entry(Map.of("kind", "Deploy-ment"), "kind"),
+                Map.entry(Map.of("name", "PHP"), "name"),
+                Map.entry(Map.of("name", "a".repeat(254)), "name"),
                 Map.entry(Map.of("accountId", "not-a-number"), "accountId"),
                 Map.entry(Map.of("region", "NOT_A_REGION"), "region"));
 

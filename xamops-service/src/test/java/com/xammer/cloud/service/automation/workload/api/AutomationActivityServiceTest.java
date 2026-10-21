@@ -149,6 +149,34 @@ class AutomationActivityServiceTest {
     }
 
     @Test
+    @DisplayName("an exact namespace, kind and name read one workload's own entries, never a neighbour whose name contains it")
+    void theExactTargetReadsOnlyThatWorkload() {
+        Long canary = save("Deployment", "overprovisioned-api-canary", "TEST_RUN", true, LEGACY_BEFORE,
+                proof("DRY_RUN", null, false), Result.TEST_RUN);
+        Long otherNamespace = repository.saveAndFlush(withNamespace(row("Deployment", "overprovisioned-api",
+                "APPLIED", false, null, null), "team-a")).getId();
+
+        List<Long> own = ids(service.page(TARGET, new Query(Set.of(Feature.VERTICAL), Set.of(), null, "prod-sim",
+                "Deployment", "overprovisioned-api", null, null, 200, null)));
+
+        List<Long> expectedOwn = newestFirst(expected.keySet().stream()
+                .filter(id -> repository.findById(id).map(row -> row.getWorkloadName().equals("overprovisioned-api")
+                        && row.getNamespace().equals("prod-sim")).orElse(false))
+                .toList());
+        assertThat(own).isEqualTo(expectedOwn).hasSize(6).doesNotContain(canary, otherNamespace);
+        assertThat(ids(service.page(TARGET, query(Set.of(), Set.of(), "overprovisioned-api", 200))))
+                .as("the substring search still finds the neighbours")
+                .contains(canary, otherNamespace);
+        assertThat(ids(service.page(TARGET, new Query(Set.of(), Set.of(), null, null, "HorizontalPodAutoscaler",
+                "php-apache", null, null, 200, null)))).isEqualTo(newestFirst(hpaRows));
+    }
+
+    private static WorkloadVerticalAction withNamespace(WorkloadVerticalAction row, String namespace) {
+        row.setNamespace(namespace);
+        return row;
+    }
+
+    @Test
     @DisplayName("the cursor walks every row exactly once, newest first, and the last page has none")
     void theCursorWalksEveryRowOnce() {
         List<Long> walked = new ArrayList<>();
@@ -238,11 +266,33 @@ class AutomationActivityServiceTest {
         ActivityEntryDto.PodProof pod = entry.proof().pods().get(0);
         assertThat(pod.pod()).isEqualTo("overprovisioned-api-7c9d");
         assertThat(pod.node()).as("never guessed").isNull();
+        assertThat(pod.changed()).as("put back: the pod runs its old size").isFalse();
         assertThat(pod.uidChanged()).isFalse();
         assertThat(pod.restartsBefore()).isZero();
         assertThat(pod.restartsAfter()).isZero();
         assertThat(pod.ready()).isTrue();
         assertThat(pod.revert()).isEqualTo(new ActivityEntryDto.Revert("REVERTED", "Put back."));
+    }
+
+    @Test
+    @DisplayName("a newer row's flat sizes are not read as its before: that comes from observedBefore only")
+    void theFlatSizesAreIgnored() {
+        String afterJson = "{\"terminal\":\"APPLIED\",\"reverted\":null,\"containers\":[{\"container\":\"encoder\","
+                + "\"cpuRequestMillis\":100,\"observedBefore\":{\"cpuRequestMillis\":250},"
+                + "\"observedAfter\":{\"cpuRequestMillis\":100}}],\"pods\":[{\"pod\":\"overprovisioned-api-7c9d\","
+                + "\"node\":null,\"uidChanged\":false,\"restartsBefore\":0,\"restartsAfter\":0,\"ready\":true,"
+                + "\"revert\":null}]}";
+
+        ActivityEntryDto entry = AutomationActivityService.toEntry(row("Deployment", "overprovisioned-api",
+                "APPLIED", false, LEGACY_BEFORE, afterJson));
+
+        ActivityEntryDto.ContainerChange container = entry.change().containers().get(0);
+        assertThat(container.before()).isEqualTo(new ActivityEntryDto.Resources(250, null, null, null));
+        assertThat(container.beforeBasis()).isEqualTo("OBSERVED");
+        assertThat(container.after()).isEqualTo(new ActivityEntryDto.Resources(100, null, null, null));
+        assertThat(entry.proof().pods().get(0).changed())
+                .as("a row written before the proof said whether a pod changed: not known, not guessed")
+                .isNull();
     }
 
     @Test
@@ -347,19 +397,24 @@ class AutomationActivityServiceTest {
         return proof(terminal, reverted, true);
     }
 
-    /** A newer row's after_json, in the recorder's own shape. */
+    /**
+     * A newer row's after_json, in the recorder's own shape: each container keeps the older rows' flat
+     * sizes (the observed-after ones), and each pod says whether it changed.
+     */
     static String proof(String terminal, Boolean reverted, boolean withPod) {
         String revert = reverted == null ? "null"
                 : "{\"state\":\"" + (reverted ? "REVERTED" : "NOT_CONFIRMED") + "\",\"detail\":\""
                 + (reverted ? "Put back." : "Not confirmed.") + "\"}";
-        String size = "{\"cpuRequestMillis\":10,\"cpuLimitMillis\":100,\"memRequestBytes\":67108864,"
-                + "\"memLimitBytes\":134217728}";
+        String flat = "\"cpuRequestMillis\":10,\"cpuLimitMillis\":100,\"memRequestBytes\":67108864,"
+                + "\"memLimitBytes\":134217728";
+        String size = "{" + flat + "}";
         String containers = withPod
-                ? "[{\"container\":\"encoder\",\"observedBefore\":" + size + ",\"observedAfter\":" + size + "}]"
+                ? "[{\"container\":\"encoder\"," + flat + ",\"observedBefore\":" + size + ",\"observedAfter\":"
+                + size + "}]"
                 : "[]";
         String pods = withPod
-                ? "[{\"pod\":\"overprovisioned-api-7c9d\",\"node\":null,\"uidChanged\":false,\"restartsBefore\":0,"
-                + "\"restartsAfter\":0,\"ready\":true,\"revert\":" + revert + "}]"
+                ? "[{\"pod\":\"overprovisioned-api-7c9d\",\"node\":null,\"changed\":false,\"uidChanged\":false,"
+                + "\"restartsBefore\":0,\"restartsAfter\":0,\"ready\":true,\"revert\":" + revert + "}]"
                 : "[]";
         return "{\"terminal\":\"" + terminal + "\",\"reverted\":" + (reverted == null ? "null" : reverted)
                 + ",\"containers\":" + containers + ",\"pods\":" + pods + "}";

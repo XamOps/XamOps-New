@@ -320,6 +320,49 @@ public final class PromQl {
         return seriesHpaCurrentReplicas(hpa) + " >= bool " + seriesHpaMaxReplicas(hpa);
     }
 
+    // ---------------------------------------------------------------- several HPAs in one query
+
+    /** The labels one HPA's series carries in a batch answer, which the caller keys it by. */
+    public static final String HPA_NAMESPACE_LABEL = "namespace";
+    public static final String HPA_NAME_LABEL = "horizontalpodautoscaler";
+
+    private static final String BY_HPA = "max by (" + HPA_NAMESPACE_LABEL + ", " + HPA_NAME_LABEL + ") (";
+
+    /** {@link #seriesHpaCurrentReplicas}, one series per HPA of {@code hpas}. */
+    public static String seriesHpasCurrentReplicas(HpaBatchSelector hpas) {
+        return BY_HPA + "kube_horizontalpodautoscaler_status_current_replicas{" + hpas.labels() + "})";
+    }
+
+    /** {@link #seriesHpaMinReplicas}, one series per HPA of {@code hpas}. */
+    public static String seriesHpasMinReplicas(HpaBatchSelector hpas) {
+        return BY_HPA + "kube_horizontalpodautoscaler_spec_min_replicas{" + hpas.labels() + "})";
+    }
+
+    /** {@link #seriesHpaMaxReplicas}, one series per HPA of {@code hpas}. */
+    public static String seriesHpasMaxReplicas(HpaBatchSelector hpas) {
+        return BY_HPA + "kube_horizontalpodautoscaler_spec_max_replicas{" + hpas.labels() + "})";
+    }
+
+    /** {@link #seriesHpaCpuUtilization}, one series per HPA of {@code hpas}. */
+    public static String seriesHpasCpuUtilization(HpaBatchSelector hpas) {
+        return BY_HPA + "kube_horizontalpodautoscaler_status_target_metric{" + hpas.labels()
+                + ",metric_name=\"cpu\",metric_target_type=\"utilization\"})";
+    }
+
+    /** {@link #seriesHpaCpuTarget}, one series per HPA of {@code hpas}. */
+    public static String seriesHpasCpuTarget(HpaBatchSelector hpas) {
+        return BY_HPA + "kube_horizontalpodautoscaler_spec_target_metric{" + hpas.labels()
+                + ",metric_name=\"cpu\",metric_target_type=\"utilization\"})";
+    }
+
+    /**
+     * {@link #seriesHpaAtMax}, one series per HPA of {@code hpas}: both sides carry exactly the
+     * namespace and HPA labels, so each HPA's current count is compared with its own maximum.
+     */
+    public static String seriesHpasAtMax(HpaBatchSelector hpas) {
+        return seriesHpasCurrentReplicas(hpas) + " >= bool " + seriesHpasMaxReplicas(hpas);
+    }
+
     /** {@code used} for one resource, under the given label matchers. */
     private static String used(String labels, Resource resource) {
         return resource == Resource.CPU
@@ -369,6 +412,31 @@ public final class PromQl {
         public String labels() {
             return "namespace=~\"" + escape(namespace) + "\",horizontalpodautoscaler=~\"" + escape(name)
                     + "\"";
+        }
+    }
+
+    /**
+     * Several HPAs, for the HPA list's one read: every requested namespace and every requested name,
+     * each escaped and exact under Prometheus' anchoring.
+     *
+     * <p>The two matchers are independent, so an answer can also hold an HPA of one requested
+     * namespace that has another requested HPA's name. The caller keeps only the pairs it asked for,
+     * by the {@code namespace} and {@code horizontalpodautoscaler} labels each series carries.
+     */
+    public record HpaBatchSelector(List<HpaSelector> hpas) {
+
+        public HpaBatchSelector {
+            if (hpas == null || hpas.isEmpty()) {
+                throw new IllegalArgumentException("a batch HPA history query needs at least one HPA");
+            }
+            hpas = List.copyOf(hpas);
+        }
+
+        /** {@code namespace=~"a|b",horizontalpodautoscaler=~"x|y"}, sorted and without repeats. */
+        public String labels() {
+            return "namespace=~\"" + podMatcher(hpas.stream().map(HpaSelector::namespace).distinct().sorted().toList())
+                    + "\",horizontalpodautoscaler=~\""
+                    + podMatcher(hpas.stream().map(HpaSelector::name).distinct().sorted().toList()) + "\"";
         }
     }
 

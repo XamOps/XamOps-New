@@ -10,8 +10,10 @@ import com.xammer.cloud.service.automation.workload.access.ClusterAccessExceptio
 import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
 import com.xammer.cloud.service.automation.workload.api.dto.HpaApplyRequestDto;
 import com.xammer.cloud.service.automation.workload.api.dto.HpaApplyResponseDto;
+import com.xammer.cloud.service.automation.workload.api.dto.HpaHistoriesDto;
 import com.xammer.cloud.service.automation.workload.api.dto.HpaHistoryDto;
 import com.xammer.cloud.service.automation.workload.api.dto.RefusalDto;
+import com.xammer.cloud.service.automation.workload.usage.PromQl;
 import com.xammer.cloud.service.automation.workload.usage.UsageUnavailableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,7 +31,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -55,6 +60,8 @@ import java.util.regex.Pattern;
  *   <li>{@code GET .../{cluster}/{namespace}/{name}/history} — read-only replica, bound and CPU
  *       history of one HPA from kube-state-metrics (FEAT-004), gated by the horizontal master
  *       switch rather than by an apply opt-in, because it changes nothing.</li>
+ *   <li>{@code GET .../{cluster}/history?hpas=ns/name,…} — the same history for several HPAs at once,
+ *       for the HPA list, with one cluster connection.</li>
  * </ul>
  *
  * <h2>Tenancy</h2>
@@ -119,6 +126,61 @@ public class HpaAutomationController {
         ClusterTarget target = targetFor(account, config, cluster.trim(), region.trim());
 
         return historyService.history(target, namespace.trim(), name.trim(), parsedWindow);
+    }
+
+    /** The most HPAs one batch history read names. */
+    static final int MAX_BATCH_HPAS = 20;
+
+    /**
+     * Several HPAs' histories for the HPA list, with one cluster connection: {@code hpas} is a csv of
+     * {@code namespace/name}, 1 to {@value #MAX_BATCH_HPAS}. Each entry is what
+     * {@link #history} answers for that HPA; an HPA neither Prometheus nor the cluster knows is listed
+     * in {@code missing} rather than failing the read. Read-only; see {@link HpaHistoryService#histories}.
+     */
+    @GetMapping("/{cluster}/history")
+    public HpaHistoriesDto histories(@AuthenticationPrincipal ClientUserDetails principal,
+                                     @PathVariable("cluster") String cluster,
+                                     @RequestParam("accountId") String accountId,
+                                     @RequestParam("region") String region,
+                                     @RequestParam("window") String window,
+                                     @RequestParam("hpas") String hpas) {
+        requireShape(cluster, CLUSTER_NAME, "cluster");
+        requireShape(accountId, AWS_ACCOUNT_ID, "accountId");
+        requireShape(region, REGION, "region");
+        UsageWindow parsedWindow = UsageWindow.fixed(window)
+                .orElseThrow(() -> new ParameterShapeException("window"));
+        List<PromQl.HpaSelector> parsedHpas = hpaRefs(hpas);
+
+        CloudAccount account = accessService.requireAwsAccess(principal, accountId.trim());
+        KubernetesClusterConfig config = requireClusterConfig(account, cluster.trim());
+        ClusterTarget target = targetFor(account, config, cluster.trim(), region.trim());
+
+        return historyService.histories(target, parsedHpas, parsedWindow);
+    }
+
+    /** {@code ns/name,ns/name}: each a Kubernetes namespace and name, at most {@value #MAX_BATCH_HPAS}. */
+    private static List<PromQl.HpaSelector> hpaRefs(String value) {
+        if (value == null || value.isBlank()) {
+            throw new ParameterShapeException("hpas");
+        }
+        Set<PromQl.HpaSelector> parsed = new LinkedHashSet<>();
+        for (String part : value.split(",", -1)) {
+            String ref = part.trim();
+            int slash = ref.indexOf('/');
+            if (slash <= 0 || slash != ref.lastIndexOf('/')) {
+                throw new ParameterShapeException("hpas");
+            }
+            String namespace = ref.substring(0, slash);
+            String name = ref.substring(slash + 1);
+            if (!K8S_NAME.matcher(namespace).matches() || !K8S_NAME.matcher(name).matches()) {
+                throw new ParameterShapeException("hpas");
+            }
+            parsed.add(new PromQl.HpaSelector(namespace, name));
+        }
+        if (parsed.size() > MAX_BATCH_HPAS) {
+            throw new ParameterShapeException("hpas");
+        }
+        return List.copyOf(parsed);
     }
 
     /**

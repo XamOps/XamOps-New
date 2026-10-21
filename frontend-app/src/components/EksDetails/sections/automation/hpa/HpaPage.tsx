@@ -588,6 +588,7 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
           subject={shownHistory.name}
           read={historyOf(histories, shownHistory.id)!}
           picker={readRows.length > 1 ? <HistoryPicker rows={readRows} value={shownHistory.id} onChange={setHistoryPick} /> : undefined}
+          batched={histories.batched}
         />
       )}
       {view && !view.horizontalEvaluated && (

@@ -173,6 +173,35 @@ class PromQlSeriesTest {
     }
 
     @Test
+    @DisplayName("several HPAs: the same five series and the at-maximum comparison, one per HPA by its two labels")
+    void hpaBatchSeries() {
+        PromQl.HpaBatchSelector hpas = new PromQl.HpaBatchSelector(List.of(
+                new PromQl.HpaSelector("team-b", "php-apache"), new PromQl.HpaSelector("production", "worker-hpa"),
+                new PromQl.HpaSelector("team-b", "php.v2")));
+        String labels = "namespace=~\"production|team-b\",horizontalpodautoscaler=~\"php-apache|php\\\\.v2|worker-hpa\"";
+        String by = "max by (namespace, horizontalpodautoscaler) (";
+
+        assertThat(hpas.labels()).as("sorted, without repeats, every name escaped").isEqualTo(labels);
+        assertThat(PromQl.seriesHpasCurrentReplicas(hpas))
+                .isEqualTo(by + "kube_horizontalpodautoscaler_status_current_replicas{" + labels + "})");
+        assertThat(PromQl.seriesHpasMinReplicas(hpas))
+                .isEqualTo(by + "kube_horizontalpodautoscaler_spec_min_replicas{" + labels + "})");
+        assertThat(PromQl.seriesHpasMaxReplicas(hpas))
+                .isEqualTo(by + "kube_horizontalpodautoscaler_spec_max_replicas{" + labels + "})");
+        assertThat(PromQl.seriesHpasCpuUtilization(hpas))
+                .isEqualTo(by + "kube_horizontalpodautoscaler_status_target_metric{" + labels
+                        + ",metric_name=\"cpu\",metric_target_type=\"utilization\"})");
+        assertThat(PromQl.seriesHpasCpuTarget(hpas))
+                .isEqualTo(by + "kube_horizontalpodautoscaler_spec_target_metric{" + labels
+                        + ",metric_name=\"cpu\",metric_target_type=\"utilization\"})");
+        assertThat(PromQl.seriesHpasAtMax(hpas))
+                .isEqualTo(by + "kube_horizontalpodautoscaler_status_current_replicas{" + labels + "})"
+                        + " >= bool " + by + "kube_horizontalpodautoscaler_spec_max_replicas{" + labels + "})");
+        assertThatThrownBy(() -> new PromQl.HpaBatchSelector(List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     @DisplayName("an HPA selector refuses anything that is not a Kubernetes name, quotes and wildcards included")
     void hpaSelectorsRefuseNonNames() {
         for (String bad : List.of("", "Team-B", "a\"b", "a.*", "-a", "a b")) {

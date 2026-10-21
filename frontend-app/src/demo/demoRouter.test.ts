@@ -732,10 +732,35 @@ describe('demo router — usage, sparklines, HPA history and the activity summar
     expect(body.entries.map((e: any) => e.target.name)).toEqual(['api-server', 'api-staging', 'frontend', 'worker-hpa']);
   });
 
+  it('filters the feed by an exact namespace, kind and name, as a workload detail asks', async () => {
+    const exact = (ns: string, kind: string, name: string) =>
+      readDemoBody(`/api/eks/automation/activity/prod-eks-cluster?${q}&limit=20&feature=VERTICAL&namespace=${ns}&kind=${kind}&name=${name}`);
+    const grafana = await exact('monitoring', 'Deployment', 'grafana');
+    expect(grafana.entries.map((e: any) => `${e.target.namespace}/${e.target.kind}/${e.target.name}`)).toEqual(['monitoring/Deployment/grafana']);
+    // An exact name is not a part of one.
+    expect((await exact('production', 'Deployment', 'api')).entries).toEqual([]);
+    expect((await exact('staging', 'Deployment', 'api-server')).entries).toEqual([]);
+  });
+
+  it('answers the HPA list\'s one read as each HPA\'s own read, and lists one the cluster lacks as missing', async () => {
+    const one = (name: string) => readDemoBody(`/api/eks/automation/hpa/prod-eks-cluster/production/${name}/history?${q}&window=72h`);
+    const batch = await readDemoBody(`/api/eks/automation/hpa/prod-eks-cluster/history?${q}&window=72h&hpas=${encodeURIComponent('production/worker-hpa,production/frontend-hpa,production/gone-hpa')}`);
+    expect(batch.window).toBe('72h');
+    expect(batch.histories.map((h: any) => h.name)).toEqual(['worker-hpa', 'frontend-hpa']);
+    const worker = await one('worker-hpa');
+    expect(batch.histories[0].changes).toEqual(worker.changes);
+    expect(batch.histories[0].atMax.minutesAtMax).toBe(worker.atMax.minutesAtMax);
+    expect(batch.missing).toEqual([{ namespace: 'production', name: 'gone-hpa' }]);
+    expect(await answerOf(`/api/eks/automation/hpa/prod-eks-cluster/history?${q}&window=72h&hpas=production`)).toMatchObject({ status: 400, body: { field: 'hpas' } });
+    expect(await answerOf(`/api/eks/automation/hpa/prod-eks-cluster/history?${q}&window=6h&hpas=production/worker-hpa`)).toMatchObject({ status: 400, body: { field: 'window' } });
+    expect(await answerOf(`/api/eks/automation/hpa/nope-cluster/history?${q}&window=72h&hpas=production/worker-hpa`)).toMatchObject({ status: 404, body: { code: 'K8S_CLUSTER_NOT_REGISTERED' } });
+  });
+
   it.each([
     ['POST', '/api/eks/automation/usage/prod-eks-cluster?scope=cluster&resource=cpu&window=72h'],
     ['PUT', '/api/eks/automation/usage/prod-eks-cluster/sparklines?resource=cpu&window=72h'],
     ['DELETE', '/api/eks/automation/hpa/prod-eks-cluster/production/worker-hpa/history?window=72h'],
+    ['POST', '/api/eks/automation/hpa/prod-eks-cluster/history?window=72h&hpas=production/worker-hpa'],
     ['POST', '/api/eks/automation/activity/prod-eks-cluster/summary?days=7'],
     ['GET', '/api/eks/automation/usage/prod-eks-cluster/anything-else'],
     ['GET', '/api/eks/automation/hpa/prod-eks-cluster'],

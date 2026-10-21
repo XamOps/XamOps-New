@@ -379,7 +379,7 @@ function demoActivityEntries(now: number): ActivityEntryWire[] {
         restartFree: true,
         reverted: true,
         pods: [{
-          pod: 'api-server-7d4b9c6f5-x2kfp', node: null, uidChanged: false, restartsBefore: 0, restartsAfter: 0, ready: true,
+          pod: 'api-server-7d4b9c6f5-x2kfp', node: null, changed: false, uidChanged: false, restartsBefore: 0, restartsAfter: 0, ready: true,
           revert: { state: 'REVERTED', detail: 'Put back to the size it ran before, and confirmed in the pod status.' },
         }],
       },
@@ -420,7 +420,7 @@ function demoActivityEntries(now: number): ActivityEntryWire[] {
       proof: {
         restartFree: true,
         reverted: null,
-        pods: [{ pod: 'grafana-6c9f8d7b5-q4mzt', node: null, uidChanged: false, restartsBefore: 0, restartsAfter: 0, ready: true, revert: null }],
+        pods: [{ pod: 'grafana-6c9f8d7b5-q4mzt', node: null, changed: true, uidChanged: false, restartsBefore: 0, restartsAfter: 0, ready: true, revert: null }],
       },
       detail: null,
       reference: '2a6f0c81-9d34-4b7e-a1c5-58e0f3d92b46',
@@ -457,6 +457,10 @@ export interface DemoActivityQuery {
   /** ISO-8601 bounds; empty when not given. */
   from?: string;
   to?: string;
+  /** Exactly this namespace, kind and name, each on its own; empty when not given. */
+  namespace?: string;
+  kind?: string;
+  name?: string;
 }
 
 /**
@@ -473,10 +477,12 @@ export function demoActivityPage(cluster: string, query: DemoActivityQuery, now:
   const q = query.q.trim().toLowerCase();
   const from = query.from ? Date.parse(query.from) : NaN;
   const to = query.to ? Date.parse(query.to) : NaN;
+  const exact = (wanted: string | undefined, value: string | null | undefined) => !wanted || value === wanted;
   const matching = all.filter((e) =>
     (features.length === 0 || features.includes(e.feature ?? ''))
     && (results.length === 0 || results.includes(e.result ?? ''))
     && (q === '' || (e.target?.name ?? '').toLowerCase().includes(q))
+    && exact(query.namespace, e.target?.namespace) && exact(query.kind, e.target?.kind) && exact(query.name, e.target?.name)
     && (!Number.isFinite(from) || Date.parse(e.at ?? '') >= from)
     && (!Number.isFinite(to) || Date.parse(e.at ?? '') <= to));
   const parsedLimit = Number.parseInt(query.limit, 10);

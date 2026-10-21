@@ -23,7 +23,7 @@ import {
   res,
   wire,
 } from './fixtures';
-import { APPLIED, REFUSED, feedPage } from '../../activity/__tests__/activityFixtures';
+import { APPLIED, REFUSED, TEST_RUN, feedPage } from '../../activity/__tests__/activityFixtures';
 import type { ActivityEntryWire } from '../../../../../../types/automationActivity';
 
 const mockedFetch = apiClient.fetch as unknown as ReturnType<typeof vi.fn>;
@@ -46,9 +46,16 @@ const NO_USAGE: UsageAnswer = () => ({ status: 404, body: null });
  * the feed) and the usage feed (`usage`) for their own; `apply` answers the POST (a promise lets a
  * test hold it open).
  */
-function serve(apply?: () => Promise<Response> | Response, feed: ActivityEntryWire[] | null = [], usage: UsageAnswer = NO_USAGE) {
+function serve(
+  apply?: () => Promise<Response> | Response,
+  feed: ActivityEntryWire[] | null | ((url: URL) => ActivityEntryWire[]) = [],
+  usage: UsageAnswer = NO_USAGE,
+) {
   mockedFetch.mockImplementation(async (url: string, init?: RequestInit) => {
-    if (method(init) === 'GET' && isFeed(url)) return feed === null ? json(404, null) : json(200, feedPage(feed));
+    if (method(init) === 'GET' && isFeed(url)) {
+      if (feed === null) return json(404, null);
+      return json(200, feedPage(typeof feed === 'function' ? feed(new URL(String(url), 'http://test')) : feed));
+    }
     if (method(init) === 'GET' && isUsage(url)) {
       const a = usage(new URL(String(url), 'http://test'));
       return json(a.status, a.body);
@@ -409,7 +416,44 @@ describe('Workload autoscaler › Workloads › one workload (UI v3 plan §2 "Wo
     expect(applied.parentElement!.getAttribute('class')).toContain('dark:divide-[rgba(255,255,255,0.1)]');
     const url = feedGets()[0];
     expect(url.searchParams.get('feature')).toBe('VERTICAL');
-    expect(url.searchParams.get('q')).toBe('overprovisioned-api');
+    // Read by the exact ref, not by a substring of the name.
+    expect(url.searchParams.get('q')).toBeNull();
+    expect([url.searchParams.get('namespace'), url.searchParams.get('kind'), url.searchParams.get('name')])
+      .toEqual(['team-a', 'Deployment', 'overprovisioned-api']);
+  });
+
+  it("keeps the workload's own entries when 20 newer ones belong to a neighbour whose name contains its own", async () => {
+    // The server's exact filter: only entries of the namespace, kind and name asked for, newest first.
+    const canary = Array.from({ length: 25 }, (_, i): ActivityEntryWire => ({
+      ...REFUSED, id: 200 + i, at: new Date(Date.now() - i * 60_000).toISOString(),
+      target: { namespace: 'team-a', kind: 'Deployment', name: 'overprovisioned-api-canary' },
+    }));
+    const own: ActivityEntryWire = { ...APPLIED, id: 7, at: new Date(Date.now() - 3 * 86_400_000).toISOString() };
+    serve(undefined, (u) => {
+      const exact = (key: 'namespace' | 'kind' | 'name', value: string | null | undefined) => !u.searchParams.get(key) || value === u.searchParams.get(key);
+      return [...canary, own]
+        .filter((e) => exact('namespace', e.target?.namespace) && exact('kind', e.target?.kind) && exact('name', e.target?.name))
+        .slice(0, Number(u.searchParams.get('limit')));
+    });
+    detail('team-a/Deployment/overprovisioned-api');
+    await screen.findByText('Where it is now');
+    const recent = screen.getByRole('heading', { name: 'Recent changes' }).closest('section')!;
+    await waitFor(() => expect(recent.querySelectorAll('[data-recent-entry]')).toHaveLength(1));
+    expect(recent.querySelector('[data-recent-entry="7"]')).toHaveTextContent('Applied');
+    expect(recent).not.toHaveTextContent("XamOps hasn't recorded a change to this workload.");
+  });
+
+  it('charts the change endpoint 1 reports when the newest entries read hold no live change', async () => {
+    // idle-batch-listener's live change 17 minutes ago (endpoint 1), followed only by test runs.
+    const testRuns = Array.from({ length: 3 }, (_, i): ActivityEntryWire => ({
+      ...TEST_RUN, id: 300 + i, at: new Date(Date.now() - i * 60_000).toISOString(),
+      target: { namespace: 'dev-sim', kind: 'Deployment', name: 'idle-batch-listener' },
+    }));
+    serve(undefined, testRuns, (u) => ({ status: 200, body: workloadUsage(u, () => 0.002, 0.025, 0.05) }));
+    detail('dev-sim/Deployment/idle-batch-listener');
+    await screen.findByText('Where it is now');
+    const impact = await waitFor(() => screen.getByRole('heading', { name: 'Impact: CPU around the change' }).closest('section')!);
+    await waitFor(() => expect(impact.querySelector('[data-chart-source]')).toHaveTextContent('The change: Workload autoscaler (endpoint 1), lastAction'));
   });
 
   it('shows the latest recorded change and the wait for a workload applied earlier, without the activity feed', async () => {

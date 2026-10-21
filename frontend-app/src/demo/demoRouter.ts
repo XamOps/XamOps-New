@@ -540,6 +540,16 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   // The HPA apply (Automation › HPA), refused by path the same way.
   if (/\/api\/eks\/automation\/hpa\/[^/?]+\/[^/?]+\/[^/?]+\/apply(\?|$)/.test(url))
     return makeResponse(k8sAutomation.DEMO_WRITE_REFUSED, 403);
+  // The HPA list's one history read (Automation › HPA): GET-only on the server, each HPA answered as
+  // its own read is; a method other than GET is refused, never answered with the read.
+  {
+    const histories = /\/api\/eks\/automation\/hpa\/([^/?]+)\/history(\?|$)/.exec(url);
+    if (histories) {
+      if (method.toUpperCase() !== 'GET') return makeResponse(k8sAutomation.DEMO_WRITE_REFUSED, 403);
+      const answer = k8sSeries.demoHpaHistories(decodeURIComponent(histories[1]), param(url, 'hpas'), param(url, 'window'));
+      return makeResponse(answer.body, answer.status);
+    }
+  }
   // One HPA's history (FEAT-004, Automation › HPA): GET-only on the server; a method other than GET is
   // refused, never answered with the read.
   {
@@ -610,6 +620,9 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
         cursor: param(url, 'cursor'),
         from: param(url, 'from'),
         to: param(url, 'to'),
+        namespace: param(url, 'namespace'),
+        kind: param(url, 'kind'),
+        name: param(url, 'name'),
       });
       return page ? makeResponse(page) : makeResponse(k8sAutomation.DEMO_CLUSTER_NOT_REGISTERED, 404);
     }

@@ -5,7 +5,7 @@ import HpaPage, { MALFORMED_HPA_NOTICE, missingHpaNotice } from '../HpaPage';
 import { currentSearch, renderAt } from '../../workload/__tests__/fixtures';
 import type { UseEksDashboardReturn } from '../../../../../../hooks/useEksDashboard';
 import { adaptHpaPage } from '../../../../../../api/hpaAdapter';
-import { fetchHpaPage, applyHpaRecommendation, fetchHpaHistory } from '../../../../../../api/hpaApi';
+import { fetchHpaPage, applyHpaRecommendation, fetchHpaHistory, fetchHpaHistories } from '../../../../../../api/hpaApi';
 import { adaptHpaHistory } from '../../../../../../api/automationInsightsAdapter';
 import type { HpaHistoryResponseWire } from '../../../../../../types/automationInsights';
 import type { VerticalEngineResponseWire, VerticalWorkloadWire } from '../../../../../../types/verticalRightsizer';
@@ -14,13 +14,16 @@ vi.mock('../../../../../../api/hpaApi', () => ({
   fetchHpaPage: vi.fn(),
   applyHpaRecommendation: vi.fn(),
   hpaApplyUrl: vi.fn(),
-  // FEAT-004's history read; each test starts with a backend that doesn't serve it (beforeEach).
+  // FEAT-004's history reads (one HPA, and the list's one read for several); each test starts with a
+  // backend that doesn't serve them (beforeEach).
   fetchHpaHistory: vi.fn(),
+  fetchHpaHistories: vi.fn(),
 }));
 
 const mockedRead = fetchHpaPage as unknown as ReturnType<typeof vi.fn>;
 const mockedApply = applyHpaRecommendation as unknown as ReturnType<typeof vi.fn>;
 const mockedHistory = fetchHpaHistory as unknown as ReturnType<typeof vi.fn>;
+const mockedHistories = fetchHpaHistories as unknown as ReturnType<typeof vi.fn>;
 
 const engine: VerticalEngineResponseWire['engine'] = {
   enabled: true,
@@ -74,6 +77,8 @@ const renderTab = () => render(<MemoryRouter><HpaPage clusterName="c1" accountId
 beforeEach(() => {
   vi.clearAllMocks();
   mockedHistory.mockImplementation(async () => ({ kind: 'not-deployed' }));
+  mockedHistories.mockImplementation(async (_c: string, hpas: Array<{ namespace: string; name: string }>) =>
+    Object.fromEntries(hpas.map((h) => [`${h.namespace}/${h.name}`, { kind: 'not-deployed' }])));
 });
 
 // Moved verbatim from main's EksHpaTab.test.tsx ("EksHpaTab — HPA decision + Apply gating") when the
@@ -300,6 +305,25 @@ describe('HpaPage — the HPA history (FEAT-004 → FEAT-006)', () => {
     // The table's "Last scaled", from the same read.
     expect(screen.getByRole('columnheader', { name: 'Last scaled' })).toBeInTheDocument();
     expect(document.querySelector('[data-hpa-last-scaled="team-b/php-apache"]')).toHaveTextContent('1 change in 3 days');
+  });
+
+  it('reads the list\'s HPAs with one request, not one per HPA, and gives each row its own history', async () => {
+    const worker = phpApache({ ref: { namespace: 'prod', kind: 'Deployment', name: 'worker' }, hpa: { present: true, name: 'worker-hpa' } });
+    resolveWith({ engine, gateReasons: [], workloads: [phpApache(), worker] });
+    mockedHistories.mockImplementation(async () => ({
+      'team-b/php-apache': historyOk(),
+      'prod/worker-hpa': historyOk(phpHistory({ namespace: 'prod', name: 'worker-hpa', changes: [] })),
+    }));
+    hpaPage();
+    await rowOf('team-b/php-apache');
+    await waitFor(() => expect(document.querySelector('[data-hpa-last-scaled="team-b/php-apache"]')).toHaveTextContent('1 change in 3 days'));
+    expect(document.querySelector('[data-hpa-last-scaled="prod/worker-hpa"]')).toHaveTextContent('Not in 3 days');
+    expect(mockedHistories).toHaveBeenCalledTimes(1);
+    expect(mockedHistories.mock.calls[0].slice(0, 5)).toEqual(['c1',
+      [{ namespace: 'prod', name: 'worker-hpa' }, { namespace: 'team-b', name: 'php-apache' }], '123456789012', 'ap-south-1', '72h']);
+    // The one-HPA read is only ever the one the page started while the agent's HPA alone was known,
+    // and it was dropped (aborted) for the list's read.
+    for (const call of mockedHistory.mock.calls) expect((call[5] as AbortSignal).aborted).toBe(true);
   });
 
   it('flags an HPA that never scaled in the window', async () => {

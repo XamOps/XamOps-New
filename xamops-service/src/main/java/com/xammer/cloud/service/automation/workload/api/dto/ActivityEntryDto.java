@@ -73,9 +73,11 @@ public record ActivityEntryDto(Long id, Instant at, String feature, String origi
 
     /**
      * @param node       the pod's node; the proof does not record it, so it is null today
+     * @param changed    the pod ended at a size other than it had before: false for a pod put back
+     *                   or never touched; null on a row written before the proof said so
      * @param uidChanged a different pod uid afterwards: the pod was replaced, not resized
      */
-    public record PodProof(String pod, String node, Boolean uidChanged, Integer restartsBefore,
+    public record PodProof(String pod, String node, Boolean changed, Boolean uidChanged, Integer restartsBefore,
                            Integer restartsAfter, Boolean ready, Revert revert) {
     }
 

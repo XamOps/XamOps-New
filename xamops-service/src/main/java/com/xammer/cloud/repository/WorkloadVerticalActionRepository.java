@@ -44,6 +44,54 @@ public interface WorkloadVerticalActionRepository extends JpaRepository<Workload
      */
     List<WorkloadVerticalAction> findByClusterConfigIdOrderByAppliedAtDesc(Long clusterConfigId);
 
+    // ---------------------------------------------------------------- endpoint 1's lastAction
+
+    /**
+     * One workload's newest qualifying row: when, whether a dry run, and the outcome, without the
+     * JSON bodies.
+     */
+    record LastActionRow(String namespace, String workloadKind, String workloadName, Instant appliedAt,
+                         Boolean dryRun, String outcome) {
+    }
+
+    /**
+     * The newest row per workload ({@code namespace/kind/name}) of one cluster that is not a dry run,
+     * whose outcome is none of {@code notOutcomes} and whose kind is not {@code notKind}, newest
+     * first. The rows left out are left out here, in the query, so a caller reads one short row per
+     * workload rather than the cluster's whole history. Two rows of one workload at the same instant
+     * both come back, the higher id first; a caller keeps the first. A row without
+     * {@code applied_at}, which no writer produces, is never the newest.
+     *
+     * @param notOutcomes the outcomes that never qualify; at least one
+     * @param notKind     the {@code workload_kind} that never qualifies
+     */
+    default List<LastActionRow> findLastActions(Long clusterConfigId, Collection<String> notOutcomes,
+                                                String notKind) {
+        if (clusterConfigId == null || notOutcomes == null || notOutcomes.isEmpty() || notKind == null) {
+            throw new IllegalArgumentException("lastAction is read per cluster config, with the rows it skips");
+        }
+        return findLastActionTuples(clusterConfigId, notOutcomes, notKind).stream()
+                .map(tuple -> new LastActionRow((String) tuple[0], (String) tuple[1], (String) tuple[2],
+                        (Instant) tuple[3], (Boolean) tuple[4], (String) tuple[5]))
+                .toList();
+    }
+
+    /** The query behind {@link #findLastActions}; call that instead. */
+    @Query("select a.namespace, a.workloadKind, a.workloadName, a.appliedAt, a.dryRun, a.outcome"
+            + " from WorkloadVerticalAction a"
+            + " where a.clusterConfigId = :clusterConfigId"
+            + " and a.dryRun = false and a.outcome not in :outcomes and a.workloadKind <> :hpaKind"
+            + " and (a.namespace, a.workloadKind, a.workloadName, a.appliedAt) in ("
+            + "   select b.namespace, b.workloadKind, b.workloadName, max(b.appliedAt)"
+            + "   from WorkloadVerticalAction b"
+            + "   where b.clusterConfigId = :clusterConfigId"
+            + "   and b.dryRun = false and b.outcome not in :outcomes and b.workloadKind <> :hpaKind"
+            + "   group by b.namespace, b.workloadKind, b.workloadName)"
+            + " order by a.appliedAt desc, a.id desc")
+    List<Object[]> findLastActionTuples(@Param("clusterConfigId") Long clusterConfigId,
+                                        @Param("outcomes") Collection<String> outcomes,
+                                        @Param("hpaKind") String hpaKind);
+
     /** The feed's order: newest first, the id breaking a tie, so a keyset page is total. */
     Sort ACTIVITY_ORDER = Sort.by(Sort.Order.desc("appliedAt"), Sort.Order.desc("id"));
 
@@ -230,6 +278,16 @@ public interface WorkloadVerticalActionRepository extends JpaRepository<Workload
                 cb.not(cb.or(prefixes.stream()
                         .map(prefix -> cb.like(root.<String>get("afterJson"), literal(prefix) + "%", '\\'))
                         .toArray(jakarta.persistence.criteria.Predicate[]::new))));
+    }
+
+    /** {@code namespace} is exactly {@code namespace}. */
+    static Specification<WorkloadVerticalAction> namespaceIs(String namespace) {
+        return (root, query, cb) -> cb.equal(root.get("namespace"), namespace);
+    }
+
+    /** {@code workload_name} is exactly {@code name}: one workload's or HPA's own rows. */
+    static Specification<WorkloadVerticalAction> nameIs(String name) {
+        return (root, query, cb) -> cb.equal(root.get("workloadName"), name);
     }
 
     /** {@code workload_name} contains {@code text}, case-insensitively and literally. */

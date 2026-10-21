@@ -57,6 +57,8 @@ export interface ActivityChangeWire {
 export interface ActivityPodProofWire {
   pod?: string | null;
   node?: string | null;
+  /** The pod ended at a size other than it had before; false for one put back. Absent on older rows. */
+  changed?: boolean | null;
   uidChanged?: boolean | null;
   restartsBefore?: number | null;
   restartsAfter?: number | null;
@@ -103,6 +105,8 @@ export interface ActivityQuery {
   results?: readonly ActivityResultWire[];
   /** Part of a workload or HPA name; at most 100 characters (the server's limit). */
   q?: string | null;
+  /** Exactly this workload or HPA (namespace, kind and name): its own entries, never a neighbour's. */
+  target?: { namespace: string; kind: string; name: string } | null;
   /** Entries at or after this instant (ISO-8601, UTC); at most 90 days before `to` or now. */
   from?: string | null;
   /** Entries at or before this instant (ISO-8601, UTC). */
@@ -208,6 +212,8 @@ export interface ActivityHpaBounds {
 export interface ActivityPodProof {
   pod: string;
   node: string | null;
+  /** The pod runs a size other than before (false: put back or not touched); null when not recorded. */
+  changed: boolean | null;
   uidChanged: boolean | null;
   restartsBefore: number | null;
   restartsAfter: number | null;

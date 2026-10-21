@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fetchSparklines, fetchUsage, sparklinesUrl, usageUrl } from '../automationUsageApi';
-import { fetchHpaHistory, hpaHistoryUrl } from '../hpaApi';
+import { fetchHpaHistories, fetchHpaHistory, hpaHistoriesUrl, hpaHistoryUrl } from '../hpaApi';
+import { NO_ACCOUNT_ACCESS_MESSAGE } from '../insightRead';
 import { adaptHpaHistory, adaptPoints, adaptSparklines, adaptUsage } from '../automationInsightsAdapter';
+import { insightCardState } from '../../components/EksDetails/sections/automation/insightCharts';
 import type { HpaHistoryResponseWire, SparklinesResponseWire, UsageResponseWire } from '../../types/automationInsights';
 
 vi.mock('../../utils/apiClient', () => ({
@@ -216,5 +218,60 @@ describe('fetchUsage, fetchSparklines and fetchHpaHistory: the status mapping', 
     expect(await fetchUsage('c', '1', 'r', q)).toEqual({ kind: 'error', message: "The usage feed answered in a shape XamOps can't read." });
     mockedFetch.mockRejectedValueOnce(new Error('Network down'));
     expect(await fetchHpaHistory('c', { namespace: 'n', name: 'h' }, '1', 'r', '72h')).toEqual({ kind: 'error', message: 'Network down' });
+  });
+
+  it('reads the untyped 403 an unentitled caller gets ("Access is denied") as no access to the account, not an error to retry', async () => {
+    const q = { scope: 'cluster', resource: 'cpu', window: '72h' } as const;
+    const denied = () => answer(403, { message: 'Access is denied' });
+    mockedFetch.mockResolvedValueOnce(denied());
+    const usage = await fetchUsage('c', '1', 'r', q);
+    expect(usage).toMatchObject({ kind: 'refused', code: { kind: 'known', code: 'NO_ACCOUNT_ACCESS' }, message: NO_ACCOUNT_ACCESS_MESSAGE, field: null });
+    mockedFetch.mockResolvedValueOnce(denied());
+    expect(await fetchSparklines('c', '1', 'r', 'cpu')).toMatchObject({ kind: 'refused', code: { kind: 'known', code: 'NO_ACCOUNT_ACCESS' } });
+    mockedFetch.mockResolvedValueOnce(denied());
+    expect(await fetchHpaHistory('c', { namespace: 'team-b', name: 'php-apache' }, '1', 'r', '72h')).toMatchObject({ kind: 'refused', code: { kind: 'known', code: 'NO_ACCOUNT_ACCESS' } });
+
+    // On the chart: the no-access words, with no Retry that couldn't help.
+    const card = insightCardState({ loading: false, result: usage, reload: () => {} });
+    expect(card).toEqual({ render: true, state: { kind: 'unavailable', reason: "You don't have access to this AWS account." }, view: null });
+  });
+});
+
+/** team-b/php-apache's history, two points: the second unmeasured. */
+const HPA: HpaHistoryResponseWire = {
+  schemaVersion: 1, namespace: 'team-b', name: 'php-apache', window: '72h', stepSeconds: 1800, start: '2026-10-11T10:00:00Z', end: '2026-10-14T10:00:00Z', source: SOURCE,
+  series: [{ key: 'currentReplicas', label: 'Replicas running', unit: 'replicas', points: [[1791972000, 5], [1791973800, null]], query: 'q1' }],
+  atMax: { share: 1, minutesAtMax: 4320, minutesMeasured: 4320, runs: [{ from: '2026-10-11T10:00:00Z', to: null }], runsTruncated: false, since: '2026-10-11T10:00:00Z', stepSeconds: 60, query: 'q3' },
+  changes: [], changesTruncated: false, firstSampleAt: '2026-10-11T10:00:00Z', unavailable: null,
+};
+
+describe('fetchHpaHistories: the HPA list\'s one read', () => {
+  beforeEach(() => mockedFetch.mockReset());
+  const php = { namespace: 'team-b', name: 'php-apache' };
+  const worker = { namespace: 'production', name: 'worker-hpa' };
+  const gone = { namespace: 'team-c', name: 'gone' };
+
+  it('asks once for every HPA, comma-separated', () => {
+    const url = new URL(hpaHistoriesUrl('xamops-test-1', [php, worker], '102227938259', 'ap-south-1', '72h'), 'http://test');
+    expect(url.pathname).toBe('/api/eks/automation/hpa/xamops-test-1/history');
+    expect(url.searchParams.get('hpas')).toBe('team-b/php-apache,production/worker-hpa');
+    expect(url.searchParams.get('window')).toBe('72h');
+  });
+
+  it('gives each HPA what its own read gives: its history, the refusal for one the cluster lacks, or the read\'s failure', async () => {
+    const workerWire: HpaHistoryResponseWire = { ...HPA, namespace: 'production', name: 'worker-hpa' };
+    mockedFetch.mockResolvedValueOnce(answer(200, { schemaVersion: 1, window: '72h', histories: [HPA, workerWire], missing: [gone] }));
+    const results = await fetchHpaHistories('c', [php, worker, gone], '1', 'r', '72h');
+    expect(mockedFetch).toHaveBeenCalledTimes(1);
+    expect(results['team-b/php-apache']).toEqual({ kind: 'ok', view: adaptHpaHistory(HPA) });
+    expect(results['production/worker-hpa']).toEqual({ kind: 'ok', view: adaptHpaHistory(workerWire) });
+    expect(results['team-c/gone']).toMatchObject({ kind: 'refused', field: 'name', message: 'This cluster has no HPA team-c/gone, and Prometheus holds no history for one.' });
+
+    mockedFetch.mockResolvedValueOnce(answer(404, { code: 'K8S_CLUSTER_NOT_REGISTERED', message: "This cluster isn't registered with XamOps." }));
+    const unregistered = await fetchHpaHistories('c', [php, worker], '1', 'r', '72h');
+    expect(Object.values(unregistered)).toEqual([
+      { kind: 'cluster-not-registered', message: "This cluster isn't registered with XamOps." },
+      { kind: 'cluster-not-registered', message: "This cluster isn't registered with XamOps." },
+    ]);
   });
 });

@@ -28,6 +28,9 @@ import { Card, DIVIDE, FAINT, INK, MUTED } from '../automationUi';
 export const FROM_AGENT = 'from the XamOps agent';
 
 const HISTORY_ENDPOINT = 'GET /api/eks/automation/hpa/{cluster}/{namespace}/{name}/history?window=72h';
+/** The HPA list's one read of every HPA on the page (useHpaHistories with more than one HPA). */
+const HISTORIES_ENDPOINT = 'GET /api/eks/automation/hpa/{cluster}/history?hpas={namespace}/{name},…&window=72h';
+const historyEndpoint = (batched: boolean | undefined) => (batched ? HISTORIES_ENDPOINT : HISTORY_ENDPOINT);
 
 interface HpaHistoryRow {
   t: number;
@@ -102,24 +105,26 @@ export interface HpaHistoryCardsProps {
   read: InsightReadState<HpaHistoryView>;
   /** A control to pick which HPA's history shows (the list page with more than one HPA). */
   picker?: ReactNode;
+  /** The history came from the list's one read of several HPAs, which the source line names. */
+  batched?: boolean;
 }
 
 /** The two history cards, side by side on wide screens. */
-export const HpaHistoryCards: FC<HpaHistoryCardsProps> = ({ subject, read, picker }) => {
+export const HpaHistoryCards: FC<HpaHistoryCardsProps> = ({ subject, read, picker, batched }) => {
   const h = historyState(read);
   if (!h.render) return null;
   return (
     <div className="space-y-2" data-hpa-history={subject}>
       {picker}
       <div className="grid gap-4 xl:grid-cols-2">
-        <ReplicasAndCpuCard subject={subject} state={h.state} view={h.view} />
-        <TimeAtMaxCard subject={subject} state={h.state} view={h.view} />
+        <ReplicasAndCpuCard subject={subject} state={h.state} view={h.view} batched={batched} />
+        <TimeAtMaxCard subject={subject} state={h.state} view={h.view} batched={batched} />
       </div>
     </div>
   );
 };
 
-function ReplicasAndCpuCard({ subject, state, view }: { subject: string; state: ChartEmptyState; view: HpaHistoryView | null }) {
+function ReplicasAndCpuCard({ subject, state, view, batched }: { subject: string; state: ChartEmptyState; view: HpaHistoryView | null; batched?: boolean }) {
   const rows = view ? hpaHistoryRows(view) : [];
   const drawn = state.kind === 'ok' || state.kind === 'partial';
   const noData = view && state.kind === 'partial' ? noDataBand(rows, view.firstSampleAt, 'No data before') : [];
@@ -130,7 +135,7 @@ function ReplicasAndCpuCard({ subject, state, view }: { subject: string; state: 
     <ChartCard
       title="Replicas and CPU use, together"
       subline={`Every ${step}, ${view ? windowText(view.window) : 'last 3 days'}. Top: replicas of ${subject} running against its minimum and maximum. Bottom: CPU use against the target. The hatched zone is CPU above the target while replicas were already at the maximum: the HPA wanted more pods but couldn't add them.`}
-      source={`HPA history (FEAT-004, ${HISTORY_ENDPOINT}): ${view ? sourceService(view.source) : 'Prometheus in your cluster'}, kube-state-metrics kube_horizontalpodautoscaler_status_current_replicas, spec_min_replicas, spec_max_replicas, status_target_metric{metric_name="cpu",metric_target_type="utilization"} and spec_target_metric, step ${step}, ${view ? windowText(view.window) : '3 days'}.`}
+      source={`HPA history (FEAT-004, ${historyEndpoint(batched)}): ${view ? sourceService(view.source) : 'Prometheus in your cluster'}, kube-state-metrics kube_horizontalpodautoscaler_status_current_replicas, spec_min_replicas, spec_max_replicas, status_target_metric{metric_name="cpu",metric_target_type="utilization"} and spec_target_metric, step ${step}, ${view ? windowText(view.window) : '3 days'}.`}
       state={state}
       table={
         drawn && rows.length > 0 ? (
@@ -199,7 +204,7 @@ export function minutesText(minutes: number | null): string {
   return m === 0 ? `${h} h` : `${h} h ${m} min`;
 }
 
-function TimeAtMaxCard({ subject, state, view }: { subject: string; state: ChartEmptyState; view: HpaHistoryView | null }) {
+function TimeAtMaxCard({ subject, state, view, batched }: { subject: string; state: ChartEmptyState; view: HpaHistoryView | null; batched?: boolean }) {
   const a = view?.atMax ?? null;
   const start = view?.start ?? null;
   const end = view?.end ?? null;
@@ -226,7 +231,7 @@ function TimeAtMaxCard({ subject, state, view }: { subject: string; state: Chart
           }`
           : `Each minute ${subject} ran its maximum number of replicas.`
       }
-      source={`HPA history (FEAT-004, ${HISTORY_ENDPOINT}): kube_horizontalpodautoscaler_status_current_replicas >= bool kube_horizontalpodautoscaler_spec_max_replicas, step ${stepWords(a?.stepSeconds ?? 60)}, ${shown}.`}
+      source={`HPA history (FEAT-004, ${historyEndpoint(batched)}): kube_horizontalpodautoscaler_status_current_replicas >= bool kube_horizontalpodautoscaler_spec_max_replicas, step ${stepWords(a?.stepSeconds ?? 60)}, ${shown}.`}
       state={cardState}
       table={
         drawn && a && a.runs.length > 0 ? (

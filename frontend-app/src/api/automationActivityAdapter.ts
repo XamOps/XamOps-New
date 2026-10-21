@@ -124,6 +124,7 @@ export function adaptActivityEntry(wire: ActivityEntryWire, index: number): Acti
     return [{
       pod,
       node: text(p.node),
+      changed: bool(p.changed),
       uidChanged: bool(p.uidChanged),
       restartsBefore: num(p.restartsBefore),
       restartsAfter: num(p.restartsAfter),

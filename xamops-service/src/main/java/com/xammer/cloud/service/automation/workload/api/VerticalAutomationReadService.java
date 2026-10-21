@@ -1,7 +1,6 @@
 package com.xammer.cloud.service.automation.workload.api;
 
 import com.xammer.cloud.domain.KubernetesClusterConfig;
-import com.xammer.cloud.domain.WorkloadVerticalAction;
 import com.xammer.cloud.repository.WorkloadVerticalActionRepository;
 import com.xammer.cloud.service.automation.workload.ConfidenceProperties;
 import com.xammer.cloud.service.automation.workload.ContainerSnapshot;
@@ -506,31 +505,26 @@ public class VerticalAutomationReadService {
      *
      * <p>The rows the activity log added (FEAT-007) are skipped — test runs, refusals, applies that
      * changed no pod, and HPA rows — so {@code lastAction} is exactly what it was before they existed.
+     * The repository skips them in its query and answers one row per workload, so this read does not
+     * load the cluster's whole history, JSON bodies included, on every call.
      */
     Map<String, VerticalWorkloadDto.LastActionDto> lastActions(Long clusterConfigId) {
         Map<String, VerticalWorkloadDto.LastActionDto> byKey = new java.util.HashMap<>();
-        for (WorkloadVerticalAction action
-                : actionRepository.findByClusterConfigIdOrderByAppliedAtDesc(clusterConfigId)) {
-            if (!isLastActionCandidate(action)) {
-                continue;
-            }
-            String key = WorkloadPolicyService.key(action.getNamespace(), action.getWorkloadKind(),
-                    action.getWorkloadName());
+        for (WorkloadVerticalActionRepository.LastActionRow action
+                : actionRepository.findLastActions(clusterConfigId, NOT_A_LAST_ACTION, WorkloadActionRecorder.KIND_HPA)) {
+            String key = WorkloadPolicyService.key(action.namespace(), action.workloadKind(), action.workloadName());
             byKey.computeIfAbsent(key, ignored -> new VerticalWorkloadDto.LastActionDto(
-                    action.getAppliedAt(), action.getDryRun(), action.getOutcome()));
+                    action.appliedAt(), action.dryRun(), action.outcome()));
         }
         return byKey;
     }
 
-    /** A row of the kind endpoint 1 has always reported: a real resize or a mode change. */
-    private static boolean isLastActionCandidate(WorkloadVerticalAction action) {
-        String outcome = action.getOutcome();
-        return !Boolean.TRUE.equals(action.getDryRun())
-                && !WorkloadActionRecorder.OUTCOME_TEST_RUN.equals(outcome)
-                && !WorkloadActionRecorder.OUTCOME_REFUSED.equals(outcome)
-                && !WorkloadActionRecorder.OUTCOME_NOT_CHANGED.equals(outcome)
-                && !WorkloadActionRecorder.KIND_HPA.equals(action.getWorkloadKind());
-    }
+    /**
+     * The outcomes only the activity log writes, which endpoint 1 has never reported: with dry runs
+     * and HPA rows, the rows {@link #lastActions} skips.
+     */
+    private static final List<String> NOT_A_LAST_ACTION = List.of(WorkloadActionRecorder.OUTCOME_TEST_RUN,
+            WorkloadActionRecorder.OUTCOME_REFUSED, WorkloadActionRecorder.OUTCOME_NOT_CHANGED);
 
     /**
      * Measures one workload, namespace-scoped and selected by the pods the inventory resolved through

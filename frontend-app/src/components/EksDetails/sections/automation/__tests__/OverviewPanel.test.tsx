@@ -482,7 +482,7 @@ const FEED = {
       id: 7, at: IDLE_AT, feature: 'VERTICAL', origin: 'MANUAL', who: 'A user', action: 'RESIZE',
       target: { namespace: 'dev-sim', kind: 'Deployment', name: 'idle-batch-listener' }, dryRun: false, outcome: 'APPLIED', result: 'APPLIED', terminal: 'APPLIED', restartFree: true,
       change: { containers: [{ container: 'sleeper', before: sizes(100, 128), beforeBasis: 'OBSERVED', after: sizes(20, 128), requested: sizes(20, 128) }] },
-      proof: { restartFree: true, reverted: null, pods: ['a', 'b', 'c'].map((p) => ({ pod: `idle-batch-listener-${p}`, uidChanged: false, restartsBefore: 0, restartsAfter: 0, ready: true, revert: null })) },
+      proof: { restartFree: true, reverted: null, pods: ['a', 'b', 'c'].map((p) => ({ pod: `idle-batch-listener-${p}`, changed: true, uidChanged: false, restartsBefore: 0, restartsAfter: 0, ready: true, revert: null })) },
       detail: null, reference: 'r-7',
     },
     {

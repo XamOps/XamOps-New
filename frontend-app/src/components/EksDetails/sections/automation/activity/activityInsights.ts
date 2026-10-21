@@ -79,6 +79,7 @@ export interface SavingNowItem {
   /** CPU request (m) and memory request (Mi) freed across the pods the change resized. */
   cpuM: number;
   memMi: number;
+  /** The pods that run the new size: a pod put back, or never touched, isn't one. */
   pods: number;
 }
 
@@ -107,11 +108,22 @@ function sizeSum(entry: ActivityEntryView, side: 'before' | 'after', field: 'cpu
 }
 
 /**
+ * The pods of an entry's proof that run the new size; null when a pod doesn't say (a row written
+ * before the proof recorded it), since a pod put back must not be counted as resized.
+ */
+function resizedPods(entry: ActivityEntryView): number | null {
+  const pods = entry.proof?.pods ?? [];
+  if (pods.some((p) => p.changed === null)) return null;
+  return pods.filter((p) => p.changed === true).length;
+}
+
+/**
  * What the changes in place free now (UI v3 plan: "Saving now"). Which workloads are in place comes
  * from endpoint 1 (its lastAction is the latest change that reached the pods: test runs, put-backs and
  * refusals are skipped); how much each frees comes from the activity log's entry for that same change
- * (matched on the workload and the instant), as (before − after) × the pods it resized. An entry
- * without the size before (rows written before the activity log) or without per-pod proof isn't
+ * (matched on the workload and the instant), as (before − after) × the pods that run the new size, so
+ * a pod a partial apply put back isn't counted. An entry without the size before (rows written before
+ * the activity log), without per-pod proof, or whose pods don't say whether they changed isn't
  * counted, and is said to be. A raise frees nothing and is counted apart.
  */
 export function savingNow(workloads: readonly WorkloadView[], entries: readonly ActivityEntryView[]): SavingNow {
@@ -123,10 +135,10 @@ export function savingNow(workloads: readonly WorkloadView[], entries: readonly 
     const entry = at === null ? undefined : entries.find((e) =>
       e.action === 'resize' && !e.dryRun && e.result === 'applied' && e.at !== null && Math.abs(e.at - at) <= 1000
       && e.target.namespace === w.ref.namespace && e.target.kind === w.ref.kind && e.target.name === w.ref.name);
-    const pods = entry?.proof?.pods.length ?? 0;
+    const pods = entry ? resizedPods(entry) : null;
     const cpuBefore = entry ? sizeSum(entry, 'before', 'cpuRequestM') : null;
     const cpuAfter = entry ? sizeSum(entry, 'after', 'cpuRequestM') : null;
-    if (!entry || entry.beforeNotRecorded || pods === 0 || cpuBefore === null || cpuAfter === null) {
+    if (!entry || entry.beforeNotRecorded || pods === null || pods === 0 || cpuBefore === null || cpuAfter === null) {
       out.notCounted += 1;
       continue;
     }

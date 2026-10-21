@@ -513,9 +513,9 @@ export function CostPerDayCard({ workload, hoursPerMonth }: { workload: Workload
 }
 
 /**
- * "Recent changes": the workload's last few entries in the activity feed (FEAT-007), read by name
- * and matched exactly on namespace, kind and name. A backend without the feed shows endpoint 1's
- * newest change instead, and says what it leaves out.
+ * "Recent changes": the workload's last few entries in the activity feed (FEAT-007), read by its
+ * exact namespace, kind and name. A backend without the feed shows endpoint 1's newest change
+ * instead, and says what it leaves out.
  */
 function RecentChanges({ feed, workload }: { feed: UseAutomationActivityState; workload: WorkloadView }) {
   const { namespace, kind, name } = workload.ref;
@@ -555,12 +555,21 @@ function RecentChanges({ feed, workload }: { feed: UseAutomationActivityState; w
   );
 }
 
-/** The workload's entries in the activity log: read by name, then matched exactly on its ref. */
+/**
+ * The workload's newest entries in the activity log, read by its exact namespace, kind and name, so a
+ * neighbour whose name contains its own (php-apache-canary next to php-apache) can't crowd them out.
+ */
 const RECENT_FEED_LIMIT = 20;
 
 export function WorkloadDetail({ clusterName, accountId, region, workload, controller, replyAt, listHref, now }: WorkloadDetailProps) {
   // One read of the activity log for this workload, shared by "Recent changes" and the impact chart.
-  const feedFilters = useMemo(() => ({ features: ['VERTICAL' as const], results: [], q: workload.ref.name }), [workload.ref.name]);
+  const { namespace: refNamespace, kind: refKind, name: refName } = workload.ref;
+  const feedFilters = useMemo(() => ({
+    features: ['VERTICAL' as const],
+    results: [],
+    q: '',
+    target: { namespace: refNamespace, kind: refKind, name: refName },
+  }), [refNamespace, refKind, refName]);
   const feed = useAutomationActivity({ clusterName, accountId, region, filters: feedFilters, limit: RECENT_FEED_LIMIT });
   const reply = controller.applyResults[workload.id];
   const applying = controller.applyingIds.has(workload.id);

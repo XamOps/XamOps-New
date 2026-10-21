@@ -43,6 +43,8 @@ import static com.xammer.cloud.repository.WorkloadVerticalActionRepository.dryRu
 import static com.xammer.cloud.repository.WorkloadVerticalActionRepository.kindIs;
 import static com.xammer.cloud.repository.WorkloadVerticalActionRepository.kindIsNot;
 import static com.xammer.cloud.repository.WorkloadVerticalActionRepository.nameContains;
+import static com.xammer.cloud.repository.WorkloadVerticalActionRepository.nameIs;
+import static com.xammer.cloud.repository.WorkloadVerticalActionRepository.namespaceIs;
 import static com.xammer.cloud.repository.WorkloadVerticalActionRepository.outcomeIn;
 import static com.xammer.cloud.service.automation.workload.policy.WorkloadActionRecorder.KIND_HPA;
 import static com.xammer.cloud.service.automation.workload.policy.WorkloadActionRecorder.OUTCOME_NOT_CHANGED;
@@ -135,12 +137,15 @@ public class AutomationActivityService {
      * @param features     empty for every feature
      * @param results      empty for every row, including those without a result
      * @param nameContains a case-insensitive part of the workload or HPA name, or null
+     * @param namespace    exactly this namespace, or null
+     * @param kind         exactly this kind ({@code Deployment}, {@code HorizontalPodAutoscaler}, …), or null
+     * @param name         exactly this workload or HPA name, or null
      * @param from         inclusive lower bound, or null
      * @param to           inclusive upper bound, or null
      * @param cursor       where the previous page ended, or null for the first page
      */
-    public record Query(Set<Feature> features, Set<Result> results, String nameContains, Instant from,
-                        Instant to, int limit, ActivityCursor cursor) {
+    public record Query(Set<Feature> features, Set<Result> results, String nameContains, String namespace,
+                        String kind, String name, Instant from, Instant to, int limit, ActivityCursor cursor) {
 
         public Query {
             features = features == null ? Set.of() : Set.copyOf(features);
@@ -148,6 +153,12 @@ public class AutomationActivityService {
             if (limit < 1 || limit > MAX_LIMIT) {
                 throw new IllegalArgumentException("limit must be 1.." + MAX_LIMIT + ", got " + limit);
             }
+        }
+
+        /** Without an exact namespace, kind or name. */
+        public Query(Set<Feature> features, Set<Result> results, String nameContains, Instant from, Instant to,
+                     int limit, ActivityCursor cursor) {
+            this(features, results, nameContains, null, null, null, from, to, limit, cursor);
         }
     }
 
@@ -326,6 +337,15 @@ public class AutomationActivityService {
         }
         if (query.nameContains() != null) {
             parts.add(nameContains(query.nameContains()));
+        }
+        if (query.namespace() != null) {
+            parts.add(namespaceIs(query.namespace()));
+        }
+        if (query.kind() != null) {
+            parts.add(kindIs(query.kind()));
+        }
+        if (query.name() != null) {
+            parts.add(nameIs(query.name()));
         }
         return parts.isEmpty() ? null : Specification.allOf(parts);
     }
@@ -585,7 +605,8 @@ public class AutomationActivityService {
                 continue;
             }
             JsonNode revert = pod.get("revert");
-            pods.add(new ActivityEntryDto.PodProof(name, text(pod.get("node")), bool(pod.get("uidChanged")),
+            pods.add(new ActivityEntryDto.PodProof(name, text(pod.get("node")), bool(pod.get("changed")),
+                    bool(pod.get("uidChanged")),
                     integer(pod.get("restartsBefore")), integer(pod.get("restartsAfter")),
                     bool(pod.get("ready")),
                     revert == null || !revert.isObject() ? null

@@ -24,7 +24,7 @@ export const PUT_BACK: ActivityEntryWire = {
   proof: {
     restartFree: true,
     reverted: true,
-    pods: [{ pod: 'throttled-encoder-8b999cc87-mcw8q', node: null, uidChanged: false, restartsBefore: 0, restartsAfter: 0, ready: true, revert: { state: 'REVERTED', detail: 'XamOps put the pod back.' } }],
+    pods: [{ pod: 'throttled-encoder-8b999cc87-mcw8q', node: null, changed: false, uidChanged: false, restartsBefore: 0, restartsAfter: 0, ready: true, revert: { state: 'REVERTED', detail: 'XamOps put the pod back.' } }],
   },
   detail: "The kubelet deferred the resize of pod prod-sim/throttled-encoder-8b999cc87-mcw8q because its node has no room for it right now (Node didn't have enough resource: cpu, requested: 63, used: 1900, capacity: 1930). Revert: REVERTED.",
   reference: 'd3f3rr3d-0000-4000-8000-000000000000',
@@ -39,8 +39,8 @@ export const APPLIED: ActivityEntryWire = {
     restartFree: true,
     reverted: null,
     pods: [
-      { pod: 'overprovisioned-api-6f7d8-fcnhh', node: null, uidChanged: false, restartsBefore: 0, restartsAfter: 0, ready: true, revert: null },
-      { pod: 'overprovisioned-api-6f7d8-gtnh5', node: null, uidChanged: false, restartsBefore: 0, restartsAfter: 0, ready: true, revert: null },
+      { pod: 'overprovisioned-api-6f7d8-fcnhh', node: null, changed: true, uidChanged: false, restartsBefore: 0, restartsAfter: 0, ready: true, revert: null },
+      { pod: 'overprovisioned-api-6f7d8-gtnh5', node: null, changed: true, uidChanged: false, restartsBefore: 0, restartsAfter: 0, ready: true, revert: null },
     ],
   },
   detail: null,

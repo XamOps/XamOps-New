@@ -74,19 +74,16 @@ class VerticalAutomationReadServiceTest {
             "dep-uid-1");
 
     @Test
-    @DisplayName("lastAction skips the activity log's rows: newer test runs, refusals, put-backs and HPA rows leave the APPLIED row")
-    void lastActionIgnoresTheActivityLogRows() {
+    @DisplayName("lastAction asks the store for the newest qualifying row per workload, skipping the activity log's row kinds")
+    void lastActionReadsTheNewestQualifyingRowPerWorkload() {
         com.xammer.cloud.repository.WorkloadVerticalActionRepository actions =
                 mock(com.xammer.cloud.repository.WorkloadVerticalActionRepository.class);
-        // Newest first, as the repository returns them.
-        when(actions.findByClusterConfigIdOrderByAppliedAtDesc(42L)).thenReturn(List.of(
-                action("Deployment", "TEST_RUN", true, "2026-10-13T09:00:00Z"),
-                action("Deployment", "APPLIED", true, "2026-10-13T08:30:00Z"),
-                action("Deployment", "REFUSED", false, "2026-10-13T08:00:00Z"),
-                action("Deployment", "NOT_CHANGED", false, "2026-10-13T07:00:00Z"),
-                action("HorizontalPodAutoscaler", "APPLIED", false, "2026-10-13T06:30:00Z"),
-                action("Deployment", "APPLIED", false, "2026-10-13T06:00:00Z"),
-                action("Deployment", "FAILED", false, "2026-10-13T05:00:00Z")));
+        // Newest first, as the repository returns them; two rows of one workload at the same instant
+        // both come back, the higher id first.
+        when(actions.findLastActions(any(), any(), any())).thenReturn(List.of(
+                lastAction("team-a", "overprovisioned-api", "APPLIED", "2026-10-13T06:00:00Z"),
+                lastAction("team-a", "overprovisioned-api", "FAILED", "2026-10-13T06:00:00Z"),
+                lastAction("team-b", "worker", "POLICY_CHANGE", "2026-10-13T05:00:00Z")));
         VerticalAutomationReadService service = new VerticalAutomationReadService(
                 new WorkloadAutoscalingProperties(false, false),
                 VerticalReadServiceFixtures.metricsProperties("OFF", 24), new NoMetricsSourceProvider(),
@@ -96,27 +93,22 @@ class VerticalAutomationReadServiceTest {
 
         Map<String, VerticalWorkloadDto.LastActionDto> lastActions = service.lastActions(42L);
 
-        assertThat(lastActions)
-                .as("the HPA row is not a workload's lastAction either")
-                .hasSize(1);
+        assertThat(lastActions).hasSize(2);
         assertThat(lastActions.get(WorkloadPolicyService.key("team-a", "Deployment", "overprovisioned-api")))
+                .as("the first row per workload is kept")
                 .isEqualTo(new VerticalWorkloadDto.LastActionDto(
                         java.time.Instant.parse("2026-10-13T06:00:00Z"), false, "APPLIED"));
+        assertThat(lastActions.get(WorkloadPolicyService.key("team-b", "Deployment", "worker")).outcome())
+                .isEqualTo("POLICY_CHANGE");
+        verify(actions).findLastActions(42L, List.of("TEST_RUN", "REFUSED", "NOT_CHANGED"),
+                "HorizontalPodAutoscaler");
+        org.mockito.Mockito.verify(actions, org.mockito.Mockito.never()).findByClusterConfigIdOrderByAppliedAtDesc(any());
     }
 
-    private static com.xammer.cloud.domain.WorkloadVerticalAction action(String kind, String outcome,
-                                                                         boolean dryRun, String appliedAt) {
-        com.xammer.cloud.domain.WorkloadVerticalAction action = new com.xammer.cloud.domain.WorkloadVerticalAction();
-        action.setClientId(7L);
-        action.setClusterConfigId(42L);
-        action.setNamespace("team-a");
-        action.setWorkloadKind(kind);
-        action.setWorkloadName("overprovisioned-api");
-        action.setTriggerSource("MANUAL");
-        action.setDryRun(dryRun);
-        action.setOutcome(outcome);
-        action.setAppliedAt(java.time.Instant.parse(appliedAt));
-        return action;
+    private static com.xammer.cloud.repository.WorkloadVerticalActionRepository.LastActionRow lastAction(
+            String namespace, String name, String outcome, String appliedAt) {
+        return new com.xammer.cloud.repository.WorkloadVerticalActionRepository.LastActionRow(namespace,
+                "Deployment", name, java.time.Instant.parse(appliedAt), false, outcome);
     }
 
     @Test

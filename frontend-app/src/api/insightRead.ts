@@ -4,7 +4,8 @@
  * `404` `K8S_CLUSTER_NOT_REGISTERED` is a cluster this environment doesn't know, and any other typed
  * `404` (a workload or HPA the cluster doesn't have) a refusal naming its field; an untyped `404`
  * means this backend doesn't serve the endpoint (`not-deployed`, the panel isn't rendered); a typed
- * `403` or `400` is a refusal with its code; anything else is an error carrying the server's message.
+ * `403` or `400` is a refusal with its code, and an untyped `403` (the app's own "Access is denied") is
+ * the no-account-access refusal; anything else is an error carrying the server's message.
  * A `200` body the reader can't recognise is an error too, never an empty chart.
  */
 import apiClient from '../utils/apiClient';
@@ -75,8 +76,17 @@ export async function readInsight<W, V>(url: string, spec: InsightReadSpec<W, V>
   if (code && (response.status === 403 || response.status === 400)) {
     return { kind: 'refused', code, message: refusalMessage(refusal, 'The read was refused.'), field };
   }
+  if (response.status === 403) {
+    // The usage and HPA history reads answer an account the caller isn't entitled to as endpoint 1
+    // does, with the app's untyped {"message":"Access is denied"}: the same refusal the activity reads
+    // type as K8S_NO_ACCOUNT_ACCESS, which a retry can't change.
+    return { kind: 'refused', code: parseCode('K8S_NO_ACCOUNT_ACCESS')!, message: NO_ACCOUNT_ACCESS_MESSAGE, field: null };
+  }
   return { kind: 'error', message: refusalMessage(refusal, `${spec.what} returned HTTP ${response.status}.`) };
 }
+
+/** What an untyped 403 means on these reads. */
+export const NO_ACCOUNT_ACCESS_MESSAGE = "You don't have access to this AWS account.";
 
 /** A plain object (not null, not an array). */
 export const isObject = (body: unknown): body is Record<string, unknown> =>

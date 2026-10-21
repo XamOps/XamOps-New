@@ -37,6 +37,9 @@ export const activityUrl = (cluster: string, accountId: string, region: string, 
   if (query.results && query.results.length > 0) params.push(`result=${seg(query.results.join(','))}`);
   const q = query.q?.trim();
   if (q) params.push(`q=${seg(q.slice(0, ACTIVITY_QUERY_MAX))}`);
+  if (query.target) {
+    params.push(`namespace=${seg(query.target.namespace)}`, `kind=${seg(query.target.kind)}`, `name=${seg(query.target.name)}`);
+  }
   if (query.from) params.push(`from=${seg(query.from)}`);
   if (query.to) params.push(`to=${seg(query.to)}`);
   params.push(`limit=${query.limit ?? ACTIVITY_PAGE_LIMIT}`);

@@ -20,6 +20,8 @@ export interface ActivityFilters {
   results: readonly ActivityResultWire[];
   /** Part of a workload or HPA name. */
   q: string;
+  /** Exactly one workload or HPA: its own entries, never those of a neighbour whose name contains its own. */
+  target?: { namespace: string; kind: string; name: string } | null;
   /** Entries at or after this instant (ISO-8601, UTC); the caller fixes it, so it doesn't move every render. */
   from?: string | null;
 }
@@ -91,6 +93,12 @@ export const useAutomationActivity = ({
   const resultKey = filters.results.join(',');
   const q = filters.q.trim();
   const from = filters.from ?? null;
+  const targetNamespace = filters.target?.namespace ?? null;
+  const targetKind = filters.target?.kind ?? null;
+  const targetName = filters.target?.name ?? null;
+  const target = targetNamespace !== null && targetKind !== null && targetName !== null
+    ? { namespace: targetNamespace, kind: targetKind, name: targetName }
+    : null;
 
   useEffect(() => {
     generation.current += 1;
@@ -109,6 +117,7 @@ export const useAutomationActivity = ({
       features: featureKey ? (featureKey.split(',') as ActivityFeatureWire[]) : [],
       results: resultKey ? (resultKey.split(',') as ActivityResultWire[]) : [],
       q,
+      target,
       from,
       limit,
     })
@@ -123,7 +132,9 @@ export const useAutomationActivity = ({
       .finally(() => {
         if (mounted.current && generation.current === mine) setLoading(false);
       });
-  }, [clusterName, accountId, region, featureKey, resultKey, q, from, limit, reloadToken]);
+    // target is rebuilt from its three strings, which are the dependencies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clusterName, accountId, region, featureKey, resultKey, q, targetNamespace, targetKind, targetName, from, limit, reloadToken]);
 
   const loadOlder = useCallback(() => {
     if (!clusterName || !accountId || !region || !cursor || loadingOlder) return;
@@ -134,6 +145,7 @@ export const useAutomationActivity = ({
       features: featureKey ? (featureKey.split(',') as ActivityFeatureWire[]) : [],
       results: resultKey ? (resultKey.split(',') as ActivityResultWire[]) : [],
       q,
+      target,
       from,
       limit,
       cursor,
@@ -154,7 +166,9 @@ export const useAutomationActivity = ({
       .finally(() => {
         if (mounted.current && generation.current === mine) setLoadingOlder(false);
       });
-  }, [clusterName, accountId, region, cursor, loadingOlder, featureKey, resultKey, q, from, limit]);
+    // target is rebuilt from its three strings, which are the dependencies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clusterName, accountId, region, cursor, loadingOlder, featureKey, resultKey, q, targetNamespace, targetKind, targetName, from, limit]);
 
   const reload = useCallback(() => setReloadToken((t) => t + 1), []);
 

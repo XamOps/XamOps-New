@@ -59,7 +59,8 @@ import java.util.regex.Pattern;
  *
  * {@code feature} (csv of {@code VERTICAL,HPA}), {@code result} (csv of
  * {@code APPLIED,PUT_BACK,REFUSED,TEST_RUN,FAILED}), {@code q} (part of a name, at most 100
- * characters), {@code from} / {@code to} (ISO-8601, at most 90 days apart), {@code limit}
+ * characters), {@code namespace} / {@code kind} / {@code name} (exact, each on its own: one workload's
+ * or HPA's own entries), {@code from} / {@code to} (ISO-8601, at most 90 days apart), {@code limit}
  * (1–200, default 50) and {@code cursor} (the previous page's {@code nextCursor}). The summary takes
  * {@code days} (1–30, default 7) and {@code feature}. A malformed one is a
  * {@code 400 K8S_INVALID_REQUEST} naming it.
@@ -75,6 +76,8 @@ public class AutomationActivityController {
     private static final Pattern REGION = Pattern.compile("^[a-z0-9\\-]{3,32}$");
     private static final Pattern LIMIT = Pattern.compile("^[0-9]{1,4}$");
     private static final Pattern DAYS = Pattern.compile("^[0-9]{1,2}$");
+    private static final Pattern K8S_NAME = Pattern.compile("^[a-z0-9]([a-z0-9.\\-]{0,251}[a-z0-9])?$");
+    private static final Pattern K8S_KIND = Pattern.compile("^[A-Za-z]{1,32}$");
 
     private final CloudAccountAccessService accessService;
     private final KubernetesClusterConfigRepository clusterConfigRepository;
@@ -105,6 +108,9 @@ public class AutomationActivityController {
                                 @RequestParam(value = "feature", required = false) String feature,
                                 @RequestParam(value = "result", required = false) String result,
                                 @RequestParam(value = "q", required = false) String q,
+                                @RequestParam(value = "namespace", required = false) String namespace,
+                                @RequestParam(value = "kind", required = false) String kind,
+                                @RequestParam(value = "name", required = false) String name,
                                 @RequestParam(value = "from", required = false) String from,
                                 @RequestParam(value = "to", required = false) String to,
                                 @RequestParam(value = "limit", required = false) String limit,
@@ -115,7 +121,9 @@ public class AutomationActivityController {
         AutomationActivityService.Query query = new AutomationActivityService.Query(
                 csv(feature, AutomationActivityService.Feature.class, "feature"),
                 csv(result, AutomationActivityService.Result.class, "result"),
-                nameQuery(q), instant(from, "from"), instant(to, "to"), limit(limit), cursor(cursor));
+                nameQuery(q), exact(namespace, K8S_NAME, "namespace"), exact(kind, K8S_KIND, "kind"),
+                exact(name, K8S_NAME, "name"), instant(from, "from"), instant(to, "to"), limit(limit),
+                cursor(cursor));
         requireRange(query.from(), query.to());
 
         return activityService.page(target(principal, accountId, cluster, region), query);
@@ -181,6 +189,15 @@ public class AutomationActivityController {
             throw new ParameterShapeException("q");
         }
         return trimmed;
+    }
+
+    /** An exact namespace, kind or name, trimmed; null when not given. */
+    private static String exact(String value, Pattern pattern, String field) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        requireShape(value, pattern, field);
+        return value.trim();
     }
 
     private static Instant instant(String value, String field) {

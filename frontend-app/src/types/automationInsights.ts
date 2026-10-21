@@ -131,6 +131,18 @@ export interface HpaHistoryResponseWire {
   unavailable?: InsightUnavailableWire | null;
 }
 
+/**
+ * `GET /api/eks/automation/hpa/{cluster}/history?hpas=` (`HpaHistoriesDto`): the HPA list's one read.
+ * Each entry is what the one-HPA read answers for that HPA; `missing` lists the HPAs neither
+ * Prometheus nor the cluster knows (the one-HPA read's 404).
+ */
+export interface HpaHistoriesResponseWire {
+  schemaVersion?: number | null;
+  window?: string | null;
+  histories?: HpaHistoryResponseWire[] | null;
+  missing?: Array<{ namespace?: string | null; name?: string | null }> | null;
+}
+
 // ─── Query ───────────────────────────────────────────────────────────────────
 
 export type UsageScope = 'cluster' | 'namespace' | 'workload';
