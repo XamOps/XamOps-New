@@ -1,6 +1,7 @@
 package com.xammer.cloud.service;
 
 import com.xammer.cloud.config.K8sAutomationReadinessProperties;
+import com.xammer.cloud.config.K8sReadinessKey;
 import com.xammer.cloud.domain.AgentEvent;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
@@ -127,6 +128,9 @@ public class K8sCapabilitiesService {
             clusters.add(cluster(user, accounts, config, rowsByConfig.get(config.getId()), now));
         }
 
+        boolean readWrite = !accounts.isEmpty()
+                && accounts.stream().allMatch(K8sAutomationAccessService::isReadWrite);
+
         return new K8sCapabilitiesDto(
                 K8sCapabilitiesDto.SCHEMA_VERSION,
                 awsAccountId.trim(),
@@ -135,7 +139,7 @@ public class K8sCapabilitiesService {
                 new UserCapability(userDecision.canChangeAutomation(), names(userDecision.reasons()),
                         userDecision.detail() != null ? userDecision.detail().name() : null),
                 writeGate(topGate),
-                readinessMap(),
+                readinessMap(readWrite),
                 new VerticalEngine(verticalEngineEnabled()),
                 clusters);
     }
@@ -279,11 +283,20 @@ public class K8sCapabilitiesService {
         return new WriteGate(decision.allowed(), names(decision.reasons()));
     }
 
-    private Map<String, Readiness> readinessMap() {
+    /**
+     * The readiness map. The {@code hpa-apply} key is derived: a read-write connection makes it
+     * ready even while the standalone {@code xamops.k8s.automation.readiness.hpa-apply} staging flag
+     * is false, matching {@link com.xammer.cloud.service.automation.workload.api.HpaApplyService}'s
+     * enforcement gate. Every other key reads straight from the readiness properties.
+     */
+    private Map<String, Readiness> readinessMap(boolean readWrite) {
         Map<String, Readiness> map = new LinkedHashMap<>();
-        readiness.asMap().forEach((key, ready) -> map.put(key.key(), ready
-                ? new Readiness(true, null, null)
-                : new Readiness(false, key.reason().name(), key.message())));
+        readiness.asMap().forEach((key, ready) -> {
+            boolean effective = key == K8sReadinessKey.HPA_APPLY ? (ready || readWrite) : ready;
+            map.put(key.key(), effective
+                    ? new Readiness(true, null, null)
+                    : new Readiness(false, key.reason().name(), key.message()));
+        });
         return map;
     }
 

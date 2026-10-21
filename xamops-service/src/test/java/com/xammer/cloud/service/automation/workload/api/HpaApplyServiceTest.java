@@ -143,18 +143,38 @@ class HpaApplyServiceTest {
     }
 
     @Test
-    @DisplayName("either flag off, or no executor, is 403 K8S_CONTROLLER_NOT_READY")
+    @DisplayName("the feature off, or no executor, is 403 K8S_CONTROLLER_NOT_READY with the reworded message")
     void anUnreadyControllerIsRefused() {
+        // Readiness now derives from the read-write connection and the feature/executor wiring, NOT
+        // the standalone staging flag (ready). Feature off or no executor still refuses.
         for (HorizontalAutoscalingProperties gated : List.of(
-                new HorizontalAutoscalingProperties(false, true, true),
-                new HorizontalAutoscalingProperties(true, false, true),
-                new HorizontalAutoscalingProperties(true, true, false))) {
+                new HorizontalAutoscalingProperties(false, false, true),
+                new HorizontalAutoscalingProperties(true, false, false))) {
             VerticalApplyService.ApplyRefusedException refusal = catchRefusal(
                     () -> service(gated).apply(principal(), readWriteAccount(), TARGET, REF, body(true)));
 
             assertThat(refusal.code()).isEqualTo("K8S_CONTROLLER_NOT_READY");
+            assertThat(refusal.getMessage())
+                    .doesNotContain("not been enabled and validated")
+                    .isEqualTo("HPA automation is not available in this environment: the HPA feature"
+                            + " is off or no apply path is wired.");
         }
         verifyNoInteractions(inventory, executor, patchClient);
+    }
+
+    @Test
+    @DisplayName("read-write + feature on + executor present reaches the apply path with the staging flag FALSE")
+    void readWriteReachesTheApplyPathWithTheStagingFlagFalse() {
+        // ready == false (the standalone hpa-apply readiness flag is off): readiness derives from
+        // the read-write connection, so the gate passes and the apply path is reached.
+        HorizontalAutoscalingProperties stagingFlagOff =
+                new HorizontalAutoscalingProperties(true, false, true);
+
+        HpaApplyResponseDto response = service(stagingFlagOff)
+                .apply(principal(), readWriteAccount(), TARGET, REF, body(true));
+
+        assertThat(response.state()).isEqualTo("ACCEPTED");
+        verify(executor).submit(any(), any(), any());
     }
 
     @Test

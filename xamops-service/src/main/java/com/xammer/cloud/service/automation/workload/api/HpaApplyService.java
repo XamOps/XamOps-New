@@ -2,6 +2,7 @@ package com.xammer.cloud.service.automation.workload.api;
 
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.security.K8sAutomationAccessService;
 import com.xammer.cloud.service.automation.workload.ActionTrigger;
 import com.xammer.cloud.service.automation.workload.HorizontalAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.HpaReason;
@@ -181,7 +182,7 @@ public class HpaApplyService {
                                    HpaApplyRequestDto request, AuditSubject subject) {
         requirePermission(principal, account);
         requireWriteConnection(account);
-        requireControllerReady();
+        requireControllerReady(account);
 
         Submitted submitted = requireBody(request);
 
@@ -402,12 +403,20 @@ public class HpaApplyService {
         }
     }
 
-    private void requireControllerReady() {
-        if (!properties.isApplyPermitted()) {
+    /**
+     * HPA-apply readiness derives from the read-write connection, not the standalone
+     * {@code xamops.k8s.automation.readiness.hpa-apply} staging flag: a read-write account on a
+     * feature that is on with an executor wired is ready. The {@link K8sAutomationAccessService#isReadWrite(CloudAccount)}
+     * check is belt-and-braces — {@link #requireWriteConnection(CloudAccount)} already ran — so the
+     * readiness gate can never pass on a read-only connection.
+     */
+    private void requireControllerReady(CloudAccount account) {
+        if (!(properties.isEnabled() && properties.isExecutorPresent()
+                && K8sAutomationAccessService.isReadWrite(account))) {
             throw new VerticalApplyService.ApplyRefusedException(HttpStatus.FORBIDDEN,
                     ReasonCode.CONTROLLER_NOT_READY.refusalCode(), null,
-                    "HPA automation has not been enabled and validated in this environment, so"
-                            + " nothing can be applied.");
+                    "HPA automation is not available in this environment: the HPA feature is off or"
+                            + " no apply path is wired.");
         }
     }
 
