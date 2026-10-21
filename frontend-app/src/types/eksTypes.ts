@@ -566,3 +566,89 @@ export interface PodResourceMetrics {
   podsWithoutRequests: number;
   podsWithoutLimits: number;
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// Vertical pricing engine (GET /api/eks/automation/vertical/{cluster}) — the real
+// AWS $ the Cost tab consumes (FEAT-002). Every money field is `number | null`:
+// the engine emits null (never 0) for an unavailable figure, and the frontend
+// MUST render a dash + reason, never coalesce null → 0.
+// ───────────────────────────────────────────────────────────────────────────
+
+/** One fleet node's resolved monthly $, mirroring the backend NodeCostDto. */
+export interface VerticalNodeCost {
+  nodeName: string;
+  instanceType: string | null;
+  capacityType: string | null;
+  capacityTypeInferred: boolean;
+  /** usdPerHour × hoursPerMonth when priceable, else null (dash + reason). */
+  monthlyCost: number | null;
+  source: string | null;
+  reason: string | null;
+  note: string | null;
+}
+
+/** One namespace's monthly $ roll-up, mirroring the backend NamespaceCostDto. */
+export interface VerticalNamespaceCost {
+  namespace: string;
+  /** Σ priceable workloads, or null when none in the namespace was priceable. */
+  monthlyCost: number | null;
+  pricedWorkloads: number;
+  unpricedWorkloads: number;
+}
+
+/** One workload's cost + savings, mirroring the backend WorkloadCostDto. */
+export interface VerticalWorkloadCost {
+  monthlyCost: number | null;
+  monthlySavings: number | null;
+  reason: string | null;
+  source: string | null;
+  capacityType: string | null;
+  capacityTypeInferred: boolean;
+  note: string | null;
+}
+
+/** The cluster-level cost roll-up, mirroring the backend CostSummaryDto. */
+export interface VerticalCostSummary {
+  currency: string;
+  hoursPerMonth: number;
+  monthlySavings: number | null;
+  monthlySavingsUnavailableReason: string | null;
+  clusterMonthlyCost: number | null;
+  pricedWorkloads: number;
+  unpricedWorkloads: number;
+  /** null ONLY when the cost feature is off; when on it is the full fleet (possibly all-dash). */
+  nodeCosts: VerticalNodeCost[] | null;
+  /** null/empty only when there are no evaluated workloads. */
+  namespaceCosts: VerticalNamespaceCost[] | null;
+}
+
+/** One workload's identity, mirroring the backend WorkloadRefDto. */
+export interface VerticalWorkloadRef {
+  namespace: string;
+  kind: string;
+  name: string;
+}
+
+/** A single evaluated workload on the vertical response (only the fields the Cost tab reads). */
+export interface VerticalWorkload {
+  ref: VerticalWorkloadRef;
+  cost: VerticalWorkloadCost | null;
+}
+
+/** The engine-status block; the Cost tab only needs to know whether the feature is enabled. */
+export interface VerticalEngineStatus {
+  enabled: boolean;
+  ready: boolean;
+  clusterAccess: string | null;
+  executionPath: string | null;
+}
+
+/** The response body of GET /api/eks/automation/vertical/{cluster}. */
+export interface VerticalEngineResponse {
+  engine: VerticalEngineStatus;
+  gateReasons: string[];
+  workloads: VerticalWorkload[];
+  writeGatesChecked: boolean;
+  /** The cost roll-up, or null when the cost feature is off / the cluster could not be evaluated. */
+  cost: VerticalCostSummary | null;
+}
