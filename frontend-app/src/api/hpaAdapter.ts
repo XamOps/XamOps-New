@@ -262,6 +262,7 @@ export const hpaApplyGate = (
   workload: HpaWorkloadView,
   dryRun: boolean,
   callerRefusal: HpaCallerRefusal | null = null,
+  hpaApplyReady: boolean = false,
 ): HpaApplyGate => {
   const engine: HpaEngineView = view.engine;
   const changes = toHpaApplyRequest(workload.decision, dryRun);
@@ -284,7 +285,7 @@ export const hpaApplyGate = (
     }
   }
   if (!view.writeGatesChecked) return blocked(WRITE_GATES_NOT_CHECKED);
-  if (!engine.enabled || !engine.ready || findGate(gateReasons, 'CONTROLLER_NOT_READY')) {
+  if (!engine.enabled || !hpaApplyReady) {
     return blocked('Applying is off in this environment');
   }
   if (engine.executionPath === null || engine.executionPath === 'NONE') {

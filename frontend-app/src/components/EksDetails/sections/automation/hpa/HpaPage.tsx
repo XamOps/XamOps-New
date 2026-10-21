@@ -20,6 +20,7 @@
 import React, { useEffect, useId, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useHpaAutomation from '../../../../../hooks/useHpaAutomation';
+import { useK8sCapabilities } from '../../../../../hooks/useK8sCapabilities';
 import { DASH, hpaApplyGate } from '../../../../../api/hpaAdapter';
 import { inPageState } from '../../../../../utils/inPageNavigation';
 import { hpaCodeText } from '../hpaCopy';
@@ -111,7 +112,8 @@ const EngineStatus: React.FC<{
   dryRun: boolean;
   onDryRun: (next: boolean) => void;
   reload: () => void;
-}> = ({ view, dryRun, onDryRun, reload }) => {
+  hpaApplyReady: boolean;
+}> = ({ view, dryRun, onDryRun, reload, hpaApplyReady }) => {
   const { engine, gateReasons, anomalies } = view;
   return (
     <section className={`${CARD} px-4 py-3`} data-hpa-engine="">
@@ -126,7 +128,7 @@ const EngineStatus: React.FC<{
           <StatusItem label="HPA automation" value={engine.enabled ? 'On' : 'Off in this environment'} title={`Code: enabled ${engine.enabled}`} />
           <StatusItem
             label="Changes"
-            value={engine.ready ? (view.writeGatesChecked ? 'Can be applied' : 'Not checked') : 'Suggestions only'}
+            value={hpaApplyReady ? (view.writeGatesChecked ? 'Can be applied' : 'Not checked') : 'Suggestions only'}
             title="Applying is gated the same way as workload rightsizing."
           />
           <StatusItem
@@ -197,7 +199,8 @@ const CandidateCard: React.FC<{
   view: HpaPageView;
   dryRun: boolean;
   state: UseHpaAutomationState;
-}> = ({ workload, view, dryRun, state }) => (
+  hpaApplyReady: boolean;
+}> = ({ workload, view, dryRun, state, hpaApplyReady }) => (
   <section className={`${CARD} px-4 py-3`} data-hpa-candidate={workload.id}>
     <div className="mb-2 flex flex-wrap items-center gap-2">
       <span className={`text-[13px] font-semibold ${INK}`}>{workload.ref.name}</span>
@@ -208,7 +211,7 @@ const CandidateCard: React.FC<{
     </div>
     <HpaDecisionPanel
       workload={workload}
-      gate={hpaApplyGate(view, workload, dryRun, state.callerRefusal)}
+      gate={hpaApplyGate(view, workload, dryRun, state.callerRefusal, hpaApplyReady)}
       dryRun={dryRun}
       applying={state.applyingIds.has(workload.id)}
       reply={state.applyResults[workload.id]}
@@ -297,7 +300,8 @@ const HpaTableRow: React.FC<{
   detailHref: string;
   /** This HPA's history (FEAT-004); null when the page didn't read it. Undefined: no history column. */
   history?: InsightReadState<HpaHistoryView> | null;
-}> = ({ row, view, engineRead, dryRun, state, detailHref, history }) => {
+  hpaApplyReady: boolean;
+}> = ({ row, view, engineRead, dryRun, state, detailHref, history, hpaApplyReady }) => {
   const live = row.live;
   const w = row.workload;
   const coexist = coexistChip(row, engineRead);
@@ -377,7 +381,7 @@ const HpaTableRow: React.FC<{
           {w && view ? (
             <HpaDecisionPanel
               workload={w}
-              gate={hpaApplyGate(view, w, dryRun, state.callerRefusal)}
+              gate={hpaApplyGate(view, w, dryRun, state.callerRefusal, hpaApplyReady)}
               dryRun={dryRun}
               applying={state.applyingIds.has(w.id)}
               reply={state.applyResults[w.id]}
@@ -408,7 +412,8 @@ const HpaTable: React.FC<{
   agentReported: boolean;
   /** Each HPA's history for "Last scaled"; omitted when the backend doesn't serve it. */
   historyFor?: (row: HpaRow) => InsightReadState<HpaHistoryView> | null;
-}> = ({ rows, view, engineRead, dryRun, state, hrefFor, agentReported, historyFor }) => {
+  hpaApplyReady: boolean;
+}> = ({ rows, view, engineRead, dryRun, state, hrefFor, agentReported, historyFor, hpaApplyReady }) => {
   const titleId = useId();
   return (
     <section className={CARD} aria-labelledby={titleId} data-hpa-table="">
@@ -443,6 +448,7 @@ const HpaTable: React.FC<{
                 state={state}
                 detailHref={hrefFor(row)}
                 history={historyFor ? historyFor(row) : undefined}
+                hpaApplyReady={hpaApplyReady}
               />
             ))}
           </tbody>
@@ -501,6 +507,8 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
   const [dryRun, setDryRun] = useState(true);
   const state = useHpaAutomation({ clusterName, accountId, region });
   const { loading, result, reload } = state;
+  const { can } = useK8sCapabilities();
+  const hpaApplyReady = can('hpa.apply', { cluster: clusterName }).allowed;
   const location = useLocation();
   const navigate = useNavigate();
   const [malformed, setMalformed] = useState(false);
@@ -555,6 +563,7 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
         state={state}
         listHref={listHref}
         history={historyOf(histories, selected.id)}
+        hpaApplyReady={hpaApplyReady}
       />
     );
   }
@@ -598,7 +607,7 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
         </Notice>
       )}
       {view ? (
-        <EngineStatus view={view} dryRun={dryRun} onDryRun={setDryRun} reload={reload} />
+        <EngineStatus view={view} dryRun={dryRun} onDryRun={setDryRun} reload={reload} hpaApplyReady={hpaApplyReady} />
       ) : (
         <HpaReadFallback feature="hpa" loading={loading} result={result} reload={reload} />
       )}
@@ -612,6 +621,7 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
           hrefFor={hrefFor}
           agentReported={agentReported}
           historyFor={historyServed ? (row) => historyOf(histories, row.id) : undefined}
+          hpaApplyReady={hpaApplyReady}
         />
       ) : (
         view && candidates.length === 0 && (
@@ -626,7 +636,7 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
             {candidates.length} {plural(candidates.length, 'workload')} an HPA would help
           </h3>
           {candidates.map((w) => (
-            <CandidateCard key={w.id} workload={w} view={view} dryRun={dryRun} state={state} />
+            <CandidateCard key={w.id} workload={w} view={view} dryRun={dryRun} state={state} hpaApplyReady={hpaApplyReady} />
           ))}
         </section>
       )}

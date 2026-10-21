@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { cleanup, render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -8,6 +9,8 @@ import { adaptHpaPage } from '../../../../../../api/hpaAdapter';
 import { fetchHpaPage, applyHpaRecommendation, fetchHpaHistory, fetchHpaHistories } from '../../../../../../api/hpaApi';
 import { adaptHpaHistory } from '../../../../../../api/automationInsightsAdapter';
 import type { HpaHistoryResponseWire } from '../../../../../../types/automationInsights';
+import { K8sCapabilitiesProvider } from '../../../../../../hooks/useK8sCapabilities';
+import { READINESS_KEYS, type CapabilitiesDto } from '../../../../../../types/k8sAutomation';
 import type { VerticalEngineResponseWire, VerticalWorkloadWire } from '../../../../../../types/verticalRightsizer';
 
 vi.mock('../../../../../../api/hpaApi', () => ({
@@ -19,6 +22,52 @@ vi.mock('../../../../../../api/hpaApi', () => ({
   fetchHpaHistory: vi.fn(),
   fetchHpaHistories: vi.fn(),
 }));
+
+const { getCapabilities } = vi.hoisted(() => ({ getCapabilities: vi.fn() }));
+vi.mock('../../../../../../api/k8sAutomationApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../../../api/k8sAutomationApi')>();
+  return { ...actual, getCapabilities };
+});
+
+const ACCOUNT = '123456789012';
+const CLUSTER = 'c1';
+
+/** A read-write, hpa-apply-ready capabilities fixture: can('hpa.apply') is allowed (FEAT-001/002). */
+function readyCapabilities(): CapabilitiesDto {
+  const connection = { accessLevel: 'READ_WRITE', status: 'CONNECTED' } as const;
+  const writeGate = { allowed: true, reasons: [] as string[] };
+  return {
+    schemaVersion: 1,
+    accountId: ACCOUNT,
+    generatedAt: new Date().toISOString(),
+    connection,
+    user: { canChangeAutomation: true, reasons: [], detail: null },
+    writeGate,
+    readiness: Object.fromEntries(
+      READINESS_KEYS.map((key) => [key, key === 'hpa-apply'
+        ? { ready: true, reason: null, message: null }
+        : { ready: false, reason: 'CONTROLLER_NOT_READY', message: 'off' }]),
+    ),
+    verticalEngine: { enabled: true },
+    clusters: [
+      {
+        clusterName: CLUSTER,
+        registered: true,
+        connection,
+        writeGate,
+        dataSourceMode: 'agent',
+        agent: { status: 'CONNECTED', lastDataAt: new Date().toISOString(), version: 'v2.1.0' },
+        automationAgent: { status: 'CONNECTED', lastSeenAt: new Date().toISOString(), version: '1.0.0-autoscaler' },
+        nodeAutomation: { enabled: false, mode: null, evictorAnalyseOnly: null, derivedState: 'OFF' },
+        dataSources: [],
+      },
+    ],
+  };
+}
+
+const withCaps = (element: ReactElement) => (
+  <K8sCapabilitiesProvider accountId={ACCOUNT}>{element}</K8sCapabilitiesProvider>
+);
 
 const mockedRead = fetchHpaPage as unknown as ReturnType<typeof vi.fn>;
 const mockedApply = applyHpaRecommendation as unknown as ReturnType<typeof vi.fn>;
@@ -72,13 +121,14 @@ const resolveWith = (wire: VerticalEngineResponseWire) =>
   mockedRead.mockResolvedValue({ kind: 'ok', view: adaptHpaPage({ writeGatesChecked: true, ...wire }) });
 
 // The page reads `?hpa=` (its detail), so it renders under a router; nothing else about it changed.
-const renderTab = () => render(<MemoryRouter><HpaPage clusterName="c1" accountId="123456789012" region="ap-south-1" /></MemoryRouter>);
+const renderTab = () => render(<MemoryRouter>{withCaps(<HpaPage clusterName="c1" accountId="123456789012" region="ap-south-1" />)}</MemoryRouter>);
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockedHistory.mockImplementation(async () => ({ kind: 'not-deployed' }));
   mockedHistories.mockImplementation(async (_c: string, hpas: Array<{ namespace: string; name: string }>) =>
     Object.fromEntries(hpas.map((h) => [`${h.namespace}/${h.name}`, { kind: 'not-deployed' }])));
+  getCapabilities.mockResolvedValue(readyCapabilities());
 });
 
 // Moved verbatim from main's EksHpaTab.test.tsx ("EksHpaTab — HPA decision + Apply gating") when the
@@ -90,7 +140,7 @@ describe('HpaPage — HPA decision + Apply gating', () => {
     expect(await screen.findByText(/raising the maximum to 8/i)).toBeInTheDocument();
     expect(screen.getByText(/ceil\(5 × 64% ÷ 50%\)/)).toBeInTheDocument();
     const apply = screen.getByRole('button', { name: /Apply php-apache/i });
-    expect(apply).toBeEnabled();
+    await waitFor(() => expect(apply).toBeEnabled());
     // No raw code is visible as text.
     expect(screen.queryByText('AT_MAX_UNMET_DEMAND')).not.toBeInTheDocument();
   });
@@ -115,6 +165,7 @@ describe('HpaPage — HPA decision + Apply gating', () => {
     mockedApply.mockResolvedValue({ kind: 'submitted', correlationId: 'cid', state: 'ACCEPTED', dryRun: true, applied: { minReplicas: null, maxReplicas: 8, targetUtilizationPct: null, dryRun: true } });
     renderTab();
     const apply = await screen.findByRole('button', { name: /Apply php-apache/i });
+    await waitFor(() => expect(apply).toBeEnabled());
     fireEvent.click(apply);
     await waitFor(() => expect(mockedApply).toHaveBeenCalledTimes(1));
     expect(mockedApply.mock.calls[0][4]).toEqual({ maxReplicas: 8, dryRun: true });
@@ -145,7 +196,7 @@ const agentData = (hpas: unknown[] = [PHP_AGENT]) => ({ dashboard: { k8sHpas: hp
 const HPA_PAGE = '/eks-details?name=c1&accountIds=123456789012&region=ap-south-1&tab=automation&sub=hpa';
 /** `eksData: null` renders the page without the XamOps agent's data. */
 const hpaPage = (url = HPA_PAGE, eksData: UseEksDashboardReturn | null = agentData()) =>
-  renderAt(url, <HpaPage clusterName="c1" accountId="123456789012" region="ap-south-1" eksData={eksData ?? undefined} />);
+  renderAt(url, withCaps(<HpaPage clusterName="c1" accountId="123456789012" region="ap-south-1" eksData={eksData ?? undefined} />));
 const rowOf = async (id: string) =>
   waitFor(() => {
     const row = document.querySelector<HTMLElement>(`[data-hpa-row="${id}"]`);
@@ -176,7 +227,7 @@ describe('HpaPage — HPAs on this cluster (UI v3 plan §2 "HPA")', () => {
       'php-apache is at its maximum of 5 replicas, with CPU at 64% against a 50% target, so it would add pods if it could.',
     );
     // The decision and its gated Apply are main's, once per HPA, under its row.
-    expect(screen.getByRole('button', { name: /Apply php-apache/i })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: /Apply php-apache/i })).toBeEnabled());
     expect(document.querySelector('[data-hpa-row-decision="team-b/php-apache"] [data-hpa-panel]')).not.toBeNull();
   });
 
@@ -218,6 +269,7 @@ describe('HpaPage — HPAs on this cluster (UI v3 plan §2 "HPA")', () => {
     mockedApply.mockResolvedValue({ kind: 'submitted', correlationId: 'cid', state: 'ACCEPTED', dryRun: true, applied: { minReplicas: null, maxReplicas: 8, targetUtilizationPct: null, dryRun: true } });
     hpaPage();
     await rowOf('team-b/php-apache');
+    await waitFor(() => expect(screen.getByRole('button', { name: /Apply php-apache/i })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: /Apply php-apache/i }));
     await waitFor(() => expect(mockedApply).toHaveBeenCalledTimes(1));
     expect(mockedApply.mock.calls[0][4]).toEqual({ maxReplicas: 8, dryRun: true });
@@ -411,7 +463,7 @@ describe('HpaDetail — ?hpa=<namespace>/<name>', () => {
     expect(detail.querySelector('[data-hpa-at-limit]')).toHaveTextContent('it wants about 7, so it would add pods if it could.');
     expect(detail.querySelector('[data-hpa-condition="ScalingLimited"]')).toHaveTextContent('Held at a limit: yes, the maximum');
     expect(detail.querySelector('[data-works-check="cpu"]')).toHaveTextContent('Workload autoscaler leaves CPU alone');
-    expect(within(detail).getByRole('button', { name: /Apply php-apache/i })).toBeEnabled();
+    await waitFor(() => expect(within(detail).getByRole('button', { name: /Apply php-apache/i })).toBeEnabled());
     expect(screen.getByText(/raising the maximum to 8/i)).toBeInTheDocument();
   });
 

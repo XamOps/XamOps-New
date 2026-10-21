@@ -37,6 +37,7 @@ export interface HpaDetailProps {
   listHref: string;
   /** This HPA's history (FEAT-004), read by the page; null when it wasn't read. */
   history?: InsightReadState<HpaHistoryView> | null;
+  hpaApplyReady: boolean;
 }
 
 const n = (v: number | null | undefined): string => (v === null || v === undefined ? DASH : String(v));
@@ -51,7 +52,7 @@ function Tile({ label, children, sub }: { label: string; children: ReactNode; su
   );
 }
 
-export function HpaDetail({ row, view, engineRead, dryRun, onDryRun, state, listHref, history = null }: HpaDetailProps) {
+export function HpaDetail({ row, view, engineRead, dryRun, onDryRun, state, listHref, history = null, hpaApplyReady }: HpaDetailProps) {
   const live = row.live;
   const wants = live ? hpaWants(live) : null;
   const atMax = rowHasFlag(row, 'at-max');
@@ -159,7 +160,7 @@ export function HpaDetail({ row, view, engineRead, dryRun, onDryRun, state, list
         {w && view ? (
           <HpaDecisionPanel
             workload={w}
-            gate={hpaApplyGate(view, w, dryRun, state.callerRefusal)}
+            gate={hpaApplyGate(view, w, dryRun, state.callerRefusal, hpaApplyReady)}
             dryRun={dryRun}
             applying={state.applyingIds.has(w.id)}
             reply={state.applyResults[w.id]}
