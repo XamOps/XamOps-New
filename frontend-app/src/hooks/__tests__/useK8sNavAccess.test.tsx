@@ -86,7 +86,7 @@ describe('usePublishClusterNavAccess (Addendum 1, J-5, A4)', () => {
     await waitFor(() => expect(access()).not.toBe('none'));
     const value = JSON.parse(access()!);
     expect(value.viewOnly).toBe(true);
-    expect(value.reason).toMatch(/automation agent/i);
+    expect(value.reason).toMatch(/node automation needs the xamops-autoscaler agent/i);
   });
 
   it('explains a cluster capabilities do not list', async () => {

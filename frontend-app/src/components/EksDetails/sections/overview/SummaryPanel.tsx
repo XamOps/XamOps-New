@@ -81,7 +81,7 @@ const DATA_SOURCE_LABELS: Record<string, string> = {
   'trivy-vulnerabilities': 'Trivy',
   'kubescape-compliance': 'Kubescape',
   'falco-events': 'Falco',
-  'autoscaling-metrics': 'Automation agent',
+  'autoscaling-metrics': 'Node automation agent',
 };
 
 const card = 'rounded-lg border border-[rgba(0,0,0,0.12)] bg-white';
@@ -738,8 +738,8 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
               name="VPA"
               line={FEATURE_LINES.vpa}
               status={vpaCollected
-                ? { state: 'healthy', status: 'Collected by the automation agent (display coming)', detail: null }
-                : { state: 'unknown', status: DASH, detail: 'Not reported by the automation agent' }}
+                ? { state: 'healthy', status: 'Collected by the node automation agent (display coming)', detail: null }
+                : { state: 'unknown', status: DASH, detail: 'Not reported by the node automation agent' }}
             />
           </div>
         </section>

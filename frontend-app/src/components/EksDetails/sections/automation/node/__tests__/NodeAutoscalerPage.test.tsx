@@ -82,7 +82,7 @@ describe('Automation › Node autoscaler (UI v3 plan §2)', () => {
     expect(document.querySelector('[data-node-changer="node-group:ng-ondemand-1"]')).toHaveTextContent('Node group ng-ondemand-1: EKS managed · t3.medium, 2 on-demand · 2 nodes now');
     expect(document.querySelector('[data-node-changer="none"]')).toHaveTextContent(`Nothing adds or removes nodes on ${CLUSTER} today.`);
     const agent = document.querySelector('[data-node-changer="automation-agent"]')!;
-    expect(agent).toHaveTextContent('XamOps automation agent: installed (1.0.0-autoscaler, last report');
+    expect(agent).toHaveTextContent('XamOps node automation agent: installed (1.0.0-autoscaler, last report');
     await waitFor(() => expect(agent).toHaveTextContent('Node automation mode: full.'));
     expect(document.querySelector('[data-now-banner]')).toHaveTextContent(
       `Nothing adds or removes nodes on ${CLUSTER} today. 2 nodes: 2 on-demand, 0 Spot. Pods reserve 39% of the nodes' CPU.`,
@@ -96,7 +96,7 @@ describe('Automation › Node autoscaler (UI v3 plan §2)', () => {
     expect(kpis[1]).toMatch(/^Pods waiting for a node1team-a\/unschedulable-giant-1 asks for 32.00 vCPU and 64 GiB/);
     expect(kpis[2]).toMatch(/^CPU requested39%1.50 vCPU of 3.86 vCPU pods can use/);
     expect(kpis[2]).toContain('Use: not reported by Prometheus in the cluster');
-    await waitFor(() => expect(document.querySelectorAll('[data-node-kpis] [data-kpi-tone]')[4]).toHaveTextContent("Idle nodes0from the automation agent's node report"));
+    await waitFor(() => expect(document.querySelectorAll('[data-node-kpis] [data-kpi-tone]')[4]).toHaveTextContent("Idle nodes0from the node automation agent's node report"));
     const cpu = screen.getByRole('heading', { name: 'CPU on each node: requested of allocatable' }).closest('section')!;
     const row = within(cpu).getByRole('rowheader', { name: 'ip-172-31-9-125.ap-south-1.compute.internal', hidden: true }).closest('tr')!;
     expect([...row.querySelectorAll('td')].map((td) => td.textContent)).toEqual(['1 vCPU', '1.93 vCPU', '52%']);
@@ -113,14 +113,14 @@ describe('Automation › Node autoscaler (UI v3 plan §2)', () => {
     }
     expect(lever('scale-up')).toHaveTextContent("XamOps doesn't add nodes. Not built in XamOps yet.");
     expect(lever('scale-up')).toHaveTextContent('1 pod is waiting.');
-    expect(lever('remove-empty')).toHaveTextContent("Needs the automation agent, which isn't installed on this cluster.");
-    expect(lever('bin-packing')).toHaveTextContent("Needs the automation agent, which isn't installed on this cluster.");
+    expect(lever('remove-empty')).toHaveTextContent("Needs the node automation agent, which isn't installed on this cluster.");
+    expect(lever('bin-packing')).toHaveTextContent("Needs the node automation agent, which isn't installed on this cluster.");
     expect(lever('rebalancing')).toHaveTextContent('No node provisioner detected.');
     expect(lever('spot')).toHaveTextContent('All 2 nodes are on-demand.');
     // The fleet answered, but without the automation agent its idle nodes aren't claimed.
-    expect(document.querySelectorAll('[data-node-kpis] [data-kpi-tone]')[4]).toHaveTextContent("Idle nodes—Needs the automation agent's node report");
+    expect(document.querySelectorAll('[data-node-kpis] [data-kpi-tone]')[4]).toHaveTextContent("Idle nodes—Needs the node automation agent's node report");
     expect(document.querySelector('[data-node-changer="automation-agent"]')).toHaveTextContent(
-      'XamOps automation agent: not installed. It is the part of XamOps that empties and packs nodes.',
+      'XamOps node automation agent: not installed. It is the part of XamOps that empties and packs nodes.',
     );
   });
 

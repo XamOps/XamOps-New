@@ -342,7 +342,7 @@ describe('Node autoscaler derivations', () => {
     expect(automationAgentState('error', null)).toBe('unknown');
     expect(automationAgentState('ready', null)).toBe('unknown');
     expect(automationAgentLine('ready', caps('NOT_INSTALLED'), { kind: 'loading' }).label)
-      .toBe('XamOps automation agent: not installed. It is the part of XamOps that empties and packs nodes.');
+      .toBe('XamOps node automation agent: not installed. It is the part of XamOps that empties and packs nodes.');
     expect(automationAgentLine('ready', caps('CONNECTED'), { kind: 'error', message: 'HTTP 500' }).detail)
       .toBe("XamOps couldn't read its node automation settings: HTTP 500");
     const fleet = { totalNodes: 2, onDemandNodes: 2, spotNodes: 0, idleNodes: [{ nodeName: 'ip-2', cpuUsagePct: 3, memUsagePct: 8 }], interruptedNodes: [], collectedAt: iso(55_000) };
@@ -355,8 +355,8 @@ describe('Node autoscaler derivations', () => {
     const levers = nodeLevers({ agent: 'not-installed', provisioners: { karpenter: false, clusterAutoscaler: false }, kpis: nodeKpis(D), idle: null });
     expect(levers.map((l) => [l.id, l.reason])).toEqual([
       ['scale-up', "XamOps doesn't add nodes. Not built in XamOps yet."],
-      ['remove-empty', "Needs the automation agent, which isn't installed on this cluster."],
-      ['bin-packing', "Needs the automation agent, which isn't installed on this cluster."],
+      ['remove-empty', "Needs the node automation agent, which isn't installed on this cluster."],
+      ['bin-packing', "Needs the node automation agent, which isn't installed on this cluster."],
       ['rebalancing', 'No node provisioner detected.'],
       ['spot', 'Not built in XamOps yet.'],
     ]);

@@ -128,7 +128,7 @@ function NodeKpiRow({ k, idle, agentReported }: { k: NodeKpis; idle: number | nu
         </p>
       </KpiCard>
       <KpiCard tone={idle === null ? 'off' : idle > 0 ? 'warn' : 'good'} icon="mdi:sleep" label="Idle nodes" value={idle ?? DASH}>
-        <p>{idle === null ? "Needs the automation agent's node report" : "from the automation agent's node report"}</p>
+        <p>{idle === null ? "Needs the node automation agent's node report" : "from the node automation agent's node report"}</p>
       </KpiCard>
     </div>
   );

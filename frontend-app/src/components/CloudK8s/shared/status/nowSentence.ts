@@ -198,9 +198,9 @@ export interface NodeAutoscalerInputs {
   cpu?: { requestedPct?: number; usedPct?: number };
   /** Pods waiting for a node. */
   waiting?: number;
-  /** Idle nodes, as the automation agent reported them. `undefined` = not reported. */
+  /** Idle nodes, as the node automation agent reported them. `undefined` = not reported. */
   idle?: number;
-  /** The automation agent. `undefined` = not checked. */
+  /** The node automation agent (xamops-autoscaler). `undefined` = not checked. */
   automationAgent?: 'installed' | 'stale' | 'not-installed';
 }
 
@@ -590,9 +590,9 @@ export function nodeAutoscalerSentence(inputs: NodeAutoscalerInputs): NowSentenc
     clauses.push(`${count(inputs.waiting, 'pod')} ${inputs.waiting === 1 ? 'waits' : 'wait'} for a node.`);
   }
 
-  if (inputs.automationAgent === 'installed') chips.push(CHIP_GOOD('Automation agent: installed'));
-  else if (inputs.automationAgent === 'stale') chips.push({ tone: 'warn', icon: 'mdi:clock-alert-outline', label: 'Automation agent: no recent report' });
-  else if (inputs.automationAgent === 'not-installed') chips.push({ tone: 'off', icon: 'mdi:minus-circle-outline', label: 'Automation agent: not installed' });
+  if (inputs.automationAgent === 'installed') chips.push(CHIP_GOOD('Node automation agent: installed'));
+  else if (inputs.automationAgent === 'stale') chips.push({ tone: 'warn', icon: 'mdi:clock-alert-outline', label: 'Node automation agent: no recent report' });
+  else if (inputs.automationAgent === 'not-installed') chips.push({ tone: 'off', icon: 'mdi:minus-circle-outline', label: 'Node automation agent: not installed' });
 
   if (inputs.waiting !== undefined && inputs.waiting > 0) {
     chips.push({ tone: 'bad', icon: 'mdi:alert-octagon-outline', label: `${count(inputs.waiting, 'pod')} waiting for a node` });

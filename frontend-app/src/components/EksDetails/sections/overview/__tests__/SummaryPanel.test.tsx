@@ -247,7 +247,7 @@ describe('Overview › Summary, laid out like the cast.ai Dashboard (23b)', () =
     expect(feature(NODE_AUTOSCALER)).toHaveTextContent('Karpenter detected');
     expect(feature('HPA')).toHaveTextContent('3 HPAs found');
     expect(feature('HPA')).toHaveTextContent('The Workload autoscaler leaves CPU or memory alone on 1 workload because an HPA scales on it.');
-    expect(feature('VPA')).toHaveTextContent('Not reported by the automation agent');
+    expect(feature('VPA')).toHaveTextContent('Not reported by the node automation agent');
   });
 
   it('lists what needs attention, XamOps facts first, each linking to the section that holds it', async () => {

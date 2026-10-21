@@ -68,9 +68,10 @@ const COPY: Record<ReasonCode, ReasonCopy> = {
     remedies: [{ kind: 'link', label: 'Open Account Manager', target: { kind: 'route', to: '/account-manager' } }],
   },
   AGENT_NOT_INSTALLED: {
-    text: "The automation agent isn't installed on this cluster.",
-    short: 'the automation agent',
-    remedies: [{ kind: 'link', label: 'Install the automation agent', target: INSTALL('automation-agent') }],
+    text: "Node automation needs the xamops-autoscaler agent, which isn't installed on this cluster. "
+      + "Workload rightsizing, HPA and VPA automation run server-side and don't need this agent.",
+    short: 'the node automation agent',
+    remedies: [{ kind: 'link', label: 'Install the node automation agent', target: INSTALL('automation-agent') }],
   },
   CLUSTER_ACCESS_NOT_CONFIGURED: {
     text: "Direct access isn't set up: no EKS access entry maps the XamOps role.",

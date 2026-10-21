@@ -189,7 +189,7 @@ describe('GatedAction behaviour', () => {
     renderAction(blocked({ reason: 'AGENT_NOT_INSTALLED', detail: 'AUTOMATION_AGENT' }), {
       initialEntry: '/eks-details?name=prod-eks&accountIds=111111111111&region=us-east-1&tab=automation&sub=overview',
     });
-    expect(screen.getByRole('link', { name: 'Install the automation agent' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Install the node automation agent' })).toHaveAttribute(
       'href',
       '/eks-details?name=prod-eks&accountIds=111111111111&region=us-east-1&tab=data-sources&sub=install#automation-agent',
     );
