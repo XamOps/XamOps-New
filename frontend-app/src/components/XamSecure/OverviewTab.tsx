@@ -321,15 +321,30 @@ const OverviewTab: React.FC<Props> = ({
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Data Freshness</p>
         <div className="space-y-1.5">
           {(summary?.syncState ?? []).map((s) => (
-            <div key={s.domain} className="flex items-center justify-between text-xs">
+            <div key={s.domain} className="flex items-center justify-between gap-3 text-xs">
               <span className="font-medium text-gray-700">{s.domain}</span>
-              <span className={s.lastError ? 'text-gray-900 font-semibold' : 'text-gray-400'}>
-                {s.lastError
-                  ? `Sync issue — showing last data (${s.lastError})`
-                  : s.lastSuccessAt
+              {s.lastError ? (
+                // Surface that the sync failed without dumping the raw stack/exception into the
+                // card. The full backend error stays available on hover for debugging.
+                <span
+                  className="flex items-center gap-1.5 text-amber-600 font-medium min-w-0"
+                  title={s.lastError}
+                >
+                  <Icon icon="mdi:alert-circle-outline" width={13} className="flex-shrink-0" />
+                  <span className="truncate">
+                    Sync issue — showing last data
+                    {s.lastSuccessAt
+                      ? ` (last ok ${new Date(s.lastSuccessAt).toLocaleString()})`
+                      : ''}
+                  </span>
+                </span>
+              ) : (
+                <span className="text-gray-400">
+                  {s.lastSuccessAt
                     ? `Last synced ${new Date(s.lastSuccessAt).toLocaleString()}`
                     : 'Not synced yet'}
-              </span>
+                </span>
+              )}
             </div>
           ))}
           {(summary?.syncState ?? []).length === 0 && (

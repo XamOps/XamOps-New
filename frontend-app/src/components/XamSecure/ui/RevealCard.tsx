@@ -24,13 +24,19 @@ const hasIntersectionObserver =
 const RevealCard: React.FC<Props> = ({ children, className, delay = 0 }) => {
   const reduced = useReducedMotion();
 
+  // Full height so that, as a grid cell, the wrapped Panel still stretches to the row's tallest
+  // card — the grid stretches this wrapper, and `h-full` + flex passes that height to the child.
+  // Without this, wrapping each Panel in RevealCard collapsed cards to their content height and
+  // broke the equal-height rows the layout had before.
+  const base = `h-full flex flex-col [&>*]:flex-1 ${className ?? ''}`;
+
   if (reduced || !hasIntersectionObserver) {
-    return <div className={className}>{children}</div>;
+    return <div className={base}>{children}</div>;
   }
 
   return (
     <motion.div
-      className={className}
+      className={base}
       initial={{ opacity: 0, y: 8 }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.2 }}
