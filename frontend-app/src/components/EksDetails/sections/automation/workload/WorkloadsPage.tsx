@@ -13,7 +13,7 @@
  * value is removed with `replace` and a notice; a well-formed one that isn't in the cluster shows the
  * list with a notice.
  */
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import EksAutomationTab from '../../../tabs/EksAutomationTab';
 import useVerticalRightsizer from '../../../../../hooks/useVerticalRightsizer';
@@ -25,6 +25,7 @@ import type { ApplyResult, CostSummaryView, WorkloadView } from '../../../../../
 import { NowBanner } from '../../../../CloudK8s/shared/status/NowBanner';
 import { HowItWorks } from '../../../../CloudK8s/shared/status/HowItWorks';
 import { KpiCard } from '../../../../CloudK8s/shared/status/KpiCard';
+import { KpiHeroStrip } from '../../../../CloudK8s/shared/status/KpiHeroStrip';
 import { Delta } from '../../../../CloudK8s/shared/status/Delta';
 import { nowSentence, type NowSentence } from '../../../../CloudK8s/shared/status/nowSentence';
 import { Bars } from '../../../../CloudK8s/shared/charts/Bars';
@@ -104,44 +105,56 @@ function KpiRow({ k, workloads, cost }: { k: AutomationKpis; workloads: readonly
   // is the figure that proves cost is flowing. A null roll-up (feature off / nothing priceable)
   // renders a dash, never a fabricated $0.
   const clusterCost = cost && cost.clusterMonthlyCost !== null;
+  // DESIGN §4.1: promote "Workloads analysed" to the hero and demote the other four KpiCards into the
+  // divide-x strip. Every card's label, tone, value branch and sub-lines render verbatim — only the
+  // hero's number size changes.
+  const hero = (
+    <KpiCard tone="info" icon="mdi:view-grid-outline" label="Workloads analysed" value={k.analysed} hero>
+      <p>{[...buckets.entries()].map(([label, n]) => `${label} ${n}`).join(' · ') || 'No workloads'}</p>
+    </KpiCard>
+  );
+  const strip: ReactNode[] = [];
+  if (cost) {
+    strip.push(
+      <KpiCard key="monthly" tone="info" icon="mdi:cash" label="Monthly cost" value={clusterCost ? formatMoney(cost.clusterMonthlyCost) : DASH}>
+        <p data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</p>
+        <p>what these workloads reserve, at the nodes&apos; live AWS price</p>
+      </KpiCard>,
+    );
+  }
+  strip.push(
+    <KpiCard
+      key="can-save"
+      tone="warn"
+      icon="mdi:arrow-collapse-down"
+      label="Can save now"
+      value={moneyValue ? <Delta direction="saved" amount={formatMonthlyUsd(cost!.monthlySavings)} /> : unknownSave ? '—' : formatVcpu(k.canSave.cpuM)}
+    >
+      {moneyValue && cost && (
+        <p data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</p>
+      )}
+      <p>
+        {unknownSave
+          ? "The replica counts aren't known, so the amount isn't either"
+          : moneyValue
+            ? `Frees ${formatVcpu(k.canSave.cpuM)} and ${formatMemory(k.canSave.memMi)} across every pod`
+            : `${formatMemory(k.canSave.memMi)} memory, freed across every pod`}
+      </p>
+      <p>{k.overProvisioned} over-provisioned, waiting for you</p>
+    </KpiCard>,
+    <KpiCard key="needs-more" tone="warn" icon="mdi:speedometer" label="Needs more" value={k.needsMore}>
+      <p>{k.needsMore > 0 ? `+${formatCapacity(k.needsMoreAdds.cpuM, k.needsMoreAdds.memMi)} if applied` : 'No workload needs more'}</p>
+    </KpiCard>,
+    <KpiCard key="applied" tone="good" icon="mdi:check-circle" label="Applied" value={k.liveApplied}>
+      <p>latest change applied live, from endpoint 1</p>
+    </KpiCard>,
+  );
   return (
     // data-k8s-kit: the KPI cards and the note under them carry their own dark colours.
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-k8s-kit="">
-      <KpiCard tone="info" icon="mdi:view-grid-outline" label="Workloads analysed" value={k.analysed}>
-        <p>{[...buckets.entries()].map(([label, n]) => `${label} ${n}`).join(' · ') || 'No workloads'}</p>
-      </KpiCard>
-      {cost && (
-        <KpiCard tone="info" icon="mdi:cash" label="Monthly cost" value={clusterCost ? formatMoney(cost.clusterMonthlyCost) : DASH}>
-          <p data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</p>
-          <p>what these workloads reserve, at the nodes&apos; live AWS price</p>
-        </KpiCard>
-      )}
-      <KpiCard
-        tone="warn"
-        icon="mdi:arrow-collapse-down"
-        label="Can save now"
-        value={moneyValue ? <Delta direction="saved" amount={formatMonthlyUsd(cost!.monthlySavings)} /> : unknownSave ? '—' : formatVcpu(k.canSave.cpuM)}
-      >
-        {moneyValue && cost && (
-          <p data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</p>
-        )}
-        <p>
-          {unknownSave
-            ? "The replica counts aren't known, so the amount isn't either"
-            : moneyValue
-              ? `Frees ${formatVcpu(k.canSave.cpuM)} and ${formatMemory(k.canSave.memMi)} across every pod`
-              : `${formatMemory(k.canSave.memMi)} memory, freed across every pod`}
-        </p>
-        <p>{k.overProvisioned} over-provisioned, waiting for you</p>
-      </KpiCard>
-      <KpiCard tone="warn" icon="mdi:speedometer" label="Needs more" value={k.needsMore}>
-        <p>{k.needsMore > 0 ? `+${formatCapacity(k.needsMoreAdds.cpuM, k.needsMoreAdds.memMi)} if applied` : 'No workload needs more'}</p>
-      </KpiCard>
-      <KpiCard tone="good" icon="mdi:check-circle" label="Applied" value={k.liveApplied}>
-        <p>latest change applied live, from endpoint 1</p>
-      </KpiCard>
+    <div data-k8s-kit="">
+      <KpiHeroStrip hero={hero} strip={strip} />
       {k.notCounted > 0 && (
-        <p className={`text-[11px] sm:col-span-2 xl:col-span-4 ${MUTED}`}>
+        <p className={`mt-3 text-[11px] ${MUTED}`}>
           {k.notCounted} {k.notCounted === 1 ? 'workload is' : 'workloads are'} not in the totals: the replica count isn&apos;t
           known, or the pods run different sizes.
         </p>
@@ -271,7 +284,7 @@ export function WorkloadsPage({ clusterName, accountId, region, workloadsHref, p
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-8">
       {malformed && <Notice onDismiss={() => setMalformed(false)}>{MALFORMED_WORKLOAD_NOTICE}</Notice>}
       {missing && <Notice onDismiss={dropWorkloadParam}>{missingWorkloadNotice(missing)}</Notice>}
       <NowBanner sentence={sentence} />

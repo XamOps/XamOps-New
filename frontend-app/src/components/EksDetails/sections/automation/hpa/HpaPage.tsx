@@ -580,7 +580,7 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
   return (
     // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it
     // alone and the write controls keep their own disabled and confirm states in dark mode.
-    <div className="space-y-4" data-hpa-page="" data-k8s-kit="">
+    <div className="space-y-8" data-hpa-page="" data-k8s-kit="">
       {malformed && <Notice onDismiss={() => setMalformed(false)}>{MALFORMED_HPA_NOTICE}</Notice>}
       {missing && <Notice onDismiss={dropHpaParam}>{missingHpaNotice(missing)}</Notice>}
       <div className="space-y-1">

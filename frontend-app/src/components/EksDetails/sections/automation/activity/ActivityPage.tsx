@@ -478,7 +478,7 @@ export function ActivityPage({ clusterName, accountId, region, eksData }: Activi
   return (
     // data-k8s-kit: every colour on this page has its dark variant (K8sDataTable's included), so the
     // legacy dark CSS leaves it alone and the source filter keeps its pressed chip in dark mode.
-    <div className="space-y-4" data-activity="" data-k8s-kit="">
+    <div className="space-y-8" data-activity="" data-k8s-kit="">
       <div className="space-y-1">
         <p className={`text-[13px] font-semibold ${INK}`}>Activity</p>
         <p className={`text-[12px] ${MUTED}`}>

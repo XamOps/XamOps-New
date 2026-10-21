@@ -311,7 +311,7 @@ export function NodeAutoscalerPage({ clusterName, accountId, region, eksData }: 
   const rebalance = reads.rebalance;
   return (
     // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it alone.
-    <div className="space-y-4" data-node-autoscaler="" data-k8s-kit="">
+    <div className="space-y-8" data-node-autoscaler="" data-k8s-kit="">
       <div className="space-y-1">
         <FeatureMark feature="node" title="Node autoscaler" />
         <p className={`text-[12px] ${MUTED}`}>

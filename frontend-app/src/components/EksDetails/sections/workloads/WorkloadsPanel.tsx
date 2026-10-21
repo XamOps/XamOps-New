@@ -21,6 +21,7 @@ import { K8sDataTable, type ColumnDef, type FilterDef } from '../../../CloudK8s/
 import { StatusMark } from '../../../CloudK8s/shared/StatusMark';
 import { SourceLabel } from '../../../CloudK8s/shared/SourceLabel';
 import { useK8sCapabilities } from '../../../../hooks/useK8sCapabilities';
+import { EYEBROW, HERO_NUMBER, KPI_NUMBER } from '../../../CloudK8s/shared/typeScale';
 import { findingText, modeText, skipReasonText } from '../automation/verticalCopy';
 import type { EksSectionProps } from '../sectionTypes';
 
@@ -190,16 +191,28 @@ export default function WorkloadsPanel({ clusterName, accountId, region, eksData
 
   const line = engineLine(read);
 
+  // DESIGN §4.1: the hero is the total workloads this tab exists to state (a view-layer sum of the
+  // same `counts` roll-up, no new hook); the per-kind counts become the divide-x strip below it,
+  // with their labels and `data-count` hooks unchanged.
+  const totalWorkloads = counts.reduce((s, c) => s + c.n, 0);
+
   return (
-    <div className="space-y-3" data-panel="workloads">
-      <dl className="flex flex-wrap gap-3">
-        {counts.map(({ kind, n }) => (
-          <div key={kind} className="min-w-[132px] rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-4 py-2.5" data-count={kind}>
-            <dt className={secondary}>{PLURAL[kind]}</dt>
-            <dd className="text-[20px] font-semibold tabular-nums text-[rgba(0,0,0,0.88)]">{n}</dd>
-          </div>
-        ))}
-      </dl>
+    <div className="space-y-8" data-panel="workloads">
+      <section aria-label="Workloads" className="space-y-4">
+        <div>
+          <p className={EYEBROW}>Workloads</p>
+          <p className={`mt-1 ${HERO_NUMBER} text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]`}>{totalWorkloads}</p>
+          <p className={`mt-1 ${secondary}`}>Deployments, StatefulSets and DaemonSets the agent reported</p>
+        </div>
+        <dl className="grid grid-cols-1 border-t border-[rgba(0,0,0,0.06)] dark:border-[rgba(255,255,255,0.08)] sm:grid-cols-3 sm:divide-x divide-[rgba(0,0,0,0.06)] dark:divide-[rgba(255,255,255,0.08)]">
+          {counts.map(({ kind, n }) => (
+            <div key={kind} className="py-2.5 sm:px-4 sm:py-0" data-count={kind}>
+              <dt className={secondary}>{PLURAL[kind]}</dt>
+              <dd className={`${KPI_NUMBER} text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]`}>{n}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
 
       {line && (
         <p role="status" className="flex flex-wrap items-center gap-2 text-[13px] text-[rgba(0,0,0,0.6)]" data-engine-state={read.state}>

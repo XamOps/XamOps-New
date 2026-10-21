@@ -265,7 +265,7 @@ export const VpaPage: FC<VpaPageProps> = ({ clusterName, accountId, region }) =>
 
   return (
     // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it alone.
-    <div className="space-y-4" data-vpa-page="" data-k8s-kit="">
+    <div className="space-y-8" data-vpa-page="" data-k8s-kit="">
       <div className="space-y-1">
         <FeatureMark feature="vpa" title="VPA" />
         <p className={`text-[12px] ${MUTED}`}>

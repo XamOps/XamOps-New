@@ -45,6 +45,7 @@ import { NowBanner } from '../../../CloudK8s/shared/status/NowBanner';
 import { HowItWorks } from '../../../CloudK8s/shared/status/HowItWorks';
 import { FeatureMark, type Feature } from '../../../CloudK8s/shared/status/FeatureMark';
 import { KpiCard } from '../../../CloudK8s/shared/status/KpiCard';
+import { KpiHeroStrip } from '../../../CloudK8s/shared/status/KpiHeroStrip';
 import { Delta } from '../../../CloudK8s/shared/status/Delta';
 import { StatusChip } from '../../../CloudK8s/shared/status/StatusChip';
 import { nowSentence, type AutomationOverviewInputs, type NowSentence } from '../../../CloudK8s/shared/status/nowSentence';
@@ -483,52 +484,67 @@ function Kpis({ view, now, feed, summary }: { view: VerticalEngineView; now: num
   // every saving is a true $0, but the cluster still costs real money, so this figure proves cost
   // is flowing. A null roll-up (feature off / nothing priceable) renders a dash, never a fake $0.
   const clusterCost = cost && cost.clusterMonthlyCost !== null;
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-overview-kpis="">
-      {cost && (
-        <KpiCard tone="info" icon="mdi:cash" label="Monthly cost" value={clusterCost ? formatMoney(cost.clusterMonthlyCost) : '—'}>
-          <p data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</p>
-          <p>what these workloads reserve, at the nodes&apos; live AWS price</p>
-        </KpiCard>
-      )}
-      {feed.result?.kind === 'ok' ? (
-        <SavingNowKpi view={view} feed={feed} />
-      ) : (
-        // Without the activity log: "Applied live", not "Saving now". Endpoint 1's lastAction has no
-        // before and after, so a raise for a workload that needed more counts here too.
-        <KpiCard tone="good" icon="mdi:check-circle" label="Applied live" value={k.liveApplied}>
-          <p>{k.liveApplied === 1 ? 'workload' : 'workloads'} whose latest change was applied live</p>
-          {feed.result && feed.result.kind !== 'not-deployed' ? (
-            <p>Before and after: —, XamOps couldn&apos;t read the activity log just now</p>
-          ) : (
-            <p>
-              Before and after: <span title="Not recorded yet: XamOps keeps the size before a change once the activity feed is on.">—</span>, recorded
-              once the activity feed is on
-            </p>
-          )}
-        </KpiCard>
-      )}
-      <KpiCard
-        tone="warn"
-        icon="mdi:arrow-collapse-down"
-        label="Can save now"
-        value={moneyValue ? <Delta direction="saved" amount={formatMonthlyUsd(cost!.monthlySavings)} /> : unknownSave ? '—' : formatVcpu(k.canSave.cpuM)}
-      >
-        {moneyValue && cost && (
-          <p data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</p>
+  // DESIGN §4.1.1: the hero is the `Monthly cost` card when the FEAT-002 roll-up prices the cluster,
+  // else `Can save now`. The exact $/savings precedence below is unchanged — only the chosen card's
+  // size/placement moves. The `heroIsMonthly` flag chooses which card carries `hero`, and the other
+  // demotes into the `divide-x` strip verbatim.
+  const heroIsMonthly = Boolean(cost);
+  const monthlyCard = (isHero: boolean) =>
+    cost ? (
+      <KpiCard tone="info" icon="mdi:cash" label="Monthly cost" value={clusterCost ? formatMoney(cost.clusterMonthlyCost) : '—'} hero={isHero}>
+        <p data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</p>
+        <p>what these workloads reserve, at the nodes&apos; live AWS price</p>
+      </KpiCard>
+    ) : null;
+  const savingOrApplied =
+    feed.result?.kind === 'ok' ? (
+      <SavingNowKpi view={view} feed={feed} />
+    ) : (
+      // Without the activity log: "Applied live", not "Saving now". Endpoint 1's lastAction has no
+      // before and after, so a raise for a workload that needed more counts here too.
+      <KpiCard tone="good" icon="mdi:check-circle" label="Applied live" value={k.liveApplied}>
+        <p>{k.liveApplied === 1 ? 'workload' : 'workloads'} whose latest change was applied live</p>
+        {feed.result && feed.result.kind !== 'not-deployed' ? (
+          <p>Before and after: —, XamOps couldn&apos;t read the activity log just now</p>
+        ) : (
+          <p>
+            Before and after: <span title="Not recorded yet: XamOps keeps the size before a change once the activity feed is on.">—</span>, recorded
+            once the activity feed is on
+          </p>
         )}
-        {moneyValue
-          ? (unknownSave ? <p>Freed capacity isn&apos;t known: replica counts are missing</p> : <p>{`Frees ${formatVcpu(k.canSave.cpuM)} and ${formatMemory(k.canSave.memMi)}`}</p>)
-          : <p>{unknownSave ? "The replica counts aren't known, so the amount isn't either" : `${formatMemory(k.canSave.memMi)} memory`}</p>}
-        <p>{k.overProvisioned} over-provisioned {k.overProvisioned === 1 ? 'workload' : 'workloads'}, waiting for you</p>
-        {k.notCounted > 0 && !unknownSave && <p>{k.notCounted} not counted: replicas or pod sizes unknown</p>}
       </KpiCard>
-      <KpiCard tone="warn" icon="mdi:speedometer" label="Needs more" value={k.needsMore}>
-        <p>{k.needsMore > 0 ? `+${formatCapacity(k.needsMoreAdds.cpuM, k.needsMoreAdds.memMi)} added if applied` : 'No workload needs more'}</p>
-      </KpiCard>
-      <ChangesKpi k={k} feed={feed} summary={summary} now={now} />
-    </div>
+    );
+  const canSaveCard = (isHero: boolean) => (
+    <KpiCard
+      tone="warn"
+      icon="mdi:arrow-collapse-down"
+      label="Can save now"
+      hero={isHero}
+      value={moneyValue ? <Delta direction="saved" amount={formatMonthlyUsd(cost!.monthlySavings)} /> : unknownSave ? '—' : formatVcpu(k.canSave.cpuM)}
+    >
+      {moneyValue && cost && (
+        <p data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</p>
+      )}
+      {moneyValue
+        ? (unknownSave ? <p>Freed capacity isn&apos;t known: replica counts are missing</p> : <p>{`Frees ${formatVcpu(k.canSave.cpuM)} and ${formatMemory(k.canSave.memMi)}`}</p>)
+        : <p>{unknownSave ? "The replica counts aren't known, so the amount isn't either" : `${formatMemory(k.canSave.memMi)} memory`}</p>}
+      <p>{k.overProvisioned} over-provisioned {k.overProvisioned === 1 ? 'workload' : 'workloads'}, waiting for you</p>
+      {k.notCounted > 0 && !unknownSave && <p>{k.notCounted} not counted: replicas or pod sizes unknown</p>}
+    </KpiCard>
   );
+  const needsMoreCard = (
+    <KpiCard tone="warn" icon="mdi:speedometer" label="Needs more" value={k.needsMore}>
+      <p>{k.needsMore > 0 ? `+${formatCapacity(k.needsMoreAdds.cpuM, k.needsMoreAdds.memMi)} added if applied` : 'No workload needs more'}</p>
+    </KpiCard>
+  );
+  const changesCard = <ChangesKpi k={k} feed={feed} summary={summary} now={now} />;
+
+  // Hero = Monthly cost (when priced) else Can save now; the remaining four cards demote to the strip.
+  const hero = heroIsMonthly ? monthlyCard(true) : canSaveCard(true);
+  const strip = heroIsMonthly
+    ? [savingOrApplied, canSaveCard(false), needsMoreCard, changesCard]
+    : [savingOrApplied, needsMoreCard, changesCard];
+  return <KpiHeroStrip hero={hero} strip={strip} rootProps={{ 'data-overview-kpis': '' }} />;
 }
 
 /** How many entries the Overview reads for its 7-day timeline (the feed's page limit). */
@@ -830,7 +846,7 @@ export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs =
   const sentence = overviewSentence(clusterName, read.result, read.loading, now);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-8">
       <AccessBanner capabilities={caps} cluster={clusterName} />
       <NowBanner sentence={sentence} />
       {read.loading && !read.result && <div className="skeleton h-28 rounded-lg" />}
