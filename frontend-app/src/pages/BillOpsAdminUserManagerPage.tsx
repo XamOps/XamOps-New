@@ -62,6 +62,8 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
 
   /* ── Cloud-account access picker state (loaded for the edited user's client) ── */
   const [clientAccounts, setClientAccounts] = useState<ClientCloudAccount[]>([]);
+  // Search term for filtering the account-access list (scales to hundreds of accounts).
+  const [accountSearch, setAccountSearch]   = useState('');
 
   // Resolve the client id of the user being edited. The form keys off clientName, so map the
   // selected form id → its user row to read clientId; fall back to matching clientName.
@@ -88,8 +90,22 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
     } else {
       setClientAccounts([]);
     }
+    // Reset the account search each time the picker's data source changes.
+    setAccountSearch('');
     return () => { cancelled = true; };
   }, [isEditing, editingClientId, fetchClientCloudAccounts]);
+
+  // Accounts shown in the picker, filtered by the search term (name / provider / accountId).
+  // Case-insensitive substring match; keeps all accounts when the search is empty.
+  const filteredClientAccounts = useMemo(() => {
+    const q = accountSearch.trim().toLowerCase();
+    if (!q) return clientAccounts;
+    return clientAccounts.filter(acc =>
+      (acc.name || '').toLowerCase().includes(q) ||
+      (acc.provider || '').toLowerCase().includes(q) ||
+      (acc.accountId ? String(acc.accountId).toLowerCase().includes(q) : false)
+    );
+  }, [clientAccounts, accountSearch]);
 
   /* ── Move-user-between-clients modal state ── */
   const [moveUser, setMoveUser]             = useState<BillOpsUser | null>(null);
@@ -444,10 +460,16 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                     <div className="flex items-center gap-2 mb-1.5">
                       <button
                         type="button"
-                        onClick={() => updateSelectedUser('accountAccessIds', clientAccounts.map(a => a.id))}
+                        onClick={() => {
+                          // Select all currently-visible (filtered) accounts, merged with any
+                          // already-selected accounts hidden by the active search.
+                          const visibleIds = filteredClientAccounts.map(a => a.id);
+                          const merged = Array.from(new Set([...selectedUser.accountAccessIds, ...visibleIds]));
+                          updateSelectedUser('accountAccessIds', merged);
+                        }}
                         className="text-[10px] font-semibold text-[rgba(0,0,0,0.6)] hover:text-black"
                       >
-                        Select all
+                        {accountSearch.trim() ? 'Select shown' : 'Select all'}
                       </button>
                       <span className="text-[rgba(0,0,0,0.15)]">|</span>
                       <button
@@ -462,8 +484,44 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                   <p className="text-[11px] text-[rgba(0,0,0,0.4)] mb-3">
                     Leave all unchecked to grant access to every cloud account for this client. Selecting specific accounts restricts the user to only those.
                   </p>
+                  {/* Search box — filters the list below; scales to hundreds of accounts. */}
+                  <div className="relative mb-2">
+                    <Icon
+                      icon="mdi:magnify"
+                      width={14}
+                      color="rgba(0,0,0,0.35)"
+                      className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                    />
+                    <input
+                      type="text"
+                      value={accountSearch}
+                      onChange={e => setAccountSearch(e.target.value)}
+                      placeholder="Search accounts by name, provider, or account ID"
+                      className="w-full pl-8 pr-8 py-2 text-[11px] border border-[rgba(0,0,0,0.12)] rounded-lg focus:outline-none focus:border-[rgba(0,0,0,0.4)] placeholder:text-[rgba(0,0,0,0.35)]"
+                    />
+                    {accountSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setAccountSearch('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.35)] hover:text-black"
+                        aria-label="Clear account search"
+                      >
+                        <Icon icon="mdi:close-circle" width={14} />
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-[rgba(0,0,0,0.4)] mb-2">
+                    Showing {filteredClientAccounts.length} of {clientAccounts.length} account{clientAccounts.length === 1 ? '' : 's'}
+                    {selectedUser.accountAccessIds.length > 0 ? ` · ${selectedUser.accountAccessIds.length} selected` : ''}
+                  </p>
+                  {filteredClientAccounts.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center gap-1 py-6 text-[rgba(0,0,0,0.35)]">
+                      <Icon icon="mdi:cloud-search-outline" width={22} />
+                      <span className="text-[11px]">No accounts match "{accountSearch}"</span>
+                    </div>
+                  ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-[280px] overflow-y-auto pr-1">
-                    {clientAccounts.map(acc => {
+                    {filteredClientAccounts.map(acc => {
                       const checked = selectedUser.accountAccessIds.some(id => String(id) === String(acc.id));
                       return (
                         <label
@@ -487,6 +545,7 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                       );
                     })}
                   </div>
+                  )}
                 </div>
               )}
 
