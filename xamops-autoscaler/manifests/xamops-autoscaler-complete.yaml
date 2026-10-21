@@ -313,10 +313,10 @@ spec:
 
       containers:
         - name: automation
-          # Replace with your actual image once built:
-          #   docker build -t <registry>/xamops-automation:latest ./xamops-automation
-          #   docker push <registry>/xamops-automation:latest
-          image: xamops/automation:v1.0.0
+          # Published by CI (.github/workflows/ci-cd.yml: autoscaler-docker-push).
+          # For production prefer pinning an immutable tag, e.g.
+          # ghcr.io/xamops/xamops-autoscaler:sha-<commit>, instead of :latest.
+          image: ghcr.io/xamops/xamops-autoscaler:latest
           imagePullPolicy: Always
 
           ports:

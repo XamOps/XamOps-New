@@ -27,6 +27,7 @@ jobs:
       frontend:   ${{ steps.diff.outputs.frontend }}
       media-ops:  ${{ steps.diff.outputs.media-ops }}
       agent:      ${{ steps.diff.outputs.agent }}
+      autoscaler: ${{ steps.diff.outputs.autoscaler }}
       routing:    ${{ steps.diff.outputs.routing }}
     steps:
       - name: Checkout source
@@ -54,7 +55,7 @@ jobs:
           # health survived for as long as it did.
           if echo "$CHANGED" | grep -q "^\.github/workflows/"; then
             echo "CI workflow changed -> treating all services as changed"
-            CHANGED=$(printf '%s\nbillops/\nxamops-service/\nfrontend-app/\nmedia-ops-service/\nxamops-agent/\n' "$CHANGED")
+            CHANGED=$(printf '%s\nbillops/\nxamops-service/\nfrontend-app/\nmedia-ops-service/\nxamops-agent/\nxamops-autoscaler/\n' "$CHANGED")
           fi
 
           if echo "$CHANGED" | grep -q "^billops/"; then
@@ -95,6 +96,12 @@ jobs:
             echo "agent=true" >> $GITHUB_OUTPUT
           else
             echo "agent=false" >> $GITHUB_OUTPUT
+          fi
+
+          if echo "$CHANGED" | grep -q "^xamops-autoscaler/"; then
+            echo "autoscaler=true" >> $GITHUB_OUTPUT
+          else
+            echo "autoscaler=false" >> $GITHUB_OUTPUT
           fi
 
 
@@ -1068,3 +1075,74 @@ jobs:
             exit 1
           fi
           echo "✅ entrypoint runs"
+
+
+  # ══════════════════════════════════════════════════════════
+  #  XAMOPS-AUTOSCALER (node-automation agent)
+  # ══════════════════════════════════════════════════════════
+  #
+  # Publish-only, mirroring the xamops-agent Go shape for build/verify and the
+  # billops/media-ops docker-push shape for the image publish.
+  #
+  # Unlike xamops-service / billops / media-ops-service, there is deliberately NO
+  # Deploy-to-UAT step: the autoscaler is installed into managed/customer clusters
+  # opt-in at install time, never auto-pushed into a cluster on every commit. Before
+  # this job existed no image was ever published, so the manifest's placeholder image
+  # could not be pulled ("node automation agent not installed"). This job is the fix.
+
+  autoscaler-build-verify:
+    name: "[xamops-autoscaler] Build & Verify"
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.autoscaler == 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          # Tracks the go directive in xamops-autoscaler/go.mod (Dockerfile uses
+          # golang:1.21-alpine).
+          go-version: '1.21'
+          cache-dependency-path: xamops-autoscaler/go.sum
+
+      - name: Build and test
+        working-directory: xamops-autoscaler
+        run: |
+          go build ./...
+          go test ./...
+
+  autoscaler-docker-push:
+    name: "[xamops-autoscaler] Build & Push Docker Image"
+    runs-on: ubuntu-latest
+    needs: [changes, autoscaler-build-verify]
+    if: |
+      needs.changes.outputs.autoscaler == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # The autoscaler Dockerfile is a self-contained multi-stage Go build
+      # (golang:1.21-alpine builder -> distroless/static) that COPYs its own source and
+      # runs `go build ./cmd/autoscaler`, so it needs no pre-built artifact and no
+      # Dockerfile patch step (unlike the Java jar flow for billops/xamops-service).
+      - name: Build & Push Docker image
+        run: |
+          docker buildx build \
+            --no-cache \
+            --provenance=false \
+            -t ghcr.io/xamops/xamops-autoscaler:latest \
+            -t ghcr.io/xamops/xamops-autoscaler:sha-${{ github.sha }} \
+            --push \
+            ./xamops-autoscaler
