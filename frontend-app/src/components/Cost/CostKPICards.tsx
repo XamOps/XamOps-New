@@ -20,7 +20,7 @@ const CostKPICards: React.FC<CostKPICardsProps> = ({ costData, filters, isLoadin
 
   if (isLoading) {
     return (
-      <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl overflow-hidden">
+      <div className="bg-white border border-[rgba(0,0,0,0.07)] rounded-[10px] overflow-hidden">
         <div className="grid grid-cols-3 divide-x divide-[rgba(0,0,0,0.06)]">
           {[1, 2, 3].map(i => (
             <div key={i} className="p-5 animate-pulse">
@@ -38,7 +38,7 @@ const CostKPICards: React.FC<CostKPICardsProps> = ({ costData, filters, isLoadin
   const formatCents = (val: number) => '.' + String(Math.round((val % 1) * 100)).padStart(2, '0');
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl overflow-hidden">
+    <div className="bg-white border border-[rgba(0,0,0,0.07)] rounded-[10px] overflow-hidden">
       <div className="grid grid-cols-1 md:grid-cols-3 divide-x divide-[rgba(0,0,0,0.06)]">
 
         {/* Total Cost */}
