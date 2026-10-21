@@ -56,6 +56,12 @@ public final class RcaAnalyzer {
      */
     private static final Set<String> RECOGNISED_TOKENS = recognisedTokens();
 
+    /**
+     * {@code workload_kind} of an HPA's own row ({@code WorkloadActionRecorder.KIND_HPA} on the
+     * activity-log branch): never resize evidence.
+     */
+    static final String KIND_HPA = "HorizontalPodAutoscaler";
+
     private RcaAnalyzer() {
     }
 
@@ -74,10 +80,17 @@ public final class RcaAnalyzer {
         }
         Instant windowStart = now.minusSeconds((long) config.windowHours() * 3600L);
 
-        // Filter POLICY_CHANGE (admin verb) and out-of-window rows, then group by workload key.
+        // Filter POLICY_CHANGE (admin verb), HPA rows and out-of-window rows, then group by workload key.
         Map<String, List<WorkloadVerticalAction>> byWorkload = new LinkedHashMap<>();
         for (WorkloadVerticalAction row : rows) {
             if (WorkloadActionRecorder.OUTCOME_POLICY_CHANGE.equals(row.getOutcome())) {
+                continue;
+            }
+            // The activity log records every HPA apply in this table too, under the HPA's own kind
+            // and name. An HPA patch changes bounds, never a pod's size, and is always written
+            // restart_free=false, so the resize patterns would read applied HPA changes as
+            // partial-apply churn. HPA_FLAP, the HPA's own pattern, is not emitted yet.
+            if (KIND_HPA.equals(row.getWorkloadKind())) {
                 continue;
             }
             Instant at = row.getAppliedAt();

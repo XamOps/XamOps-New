@@ -86,9 +86,13 @@ class VerticalAutomationReadServiceTest {
                 lastAction("team-b", "worker", "POLICY_CHANGE", "2026-10-13T05:00:00Z")));
         VerticalAutomationReadService service = new VerticalAutomationReadService(
                 new WorkloadAutoscalingProperties(false, false),
-                VerticalReadServiceFixtures.metricsProperties("OFF", 24), new NoMetricsSourceProvider(),
+                VerticalReadServiceFixtures.metricsProperties("OFF", 24),
+                new com.xammer.cloud.service.automation.workload.ConfidenceProperties(0.5, 0.8),
+                VerticalReadServiceFixtures.rpsOff(), new NoMetricsSourceProvider(),
                 List.of(), new ClusterWorkloadInventory(), new UpstreamVpaReader(),
                 VerticalReadServiceFixtures.noStoredPolicies(), actions,
+                mock(NodeRateResolver.class), new WorkloadCostAttributionService(K8sCostProperties.disabled()),
+                K8sCostProperties.disabled(),
                 java.time.Clock.fixed(VerticalReadServiceFixtures.CYCLE_AT, java.time.ZoneOffset.UTC), () -> 0L);
 
         Map<String, VerticalWorkloadDto.LastActionDto> lastActions = service.lastActions(42L);
