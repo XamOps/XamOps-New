@@ -1,0 +1,30 @@
+{
+  "project_type": "Multi-module Maven monorepo (Java Spring Boot backend services) + React/TypeScript frontend (Vite + vitest)",
+  "language": "Java 17+ (xamops-service) and TypeScript/React (frontend-app)",
+  "build_system": "Maven multi-module (root pom.xml). NO Maven wrapper present (xamops-service/mvnw does NOT exist) — use system `mvn`. Frontend uses npm + Vite; build script is `npm run build` = `icons:bundle && tsc && vite build`.",
+  "test_framework": "JUnit 5 + Mockito + AssertJ for xamops-service; vitest for frontend-app.",
+  "build_command": "Backend: `mvn -pl xamops-service -am -q -DskipTests compile`. Frontend type-check: `cd frontend-app && npx tsc --noEmit`.",
+  "test_command": "Backend targeted: `mvn -pl xamops-service test -Dtest=<ClassName>`. Frontend: `cd frontend-app && npx vitest run`.",
+  "verification_instructions": "1) Backend compile must exit 0. 2) Run new + related backend tests, expect Failures:0 Errors:0. 3) Frontend `npx tsc --noEmit` exits 0. 4) `npx vitest run` — no NEW failures vs the pre-existing unrelated ones documented in .agents/tasks/finalize-exchange-rate/verification.md (cloudk8sSidebar, loginAsAccountDashboard, BillOpsAdminDashboardPage, EksDetailsPage, K8sDataTable). Clean up any temp files.",
+  "snapshot_or_generated_files": "None required for this task. (Some backend DTO-shape tests capture snapshots with -Dlobtext.captureDtoFields=true, but only touch billops/admin dashboard; not expected here. If a DTO-shape test fails due to an added field, regenerate with that flag and restore the header note, as finalize-exchange-rate did.)",
+  "environment_constraints": "No live cloud credentials in CI; tests must mock GCP/Azure clients (see GcpPricingCurrencyTest constructor-mock pattern). Do not add a live FX feed — currency rate is config-driven (currency.usd-to-inr-rate, default 83.0) and is exactly what we are removing from the GCP unified path. Do not commit machine-specific absolute Java paths to .vscode/settings.json (CI fails PRs that do — see CONTRIBUTING.md).",
+  "contribution_requirements": "CONTRIBUTING.md: keep .vscode/settings.json portable (no absolute java.*.home). Keep changes minimal and scoped to unified-dashboard currency correctness; do not refactor unrelated code. Commit locally on branch fix/unified-dashboard-currency; never push.",
+  "key_patterns": "Azure already solved this exact problem and is the template: AzureDashboardData exposes `currency` (native ISO code, null=unknown) and `monthToDateSpendUsd` (USD from Azure's own CostUSD, null when unavailable); mapAzureDataToDashboardData sets MTD = monthToDateSpendUsd ?? native and logs a warn when a non-USD subscription has no USD; the frontend useUnifiedDashboard.ts no longer converts Azure (`azureData = azureQuery.data ?? null`). GCP must follow the same shape. GCP billed-rate USD source: the standard billing export column currency_conversion_rate (USD->local), so cost / currency_conversion_rate = USD; GcpCostService.getProjectCurrencyCode(projectId) already reads the `currency` column (returns USD on failure). GcpBillingSql.NET_COST_SUM is SUM(CAST(cost AS NUMERIC)) + credits in native currency. GcpPricingService/GcpOptimizationService already return USD (GcpPricingCurrencyTest) — do NOT convert savings/waste.",
+  "relevant_files": [
+    "xamops-service/src/main/java/com/xammer/cloud/service/DashboardDataService.java (aggregateGcpDashboardData ~L1477 uses currencyConversionService.inrToUsd at L1515-1517,1595,1603 — the hardcoded-rate bug; mapAzureDataToDashboardData ~L3560, forecast bug at the setForecastedSpend line after the USD MTD block ~L3607; buildAndSaveUnifiedGcpSnapshot ~L759 and ...ForClient ~L812 call aggregateGcpDashboardData)",
+    "xamops-service/src/main/java/com/xammer/cloud/service/gcp/GcpCostService.java (getUnfilteredMonthToDateSpendSync ~L396 is the native MTD query to mirror for a USD variant; getProjectCurrencyCode ~L1053; getBillingTableName; getHistoricalCosts)",
+    "xamops-service/src/main/java/com/xammer/cloud/service/gcp/GcpBillingSql.java (NET_COST_SUM, LIST_COST_SUM definitions)",
+    "xamops-service/src/main/java/com/xammer/cloud/service/CurrencyConversionService.java (inrToUsd = amount / usdToInrRate, config default 83.0 — the hardcoded rate)",
+    "xamops-service/src/main/java/com/xammer/cloud/dto/gcp/GcpDashboardData.java (Lombok @Data; add currency/usd fields analogous to Azure if exposing on DTO)",
+    "xamops-service/src/main/java/com/xammer/cloud/dto/azure/AzureDashboardData.java (reference: currency + monthToDateSpendUsd fields and their Javadoc)",
+    "xamops-service/src/main/java/com/xammer/cloud/dto/DashboardData.java (Account: monthToDateSpend/forecastedSpend/lastMonthSpend/securityScore/costHistory/optimizationSummary; no currency field on Account)",
+    "xamops-service/src/test/java/com/xammer/cloud/service/gcp/GcpPricingCurrencyTest.java (constructor-mock test style to follow)",
+    "frontend-app/src/hooks/useUnifiedDashboard.ts (convertToUSD applied to GCP at `gcpData = ... convertToUSD(gcpQuery.data)`; Azure already not converted; loadRates('inr') effect)",
+    "frontend-app/src/pages/UnifiedDashboard.tsx (getTotalCost/getTotalForecast/getBudgetPercent/getTotalSavings sum per-provider monthToDateSpend/forecastedSpend)",
+    "frontend-app/src/hooks/useCurrency.ts (convert/loadRates)",
+    "frontend-app/src/types/dashboard.ts (ProviderData/SelectedAccount/SubAccount types)",
+    "frontend-app/src/components/Dashboard/ProviderDonutChart.tsx (reads selectedAccount.monthToDateSpend per provider)",
+    ".agents/tasks/finalize-exchange-rate/verification.md (lists pre-existing unrelated frontend test failures to not blame on this task)"
+  ],
+  "directory_structure": "xamops-service/ = Java Spring Boot backend (service/, controller/, dto/, service/gcp/, service/azure/; tests under src/test/java/com/xammer/cloud/). frontend-app/ = React app (src/hooks/, src/pages/, src/components/Dashboard/, src/types/). The unified dashboard endpoints live in controller/DashboardController.java at /api/xamops/dashboard/unified/{summary,aws,gcp,azure,health}."
+}
