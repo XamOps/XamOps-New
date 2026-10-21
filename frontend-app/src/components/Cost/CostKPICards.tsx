@@ -1,6 +1,7 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React from 'react';
 import { Icon } from '@iconify/react';
 import type { CostDataItem, CostFilters } from '../../types/cost';
+import { useAnimatedValue } from '../CloudK8s/shared/useAnimatedValue';
 
 interface CostKPICardsProps {
   costData: CostDataItem[];
@@ -13,33 +14,6 @@ const CostKPICards: React.FC<CostKPICardsProps> = ({ costData, filters, isLoadin
   const totalCost = costData.reduce((sum, item) => sum + item.amount, 0);
   const sortedData = [...costData].sort((a, b) => b.amount - a.amount);
   const topSpender = sortedData.length > 0 ? sortedData[0] : null;
-
-  // Animated counter hook
-  const useAnimatedValue = (target: number) => {
-    const animRef = useRef<number | undefined>(undefined);
-    const prevRef = useRef(target);
-    const [value, setValue] = useState(target);
-
-    useEffect(() => {
-      if (target === prevRef.current) return;
-      const prev = prevRef.current;
-      prevRef.current = target;
-      if (animRef.current) cancelAnimationFrame(animRef.current);
-      if (target === 0) { setValue(0); return; }
-      const duration = 900;
-      const startTime = performance.now();
-      const step = (now: number) => {
-        const t = Math.min((now - startTime) / duration, 1);
-        const eased = 1 - Math.pow(1 - t, 3);
-        setValue(prev + eased * (target - prev));
-        if (t < 1) animRef.current = requestAnimationFrame(step);
-        else setValue(target);
-      };
-      animRef.current = requestAnimationFrame(step);
-      return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
-    }, [target]);
-    return value;
-  };
 
   const animatedTotal = useAnimatedValue(totalCost);
   const animatedTop = useAnimatedValue(topSpender?.amount ?? 0);
