@@ -8,7 +8,13 @@ import React, { useId } from 'react';
  * <animateMotion>. Light styling. All motion is CSS keyframes / SMIL that is disabled under
  * prefers-reduced-motion (see the scoped <style> block), so it renders fully static then.
  */
-const MiniFlowSVG: React.FC = () => {
+interface Props {
+  /** When true the SVG stretches to fill its parent (used as the hero background accent). */
+  fill?: boolean;
+  className?: string;
+}
+
+const MiniFlowSVG: React.FC<Props> = ({ fill = false, className }) => {
   const uid = useId().replace(/[:]/g, '');
   const dash = `flow-dash-${uid}`;
   const nodeShadow = `flow-node-${uid}`;
@@ -36,8 +42,19 @@ const MiniFlowSVG: React.FC = () => {
   ];
 
   return (
-    <div aria-hidden="true" className="w-full" style={{ height: 92 }}>
-      <svg viewBox="0 0 720 92" width="100%" height="92" preserveAspectRatio="xMidYMid meet" className="block">
+    <div
+      aria-hidden="true"
+      className={`w-full ${className ?? ''}`}
+      style={fill ? { height: '100%' } : { height: 92 }}
+    >
+      <svg
+        viewBox="0 0 720 92"
+        width="100%"
+        height="100%"
+        preserveAspectRatio={fill ? 'xMidYMid slice' : 'xMidYMid meet'}
+        className="block"
+        style={fill ? { height: '100%' } : { height: 92 }}
+      >
         <style>{`
           @keyframes ${dash} { to { stroke-dashoffset: -24; } }
           .${dash}-line { stroke-dasharray: 6 6; animation: ${dash} 1.2s linear infinite; }

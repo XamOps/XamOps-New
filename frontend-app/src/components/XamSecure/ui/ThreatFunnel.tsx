@@ -14,7 +14,7 @@ interface Props {
 
 const VB_W = 360;
 const VB_H = 150;
-const PAD_X = 18;
+const PAD_X = 22;
 const MID_Y = 70;
 const MIN_HALF = 6;   // floor so a tiny/zero stage still reads as a thin ribbon
 const MAX_HALF = 46;  // half-height of the widest (first) stage
@@ -79,12 +79,17 @@ const ThreatFunnel: React.FC<Props> = ({ events, detections, stories }) => {
         {stages.map((s, i) => {
           const x = xs[i];
           const anchor = i === 0 ? 'start' : i === stages.length - 1 ? 'end' : 'middle';
-          const dx = i === 0 ? -2 : i === stages.length - 1 ? 2 : 0;
+          // The end stage is right-anchored at VB_W - PAD_X; dx=0 keeps the full numeral
+          // inside the viewBox instead of pushing the glyphs out past the thin tail.
+          const dx = i === 0 ? -2 : 0;
+          // Each label hugs its OWN ribbon segment's edge (halves[i]) rather than the
+          // global widest stage, so numbers track the ribbon profile and the thin tail's
+          // value sits just above the thin tail.
           return (
             <g key={s.label}>
               <text
                 x={x + dx}
-                y={MID_Y - MAX_HALF - 8}
+                y={MID_Y - halves[i] - 8}
                 textAnchor={anchor}
                 className="fill-gray-900"
                 style={{ fontSize: 15, fontWeight: 800 }}
@@ -93,7 +98,7 @@ const ThreatFunnel: React.FC<Props> = ({ events, detections, stories }) => {
               </text>
               <text
                 x={x + dx}
-                y={MID_Y + MAX_HALF + 20}
+                y={MID_Y + halves[i] + 16}
                 textAnchor={anchor}
                 className="fill-gray-400"
                 style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.05em' }}
