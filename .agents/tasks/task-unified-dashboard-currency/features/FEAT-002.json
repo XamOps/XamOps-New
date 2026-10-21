@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-002",
+  "type": "fix",
+  "description": "Frontend: stop converting GCP cost client-side on the unified dashboard, mirroring the Azure fix. The backend (FEAT-001) now returns GCP figures already in USD at GCP's billed rate, so the extra client-side convertToUSD(gcpData) in useUnifiedDashboard.ts is the second ~/83 division that drove GCP to ~$0 / 0.0%. Depends on FEAT-001.",
+  "status": "completed",
+  "steps": [
+    "Read context.json and this file FIRST, and confirm FEAT-001 is completed (GCP backend now emits USD). Then read frontend-app/src/hooks/useUnifiedDashboard.ts, frontend-app/src/hooks/useCurrency.ts, and frontend-app/src/types/dashboard.ts.",
+    "In useUnifiedDashboard.ts change `const gcpData = gcpQuery.data ? convertToUSD(gcpQuery.data) : null;` to `const gcpData = gcpQuery.data ?? null;` and update the adjacent comment to explain the backend now returns GCP cost in USD at GCP's own billed rate (same reasoning as the existing Azure comment), so client-side conversion would divide by ~83 a second time.",
+    "Remove the now-unused convertToUSD useCallback and, only if nothing else in the hook still uses them, the `loadRates('inr')` useEffect and the `useCurrency` import / `convert`/`loadRates` destructure. Grep the file first to confirm no remaining references (AWS and Azure already do not convert). Remove dead imports to keep tsc/lint clean.",
+    "If frontend-app/src/types/dashboard.ts needs an optional `currency?: string` on SelectedAccount/SubAccount to match any new backend field from FEAT-001, add it as optional and non-breaking; otherwise leave types unchanged.",
+    "Verify the unified dashboard math is now single-source USD: getTotalCost/getTotalForecast/getBudgetPercent/getTotalSavings in UnifiedDashboard.tsx and ProviderDonutChart read per-provider monthToDateSpend directly, so no further changes are needed there once gcpData is the backend USD value."
+  ],
+  "acceptance_criteria": [
+    "useUnifiedDashboard.ts no longer calls convertToUSD on GCP data; gcpData is the backend value as-is.",
+    "No dead-code / unused-import TypeScript errors introduced.",
+    "`cd frontend-app && npx tsc --noEmit` exits 0.",
+    "`cd frontend-app && npx vitest run` shows no NEW failures beyond the pre-existing unrelated ones documented in .agents/tasks/finalize-exchange-rate/verification.md."
+  ],
+  "verification": [
+    "cd frontend-app && npx tsc --noEmit",
+    "cd frontend-app && npx vitest run"
+  ],
+  "blocked_reason": null,
+  "findings": "Frontend now consumes the backend's already-USD GCP figures directly; no client-side currency conversion remains on the unified dashboard. Changes in frontend-app/src/hooks/useUnifiedDashboard.ts:\n- `const gcpData = gcpQuery.data ? convertToUSD(gcpQuery.data) : null;` -> `const gcpData = gcpQuery.data ?? null;` with a new comment (mirroring the existing Azure comment) explaining the backend returns GCP cost in USD at GCP's own billed rate (cost / currency_conversion_rate per row), so a second client-side /83 was what drove GCP to ~$0 / 0.0%.\n- Removed the now-dead `convertToUSD` useCallback helper entirely.\n- Removed the `loadRates('inr')` useEffect, the `useCurrency` import, and the `{ convert, loadRates }` destructure (grep confirmed no other references to convert/loadRates/useCurrency/convertToUSD remain in the file). `useEffect`/`useCallback` imports are still used by other code and were kept.\n\nTypes: NO change to frontend-app/src/types/dashboard.ts. Per FEAT-001 findings the backend added no new currency field to GcpDashboardData/Account (the aggregated Account cost figures are simply USD now), so no optional type field was needed; AWS and Azure already pass through un-converted and UnifiedDashboard.tsx / ProviderDonutChart read per-provider monthToDateSpend directly, so no downstream changes were required.\n\nVerification (RUN): `npx tsc --noEmit` -> exit 0. `npx vitest run` -> 4 failing test files (cloudk8sSidebar, loginAsAccountDashboard, BillOpsAdminDashboardPage, EksDetailsPage), all in the pre-existing unrelated set documented in .agents/tasks/finalize-exchange-rate/verification.md; failures stem from an unrelated `localStorage.setItem is not a function` setup issue in ThemeContext, not from this change. No unified-dashboard/currency test regressed; no new failures introduced. No dedicated test exists for useUnifiedDashboard.\n\nENV NOTE for the merge/integration step: the worktree frontend-app has NO node_modules and `npm ci` failed on network (ETIMEDOUT fetching dompurify). Verification used a temporary symlink to the main workspace's identical node_modules (package.json + package-lock.json verified byte-identical between worktree and /Users/admin/Desktop/xam-latest/XamOps-New/frontend-app). The symlink was removed after verification; nothing extra is staged or committed."
+}

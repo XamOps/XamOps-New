@@ -18,7 +18,6 @@ import type {
   ViewMode,
   SubAccount,
 } from '../types/dashboard';
-import { useCurrency } from './useCurrency';
 import { useAccounts } from '../contexts/AccountContext';
 import { apiFetch } from '../utils/apiClient';
 
@@ -68,14 +67,8 @@ const fetchTicketCount = async (): Promise<number> => {
 // Hook
 // ---------------------------------------------------------------------------
 export const useUnifiedDashboard = () => {
-  const { convert, loadRates } = useCurrency();
   const qc = useQueryClient();
   const { accounts } = useAccounts();
-
-  // Load INR exchange rates once (needed for GCP/Azure USD conversion)
-  useEffect(() => {
-    loadRates('inr');
-  }, [loadRates]);
 
   // UI states
   const [showModal, setShowModal] = useState(false);
@@ -148,51 +141,17 @@ export const useUnifiedDashboard = () => {
   });
 
   // -------------------------------------------------------------------------
-  // Currency conversion helper
-  // -------------------------------------------------------------------------
-  const convertToUSD = useCallback((data: ProviderData): ProviderData => {
-    if (!data.selectedAccount) return data;
-
-    const cv = (val: number | undefined) => {
-      if (!val) return 0;
-      const converted = convert(val, 'usd');
-      return converted !== null ? converted : val;
-    };
-
-    return {
-      ...data,
-      selectedAccount: {
-        ...data.selectedAccount,
-        monthToDateSpend: cv(data.selectedAccount.monthToDateSpend),
-        forecastedSpend: cv(data.selectedAccount.forecastedSpend),
-        optimizationSummary: {
-          ...data.selectedAccount.optimizationSummary,
-          totalPotentialSavings: cv(data.selectedAccount.optimizationSummary?.totalPotentialSavings),
-        },
-        costHistory: {
-          ...data.selectedAccount.costHistory,
-          costs: data.selectedAccount.costHistory?.costs?.map((c) => {
-            const converted = convert(c, 'usd');
-            return converted !== null ? converted : c;
-          }) || [],
-        },
-        subAccounts: data.selectedAccount.subAccounts?.map((acc) => ({
-          ...acc,
-          monthToDateSpend: cv(acc.monthToDateSpend),
-          forecastedSpend: cv(acc.forecastedSpend),
-          optimizationSummary: acc.optimizationSummary
-            ? { ...acc.optimizationSummary, totalPotentialSavings: cv(acc.optimizationSummary.totalPotentialSavings) }
-            : undefined,
-        })) || [],
-      },
-    };
-  }, [convert]);
-
-  // -------------------------------------------------------------------------
-  // Derive processed provider data (with USD conversion for GCP)
+  // Derive processed provider data
   // -------------------------------------------------------------------------
   const awsData = awsQuery.data ?? null;
-  const gcpData = gcpQuery.data ? convertToUSD(gcpQuery.data) : null;
+  // GCP is no longer converted here (mirrors Azure below).
+  //
+  // The backend now returns GCP figures already in USD, at GCP's own billed rate — it divides
+  // each row's native cost by the billing export's currency_conversion_rate, so a USD-billed
+  // project passes through unchanged and a non-USD project is converted at the rate GCP actually
+  // billed. Converting again on the client would divide by roughly 83 a second time, which is what
+  // drove GCP down to ~$0 / 0.0% on this dashboard.
+  const gcpData = gcpQuery.data ?? null;
   // Azure is no longer converted here.
   //
   // The backend now returns these figures already in USD, using Azure's own CostUSD aggregation —
