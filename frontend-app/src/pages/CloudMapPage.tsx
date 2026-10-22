@@ -56,8 +56,15 @@ import {
   groupOrphanResources,
   layoutHierarchicalGrid,
   CANVAS_TOKENS,
+  preloadCardIcons,
   type CanvasTheme,
 } from '../components/CloudMap/canvasTheme';
+import {
+  shapeLiveTopology,
+  DEFAULT_LIVE_LAYERS,
+  type LiveLayer,
+  type LiveLayers,
+} from '../components/CloudMap/liveTopology';
 
 import { sanitizeInlineHtml } from '../utils/sanitizeHtml';
 
@@ -382,6 +389,8 @@ const CloudMapPage: React.FC = () => {
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [infoPanelOpen, setInfoPanelOpen] = useState(false);
+  /** Optional live-view layers. Off by default so the first picture is the architecture. */
+  const [liveLayers, setLiveLayers] = useState<LiveLayers>(DEFAULT_LIVE_LAYERS);
   /** Node whose neighbourhood is focused, via the inspector's Focus action. */
   const [isolatedNodeId, setIsolatedNodeId] = useState<string | null>(null);
 
@@ -709,6 +718,15 @@ const CloudMapPage: React.FC = () => {
     exportToPng,
   } = useCloudMap({ accountId, mode: dataMode });
 
+  /** The live view's architecture picture, derived from the raw topology and the chosen layers. */
+  const liveTopology = useMemo(
+    () => shapeLiveTopology(graphElements as any[], liveLayers),
+    [graphElements, liveLayers],
+  );
+  const toggleLiveLayer = useCallback((layer: LiveLayer) => {
+    setLiveLayers((prev) => ({ ...prev, [layer]: !prev[layer] }));
+  }, []);
+
   // ── Snapshot / Undo / Redo ────────────────────────────────────────────────
 
   const takeSnapshot = useCallback(() => {
@@ -986,8 +1004,15 @@ const CloudMapPage: React.FC = () => {
     // before styles resolve.
     tagEdgeKinds(cy);
 
-    // Restore stored styles after load (must set inline bypasses AND update stylesheet)
-    cy.elements().forEach(applyElementStyle);
+    /*
+     * Restore stored styles after load (must set inline bypasses AND update stylesheet).
+     *
+     * Design mode only. These are user-authored overrides on a saved canvas, and the helper
+     * also stamps each typed node's raw service icon as an inline bypass. Run on the live view
+     * it overrode the stylesheet's card for every resource, which is why live cards rendered as
+     * a stretched icon with no name no matter what the stylesheet said.
+     */
+    if (isEditable) cy.elements().forEach(applyElementStyle);
     cy.style().update();
 
     // Level of detail: cards when close, chips when far. Seeded once here, then
@@ -1134,6 +1159,35 @@ const CloudMapPage: React.FC = () => {
       setSelectedNodeData(data);
       if (!isEditable) setInfoPanelOpen(true);
     });
+
+    /*
+     * Live mode: hovering a resource traces its connections.
+     *
+     * Everything not one hop away fades, the connecting lines take the accent colour and show
+     * their labels. Containers never fade — dimming a VPC would dim everything inside it — so
+     * the reader keeps their bearings. Skipped while a Focus from the inspector is active,
+     * which is the sticky version of the same thing.
+     */
+    if (!isEditable) {
+      cy.on('mouseover', 'node', (evt: any) => {
+        const node = evt.target;
+        if (node.isParent() || cy.$('.cm-highlight').length > 0) return;
+        const edges = node.connectedEdges();
+        const near = edges.connectedNodes().union(node);
+        cy.batch(() => {
+          cy.nodes().filter((n: any) => !n.isParent() && !near.contains(n)).addClass('cm-hover-dim');
+          cy.edges().not(edges).addClass('cm-hover-dim');
+          edges.addClass('cm-hover-path');
+        });
+        if (containerRef.current) containerRef.current.style.cursor = 'pointer';
+      });
+      cy.on('mouseout', 'node', () => {
+        cy.batch(() => { cy.elements().removeClass('cm-hover-dim cm-hover-path'); });
+        if (containerRef.current) containerRef.current.style.cursor = '';
+      });
+      cy.on('mouseover', 'edge', (evt: any) => { evt.target.addClass('cm-labelled'); });
+      cy.on('mouseout', 'edge', (evt: any) => { evt.target.removeClass('cm-labelled'); });
+    }
 
     // Background tap
     cy.on('tap', (evt: any) => {
@@ -1369,25 +1423,30 @@ const CloudMapPage: React.FC = () => {
 
     if (graphElements.length > 0) {
       setShowEmptyState(false);
-      renderGraph(graphElements, mode === 'design');
-      // Only auto-fit in live mode; design mode zoom is user-controlled
       if (mode === 'live') {
-        setTimeout(() => {
+        /*
+         * Icons are fetched once and baked into each card, so they have to be in hand before
+         * the first paint; otherwise every card would draw with an initials fallback and then
+         * re-render. The fetch is a handful of small same-origin files and is cached.
+         */
+        let cancelled = false;
+        const shaped = liveTopology.elements as GraphElement[];
+        preloadCardIcons(shaped.map((el) => String((el.data as any).type ?? ''))).then(() => {
+          if (cancelled) return;
+          renderGraph(shaped, false);
           const cy = cyRef.current;
           if (!cy) return;
           cy.resize();
-          if (selectedVpcValue && selectedVpcValue !== ALL_VPCS_VALUE) {
-            // Single VPC: animate to fit, then clamp so it never stays below 35%
-            cy.animate({ fit: { eles: cy.elements(), padding: 60 }, duration: 500 } as any);
-            setTimeout(() => { if (cyRef.current && cyRef.current.zoom() < 0.35) { cyRef.current.zoom(0.35); cyRef.current.center(); } }, 560);
-          } else {
-            cy.fit(undefined, 40);
-            if (cy.zoom() < 0.12) { cy.zoom(0.12); cy.center(); }
-          }
-        }, 400);
-      } else {
-        setTimeout(() => { cyRef.current?.resize(); }, 100);
+          cy.fit(undefined, 48);
+          // A single VPC should open readable; the whole estate may need to start further out.
+          const floor = selectedVpcValue && selectedVpcValue !== ALL_VPCS_VALUE ? 0.35 : 0.12;
+          if (cy.zoom() < floor) { cy.zoom(floor); cy.center(); }
+        });
+        return () => { cancelled = true; };
       }
+      renderGraph(graphElements, true);
+      // Design mode zoom is user-controlled; only the canvas geometry is refreshed.
+      setTimeout(() => { cyRef.current?.resize(); }, 100);
     } else if (!loadingGraph && mode === 'live') {
       // Only claim the account is empty when nothing actually failed. The empty
       // state asserts "we reached this account and found nothing", which is a
@@ -1399,7 +1458,7 @@ const CloudMapPage: React.FC = () => {
     } else if (mode === 'design') {
       renderGraph([], true);
     }
-  }, [graphElements, mode, renderGraph, loadingGraph, selectedVpcValue, graphError]);
+  }, [graphElements, liveTopology, mode, renderGraph, loadingGraph, selectedVpcValue, graphError]);
 
   // ── Message overlay ───────────────────────────────────────────────────────
 
@@ -2735,18 +2794,17 @@ ${xmlEdges}
     void loadAllGraphs(awsVpcs);
   }, [mode, accountId, awsVpcs, loadingGraph, graphElements.length, loadAllGraphs]);
 
+  /**
+   * Put every card back where the architecture layout places it.
+   *
+   * This used to run fcose, which threw away the AZ columns and tier rows the deterministic
+   * layout builds — the button labelled "re-arrange" made the picture meaningless.
+   */
   const handleRelayoutLive = useCallback(() => {
     const cy = cyRef.current;
     if (!cy) return;
-    const vpcRoots = cy.nodes('[type="VPC"]');
-    const fcoseOpts = vpcRoots.length > 1
-      ? { nodeSeparation: 120, tilingPaddingVertical: 100, tilingPaddingHorizontal: 100, nodeRepulsion: 6000, idealEdgeLength: 90 }
-      : { nodeSeparation: 60, tilingPaddingVertical: 60, tilingPaddingHorizontal: 60, nodeRepulsion: 3500, idealEdgeLength: 70 };
-    cy.layout({
-      name: 'fcose', quality: 'default', packComponents: true, tile: true,
-      gravity: 0.25, fit: false, padding: 40, ...fcoseOpts,
-    } as any).run();
-    cy.animate({ fit: { eles: cy.elements(), padding: 40 }, duration: 400 } as any);
+    layoutHierarchicalGrid(cy);
+    cy.animate({ fit: { eles: cy.elements(), padding: 48 }, duration: 400 } as any);
   }, []);
 
   const handleBlueprintChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -3766,57 +3824,83 @@ ${xmlEdges}
                 )}
               </>
             )}
-            {/* ── Live mode: layout action + inline stats ── */}
-            {mode === 'live' && (
-              <>
-                <Tooltip text="Re-arrange VPCs in grid layout">
-                  <button className="toolbar-button" onClick={handleRelayoutLive}>
-                    <i className="fas fa-th" />
+            {/* ── Live mode: stats, layers, refresh ── */}
+            {mode === 'live' && !messageOverlay.show && (() => {
+              // Use source/target presence (same as renderGraph) so stats work
+              // regardless of whether the API returns group:'nodes' or group:'node'
+              const lnodes = graphElements.filter(e => !(e.data as any).source && !(e.data as any).target);
+              const ledges = graphElements.filter(e => !!(e.data as any).source && !!(e.data as any).target);
+              // Single-VPC selection: 1 VPC is implicit; All-VPCs: count VPC roots
+              const lvpcsCount = selectedVpcValue && selectedVpcValue !== ALL_VPCS_VALUE
+                ? (lnodes.length > 0 ? 1 : 0)
+                : lnodes.filter(e => (e.data as NodeData).type === 'VPC').length;
+              const lsubnets = lnodes.filter(e => (e.data as NodeData).type === 'Subnet');
+              const lresources = lnodes.filter(e => !['VPC', 'Subnet'].includes((e.data as NodeData).type ?? ''));
+              const layerDefs: Array<{ id: LiveLayer; label: string; hint: string }> = [
+                { id: 'security', label: 'Security groups', hint: 'Show security groups and their rules. While hidden, rules are drawn as "can reach" lines between resources.' },
+                { id: 'routing', label: 'Routing', hint: 'Show route tables and which subnets they govern.' },
+                { id: 'storage', label: 'Storage', hint: 'Show EBS volumes and Elastic IPs and what they attach to.' },
+                { id: 'scaling', label: 'Scaling', hint: 'Show Auto Scaling groups and target groups. While hidden, load balancers point straight at their targets.' },
+              ];
+              return (
+                <>
+                  <div className="live-stats" aria-label="Topology summary">
+                    <span className="live-stat-item"><span className="live-stat-count">{lvpcsCount}</span><span>VPCs</span></span>
+                    <span className="live-stat-item"><span className="live-stat-count">{lsubnets.length}</span><span>Subnets</span></span>
+                    <span className="live-stat-item"><span className="live-stat-count">{lresources.length}</span><span>Resources</span></span>
+                    <span className="live-stat-item"><span className="live-stat-count">{ledges.length}</span><span>Links</span></span>
+                  </div>
+                  <div className="toolbar-separator" />
+                  <div className="cm-layers" role="group" aria-label="Layers">
+                    <span className="cm-layers-label">Layers</span>
+                    {layerDefs.map(l => {
+                      const on = liveLayers[l.id];
+                      const n = liveTopology.hidden[l.id];
+                      return (
+                        <Tooltip key={l.id} text={l.hint}>
+                          <button
+                            type="button"
+                            className={`cm-layer-chip${on ? ' is-on' : ''}`}
+                            aria-pressed={on}
+                            disabled={!on && n === 0}
+                            onClick={() => toggleLiveLayer(l.id)}
+                          >
+                            <i className={`fas ${on ? 'fa-eye' : 'fa-eye-slash'}`} aria-hidden="true" />
+                            {l.label}
+                            {!on && n > 0 && <span className="cm-layer-count">{n}</span>}
+                          </button>
+                        </Tooltip>
+                      );
+                    })}
+                  </div>
+                  <div className="toolbar-separator" />
+                  <Tooltip text="Reset layout">
+                    <button className="toolbar-button" onClick={handleRelayoutLive} aria-label="Reset layout">
+                      <i className="fas fa-table-cells-large" />
+                    </button>
+                  </Tooltip>
+                  <button
+                    className="toolbar-button"
+                    style={{ gap: '0.35rem', display: 'flex', alignItems: 'center', padding: '0 0.6rem', fontSize: '0.72rem', fontWeight: 600 }}
+                    onClick={handleRefreshTopology}
+                    disabled={refreshingTopology}
+                    title="Rescan the account"
+                  >
+                    <i className="fas fa-sync-alt" style={refreshingTopology ? { animation: 'spin 0.8s linear infinite' } : {}} />
+                    {refreshingTopology ? 'Refreshing…' : 'Refresh'}
                   </button>
-                </Tooltip>
-                <div className="toolbar-separator" />
-                {!messageOverlay.show && (() => {
-                  // Use source/target presence (same as renderGraph) so stats work
-                  // regardless of whether the API returns group:'nodes' or group:'node'
-                  const lnodes = graphElements.filter(e => !(e.data as any).source && !(e.data as any).target);
-                  const ledges = graphElements.filter(e => !!(e.data as any).source && !!(e.data as any).target);
-                  // Single-VPC selection: 1 VPC is implicit; All-VPCs: count synthetic roots
-                  const lvpcsCount = selectedVpcValue && selectedVpcValue !== ALL_VPCS_VALUE
-                    ? (lnodes.length > 0 ? 1 : 0)
-                    : lnodes.filter(e => (e.data as NodeData).type === 'VPC').length;
-                  const lsubnets = lnodes.filter(e => (e.data as NodeData).type === 'Subnet');
-                  const lresources = lnodes.filter(e => !['VPC', 'Subnet'].includes((e.data as NodeData).type ?? ''));
-                  return (
-                    <>
-                      <div className="live-stat-item"><span className="live-stat-dot" style={{ background: canvasTokens.ink }} /><span className="live-stat-count">{lvpcsCount}</span><span>VPCs</span></div>
-                      <div className="live-stat-item"><span className="live-stat-dot" style={{ background: '#0ea5e9' }} /><span className="live-stat-count">{lsubnets.length}</span><span>Subnets</span></div>
-                      <div className="live-stat-item"><span className="live-stat-dot" style={{ background: '#8b5cf6' }} /><span className="live-stat-count">{lresources.length}</span><span>Resources</span></div>
-                      <div className="live-stat-item"><span className="live-stat-dot" style={{ background: canvasTokens.edge }} /><span className="live-stat-count">{ledges.length}</span><span>Connections</span></div>
-                      <div className="toolbar-separator" />
-                      <button
-                        className="toolbar-button"
-                        style={{ gap: '0.35rem', display: 'flex', alignItems: 'center', padding: '0 0.6rem', fontSize: '0.72rem', fontWeight: 600 }}
-                        onClick={handleRefreshTopology}
-                        disabled={refreshingTopology}
-                        title="Refresh topology"
-                      >
-                        <i className="fas fa-sync-alt" style={refreshingTopology ? { animation: 'spin 0.8s linear infinite' } : {}} />
-                        {refreshingTopology ? 'Refreshing…' : 'Refresh'}
-                      </button>
-                      <div className="toolbar-separator" />
-                      <Tooltip text={showMinimap ? 'Hide Minimap' : 'Show Minimap'}>
-                        <button
-                          className={`toolbar-button ${showMinimap ? 'toolbar-button-active' : ''}`}
-                          onClick={() => setShowMinimap(v => !v)}
-                        >
-                          <i className="fas fa-map" />
-                        </button>
-                      </Tooltip>
-                    </>
-                  );
-                })()}
-              </>
-            )}
+                  <Tooltip text={showMinimap ? 'Hide minimap' : 'Show minimap'}>
+                    <button
+                      className={`toolbar-button ${showMinimap ? 'toolbar-button-active' : ''}`}
+                      onClick={() => setShowMinimap(v => !v)}
+                      aria-label="Minimap"
+                    >
+                      <i className="fas fa-map" />
+                    </button>
+                  </Tooltip>
+                </>
+              );
+            })()}
             {/* Spacer — pushes zoom controls to the right */}
             <div className="flex-1" />
             <div className="toolbar-separator" />
@@ -3885,6 +3969,33 @@ ${xmlEdges}
                 cursor: isRotating ? 'grabbing' : undefined,
               }}
             />
+
+            {/* ── Live legend: what the lines and dots mean ── */}
+            {mode === 'live' && !messageOverlay.show && graphElements.length > 0 && (
+              <div className="cm-legend" role="note" aria-label="Map legend">
+                <div className="cm-legend-row">
+                  <svg width="22" height="8" aria-hidden="true"><line x1="0" y1="4" x2="22" y2="4" className="cm-legend-line traffic" /></svg>
+                  Request path
+                </div>
+                <div className="cm-legend-row">
+                  <svg width="22" height="8" aria-hidden="true"><line x1="0" y1="4" x2="22" y2="4" className="cm-legend-line reach" /></svg>
+                  Allowed by security groups
+                </div>
+                <div className="cm-legend-row">
+                  <svg width="22" height="8" aria-hidden="true"><line x1="0" y1="4" x2="22" y2="4" className="cm-legend-line egress" /></svg>
+                  Outbound via gateway
+                </div>
+                <div className="cm-legend-sep" />
+                <div className="cm-legend-status">
+                  <span><i className="cm-dot healthy" />Running</span>
+                  <span><i className="cm-dot warning" />Changing</span>
+                  <span><i className="cm-dot danger" />Failed</span>
+                  <span><i className="cm-dot idle" />Stopped</span>
+                </div>
+                <div className="cm-legend-sep" />
+                <div className="cm-legend-hint">Hover a resource to trace it</div>
+              </div>
+            )}
 
             {/* Inline label editor */}
             {mode === 'design' && labelEditor && (
