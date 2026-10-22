@@ -111,13 +111,14 @@ export function HowItWorks({ chips, policiesHref, policiesLinkState, collapsed =
     >
       {header}
       {/*
-        The five steps are full-width ROWS by default — the number + title sit beside the one-liner,
-        and the state chip gets a whole row's width, so a long chip label ("Up to date — 9 workloads,
-        last analysed 11:57 AM IST") reads on one line instead of wrapping ~6 times inside a narrow
-        pill (owner review #3). They only fan out to five columns on a genuinely wide (xl) layout,
-        where each column has the room.
+        The five steps are ALWAYS full-width ROWS — the number + title sit beside the one-liner, and
+        the state chip gets a whole row's width, so a long chip label + detail ("Measuring — 1
+        workload still measuring", "Waiting for you") reads on one line instead of squeezing into a
+        narrow five-column sliver and wrapping (owner polish review #3). The earlier `xl:grid-cols-5`
+        fan-out re-created that cramped column inside the aside-narrowed content width, so it is
+        dropped: rows give every sub-label the room it needs at every width.
       */}
-      <ol className="mt-3 flex flex-col gap-2 xl:grid xl:grid-cols-5">
+      <ol className="mt-3 flex flex-col gap-2">
         {HOW_STEPS.map((step, i) => {
           const chip = chips[step.key];
           const highlighted = i === highlight;

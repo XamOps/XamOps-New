@@ -60,7 +60,9 @@ export function PageTemplate({
     );
 
   const heroBlock = hero !== undefined && hero !== null ? <div data-page-hero="">{hero}</div> : null;
-  const childrenBlock = children !== undefined && children !== null ? <div className="flex flex-col gap-6">{children}</div> : null;
+  // min-w-0 so a wide child (a table card) can't force this column wider than the content area; the
+  // card's own overflow-auto takes the horizontal scroll instead of clipping (owner polish review #5).
+  const childrenBlock = children !== undefined && children !== null ? <div className="flex min-w-0 flex-col gap-6">{children}</div> : null;
   const detailBlock = detail !== undefined && detail !== null ? <div data-page-detail="">{detail}</div> : null;
 
   return (
@@ -72,7 +74,11 @@ export function PageTemplate({
       data-k8s-kit=""
       data-page-width={width}
       aria-labelledby={titleId}
-      className={`flex w-full flex-col gap-6 ${maxWidth} ${className}`.trim()}
+      // min-w-0: as a flex child of the app shell's column, the default `min-width:auto` would let a
+      // wide table push this region past the content area (viewport − the ~220px sidebar) and clip
+      // the last column at the edge. min-w-0 lets the region shrink to the available width so the
+      // table card's own overflow-auto scrolls horizontally instead (owner polish review #4/#5).
+      className={`flex w-full min-w-0 flex-col gap-6 ${maxWidth} ${className}`.trim()}
     >
       {/*
         The title + hero always span the FULL content width, even when there is a right rail — so the

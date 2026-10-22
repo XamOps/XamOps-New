@@ -279,7 +279,9 @@ export default function EksPodsTab({ eksData, clusterName }: { eksData: UseEksDa
       width="table"
       hero={<MetricStrip cells={stripCells} aria-label="Pods by phase" />}
     >
-      <div data-panel="pods" className="flex flex-col gap-3">
+      {/* min-w-0 so the table card below shrinks to the content area (viewport − the ~220px sidebar)
+          and scrolls horizontally inside itself, never clipping the last column (owner review #5). */}
+      <div data-panel="pods" className="flex min-w-0 flex-col gap-3">
         {/* Phase counts are also exposed as data-count tiles for the count assertions / deep links. */}
         <dl className="sr-only">
           <div data-count="Total"><dt>Total</dt><dd>{rows.length}</dd></div>

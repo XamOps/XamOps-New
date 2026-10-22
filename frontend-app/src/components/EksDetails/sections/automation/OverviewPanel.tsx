@@ -474,39 +474,33 @@ function Sub({ children }: { children: ReactNode }) {
  * the FEAT-002 cost read prices what a suggestion would still free, not capacity already freed.
  * Which workloads are in place comes from endpoint 1; each one's amount from the activity log's
  * before and after for that same change. Unknown amounts are left out and counted as such.
+ *
+ * The cell renders ONE short supporting sentence (owner polish review): when a change is in place it
+ * names what it frees; when none is, it reads as a clean, deliberate empty state next to the dash.
  */
 function savingNowCell({ view, feed }: { view: VerticalEngineView; feed: UseAutomationActivityState }): MetricCell {
   const s = savingNow(view.workloads, feed.entries);
   const pods = s.counted.reduce((n, c) => n + c.pods, 0);
   const who = s.counted.length === 1 ? s.counted[0].workload.ref.name : `${s.counted.length} workloads`;
+
+  // The honest empty-state line: a dash plus ONE muted sentence that says why nothing is counted.
+  const emptyLine =
+    s.inPlace === 0
+      ? 'No savings recorded yet.'
+      : s.inPlace === 1
+        ? "1 change is in place, but its earlier size isn't recorded."
+        : `${s.inPlace} changes are in place, but their earlier sizes aren't recorded.`;
+
   return {
     label: 'Saving now',
     value: s.counted.length > 0 ? formatVcpu(s.cpuM) : '—',
     sub: (
       <Sub>
         {s.counted.length > 0 ? (
-          <>
-            {s.memMi > 0 && <span>{formatMemory(s.memMi)} memory freed</span>}
-            <span>{`${who}, in place on ${pods} ${pods === 1 ? 'pod' : 'pods'}`}</span>
-          </>
+          <span>{`${who}, in place on ${pods} ${pods === 1 ? 'pod' : 'pods'}.`}</span>
         ) : (
-          <span>
-            {s.inPlace === 0
-              ? 'No change is in place now'
-              : `${s.inPlace} in place, but the activity log doesn't hold the size before for ${s.inPlace === 1 ? 'it' : 'them'}`}
-          </span>
+          <span className={MUTED}>{emptyLine}</span>
         )}
-        {s.counted.length > 0 && s.notCounted > 0 && (
-          <span>{`${s.notCounted} more in place, not counted: the size before isn't recorded, or the change is older than 7 days`}</span>
-        )}
-        {s.raised > 0 && <span>{`${s.raised} raised a request, so ${s.raised === 1 ? 'it frees' : 'they free'} nothing`}</span>}
-        {view.cost && (
-          <span data-saving-now-usd="">
-            In $: <span title="The cost read prices what a suggestion would still free, not what a change already freed.">—</span>, the cost
-            read prices suggestions still to come
-          </span>
-        )}
-        <span>From the activity log&apos;s before and after. A rollout since then would undo a change.</span>
       </Sub>
     ),
   };

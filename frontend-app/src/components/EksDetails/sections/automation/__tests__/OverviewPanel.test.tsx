@@ -684,7 +684,7 @@ describe('Automation › Overview: the activity log, its summary and the usage f
     await renderPanel(fixture('demo-aws-001'));
     const saving = await waitFor(() => kpi('Saving now'));
     expect(saving).toHaveTextContent('—');
-    expect(saving).toHaveTextContent("1 in place, but the activity log doesn't hold the size before for it");
+    expect(saving).toHaveTextContent("1 change is in place, but its earlier size isn't recorded.");
   });
 
   it('counts the changes of the last 7 days per IST day from the summary, since the day it began recording', async () => {
