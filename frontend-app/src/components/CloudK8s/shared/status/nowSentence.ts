@@ -198,21 +198,27 @@ export interface NodeAutoscalerInputs {
   cpu?: { requestedPct?: number; usedPct?: number };
   /** Pods waiting for a node. */
   waiting?: number;
-  /** Idle nodes, as the automation agent reported them. `undefined` = not reported. */
+  /** Idle nodes, as the node automation agent reported them. `undefined` = not reported. */
   idle?: number;
-  /** The automation agent. `undefined` = not checked. */
+  /** The node automation agent (xamops-autoscaler). `undefined` = not checked. */
   automationAgent?: 'installed' | 'stale' | 'not-installed';
 }
 
 /** Automation › Activity (give what XamOps did today, by result), over each workload's latest change. */
 export interface ActivityInputs {
-  /** Workloads with a recorded latest change. `undefined` = endpoint 1 failed. */
+  /**
+   * What the counts are over: each workload's latest change from endpoint 1 (`latest`, the default)
+   * or the entries of the activity feed (`feed`, FEAT-007), where a deferral XamOps put back counts
+   * as `deferred`.
+   */
+  basis?: 'latest' | 'feed';
+  /** Workloads with a recorded latest change, or feed entries read. `undefined` = the read failed. */
   recorded?: number;
-  /** Today's latest changes, by result. */
+  /** Today's latest changes (or feed entries), by result. */
   today?: { applied: number; deferred: number; refused: number; failed: number; testRuns: number };
   /** Workloads whose latest change was applied live and is in place now. */
   inPlace?: readonly string[];
-  /** Workloads whose latest change detected a restart. */
+  /** Workloads whose latest change (or a feed entry) detected a restart. */
   restarted?: readonly string[];
 }
 
@@ -590,9 +596,9 @@ export function nodeAutoscalerSentence(inputs: NodeAutoscalerInputs): NowSentenc
     clauses.push(`${count(inputs.waiting, 'pod')} ${inputs.waiting === 1 ? 'waits' : 'wait'} for a node.`);
   }
 
-  if (inputs.automationAgent === 'installed') chips.push(CHIP_GOOD('Automation agent: installed'));
-  else if (inputs.automationAgent === 'stale') chips.push({ tone: 'warn', icon: 'mdi:clock-alert-outline', label: 'Automation agent: no recent report' });
-  else if (inputs.automationAgent === 'not-installed') chips.push({ tone: 'off', icon: 'mdi:minus-circle-outline', label: 'Automation agent: not installed' });
+  if (inputs.automationAgent === 'installed') chips.push(CHIP_GOOD('Node automation agent: installed'));
+  else if (inputs.automationAgent === 'stale') chips.push({ tone: 'warn', icon: 'mdi:clock-alert-outline', label: 'Node automation agent: no recent report' });
+  else if (inputs.automationAgent === 'not-installed') chips.push({ tone: 'off', icon: 'mdi:minus-circle-outline', label: 'Node automation agent: not installed' });
 
   if (inputs.waiting !== undefined && inputs.waiting > 0) {
     chips.push({ tone: 'bad', icon: 'mdi:alert-octagon-outline', label: `${count(inputs.waiting, 'pod')} waiting for a node` });
@@ -615,15 +621,17 @@ export function activitySentence(inputs: ActivityInputs): NowSentence {
     return { clauses, chips };
   }
 
+  const feed = inputs.basis === 'feed';
   const t = inputs.today;
   if (t) {
     const parts: string[] = [];
     if (t.applied > 0) parts.push(`${t.applied} applied`);
-    if (t.deferred > 0) parts.push(`${t.deferred} deferred`);
+    if (t.deferred > 0) parts.push(feed ? `${t.deferred} deferred and put back` : `${t.deferred} deferred`);
     if (t.refused > 0) parts.push(`${t.refused} refused`);
     if (t.failed > 0) parts.push(`${t.failed} failed`);
     if (t.testRuns > 0) parts.push(count(t.testRuns, 'test run'));
-    clauses.push(parts.length > 0 ? `Today, by each workload's latest change: ${listWords(parts)}.` : "No workload's latest change is from today.");
+    if (feed) clauses.push(parts.length > 0 ? `Today XamOps recorded ${listWords(parts)}.` : 'XamOps recorded nothing on this cluster today.');
+    else clauses.push(parts.length > 0 ? `Today, by each workload's latest change: ${listWords(parts)}.` : "No workload's latest change is from today.");
     if (t.applied > 0) chips.push(CHIP_GOOD(`${t.applied} applied today`));
     if (t.deferred > 0) chips.push(CHIP_WARN(`${t.deferred} deferred today`));
     if (t.refused + t.failed > 0) chips.push({ tone: 'bad', icon: 'mdi:alert-octagon-outline', label: `${t.refused + t.failed} refused or failed today` });

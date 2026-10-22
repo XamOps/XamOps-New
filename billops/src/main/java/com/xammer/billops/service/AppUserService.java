@@ -2,11 +2,14 @@ package com.xammer.billops.service;
 
 import com.xammer.cloud.domain.AppUser;
 import com.xammer.billops.domain.Client;
+import com.xammer.billops.domain.CloudAccount;
+import com.xammer.billops.domain.UserCloudAccountAccess;
 import com.xammer.billops.domain.UserTabAccess;
 import com.xammer.billops.dto.UserDTO;
 import com.xammer.billops.repository.AgreementRepository;
 import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.ClientRepository;
+import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.CreditRequestRepository;
 import com.xammer.billops.repository.SupportMessageRepository;
 import com.xammer.billops.repository.SupportTicketStatusRepository;
@@ -48,6 +51,9 @@ public class AppUserService {
 
     @Autowired
     private UserCloudAccountAccessRepository userCloudAccountAccessRepository;
+
+    @Autowired
+    private CloudAccountRepository cloudAccountRepository;
 
     @Autowired
     private TicketRepository ticketRepository;
@@ -172,6 +178,15 @@ public class AppUserService {
             }
         }
 
+        // Assign cloud-account access (any role). A null list means "none specified" (→ all
+        // accounts on read); an explicit list stores one row per resolvable cloud account.
+        if (dto.getAccountAccessIds() != null) {
+            for (Long accountId : dto.getAccountAccessIds()) {
+                cloudAccountRepository.findById(accountId).ifPresent(cloudAccount ->
+                        userCloudAccountAccessRepository.save(new UserCloudAccountAccess(savedUser, cloudAccount)));
+            }
+        }
+
         // Send welcome email with credentials
         try {
             sendWelcomeEmail(dto.getEmail(), dto.getUsername(), dto.getPassword());
@@ -229,6 +244,7 @@ public class AppUserService {
             if ("ROLE_XAMOPS".equals(user.getRole())) {
                 dto.setAllowedTabs(userTabAccessRepository.findTabNamesByUserId(user.getId()));
             }
+            dto.setAccountAccessIds(userCloudAccountAccessRepository.findCloudAccountIdsByUserId(user.getId()));
             return dto;
         }).collect(Collectors.toList());
     }
@@ -278,7 +294,88 @@ public class AppUserService {
             }
         }
 
+        // Sync cloud-account access — same null/empty contract as tab access above.
+        // A null accountAccessIds means "leave unchanged"; an explicit (possibly empty) list
+        // replaces the current assignment (empty → zero rows → "all access" on read).
+        if (dto.getAccountAccessIds() != null) {
+            userCloudAccountAccessRepository.deleteByUserId(savedUser.getId());
+            for (Long accountId : dto.getAccountAccessIds()) {
+                cloudAccountRepository.findById(accountId).ifPresent(cloudAccount ->
+                        userCloudAccountAccessRepository.save(new UserCloudAccountAccess(savedUser, cloudAccount)));
+            }
+        }
+
         return savedUser;
+    }
+
+    /**
+     * Moves a user to another existing client, keeping the user tree consistent in every case.
+     *
+     * <p>Only client membership changes — tickets, credit requests, agreements and access rows
+     * stay with each user, so nothing is lost. The tree stays valid because:
+     * <ul>
+     *   <li><b>Primary user with sub-users:</b> the primary and <em>all</em> of its sub-users move
+     *       together, so the family is never split across two clients.</li>
+     *   <li><b>Sub-user:</b> moving it to a different client detaches it from its parent
+     *       (created_by cleared) so it becomes a primary user on the destination client. A
+     *       sub-user can never end up pointing at a parent that lives in another client.</li>
+     *   <li><b>Plain primary user:</b> just changes client.</li>
+     * </ul>
+     *
+     * <p>If the old client is left with no users, it is cleaned up, same as {@link #deleteUser}.
+     *
+     * @param userId          the user to move
+     * @param targetClientId  the client to move them to (must already exist)
+     * @return the updated user
+     */
+    @Transactional
+    public AppUser moveUserToClient(Long userId, Long targetClientId) {
+        AppUser user = appUserRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        Client target = clientRepository.findById(targetClientId)
+                .orElseThrow(() -> new RuntimeException("Target client not found: " + targetClientId));
+
+        Client oldClient = user.getClient();
+        Long oldClientId = oldClient != null ? oldClient.getId() : null;
+
+        if (oldClientId != null && oldClientId.equals(targetClientId)) {
+            // Already on the target client — nothing to do.
+            return user;
+        }
+
+        boolean isSubUser = user.getCreatedBy() != null;
+        if (isSubUser) {
+            // A sub-user cannot keep a parent that lives in a different client, so detach it:
+            // it becomes a standalone primary user on the destination client.
+            user.setCreatedBy(null);
+            user.setClient(target);
+            log.info("Moved sub-user {} ('{}') from client {} to client {} ('{}') as a primary user",
+                    userId, user.getUsername(), oldClientId, targetClientId, target.getName());
+        } else {
+            // Primary user: move it and bring its sub-users along so the family stays together.
+            user.setClient(target);
+            List<AppUser> subUsers = appUserRepository.findByCreatedBy(userId);
+            for (AppUser sub : subUsers) {
+                sub.setClient(target);
+            }
+            if (!subUsers.isEmpty()) {
+                appUserRepository.saveAll(subUsers);
+            }
+            log.info("Moved primary user {} ('{}') and {} sub-user(s) from client {} to client {} ('{}')",
+                    userId, user.getUsername(), subUsers.size(), oldClientId, targetClientId, target.getName());
+        }
+
+        AppUser saved = appUserRepository.save(user);
+
+        // If the old client is now empty, remove it (same housekeeping as deleteUser).
+        if (oldClientId != null) {
+            long remaining = appUserRepository.findByClientId(oldClientId).size();
+            if (remaining == 0) {
+                clientRepository.deleteById(oldClientId);
+                log.info("Removed now-empty client {} after moving its last user(s)", oldClientId);
+            }
+        }
+        return saved;
     }
 
     @Transactional
@@ -297,8 +394,10 @@ public class AppUserService {
 
         // 1. Soft references (nullable FKs) — detach so the history/content is preserved.
         //    ticket.creator_user_id and ticket_reply.user_id allow NULL, so we keep the
-        //    tickets and replies but drop the link to the departing user.
-        ticketRepository.detachCreator(id);
+        //    tickets and replies but drop the link to the departing user. For tickets we first
+        //    snapshot the creator's username into ticket.creator_username so the UI can still
+        //    show who originally raised the ticket after this user is deleted.
+        ticketRepository.snapshotAndDetachCreator(id);
         ticketReplyRepository.detachAuthor(id);
 
         //    app_user.created_by self-references the parent admin; detaching keeps any

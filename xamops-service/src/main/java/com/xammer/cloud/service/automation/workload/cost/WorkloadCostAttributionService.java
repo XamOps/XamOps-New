@@ -134,11 +134,14 @@ public class WorkloadCostAttributionService {
             }
         }
         boolean anyPriced = priced > 0;
+        // The two roll-up lists are built in VerticalAutomationReadService.evaluate(...) and attached
+        // via CostSummaryDto.withRollups(...); summary(...) owns only the workload-Σ, so it passes null.
         return new CostSummaryDto("USD", properties.hoursPerMonth(),
                 anyPriced ? savings : null,
                 anyPriced ? null : NodeRate.Reason.NODE_CAPACITY_UNKNOWN.name(),
                 anyPriced ? cost : null,
-                priced, unpriced);
+                priced, unpriced,
+                null, null);
     }
 
     private static long freed(Integer before, Integer after) {

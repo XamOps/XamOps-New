@@ -4,7 +4,7 @@
  * overlay, so nobody is left with a lock and no explanation.
  *
  * Rows come from capabilities only: the connection (read-write, verified), the user's permission,
- * the XamOps agent and the automation agent on the cluster, and controller safety validation.
+ * the XamOps agent and the node automation agent on the cluster, and controller safety validation.
  */
 import type { CapabilitiesDto, Gate } from '../../../types/k8sAutomation';
 import { findCluster } from '../../../hooks/useK8sCapabilities';
@@ -61,7 +61,7 @@ export function automationChecklist(data: CapabilitiesDto, clusterName: string |
     const automationUnknown = cluster?.automationAgent.status === 'UNKNOWN';
     rows.push({
       id: 'automation-agent',
-      label: 'Automation agent',
+      label: 'Node automation agent',
       met: present(cluster?.automationAgent.status),
       gate: automationUnknown ? { reason: 'UNKNOWN' } : { reason: 'AGENT_NOT_INSTALLED', detail: 'AUTOMATION_AGENT' },
     });

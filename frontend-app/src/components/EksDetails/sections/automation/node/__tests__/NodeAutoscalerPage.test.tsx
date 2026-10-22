@@ -11,7 +11,11 @@ vi.mock('../../../../../../api/k8sAutomationApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../../../api/k8sAutomationApi')>();
   return { ...actual, getCapabilities, getAutomationDashboard, getNodeFleet, getRebalanceStatus };
 });
+// The usage feed (FEAT-004) is read through apiClient; every other read above is mocked.
+vi.mock('../../../../../../utils/apiClient', () => ({ default: { fetch: vi.fn() } }));
 
+import apiClient from '../../../../../../utils/apiClient';
+import { demoUsage } from '../../../../../../demo/k8sAutomationSeriesMockData';
 import { K8sApiError } from '../../../../../../api/k8sAutomationApi';
 import { K8sCapabilitiesProvider } from '../../../../../../hooks/useK8sCapabilities';
 import { demoAutomationDashboard, demoCapabilities, demoNodeFleet } from '../../../../../../demo/k8sAutomationMockData';
@@ -58,11 +62,28 @@ async function page(dto: CapabilitiesDto = caps(), eksData: UseEksDashboardRetur
 
 const lever = (id: string) => document.querySelector<HTMLElement>(`[data-node-lever="${id}"]`)!;
 
+const mockedFetch = apiClient.fetch as unknown as ReturnType<typeof vi.fn>;
+const json = (status: number, body: unknown): Response =>
+  ({ status, ok: status >= 200 && status < 300, text: async () => (body === null ? '' : JSON.stringify(body)) }) as unknown as Response;
+/** The usage feed answers from the demo fixture (prod-eks-cluster), or `answer` when given. */
+function serveUsage(answer?: { status: number; body: unknown }) {
+  mockedFetch.mockImplementation(async (url: string) => {
+    const u = new URL(String(url), 'http://test');
+    if (!u.pathname.startsWith('/api/eks/automation/usage/')) throw new Error(`unexpected request ${url}`);
+    if (answer) return json(answer.status, answer.body);
+    const p = (k: string) => u.searchParams.get(k) ?? '';
+    const a = demoUsage(CLUSTER, { scope: p('scope'), resource: p('resource'), window: p('window'), namespace: p('namespace'), kind: p('kind'), name: p('name'), from: p('from'), to: p('to'), step: p('step') });
+    return json(a.status, a.body);
+  });
+}
+const usageCalls = () => mockedFetch.mock.calls.map(([url]) => new URL(String(url), 'http://test'));
+
 describe('Automation › Node autoscaler (UI v3 plan §2)', () => {
   beforeEach(() => {
     getAutomationDashboard.mockResolvedValue(demoAutomationDashboard(CLUSTER));
     getNodeFleet.mockResolvedValue(demoNodeFleet(CLUSTER));
     getRebalanceStatus.mockResolvedValue({ status: 'idle', message: 'No rebalance has been run yet' });
+    serveUsage();
   });
   afterEach(() => vi.clearAllMocks());
 
@@ -82,7 +103,7 @@ describe('Automation › Node autoscaler (UI v3 plan §2)', () => {
     expect(document.querySelector('[data-node-changer="node-group:ng-ondemand-1"]')).toHaveTextContent('Node group ng-ondemand-1: EKS managed · t3.medium, 2 on-demand · 2 nodes now');
     expect(document.querySelector('[data-node-changer="none"]')).toHaveTextContent(`Nothing adds or removes nodes on ${CLUSTER} today.`);
     const agent = document.querySelector('[data-node-changer="automation-agent"]')!;
-    expect(agent).toHaveTextContent('XamOps automation agent: installed (1.0.0-autoscaler, last report');
+    expect(agent).toHaveTextContent('XamOps node automation agent: installed (1.0.0-autoscaler, last report');
     await waitFor(() => expect(agent).toHaveTextContent('Node automation mode: full.'));
     expect(document.querySelector('[data-now-banner]')).toHaveTextContent(
       `Nothing adds or removes nodes on ${CLUSTER} today. 2 nodes: 2 on-demand, 0 Spot. Pods reserve 39% of the nodes' CPU.`,
@@ -96,12 +117,34 @@ describe('Automation › Node autoscaler (UI v3 plan §2)', () => {
     expect(kpis[1]).toMatch(/^Pods waiting for a node1team-a\/unschedulable-giant-1 asks for 32.00 vCPU and 64 GiB/);
     expect(kpis[2]).toMatch(/^CPU requested39%1.50 vCPU of 3.86 vCPU pods can use/);
     expect(kpis[2]).toContain('Use: not reported by Prometheus in the cluster');
-    await waitFor(() => expect(document.querySelectorAll('[data-node-kpis] [data-kpi-tone]')[4]).toHaveTextContent("Idle nodes0from the automation agent's node report"));
+    await waitFor(() => expect(document.querySelectorAll('[data-node-kpis] [data-kpi-tone]')[4]).toHaveTextContent("Idle nodes0from the node automation agent's node report"));
     const cpu = screen.getByRole('heading', { name: 'CPU on each node: requested of allocatable' }).closest('section')!;
     const row = within(cpu).getByRole('rowheader', { name: 'ip-172-31-9-125.ap-south-1.compute.internal', hidden: true }).closest('tr')!;
     expect([...row.querySelectorAll('td')].map((td) => td.textContent)).toEqual(['1 vCPU', '1.93 vCPU', '52%']);
     expect(screen.getByRole('heading', { name: 'Pods on each node' })).toBeInTheDocument();
-    expect(document.querySelector('[data-empty="history-pending"]')).toHaveTextContent('History arrives with the usage feed');
+  });
+
+  it("stacks the cluster's CPU over 3 days up to allocatable, from one usage read", async () => {
+    await page();
+    const chart = await waitFor(() => {
+      const el = screen.getByRole('heading', { name: 'CPU: what pods can use, reserve and use' }).closest('section')!;
+      expect(el.querySelectorAll('tbody tr')).toHaveLength(145);
+      return el;
+    });
+    expect(usageCalls().map((u) => `${u.searchParams.get('scope')}:${u.searchParams.get('resource')}:${u.searchParams.get('window')}`)).toEqual(['cluster:cpu:72h']);
+    // The demo cluster's allocatable CPU at every point, and no memory switch on this CPU-only card.
+    const first = [...chart.querySelectorAll('tbody tr')][0];
+    expect(first.querySelectorAll('td')[2]).toHaveTextContent('25.52 vCPU');
+    expect(within(chart).queryByRole('button', { name: 'Memory' })).toBeNull();
+    expect(chart).toHaveTextContent('The layers add up to what the nodes give pods (allocatable); the line is allocatable.');
+    expect(chart.querySelector('[data-chart-source]')).toHaveTextContent('scope=cluster&resource=cpu&window=72h');
+  });
+
+  it('renders no cluster CPU chart for a backend without the usage feed', async () => {
+    serveUsage({ status: 404, body: null });
+    await page();
+    await waitFor(() => expect(usageCalls()).toHaveLength(1));
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'CPU: what pods can use, reserve and use' })).toBeNull());
   });
 
   it('marks every part "Not available yet" with its reason; without the automation agent, says it is needed', async () => {
@@ -113,14 +156,14 @@ describe('Automation › Node autoscaler (UI v3 plan §2)', () => {
     }
     expect(lever('scale-up')).toHaveTextContent("XamOps doesn't add nodes. Not built in XamOps yet.");
     expect(lever('scale-up')).toHaveTextContent('1 pod is waiting.');
-    expect(lever('remove-empty')).toHaveTextContent("Needs the automation agent, which isn't installed on this cluster.");
-    expect(lever('bin-packing')).toHaveTextContent("Needs the automation agent, which isn't installed on this cluster.");
+    expect(lever('remove-empty')).toHaveTextContent("Needs the node automation agent, which isn't installed on this cluster.");
+    expect(lever('bin-packing')).toHaveTextContent("Needs the node automation agent, which isn't installed on this cluster.");
     expect(lever('rebalancing')).toHaveTextContent('No node provisioner detected.');
     expect(lever('spot')).toHaveTextContent('All 2 nodes are on-demand.');
     // The fleet answered, but without the automation agent its idle nodes aren't claimed.
-    expect(document.querySelectorAll('[data-node-kpis] [data-kpi-tone]')[4]).toHaveTextContent("Idle nodes—Needs the automation agent's node report");
+    expect(document.querySelectorAll('[data-node-kpis] [data-kpi-tone]')[4]).toHaveTextContent("Idle nodes—Needs the node automation agent's node report");
     expect(document.querySelector('[data-node-changer="automation-agent"]')).toHaveTextContent(
-      'XamOps automation agent: not installed. It is the part of XamOps that empties and packs nodes.',
+      'XamOps node automation agent: not installed. It is the part of XamOps that empties and packs nodes.',
     );
   });
 

@@ -11,6 +11,58 @@
 
 ---
 
+## 0. CloudK8s v3 — neutral design system (source of truth)
+
+This section is the authoritative visual contract for every CloudK8s surface — the fleet page, the cluster page and its Automation and Cost sections — as shipped on the `feat/cloudk8s-debox` relayout. It is grounded in `DESIGN.md` §9 and answers critique P2 (the console still read as boxed and old-fashioned even after the charts landed). Where this section and any earlier prose in this document disagree about chrome, colour, iconography, surfaces or type, this section wins for CloudK8s surfaces.
+
+**The parchment system is superseded here.** The Anthropic-Serif / parchment / terracotta identity described by the root `DESIGN.md` does not apply to CloudK8s surfaces and must not be reintroduced to them. This is an explicit supersession, not a repaint: the CloudK8s UI is **not** restyled toward parchment, serif display faces or warm terracotta accents. CloudK8s stays on the neutral system below. (Action B — adding a "SUPERSEDED for CloudK8s surfaces" banner to the root `DESIGN.md` itself — is a deferred follow-up tracked in this feature's findings; the root doc lives outside this worktree and is not edited here.)
+
+### 0.1 Neutral chrome (no hues in chrome)
+
+All structural chrome — surfaces, borders, dividers, and text — is black, white and grey only, expressed as `rgba(0,0,0,x)` and `rgba(255,255,255,x)` (and the equal-channel solids `bg-white` / `#141414`). No hue ever enters chrome: no coloured card backgrounds, no coloured borders, no coloured body text, no tinted section headers. A surface or a line is never used to signal state. This keeps the console calm and lets the rare moment of colour actually mean something.
+
+### 0.2 Colour only for meaning, only through the tokens and the status/chart components
+
+Colour appears only to carry meaning, and only ever through the semantic channel:
+
+- The only source of hue is the `--k8s-*` triples defined in `src/styles/k8sSemanticTokens.css`. No component declares its own hex or named colour for status or series.
+- Those tokens reach the screen only through the dedicated components: `StatusMark`, `StatusChip`, `KpiCard`, `ConfidenceChip`, and the chart components (`ChartCard`, `Bars`, `LanesTimeline`, `StackedArea`, `Sparkline`, `TimeSeriesChart`, `RangeBar`, the donut series, etc.). Chrome primitives such as `Surface` and the `typeScale` tokens carry **no** `text-status-*`, `text-series-*`, `text-feature-*` or `var(--k8s-*)` class; those are token-scope-restricted. Status/series colour enters a `Surface` only through the children a caller passes in.
+- Enforcement is two guards that must stay green: `src/test/designRules.test.ts` (scans the guarded CloudK8s tree for hue / gradient / emoji / Font Awesome / token-scope-escape violations) and `src/components/CloudK8s/shared/charts/__tests__/colourAudit.test.tsx` (audits the chart colour usage against the token set). A new hue that is not a token, or a token used outside the allowed components, fails the build.
+
+### 0.3 No gradient, no emoji, bundled `mdi:*` icons only
+
+No gradients anywhere in the CloudK8s surfaces. No emoji in UI copy or labels. Icons come exclusively from the bundled Material Design Icon set via `@iconify/react` (`mdi:*`), produced by `scripts/generate-icon-bundle.mjs` as the first step of the build; no Font Awesome, no CDN icon fonts, no inline decorative glyphs. The same two guards above flag emoji and Font Awesome usage.
+
+### 0.4 Surfaces, the single radius / border / shadow / padding, and the type scale
+
+One primitive owns all card chrome: `Surface` (`src/components/CloudK8s/shared/Surface.tsx`). It collapses every panel into exactly three tiers, and `tier` is the only knob that changes weight:
+
+- **hero** — no card; sits directly on the page background.
+- **grouped** — one container (radius + border + background), **no** shadow.
+- **table** — one container plus the single allowed elevation step.
+
+The tokens `Surface` holds internally, never re-declared per page:
+
+- **One radius:** `rounded-[10px]`.
+- **One border:** `rgba(0,0,0,0.07)` in light, `rgba(255,255,255,0.09)` in dark (the 0.07–0.09 hairline).
+- **Shadow on tier-3 (table) only:** `shadow-[0_1px_2px_rgba(0,0,0,0.04)]`; hero and grouped carry none.
+- **One padding step:** `p-5` on grouped (tier-3 headers get their own `px-5 py-3.5`).
+- **One divider level:** a single hairline (`rgba(0,0,0,0.06)` / `rgba(255,255,255,0.08)`), applied at most once per surface.
+
+The type scale lives in `src/components/CloudK8s/shared/typeScale.ts` — one big-number role with exactly two sizes, plus three ranked supporting levels:
+
+- **`HERO_NUMBER`** `text-[52px]` — the tier-1 hero number, **one per panel**.
+- **`KPI_NUMBER`** `text-[22px]` — demoted strip / `KpiCard` / counts.
+- Supporting: `EYEBROW` (`text-[11px]` uppercase), `TITLE` (`text-[14px]`), `BODY` (`text-[13px]`), `SECONDARY` (`text-[12px]`).
+
+No two peers compete at the same size for the same meaning, and no panel shows more than one `HERO_NUMBER`.
+
+### 0.5 StatusMark discipline — never colour alone (WCAG 1.4.1)
+
+Status is always carried by **icon + label + weight together**, never by colour alone. `StatusMark` pairs an `mdi:*` glyph with a text label and the appropriate weight; the semantic token only tints that combination. This satisfies WCAG 1.4.1 (Use of Colour): a reader who cannot distinguish the hue still gets the state from the icon and the words. A coloured dot, a coloured cell, or a colour-only chip with no icon and no label is a violation and is not used on any CloudK8s surface.
+
+---
+
 ## 1. Overview
 
 The CloudK8s console becomes two surfaces. The fleet page (`/cloudk8s`) answers "which clusters need me, what do they cost, and how far is automation rolled out". The cluster page (`/eks-details`) keeps the URL but replaces ten flat tabs with seven primary sections, each with subtabs, and makes Automation a first-class section. Every number on screen comes from a named source with a freshness label. Anything the backend does not report renders as "not reported", never as zero.

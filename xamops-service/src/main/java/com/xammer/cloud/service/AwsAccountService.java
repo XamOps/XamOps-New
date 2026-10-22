@@ -21,10 +21,12 @@ import com.xammer.cloud.repository.SpotOptimizationEventRepository;
 import com.xammer.cloud.repository.SreInvestigationRepository;
 import com.xammer.cloud.repository.StatefulAsgConfigRepository;
 import com.xammer.cloud.repository.UserCloudAccountAccessRepository;
+import com.xammer.cloud.service.cur.CurAutoRegistrationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -66,6 +68,9 @@ public class AwsAccountService {
     public final AwsClientProvider awsClientProvider;
     private final CacheService cacheService;
     private final ApplicationEventPublisher eventPublisher;
+    // Lazy to break the construction-time cycle: CurAutoRegistrationService's validation path
+    // pulls in services that ultimately reference this one. We only need it at callback time.
+    private final CurAutoRegistrationService curAutoRegistrationService;
 
     @Value("${cloudformation.template.s3.url}")
     private String cloudFormationTemplateUrl;
@@ -113,13 +118,15 @@ public class AwsAccountService {
             AwsClientProvider awsClientProvider,
             StsClient stsClient,
             CacheService cacheService,
-            ApplicationEventPublisher eventPublisher) {
+            ApplicationEventPublisher eventPublisher,
+            @Lazy CurAutoRegistrationService curAutoRegistrationService) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.clientRepository = clientRepository;
         this.awsClientProvider = awsClientProvider;
         this.configuredRegion = System.getenv().getOrDefault("AWS_REGION", "us-east-1");
         this.cacheService = cacheService;
         this.eventPublisher = eventPublisher;
+        this.curAutoRegistrationService = curAutoRegistrationService;
 
         String tmpAccountId;
         try {
@@ -454,6 +461,7 @@ public class AwsAccountService {
             logger.info("EventBridge callback: successfully connected account externalId={}", externalId);
             CloudAccount saved = cloudAccountRepository.save(account);
             publishConnected(saved, reconnected);
+            autoRegisterCur(saved);
             return saved;
         } catch (Exception e) {
             account.setStatus("FAILED");
@@ -462,6 +470,31 @@ public class AwsAccountService {
             cloudAccountRepository.save(account);
             awsClientProvider.evictAccount(awsAccountId);
             throw new RuntimeException("Role assumption failed during EventBridge callback.", e);
+        }
+    }
+
+    /**
+     * Registers the account's own Cost and Usage Report right after it connects, so the CUR-backed
+     * views (charges by service, per-resource cost, data transfer) work without anyone having to
+     * trigger a manual refresh later.
+     *
+     * <p>Best-effort by design. A brand-new account's first CUR delivery can lag the connection by
+     * up to ~24h, so registration here will often find no manifest yet and leave the account on
+     * Cost Explorer — that is expected, not an error, and must never fail the connection. The
+     * account simply becomes CUR-backed the next time registration runs (a later refresh, or the
+     * nightly validation job). Only OWN_CUR-style accounts that actually have a conventional
+     * {@code xamops-cur-<accountId>} report ever succeed here; member accounts under a payer have
+     * no own report and are left untouched, exactly as before.
+     */
+    private void autoRegisterCur(CloudAccount account) {
+        try {
+            curAutoRegistrationService.ensureRegistered(account);
+            logger.info("[CUR] Auto-registered report for account {} on connect", account.getAwsAccountId());
+        } catch (Exception e) {
+            // Expected when the first CUR file has not been delivered yet, or the account keeps no
+            // own report. Leave it on Cost Explorer; a later refresh picks it up.
+            logger.info("[CUR] Auto-registration skipped for account {} on connect: {}",
+                    account.getAwsAccountId(), e.getMessage());
         }
     }
 

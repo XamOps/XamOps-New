@@ -8,6 +8,7 @@
  * there is no wall-clock-dependent motion. In-area labels are drawn as ink on a card-coloured halo
  * so they meet AA on any layer colour (§2.3).
  */
+import { useId } from 'react';
 import {
   Area,
   AreaChart,
@@ -20,7 +21,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { ChartDefs } from './ChartDefs';
+import { ChartDefs, chartIdSuffix, hatchId } from './ChartDefs';
 import { HATCH, SERIES, type SeriesKind } from './chartTokens';
 
 export interface TimeSeriesSeries {
@@ -41,11 +42,37 @@ export interface TimeSeriesBand {
   kind: keyof typeof HATCH;
   x1: number | string;
   x2: number | string;
+  /**
+   * Bound the band vertically too, e.g. the freed request between the size after and before a change,
+   * or the zone above an HPA's target (y1 only: up to the top of the plot). Omit both for full height.
+   */
+  y1?: number;
+  y2?: number;
   label?: string;
+}
+
+/**
+ * A band's vertical bounds as recharts' ReferenceArea reads them. recharts fills a missing `y2` down
+ * to the bottom of the plot, so a band bounded below only ("from y1 up to the top", the zone above an
+ * HPA's target) is passed as `y2` with no `y1`, which recharts fills up to the top.
+ */
+export function bandYBounds(band: Pick<TimeSeriesBand, 'y1' | 'y2'>): { y1?: number; y2?: number } {
+  if (band.y1 !== undefined && band.y2 === undefined) return { y1: undefined, y2: band.y1 };
+  return { y1: band.y1, y2: band.y2 };
 }
 
 export interface TimeSeriesMarker {
   x: number | string;
+  label?: string;
+}
+
+/**
+ * A constant drawn across the plot in its series' token and line style, e.g. XamOps's suggestion now.
+ * It is one value, not a series: nothing is drawn per point.
+ */
+export interface TimeSeriesReference {
+  y: number;
+  kind: SeriesKind;
   label?: string;
 }
 
@@ -55,12 +82,15 @@ export interface TimeSeriesChartProps {
   xKey: string;
   bands?: TimeSeriesBand[];
   markers?: TimeSeriesMarker[];
+  references?: TimeSeriesReference[];
   /** Height in px; width fills the container. */
   height?: number;
   /** A fixed width (tests and deterministic snapshots pass one so ResponsiveContainer is skipped). */
   width?: number;
   /** An accessible name for the plot. */
   ariaLabel?: string;
+  /** Formats a value-axis tick (e.g. `v => `${v}m``). */
+  tickFormat?: (value: number) => string;
 }
 
 export function TimeSeriesChart({
@@ -69,19 +99,29 @@ export function TimeSeriesChart({
   xKey,
   bands = [],
   markers = [],
+  references = [],
   height = 220,
   width,
   ariaLabel,
+  tickFormat,
 }: TimeSeriesChartProps) {
+  // This chart's own pattern ids, so a band never resolves to another chart's SVG.
+  const suffix = chartIdSuffix(useId());
   const chart = (
     <AreaChart data={data} margin={{ top: 12, right: 12, bottom: 4, left: 4 }} role="img" aria-label={ariaLabel}>
       <defs>
-        <ChartDefs />
+        <ChartDefs suffix={suffix} />
       </defs>
       {/* Grid and axes are greyscale: colour is reserved for series. */}
       <CartesianGrid stroke="currentColor" strokeOpacity={0.12} vertical={false} />
-      <XAxis dataKey={xKey} stroke="currentColor" strokeOpacity={0.4} tick={{ fontSize: 11 }} />
-      <YAxis stroke="currentColor" strokeOpacity={0.4} tick={{ fontSize: 11 }} width={36} />
+      <XAxis dataKey={xKey} stroke="currentColor" strokeOpacity={0.4} tick={{ fontSize: 11 }} minTickGap={24} />
+      <YAxis
+        stroke="currentColor"
+        strokeOpacity={0.4}
+        tick={{ fontSize: 11 }}
+        width={tickFormat ? 52 : 36}
+        tickFormatter={tickFormat ? (v: number) => tickFormat(v) : undefined}
+      />
       <Tooltip isAnimationActive={false} />
 
       {bands.map((band, i) => (
@@ -89,11 +129,24 @@ export function TimeSeriesChart({
           key={`band-${i}`}
           x1={band.x1}
           x2={band.x2}
-          fill={`url(#${HATCH[band.kind].id})`}
+          {...bandYBounds(band)}
+          fill={`url(#${hatchId(HATCH[band.kind].id, suffix)})`}
           fillOpacity={1}
           stroke="none"
           ifOverflow="extendDomain"
           label={band.label ? { value: band.label, fontSize: 11, fill: 'currentColor' } : undefined}
+        />
+      ))}
+
+      {references.map((r, i) => (
+        <ReferenceLine
+          key={`ref-${i}`}
+          y={r.y}
+          stroke={SERIES[r.kind].color}
+          strokeWidth={SERIES[r.kind].strokeWidth}
+          strokeDasharray={SERIES[r.kind].dash}
+          ifOverflow="extendDomain"
+          label={r.label ? { value: r.label, fontSize: 11, fill: 'currentColor', position: 'insideTopRight' } : undefined}
         />
       ))}
 

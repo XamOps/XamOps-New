@@ -265,6 +265,74 @@ class RcaAnalyzerTest {
         assertThat(cause.remediation()).contains("GITOPS_MANAGED").contains("Argo CD/Flux");
     }
 
+    // ------------------------------------------------------------------ the activity log's rows
+
+    @Test
+    @DisplayName("an HPA's own rows are never resize evidence: applied HPA changes are not partial-apply churn")
+    void hpaRowsAreNotResizeEvidence() {
+        List<WorkloadVerticalAction> rows = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            // As the recorder writes every HPA apply: the HPA's kind and name, restart_free false.
+            long ago = 100L * (i + 1);
+            rows.add(hpa("team-b", "php-apache", "APPLIED", NOW.minusSeconds(ago)));
+            rows.add(hpa("team-b", "php-apache", "FAILED", NOW.minusSeconds(ago + 10)));
+            rows.add(hpa("team-b", "php-apache", "EXPIRED", NOW.minusSeconds(ago + 20)));
+            rows.add(hpa("team-b", "php-apache", "REFUSED", NOW.minusSeconds(ago + 30)));
+        }
+
+        assertThat(RcaAnalyzer.analyze(rows, CONFIG, NOW)).isEmpty();
+        // The Deployment of the same name keeps its own patterns.
+        rows.add(row("team-b", "php-apache", "APPLIED", NOW.minusSeconds(50), false, false, null));
+        rows.add(row("team-b", "php-apache", "PARTIALLY_APPLIED", NOW.minusSeconds(60), false, false, null));
+        assertThat(RcaAnalyzer.analyze(rows, CONFIG, NOW)).singleElement().satisfies(cause -> {
+            assertThat(cause.kind()).isEqualTo(RcaPatternKind.PARTIAL_APPLY_CHURN);
+            assertThat(cause.workload().kind()).isEqualTo("Deployment");
+            assertThat(cause.occurrences()).isEqualTo(2);
+        });
+    }
+
+    @Test
+    @DisplayName("a resize row stored with its proof object reads as flip-flop evidence, as an older array row does")
+    void proofObjectRowsAreFlipFlopEvidence() {
+        long[] cpu = {100, 300, 150, 400, 120};
+        List<WorkloadVerticalAction> proofRows = new ArrayList<>();
+        List<WorkloadVerticalAction> arrayRows = new ArrayList<>();
+        for (int i = 0; i < cpu.length; i++) {
+            Instant at = NOW.minusSeconds(500 - 100L * i);
+            proofRows.add(row("ns", "api", "APPLIED", at, false, true, proofObject("api", 250, cpu[i])));
+            arrayRows.add(appliedCpu("ns", "api", at, cpu[i]));
+        }
+
+        RootCause fromProof = flipFlop(RcaAnalyzer.analyze(proofRows, CONFIG, NOW));
+        RootCause fromArrays = flipFlop(RcaAnalyzer.analyze(arrayRows, CONFIG, NOW));
+        assertThat(fromProof.occurrences()).isEqualTo(5).isEqualTo(fromArrays.occurrences());
+        assertThat(fromProof.confidence()).isEqualTo(fromArrays.confidence(), within(1e-9));
+        assertThat(RcaAnalyzer.cpuRequestMillis(proofObject("api", 250, 63))).isEqualTo(63L);
+    }
+
+    @Test
+    @DisplayName("test runs and applies that changed no pod match no pattern; a user's repeated refusals are REPEATED_REFUSED")
+    void attemptRowsMatchOnlyTheirOwnPattern() {
+        List<WorkloadVerticalAction> rows = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            long ago = 100L * (i + 1);
+            rows.add(row("ns", "api", "TEST_RUN", NOW.minusSeconds(ago), true, false,
+                    "{\"terminal\":\"DRY_RUN\",\"reverted\":null,\"containers\":[],\"pods\":[]}"));
+            // A deferral XamOps put back: the observed size after is the old one.
+            rows.add(row("ns", "api", "NOT_CHANGED", NOW.minusSeconds(ago + 10), false, false,
+                    proofObject("api", 250, 250).replace("\"terminal\":\"APPLIED\"", "\"terminal\":\"DEFERRED\"")));
+        }
+        assertThat(RcaAnalyzer.analyze(rows, CONFIG, NOW)).isEmpty();
+
+        // As the recorder writes a user's apply a gate refused: no after_json, detail "<code>: <message>".
+        for (int i = 0; i < 3; i++) {
+            rows.add(row("ns", "api", "REFUSED", NOW.minusSeconds(1000L + i), false, false, null,
+                    "K8S_INVALID_POLICY: COOLDOWN: a change was applied recently."));
+        }
+        assertThat(RcaAnalyzer.analyze(rows, CONFIG, NOW)).singleElement()
+                .satisfies(cause -> assertThat(cause.kind()).isEqualTo(RcaPatternKind.REPEATED_REFUSED));
+    }
+
     @Test
     @DisplayName("every emitted cause carries its evidence rows")
     void evidenceTravelsWithEveryCause() {
@@ -292,6 +360,29 @@ class RcaAnalyzerTest {
     private WorkloadVerticalAction appliedCpu(String ns, String name, Instant at, long cpuMillis) {
         return row(ns, name, "APPLIED", at, false, true,
                 "[{\"container\":\"" + name + "\",\"cpuRequestMillis\":" + cpuMillis + "}]");
+    }
+
+    /**
+     * A resize's after_json as the activity log's recorder writes it: terminal first, each container
+     * with the older rows' flat observed-after sizes and both observed sides, then the per-pod proof.
+     */
+    private static String proofObject(String container, long beforeMillis, long afterMillis) {
+        return "{\"terminal\":\"APPLIED\",\"reverted\":null,\"containers\":[{\"container\":\"" + container
+                + "\",\"cpuRequestMillis\":" + afterMillis + ",\"observedBefore\":{\"cpuRequestMillis\":"
+                + beforeMillis + ",\"cpuLimitMillis\":null,\"memRequestBytes\":null,\"memLimitBytes\":null},"
+                + "\"observedAfter\":{\"cpuRequestMillis\":" + afterMillis + ",\"cpuLimitMillis\":null,"
+                + "\"memRequestBytes\":null,\"memLimitBytes\":null}}],\"pods\":[{\"pod\":\"" + container
+                + "-7c9d\",\"node\":null,\"changed\":true,\"uidChanged\":false,\"restartsBefore\":0,"
+                + "\"restartsAfter\":0,\"ready\":true,\"revert\":null}]}";
+    }
+
+    /** An HPA's own row, as the recorder writes every HPA apply. */
+    private WorkloadVerticalAction hpa(String ns, String name, String outcome, Instant at) {
+        WorkloadVerticalAction row = row(ns, name, outcome, at, false, false,
+                "{\"minReplicas\":1,\"maxReplicas\":8,\"targetUtilizationPct\":50}");
+        row.setWorkloadKind(RcaAnalyzer.KIND_HPA);
+        row.setBeforeJson("{\"minReplicas\":1,\"maxReplicas\":5,\"targetUtilizationPct\":50}");
+        return row;
     }
 
     private WorkloadVerticalAction row(String ns, String name, String outcome, Instant at,

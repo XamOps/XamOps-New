@@ -44,6 +44,7 @@ public class GcpCostService {
     // Cache key prefixes
     private static final String COST_BY_TAG_CACHE_PREFIX = "gcp:cost-by-tag:";
     private static final String UNFILTERED_MTD_SPEND_CACHE_PREFIX = "gcp:unfiltered-mtd-spend:";
+    private static final String UNFILTERED_MTD_SPEND_USD_CACHE_PREFIX = "gcp:unfiltered-mtd-spend-usd:";
     private static final String BILLING_SUMMARY_CACHE_PREFIX = "gcp:billing-summary:";
     private static final String HISTORICAL_COSTS_CACHE_PREFIX = "gcp:historical-costs:";
     private static final String COST_BY_REGION_CACHE_PREFIX = "gcp:cost-by-region:";
@@ -470,6 +471,104 @@ public class GcpCostService {
             if (e instanceof InterruptedException)
                 Thread.currentThread().interrupt();
             return 0.0;
+        }
+    }
+
+    // ===== UNFILTERED MTD SPEND (USD, billed rate) =====
+
+    public Optional<Double> getUnfilteredMonthToDateSpendUsd(String gcpProjectId) {
+        return getUnfilteredMonthToDateSpendUsd(gcpProjectId, false);
+    }
+
+    /**
+     * Month-to-date spend for the project converted to USD at GCP's own billed exchange rate.
+     *
+     * <p>The standard billing export carries {@code currency_conversion_rate} (USD -> local),
+     * so {@code cost / currency_conversion_rate = USD}. This runs the same month-to-date window
+     * as {@link #getUnfilteredMonthToDateSpendSync(String, boolean)} but divides the net-cost
+     * components (cost and credits) by that rate at the row level, giving a billed-rate USD
+     * total rather than a hardcoded FX constant.
+     *
+     * <p>Returns {@link Optional#empty()} when the project has no billing export, when the
+     * export lacks a {@code currency_conversion_rate} column, or when the query fails, so the
+     * caller can fall back to the native figure. CSP/reseller projects also return empty: their
+     * flattened dataset carries no conversion-rate column, so they keep native + fallback.
+     */
+    public Optional<Double> getUnfilteredMonthToDateSpendUsd(String gcpProjectId, boolean forceRefresh) {
+        String cacheKey = UNFILTERED_MTD_SPEND_USD_CACHE_PREFIX + gcpProjectId;
+
+        if (forceRefresh) {
+            redisCacheService.evict(cacheKey);
+            cachedDataRepository.deleteById(cacheKey);
+            log.info("🔄 Force refresh: evicted USD MTD spend cache for project {}", gcpProjectId);
+        } else {
+            Optional<Double> cached = redisCacheService.get(cacheKey, Double.class);
+            if (cached.isPresent()) {
+                log.info("✅ Returning Redis-cached USD MTD spend for project {}", gcpProjectId);
+                return cached;
+            }
+            try {
+                Optional<CachedData> dbSnap = cachedDataRepository.findById(cacheKey);
+                if (dbSnap.isPresent()) {
+                    Double dbVal = objectMapper.readValue(dbSnap.get().getJsonData(), Double.class);
+                    if (dbVal != null) {
+                        log.info("✅ Returning DB-cached USD MTD spend for project {} — re-warming Redis", gcpProjectId);
+                        redisCacheService.put(cacheKey, dbVal, 60);
+                        return Optional.of(dbVal);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("DB snapshot load failed for USD MTD spend {}: {}", gcpProjectId, e.getMessage());
+            }
+        }
+
+        // CSP/reseller projects have no currency_conversion_rate column — keep native + fallback.
+        if (cspSource(gcpProjectId).isPresent()) {
+            log.info("🏷️ CSP-managed project {} — no billed USD conversion available, caller falls back to native", gcpProjectId);
+            return Optional.empty();
+        }
+
+        Optional<BigQuery> bqOpt = gcpClientProvider.getBigQueryClient(gcpProjectId);
+        if (bqOpt.isEmpty())
+            return Optional.empty();
+
+        BigQuery bigquery = bqOpt.get();
+        Optional<String> tableNameOpt = getBillingTableName(bigquery, gcpProjectId);
+        if (tableNameOpt.isEmpty())
+            return Optional.empty();
+
+        LocalDate today = LocalDate.now();
+        LocalDate startDate = today.withDayOfMonth(1);
+        // Net cost (cost + credits) divided by GCP's billed USD->local rate, per row, so the
+        // sum is a billed-rate USD total. Mirrors GcpBillingSql.NET_COST_SUM's credit sub-select.
+        String usdNetCostSum =
+                "(SUM(CAST(cost AS NUMERIC) / CAST(currency_conversion_rate AS NUMERIC)) "
+                        + "+ SUM(IFNULL((SELECT SUM(CAST(c.amount AS NUMERIC) / CAST(currency_conversion_rate AS NUMERIC)) "
+                        + "FROM UNNEST(credits) AS c), 0)))";
+        String query = String.format(
+                "SELECT " + usdNetCostSum + " as total_cost FROM `%s` WHERE project.id = '%s' AND DATE(usage_start_time) >= '%s' AND DATE(usage_start_time) <= '%s'",
+                tableNameOpt.get(), gcpProjectId,
+                startDate.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                today.format(DateTimeFormatter.ISO_LOCAL_DATE));
+
+        try {
+            TableResult results = bigquery.query(QueryJobConfiguration.newBuilder(query).build());
+            Iterator<FieldValueList> it = results.getValues().iterator();
+            if (!it.hasNext())
+                return Optional.empty();
+            FieldValue value = it.next().get("total_cost");
+            Double result = value.isNull() ? 0.0 : value.getDoubleValue();
+            redisCacheService.put(cacheKey, result, 60);
+            saveToDb(cacheKey, result);
+            return Optional.of(result);
+        } catch (Exception e) {
+            // Most commonly the export has no currency_conversion_rate column (older exports),
+            // which surfaces here as an "unrecognized name" query error — treat as absence.
+            log.warn("USD MTD query unavailable for project {} (no currency_conversion_rate or query failed): {}",
+                    gcpProjectId, e.getMessage());
+            if (e instanceof InterruptedException)
+                Thread.currentThread().interrupt();
+            return Optional.empty();
         }
     }
 
@@ -1099,6 +1198,7 @@ public class GcpCostService {
         String[] redisPrefixes = {
                 COST_BY_TAG_CACHE_PREFIX,
                 UNFILTERED_MTD_SPEND_CACHE_PREFIX,
+                UNFILTERED_MTD_SPEND_USD_CACHE_PREFIX,
                 BILLING_SUMMARY_CACHE_PREFIX,
                 HISTORICAL_COSTS_CACHE_PREFIX,
                 COST_BY_REGION_CACHE_PREFIX,
@@ -1117,6 +1217,7 @@ public class GcpCostService {
                 // gcp:* keys also written to the DB snapshot table
                 BILLING_SUMMARY_CACHE_PREFIX,
                 UNFILTERED_MTD_SPEND_CACHE_PREFIX,
+                UNFILTERED_MTD_SPEND_USD_CACHE_PREFIX,
                 HISTORICAL_COSTS_CACHE_PREFIX,
                 COST_BY_REGION_CACHE_PREFIX,
                 COST_BY_TAG_CACHE_PREFIX,

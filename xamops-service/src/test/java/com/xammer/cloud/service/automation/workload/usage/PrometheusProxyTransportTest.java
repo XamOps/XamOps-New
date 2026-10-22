@@ -17,6 +17,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -220,6 +221,104 @@ class PrometheusProxyTransportTest {
         responseBody = "{\"status\":\"error\",\"error\":\"parse error\"}";
 
         assertThat(transport().reachable(client)).isFalse();
+    }
+
+    // ---------------------------------------------------------------- range queries (FEAT-004)
+
+    private static final Instant RANGE_START = Instant.parse("2026-10-13T17:06:00Z");
+    private static final Instant RANGE_END = Instant.parse("2026-10-16T17:06:00Z");
+    private static final String MATRIX =
+            "{\"status\":\"success\",\"data\":{\"resultType\":\"matrix\",\"result\":[]}}";
+
+    @Test
+    @DisplayName("a range query goes through the same service proxy, at /api/v1/query_range")
+    void theRangePathIsExact() throws Exception {
+        responseBody = MATRIX;
+
+        String body = transport().rangeQuery(client, "up", RANGE_START, RANGE_END, 1800);
+
+        assertThat(body).isEqualTo(MATRIX);
+        assertThat(requestedUris).hasSize(1);
+        assertThat(requestedUris.get(0))
+                .as("the same services/proxy name the committed ClusterRole grants, with epoch-second"
+                        + " bounds, the step, and Prometheus' own timeout")
+                .isEqualTo("/api/v1/namespaces/monitoring/services/prometheus-server:9090/proxy"
+                        + "/api/v1/query_range?query=up&start=" + RANGE_START.getEpochSecond()
+                        + "&end=" + RANGE_END.getEpochSecond() + "&step=1800&timeout=20s");
+    }
+
+    @Test
+    @DisplayName("rangePath encodes PromQL, sends whole epoch seconds and takes its target from configuration")
+    void theRangePathIsBuiltFromConfiguration() {
+        PrometheusProxyTransport transport = new PrometheusProxyTransport(
+                new VerticalMetricsProperties("obs", "prom", 80, 7, 120, 24, "OFF"));
+        String promql = "max(sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"team-b\","
+                + "pod=~\"php-apache-7cd5b774b6-[a-z0-9]{5}\",container=~\"php-apache\"}[5m])))";
+
+        String path = transport.rangePath(promql, RANGE_START.plusMillis(900), RANGE_END, 600);
+
+        assertThat(path).startsWith("/api/v1/namespaces/obs/services/prom:80/proxy/api/v1/query_range?query=");
+        String encoded = path.substring(path.indexOf("query=") + "query=".length(), path.indexOf("&start="));
+        assertThat(encoded).doesNotContain("{").doesNotContain("\"").doesNotContain(" ").doesNotContain("&");
+        assertThat(URLDecoder.decode(encoded, StandardCharsets.UTF_8)).isEqualTo(promql);
+        assertThat(path).endsWith("&start=" + RANGE_START.getEpochSecond() + "&end="
+                + RANGE_END.getEpochSecond() + "&step=600&timeout=7s");
+    }
+
+    @Test
+    @DisplayName("rangePath refuses a reversed span or a non-positive step instead of asking Prometheus")
+    void theRangePathRefusesNonsense() {
+        PrometheusProxyTransport transport = transport();
+
+        assertThrows(IllegalArgumentException.class,
+                () -> transport.rangePath("up", RANGE_END, RANGE_START, 60));
+        assertThrows(IllegalArgumentException.class,
+                () -> transport.rangePath("up", RANGE_START, RANGE_END, 0));
+    }
+
+    @Test
+    @DisplayName("a 403 on a range query names the same missing ClusterRole rule as an instant query")
+    void aForbiddenRangeQueryNamesTheRule() {
+        responseStatus = 403;
+        responseBody = "{\"kind\":\"Status\",\"code\":403,\"message\":\"forbidden\"}";
+        PrometheusProxyTransport transport = transport();
+
+        UsageUnavailableException range = assertThrows(UsageUnavailableException.class,
+                () -> transport.rangeQuery(client, "up", RANGE_START, RANGE_END, 1800));
+        UsageUnavailableException instant = assertThrows(UsageUnavailableException.class,
+                () -> transport.instantQuery(client, "up"));
+
+        assertThat(range.kind()).isEqualTo(UsageUnavailableException.Kind.NO_METRICS_SOURCE);
+        assertThat(range.getMessage())
+                .as("the 403 copy is shared, word for word")
+                .isEqualTo(instant.getMessage())
+                .contains("services/proxy")
+                .contains("prometheus-server:9090");
+    }
+
+    @Test
+    @DisplayName("an empty range-query body is NO_METRICS_SOURCE, not an empty matrix")
+    void anEmptyRangeBodyIsNotAnEmptyMatrix() {
+        responseBody = "";
+
+        UsageUnavailableException failure = assertThrows(UsageUnavailableException.class,
+                () -> transport().rangeQuery(client, "up", RANGE_START, RANGE_END, 1800));
+
+        assertThat(failure.kind()).isEqualTo(UsageUnavailableException.Kind.NO_METRICS_SOURCE);
+        assertThat(failure.getMessage()).contains("empty body").contains("range query");
+    }
+
+    @Test
+    @DisplayName("any other range-query failure is NO_METRICS_SOURCE, never an untyped error")
+    void otherRangeFailuresAreTyped() {
+        responseStatus = 503;
+        responseBody = "{\"kind\":\"Status\",\"code\":503,\"message\":\"no endpoints available\"}";
+
+        UsageUnavailableException failure = assertThrows(UsageUnavailableException.class,
+                () -> transport().rangeQuery(client, "up", RANGE_START, RANGE_END, 1800));
+
+        assertThat(failure.kind()).isEqualTo(UsageUnavailableException.Kind.NO_METRICS_SOURCE);
+        assertThat(failure.getMessage()).contains("monitoring/prometheus-server:9090").contains("HTTP 503");
     }
 
     private static PrometheusProxyTransport transport() {

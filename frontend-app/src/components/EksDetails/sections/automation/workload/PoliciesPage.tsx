@@ -193,7 +193,7 @@ export function PoliciesPage({ clusterName, accountId, region, workloadsHref }: 
 
   return (
     // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it alone.
-    <div className="space-y-4" data-policies-page="" data-k8s-kit="">
+    <div className="space-y-8" data-policies-page="" data-k8s-kit="">
       <div className="space-y-1">
         <FeatureMark feature="workload" title="Workload autoscaler rules" />
         <p className={`text-[12px] ${MUTED}`} data-policies-header="">{POLICIES_HEADER}</p>

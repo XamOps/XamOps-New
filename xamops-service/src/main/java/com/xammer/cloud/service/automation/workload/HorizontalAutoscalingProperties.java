@@ -92,8 +92,12 @@ public class HorizontalAutoscalingProperties {
     }
 
     /**
-     * Whether the HPA apply path has passed live validation. Independent of {@link #isEnabled()}: the
-     * decisions can be shown long before an apply is allowed.
+     * Whether the standalone {@code xamops.k8s.automation.readiness.hpa-apply} staging flag is set.
+     * Independent of {@link #isEnabled()}: the decisions can be shown long before an apply is allowed.
+     *
+     * <p><strong>No longer the apply authority.</strong> HPA-apply readiness now derives from the
+     * read-write connection in {@link com.xammer.cloud.service.automation.workload.api.HpaApplyService#requireControllerReady(com.xammer.cloud.domain.CloudAccount)}.
+     * This method is advisory only and must <em>not</em> be reintroduced into the apply path.
      */
     public boolean isReady() {
         return ready;
@@ -105,9 +109,15 @@ public class HorizontalAutoscalingProperties {
     }
 
     /**
-     * Whether the apply path is wired and permitted — enabled, ready, and an executor present. There
+     * Whether the feature is enabled, the staging flag is set, and an executor is present. There
      * is <strong>no auto-apply tier for HPA in this task</strong>, so this gates the one-time,
      * user-initiated apply only; {@code autoApplyEligible} stays false at the mapper boundary.
+     *
+     * <p><strong>No longer the apply authority.</strong> The apply path's readiness is decided by
+     * {@link com.xammer.cloud.service.automation.workload.api.HpaApplyService#requireControllerReady(com.xammer.cloud.domain.CloudAccount)},
+     * which derives readiness from the read-write connection rather than the {@link #isReady()}
+     * staging flag. This method is advisory only and must <em>not</em> be reintroduced into the
+     * apply path.
      */
     public boolean isApplyPermitted() {
         return enabled && ready && executorPresent;

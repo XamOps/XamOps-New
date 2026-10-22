@@ -4,8 +4,8 @@
  * In the topbar, through the Topbar context: the cluster name as the title, back to the fleet,
  * version · region, "Synced …", Guide and Sync. In the page: two freshness clocks from
  * capabilities, each a SourceLabel, because they measure different things: the XamOps agent's last
- * data (the snapshot every section shows) and the automation agent's last check-in (how recently it
- * reconciled its policy). Then the sync timeout line. The clocks sit under the topbar rather than in
+ * data (the snapshot every section shows) and the node automation agent's last check-in (how recently
+ * the xamops-autoscaler reconciled its node policy). Then the sync timeout line. The clocks sit under the topbar rather than in
  * it so the header still fits at 1280 px.
  */
 import { useEffect } from 'react';
@@ -130,7 +130,7 @@ export function ClusterHeader({
     <div className="space-y-1">
       <div role="group" aria-label="Data freshness" className="flex flex-wrap items-center gap-x-5 gap-y-1">
         <SourceLabel source="XamOps agent" at={snapshot.at} verb={snapshot.verb} missingText={snapshot.missingText} />
-        <SourceLabel source="Automation agent" at={reconcile.at} verb={reconcile.verb} missingText={reconcile.missingText} />
+        <SourceLabel source="Node automation agent" at={reconcile.at} verb={reconcile.verb} missingText={reconcile.missingText} />
       </div>
       <p role="status" className="text-[12px] text-[rgba(0,0,0,0.6)]">
         {syncTimedOut ? SYNC_TIMEOUT_TEXT : ''}

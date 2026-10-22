@@ -44,6 +44,9 @@ import { SourceLabel, formatAgo } from '../../../CloudK8s/shared/SourceLabel';
 import { StatusMark, type StatusState } from '../../../CloudK8s/shared/StatusMark';
 import { NowBanner } from '../../../CloudK8s/shared/status/NowBanner';
 import { nowSentence } from '../../../CloudK8s/shared/status/nowSentence';
+import { Surface } from '../../../CloudK8s/shared/Surface';
+import { HERO_NUMBER, KPI_NUMBER, EYEBROW, TITLE, BODY, SECONDARY } from '../../../CloudK8s/shared/typeScale';
+import { useAnimatedValue } from '../../../CloudK8s/shared/useAnimatedValue';
 import { bucketCounts, workloadBucket } from '../automation/verticalCopy';
 import type { EksSectionProps } from '../sectionTypes';
 
@@ -81,16 +84,17 @@ const DATA_SOURCE_LABELS: Record<string, string> = {
   'trivy-vulnerabilities': 'Trivy',
   'kubescape-compliance': 'Kubescape',
   'falco-events': 'Falco',
-  'autoscaling-metrics': 'Automation agent',
+  'autoscaling-metrics': 'Node automation agent',
 };
 
-const card = 'rounded-lg border border-[rgba(0,0,0,0.12)] bg-white';
-const cardHeader = 'flex flex-wrap items-center justify-between gap-2 border-b border-[rgba(0,0,0,0.08)] px-4 py-3';
-const cardTitle = 'text-[14px] font-semibold text-[rgba(0,0,0,0.88)]';
-const eyebrow = 'text-[11px] font-semibold uppercase tracking-[0.06em] text-[rgba(0,0,0,0.6)]';
-const bigNumber = 'text-[28px] font-semibold leading-tight tabular-nums text-[rgba(0,0,0,0.88)]';
-const body = 'text-[13px] text-[rgba(0,0,0,0.88)]';
-const secondary = 'text-[12px] text-[rgba(0,0,0,0.6)]';
+// FEAT-002: the local card/cardHeader chrome is gone — structure is rendered through <Surface>
+// (DESIGN §3). The text roles re-point to the shared typeScale tokens (DESIGN §7) so the panel
+// never re-declares a size: `cardTitle`→TITLE, `eyebrow`→EYEBROW, `body`→BODY, `secondary`→SECONDARY,
+// and the demoted KPI strip uses KPI_NUMBER. Links/buttons below stay local (they are controls).
+const cardTitle = TITLE;
+const eyebrow = EYEBROW;
+const body = BODY;
+const secondary = SECONDARY;
 const focusRing = 'outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] focus-visible:ring-offset-2';
 const linkClass = `inline-flex items-center gap-1 rounded text-[12px] font-semibold text-[rgba(0,0,0,0.88)] underline-offset-2 hover:underline ${focusRing}`;
 const primaryButton = `inline-flex items-center gap-1.5 rounded-md bg-[rgba(0,0,0,0.88)] px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-black ${focusRing}`;
@@ -310,15 +314,35 @@ export function attentionItems(input: {
 
 // ── Pieces ───────────────────────────────────────────────────────────────────
 
-function Card({ title, label, children, className = '', action }: { title: string; label?: string; children: ReactNode; className?: string; action?: ReactNode }) {
+/**
+ * A titled, borderless region inside a Surface tier (FEAT-002): the chrome now belongs to the
+ * enclosing <Surface>, so a group only contributes its eyebrow title + optional action and its
+ * content. Still a labelled landmark so the region is reachable by name.
+ */
+function Cell({ title, label, children, className = '', action }: { title: string; label?: string; children: ReactNode; className?: string; action?: ReactNode }) {
   return (
-    <section className={`${card} flex flex-col gap-3 p-4 ${className}`} aria-label={label ?? title}>
+    <section className={`flex min-w-0 flex-col gap-3 ${className}`.trim()} aria-label={label ?? title}>
       <div className="flex items-start justify-between gap-2">
         <h3 className={eyebrow}>{title}</h3>
         {action}
       </div>
       {children}
     </section>
+  );
+}
+
+/**
+ * The hero cluster-cost number (DESIGN §4.3). Rendered ONLY when a real monthly cost exists, so the
+ * count-up hook always receives a finite number (the null/freed fallback is a sibling branch at the
+ * call site — never a fabricated $0, never a number fed to the hook when there is none).
+ */
+function HeroCost({ monthlyCost, fromDaily }: { monthlyCost: number; fromDaily: boolean }) {
+  const animated = useAnimatedValue(monthlyCost);
+  return (
+    <p className={HERO_NUMBER} title={fromDaily ? MONTHLY_FROM_DAILY : undefined} data-hero-cost="">
+      {formatMoney(animated)}
+      <span className="ml-1 text-[22px] font-normal text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]">/mo</span>
+    </p>
   );
 }
 
@@ -345,9 +369,10 @@ function Chip({ label, count }: { label: string; count: number }) {
   );
 }
 
+/** One cell of the borderless Automation 2×2 (FEAT-002): the box chrome is the enclosing Surface. */
 function FeatureCard({ name, line, status, next }: { name: string; line: string; status: FeatureStatus; next?: ReactNode }) {
   return (
-    <section className={`${card} flex flex-col gap-2 p-4`} aria-label={name} data-feature={name}>
+    <section className="flex flex-col gap-2 p-5" aria-label={name} data-feature={name}>
       <h4 className={cardTitle}>{name}</h4>
       <p className={secondary}>{line}</p>
       <div className="mt-auto space-y-1 pt-1">
@@ -365,15 +390,16 @@ interface TopPod {
   value: number;
 }
 
+/** One borderless column of the single Top-pods tier-3 Surface (FEAT-002). */
 function TopPods({ title, pods, format, at }: { title: string; pods: TopPod[]; format: (v: number) => string; at: string | null }) {
   const max = pods.reduce((m, p) => Math.max(m, p.value), 0) || 1;
   return (
-    <section className={card} aria-label={title}>
-      <div className={cardHeader}>
+    <section className="min-w-0" aria-label={title}>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3.5">
         <h3 className={cardTitle}>{title}</h3>
         <SourceLabel source={PROMETHEUS_SOURCE} at={at} verb="data" missingText="no data yet" />
       </div>
-      <div className="px-4 py-3">
+      <div className="px-5 pb-5">
         {pods.length === 0 ? (
           <p className={secondary}>{`${DASH} Not reported by ${PROMETHEUS_SOURCE}`}</p>
         ) : (
@@ -521,126 +547,173 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
     needMore: vertical.view ? needsMore : undefined,
   });
 
+  // FEAT-002 hero: the cluster monthly cost is the one HERO_NUMBER. When there is no priced cost
+  // source we never fabricate $0 — fall back to the honest freed-capacity figure, else a dash.
+  const heroFreed = freedCapacity(
+    engine.workloads.filter((w) => workloadBucket(w, derived.notRunning.has(workloadKey(w.ref.namespace, w.ref.kind, w.ref.name))) === 'Over-provisioned'),
+    dashboard,
+  );
+  const hasHeroFreed = heroFreed.cpuM > 0 || heroFreed.memMi > 0;
+
   return (
-    <div className="space-y-4" data-panel="overview-summary">
+    <div className="space-y-8" data-panel="overview-summary">
       <NowBanner sentence={now} />
       <p className={secondary}>{`How ${clusterName} is doing right now: capacity, what pods reserve and use, what it costs, and what XamOps can improve.`}</p>
 
       {monitoring.state === 'M2' && (
-        <p role="status" className={`${card} flex flex-wrap items-center gap-2 px-4 py-2.5 ${body}`}>
+        <p
+          role="status"
+          data-k8s-kit=""
+          className={`flex flex-wrap items-center gap-2 rounded-[10px] border border-[rgba(0,0,0,0.07)] bg-white px-5 py-2.5 dark:border-[rgba(255,255,255,0.09)] dark:bg-[#141414] ${body}`}
+        >
           <StatusMark state="attention" label="Data stale" detail={formatAgo(agentAt)} />
           <span>The XamOps agent hasn't reported recently. These are the last values it sent.</span>
         </p>
       )}
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Card title={CLUSTER_TITLE}>
-          <StatusMark
-            state={monitoring.state === 'M2' ? 'attention' : 'healthy'}
-            label={monitoring.state === 'M2' ? 'Data stale' : 'Connected'}
-            detail={agentAt ? `data ${formatAgo(agentAt)}` : null}
-            className="text-[13px]"
-          />
-          <dl>
-            <FactRow term="Kubernetes" title={derived.version ? undefined : 'Not reported by AWS or the XamOps agent'}>
-              {derived.version ? displayVersion(derived.version) : DASH}
-            </FactRow>
-            <FactRow term="Region">{derived.zones > 0 ? `${region}, ${plural(derived.zones, 'zone')}` : region}</FactRow>
-            <FactRow term="Namespaces" title={derived.namespaces === null ? 'Not reported by the XamOps agent' : undefined}>
-              {derived.namespaces ?? DASH}
-            </FactRow>
-            <FactRow term="XamOps agent" title={capsCluster?.agent.version ? undefined : 'The agent did not report its version'}>
-              {capsCluster?.agent.version ?? DASH}
-            </FactRow>
-          </dl>
-        </Card>
-
-        <Card title={NODES_TITLE}>
-          <p className={bigNumber}>{derived.nodes.length > 0 ? derived.nodes.length : DASH}</p>
-          {derived.nodes.length > 0 ? (
-            <>
-              <ul className="flex flex-wrap gap-1.5" aria-label="Capacity type">
-                <Chip label="On-demand" count={derived.types.onDemand} />
-                <Chip label="Spot" count={derived.types.spot} />
-                <Chip label="Unknown" count={derived.types.unknown} />
-              </ul>
-              <p className={secondary} data-instance-types="">
-                {derived.instanceTypes.slice(0, 2).map((t) => `${t.count} · ${t.type}${t.cpuM !== null && t.memMi !== null ? ` (${trimVcpu(t.cpuM)}, ${formatGib(t.memMi)})` : ''}`).join(', ')}
-                {derived.instanceTypes.length > 2 ? `, +${plural(derived.instanceTypes.length - 2, 'more type', 'more types')}` : ''}
-              </p>
-              {derived.groups.length > 0 && (
-                <p className={secondary} data-node-groups="">{`${derived.groups.length === 1 ? 'Node group' : 'Node groups'}: ${derived.groups.join(', ')}`}</p>
-              )}
-              <p className={secondary} data-unused-requests="">{unusedLine(capacity.cpu, capacity.memory)}</p>
-            </>
-          ) : (
-            <p className={secondary}>Not reported by the XamOps agent</p>
-          )}
-        </Card>
-
-        <Card title={PODS_TITLE}>
-          <p className={bigNumber}>{placement ? placement.total : counts ? counts.total : DASH}</p>
-          {placement ? (
-            <p className={secondary} data-pod-placement="">
-              {`${placement.onNode} running on a node · ${placement.waiting} waiting for a node`}
-              {placement.failed > 0 ? ` · ${placement.failed} failed` : ''}
-              {placement.completed > 0 ? ` · ${placement.completed} completed` : ''}
-            </p>
-          ) : counts ? (
-            <p className={secondary}>{`${counts.running} running · ${counts.pending} pending · ${counts.failed} failed`}</p>
-          ) : (
-            <p className={secondary}>Not reported by the XamOps agent</p>
-          )}
-          {firstUnschedulable && ask && (
-            <p className="flex items-start gap-2 rounded-md border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.02)] px-3 py-2 text-[12px] text-[rgba(0,0,0,0.88)]" data-unschedulable="">
-              <Icon icon="mdi:alert-circle-outline" width={16} aria-hidden="true" className="mt-px shrink-0 text-status-bad" />
-              <span>
-                {`${firstUnschedulable.namespace}/${firstUnschedulable.name} asks for ${trimVcpu(ask.cpuRequestM)} and ${formatGib(ask.memRequestMi)}.`}
-                {largest.cpuM !== null ? ` The largest node has ${trimVcpu(largest.cpuM)} allocatable.` : ''}
-                {placement && placement.unschedulable.length > 1 ? ` ${placement.unschedulable.length - 1} more can't be scheduled.` : ''}
-              </span>
-            </p>
-          )}
-          {placement && (counts?.pending ?? 0) > 0 && (
-            <div>
-              <Link to={href('workloads', 'pods', 'phase=Pending')} state={linkState} className={secondaryButton}>{VIEW_PENDING_PODS}</Link>
+      {/* HERO (DESIGN §4.3): cluster monthly cost as the one hero number, with Nodes · Pods ·
+          Namespaces demoted into a divide-x KPI strip. The cluster facts and node/pod detail keep
+          their labelled regions so every figure and source stays reachable. */}
+      <Surface tier="hero" aria-label="Cluster cost and capacity" className="pt-10">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <section aria-label={COST_TITLE} className="flex min-w-0 flex-col gap-1.5">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className={eyebrow}>{COST_TITLE}</h3>
+              <Link to={href('cost', 'cluster')} state={linkState} className={linkClass}>Open Cost<Icon icon="mdi:chevron-right" width={14} aria-hidden="true" /></Link>
             </div>
-          )}
-        </Card>
-
-        <Card title={COST_TITLE} action={<Link to={href('cost', 'cluster')} state={linkState} className={linkClass}>Open Cost<Icon icon="mdi:chevron-right" width={14} aria-hidden="true" /></Link>}>
-          <p className={bigNumber} title={cost.monthlyFromDaily ? MONTHLY_FROM_DAILY : undefined}>
-            {formatMoney(cost.monthlyCost)}
-            {cost.monthlyCost !== null && <span className="text-[15px] font-normal text-[rgba(0,0,0,0.6)]">/mo</span>}
-          </p>
-          {cost.monthlyCost !== null ? (
-            <>
-              <p className={secondary}>{`Today ${formatMoney(cost.dailyCost)}${cost.monthlyFromDaily ? ' · month is daily × 30' : ''}`}</p>
-              <p className={secondary}>{`From ${cost.label}`}</p>
-            </>
-          ) : (
-            <p className={secondary}>No cost source reported for this cluster.</p>
-          )}
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.8fr)]">
-        {(['cpu', 'memory'] as const).map((r) => (
-          <section key={r} className={`${card} flex flex-col gap-3 p-4`} aria-label={r === 'cpu' ? 'CPU' : 'Memory'}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className={cardTitle}>{r === 'cpu' ? 'CPU' : 'Memory'}</h3>
-              <SourceLabel source="XamOps agent" at={agentAt} verb="data" missingText="no data yet" />
-            </div>
-            <CapacityDonut
-              resource={r === 'cpu' ? 'CPU' : 'Memory'}
-              capacity={capacity[r]}
-              format={r === 'cpu' ? formatVcpu : formatGib}
-              usedMissing={USED_NOT_REPORTED}
-            />
+            {cost.monthlyCost !== null && Number.isFinite(cost.monthlyCost) ? (
+              <>
+                <HeroCost monthlyCost={cost.monthlyCost} fromDaily={cost.monthlyFromDaily} />
+                <p className={secondary}>{`Today ${formatMoney(cost.dailyCost)}${cost.monthlyFromDaily ? ' · month is daily × 30' : ''} · from ${cost.label}`}</p>
+              </>
+            ) : hasHeroFreed ? (
+              <>
+                <p className={`${HERO_NUMBER} tabular-nums text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]`} title={FREED_TOOLTIP} data-hero-freed="">
+                  {`Could free ${formatVcpu(heroFreed.cpuM)}`}
+                </p>
+                <p className={secondary} title={FREED_TOOLTIP}>{`and ${formatGib(heroFreed.memMi)} · no priced cost source for this cluster`}</p>
+              </>
+            ) : (
+              <>
+                <p className={`${HERO_NUMBER} text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]`} data-hero-dash="">{`$${DASH}`}</p>
+                <p className={secondary}>No cost source reported for this cluster.</p>
+              </>
+            )}
           </section>
-        ))}
 
-        <Card title={WORKLOAD_AUTOSCALER} label={`${WORKLOAD_AUTOSCALER} summary`}>
+          {/* Nodes · Pods · Namespaces as the demoted KPI strip (DESIGN §4.3). */}
+          <dl className="grid grid-cols-3 divide-x divide-[rgba(0,0,0,0.06)] dark:divide-[rgba(255,255,255,0.08)]" aria-label="Cluster totals">
+            <div className="flex flex-col gap-0.5 px-5 first:pl-0" data-kpi="nodes">
+              <dt className={eyebrow}>{NODES_TITLE}</dt>
+              <dd className={`${KPI_NUMBER} text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]`}>{derived.nodes.length > 0 ? derived.nodes.length : DASH}</dd>
+            </div>
+            <div className="flex flex-col gap-0.5 px-5" data-kpi="pods">
+              <dt className={eyebrow}>{PODS_TITLE}</dt>
+              <dd className={`${KPI_NUMBER} text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]`}>{placement ? placement.total : counts ? counts.total : DASH}</dd>
+            </div>
+            <div className="flex flex-col gap-0.5 px-5" data-kpi="namespaces">
+              <dt className={eyebrow}>Namespaces</dt>
+              <dd className={`${KPI_NUMBER} text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]`} title={derived.namespaces === null ? 'Not reported by the XamOps agent' : undefined}>{derived.namespaces ?? DASH}</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div className="mt-8 grid grid-cols-1 gap-x-10 gap-y-6 md:grid-cols-3">
+          <Cell title={CLUSTER_TITLE}>
+            <StatusMark
+              state={monitoring.state === 'M2' ? 'attention' : 'healthy'}
+              label={monitoring.state === 'M2' ? 'Data stale' : 'Connected'}
+              detail={agentAt ? `data ${formatAgo(agentAt)}` : null}
+              className="text-[13px]"
+            />
+            <dl>
+              <FactRow term="Kubernetes" title={derived.version ? undefined : 'Not reported by AWS or the XamOps agent'}>
+                {derived.version ? displayVersion(derived.version) : DASH}
+              </FactRow>
+              <FactRow term="Region">{derived.zones > 0 ? `${region}, ${plural(derived.zones, 'zone')}` : region}</FactRow>
+              <FactRow term="Namespaces" title={derived.namespaces === null ? 'Not reported by the XamOps agent' : undefined}>
+                {derived.namespaces ?? DASH}
+              </FactRow>
+              <FactRow term="XamOps agent" title={capsCluster?.agent.version ? undefined : 'The agent did not report its version'}>
+                {capsCluster?.agent.version ?? DASH}
+              </FactRow>
+            </dl>
+          </Cell>
+
+          <Cell title={NODES_TITLE}>
+            {derived.nodes.length > 0 ? (
+              <>
+                <ul className="flex flex-wrap gap-1.5" aria-label="Capacity type">
+                  <Chip label="On-demand" count={derived.types.onDemand} />
+                  <Chip label="Spot" count={derived.types.spot} />
+                  <Chip label="Unknown" count={derived.types.unknown} />
+                </ul>
+                <p className={secondary} data-instance-types="">
+                  {derived.instanceTypes.slice(0, 2).map((t) => `${t.count} · ${t.type}${t.cpuM !== null && t.memMi !== null ? ` (${trimVcpu(t.cpuM)}, ${formatGib(t.memMi)})` : ''}`).join(', ')}
+                  {derived.instanceTypes.length > 2 ? `, +${plural(derived.instanceTypes.length - 2, 'more type', 'more types')}` : ''}
+                </p>
+                {derived.groups.length > 0 && (
+                  <p className={secondary} data-node-groups="">{`${derived.groups.length === 1 ? 'Node group' : 'Node groups'}: ${derived.groups.join(', ')}`}</p>
+                )}
+                <p className={secondary} data-unused-requests="">{unusedLine(capacity.cpu, capacity.memory)}</p>
+              </>
+            ) : (
+              <p className={secondary}>Not reported by the XamOps agent</p>
+            )}
+          </Cell>
+
+          <Cell title={PODS_TITLE}>
+            {placement ? (
+              <p className={secondary} data-pod-placement="">
+                {`${placement.onNode} running on a node · ${placement.waiting} waiting for a node`}
+                {placement.failed > 0 ? ` · ${placement.failed} failed` : ''}
+                {placement.completed > 0 ? ` · ${placement.completed} completed` : ''}
+              </p>
+            ) : counts ? (
+              <p className={secondary}>{`${counts.running} running · ${counts.pending} pending · ${counts.failed} failed`}</p>
+            ) : (
+              <p className={secondary}>Not reported by the XamOps agent</p>
+            )}
+            {firstUnschedulable && ask && (
+              <p className="flex items-start gap-2 pl-1 text-[12px] text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]" data-unschedulable="">
+                <Icon icon="mdi:alert-circle-outline" width={16} aria-hidden="true" className="mt-px shrink-0 text-status-bad" />
+                <span>
+                  {`${firstUnschedulable.namespace}/${firstUnschedulable.name} asks for ${trimVcpu(ask.cpuRequestM)} and ${formatGib(ask.memRequestMi)}.`}
+                  {largest.cpuM !== null ? ` The largest node has ${trimVcpu(largest.cpuM)} allocatable.` : ''}
+                  {placement && placement.unschedulable.length > 1 ? ` ${placement.unschedulable.length - 1} more can't be scheduled.` : ''}
+                </span>
+              </p>
+            )}
+            {placement && (counts?.pending ?? 0) > 0 && (
+              <div>
+                <Link to={href('workloads', 'pods', 'phase=Pending')} state={linkState} className={secondaryButton}>{VIEW_PENDING_PODS}</Link>
+              </div>
+            )}
+          </Cell>
+        </div>
+      </Surface>
+
+      {/* Capacity & rightsizing (FEAT-002 step 4): CPU + Memory donuts and the Workload-autoscaler
+          summary collapsed into one grouped tier, a single divide-x of three cells. */}
+      <Surface tier="grouped" className="mt-10 !p-0" aria-label="Capacity & rightsizing">
+        <h3 className={`${cardTitle} px-5 pt-5`}>Capacity &amp; rightsizing</h3>
+        <div className="grid grid-cols-1 divide-y divide-[rgba(0,0,0,0.06)] dark:divide-[rgba(255,255,255,0.08)] md:grid-cols-3 md:divide-x md:divide-y-0">
+        <section className="flex min-w-0 flex-col gap-3 p-5" aria-label="CPU">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className={cardTitle}>CPU</h3>
+            <SourceLabel source="XamOps agent" at={agentAt} verb="data" missingText="no data yet" />
+          </div>
+          <CapacityDonut resource="CPU" capacity={capacity.cpu} format={formatVcpu} usedMissing={USED_NOT_REPORTED} />
+        </section>
+        <section className="flex min-w-0 flex-col gap-3 p-5" aria-label="Memory">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className={cardTitle}>Memory</h3>
+            <SourceLabel source="XamOps agent" at={agentAt} verb="data" missingText="no data yet" />
+          </div>
+          <CapacityDonut resource="Memory" capacity={capacity.memory} format={formatGib} usedMissing={USED_NOT_REPORTED} />
+        </section>
+        <section className="flex min-w-0 flex-col gap-2 p-5" aria-label={`${WORKLOAD_AUTOSCALER} summary`}>
+          <h3 className={cardTitle}>{WORKLOAD_AUTOSCALER}</h3>
           {/* FEAT-002: when the cluster cost roll-up carries a real $/mo saving, lead with it via
               Delta (SummaryPanel is in the scope-status-money allow-list); otherwise keep the freed
               vCPU/GiB figure. A null roll-up never renders `$0`. */}
@@ -649,7 +722,7 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
               <Delta direction="saved" amount={`${formatMonthlyUsd(engine.monthlySavings)}`} suffix="saved" />
             </p>
           ) : analysed > 0 && (engine.freed.cpuM > 0 || engine.freed.memMi > 0) ? (
-            <p className="text-[20px] font-semibold leading-snug tabular-nums text-[rgba(0,0,0,0.88)]" title={FREED_TOOLTIP} data-freed="">
+            <p className="text-[20px] font-semibold leading-snug tabular-nums text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]" title={FREED_TOOLTIP} data-freed="">
               {`Could free ${formatVcpu(engine.freed.cpuM)} and ${formatGib(engine.freed.memMi)}`}
             </p>
           ) : (
@@ -664,7 +737,7 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
                 {`${plural(analysed, 'workload')} analysed`}
                 {needsMore > 0 ? ` · ${plural(needsMore, 'needs', 'need')} more resources` : ''}
               </p>
-              <dl className="divide-y divide-[rgba(0,0,0,0.06)]" aria-label="Workloads by status">
+              <dl className="divide-y divide-[rgba(0,0,0,0.06)] dark:divide-[rgba(255,255,255,0.08)]" aria-label="Workloads by status">
                 {engineCounts.map(({ bucket, count }) => (
                   <div key={bucket} className="flex items-baseline justify-between py-1.5" data-bucket={bucket}>
                     <dt className={body}>{bucket}</dt>
@@ -687,103 +760,105 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
               </Link>
             </div>
           )}
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <section aria-label={AUTOMATION_TITLE} className="space-y-2">
-          <h3 className="text-[16px] font-semibold text-[rgba(0,0,0,0.88)]">{AUTOMATION_TITLE}</h3>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <FeatureCard
-              name={WORKLOAD_AUTOSCALER}
-              line={FEATURE_LINES.workload}
-              status={{
-                ...workloadStatus,
-                detail: analysed > 0
-                  ? [`${plural(analysed, 'workload')} analysed`, overCount > 0 && `${overCount} over-provisioned`, needsMore > 0 && `${needsMore} ${needsMore === 1 ? 'needs' : 'need'} more resources`].filter(Boolean).join(' · ')
-                  : workloadStatus.detail,
-              }}
-              next={analysed > 0 ? (
-                <p className="flex flex-wrap gap-x-4 gap-y-1">
-                  <Link to={href('automation', 'workload-autoscaler')} state={linkState} className={linkClass}>
-                    {REVIEW_SUGGESTIONS}<Icon icon="mdi:chevron-right" width={14} aria-hidden="true" />
-                  </Link>
-                  {workloadStatus.status === 'On: suggestions only' && (
-                    <Link to={href('automation', 'overview')} state={linkState} className={linkClass}>{WHY_CANT_I_APPLY}</Link>
-                  )}
-                </p>
-              ) : undefined}
-            />
-            <FeatureCard
-              name={NODE_AUTOSCALER}
-              line={FEATURE_LINES.node}
-              status={nodeAutoscalerStatus(caps.status, capsCluster, derived.provisioners)}
-              next={(
-                <Link to={href('automation', 'overview')} state={linkState} className={linkClass}>
-                  See what it would do<Icon icon="mdi:chevron-right" width={14} aria-hidden="true" />
-                </Link>
-              )}
-            />
-            <FeatureCard
-              name="HPA"
-              line={FEATURE_LINES.hpa}
-              status={hpaStatus(derived.hpas, engine.heldByHpa)}
-              next={derived.hpas && derived.hpas.length > 0 ? (
-                <Link to={href('workloads', 'resources')} state={linkState} className={linkClass}>
-                  See HPAs<Icon icon="mdi:chevron-right" width={14} aria-hidden="true" />
-                </Link>
-              ) : undefined}
-            />
-            <FeatureCard
-              name="VPA"
-              line={FEATURE_LINES.vpa}
-              status={vpaCollected
-                ? { state: 'healthy', status: 'Collected by the automation agent (display coming)', detail: null }
-                : { state: 'unknown', status: DASH, detail: 'Not reported by the automation agent' }}
-            />
-          </div>
         </section>
-
-        <section aria-label={ATTENTION_TITLE} className="space-y-2">
-          <h3 className="text-[16px] font-semibold text-[rgba(0,0,0,0.88)]">{ATTENTION_TITLE}</h3>
-          <div className={card}>
-            {attention.length === 0 ? (
-              <p className={`px-4 py-3 ${secondary}`}>{NOTHING_NEEDS_ATTENTION}</p>
-            ) : (
-              <ul className="divide-y divide-[rgba(0,0,0,0.06)]">
-                {attention.map((item) => (
-                  <li key={item.id} className="flex items-start gap-2.5 px-4 py-3" data-attention={item.id}>
-                    <Icon icon={item.icon} width={16} aria-hidden="true" className={`mt-0.5 shrink-0 ${item.tone}`} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[13px] font-semibold text-[rgba(0,0,0,0.88)]">
-                        {item.severity && <span className={`mr-1.5 ${item.tone}`} data-severity={item.severity}>{SEVERITY[item.severity].label}</span>}
-                        {item.title}
-                      </span>
-                      <span className={`block ${secondary} break-words`}>{item.detail}</span>
-                      <Link to={href(item.tab, item.sub, item.query)} state={linkState} className={`${linkClass} mt-1`}>
-                        {findingLabel(item.tab, item.sub)}<Icon icon="mdi:chevron-right" width={14} aria-hidden="true" />
-                      </Link>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="border-t border-[rgba(0,0,0,0.08)] px-4 py-2.5">
-              <Link to={ALERTS_HREF} className={linkClass}>
-                {VIEW_ALL_ALERTS}
-                <Icon icon="mdi:arrow-right" width={14} aria-hidden="true" />
-              </Link>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <section className={card} aria-label="Namespace utilisation">
-        <div className={cardHeader}>
-          <h3 className={cardTitle}>Namespace utilisation</h3>
-          <SourceLabel source={PROMETHEUS_SOURCE} at={promAt} verb="data" missingText="no data yet" />
         </div>
-        <div className="px-4 py-3">
+      </Surface>
+
+      {/* Automation (FEAT-002 step 5): the 2×2 FeatureCard grid as one borderless grouped tier,
+          divide-x + divide-y, each cell unchanged. */}
+      <Surface tier="grouped" className="!p-0" aria-label={AUTOMATION_TITLE}>
+        <h3 className={`${cardTitle} px-5 pt-5`}>{AUTOMATION_TITLE}</h3>
+        <div className="grid grid-cols-1 divide-y divide-[rgba(0,0,0,0.06)] dark:divide-[rgba(255,255,255,0.08)] md:grid-cols-2 md:divide-x md:[&>*:nth-child(-n+2)]:border-b md:[&>*:nth-child(-n+2)]:border-[rgba(0,0,0,0.06)] md:dark:[&>*:nth-child(-n+2)]:border-[rgba(255,255,255,0.08)]">
+          <FeatureCard
+            name={WORKLOAD_AUTOSCALER}
+            line={FEATURE_LINES.workload}
+            status={{
+              ...workloadStatus,
+              detail: analysed > 0
+                ? [`${plural(analysed, 'workload')} analysed`, overCount > 0 && `${overCount} over-provisioned`, needsMore > 0 && `${needsMore} ${needsMore === 1 ? 'needs' : 'need'} more resources`].filter(Boolean).join(' · ')
+                : workloadStatus.detail,
+            }}
+            next={analysed > 0 ? (
+              <p className="flex flex-wrap gap-x-4 gap-y-1">
+                <Link to={href('automation', 'workload-autoscaler')} state={linkState} className={linkClass}>
+                  {REVIEW_SUGGESTIONS}<Icon icon="mdi:chevron-right" width={14} aria-hidden="true" />
+                </Link>
+                {workloadStatus.status === 'On: suggestions only' && (
+                  <Link to={href('automation', 'overview')} state={linkState} className={linkClass}>{WHY_CANT_I_APPLY}</Link>
+                )}
+              </p>
+            ) : undefined}
+          />
+          <FeatureCard
+            name={NODE_AUTOSCALER}
+            line={FEATURE_LINES.node}
+            status={nodeAutoscalerStatus(caps.status, capsCluster, derived.provisioners)}
+            next={(
+              <Link to={href('automation', 'overview')} state={linkState} className={linkClass}>
+                See what it would do<Icon icon="mdi:chevron-right" width={14} aria-hidden="true" />
+              </Link>
+            )}
+          />
+          <FeatureCard
+            name="HPA"
+            line={FEATURE_LINES.hpa}
+            status={hpaStatus(derived.hpas, engine.heldByHpa)}
+            next={derived.hpas && derived.hpas.length > 0 ? (
+              <Link to={href('workloads', 'resources')} state={linkState} className={linkClass}>
+                See HPAs<Icon icon="mdi:chevron-right" width={14} aria-hidden="true" />
+              </Link>
+            ) : undefined}
+          />
+          <FeatureCard
+            name="VPA"
+            line={FEATURE_LINES.vpa}
+            status={vpaCollected
+              ? { state: 'healthy', status: 'Collected by the node automation agent (display coming)', detail: null }
+              : { state: 'unknown', status: DASH, detail: 'Not reported by the node automation agent' }}
+          />
+        </div>
+      </Surface>
+
+      {/* Needs attention (FEAT-002 step 6): tier-2 grouped, the existing divide-y list. */}
+      <Surface tier="grouped" className="!p-0" aria-label={ATTENTION_TITLE}>
+        <h3 className={`${cardTitle} px-5 pt-5 pb-1`}>{ATTENTION_TITLE}</h3>
+        {attention.length === 0 ? (
+          <p className={`px-5 py-4 ${secondary}`}>{NOTHING_NEEDS_ATTENTION}</p>
+        ) : (
+          <ul className="divide-y divide-[rgba(0,0,0,0.06)] dark:divide-[rgba(255,255,255,0.08)]">
+            {attention.map((item) => (
+              <li key={item.id} className="flex items-start gap-2.5 px-5 py-3.5" data-attention={item.id}>
+                <Icon icon={item.icon} width={16} aria-hidden="true" className={`mt-0.5 shrink-0 ${item.tone}`} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-semibold text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]">
+                    {item.severity && <span className={`mr-1.5 ${item.tone}`} data-severity={item.severity}>{SEVERITY[item.severity].label}</span>}
+                    {item.title}
+                  </span>
+                  <span className={`block ${secondary} break-words`}>{item.detail}</span>
+                  <Link to={href(item.tab, item.sub, item.query)} state={linkState} className={`${linkClass} mt-1`}>
+                    {findingLabel(item.tab, item.sub)}<Icon icon="mdi:chevron-right" width={14} aria-hidden="true" />
+                  </Link>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="border-t border-[rgba(0,0,0,0.06)] px-5 py-2.5 dark:border-[rgba(255,255,255,0.08)]">
+          <Link to={ALERTS_HREF} className={linkClass}>
+            {VIEW_ALL_ALERTS}
+            <Icon icon="mdi:arrow-right" width={14} aria-hidden="true" />
+          </Link>
+        </div>
+      </Surface>
+
+      {/* Namespace utilisation (FEAT-002 step 6): tier-3 table. */}
+      <Surface
+        tier="table"
+        aria-label="Namespace utilisation"
+        title={<h3 className={cardTitle}>Namespace utilisation</h3>}
+        aside={<SourceLabel source={PROMETHEUS_SOURCE} at={promAt} verb="data" missingText="no data yet" />}
+      >
+        <div className="px-5 pb-5">
           <K8sDataTable
             rows={derived.namespaceRows}
             columns={NAMESPACE_COLUMNS}
@@ -793,21 +868,23 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
             emptyState={<p className={secondary}>{`${DASH} Not reported by ${PROMETHEUS_SOURCE}`}</p>}
           />
         </div>
-      </section>
+      </Surface>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {/* Top pods (FEAT-002 step 6): one tier-3 Surface, two borderless columns. */}
+      <Surface tier="table" aria-label="Top pods" className="grid grid-cols-1 divide-y divide-[rgba(0,0,0,0.06)] dark:divide-[rgba(255,255,255,0.08)] lg:grid-cols-2 lg:divide-x lg:divide-y-0">
         <TopPods title="Top CPU pods" pods={derived.topCpu} format={(v) => formatCpu(v)} at={promAt} />
         <TopPods title="Top memory pods" pods={derived.topMemory} format={(v) => formatMemoryMiB(v)} at={promAt} />
-      </div>
+      </Surface>
 
-      <section className={card} aria-label="Data sources">
-        <div className={cardHeader}>
+      {/* Data sources (FEAT-002 step 6): tier-2 grouped. */}
+      <Surface tier="grouped" aria-label="Data sources" className="!p-0">
+        <div className="flex flex-wrap items-start justify-between gap-2 px-5 pt-5">
           <h3 className={cardTitle}>Data sources</h3>
           {derived.trivy && derived.trivy.critical > 0 && (
             <span className={secondary}>{`${TRIVY_SOURCE}: ${derived.trivy.critical} critical, ${derived.trivy.high} high`}</span>
           )}
         </div>
-        <div className="px-4 py-3">
+        <div className="px-5 pb-5 pt-2">
           {caps.status === 'loading' && <p className={secondary}>Checking data sources…</p>}
           {caps.status === 'error' && <p className={secondary}>Couldn't check data sources.</p>}
           {caps.status === 'ready' && sources.length === 0 && <p className={secondary}>The agent hasn't reported any data yet.</p>}
@@ -815,7 +892,7 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
             <ul className="flex flex-wrap gap-2">
               {sources.map((s) => (
                 <li key={s.type} data-source-type={s.type}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.02)] px-2.5 py-1">
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.02)] px-2.5 py-1 dark:border-[rgba(255,255,255,0.16)] dark:bg-[rgba(255,255,255,0.04)]">
                   <SourceLabel source={DATA_SOURCE_LABELS[s.type] ?? s.type} at={s.collectedAt} verb="data" missingText="no data yet" />
                   {!s.displayed && <span className={secondary}>· received, not shown</span>}
                 </li>
@@ -823,7 +900,7 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
             </ul>
           )}
         </div>
-      </section>
+      </Surface>
     </div>
   );
 }

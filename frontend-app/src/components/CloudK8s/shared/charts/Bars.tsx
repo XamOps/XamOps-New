@@ -16,7 +16,7 @@
 import { useId } from 'react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ChartDefs, chartIdSuffix, hatchId } from './ChartDefs';
-import { HATCH, MONEY, SERIES, type HatchKind, type MoneyKind, type SeriesKind } from './chartTokens';
+import { HATCH, MONEY, SERIES, TONE_COLOR, type HatchKind, type MoneyKind, type SeriesKind, type SeriesTone } from './chartTokens';
 
 export type BarsMode = 'grouped' | 'before-after' | 'capacity' | 'day';
 
@@ -31,6 +31,12 @@ export interface BarSeries {
   stackId?: string;
   /** Fill with this hatch instead of a solid fill (same meaning, a different source). */
   hatch?: HatchKind;
+  /**
+   * A result count rather than a resource ('day' mode: changes per day, by result): the bar takes its
+   * result's status tone (the same tone as its chip), outlined, and never a series colour. The caller
+   * names each tone with its chip (icon and label) beside the chart.
+   */
+  tone?: SeriesTone;
 }
 
 export interface BarsProps {
@@ -58,6 +64,10 @@ interface BarStyle {
 }
 
 function styleFor(bar: BarSeries, suffix: string): BarStyle {
+  if (bar.tone) {
+    const color = TONE_COLOR[bar.tone];
+    return { fill: color, fillOpacity: 0.28, stroke: color, strokeWidth: 1.2 };
+  }
   if (bar.money) {
     const m = MONEY[bar.kind as MoneyKind];
     // "Costs more" is drawn as an outline (§2.1); saved is a solid fill.

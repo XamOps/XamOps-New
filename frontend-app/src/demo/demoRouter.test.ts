@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resolveDemoResponse } from './demoRouter';
 import { DEMO_MODE_KEY, DEMO_ROLE_KEY } from './demoConfig';
 import { demoCapabilities } from './k8sAutomationMockData';
@@ -494,6 +494,278 @@ describe('demo router — vertical engine, endpoint 1 (ROLE_XAMOPS)', () => {
 
   it.each(['GET', 'POST'])('refuses the HPA apply with 403 K8S_DEMO (%s)', async (method) => {
     const response = resolveDemoResponse('/api/eks/automation/hpa/prod-eks-cluster/production/worker/apply?accountId=demo-aws-001&region=us-east-1', method);
+    expect(response?.status).toBe(403);
+    expect((await response!.json()).code).toBe('K8S_DEMO');
+  });
+});
+
+/** Automation › Activity reads the activity feed (FEAT-007); it may never reach the backend. */
+describe('demo router — activity feed (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const feedUrl = (cluster: string, query = '') => `/api/eks/automation/activity/${cluster}?accountId=demo-aws-001&region=us-east-1&limit=50${query}`;
+  const statusUrl = (cluster: string) => `/api/eks/automation/vertical/${cluster}?accountId=demo-aws-001&region=us-east-1`;
+
+  it("answers prod with its workloads' history in the feed shape, newest first", async () => {
+    const body = await readDemoBody(feedUrl('prod-eks-cluster'));
+    expect(body.engine).toEqual({ enabled: true });
+    expect(body.nextCursor).toBeNull();
+    const ats = body.entries.map((e: any) => Date.parse(e.at));
+    expect([...ats].sort((a, b) => b - a)).toEqual(ats);
+    expect(body.entries.map((e: any) => `${e.target.name}:${e.result ?? e.action}`)).toEqual([
+      'api-server:PUT_BACK',
+      'api-staging:TEST_RUN',
+      'frontend:REFUSED',
+      'worker-hpa:APPLIED',
+      'grafana:APPLIED',
+      'alertmanager:MODE_CHANGE',
+      'api-server:FAILED',
+    ]);
+    // Every entry names who, and the put-back carries its per-pod proof.
+    expect(body.entries.every((e: any) => e.who === 'A user' && e.origin === 'MANUAL')).toBe(true);
+    expect(body.entries[0].proof.pods[0].revert.state).toBe('REVERTED');
+  });
+
+  it('filters by feature, result and name, and pages with its cursor, as the server does', async () => {
+    expect((await readDemoBody(feedUrl('prod-eks-cluster', '&feature=HPA'))).entries.map((e: any) => e.target.name)).toEqual(['worker-hpa']);
+    expect((await readDemoBody(feedUrl('prod-eks-cluster', '&result=PUT_BACK,TEST_RUN'))).entries.map((e: any) => e.target.name)).toEqual(['api-server', 'api-staging']);
+    expect((await readDemoBody(feedUrl('prod-eks-cluster', '&q=graf'))).entries.map((e: any) => e.target.name)).toEqual(['grafana']);
+    const first = await readDemoBody('/api/eks/automation/activity/prod-eks-cluster?accountId=demo-aws-001&region=us-east-1&limit=3');
+    expect(first.entries).toHaveLength(3);
+    const second = await readDemoBody(`/api/eks/automation/activity/prod-eks-cluster?accountId=demo-aws-001&region=us-east-1&limit=3&cursor=${first.nextCursor}`);
+    expect(second.entries.map((e: any) => e.id)).toEqual([105, 104, 103]);
+  });
+
+  it("tells the same story as endpoint 1: each workload's lastAction is its newest real change in the feed", async () => {
+    // Both answers date their rows from Date.now(); hold the clock still so they share one "now".
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+    const feed = await readDemoBody(feedUrl('prod-eks-cluster'));
+    const status = await readDemoBody(statusUrl('prod-eks-cluster'));
+    // endpoint 1 skips test runs, refusals, put-backs (no pod changed) and HPA rows.
+    const counted = feed.entries.filter((e: any) => !e.dryRun && e.feature === 'VERTICAL' && !['TEST_RUN', 'REFUSED', 'NOT_CHANGED'].includes(e.outcome));
+    for (const w of status.workloads) {
+      const newest = counted.find((e: any) => e.target.namespace === w.ref.namespace && e.target.kind === w.ref.kind && e.target.name === w.ref.name);
+      if (!newest) {
+        expect(w.lastAction, w.ref.name).toBeNull();
+        continue;
+      }
+      expect(w.lastAction, w.ref.name).toEqual({ at: newest.at, dryRun: false, outcome: newest.outcome });
+    }
+  });
+
+  it('answers eu with no history and any other cluster 404 K8S_CLUSTER_NOT_REGISTERED', async () => {
+    expect((await readDemoBody(feedUrl('eu-eks-cluster'))).entries).toEqual([]);
+    const response = resolveDemoResponse(feedUrl('staging-eks-cluster'));
+    expect(response?.status).toBe(404);
+    expect((await response!.json()).code).toBe('K8S_CLUSTER_NOT_REGISTERED');
+  });
+
+  it.each(['POST', 'PUT', 'DELETE'])('refuses %s on the feed with 403 K8S_DEMO, never a read', async (method) => {
+    const response = resolveDemoResponse(feedUrl('prod-eks-cluster'), method);
+    expect(response?.status).toBe(403);
+    expect((await response!.json()).code).toBe('K8S_DEMO');
+  });
+});
+
+/** The Phase-2 reads (FEAT-004/005, FEAT-006's charts): a fixture for every GET; nothing reaches the backend. */
+describe('demo router — usage, sparklines, HPA history and the activity summary (ROLE_XAMOPS)', () => {
+  beforeEach(() => {
+    sessionStorage.setItem(DEMO_MODE_KEY, 'true');
+    sessionStorage.setItem(DEMO_ROLE_KEY, 'ROLE_XAMOPS');
+  });
+
+  const q = 'accountId=demo-aws-001&region=us-east-1';
+  const usage = (cluster: string, query: string) => `/api/eks/automation/usage/${cluster}?${q}&${query}`;
+  const answerOf = async (url: string, method = 'GET') => {
+    const response = resolveDemoResponse(url, method);
+    expect(response, `expected a demo response for ${url}`).not.toBeNull();
+    return { status: response!.status, body: JSON.parse(await response!.text()) };
+  };
+  const istDate = (ms: number) => new Date(ms + 5.5 * 3600_000).toISOString().slice(0, 10);
+
+  it("answers the cluster's CPU over 3 days in the server's shape: 145 points at 30 min, every series to allocatable", async () => {
+    const body = await readDemoBody(usage('prod-eks-cluster', 'scope=cluster&resource=cpu&window=72h'));
+    expect(body).toMatchObject({ schemaVersion: 1, scope: 'cluster', resource: 'cpu', unit: 'cores', window: '72h', stepSeconds: 1800, workloadRef: null, namespaces: null, unavailable: null });
+    expect(body.source).toEqual({ type: 'PROMETHEUS_PROXY', service: 'monitoring/prometheus-server:80' });
+    expect(body.series.map((s: any) => s.kind)).toEqual(['used', 'request', 'allocatable', 'capacity']);
+    for (const s of body.series) expect(s.points).toHaveLength(145);
+    // The agent fixture's six nodes: 25.52 cores allocatable of 26.
+    expect(body.series[2].points[0][1]).toBe(25.52);
+    expect(body.series[3].points[0][1]).toBe(26);
+    expect(body.coverage.covered).toBe(1);
+  });
+
+  it('reads 7 days as partial: the demo Prometheus keeps 5, and the points before are null, never 0', async () => {
+    const body = await readDemoBody(usage('prod-eks-cluster', 'scope=cluster&resource=memory&window=168h'));
+    expect(body.stepSeconds).toBe(3600);
+    expect(body.coverage.covered).toBeLessThan(1);
+    const used = body.series[0].points;
+    expect(used[0][1]).toBeNull();
+    const first = used.findIndex((p: [number, number | null]) => p[1] !== null);
+    expect(Date.parse(body.coverage.firstSampleAt) / 1000).toBe(used[first][0]);
+    expect(Math.round((Date.now() / 1000 - used[first][0]) / 86400)).toBe(5);
+  });
+
+  it('answers every namespace with its average use and its request now', async () => {
+    const body = await readDemoBody(usage('prod-eks-cluster', 'scope=namespace&resource=cpu&window=72h'));
+    expect(body.series).toEqual([]);
+    expect(body.namespaces.map((n: any) => n.namespace)).toEqual(['kube-system', 'monitoring', 'production', 'staging']);
+    const production = body.namespaces.find((n: any) => n.namespace === 'production');
+    expect(production.requestedNow).toBeCloseTo(3 * 0.256 + 2 * 0.1 + 2 * 0.05, 3);
+    expect(production.usedAvg).toBeGreaterThan(0.5);
+    expect(production.series.map((s: any) => s.kind)).toEqual(['used', 'request']);
+  });
+
+  it("answers one workload's busiest pod, its request (grafana's stepped down 26 hours ago) and a gap where no pod ran", async () => {
+    const grafana = await readDemoBody(usage('prod-eks-cluster', 'scope=workload&resource=cpu&window=72h&namespace=monitoring&kind=Deployment&name=grafana'));
+    expect(grafana.workloadRef).toEqual({ namespace: 'monitoring', kind: 'Deployment', name: 'grafana' });
+    const request = grafana.series.find((s: any) => s.kind === 'request').points.map((p: [number, number]) => p[1]);
+    expect(request[0]).toBe(0.25);
+    expect(request[request.length - 1]).toBe(0.1);
+    const staging = await readDemoBody(usage('prod-eks-cluster', 'scope=workload&resource=cpu&window=72h&namespace=staging&kind=Deployment&name=api-staging'));
+    const used = staging.series.find((s: any) => s.kind === 'used').points;
+    expect(used.some((p: [number, number | null]) => p[1] === null)).toBe(true);
+    expect(used.some((p: [number, number | null]) => p[1] === 0)).toBe(false);
+    expect(staging.coverage.covered).toBeLessThan(1);
+  });
+
+  it("keeps each workload's use in line with the rest of the demo: grafana right-sized, worker near its HPA's 45%", async () => {
+    // grafana: endpoint 1 calls it right-sized at 100m / 256Mi, and the feed records a user cutting it
+    // from 250m / 384Mi, so its busiest pod stays under its request at every point, before and after.
+    for (const resource of ['cpu', 'memory']) {
+      const body = await readDemoBody(usage('prod-eks-cluster', `scope=workload&resource=${resource}&window=72h&namespace=monitoring&kind=Deployment&name=grafana`));
+      const used = body.series.find((s: any) => s.kind === 'used').points;
+      const request = body.series.find((s: any) => s.kind === 'request').points;
+      used.forEach((p: [number, number | null], i: number) => {
+        if (p[1] !== null) expect(p[1]).toBeLessThan(request[i][1]);
+      });
+    }
+    // worker: worker-hpa reports its CPU at about 45% of the 100m request (78% while at its maximum).
+    const worker = await readDemoBody(usage('prod-eks-cluster', 'scope=workload&resource=cpu&window=72h&namespace=production&kind=Deployment&name=worker'));
+    const values = worker.series.find((s: any) => s.kind === 'used').points.map((p: [number, number | null]) => p[1]).filter((v: number | null) => v !== null);
+    expect(Math.min(...values)).toBeGreaterThan(0.03);
+    expect(Math.max(...values)).toBeLessThan(0.08);
+  });
+
+  it('answers a custom window around a change at 1-minute steps, as the impact chart asks', async () => {
+    const to = new Date(Math.floor(Date.now() / 60_000) * 60_000).toISOString();
+    const from = new Date(Date.parse(to) - 3 * 3600_000).toISOString();
+    const body = await readDemoBody(usage('prod-eks-cluster', `scope=workload&resource=cpu&window=custom&namespace=monitoring&kind=Deployment&name=grafana&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&step=60`));
+    expect(body.window).toBe('custom');
+    expect(body.stepSeconds).toBe(60);
+    expect(body.series[0].points).toHaveLength(181);
+  });
+
+  it('validates as the server does: 400 naming the field, 404 for a workload the cluster lacks or a cluster it lacks', async () => {
+    expect(await answerOf(usage('prod-eks-cluster', 'scope=pods&resource=cpu&window=72h'))).toMatchObject({ status: 400, body: { code: 'K8S_INVALID_REQUEST', field: 'scope' } });
+    expect(await answerOf(usage('prod-eks-cluster', 'scope=cluster&resource=cpu&window=custom&from=2026-10-14T00:00:00Z&to=2026-10-14T01:00:00Z&step=60'))).toMatchObject({ status: 400, body: { field: 'window' } });
+    expect(await answerOf(usage('prod-eks-cluster', 'scope=cluster&resource=cpu&window=72h&name=grafana'))).toMatchObject({ status: 400, body: { field: 'name' } });
+    expect(await answerOf(usage('prod-eks-cluster', 'scope=workload&resource=cpu&window=72h&namespace=team-a&kind=Deployment&name=gone'))).toMatchObject({ status: 404, body: { code: 'K8S_INVALID_REQUEST', field: 'name' } });
+    expect(await answerOf(usage('staging-eks-cluster', 'scope=cluster&resource=cpu&window=72h'))).toMatchObject({ status: 404, body: { code: 'K8S_CLUSTER_NOT_REGISTERED' } });
+  });
+
+  it('answers eu, which has no usage metrics, with unavailable and no series', async () => {
+    const body = await readDemoBody(usage('eu-eks-cluster', 'scope=cluster&resource=cpu&window=72h'));
+    expect(body.unavailable).toEqual({ code: 'NO_METRICS_SOURCE', message: 'No Prometheus answered in this cluster.' });
+    expect(body.series).toEqual([]);
+    expect(body.coverage).toBeNull();
+  });
+
+  it("answers the sparklines for every analysed workload, 73 hourly points, sorted as the server sorts them", async () => {
+    const body = await readDemoBody(`/api/eks/automation/usage/prod-eks-cluster/sparklines?${q}&resource=cpu&window=72h`);
+    expect(body).toMatchObject({ window: '72h', stepSeconds: 3600, unavailable: null });
+    const status = await readDemoBody(`/api/eks/automation/vertical/prod-eks-cluster?${q}`);
+    expect(body.workloads.map((w: any) => `${w.ref.namespace}/${w.ref.kind}/${w.ref.name}`)).toEqual(
+      status.workloads.map((w: any) => `${w.ref.namespace}/${w.ref.kind}/${w.ref.name}`).sort(),
+    );
+    for (const w of body.workloads) expect(w.used).toHaveLength(73);
+    expect((await answerOf(`/api/eks/automation/usage/prod-eks-cluster/sparklines?${q}&resource=cpu&window=24h`))).toMatchObject({ status: 400, body: { field: 'window' } });
+  });
+
+  it("answers an HPA's history: worker-hpa held at its maximum of 4 until the change the feed records, frontend-hpa never scaled", async () => {
+    const hpa = (name: string) => `/api/eks/automation/hpa/prod-eks-cluster/production/${name}/history?${q}&window=72h`;
+    const worker = await readDemoBody(hpa('worker-hpa'));
+    expect(worker.series.map((s: any) => s.key)).toEqual(['currentReplicas', 'minReplicas', 'maxReplicas', 'cpuUtilization', 'cpuTarget']);
+    const max = worker.series[2].points.map((p: [number, number]) => p[1]);
+    expect(max[0]).toBe(4);
+    expect(max[max.length - 1]).toBe(5);
+    expect(worker.atMax.stepSeconds).toBe(60);
+    expect(worker.atMax.runs.length).toBeGreaterThanOrEqual(2);
+    expect(worker.atMax.share).toBeGreaterThan(0);
+    expect(worker.changes.map((c: any) => `${c.from}→${c.to}`)).toEqual(['2→3', '3→4', '4→5', '5→3', '3→2']);
+    // The same story as the activity feed: the maximum moved when the user's HPA change was recorded.
+    const feed = await readDemoBody(`/api/eks/automation/activity/prod-eks-cluster?${q}&feature=HPA`);
+    const raisedAt = Date.parse(feed.entries[0].at) / 1000;
+    const firstFive = worker.series[2].points.find((p: [number, number]) => p[1] === 5)[0];
+    expect(firstFive - raisedAt).toBeGreaterThanOrEqual(0);
+    expect(firstFive - raisedAt).toBeLessThanOrEqual(1800);
+    expect((await readDemoBody(hpa('frontend-hpa'))).changes).toEqual([]);
+    expect(await answerOf(hpa('gone-hpa'))).toMatchObject({ status: 404, body: { code: 'K8S_INVALID_REQUEST', field: 'name' } });
+  });
+
+  it('counts the demo feed per IST day from the first day the full log recorded, with the feed\'s own results', async () => {
+    const body = await readDemoBody(`/api/eks/automation/activity/prod-eks-cluster/summary?${q}&days=7`);
+    expect(body).toMatchObject({ timezone: 'Asia/Kolkata', to: istDate(Date.now()), from: istDate(Date.now() - 6 * 86400_000), truncated: false });
+    // grafana's resize, stored with its proof 26 h 13 min ago, is the first row only the full log writes.
+    expect(body.days[0].date).toBe(istDate(Date.parse(body.completeSince)));
+    expect(body.days[body.days.length - 1].date).toBe(body.to);
+    const sum = (k: string) => body.days.reduce((n: number, d: any) => n + d[k], 0);
+    expect({ applied: sum('applied'), putBack: sum('putBack'), refused: sum('refused'), testRuns: sum('testRuns'), failed: sum('failed') })
+      .toEqual({ applied: 2, putBack: 1, refused: 1, testRuns: 1, failed: 0 });
+    expect(Object.keys(body.days[0].byFeature)).toEqual(['VERTICAL', 'HPA']);
+    const hpaOnly = await readDemoBody(`/api/eks/automation/activity/prod-eks-cluster/summary?${q}&days=7&feature=HPA`);
+    expect(hpaOnly.days.reduce((n: number, d: any) => n + d.applied, 0)).toBe(1);
+    expect(await answerOf(`/api/eks/automation/activity/prod-eks-cluster/summary?${q}&days=31`)).toMatchObject({ status: 400, body: { field: 'days' } });
+    expect((await readDemoBody(`/api/eks/automation/activity/eu-eks-cluster/summary?${q}&days=7`)).days).toEqual([]);
+  });
+
+  it('filters the feed by from, as the Overview week and the Activity time filter ask', async () => {
+    const from = new Date(Date.now() - 24 * 3600_000).toISOString();
+    const body = await readDemoBody(`/api/eks/automation/activity/prod-eks-cluster?${q}&limit=50&from=${encodeURIComponent(from)}`);
+    expect(body.entries.map((e: any) => e.target.name)).toEqual(['api-server', 'api-staging', 'frontend', 'worker-hpa']);
+  });
+
+  it('filters the feed by an exact namespace, kind and name, as a workload detail asks', async () => {
+    const exact = (ns: string, kind: string, name: string) =>
+      readDemoBody(`/api/eks/automation/activity/prod-eks-cluster?${q}&limit=20&feature=VERTICAL&namespace=${ns}&kind=${kind}&name=${name}`);
+    const grafana = await exact('monitoring', 'Deployment', 'grafana');
+    expect(grafana.entries.map((e: any) => `${e.target.namespace}/${e.target.kind}/${e.target.name}`)).toEqual(['monitoring/Deployment/grafana']);
+    // An exact name is not a part of one.
+    expect((await exact('production', 'Deployment', 'api')).entries).toEqual([]);
+    expect((await exact('staging', 'Deployment', 'api-server')).entries).toEqual([]);
+  });
+
+  it('answers the HPA list\'s one read as each HPA\'s own read, and lists one the cluster lacks as missing', async () => {
+    const one = (name: string) => readDemoBody(`/api/eks/automation/hpa/prod-eks-cluster/production/${name}/history?${q}&window=72h`);
+    const batch = await readDemoBody(`/api/eks/automation/hpa/prod-eks-cluster/history?${q}&window=72h&hpas=${encodeURIComponent('production/worker-hpa,production/frontend-hpa,production/gone-hpa')}`);
+    expect(batch.window).toBe('72h');
+    expect(batch.histories.map((h: any) => h.name)).toEqual(['worker-hpa', 'frontend-hpa']);
+    const worker = await one('worker-hpa');
+    expect(batch.histories[0].changes).toEqual(worker.changes);
+    expect(batch.histories[0].atMax.minutesAtMax).toBe(worker.atMax.minutesAtMax);
+    expect(batch.missing).toEqual([{ namespace: 'production', name: 'gone-hpa' }]);
+    expect(await answerOf(`/api/eks/automation/hpa/prod-eks-cluster/history?${q}&window=72h&hpas=production`)).toMatchObject({ status: 400, body: { field: 'hpas' } });
+    expect(await answerOf(`/api/eks/automation/hpa/prod-eks-cluster/history?${q}&window=6h&hpas=production/worker-hpa`)).toMatchObject({ status: 400, body: { field: 'window' } });
+    expect(await answerOf(`/api/eks/automation/hpa/nope-cluster/history?${q}&window=72h&hpas=production/worker-hpa`)).toMatchObject({ status: 404, body: { code: 'K8S_CLUSTER_NOT_REGISTERED' } });
+  });
+
+  it.each([
+    ['POST', '/api/eks/automation/usage/prod-eks-cluster?scope=cluster&resource=cpu&window=72h'],
+    ['PUT', '/api/eks/automation/usage/prod-eks-cluster/sparklines?resource=cpu&window=72h'],
+    ['DELETE', '/api/eks/automation/hpa/prod-eks-cluster/production/worker-hpa/history?window=72h'],
+    ['POST', '/api/eks/automation/hpa/prod-eks-cluster/history?window=72h&hpas=production/worker-hpa'],
+    ['POST', '/api/eks/automation/activity/prod-eks-cluster/summary?days=7'],
+    ['GET', '/api/eks/automation/usage/prod-eks-cluster/anything-else'],
+    ['GET', '/api/eks/automation/hpa/prod-eks-cluster'],
+  ])('refuses %s %s with 403 K8S_DEMO, never a read fixture and never the network', async (method, path) => {
+    const response = resolveDemoResponse(path, method);
     expect(response?.status).toBe(403);
     expect((await response!.json()).code).toBe('K8S_DEMO');
   });

@@ -342,7 +342,7 @@ describe('nowSentence: Node autoscaler (say who changes the node count)', () => 
       '1 pod waits for a node.',
     ]);
     expect(chips.map((c) => c.label)).toEqual([
-      'Karpenter: not installed', 'Cluster Autoscaler: not installed', 'Automation agent: not installed', '1 pod waiting for a node',
+      'Karpenter: not installed', 'Cluster Autoscaler: not installed', 'Node automation agent: not installed', '1 pod waiting for a node',
     ]);
   });
 

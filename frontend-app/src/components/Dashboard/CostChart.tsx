@@ -34,25 +34,88 @@ export const CostChart: React.FC<CostChartProps> = ({ awsData, gcpData, azureDat
     }
 
     // Get labels
-    let labels: string[] = [];
-    if (awsData?.selectedAccount?.costHistory?.labels) {
-      labels = awsData.selectedAccount.costHistory.labels;
-    } else if (gcpData?.selectedAccount?.costHistory?.labels) {
-      labels = gcpData.selectedAccount.costHistory.labels;
-    } else if (azureData?.selectedAccount?.costHistory?.labels) {
-      labels = azureData.selectedAccount.costHistory.labels;
-    }
+    // -----------------------------------------------------------------------
+    // Build a SHARED month axis and align every provider's costs BY MONTH.
+    //
+    // Each provider builds its cost history independently with its own label
+    // format, length, ordering, and (for Azure) extra "(Forecast)" label rows.
+    // The chart previously took one provider's labels (AWS) as the x-axis and
+    // then plotted every other provider's costs array positionally by index, so
+    // Azure's values landed on the wrong months — its latest slot read 0 even
+    // though the provider card showed real month-to-date spend. We now key each
+    // series by normalized month label so values line up on the correct months,
+    // and force the current (latest) month's point to each provider's
+    // monthToDateSpend so the graph's newest point always matches the card.
+    // -----------------------------------------------------------------------
+    const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
+    // Normalize a label to a canonical "MMM YYYY" key: lowercases, strips a
+    // trailing "(Forecast)" marker, and tolerates "MMM YYYY" / "MMM-YY" / etc.
+    const normalizeLabel = (raw: string): { key: string; sortValue: number; display: string } | null => {
+      const cleaned = raw.replace(/\(forecast\)/i, '').trim();
+      const m = cleaned.toLowerCase().match(/([a-z]{3})[a-z]*\s*[-/ ]?\s*'?(\d{2,4})/);
+      if (!m) return null;
+      const monthIdx = MONTHS.indexOf(m[1]);
+      if (monthIdx === -1) return null;
+      let year = parseInt(m[2], 10);
+      if (year < 100) year += 2000;
+      const display = `${m[1].charAt(0).toUpperCase() + m[1].slice(1)} ${year}`;
+      return { key: `${year}-${String(monthIdx).padStart(2, '0')}`, sortValue: year * 12 + monthIdx, display };
+    };
+
+    // Collect the union of all months across providers, keyed canonically.
+    const monthMap = new Map<string, { sortValue: number; display: string }>();
+    const providerList = [awsData, gcpData, azureData];
+    providerList.forEach((data) => {
+      const lbls = data?.selectedAccount?.costHistory?.labels ?? [];
+      lbls.forEach((lbl) => {
+        const n = normalizeLabel(lbl);
+        if (n && !monthMap.has(n.key)) monthMap.set(n.key, { sortValue: n.sortValue, display: n.display });
+      });
+    });
+
+    const sortedKeys = Array.from(monthMap.keys()).sort(
+      (a, b) => (monthMap.get(a)!.sortValue - monthMap.get(b)!.sortValue)
+    );
+
+    let labels: string[] = sortedKeys.map((k) => monthMap.get(k)!.display);
     if (labels.length === 0) {
       labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
     }
 
-    // Helper to get costs
-    const getCosts = (data: ProviderData | null) => {
-      if (!data?.selectedAccount?.costHistory?.costs) {
-        return new Array(labels.length).fill(0);
+    // The latest month on the shared axis — its point is overridden with each
+    // provider's month-to-date spend so the graph matches the card.
+    const latestKey = sortedKeys[sortedKeys.length - 1];
+
+    // Build a provider's cost series aligned to the shared axis: look up each
+    // month's cost by label (not index), fill gaps with 0, and pin the latest
+    // month to the provider's monthToDateSpend (the exact value the card shows).
+    const getCosts = (data: ProviderData | null): number[] => {
+      const acc = data?.selectedAccount;
+      if (!acc) return new Array(labels.length).fill(0);
+
+      const byMonth = new Map<string, number>();
+      const hist = acc.costHistory;
+      if (hist?.labels && hist?.costs) {
+        hist.labels.forEach((lbl, i) => {
+          const n = normalizeLabel(lbl);
+          if (!n) return;
+          const value = hist.costs[i] ?? 0;
+          // If a month appears twice (actual + forecast rows), keep the larger
+          // non-zero value so a 0-filled forecast placeholder never hides an actual.
+          const prev = byMonth.get(n.key);
+          if (prev === undefined || Math.abs(value) > Math.abs(prev)) byMonth.set(n.key, value);
+        });
       }
-      return data.selectedAccount.costHistory.costs;
+
+      return sortedKeys.map((k) => {
+        if (k === latestKey) {
+          // Current month: always the card's month-to-date figure.
+          const mtd = acc.monthToDateSpend;
+          if (mtd !== undefined && mtd !== null && !isNaN(mtd)) return mtd;
+        }
+        return byMonth.get(k) ?? 0;
+      });
     };
 
     // Create Premium Gradients (Top to Bottom Fade)
@@ -96,8 +159,7 @@ export const CostChart: React.FC<CostChartProps> = ({ awsData, gcpData, azureDat
         tooltipEl.style.opacity = '0';
         tooltipEl.style.pointerEvents = 'none';
         tooltipEl.style.position = 'absolute';
-        tooltipEl.style.transform = 'translate(-50%, 0)';
-        tooltipEl.style.transition = 'all .2s cubic-bezier(0.16, 1, 0.3, 1)';
+        tooltipEl.style.transition = 'opacity .2s cubic-bezier(0.16, 1, 0.3, 1)';
         tooltipEl.style.boxShadow = '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)';
         tooltipEl.style.border = '1px solid rgba(255, 255, 255, 0.6)';
         tooltipEl.style.padding = '16px';
@@ -188,8 +250,37 @@ export const CostChart: React.FC<CostChartProps> = ({ awsData, gcpData, azureDat
       }
 
       const { offsetLeft: positionX, offsetTop: positionY } = chart.canvas;
+
+      // Flip the tooltip's horizontal anchor so it never overflows the chart edge.
+      // Chart.js computes xAlign ('left' | 'center' | 'right') from the caret's position
+      // within the chart area; we mirror it into a CSS transform + small gap. Previously the
+      // tooltip was hardcoded to translate(-50%, 0) (always centered on the point) with no
+      // edge awareness, so hovering the latest month clipped the right half against the panel.
+      const gap = 12;
+      let translateX = '-50%';
+      let offsetX = 0;
+      if (tooltip.xAlign === 'left') {
+        // Caret on the tooltip's left -> tooltip opens to the right of the point.
+        translateX = '0';
+        offsetX = gap;
+      } else if (tooltip.xAlign === 'right') {
+        // Caret on the tooltip's right -> tooltip opens to the left of the point.
+        translateX = '-100%';
+        offsetX = -gap;
+      }
+
+      // Keep the vertical anchor consistent with Chart.js's yAlign so tall tooltips near the
+      // top/bottom don't clip either.
+      let translateY = '0';
+      if (tooltip.yAlign === 'bottom') {
+        translateY = '-100%';
+      } else if (tooltip.yAlign === 'center') {
+        translateY = '-50%';
+      }
+
       tooltipEl.style.opacity = '1';
-      tooltipEl.style.left = positionX + tooltip.caretX + 'px';
+      tooltipEl.style.transform = `translate(${translateX}, ${translateY})`;
+      tooltipEl.style.left = positionX + tooltip.caretX + offsetX + 'px';
       tooltipEl.style.top = positionY + tooltip.caretY + 'px';
     };
 

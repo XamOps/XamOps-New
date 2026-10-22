@@ -43,7 +43,16 @@ class VerticalAutomationSecurityCoverageTest {
             "/api/eks/automation/vertical/xamops-test-cluster",
             "/api/eks/automation/vertical/xamops-test-cluster/actions",
             "/api/eks/automation/vertical/c/workloads/team-a/Deployment/api/policy",
-            "/api/eks/automation/vertical/c/workloads/team-a/Deployment/api/apply");
+            "/api/eks/automation/vertical/c/workloads/team-a/Deployment/api/apply",
+            // The read-only usage and HPA history GETs (FEAT-004), on the same catch-all.
+            "/api/eks/automation/usage/xamops-test-cluster",
+            "/api/eks/automation/usage/xamops-test-cluster/sparklines",
+            "/api/eks/automation/hpa/xamops-test-cluster/team-b/php-apache/history",
+            // The HPA list's batch history read, on the same catch-all.
+            "/api/eks/automation/hpa/xamops-test-cluster/history",
+            // The activity feed and its per-day summary (FEAT-005), read-only, on the same catch-all.
+            "/api/eks/automation/activity/xamops-test-cluster",
+            "/api/eks/automation/activity/xamops-test-cluster/summary");
 
     private static final Pattern MATCHER_GROUP = Pattern.compile(
             "\\.requestMatchers\\((.*?)\\)\\s*\\.\\s*(permitAll|authenticated|hasAuthority|hasRole|hasAnyAuthority|denyAll)",

@@ -25,7 +25,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import type { BillOpsUser, BillOpsUserFormData, BillOpsRole, UseBillOpsUserManagerResult } from '../types/billopsUserManager';
+import type { BillOpsUser, BillOpsUserFormData, BillOpsRole, ClientCloudAccount, UseBillOpsUserManagerResult } from '../types/billopsUserManager';
 
 const EMPTY_FORM: BillOpsUserFormData = {
     id: '',
@@ -38,6 +38,7 @@ const EMPTY_FORM: BillOpsUserFormData = {
     designation: '',
     parentId: '',
     allowedTabs: [],
+    accountAccessIds: [],
 };
 
 const AVAILABLE_ROLES: BillOpsRole[] = ['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB', 'ROLE_XAMOPS'];
@@ -162,6 +163,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             designation: user.designation || '',
             parentId: user.parentId != null ? String(user.parentId) : '',
             allowedTabs: user.allowedTabs || [],
+            accountAccessIds: user.accountAccessIds || [],
         });
         setIsEditing(true);
     }, []);
@@ -315,9 +317,51 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
     }, [pendingDeleteId, getCsrfToken, fetchUsers]);
 
     /**
+     * Move a user to a different client. Returns true on success.
+     */
+    const moveUserToClient = useCallback(async (userId: string, targetClientId: string | number): Promise<boolean> => {
+        try {
+            const response = await fetch(`/api/billops/users/${userId}/client`, {
+                method: 'PATCH',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-XSRF-TOKEN': getCsrfToken()
+                },
+                body: JSON.stringify({ clientId: targetClientId })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                setNotification({
+                    type: 'error',
+                    title: 'Move Failed',
+                    message: errorText || 'An error occurred while moving the user.'
+                });
+                return false;
+            }
+
+            await fetchUsers();
+            setNotification({
+                type: 'success',
+                title: 'User Moved',
+                message: 'The user has been moved to the selected client.'
+            });
+            return true;
+        } catch (err) {
+            setNotification({
+                type: 'error',
+                title: 'Move Failed',
+                message: err instanceof Error ? err.message : 'An unexpected error occurred.'
+            });
+            return false;
+        }
+    }, [getCsrfToken, fetchUsers]);
+
+    /**
      * Update a field in the selected user form
      */
-    const updateSelectedUser = useCallback((field: keyof BillOpsUserFormData, value: string | string[]) => {
+    const updateSelectedUser = useCallback((field: keyof BillOpsUserFormData, value: string | string[] | (string | number)[]) => {
         setSelectedUser(prev => ({
             ...prev,
             [field]: value
@@ -335,6 +379,40 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             else allowedTabs.splice(index, 1);
             return { ...prev, allowedTabs };
         });
+    }, []);
+
+    /**
+     * Toggle a cloud-account id in the selected user's accountAccessIds list.
+     * Empty list = access to every cloud account of the client (see ClientDetailsPage.handleLoginAs).
+     */
+    const toggleAccount = useCallback((accountId: string | number) => {
+        setSelectedUser(prev => {
+            const accountAccessIds = [...prev.accountAccessIds];
+            const index = accountAccessIds.findIndex(id => String(id) === String(accountId));
+            if (index === -1) accountAccessIds.push(accountId);
+            else accountAccessIds.splice(index, 1);
+            return { ...prev, accountAccessIds };
+        });
+    }, []);
+
+    /**
+     * Fetch the cloud accounts belonging to a client, for the account-access picker.
+     * This GET relies on the session cookie; no CSRF token is needed.
+     */
+    const fetchClientCloudAccounts = useCallback(async (clientId: string | number): Promise<ClientCloudAccount[]> => {
+        try {
+            const response = await fetch(`/api/billops/users/clients/${clientId}/cloud-accounts`, {
+                method: 'GET',
+                credentials: 'include'
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            return await response.json();
+        } catch (err) {
+            console.error('[UserManager] Failed to fetch client cloud accounts:', err);
+            return [];
+        }
     }, []);
 
     return {
@@ -363,8 +441,11 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
         cancelEdit,
         saveUser,
         deleteUser,
+        moveUserToClient,
         updateSelectedUser,
         toggleTab,
+        toggleAccount,
+        fetchClientCloudAccounts,
         clearNotification
     };
 };

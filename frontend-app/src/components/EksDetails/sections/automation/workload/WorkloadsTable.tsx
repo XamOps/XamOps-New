@@ -2,12 +2,15 @@
  * Workload autoscaler › Workloads, the at-a-glance table (UI v3 plan §2; design-delta §3.1): one row
  * per workload endpoint 1 analysed, with its status chip, one pod's CPU and memory request now and
  * suggested, what the suggestion frees or adds across its pods, a mini-bar of the request against
- * the suggestion, and its lifecycle stage. The 3-day sparkline waits for the usage feed and says so.
+ * the suggestion, its lifecycle stage, and a 3-day sparkline of its busiest pod's CPU use against its
+ * request (the usage feed's sparklines, one read for the table; "no pod running" when none ran).
  * Filters (status, namespace, text) are client-side; the row name opens the workload's detail.
  */
 import { useId, useMemo, useState } from 'react';
 import { formatMib, formatMillis, formatMonthlyUsd, confidenceLine, DASH } from '../../../../../api/verticalRightsizerAdapter';
 import type { ApplyResult, ConfidenceView, WorkloadView } from '../../../../../types/verticalRightsizer';
+import type { SparklinesView, SparklineView } from '../../../../../types/automationInsights';
+import type { InsightReadState } from '../../../../../hooks/useInsightRead';
 import { costUnavailableText } from '../verticalCopy';
 import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
 import { ConfidenceChip } from '../../../../CloudK8s/shared/status/ConfidenceChip';
@@ -15,8 +18,8 @@ import { StepIndicator } from '../../../../CloudK8s/shared/status/StepIndicator'
 import { Delta } from '../../../../CloudK8s/shared/status/Delta';
 import { MiniBar } from '../../../../CloudK8s/shared/charts/MiniBar';
 import { Sparkline } from '../../../../CloudK8s/shared/charts/Sparkline';
-import { EMPTY_COPY } from '../../../../CloudK8s/shared/charts/ChartCard';
 import type { WorkloadStatusKey } from '../../../../CloudK8s/shared/status/statusTones';
+import { insightCardState, millisText, sourceService } from '../insightCharts';
 import {
   addedPart,
   formatMemory,
@@ -49,6 +52,69 @@ export interface WorkloadsTableProps {
   applyResults: Record<string, ApplyResult>;
   replyAt: Record<string, number>;
   now: number;
+  /**
+   * The sparklines read (FEAT-004: each workload's busiest pod, CPU use against its request, 72 h at
+   * 1 h). Without it, or when the backend doesn't serve it, the column isn't shown.
+   */
+  sparklines?: InsightReadState<SparklinesView>;
+}
+
+/** The sparkline column's state, from its one read for the whole table. */
+type SparkColumn =
+  | { show: false }
+  | { show: true; loading: true; note: string }
+  | { show: true; loading: false; byId: Map<string, SparklineView> | null; note: string; source: string };
+
+function sparkColumn(read: InsightReadState<SparklinesView> | undefined): SparkColumn {
+  if (!read) return { show: false };
+  const card = insightCardState(read);
+  if (!card.render) return { show: false };
+  if (card.state.kind === 'loading') return { show: true, loading: true, note: 'Reading Prometheus…' };
+  const view = card.view;
+  const source = view
+    ? `Source: usage feed (FEAT-004, GET /api/eks/automation/usage/{cluster}/sparklines?resource=cpu&window=72h), ${sourceService(view.source)}, the same pods the suggestion reads, step 1 hour.`
+    : 'Source: usage feed (FEAT-004, GET /api/eks/automation/usage/{cluster}/sparklines).';
+  if (card.state.kind === 'ok' && view) {
+    return { show: true, loading: false, byId: new Map(view.workloads.map((w) => [w.id, w])), note: 'Busiest pod: CPU use and its request', source };
+  }
+  const reason = card.state.kind === 'unavailable' ? card.state.reason : card.state.kind === 'error' ? card.state.message : '';
+  return { show: true, loading: false, byId: null, note: reason, source };
+}
+
+/** "CPU use of the busiest pod, last 3 days: 10m to 48m, request 100m." */
+function sparkLabel(s: SparklineView): string {
+  const used = s.used.map((p) => p.v).filter((v): v is number => v !== null);
+  const request = [...s.request].reverse().find((p) => p.v !== null)?.v ?? null;
+  if (used.length === 0) return 'No pod running in the last 3 days.';
+  return `CPU use of the busiest pod, last 3 days: ${millisText(Math.min(...used))} to ${millisText(Math.max(...used))}${
+    request !== null ? `, request ${millisText(request)}` : ''
+  }.`;
+}
+
+function SparkCell({ column, workload }: { column: SparkColumn; workload: WorkloadView }) {
+  if (!column.show) return null;
+  if (column.loading) {
+    return (
+      <td className="px-4 py-2.5">
+        <span className="skeleton inline-block h-4 w-[72px] rounded dark:bg-none dark:bg-[rgba(255,255,255,0.06)]" aria-hidden="true" />
+        <span className="sr-only">Reading</span>
+      </td>
+    );
+  }
+  const s = column.byId?.get(workload.id);
+  if (!s) {
+    return (
+      <td className="px-4 py-2.5" title={column.byId ? 'Prometheus returned no series for this workload.' : column.note}>
+        <span className={`text-[12px] ${FAINT}`}>{DASH}</span>
+      </td>
+    );
+  }
+  const label = sparkLabel(s);
+  return (
+    <td className="px-4 py-2.5" title={label} data-sparkline-cell={workload.id}>
+      <Sparkline values={s.used.map((p) => p.v)} reference={s.request.map((p) => p.v)} ariaLabel={label} />
+    </td>
+  );
 }
 
 /** "1000m → 25m", "80m · no change", "Not set". */
@@ -153,7 +219,8 @@ function SavingsCell({ workload }: { workload: WorkloadView }) {
   );
 }
 
-export function WorkloadsTable({ workloads, detailHref, applyingIds, applyResults, replyAt, now }: WorkloadsTableProps) {
+export function WorkloadsTable({ workloads, detailHref, applyingIds, applyResults, replyAt, now, sparklines }: WorkloadsTableProps) {
+  const spark = sparkColumn(sparklines);
   const [status, setStatus] = useState('all');
   const [namespace, setNamespace] = useState('all');
   const [query, setQuery] = useState('');
@@ -230,10 +297,12 @@ export function WorkloadsTable({ workloads, detailHref, applyingIds, applyResult
               <th scope="col" className="px-4 py-2 font-semibold" title="How much to trust the suggestion: window coverage and how steady CPU use was.">Confidence</th>
               <th scope="col" className="px-4 py-2 font-semibold">CPU request vs suggestion</th>
               <th scope="col" className="px-4 py-2 font-semibold">Stage</th>
-              <th scope="col" className="px-4 py-2 font-semibold">
-                Last 3 days
-                <span className={`block font-normal ${FAINT}`}>{EMPTY_COPY.historyPending}</span>
-              </th>
+              {spark.show && (
+                <th scope="col" className="px-4 py-2 font-semibold">
+                  Last 3 days
+                  <span className={`block max-w-[180px] font-normal ${FAINT}`}>{spark.note}</span>
+                </th>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-[rgba(0,0,0,0.06)] dark:divide-[rgba(255,255,255,0.08)]">
@@ -280,9 +349,7 @@ export function WorkloadsTable({ workloads, detailHref, applyingIds, applyResult
                   <td className="px-4 py-2.5">
                     <StepIndicator states={life.states} label={life.label} />
                   </td>
-                  <td className="px-4 py-2.5" title={`${EMPTY_COPY.historyPending}: the busiest pod's use, from Prometheus in your cluster.`}>
-                    <Sparkline values={[]} emptyText={DASH} />
-                  </td>
+                  <SparkCell column={spark} workload={w} />
                 </tr>
               );
             })}
@@ -292,6 +359,12 @@ export function WorkloadsTable({ workloads, detailHref, applyingIds, applyResult
           <p className={`px-4 py-6 text-center text-[12px] ${MUTED}`}>No workload matches these filters.</p>
         )}
       </div>
+      {spark.show && !spark.loading && (
+        <p className={`px-4 py-2.5 text-[11px] ${FAINT}`} data-sparkline-source="">
+          {spark.source} In each sparkline the thicker line is the busiest pod&apos;s use and the thinner one its request, on
+          one scale from 0; &quot;no pod running&quot; means nothing ran to measure. A gap is an hour Prometheus didn&apos;t measure.
+        </p>
+      )}
     </section>
   );
 }

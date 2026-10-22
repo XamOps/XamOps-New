@@ -3,8 +3,8 @@
  * The colour discipline is covered by colourAudit.test.tsx; these tests cover behaviour: the exact
  * empty / partial copy, the source line, and the deterministic SVG the primitives draw.
  */
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 
 import ChartCard, { EMPTY_COPY } from '../ChartCard';
 import ChartDataTable from '../ChartDataTable';
@@ -12,6 +12,7 @@ import Sparkline from '../Sparkline';
 import MiniBar from '../MiniBar';
 import TimeStrip from '../TimeStrip';
 import LanesTimeline from '../LanesTimeline';
+import TimeSeriesChart, { bandYBounds } from '../TimeSeriesChart';
 import SeriesLegend from '../SeriesLegend';
 import RangeBar, { rangeBarText } from '../RangeBar';
 import Bars, { logDomain } from '../Bars';
@@ -110,9 +111,51 @@ describe('ChartCard empty / partial states (glossary §10)', () => {
     expect(screen.getByText('Data table')).toBeTruthy();
     expect(screen.getByText('10m')).toBeTruthy();
   });
+
+  it('partial draws the chart and says how much history there is', () => {
+    const { container } = render(
+      <ChartCard title="t" source="s" state={{ kind: 'partial', note: 'Prometheus keeps 3 days here. No data before Oct 11.' }}>
+        <svg data-testid="drawn" />
+      </ChartCard>,
+    );
+    expect(screen.getByTestId('drawn')).toBeTruthy();
+    expect(container.querySelector('[data-chart-partial]')?.textContent).toBe('Prometheus keeps 3 days here. No data before Oct 11.');
+  });
+
+  it('loading shows a skeleton in the chart\'s place and no chart, and error says what happened with Retry', () => {
+    const loading = render(
+      <ChartCard title="t" source="s" state={{ kind: 'loading' }}>
+        <svg data-testid="never-drawn" />
+      </ChartCard>,
+    );
+    expect(loading.container.querySelector('[data-empty="loading"][aria-busy="true"]')).toBeTruthy();
+    expect(screen.queryByTestId('never-drawn')).toBeNull();
+    loading.unmount();
+    const onRetry = vi.fn();
+    const failed = render(<ChartCard title="t" source="s" state={{ kind: 'error', message: "Couldn't read this chart's data: HTTP 502", onRetry }} />);
+    expect(failed.container.querySelector('[data-empty="error"]')?.textContent).toContain('HTTP 502');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps its view switch in the header in every state, so a failed resource can be switched back', () => {
+    render(<ChartCard title="t" source="s" state={{ kind: 'error', message: 'x' }} actions={<button type="button">CPU</button>} />);
+    expect(screen.getByRole('button', { name: 'CPU' }).closest('header')).toBeTruthy();
+  });
 });
 
 describe('Sparkline', () => {
+  it('draws a reference line (the request) on the same scale from 0, so the two heights compare', () => {
+    const { container } = render(<Sparkline values={[5, 10]} reference={[20, 20]} width={72} height={20} ariaLabel="s" />);
+    const ref = container.querySelector('path[data-sparkline-reference]')!;
+    const used = container.querySelector('path:not([data-sparkline-reference])')!;
+    expect(ref.getAttribute('class')).toContain('stroke-series-requested');
+    expect(used.getAttribute('class')).toContain('stroke-series-used');
+    // 20 is the top of the shared scale (y = pad), 10 is halfway, 5 a quarter up.
+    expect(ref.getAttribute('d')).toBe('M2.00 2.00 L70.00 2.00');
+    expect(used.getAttribute('d')).toBe('M2.00 14.00 L70.00 10.00');
+  });
+
   it('draws one deterministic path for the values', () => {
     const a = render(<Sparkline values={[1, 2, 3, 2]} ariaLabel="s" />);
     const d1 = a.container.querySelector('path')!.getAttribute('d');
@@ -195,6 +238,59 @@ describe('LanesTimeline', () => {
       <LanesTimeline lanes={[{ name: 'w', feature: 'node', entries: [] }]} noHistoryBefore={0.2} />,
     );
     expect(container.querySelector('[data-no-history]')).toBeTruthy();
+  });
+
+  it('paints lane labels in its own neutral ink (never the inherited page colour) and keeps two same-named lanes', () => {
+    const { container } = render(
+      <LanesTimeline
+        lanes={[
+          { name: 'php-apache', feature: 'workload', entries: [{ at: 0.5, tone: 'bad' }] },
+          { name: 'php-apache', feature: 'hpa', entries: [{ at: 0.6, tone: 'info', dryRun: true }] },
+        ]}
+      />,
+    );
+    expect(container.querySelectorAll('[data-lane="php-apache"]')).toHaveLength(2);
+    for (const label of container.querySelectorAll('[data-lane] text')) {
+      expect(label.getAttribute('class')).toContain('fill-[rgba(0,0,0,0.72)]');
+      expect(label.getAttribute('class')).toContain('dark:fill-[rgba(255,255,255,0.72)]');
+      expect(label.getAttribute('class')).not.toContain('fill-current');
+    }
+  });
+});
+
+describe('TimeSeriesChart bands', () => {
+  it('passes a band bounded below only as y2, which recharts fills up to the top of the plot', () => {
+    // recharts 3.8 fills a missing y2 down to the bottom of the plot (ReferenceArea getRect), so "from
+    // y1 up" has to be sent as y2 with no y1: the zone above an HPA's target sits above the target.
+    expect(bandYBounds({ y1: 50 })).toEqual({ y1: undefined, y2: 50 });
+    expect(bandYBounds({ y1: 100, y2: 250 })).toEqual({ y1: 100, y2: 250 });
+    expect(bandYBounds({})).toEqual({ y1: undefined, y2: undefined });
+  });
+
+  it('draws the zone above the target between the target and the top of the plot', () => {
+    const data = [
+      { x: 'a', cpu: 60, target: 50 },
+      { x: 'b', cpu: 70, target: 50 },
+      { x: 'c', cpu: 65, target: 50 },
+    ];
+    const { container } = render(
+      <TimeSeriesChart
+        width={400}
+        height={200}
+        data={data}
+        series={[{ dataKey: 'cpu', kind: 'used', name: 'CPU used' }, { dataKey: 'target', kind: 'limit', name: 'Target', lineOnly: true }]}
+        xKey="x"
+        bands={[{ kind: 'atMax', x1: 'a', x2: 'c', y1: 50 }]}
+      />,
+    );
+    const area = container.querySelector('.recharts-reference-area path, .recharts-reference-area rect');
+    expect(area).not.toBeNull();
+    const ys = (area!.getAttribute('d') ?? '').match(/-?\d+(\.\d+)?/g)!.map(Number).filter((_, i) => i % 2 === 1);
+    const top = Math.min(...ys);
+    const bottom = Math.max(...ys);
+    // The plot's top margin is 12 px: the band reaches it, and stops well above the bottom (0 at 196 px).
+    expect(top).toBeLessThanOrEqual(13);
+    expect(bottom).toBeLessThan(150);
   });
 });
 

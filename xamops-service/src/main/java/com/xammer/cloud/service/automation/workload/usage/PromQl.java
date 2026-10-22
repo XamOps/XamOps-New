@@ -5,6 +5,7 @@ import com.xammer.cloud.service.automation.workload.PodNameRule;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -185,6 +186,260 @@ public final class PromQl {
                 + selector.labels() + "})" + subquery(windowHours, offsetSeconds) + "))";
     }
 
+    // ================================================================ time series (FEAT-004)
+    //
+    // Range queries for the read-only usage charts. Every metric name and label key below was
+    // checked live on xamops-test-1 (kube-state-metrics 2.20.0, Prometheus 3.15.0) before it was
+    // written down. Values are in the source's own units: cores for CPU, bytes for memory.
+
+    /** The two resources a usage chart can show. */
+    public enum Resource {
+        CPU, MEMORY;
+
+        /** kube-state-metrics' {@code resource} label value. */
+        public String ksm() {
+            return this == CPU ? "cpu" : "memory";
+        }
+    }
+
+    /**
+     * Pods kube-state-metrics reports Running, one series per pod. {@code max by} first, so a second
+     * kube-state-metrics series for the same pod (a restart, a second scrape) cannot turn the join
+     * below into a many-to-many error.
+     */
+    private static final String RUNNING_PODS =
+            "max by (namespace, pod) (kube_pod_status_phase{phase=\"Running\"}) == 1";
+
+    /** cAdvisor's per-container series only: the pod-level cgroup has an empty container label. */
+    private static final String NAMED_CONTAINERS = "container!=\"\",pod!=\"\"";
+
+    /**
+     * Used by the workload's busiest pod, per step: the pod's selected containers summed, then the
+     * maximum across its pods — the same pods and containers {@link Selector} measures for the
+     * engine, so the chart and the suggestion read the same data.
+     */
+    public static String seriesWorkloadUsed(Selector selector, Resource resource) {
+        return "max(sum by (pod) (" + used(selector.labels(), resource) + "))";
+    }
+
+    /**
+     * The busiest pod's declared request (the pod spec, as kube-state-metrics reads it), summed over
+     * the same containers as {@link #seriesWorkloadUsed}, so the two lines compare like with like.
+     */
+    public static String seriesWorkloadRequest(Selector selector, Resource resource) {
+        return "max(sum by (pod) (max by (pod, container) (kube_pod_container_resource_requests{"
+                + "resource=\"" + resource.ksm() + "\"," + selector.labels() + "})))";
+    }
+
+    /** As {@link #seriesWorkloadRequest}, for limits. A container without a limit adds nothing. */
+    public static String seriesWorkloadLimit(Selector selector, Resource resource) {
+        return "max(sum by (pod) (max by (pod, container) (kube_pod_container_resource_limits{"
+                + "resource=\"" + resource.ksm() + "\"," + selector.labels() + "})))";
+    }
+
+    /** Used per namespace, every namespace. */
+    public static String seriesNamespaceUsed(Resource resource) {
+        return "sum by (namespace) (" + used(NAMED_CONTAINERS, resource) + ")";
+    }
+
+    /** Requested per namespace, counting Running pods only. */
+    public static String seriesNamespaceRequest(Resource resource) {
+        return "sum by (namespace) (" + runningRequests(resource) + ")";
+    }
+
+    /** Used across the cluster. */
+    public static String seriesClusterUsed(Resource resource) {
+        return "sum(" + used(NAMED_CONTAINERS, resource) + ")";
+    }
+
+    /** Requested across the cluster, counting Running pods only. */
+    public static String seriesClusterRequest(Resource resource) {
+        return "sum(" + runningRequests(resource) + ")";
+    }
+
+    /** What pods can use: every node's allocatable, deduplicated per node. */
+    public static String seriesClusterAllocatable(Resource resource) {
+        return "sum(max by (node) (kube_node_status_allocatable{resource=\"" + resource.ksm() + "\"}))";
+    }
+
+    /** What the nodes have: every node's capacity, deduplicated per node. */
+    public static String seriesClusterCapacity(Resource resource) {
+        return "sum(max by (node) (kube_node_status_capacity{resource=\"" + resource.ksm() + "\"}))";
+    }
+
+    /**
+     * Used per container of every pod in {@code namespaces}: one query per cluster for the
+     * sparklines batch. The caller maps each series to a workload with that workload's own
+     * {@link Selector} ({@link Selector#podNamePredicate()}, {@link Selector#selectsContainer}), so
+     * the batch reads exactly the pods and containers the engine reads.
+     */
+    public static String seriesPodContainerUsed(List<String> namespaces, Resource resource) {
+        return "sum by (namespace, pod, container) ("
+                + used(namespaceMatcher(namespaces) + "," + NAMED_CONTAINERS, resource) + ")";
+    }
+
+    /** Requested per container of every pod in {@code namespaces}, deduplicated per container. */
+    public static String seriesPodContainerRequest(List<String> namespaces, Resource resource) {
+        return "max by (namespace, pod, container) (kube_pod_container_resource_requests{"
+                + namespaceMatcher(namespaces) + ",resource=\"" + resource.ksm() + "\"})";
+    }
+
+    /** {@code status.currentReplicas} of one HPA. */
+    public static String seriesHpaCurrentReplicas(HpaSelector hpa) {
+        return "max(kube_horizontalpodautoscaler_status_current_replicas{" + hpa.labels() + "})";
+    }
+
+    /** {@code spec.minReplicas} of one HPA. */
+    public static String seriesHpaMinReplicas(HpaSelector hpa) {
+        return "max(kube_horizontalpodautoscaler_spec_min_replicas{" + hpa.labels() + "})";
+    }
+
+    /** {@code spec.maxReplicas} of one HPA. */
+    public static String seriesHpaMaxReplicas(HpaSelector hpa) {
+        return "max(kube_horizontalpodautoscaler_spec_max_replicas{" + hpa.labels() + "})";
+    }
+
+    /**
+     * The HPA's observed CPU utilisation, in percent of the request. Filtered to
+     * {@code metric_target_type="utilization"}: kube-state-metrics also publishes an
+     * {@code average} series for the same metric, in cores (0.118 next to 59 for team-b/php-apache).
+     */
+    public static String seriesHpaCpuUtilization(HpaSelector hpa) {
+        return "max(kube_horizontalpodautoscaler_status_target_metric{" + hpa.labels()
+                + ",metric_name=\"cpu\",metric_target_type=\"utilization\"})";
+    }
+
+    /** The HPA's CPU utilisation target, in percent. */
+    public static String seriesHpaCpuTarget(HpaSelector hpa) {
+        return "max(kube_horizontalpodautoscaler_spec_target_metric{" + hpa.labels()
+                + ",metric_name=\"cpu\",metric_target_type=\"utilization\"})";
+    }
+
+    /** 1 while the HPA runs at its maximum, 0 while below it; no sample when either side is missing. */
+    public static String seriesHpaAtMax(HpaSelector hpa) {
+        return seriesHpaCurrentReplicas(hpa) + " >= bool " + seriesHpaMaxReplicas(hpa);
+    }
+
+    // ---------------------------------------------------------------- several HPAs in one query
+
+    /** The labels one HPA's series carries in a batch answer, which the caller keys it by. */
+    public static final String HPA_NAMESPACE_LABEL = "namespace";
+    public static final String HPA_NAME_LABEL = "horizontalpodautoscaler";
+
+    private static final String BY_HPA = "max by (" + HPA_NAMESPACE_LABEL + ", " + HPA_NAME_LABEL + ") (";
+
+    /** {@link #seriesHpaCurrentReplicas}, one series per HPA of {@code hpas}. */
+    public static String seriesHpasCurrentReplicas(HpaBatchSelector hpas) {
+        return BY_HPA + "kube_horizontalpodautoscaler_status_current_replicas{" + hpas.labels() + "})";
+    }
+
+    /** {@link #seriesHpaMinReplicas}, one series per HPA of {@code hpas}. */
+    public static String seriesHpasMinReplicas(HpaBatchSelector hpas) {
+        return BY_HPA + "kube_horizontalpodautoscaler_spec_min_replicas{" + hpas.labels() + "})";
+    }
+
+    /** {@link #seriesHpaMaxReplicas}, one series per HPA of {@code hpas}. */
+    public static String seriesHpasMaxReplicas(HpaBatchSelector hpas) {
+        return BY_HPA + "kube_horizontalpodautoscaler_spec_max_replicas{" + hpas.labels() + "})";
+    }
+
+    /** {@link #seriesHpaCpuUtilization}, one series per HPA of {@code hpas}. */
+    public static String seriesHpasCpuUtilization(HpaBatchSelector hpas) {
+        return BY_HPA + "kube_horizontalpodautoscaler_status_target_metric{" + hpas.labels()
+                + ",metric_name=\"cpu\",metric_target_type=\"utilization\"})";
+    }
+
+    /** {@link #seriesHpaCpuTarget}, one series per HPA of {@code hpas}. */
+    public static String seriesHpasCpuTarget(HpaBatchSelector hpas) {
+        return BY_HPA + "kube_horizontalpodautoscaler_spec_target_metric{" + hpas.labels()
+                + ",metric_name=\"cpu\",metric_target_type=\"utilization\"})";
+    }
+
+    /**
+     * {@link #seriesHpaAtMax}, one series per HPA of {@code hpas}: both sides carry exactly the
+     * namespace and HPA labels, so each HPA's current count is compared with its own maximum.
+     */
+    public static String seriesHpasAtMax(HpaBatchSelector hpas) {
+        return seriesHpasCurrentReplicas(hpas) + " >= bool " + seriesHpasMaxReplicas(hpas);
+    }
+
+    /** {@code used} for one resource, under the given label matchers. */
+    private static String used(String labels, Resource resource) {
+        return resource == Resource.CPU
+                ? "rate(container_cpu_usage_seconds_total{" + labels + "}[" + CPU_RATE_WINDOW + "])"
+                : "container_memory_working_set_bytes{" + labels + "}";
+    }
+
+    private static String runningRequests(Resource resource) {
+        return "max by (namespace, pod, container) (kube_pod_container_resource_requests{resource=\""
+                + resource.ksm() + "\"}) * on(namespace, pod) group_left() (" + RUNNING_PODS + ")";
+    }
+
+    /** {@code namespace=~"a|b"}: exactly these namespaces, every one escaped. */
+    private static String namespaceMatcher(List<String> namespaces) {
+        if (namespaces == null || namespaces.isEmpty()) {
+            throw new IllegalArgumentException("a namespace matcher needs at least one namespace");
+        }
+        for (String namespace : namespaces) {
+            if (namespace == null || namespace.isBlank()) {
+                throw new IllegalArgumentException("a blank namespace would match nothing or everything");
+            }
+        }
+        return "namespace=~\"" + podMatcher(namespaces.stream().distinct().sorted().toList()) + "\"";
+    }
+
+    /**
+     * One HPA, by namespace and name.
+     *
+     * <p>Both are checked as Kubernetes names before anything is built, and both still go through
+     * {@link #escape} as anchored {@code =~} matchers, so no caller-supplied character reaches a query
+     * unescaped and a dotted name stays an exact match.
+     */
+    public record HpaSelector(String namespace, String name) {
+
+        private static final Pattern K8S_NAME = Pattern.compile("^[a-z0-9]([a-z0-9.\\-]{0,251}[a-z0-9])?$");
+
+        public HpaSelector {
+            if (namespace == null || !K8S_NAME.matcher(namespace).matches()) {
+                throw new IllegalArgumentException("an HPA history query needs a valid namespace");
+            }
+            if (name == null || !K8S_NAME.matcher(name).matches()) {
+                throw new IllegalArgumentException("an HPA history query needs a valid HPA name");
+            }
+        }
+
+        /** {@code namespace=~"…",horizontalpodautoscaler=~"…"}, both exact under Prometheus' anchoring. */
+        public String labels() {
+            return "namespace=~\"" + escape(namespace) + "\",horizontalpodautoscaler=~\"" + escape(name)
+                    + "\"";
+        }
+    }
+
+    /**
+     * Several HPAs, for the HPA list's one read: every requested namespace and every requested name,
+     * each escaped and exact under Prometheus' anchoring.
+     *
+     * <p>The two matchers are independent, so an answer can also hold an HPA of one requested
+     * namespace that has another requested HPA's name. The caller keeps only the pairs it asked for,
+     * by the {@code namespace} and {@code horizontalpodautoscaler} labels each series carries.
+     */
+    public record HpaBatchSelector(List<HpaSelector> hpas) {
+
+        public HpaBatchSelector {
+            if (hpas == null || hpas.isEmpty()) {
+                throw new IllegalArgumentException("a batch HPA history query needs at least one HPA");
+            }
+            hpas = List.copyOf(hpas);
+        }
+
+        /** {@code namespace=~"a|b",horizontalpodautoscaler=~"x|y"}, sorted and without repeats. */
+        public String labels() {
+            return "namespace=~\"" + podMatcher(hpas.stream().map(HpaSelector::namespace).distinct().sorted().toList())
+                    + "\",horizontalpodautoscaler=~\""
+                    + podMatcher(hpas.stream().map(HpaSelector::name).distinct().sorted().toList()) + "\"";
+        }
+    }
+
     /**
      * A label selector that cannot be built without a namespace, a pod list and a container list.
      *
@@ -228,6 +483,28 @@ public final class PromQl {
         public String labels() {
             return "namespace=\"" + namespace + "\",pod=~\"" + podSelector()
                     + "\",container=~\"" + podMatcher(containerNames) + "\"";
+        }
+
+        /**
+         * Whether {@link #labels()}'s pod matcher selects a pod name, decided the way Prometheus
+         * decides it: the very alternation sent on the wire, with the PromQL string layer removed and
+         * anchored as {@code =~} anchors ({@code ^(?:…)$}). For code that has to sort pods into
+         * workloads itself (the sparklines batch) and must agree with the engine pod for pod — so
+         * {@code php-apache} can no more claim {@code php-apache-canary}'s pods here than in a query.
+         *
+         * <p>Compiled once per call; keep the predicate rather than calling this per pod.
+         */
+        public Predicate<String> podNamePredicate() {
+            Pattern anchored = Pattern.compile("^(?:" + regexValue(podSelector()) + ")$");
+            return podName -> podName != null && anchored.matcher(podName).matches();
+        }
+
+        /**
+         * Whether {@link #labels()}'s container matcher selects a container: an escaped alternation of
+         * exact names under full anchoring is exactly membership in {@link #containerNames()}.
+         */
+        public boolean selectsContainer(String containerName) {
+            return containerName != null && containerNames.contains(containerName);
         }
 
         /**
@@ -287,6 +564,25 @@ public final class PromQl {
      */
     private static String escape(String literal) {
         return REGEX_META.matcher(literal).replaceAll(Matcher.quoteReplacement("\\\\") + "$1");
+    }
+
+    /**
+     * The regex a PromQL double-quoted string carries, as the PromQL parser decodes it: the escaped
+     * backslash {@link #escape} writes becomes the single backslash the regex needs. Nothing else
+     * here produces a backslash, so this is the exact inverse of the string layer.
+     */
+    private static String regexValue(String promqlString) {
+        StringBuilder regex = new StringBuilder(promqlString.length());
+        for (int i = 0; i < promqlString.length(); i++) {
+            char c = promqlString.charAt(i);
+            if (c == '\\' && i + 1 < promqlString.length() && promqlString.charAt(i + 1) == '\\') {
+                regex.append('\\');
+                i++;
+            } else {
+                regex.append(c);
+            }
+        }
+        return regex.toString();
     }
 
     /** {@code 0.95} for p95 — Prometheus wants a fraction, the policy speaks percentiles. */

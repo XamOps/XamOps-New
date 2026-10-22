@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { applyHpaRecommendation, fetchHpaPage } from '../api/hpaApi';
 import { hpaApplyGate, isCallerLevelRefusal } from '../api/hpaAdapter';
+import { useK8sCapabilities } from './useK8sCapabilities';
 import type { HpaApplyResult, HpaCallerRefusal, HpaReadResult, HpaWorkloadView } from '../types/hpaAutomation';
 
 export interface UseHpaAutomationArgs {
@@ -42,6 +43,8 @@ export const useHpaAutomation = ({ clusterName, accountId, region }: UseHpaAutom
   const [reloadToken, setReloadToken] = useState(0);
   const clearRefusalOnRead = useRef(false);
   const mounted = useRef(true);
+  const { can } = useK8sCapabilities();
+  const hpaApplyReady = can('hpa.apply', { cluster: clusterName }).allowed;
 
   useEffect(() => {
     mounted.current = true;
@@ -88,7 +91,7 @@ export const useHpaAutomation = ({ clusterName, accountId, region }: UseHpaAutom
     async (workload: HpaWorkloadView, dryRun: boolean): Promise<HpaApplyResult | null> => {
       if (!clusterName || !accountId || !region) return null;
       if (result?.kind !== 'ok') return null;
-      const gate = hpaApplyGate(result.view, workload, dryRun, callerRefusal);
+      const gate = hpaApplyGate(result.view, workload, dryRun, callerRefusal, hpaApplyReady);
       if (!gate.enabled || gate.changes === null) return null;
 
       setApplyingIds((prev) => new Set(prev).add(workload.id));
@@ -112,7 +115,7 @@ export const useHpaAutomation = ({ clusterName, accountId, region }: UseHpaAutom
         }
       }
     },
-    [clusterName, accountId, region, result, callerRefusal],
+    [clusterName, accountId, region, result, callerRefusal, hpaApplyReady],
   );
 
   return { loading, result, reload, applyingIds, applyResults, callerRefusal, apply };

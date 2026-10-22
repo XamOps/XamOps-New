@@ -1,0 +1,7 @@
+{
+  "task_id": "task-unified-dashboard-currency",
+  "task_description": "Fix data-correctness bugs on the XamOps Unified Command Center (/unified-dashboard): GCP cost shown as ~$0 (divided by ~83 twice — once by a hardcoded inrToUsd in the backend GCP unified aggregation, once by client-side convertToUSD in the frontend), and Azure forecast in native currency while Azure MTD is USD. Every cost figure feeding the unified cards must be USD at each cloud's actual billed rate, never a hardcoded INR constant. Mirror the merged Azure pattern (backend returns USD + exposes native currency; frontend does no client-side conversion). Do not change AWS; do not undo prior Azure fixes.",
+  "status": "pending",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}

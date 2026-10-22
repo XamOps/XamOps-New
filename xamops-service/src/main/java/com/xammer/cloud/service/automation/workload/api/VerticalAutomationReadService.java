@@ -1,7 +1,6 @@
 package com.xammer.cloud.service.automation.workload.api;
 
 import com.xammer.cloud.domain.KubernetesClusterConfig;
-import com.xammer.cloud.domain.WorkloadVerticalAction;
 import com.xammer.cloud.repository.WorkloadVerticalActionRepository;
 import com.xammer.cloud.service.automation.workload.ConfidenceProperties;
 import com.xammer.cloud.service.automation.workload.ContainerSnapshot;
@@ -22,6 +21,8 @@ import com.xammer.cloud.service.automation.workload.access.ClusterAccessProvider
 import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.service.automation.workload.api.dto.CostSummaryDto;
+import com.xammer.cloud.service.automation.workload.api.dto.NamespaceCostDto;
+import com.xammer.cloud.service.automation.workload.api.dto.NodeCostDto;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalEngineResponse;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalWorkloadDto;
 import com.xammer.cloud.service.automation.workload.api.dto.WorkloadCostDto;
@@ -32,6 +33,7 @@ import com.xammer.cloud.service.automation.workload.cost.WorkloadCostAttribution
 import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
 import com.xammer.cloud.service.automation.workload.inventory.WorkloadPods;
 import com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader;
+import com.xammer.cloud.service.automation.workload.policy.WorkloadActionRecorder;
 import com.xammer.cloud.service.automation.workload.policy.WorkloadPolicyService;
 import com.xammer.cloud.service.automation.workload.usage.ContainerUsageAggregate;
 import com.xammer.cloud.service.automation.workload.usage.RpsQuery;
@@ -383,9 +385,33 @@ public class VerticalAutomationReadService {
             }
             workloads.add(dto);
         }
-        CostSummaryDto costSummary = costEnabled
-                ? costAttributionService.summary(workloads.stream().map(VerticalWorkloadDto::cost).toList())
-                : null;
+        CostSummaryDto costSummary = null;
+        if (costEnabled) {
+            // Full-fleet per-node roll-up over cluster.nodesByName() (NOT the attribution map, which
+            // only visits pod-hosting nodes) so a DaemonSet-only/idle node is never silently dropped.
+            Map<String, NodeRate> fleetRates = resolveFleetNodeRates(account, target, cluster, nodeRates);
+            List<NodeCostDto> nodeCosts = fleetRates.entrySet().stream()
+                    .map(e -> toNodeCost(e.getKey(), cluster.nodesByName().get(e.getKey()), e.getValue()))
+                    .toList();
+
+            // Namespace roll-up: group the evaluated VerticalWorkloadDtos by ref().namespace() (the
+            // WorkloadCostDto carries no namespace), summing only the priceable monthly cost.
+            Map<String, List<VerticalWorkloadDto>> byNs = workloads.stream()
+                    .collect(java.util.stream.Collectors.groupingBy(w -> w.ref().namespace()));
+            List<NamespaceCostDto> namespaceCosts = byNs.entrySet().stream().map(e -> {
+                List<WorkloadCostDto> cs = e.getValue().stream().map(VerticalWorkloadDto::cost).toList();
+                int priced = (int) cs.stream().filter(c -> c != null && c.monthlyCost() != null).count();
+                int unpriced = cs.size() - priced;
+                Double monthly = priced == 0 ? null
+                        : cs.stream().filter(c -> c != null && c.monthlyCost() != null)
+                                .mapToDouble(WorkloadCostDto::monthlyCost).sum();
+                return new NamespaceCostDto(e.getKey(), monthly, priced, unpriced);
+            }).toList();
+
+            costSummary = costAttributionService
+                    .summary(workloads.stream().map(VerticalWorkloadDto::cost).toList())
+                    .withRollups(nodeCosts, namespaceCosts);
+        }
         return Evaluation.completed(at, workloads, costSummary);
     }
 
@@ -422,24 +448,83 @@ public class VerticalAutomationReadService {
     }
 
     /**
+     * The FULL-FLEET node rates: every node in {@code cluster.nodesByName()}, not only the ones that
+     * host an evaluated pod. Starts from the already-resolved {@code attributionRates} (so a node
+     * already priced for attribution is reused, not re-resolved) and fills each missing node with one
+     * cached resolver call per missing node — Fargate / no-instance-type nodes are unpriceable up
+     * front, the rest go through {@link NodeRateResolver#resolve}. The result is keyed by node name.
+     */
+    private Map<String, NodeRate> resolveFleetNodeRates(CloudAccount account, ClusterTarget target,
+                                                        ClusterWorkloadInventory.Inventory cluster,
+                                                        Map<String, NodeRate> attributionRates) {
+        Map<String, NodeRate> fleetRates = new java.util.HashMap<>(attributionRates);
+        String region = target.region();
+        for (Map.Entry<String, ClusterWorkloadInventory.NodeFacts> entry
+                : cluster.nodesByName().entrySet()) {
+            fleetRates.computeIfAbsent(entry.getKey(), nodeName -> {
+                ClusterWorkloadInventory.NodeFacts f = entry.getValue();
+                return f.fargate()
+                        ? NodeRate.unpriceable(NodeRate.Reason.FARGATE_UNPRICEABLE,
+                                "node is not priced per instance type (Fargate or no instance-type"
+                                        + " label)", f.instanceType(), f.capacityType(), f.zone(),
+                                region)
+                        : nodeRateResolver.resolve(account, f.instanceType(), f.capacityType(),
+                                f.zone(), region);
+            });
+        }
+        return fleetRates;
+    }
+
+    /**
+     * One {@code (nodeName, NodeRate)} as a {@link NodeCostDto}: {@code usdPerHour × hoursPerMonth}
+     * when priceable, else {@code null} money + the machine {@link NodeRate.Reason}. Carries the
+     * node's identity from the {@link ClusterWorkloadInventory.NodeFacts} where the rate did not.
+     */
+    private NodeCostDto toNodeCost(String nodeName, ClusterWorkloadInventory.NodeFacts facts,
+                                   NodeRate rate) {
+        Double monthly = rate.priceable()
+                ? rate.usdPerHour() * costProperties.hoursPerMonth()
+                : null;
+        String instanceType = rate.instanceType() != null ? rate.instanceType()
+                : (facts == null ? null : facts.instanceType());
+        String capacityType = rate.capacityType() != null ? rate.capacityType()
+                : (facts == null ? null : facts.capacityType());
+        String source = rate.source() == null ? null : rate.source().name();
+        String reason = rate.reason() == null ? null : rate.reason().name();
+        return new NodeCostDto(nodeName, instanceType, capacityType, rate.capacityTypeInferred(),
+                monthly, source, reason, rate.note());
+    }
+
+    /**
      * The newest recorded action per workload for one cluster, keyed the same way
      * {@link #policyFor} keys policies, in a single pass. The repository returns rows newest-first,
      * so the first row seen for a key is the one kept and later (older) rows are ignored.
      *
      * <p>{@code notEvaluated} workloads keep {@code lastAction} null regardless, because that path
      * does not consult this map.
+     *
+     * <p>The rows the activity log added (FEAT-007) are skipped — test runs, refusals, applies that
+     * changed no pod, and HPA rows — so {@code lastAction} is exactly what it was before they existed.
+     * The repository skips them in its query and answers one row per workload, so this read does not
+     * load the cluster's whole history, JSON bodies included, on every call.
      */
-    private Map<String, VerticalWorkloadDto.LastActionDto> lastActions(Long clusterConfigId) {
+    Map<String, VerticalWorkloadDto.LastActionDto> lastActions(Long clusterConfigId) {
         Map<String, VerticalWorkloadDto.LastActionDto> byKey = new java.util.HashMap<>();
-        for (WorkloadVerticalAction action
-                : actionRepository.findByClusterConfigIdOrderByAppliedAtDesc(clusterConfigId)) {
-            String key = WorkloadPolicyService.key(action.getNamespace(), action.getWorkloadKind(),
-                    action.getWorkloadName());
+        for (WorkloadVerticalActionRepository.LastActionRow action
+                : actionRepository.findLastActions(clusterConfigId, NOT_A_LAST_ACTION, WorkloadActionRecorder.KIND_HPA)) {
+            String key = WorkloadPolicyService.key(action.namespace(), action.workloadKind(), action.workloadName());
             byKey.computeIfAbsent(key, ignored -> new VerticalWorkloadDto.LastActionDto(
-                    action.getAppliedAt(), action.getDryRun(), action.getOutcome()));
+                    action.appliedAt(), action.dryRun(), action.outcome()));
         }
         return byKey;
     }
+
+    /**
+     * The outcomes only the activity log writes, which endpoint 1 has never reported: with dry runs
+     * and HPA rows, the rows {@link #lastActions} skips.
+     */
+    private static final List<String> NOT_A_LAST_ACTION = List.of(WorkloadActionRecorder.OUTCOME_TEST_RUN,
+            WorkloadActionRecorder.OUTCOME_REFUSED, WorkloadActionRecorder.OUTCOME_NOT_CHANGED);
 
     /**
      * Measures one workload, namespace-scoped and selected by the pods the inventory resolved through

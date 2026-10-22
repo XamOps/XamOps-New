@@ -12,14 +12,26 @@ import com.xammer.cloud.service.automation.workload.execute.ContainerApplyTarget
 import com.xammer.cloud.service.automation.workload.execute.ResizeProof;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Writes the durable {@code vertical_workload_action} audit row for one apply, from the same path a
@@ -37,6 +49,30 @@ import java.util.Map;
  * before/after resources serialised to JSON so the record reads without a join. "Before" is the
  * numbers that were submitted; "after" is what the proof observed on the pods.
  *
+ * <h2>The activity log (FEAT-007)</h2>
+ *
+ * Besides the applies {@link #record} has always written, the activity feed records what used to go
+ * unrecorded, into the same table and with no migration: a test run ({@link #OUTCOME_TEST_RUN}), a
+ * real apply that changed no pod, such as a deferral XamOps put back ({@link #OUTCOME_NOT_CHANGED}),
+ * a user's apply a gate refused ({@link #OUTCOME_REFUSED}), and every HPA apply
+ * ({@link #KIND_HPA}). None of those outcomes can come out of {@link #record}, so endpoint 1, which
+ * skips them, reports the same {@code lastAction} it always did.
+ *
+ * <p>Every new row stores {@code after_json} as an object,
+ * {@code {"terminal", "reverted", "containers": [{container, cpuRequestMillis, cpuLimitMillis,
+ * memRequestBytes, memLimitBytes, observedBefore, observedAfter}], "pods": [{pod, node, changed,
+ * uidChanged, restartsBefore, restartsAfter, ready, revert}]}}, so a put-back deferral and the
+ * per-pod proof can be shown. Rows written before this build hold an array of the observed sizes,
+ * and the reader handles both; each container of the object keeps that array's flat fields too.
+ *
+ * <p>The new write methods are <strong>fail-soft</strong>: they catch everything, log one WARN per
+ * cluster per {@link #WARNING_INTERVAL} and return, so the audit can never fail an apply. They are
+ * deliberately not {@code @Transactional}, since a failed save inside a transaction that annotation
+ * opened would mark it rollback-only and surface at commit, in the caller. Each save instead runs in
+ * a transaction of its own ({@code REQUIRES_NEW}) that the catch sits outside of, so a failed insert
+ * never joins, and never marks rollback-only, a transaction its caller may hold, whichever path the
+ * apply came from.
+ *
  * <p>Tenant-scoped by {@code clientId} <em>and</em> {@code clusterConfigId}, never the ambiguous
  * {@code cloud_account_id}.
  */
@@ -47,10 +83,54 @@ public class WorkloadActionRecorder {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    private final WorkloadVerticalActionRepository repository;
+    /** A dry run: nothing was sent to the cluster. Recorded with {@code dry_run=true}. */
+    public static final String OUTCOME_TEST_RUN = "TEST_RUN";
 
-    public WorkloadActionRecorder(WorkloadVerticalActionRepository repository) {
+    /** A user's apply a gate refused before anything was sent; {@code detail} is "code: message". */
+    public static final String OUTCOME_REFUSED = "REFUSED";
+
+    /**
+     * A real apply the executor finished without changing any pod: a deferral or an infeasible
+     * resize XamOps put back, or a patch that was declined. {@code after_json} says which.
+     */
+    public static final String OUTCOME_NOT_CHANGED = "NOT_CHANGED";
+
+    /** {@code workload_kind} of an HPA row, whose {@code workload_name} is the HPA's own name. */
+    public static final String KIND_HPA = "HorizontalPodAutoscaler";
+
+    /** How often a failing audit write is logged at WARN, per cluster. */
+    static final Duration WARNING_INTERVAL = Duration.ofMinutes(10);
+
+    private final WorkloadVerticalActionRepository repository;
+    /** Runs each fail-soft save in a transaction of its own; see the class comment. */
+    private final TransactionOperations ownTransaction;
+    private final Clock clock;
+    /** Cluster config id to the last WARN, so a broken database cannot flood the log. */
+    private final Map<Long, Instant> lastWarnedAt = new ConcurrentHashMap<>();
+
+    @Autowired
+    public WorkloadActionRecorder(WorkloadVerticalActionRepository repository,
+                                  PlatformTransactionManager transactionManager) {
+        this(repository, requiresNew(transactionManager), Clock.systemUTC());
+    }
+
+    /** Saves with no transaction of its own: for tests over a mocked repository. */
+    WorkloadActionRecorder(WorkloadVerticalActionRepository repository, Clock clock) {
+        this(repository, TransactionOperations.withoutTransaction(), clock);
+    }
+
+    WorkloadActionRecorder(WorkloadVerticalActionRepository repository, TransactionOperations ownTransaction,
+                           Clock clock) {
         this.repository = repository;
+        this.ownTransaction = ownTransaction;
+        this.clock = clock;
+    }
+
+    /** A new transaction for every fail-soft save, suspending the caller's if there is one. */
+    static TransactionOperations requiresNew(PlatformTransactionManager transactionManager) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return template;
     }
 
     /**
@@ -92,7 +172,7 @@ public class WorkloadActionRecorder {
         row.setOutcome(proof.publishedTerminal().name());
         row.setRestartFree(proof.restartFree());
         row.setBeforeJson(submittedJson(submitted));
-        row.setAfterJson(observedJson(proof));
+        row.setAfterJson(proofJson(proof));
         row.setDetail(proof.detail());
         row.setAppliedAt(appliedAt);
 
@@ -153,6 +233,181 @@ public class WorkloadActionRecorder {
                 resolved, ref.describe(), target.clusterConfigId(), previous, next);
     }
 
+    /**
+     * Records an apply {@link #record} does not: a dry run ({@link #OUTCOME_TEST_RUN},
+     * {@code dry_run=true}), or a real apply whose proof shows no pod changed
+     * ({@link #OUTCOME_NOT_CHANGED}), such as a deferral XamOps put back and proved back.
+     *
+     * <p>{@code detail} is the proof's own detail with the revert state appended, and
+     * {@code after_json} carries the proof's terminal, so the feed can tell "deferred, put back"
+     * apart from "declined, nothing sent". Fail-soft: never throws.
+     *
+     * @param submitted the targets the apply sent (or, on a dry run, would have sent)
+     * @param proof     the executor's evidence; never null
+     */
+    public void recordAttempt(Long clientId, ClusterTarget target, WorkloadRef ref, ActionTrigger trigger,
+                              boolean dryRun, List<ContainerApplyTarget> submitted, ResizeProof proof,
+                              Instant at) {
+        try {
+            requireRecordable(target, ref, at);
+            Objects.requireNonNull(proof, "proof is mandatory to record an attempt");
+            WorkloadVerticalAction row = newRow(clientId, target, ref, trigger, at);
+            row.setDryRun(dryRun);
+            row.setOutcome(dryRun ? OUTCOME_TEST_RUN : OUTCOME_NOT_CHANGED);
+            row.setRestartFree(proof.restartFree());
+            row.setBeforeJson(submittedJson(submitted));
+            row.setAfterJson(proofJson(proof));
+            row.setDetail(attemptDetail(proof));
+
+            saveInOwnTransaction(row);
+            logger.info("Recorded a {} {} on {} of cluster config {}: {}", row.getTriggerSource(),
+                    row.getOutcome(), ref.describe(), target.clusterConfigId(), proof.outcome());
+        } catch (RuntimeException notRecorded) {
+            warnNotRecorded(target, dryRun ? "a test run" : "an apply that changed no pod", notRecorded);
+        }
+    }
+
+    /**
+     * Records a gate's refusal of an apply ({@link #OUTCOME_REFUSED}), with {@code detail}
+     * "{@code <code>: <message>}". The caller decides which refusals are recorded (a user's, never
+     * the automatic loop's and never the demo identity's); this only writes the row. Fail-soft:
+     * never throws.
+     *
+     * @param ref the workload the apply named; on the HPA path, the HPA
+     */
+    public void recordRefusal(Long clientId, ClusterTarget target, WorkloadRef ref, ActionTrigger trigger,
+                              boolean dryRun, String code, String message, Instant at) {
+        try {
+            requireRecordable(target, ref, at);
+            WorkloadVerticalAction row = newRow(clientId, target, ref, trigger, at);
+            row.setDryRun(dryRun);
+            row.setOutcome(OUTCOME_REFUSED);
+            row.setRestartFree(Boolean.FALSE);
+            row.setDetail(code + ": " + message);
+
+            saveInOwnTransaction(row);
+            logger.info("Recorded a {} refusal on {} of cluster config {}: {}", row.getTriggerSource(),
+                    ref.describe(), target.clusterConfigId(), code);
+        } catch (RuntimeException notRecorded) {
+            warnNotRecorded(target, "a refusal", notRecorded);
+        }
+    }
+
+    /**
+     * An HPA's bounds and CPU target as JSON fields; null means not set, or not known.
+     *
+     * @param targetUtilizationPct the CPU {@code averageUtilization} target
+     */
+    public record HpaBounds(Integer minReplicas, Integer maxReplicas, Integer targetUtilizationPct) {
+    }
+
+    /**
+     * Records one HPA apply ({@code workload_kind} {@link #KIND_HPA}, {@code workload_name} the HPA's
+     * name): {@code before_json} the live bounds read before the patch, {@code after_json} the
+     * bounds the apply set (or, on a dry run, would have set). An HPA patch touches no pod, so
+     * {@code restart_free} is false. Fail-soft: never throws.
+     *
+     * @param outcome       {@code APPLIED | FAILED | EXPIRED | REFUSED}, or {@link #OUTCOME_TEST_RUN}
+     *                      for a dry run
+     * @param correlationId the command's idempotency key
+     */
+    public void recordHpa(Long clientId, ClusterTarget target, String hpaNamespace, String hpaName,
+                          ActionTrigger trigger, boolean dryRun, HpaBounds before, HpaBounds after,
+                          String outcome, String detail, String correlationId, Instant at) {
+        try {
+            WorkloadRef hpa = WorkloadRef.of(hpaNamespace, KIND_HPA, hpaName);
+            requireRecordable(target, hpa, at);
+            if (outcome == null || outcome.isBlank()) {
+                throw new IllegalArgumentException("outcome is mandatory to record an HPA apply");
+            }
+            WorkloadVerticalAction row = newRow(clientId, target, hpa, trigger, at);
+            row.setDryRun(dryRun);
+            row.setOutcome(outcome);
+            row.setRestartFree(Boolean.FALSE);
+            row.setCorrelationId(correlationId);
+            row.setBeforeJson(boundsJson(before));
+            row.setAfterJson(boundsJson(after));
+            row.setDetail(detail);
+
+            saveInOwnTransaction(row);
+            logger.info("Recorded a {} HPA {} on {} of cluster config {}", row.getTriggerSource(), outcome,
+                    hpa.describe(), target.clusterConfigId());
+        } catch (RuntimeException notRecorded) {
+            warnNotRecorded(target, "an HPA apply", notRecorded);
+        }
+    }
+
+    // ---------------------------------------------------------------- rows
+
+    /**
+     * Saves {@code row} in a transaction of its own, so a failure rolls back that transaction alone
+     * and reaches the caller's catch, never the caller's transaction.
+     */
+    private void saveInOwnTransaction(WorkloadVerticalAction row) {
+        ownTransaction.executeWithoutResult(status -> repository.save(row));
+    }
+
+    private static void requireRecordable(ClusterTarget target, WorkloadRef ref, Instant at) {
+        if (target == null || ref == null || at == null) {
+            throw new IllegalArgumentException("target, ref and at are mandatory to record an action");
+        }
+    }
+
+    private static WorkloadVerticalAction newRow(Long clientId, ClusterTarget target, WorkloadRef ref,
+                                                 ActionTrigger trigger, Instant at) {
+        WorkloadVerticalAction row = new WorkloadVerticalAction();
+        row.setClientId(clientId == null ? target.clientId() : clientId);
+        row.setClusterConfigId(target.clusterConfigId());
+        row.setNamespace(ref.namespace());
+        row.setWorkloadKind(ref.kind());
+        row.setWorkloadName(ref.name());
+        row.setTriggerSource((trigger == null ? ActionTrigger.MANUAL : trigger).name());
+        row.setAppliedAt(at);
+        return row;
+    }
+
+    /** The proof's detail and, when a pod needed putting back, what putting it back achieved. */
+    private static String attemptDetail(ResizeProof proof) {
+        String detail = proof.detail() == null ? "" : proof.detail().trim();
+        Set<String> reverts = new LinkedHashSet<>();
+        for (ResizeProof.PodProof pod : proof.pods()) {
+            if (pod.revert() != null) {
+                reverts.add(pod.revert().state().name());
+            }
+        }
+        if (!reverts.isEmpty()) {
+            detail = (detail + " Revert: " + String.join(", ", reverts) + ".").trim();
+        }
+        return detail.isEmpty() ? null : detail;
+    }
+
+    /**
+     * Logs a failed audit write at WARN at most once per cluster per {@link #WARNING_INTERVAL}, and at
+     * DEBUG otherwise.
+     */
+    private void warnNotRecorded(ClusterTarget target, String what, RuntimeException cause) {
+        Long key = target == null || target.clusterConfigId() == null ? -1L : target.clusterConfigId();
+        Instant now = clock.instant();
+        boolean[] due = {false};
+        lastWarnedAt.compute(key, (ignored, last) -> {
+            if (last == null || !now.isBefore(last.plus(WARNING_INTERVAL))) {
+                due[0] = true;
+                return now;
+            }
+            return last;
+        });
+        if (due[0]) {
+            logger.warn("Could not record {} for cluster config {} in the activity log; the apply"
+                            + " itself is unaffected. Further failures for this cluster are logged at"
+                            + " DEBUG for {} minutes: {}", what, key, WARNING_INTERVAL.toMinutes(),
+                    cause.toString());
+        } else {
+            logger.debug("Could not record {} for cluster config {}: {}", what, key, cause.toString());
+        }
+    }
+
+    // ---------------------------------------------------------------- JSON
+
     /** The numbers submitted, per container — the "before/requested" side of the record. */
     private static String submittedJson(List<ContainerApplyTarget> submitted) {
         if (submitted == null || submitted.isEmpty()) {
@@ -173,32 +428,106 @@ public class WorkloadActionRecorder {
     }
 
     /**
-     * The values the proof observed on the pods afterwards, per container — the "after" side. Taken
-     * from the first pod's final container state, which for a confirmed apply is the applied size.
+     * The proof as the "after" side: its full terminal, whether declined pods were put back, the
+     * observed sizes before and after per container (from the first pod touched, the canary, whose
+     * final state for a confirmed apply is the applied size), and every pod's restart-free evidence.
+     *
+     * <p>{@code terminal} is the first key, so a reader can classify a row by its prefix. A pod's
+     * {@code node} is not part of the proof, so it is written as null rather than guessed.
+     *
+     * <p>Each container also keeps the flat fields a row written before the activity log held
+     * ({@code cpuRequestMillis}, {@code cpuLimitMillis}, {@code memRequestBytes},
+     * {@code memLimitBytes}: the observed-after size, each one only when known), so a reader of that
+     * older shape reads the same numbers from a new row. Main's root-cause analysis reads
+     * {@code containers[].cpuRequestMillis}. Each pod says whether it ended at a size other than it
+     * had before ({@code changed}), so a pod put back is not counted as resized.
      */
-    private static String observedJson(ResizeProof proof) {
-        if (proof.pods().isEmpty()) {
-            return null;
+    static String proofJson(ResizeProof proof) {
+        Map<String, Object> json = new LinkedHashMap<>();
+        json.put("terminal", proof.outcome().name());
+        json.put("reverted", proof.reverted());
+
+        List<Map<String, Object>> containers = new ArrayList<>();
+        if (!proof.pods().isEmpty()) {
+            for (ResizeProof.ContainerProof container : proof.pods().get(0).containers()) {
+                Map<String, Object> fields = new LinkedHashMap<>();
+                fields.put("container", container.name());
+                ResourceEnvelope after = container.observedAfter();
+                if (after != null) {
+                    putIfPresent(fields, "cpuRequestMillis", after.cpuRequestMillis());
+                    putIfPresent(fields, "cpuLimitMillis", after.cpuLimitMillis());
+                    putIfPresent(fields, "memRequestBytes", after.memRequestBytes());
+                    putIfPresent(fields, "memLimitBytes", after.memLimitBytes());
+                }
+                fields.put("observedBefore", envelope(container.observedBefore()));
+                fields.put("observedAfter", envelope(after));
+                containers.add(fields);
+            }
         }
-        ResizeProof.PodProof pod = proof.pods().get(0);
+        json.put("containers", containers);
+
+        List<Map<String, Object>> pods = new ArrayList<>();
+        for (ResizeProof.PodProof pod : proof.pods()) {
+            Map<String, Object> fields = new LinkedHashMap<>();
+            fields.put("pod", pod.podName());
+            fields.put("node", null);
+            fields.put("changed", pod.changed());
+            fields.put("uidChanged", pod.uidBefore() == null || pod.uidAfter() == null
+                    ? null : !pod.uidBefore().equals(pod.uidAfter()));
+            fields.put("restartsBefore", restarts(pod, true));
+            fields.put("restartsAfter", restarts(pod, false));
+            fields.put("ready", pod.ready());
+            if (pod.revert() == null) {
+                fields.put("revert", null);
+            } else {
+                Map<String, Object> revert = new LinkedHashMap<>();
+                revert.put("state", pod.revert().state().name());
+                revert.put("detail", pod.revert().detail());
+                fields.put("revert", revert);
+            }
+            pods.add(fields);
+        }
+        json.put("pods", pods);
+        return write(json);
+    }
+
+    /** A pod's restart count summed over its containers, or null when any container's is unknown. */
+    private static Integer restarts(ResizeProof.PodProof pod, boolean before) {
         if (pod.containers().isEmpty()) {
             return null;
         }
-        List<Map<String, Object>> containers = pod.containers().stream()
-                .map(container -> {
-                    Map<String, Object> fields = new LinkedHashMap<>();
-                    fields.put("container", container.name());
-                    ResourceEnvelope after = container.observedAfter();
-                    if (after != null) {
-                        putIfPresent(fields, "cpuRequestMillis", after.cpuRequestMillis());
-                        putIfPresent(fields, "cpuLimitMillis", after.cpuLimitMillis());
-                        putIfPresent(fields, "memRequestBytes", after.memRequestBytes());
-                        putIfPresent(fields, "memLimitBytes", after.memLimitBytes());
-                    }
-                    return fields;
-                })
-                .toList();
-        return write(containers);
+        int total = 0;
+        for (ResizeProof.ContainerProof container : pod.containers()) {
+            Integer count = before ? container.restartCountBefore() : container.restartCountAfter();
+            if (count == null) {
+                return null;
+            }
+            total += count;
+        }
+        return total;
+    }
+
+    private static Map<String, Object> envelope(ResourceEnvelope resources) {
+        if (resources == null) {
+            return null;
+        }
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("cpuRequestMillis", resources.cpuRequestMillis());
+        fields.put("cpuLimitMillis", resources.cpuLimitMillis());
+        fields.put("memRequestBytes", resources.memRequestBytes());
+        fields.put("memLimitBytes", resources.memLimitBytes());
+        return fields;
+    }
+
+    private static String boundsJson(HpaBounds bounds) {
+        if (bounds == null) {
+            return null;
+        }
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("minReplicas", bounds.minReplicas());
+        fields.put("maxReplicas", bounds.maxReplicas());
+        fields.put("targetUtilizationPct", bounds.targetUtilizationPct());
+        return write(fields);
     }
 
     private static void putIfPresent(Map<String, Object> fields, String key, Number value) {

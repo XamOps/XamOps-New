@@ -1,6 +1,7 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React from 'react';
 import { Icon } from '@iconify/react';
 import type { CostDataItem, CostFilters } from '../../types/cost';
+import { useAnimatedValue } from '../CloudK8s/shared/useAnimatedValue';
 
 interface CostKPICardsProps {
   costData: CostDataItem[];
@@ -14,39 +15,12 @@ const CostKPICards: React.FC<CostKPICardsProps> = ({ costData, filters, isLoadin
   const sortedData = [...costData].sort((a, b) => b.amount - a.amount);
   const topSpender = sortedData.length > 0 ? sortedData[0] : null;
 
-  // Animated counter hook
-  const useAnimatedValue = (target: number) => {
-    const animRef = useRef<number | undefined>(undefined);
-    const prevRef = useRef(target);
-    const [value, setValue] = useState(target);
-
-    useEffect(() => {
-      if (target === prevRef.current) return;
-      const prev = prevRef.current;
-      prevRef.current = target;
-      if (animRef.current) cancelAnimationFrame(animRef.current);
-      if (target === 0) { setValue(0); return; }
-      const duration = 900;
-      const startTime = performance.now();
-      const step = (now: number) => {
-        const t = Math.min((now - startTime) / duration, 1);
-        const eased = 1 - Math.pow(1 - t, 3);
-        setValue(prev + eased * (target - prev));
-        if (t < 1) animRef.current = requestAnimationFrame(step);
-        else setValue(target);
-      };
-      animRef.current = requestAnimationFrame(step);
-      return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
-    }, [target]);
-    return value;
-  };
-
   const animatedTotal = useAnimatedValue(totalCost);
   const animatedTop = useAnimatedValue(topSpender?.amount ?? 0);
 
   if (isLoading) {
     return (
-      <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl overflow-hidden">
+      <div className="bg-white border border-[rgba(0,0,0,0.07)] rounded-[10px] overflow-hidden">
         <div className="grid grid-cols-3 divide-x divide-[rgba(0,0,0,0.06)]">
           {[1, 2, 3].map(i => (
             <div key={i} className="p-5 animate-pulse">
@@ -64,7 +38,7 @@ const CostKPICards: React.FC<CostKPICardsProps> = ({ costData, filters, isLoadin
   const formatCents = (val: number) => '.' + String(Math.round((val % 1) * 100)).padStart(2, '0');
 
   return (
-    <div className="bg-white border border-[rgba(0,0,0,0.08)] rounded-xl overflow-hidden">
+    <div className="bg-white border border-[rgba(0,0,0,0.07)] rounded-[10px] overflow-hidden">
       <div className="grid grid-cols-1 md:grid-cols-3 divide-x divide-[rgba(0,0,0,0.06)]">
 
         {/* Total Cost */}

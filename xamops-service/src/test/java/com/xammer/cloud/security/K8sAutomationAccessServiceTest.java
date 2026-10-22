@@ -118,6 +118,9 @@ class K8sAutomationAccessServiceTest {
         u.setEmail(email);
         u.setRole(role);
         when(userRepository.findById(id)).thenReturn(Optional.of(u));
+        // DemoClientMembership loads via findByIdWithClient (JOIN FETCH client) to avoid lazy init
+        // in the pre-transaction guard; stub it the same way.
+        when(userRepository.findByIdWithClient(id)).thenReturn(Optional.of(u));
     }
 
     private void demoClientUserRow(long id, String email, String role) {
@@ -131,6 +134,7 @@ class K8sAutomationAccessServiceTest {
         client.setDemo(true);
         u.setClient(client);
         when(userRepository.findById(id)).thenReturn(Optional.of(u));
+        when(userRepository.findByIdWithClient(id)).thenReturn(Optional.of(u));
     }
 
     private static KubernetesClusterConfig config(long id, long cloudAccountId, String name) {
@@ -538,6 +542,7 @@ class K8sAutomationAccessServiceTest {
         assertThat(service.userDecision(noId).reasons()).containsExactly(K8sAutomationReason.NO_USER_PERMISSION);
 
         when(userRepository.findById(99L)).thenReturn(Optional.empty());
+        when(userRepository.findByIdWithClient(99L)).thenReturn(Optional.empty());
         assertThat(service.userDecision(principal(99L, "ghost")).reasons())
                 .containsExactly(K8sAutomationReason.NO_USER_PERMISSION);
         assertThat(service.writeDecision(null, List.of(account(1, "1", "read-write", "CONNECTED"))).allowed())

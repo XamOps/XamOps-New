@@ -37,6 +37,16 @@ public class Ticket {
     private User creator;
     // --- END OF MODIFICATION ---
 
+    /**
+     * Plain-text snapshot of who originally raised the ticket, kept so the creator is still
+     * visible after that user is deleted. {@code creator} is a nullable FK that gets set to NULL
+     * when the user is removed (so the ticket history survives); this column preserves the name
+     * for display. Populated at creation and, for older tickets, backfilled when the user is
+     * deleted. Nullable because tickets created before this column existed have no snapshot.
+     */
+    @Column(name = "creator_username")
+    private String creatorUsername;
+
     @Column(nullable = false)
     private String subject;
 
@@ -138,6 +148,14 @@ public class Ticket {
         this.creator = creator;
     }
     // --- END: ADDED GETTER/SETTER FOR CREATOR ---
+
+    public String getCreatorUsername() {
+        return creatorUsername;
+    }
+
+    public void setCreatorUsername(String creatorUsername) {
+        this.creatorUsername = creatorUsername;
+    }
 
     public String getSubject() {
         return subject;

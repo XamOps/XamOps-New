@@ -9,6 +9,7 @@ import com.xammer.cloud.security.ClientUserDetails;
 import com.xammer.cloud.security.CloudAccountAccessService;
 import com.xammer.cloud.service.automation.workload.api.HpaApplyService;
 import com.xammer.cloud.service.automation.workload.api.HpaAutomationController;
+import com.xammer.cloud.service.automation.workload.api.HpaHistoryService;
 import com.xammer.cloud.service.automation.workload.api.VerticalApplyService;
 import com.xammer.cloud.service.automation.workload.api.dto.HpaApplyResponseDto;
 import org.junit.jupiter.api.AfterEach;
@@ -220,7 +221,7 @@ class HpaAutomationControllerTest {
 
     private MockMvc mvc() {
         HpaAutomationController controller = new HpaAutomationController(
-                accessService, clusterConfigRepository, applyService);
+                accessService, clusterConfigRepository, applyService, mock(HpaHistoryService.class));
         return MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())

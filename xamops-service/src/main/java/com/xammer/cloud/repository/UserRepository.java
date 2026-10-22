@@ -26,6 +26,18 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByMicrosoftSub(@Param("microsoftSub") String microsoftSub);
 
     /**
+     * Loads a user with its {@code client} eagerly fetched, for callers that read the client
+     * outside a session (e.g. an MVC interceptor running before the request transaction opens).
+     *
+     * <p>Plain {@link JpaRepository#findById} leaves the LAZY {@code client} association a proxy, so
+     * touching {@code user.getClient().isDemo()} after the finder's own session closes throws
+     * {@code LazyInitializationException}. This finder resolves the client inside the query, the same
+     * way {@link #findByUsername}/{@link #findByEmail} do, so the result is safe to read detached.
+     */
+    @Query("SELECT u FROM User u JOIN FETCH u.client WHERE u.id = :id")
+    Optional<User> findByIdWithClient(@Param("id") Long id);
+
+    /**
      * Finds all users created by a specific user.
      * 
      * @param createdBy The ID of the user who created them.

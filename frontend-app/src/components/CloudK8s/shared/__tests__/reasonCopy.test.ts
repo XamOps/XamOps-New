@@ -26,7 +26,8 @@ const TEXT: Record<string, string> = {
   'NO_USER_PERMISSION/IMPERSONATION': "Automation changes aren't available while you're signed in as another user.",
   READ_ONLY_CONNECTION: 'Read-only connection. Automation changes need read-write access.',
   CONNECTION_NOT_VERIFIED: "This connection isn't verified. Reconnect the account to change automation.",
-  'AGENT_NOT_INSTALLED/AUTOMATION_AGENT': "The automation agent isn't installed on this cluster.",
+  'AGENT_NOT_INSTALLED/AUTOMATION_AGENT': "Node automation needs the xamops-autoscaler agent, which isn't installed on this cluster. "
+    + "Workload rightsizing, HPA and VPA automation run server-side and don't need this agent.",
   'AGENT_NOT_INSTALLED/XAMOPS_AGENT': "This cluster isn't monitored yet. Install the XamOps agent first.",
   'AGENT_NOT_INSTALLED/EXECUTION_PATH': "The XamOps agent isn't connected, so XamOps can't send changes to this cluster.",
   CLUSTER_ACCESS_NOT_CONFIGURED: "Direct access isn't set up: no EKS access entry maps the XamOps role.",
@@ -45,7 +46,7 @@ const SHORT: Record<string, string | null> = {
   NO_USER_PERMISSION: 'permission to change automation',
   READ_ONLY_CONNECTION: 'read-write access',
   CONNECTION_NOT_VERIFIED: 'a verified connection',
-  'AGENT_NOT_INSTALLED/AUTOMATION_AGENT': 'the automation agent',
+  'AGENT_NOT_INSTALLED/AUTOMATION_AGENT': 'the node automation agent',
   'AGENT_NOT_INSTALLED/XAMOPS_AGENT': 'the XamOps agent',
   'AGENT_NOT_INSTALLED/EXECUTION_PATH': 'a connected XamOps agent',
   CLUSTER_ACCESS_NOT_CONFIGURED: 'cluster API access',
@@ -143,7 +144,7 @@ describe('reasonCopy', () => {
     expect(reasonCopy({ reason: 'NO_USER_PERMISSION', detail: 'ROLE' }).remedies).toEqual([]);
     expect(labels(reasonCopy({ reason: 'CONTROLLER_NOT_READY' }).remedies)).toEqual(['Why?']);
     expect(labels(reasonCopy({ reason: 'ANALYSE_ONLY' }).remedies)).toEqual(['Why?']);
-    expect(labels(reasonCopy({ reason: 'AGENT_NOT_INSTALLED', detail: 'AUTOMATION_AGENT' }).remedies)).toEqual(['Install the automation agent']);
+    expect(labels(reasonCopy({ reason: 'AGENT_NOT_INSTALLED', detail: 'AUTOMATION_AGENT' }).remedies)).toEqual(['Install the node automation agent']);
     expect(labels(reasonCopy({ reason: 'AGENT_NOT_INSTALLED', detail: 'XAMOPS_AGENT' }).remedies)).toEqual(['Set up monitoring']);
     expect(labels(reasonCopy({ reason: 'CLUSTER_ACCESS_NOT_CONFIGURED' }).remedies)).toEqual(['Set up direct access']);
     expect(labels(reasonCopy({ reason: 'CLUSTER_UNREACHABLE' }).remedies)).toEqual(['See access options']);

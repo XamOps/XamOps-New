@@ -11,13 +11,16 @@
  *    gate the server re-checks passes (main's HPA logic, unchanged: `hpaApplyGate`, the confirmation,
  *    the reply), plus the VPA coexistence verdict.
  * The two are joined on the HPA's scale target (namespace, kind and name). `?hpa=<namespace>/<name>`
- * opens one HPA's detail on the same page, so this session's apply replies stay with it. Replica and
- * CPU history need kube-state-metrics' series, which XamOps doesn't read yet, so those charts say so.
+ * opens one HPA's detail on the same page, so this session's apply replies stay with it. Each HPA's
+ * history (FEAT-004: kube-state-metrics through Prometheus in the cluster, one GET per HPA, the first
+ * {@link HPA_HISTORY_READ_LIMIT}) draws the replicas and CPU charts and the time-at-maximum strip for
+ * the HPA held at its maximum (or the one picked), and fills the table's "Last scaled".
  */
 
 import React, { useEffect, useId, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import useHpaAutomation from '../../../../../hooks/useHpaAutomation';
+import { useK8sCapabilities } from '../../../../../hooks/useK8sCapabilities';
 import { DASH, hpaApplyGate } from '../../../../../api/hpaAdapter';
 import { inPageState } from '../../../../../utils/inPageNavigation';
 import { hpaCodeText } from '../hpaCopy';
@@ -41,10 +44,13 @@ import {
   withParam,
   type HpaRow,
 } from '../automationDerivations';
-import { CARD, FAINT, INK, InPageLink, MUTED, Notice, RULE, Tag } from '../automationUi';
+import { CARD, CONTROL, FAINT, INK, InPageLink, MUTED, Notice, RULE, Tag } from '../automationUi';
 import { HpaDecisionPanel, TitledChip, decisionShort } from './HpaDecision';
 import HpaDetail from './HpaDetail';
-import { FROM_AGENT, HpaHistoryCards } from './hpaShared';
+import { FROM_AGENT, HpaHistoryCards, historyOf, lastScaled } from './hpaShared';
+import { useHpaHistories } from '../../../../../hooks/useHpaHistory';
+import type { InsightReadState } from '../../../../../hooks/useInsightRead';
+import type { HpaHistoryView } from '../../../../../types/automationInsights';
 
 export interface HpaPageProps {
   clusterName: string;
@@ -106,7 +112,8 @@ const EngineStatus: React.FC<{
   dryRun: boolean;
   onDryRun: (next: boolean) => void;
   reload: () => void;
-}> = ({ view, dryRun, onDryRun, reload }) => {
+  hpaApplyReady: boolean;
+}> = ({ view, dryRun, onDryRun, reload, hpaApplyReady }) => {
   const { engine, gateReasons, anomalies } = view;
   return (
     <section className={`${CARD} px-4 py-3`} data-hpa-engine="">
@@ -121,7 +128,7 @@ const EngineStatus: React.FC<{
           <StatusItem label="HPA automation" value={engine.enabled ? 'On' : 'Off in this environment'} title={`Code: enabled ${engine.enabled}`} />
           <StatusItem
             label="Changes"
-            value={engine.ready ? (view.writeGatesChecked ? 'Can be applied' : 'Not checked') : 'Suggestions only'}
+            value={hpaApplyReady ? (view.writeGatesChecked ? 'Can be applied' : 'Not checked') : 'Suggestions only'}
             title="Applying is gated the same way as workload rightsizing."
           />
           <StatusItem
@@ -192,7 +199,8 @@ const CandidateCard: React.FC<{
   view: HpaPageView;
   dryRun: boolean;
   state: UseHpaAutomationState;
-}> = ({ workload, view, dryRun, state }) => (
+  hpaApplyReady: boolean;
+}> = ({ workload, view, dryRun, state, hpaApplyReady }) => (
   <section className={`${CARD} px-4 py-3`} data-hpa-candidate={workload.id}>
     <div className="mb-2 flex flex-wrap items-center gap-2">
       <span className={`text-[13px] font-semibold ${INK}`}>{workload.ref.name}</span>
@@ -203,7 +211,7 @@ const CandidateCard: React.FC<{
     </div>
     <HpaDecisionPanel
       workload={workload}
-      gate={hpaApplyGate(view, workload, dryRun, state.callerRefusal)}
+      gate={hpaApplyGate(view, workload, dryRun, state.callerRefusal, hpaApplyReady)}
       dryRun={dryRun}
       applying={state.applyingIds.has(workload.id)}
       reply={state.applyResults[workload.id]}
@@ -290,12 +298,16 @@ const HpaTableRow: React.FC<{
   dryRun: boolean;
   state: UseHpaAutomationState;
   detailHref: string;
-}> = ({ row, view, engineRead, dryRun, state, detailHref }) => {
+  /** This HPA's history (FEAT-004); null when the page didn't read it. Undefined: no history column. */
+  history?: InsightReadState<HpaHistoryView> | null;
+  hpaApplyReady: boolean;
+}> = ({ row, view, engineRead, dryRun, state, detailHref, history, hpaApplyReady }) => {
   const live = row.live;
   const w = row.workload;
   const coexist = coexistChip(row, engineRead);
   const d = w?.decision;
-  const cells = 7;
+  const scaled = history === undefined ? null : lastScaled(history);
+  const cells = scaled ? 8 : 7;
   return (
     <>
       <tr className="align-top" data-hpa-row={row.id}>
@@ -341,11 +353,22 @@ const HpaTableRow: React.FC<{
               {row.tags.map((t) => (
                 <Tag key={t.key} icon={t.icon}>{t.label}</Tag>
               ))}
+              {scaled?.never && <Tag icon="mdi:minus-circle-outline">Never scales: no change in 3 days</Tag>}
             </span>
+          ) : scaled?.never ? (
+            <Tag icon="mdi:minus-circle-outline">Never scales: no change in 3 days</Tag>
           ) : (
             <Unknown />
           )}
         </td>
+        {scaled && (
+          <td className="px-4 py-2.5" data-hpa-last-scaled={row.id} title={scaled.title}>
+            <span className="inline-flex flex-col">
+              <span className={`tabular-nums ${INK}`}>{scaled.text}</span>
+              {scaled.sub && <span className={`text-[11px] ${FAINT}`}>{scaled.sub}</span>}
+            </span>
+          </td>
+        )}
         <td className="px-4 py-2.5">
           <span className="inline-flex flex-col items-start gap-1">
             <StatusChip tone={coexist.tone} icon={coexist.icon} label={coexist.label} detail={coexist.detail} />
@@ -358,7 +381,7 @@ const HpaTableRow: React.FC<{
           {w && view ? (
             <HpaDecisionPanel
               workload={w}
-              gate={hpaApplyGate(view, w, dryRun, state.callerRefusal)}
+              gate={hpaApplyGate(view, w, dryRun, state.callerRefusal, hpaApplyReady)}
               dryRun={dryRun}
               applying={state.applyingIds.has(w.id)}
               reply={state.applyResults[w.id]}
@@ -387,7 +410,10 @@ const HpaTable: React.FC<{
   state: UseHpaAutomationState;
   hrefFor: (row: HpaRow) => string;
   agentReported: boolean;
-}> = ({ rows, view, engineRead, dryRun, state, hrefFor, agentReported }) => {
+  /** Each HPA's history for "Last scaled"; omitted when the backend doesn't serve it. */
+  historyFor?: (row: HpaRow) => InsightReadState<HpaHistoryView> | null;
+  hpaApplyReady: boolean;
+}> = ({ rows, view, engineRead, dryRun, state, hrefFor, agentReported, historyFor, hpaApplyReady }) => {
   const titleId = useId();
   return (
     <section className={CARD} aria-labelledby={titleId} data-hpa-table="">
@@ -407,12 +433,23 @@ const HpaTable: React.FC<{
               <th scope="col" className="px-4 py-2 font-semibold">Now</th>
               <th scope="col" className="px-4 py-2 font-semibold">Replicas (now, min–max)</th>
               <th scope="col" className="px-4 py-2 font-semibold">Status</th>
+              {historyFor && <th scope="col" className="px-4 py-2 font-semibold">Last scaled</th>}
               <th scope="col" className="px-4 py-2 font-semibold">XamOps</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
-              <HpaTableRow key={row.id} row={row} view={view} engineRead={engineRead} dryRun={dryRun} state={state} detailHref={hrefFor(row)} />
+              <HpaTableRow
+                key={row.id}
+                row={row}
+                view={view}
+                engineRead={engineRead}
+                dryRun={dryRun}
+                state={state}
+                detailHref={hrefFor(row)}
+                history={historyFor ? historyFor(row) : undefined}
+                hpaApplyReady={hpaApplyReady}
+              />
             ))}
           </tbody>
         </table>
@@ -420,9 +457,25 @@ const HpaTable: React.FC<{
       <p className={`px-4 py-2.5 text-[11px] ${FAINT}`}>
         <span className="font-semibold">Source:</span>{' '}
         {agentReported ? 'the XamOps agent (k8sHpas: HPA spec, status and conditions)' : 'the XamOps agent reported no HPA list, so live numbers are missing'};
-        decisions and conflicts from the Workload autoscaler (endpoint 1, GET /api/eks/automation/vertical/{'{cluster}'}).
+        decisions and conflicts from the Workload autoscaler (endpoint 1, GET /api/eks/automation/vertical/{'{cluster}'})
+        {historyFor ? "; last scaled from each HPA's history (kube-state-metrics, 1-minute steps, 3 days)." : '.'}
       </p>
     </section>
+  );
+};
+
+/** Which HPA's history the charts show, when the page read more than one. */
+const HistoryPicker: React.FC<{ rows: HpaRow[]; value: string; onChange: (id: string) => void }> = ({ rows, value, onChange }) => {
+  const id = useId();
+  return (
+    <label htmlFor={id} className={`flex flex-wrap items-center gap-2 text-[12px] font-semibold ${MUTED}`}>
+      History of
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} className={CONTROL}>
+        {rows.map((r) => (
+          <option key={r.id} value={r.id}>{`${r.name} (${r.namespace})`}</option>
+        ))}
+      </select>
+    </label>
   );
 };
 
@@ -454,6 +507,8 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
   const [dryRun, setDryRun] = useState(true);
   const state = useHpaAutomation({ clusterName, accountId, region });
   const { loading, result, reload } = state;
+  const { can } = useK8sCapabilities();
+  const hpaApplyReady = can('hpa.apply', { cluster: clusterName }).allowed;
   const location = useLocation();
   const navigate = useNavigate();
   const [malformed, setMalformed] = useState(false);
@@ -490,6 +545,13 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
   const selected = parsed ? rows.find((r) => r.id === `${parsed.namespace}/${parsed.name}`) ?? null : null;
   const missing = parsed !== null && settled && selected === null ? raw : null;
 
+  // Each HPA's history (FEAT-004), one GET each: the detail reads its own HPA's; the list reads every
+  // HPA's for "Last scaled", the one held at its maximum first (it leads the charts).
+  const featured = rows.find((r) => rowHasFlag(r, 'at-max')) ?? rows[0] ?? null;
+  const historyRows = selected ? [selected] : featured ? [featured, ...rows.filter((r) => r !== featured)] : [];
+  const histories = useHpaHistories({ clusterName, accountId, region }, historyRows.map((r) => ({ namespace: r.namespace, name: r.name })), '72h');
+  const [historyPick, setHistoryPick] = useState<string | null>(null);
+
   if (selected) {
     return (
       <HpaDetail
@@ -500,9 +562,15 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
         onDryRun={setDryRun}
         state={state}
         listHref={listHref}
+        history={historyOf(histories, selected.id)}
+        hpaApplyReady={hpaApplyReady}
       />
     );
   }
+
+  const readRows = rows.filter((r) => histories.read.has(r.id));
+  const shownHistory = readRows.find((r) => r.id === historyPick) ?? featured;
+  const historyServed = readRows.length > 0 && !Object.values(histories.results).some((r) => r.kind === 'not-deployed');
 
   const sentence: NowSentence = loading && !result && !dashboard
     ? { clauses: ["Reading this cluster's HPAs…"], chips: [] }
@@ -512,7 +580,7 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
   return (
     // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it
     // alone and the write controls keep their own disabled and confirm states in dark mode.
-    <div className="space-y-4" data-hpa-page="" data-k8s-kit="">
+    <div className="space-y-8" data-hpa-page="" data-k8s-kit="">
       {malformed && <Notice onDismiss={() => setMalformed(false)}>{MALFORMED_HPA_NOTICE}</Notice>}
       {missing && <Notice onDismiss={dropHpaParam}>{missingHpaNotice(missing)}</Notice>}
       <div className="space-y-1">
@@ -524,7 +592,14 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
       </div>
       <NowBanner sentence={sentence} />
       <HpaKpiRow rows={rows} agentReported={agentReported} engineRead={view !== null} />
-      <HpaHistoryCards />
+      {shownHistory && historyOf(histories, shownHistory.id) && (
+        <HpaHistoryCards
+          subject={shownHistory.name}
+          read={historyOf(histories, shownHistory.id)!}
+          picker={readRows.length > 1 ? <HistoryPicker rows={readRows} value={shownHistory.id} onChange={setHistoryPick} /> : undefined}
+          batched={histories.batched}
+        />
+      )}
       {view && !view.horizontalEvaluated && (
         <Notice>
           HPA suggestions are off in this environment: XamOps doesn&apos;t evaluate HPA settings here. The HPAs and their limits
@@ -532,12 +607,22 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
         </Notice>
       )}
       {view ? (
-        <EngineStatus view={view} dryRun={dryRun} onDryRun={setDryRun} reload={reload} />
+        <EngineStatus view={view} dryRun={dryRun} onDryRun={setDryRun} reload={reload} hpaApplyReady={hpaApplyReady} />
       ) : (
         <HpaReadFallback feature="hpa" loading={loading} result={result} reload={reload} />
       )}
       {rows.length > 0 ? (
-        <HpaTable rows={rows} view={view} engineRead={view !== null} dryRun={dryRun} state={state} hrefFor={hrefFor} agentReported={agentReported} />
+        <HpaTable
+          rows={rows}
+          view={view}
+          engineRead={view !== null}
+          dryRun={dryRun}
+          state={state}
+          hrefFor={hrefFor}
+          agentReported={agentReported}
+          historyFor={historyServed ? (row) => historyOf(histories, row.id) : undefined}
+          hpaApplyReady={hpaApplyReady}
+        />
       ) : (
         view && candidates.length === 0 && (
           <section className={CARD}>
@@ -551,7 +636,7 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
             {candidates.length} {plural(candidates.length, 'workload')} an HPA would help
           </h3>
           {candidates.map((w) => (
-            <CandidateCard key={w.id} workload={w} view={view} dryRun={dryRun} state={state} />
+            <CandidateCard key={w.id} workload={w} view={view} dryRun={dryRun} state={state} hpaApplyReady={hpaApplyReady} />
           ))}
         </section>
       )}

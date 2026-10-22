@@ -248,10 +248,27 @@ describe('VPA coexistence', () => {
 describe('hpaApplyGate — gated/greyed with reason', () => {
   it('enables Apply for a real change when every gate passes', () => {
     const view = page([phpApache()]);
-    const gate = hpaApplyGate(view, view.hpaWorkloads[0], true);
+    const gate = hpaApplyGate(view, view.hpaWorkloads[0], true, null, true);
     expect(gate.enabled).toBe(true);
     expect(gate.reason).toBeNull();
     expect(gate.changes).toEqual({ maxReplicas: 8, dryRun: true });
+  });
+
+  it('fails closed when hpaApplyReady is omitted, even with every other gate passing', () => {
+    const view = page([phpApache()]);
+    const gate = hpaApplyGate(view, view.hpaWorkloads[0], true, null);
+    expect(gate.enabled).toBe(false);
+    expect(gate.reason).toBe('Applying is off in this environment');
+    // The body is still computed, so a later-enabled gate has the change ready.
+    expect(gate.changes).toEqual({ maxReplicas: 8, dryRun: true });
+  });
+
+  it('greys Apply when engine.ready is true but hpaApplyReady is false (readiness no longer sole authority)', () => {
+    const view = page([phpApache()]);
+    expect(view.engine.ready).toBe(true);
+    const gate = hpaApplyGate(view, view.hpaWorkloads[0], true, null, false);
+    expect(gate.enabled).toBe(false);
+    expect(gate.reason).toBe('Applying is off in this environment');
   });
 
   it('greys Apply with the write-gates-not-checked reason when the server did not evaluate them', () => {
@@ -263,7 +280,7 @@ describe('hpaApplyGate — gated/greyed with reason', () => {
 
   it('greys Apply for a GitOps-managed HPA with a plain reason, no code visible', () => {
     const view = page([phpApache({ gitopsManaged: true })]);
-    const gate = hpaApplyGate(view, view.hpaWorkloads[0], true);
+    const gate = hpaApplyGate(view, view.hpaWorkloads[0], true, null, true);
     expect(gate.enabled).toBe(false);
     expect(gate.reason).toMatch(/Argo CD or Flux/);
     expect(gate.reason).not.toMatch(/GITOPS_MANAGED/);
@@ -276,7 +293,7 @@ describe('hpaApplyGate — gated/greyed with reason', () => {
         horizontal: { state: 'CHANGE', minReplicas: 2, maxReplicas: 6, targetCpuUtilizationPct: 80, reasons: ['HPA_RECOMMENDED_NEW'], formula: null, autoApplyEligible: false } as VerticalWorkloadWire['horizontal'],
       }),
     ]);
-    const gate = hpaApplyGate(view, view.hpaWorkloads[0], true);
+    const gate = hpaApplyGate(view, view.hpaWorkloads[0], true, null, true);
     expect(gate.enabled).toBe(false);
     expect(gate.reason).toMatch(/never creates an HPA/);
   });
@@ -287,7 +304,7 @@ describe('hpaApplyGate — gated/greyed with reason', () => {
         horizontal: { state: 'NO_CHANGE', minReplicas: null, maxReplicas: null, targetCpuUtilizationPct: null, reasons: ['PDB_FLOOR_BINDS'] },
       }),
     ]);
-    const gate = hpaApplyGate(view, view.hpaWorkloads[0], true);
+    const gate = hpaApplyGate(view, view.hpaWorkloads[0], true, null, true);
     expect(gate.enabled).toBe(false);
     expect(gate.reason).toMatch(/PodDisruptionBudget/);
   });

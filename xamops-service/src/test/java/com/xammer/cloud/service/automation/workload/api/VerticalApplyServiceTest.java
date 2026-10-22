@@ -46,7 +46,9 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -1101,6 +1103,104 @@ class VerticalApplyServiceTest {
                 .isEqualTo("RECOMMEND");
         assertThat(service().setMode(principal(), readWriteAccount(), TARGET, REF, "OFF").mode())
                 .isEqualTo("OFF");
+    }
+
+    // ---------------------------------------------------------------- the activity log (FEAT-007)
+
+    @Test
+    @DisplayName("activity log: a dry run is recorded as an attempt (a test run), never as an apply")
+    void aDryRunIsRecordedAsATestRun() {
+        when(executor.submit(any(), any(), any())).thenReturn(ActionSubmission.accepted("ignored"));
+        when(executor.proof(anyString())).thenReturn(Optional.of(new ResizeProof(
+                ResizeProof.Outcome.DRY_RUN, "Dry run: no patch was sent to the cluster.", false,
+                List.of(), List.of())));
+
+        service().apply(principal(), readWriteAccount(), TARGET, REF, body(true));
+
+        verify(actionRecorder).recordAttempt(eq(7L), eq(TARGET), eq(REF),
+                eq(com.xammer.cloud.service.automation.workload.ActionTrigger.MANUAL), eq(true),
+                any(), any(ResizeProof.class), eq(Instant.parse("2026-10-11T12:00:00Z")));
+        verify(actionRecorder, never()).recordRefusal(any(), any(), any(), any(), anyBoolean(), any(),
+                any(), any());
+    }
+
+    @Test
+    @DisplayName("activity log: a deferral that was put back is recorded as an attempt that changed no pod")
+    void aPutBackDeferralIsRecordedAsNotChanged() {
+        when(executor.submit(any(), any(), any())).thenReturn(ActionSubmission.accepted("ignored"));
+        ResizeProof putBack = new ResizeProof(ResizeProof.Outcome.DEFERRED, "Deferred, and put back.", false,
+                List.of(), List.of(podProof(GUARANTEED_1CPU_1GI, new ResizeProof.Revert(
+                ResizeProof.RevertState.REVERTED, "Put back."))));
+        when(executor.proof(anyString())).thenReturn(Optional.of(putBack));
+
+        ApplyResponseDto response = service().apply(principal(), readWriteAccount(), TARGET, REF, body(false));
+
+        verify(actionRecorder).recordAttempt(eq(7L), eq(TARGET), eq(REF),
+                eq(com.xammer.cloud.service.automation.workload.ActionTrigger.MANUAL), eq(false),
+                any(), eq(putBack), eq(Instant.parse("2026-10-11T12:00:00Z")));
+        assertThat(response.result().terminal()).as("the reply is the executor's, unchanged").isEqualTo("DEFERRED");
+    }
+
+    @Test
+    @DisplayName("activity log: an apply that changed a pod is record()ed only, not also as an attempt")
+    void aChangedPodIsNotAlsoAnAttempt() {
+        givenExecutorApplies();
+
+        service().apply(principal(), readWriteAccount(), TARGET, REF, body(false));
+
+        verify(actionRecorder, never()).recordAttempt(any(), any(), any(), any(), anyBoolean(), any(), any(),
+                any());
+    }
+
+    @Test
+    @DisplayName("activity log: a user's refusal is recorded with its code and message, then rethrown unchanged")
+    void aManualRefusalIsRecorded() {
+        CloudAccount readOnly = readWriteAccount();
+        readOnly.setAccessType("read-only");
+
+        VerticalApplyService.ApplyRefusedException refusal = refuse(principal(), readOnly, body(true));
+
+        assertThat(refusal.code()).isEqualTo("K8S_READ_ONLY_CONNECTION");
+        verify(actionRecorder).recordRefusal(eq(7L), eq(TARGET), eq(REF),
+                eq(com.xammer.cloud.service.automation.workload.ActionTrigger.MANUAL), eq(true),
+                eq("K8S_READ_ONLY_CONNECTION"), eq(refusal.getMessage()),
+                eq(Instant.parse("2026-10-11T12:00:00Z")));
+    }
+
+    @Test
+    @DisplayName("activity log: a re-validation refusal is recorded against the workload the apply named")
+    void aRevalidationRefusalIsRecorded() {
+        VerticalApplyService.ApplyRefusedException refusal = refuse(principal(), readWriteAccount(),
+                new ApplyRequestDto(List.of(new ApplyRequestDto.Container("sidecar", 25, 250L, 25, 250L)),
+                        "IN_PLACE", false));
+
+        verify(actionRecorder).recordRefusal(eq(7L), eq(TARGET), eq(REF), any(), eq(false),
+                eq("K8S_INVALID_POLICY"), eq(refusal.getMessage()), any());
+    }
+
+    @Test
+    @DisplayName("activity log: the automatic loop's refusals are never recorded, so it cannot flood the table")
+    void anAutoRefusalIsNotRecorded() {
+        CloudAccount readOnly = readWriteAccount();
+        readOnly.setAccessType("read-only");
+
+        VerticalApplyService.ApplyRefusedException refusal = catchRefusal(() -> service().apply(principal(),
+                readOnly, TARGET, REF, body(false), com.xammer.cloud.service.automation.workload.ActionTrigger.AUTO));
+
+        assertThat(refusal.code()).isEqualTo("K8S_READ_ONLY_CONNECTION");
+        verify(actionRecorder, never()).recordRefusal(any(), any(), any(), any(), anyBoolean(), any(), any(),
+                any());
+    }
+
+    @Test
+    @DisplayName("activity log: the demo identity's refusal is never recorded")
+    void aDemoRefusalIsNotRecorded() {
+        when(writePermission.decide(any(), any())).thenReturn(new AutomationWritePermission.Decision(false,
+                ReasonCode.DEMO, AutomationWritePermission.Detail.DEMO, "Demo.", "K8S_DEMO"));
+
+        assertThat(refuse(principal(), readWriteAccount(), body(true)).code()).isEqualTo("K8S_DEMO");
+        verify(actionRecorder, never()).recordRefusal(any(), any(), any(), any(), anyBoolean(), any(), any(),
+                any());
     }
 
     // ---------------------------------------------------------------- fixtures

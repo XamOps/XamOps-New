@@ -2,6 +2,8 @@ package com.xammer.cloud.service.automation.workload.api;
 
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.security.ClientUserDetails;
+import com.xammer.cloud.security.K8sAutomationAccessService;
+import com.xammer.cloud.service.automation.workload.ActionTrigger;
 import com.xammer.cloud.service.automation.workload.HorizontalAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.HpaReason;
 import com.xammer.cloud.service.automation.workload.WorkloadPolicy;
@@ -20,6 +22,7 @@ import com.xammer.cloud.service.automation.workload.execute.HpaApplyOutcome;
 import com.xammer.cloud.service.automation.workload.execute.HpaPatchClient;
 import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
 import com.xammer.cloud.service.automation.workload.inventory.UpstreamVpaReader;
+import com.xammer.cloud.service.automation.workload.policy.WorkloadActionRecorder;
 import com.xammer.cloud.service.automation.workload.policy.WorkloadPolicyService;
 import com.xammer.cloud.service.automation.workload.usage.VerticalMetricsProperties;
 import io.fabric8.kubernetes.api.model.autoscaling.v2.HorizontalPodAutoscaler;
@@ -92,6 +95,8 @@ public class HpaApplyService {
     private final HpaPatchClient patchClient;
     private final HpaApplyExecutor executor;
     private final WorkloadPolicyService policyService;
+    /** The activity log; null records nothing (the constructor the gate tests use). */
+    private final WorkloadActionRecorder actionRecorder;
     private final VerticalMetricsProperties metricsProperties;
     private final Clock clock;
 
@@ -104,11 +109,13 @@ public class HpaApplyService {
                            HpaPatchClient patchClient,
                            HpaApplyExecutor executor,
                            WorkloadPolicyService policyService,
+                           WorkloadActionRecorder actionRecorder,
                            VerticalMetricsProperties metricsProperties) {
         this(properties, writePermission, accessProviders, inventory, vpaReader, patchClient, executor,
-                policyService, metricsProperties, Clock.systemUTC());
+                policyService, actionRecorder, metricsProperties, Clock.systemUTC());
     }
 
+    /** Records nothing in the activity log. */
     HpaApplyService(HorizontalAutoscalingProperties properties,
                     AutomationWritePermission writePermission,
                     List<ClusterAccessProvider> accessProviders,
@@ -119,6 +126,21 @@ public class HpaApplyService {
                     WorkloadPolicyService policyService,
                     VerticalMetricsProperties metricsProperties,
                     Clock clock) {
+        this(properties, writePermission, accessProviders, inventory, vpaReader, patchClient, executor,
+                policyService, null, metricsProperties, clock);
+    }
+
+    HpaApplyService(HorizontalAutoscalingProperties properties,
+                    AutomationWritePermission writePermission,
+                    List<ClusterAccessProvider> accessProviders,
+                    ClusterWorkloadInventory inventory,
+                    UpstreamVpaReader vpaReader,
+                    HpaPatchClient patchClient,
+                    HpaApplyExecutor executor,
+                    WorkloadPolicyService policyService,
+                    WorkloadActionRecorder actionRecorder,
+                    VerticalMetricsProperties metricsProperties,
+                    Clock clock) {
         this.properties = properties;
         this.writePermission = writePermission;
         this.inventory = inventory;
@@ -126,6 +148,7 @@ public class HpaApplyService {
         this.patchClient = patchClient;
         this.executor = executor;
         this.policyService = policyService;
+        this.actionRecorder = actionRecorder;
         this.metricsProperties = metricsProperties;
         this.clock = clock;
         List<ClusterAccessProvider> ordered = new ArrayList<>(
@@ -141,9 +164,25 @@ public class HpaApplyService {
     public HpaApplyResponseDto apply(ClientUserDetails principal, CloudAccount account,
                                      ClusterTarget target, WorkloadRef workloadRef,
                                      HpaApplyRequestDto request) {
+        AuditSubject subject = new AuditSubject(workloadRef);
+        HpaApplyOutcome outcome;
+        try {
+            outcome = submit(principal, account, target, workloadRef, request, subject);
+        } catch (VerticalApplyService.ApplyRefusedException refused) {
+            recordRefusal(target, subject, request, refused);
+            throw refused;
+        }
+        // Outside the refusal recording on purpose: an executor outcome that answers as a failure or a
+        // refusal has already been recorded once, with its bounds, by recordOutcome.
+        return toResponse(outcome);
+    }
+
+    private HpaApplyOutcome submit(ClientUserDetails principal, CloudAccount account,
+                                   ClusterTarget target, WorkloadRef workloadRef,
+                                   HpaApplyRequestDto request, AuditSubject subject) {
         requirePermission(principal, account);
         requireWriteConnection(account);
-        requireControllerReady();
+        requireControllerReady(account);
 
         Submitted submitted = requireBody(request);
 
@@ -164,6 +203,10 @@ public class HpaApplyService {
                     .orElseThrow(() -> invalid("name", "This cluster has no " + workloadRef.kind()
                             + " " + workloadRef.describe() + " that XamOps can tune, so there is"
                             + " nothing to apply."));
+            if (workload.hpa() != null && workload.hpa().targets(workload.ref())) {
+                // From here on a refusal is recorded against the HPA itself.
+                subject.resolve(workload.hpa().namespace(), workload.hpa().name());
+            }
 
             // Fail-safe: a mutating or unreadable native VPA owns the requests, but the HPA still
             // tunes bounds -- except an unreadable VPA, which yields the whole workload.
@@ -204,13 +247,101 @@ public class HpaApplyService {
                 policyService.recordApplied(target.clientId(), target.clusterConfigId(),
                         workload.ref(), policy, clock.instant());
             }
+            recordOutcome(target, command, hpa, outcome);
 
             logger.info("HPA apply {} for {} on {}: submit {} terminal {}", command.correlationId(),
                     workload.ref().describe(), target.describe(), outcome.submitState(),
                     outcome.terminal());
 
-            return toResponse(outcome);
+            return outcome;
         }
+    }
+
+    // ---------------------------------------------------------------- the activity log
+
+    /**
+     * What a refusal's audit row names: the HPA once the inventory has resolved it, and until then
+     * the workload's own name under the HPA kind, which the row's detail then says.
+     */
+    private static final class AuditSubject {
+
+        private final WorkloadRef workload;
+        private WorkloadRef hpa;
+
+        private AuditSubject(WorkloadRef workload) {
+            this.workload = workload;
+        }
+
+        private void resolve(String namespace, String name) {
+            if (namespace != null && !namespace.isBlank() && name != null && !name.isBlank()) {
+                hpa = WorkloadRef.of(namespace, WorkloadActionRecorder.KIND_HPA, name);
+            }
+        }
+    }
+
+    /**
+     * Records every executor outcome once: {@code before} is the live HPA read for re-validation,
+     * {@code after} the bounds the command set (or, on a dry run, would have set), a field the body
+     * left alone keeping its live value. A dry run is recorded as a test run.
+     */
+    private void recordOutcome(ClusterTarget target, HpaActionCommand command, HorizontalPodAutoscaler live,
+                               HpaApplyOutcome outcome) {
+        if (actionRecorder == null) {
+            return;
+        }
+        WorkloadActionRecorder.HpaBounds before = liveBounds(live);
+        WorkloadActionRecorder.HpaBounds after = new WorkloadActionRecorder.HpaBounds(
+                command.minReplicas() != null ? command.minReplicas() : before.minReplicas(),
+                command.maxReplicas() != null ? command.maxReplicas() : before.maxReplicas(),
+                command.targetUtilizationPct() != null
+                        ? command.targetUtilizationPct() : before.targetUtilizationPct());
+        actionRecorder.recordHpa(target.clientId(), target, command.hpaNamespace(), command.hpaName(),
+                ActionTrigger.MANUAL, command.dryRun(), before, after,
+                command.dryRun() ? WorkloadActionRecorder.OUTCOME_TEST_RUN : outcome.terminal().name(),
+                outcome.detail(), outcome.correlationId(), clock.instant());
+    }
+
+    /**
+     * A user's refusal, recorded against the HPA when it is known (never the demo identity's; every
+     * HPA apply is a user's). Rethrown unchanged by the caller, so the response does not depend on it.
+     */
+    private void recordRefusal(ClusterTarget target, AuditSubject subject, HpaApplyRequestDto request,
+                               VerticalApplyService.ApplyRefusedException refused) {
+        if (actionRecorder == null
+                || !VerticalApplyService.recordsRefusal(ActionTrigger.MANUAL, refused.code())) {
+            return;
+        }
+        WorkloadRef workload = subject.workload;
+        WorkloadRef ref = subject.hpa;
+        String message = refused.getMessage();
+        if (ref == null && workload != null) {
+            ref = WorkloadRef.of(workload.namespace(), WorkloadActionRecorder.KIND_HPA, workload.name());
+            message = message + " (Recorded under the name of " + workload.kind() + " "
+                    + workload.describe() + ": its HPA had not been read yet.)";
+        }
+        actionRecorder.recordRefusal(target == null ? null : target.clientId(), target, ref,
+                ActionTrigger.MANUAL, request != null && Boolean.TRUE.equals(request.dryRun()),
+                refused.code(), message, clock.instant());
+    }
+
+    /** The live HPA's bounds and CPU target; a field the HPA does not set is null. */
+    private static WorkloadActionRecorder.HpaBounds liveBounds(HorizontalPodAutoscaler hpa) {
+        if (hpa == null || hpa.getSpec() == null) {
+            return new WorkloadActionRecorder.HpaBounds(null, null, null);
+        }
+        Integer cpuTarget = null;
+        if (hpa.getSpec().getMetrics() != null) {
+            for (MetricSpec metric : hpa.getSpec().getMetrics()) {
+                if (RESOURCE.equals(metric.getType()) && metric.getResource() != null
+                        && CPU.equals(metric.getResource().getName())
+                        && metric.getResource().getTarget() != null) {
+                    cpuTarget = metric.getResource().getTarget().getAverageUtilization();
+                    break;
+                }
+            }
+        }
+        return new WorkloadActionRecorder.HpaBounds(hpa.getSpec().getMinReplicas(),
+                hpa.getSpec().getMaxReplicas(), cpuTarget);
     }
 
     private static HpaApplyResponseDto toResponse(HpaApplyOutcome outcome) {
@@ -272,12 +403,20 @@ public class HpaApplyService {
         }
     }
 
-    private void requireControllerReady() {
-        if (!properties.isApplyPermitted()) {
+    /**
+     * HPA-apply readiness derives from the read-write connection, not the standalone
+     * {@code xamops.k8s.automation.readiness.hpa-apply} staging flag: a read-write account on a
+     * feature that is on with an executor wired is ready. The {@link K8sAutomationAccessService#isReadWrite(CloudAccount)}
+     * check is belt-and-braces — {@link #requireWriteConnection(CloudAccount)} already ran — so the
+     * readiness gate can never pass on a read-only connection.
+     */
+    private void requireControllerReady(CloudAccount account) {
+        if (!(properties.isEnabled() && properties.isExecutorPresent()
+                && K8sAutomationAccessService.isReadWrite(account))) {
             throw new VerticalApplyService.ApplyRefusedException(HttpStatus.FORBIDDEN,
                     ReasonCode.CONTROLLER_NOT_READY.refusalCode(), null,
-                    "HPA automation has not been enabled and validated in this environment, so"
-                            + " nothing can be applied.");
+                    "HPA automation is not available in this environment: the HPA feature is off or"
+                            + " no apply path is wired.");
         }
     }
 

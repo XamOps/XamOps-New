@@ -1078,7 +1078,7 @@ export function nodeAutoscalerStatus(
     case 'UNKNOWN':
       return { tone: 'off', icon: 'mdi:help-circle-outline', label: 'Not checked', lines };
     default:
-      return { tone: 'off', icon: 'mdi:minus-circle-outline', label: 'Not running on this cluster', lines: [...lines, "The automation agent isn't installed"] };
+      return { tone: 'off', icon: 'mdi:minus-circle-outline', label: 'Not running on this cluster', lines: [...lines, "The node automation agent isn't installed"] };
   }
 }
 
@@ -1631,12 +1631,12 @@ export function automationAgentLine(
   cluster: CapabilitiesCluster | null,
   dashboard: { kind: 'ok'; data: AutomationDashboardDto } | { kind: 'error'; message: string } | { kind: 'loading' },
 ): NodeChangerLine {
-  if (capsStatus === 'loading') return { id: 'automation-agent', tone: 'off', icon: 'mdi:progress-clock', label: 'XamOps automation agent: checking' };
+  if (capsStatus === 'loading') return { id: 'automation-agent', tone: 'off', icon: 'mdi:progress-clock', label: 'XamOps node automation agent: checking' };
   if (capsStatus === 'error') {
-    return { id: 'automation-agent', tone: 'off', icon: 'mdi:help-circle-outline', label: 'XamOps automation agent: not checked', detail: "XamOps couldn't read this cluster's capabilities." };
+    return { id: 'automation-agent', tone: 'off', icon: 'mdi:help-circle-outline', label: 'XamOps node automation agent: not checked', detail: "XamOps couldn't read this cluster's capabilities." };
   }
   if (!cluster) {
-    return { id: 'automation-agent', tone: 'off', icon: 'mdi:help-circle-outline', label: 'XamOps automation agent: not checked', detail: "This cluster isn't in XamOps's capabilities for the account." };
+    return { id: 'automation-agent', tone: 'off', icon: 'mdi:help-circle-outline', label: 'XamOps node automation agent: not checked', detail: "This cluster isn't in XamOps's capabilities for the account." };
   }
   const agent = cluster.automationAgent;
   const seen = agent?.lastSeenAt ? formatInstant(agent.lastSeenAt) : null;
@@ -1649,21 +1649,21 @@ export function automationAgentLine(
     case 'CONNECTED':
       return {
         id: 'automation-agent', tone: 'good', icon: 'mdi:check-circle',
-        label: `XamOps automation agent: installed (${agent.version ?? 'version not reported'}${seen ? `, last report ${seen}` : ''})`,
+        label: `XamOps node automation agent: installed (${agent.version ?? 'version not reported'}${seen ? `, last report ${seen}` : ''})`,
         detail: settings,
       };
     case 'STALE':
       return {
         id: 'automation-agent', tone: 'warn', icon: 'mdi:clock-alert-outline',
-        label: `XamOps automation agent: installed, but its last report is older than 15 minutes${seen ? ` (${seen})` : ''}.`,
+        label: `XamOps node automation agent: installed, but its last report is older than 15 minutes${seen ? ` (${seen})` : ''}.`,
         detail: settings,
       };
     case 'UNKNOWN':
-      return { id: 'automation-agent', tone: 'off', icon: 'mdi:help-circle-outline', label: 'XamOps automation agent: not checked', detail: settings };
+      return { id: 'automation-agent', tone: 'off', icon: 'mdi:help-circle-outline', label: 'XamOps node automation agent: not checked', detail: settings };
     default:
       return {
         id: 'automation-agent', tone: 'off', icon: 'mdi:minus-circle-outline',
-        label: 'XamOps automation agent: not installed. It is the part of XamOps that empties and packs nodes.',
+        label: 'XamOps node automation agent: not installed. It is the part of XamOps that empties and packs nodes.',
       };
   }
 }
@@ -1772,7 +1772,7 @@ export interface NodeLeverInputs {
   readiness?: Partial<Record<'node-optimizer-actions' | 'evictor-live' | 'rebalancer', string | null>>;
 }
 
-const AGENT_MISSING = "Needs the automation agent, which isn't installed on this cluster.";
+const AGENT_MISSING = "Needs the node automation agent, which isn't installed on this cluster.";
 const NOT_BUILT = 'Not built in XamOps yet.';
 
 /**
@@ -1782,7 +1782,7 @@ const NOT_BUILT = 'Not built in XamOps yet.';
  */
 export function nodeLevers({ agent, provisioners, kpis, idle, readiness = {} }: NodeLeverInputs): NodeLever[] {
   const agentReason = (key: 'node-optimizer-actions' | 'evictor-live' | 'rebalancer') =>
-    agent === 'installed' || agent === 'stale' ? (readiness[key] ?? NOT_BUILT) : agent === 'unknown' ? "XamOps couldn't check the automation agent." : AGENT_MISSING;
+    agent === 'installed' || agent === 'stale' ? (readiness[key] ?? NOT_BUILT) : agent === 'unknown' ? "XamOps couldn't check the node automation agent." : AGENT_MISSING;
   const waiting = kpis.waiting;
   const big = kpis.biggestWaiting;
   const scaleUp = waiting === null
@@ -1811,16 +1811,16 @@ export function nodeLevers({ agent, provisioners, kpis, idle, readiness = {} }: 
       id: 'remove-empty',
       name: 'Remove empty nodes',
       line: 'Empty idle nodes so they can be removed.',
-      verdict: idle === null ? "Not known: the automation agent hasn't reported idle nodes." : idle === 0 ? 'No node is idle.' : `${idle} ${plural(idle, 'node')} ${idle === 1 ? 'is' : 'are'} idle.`,
-      source: "The automation agent's node report",
+      verdict: idle === null ? "Not known: the node automation agent hasn't reported idle nodes." : idle === 0 ? 'No node is idle.' : `${idle} ${plural(idle, 'node')} ${idle === 1 ? 'is' : 'are'} idle.`,
+      source: "The node automation agent's node report",
       reason: agentReason('node-optimizer-actions'),
     },
     {
       id: 'bin-packing',
       name: 'Bin-packing',
       line: 'Move pods off a node when they all fit elsewhere.',
-      verdict: agent === 'installed' || agent === 'stale' ? "Not shown yet: the automation agent's fit check isn't read here." : "Not known: the fit check runs in the automation agent.",
-      source: 'Fit check by the automation agent',
+      verdict: agent === 'installed' || agent === 'stale' ? "Not shown yet: the node automation agent's fit check isn't read here." : "Not known: the fit check runs in the node automation agent.",
+      source: 'Fit check by the node automation agent',
       reason: agentReason('evictor-live'),
     },
     {

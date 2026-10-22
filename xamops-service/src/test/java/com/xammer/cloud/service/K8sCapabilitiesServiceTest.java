@@ -183,6 +183,40 @@ class K8sCapabilitiesServiceTest {
         });
     }
 
+    @Test
+    void hpaApplyReadinessDerivesFromAReadWriteConnection_withTheStandalonePropertyFalse() {
+        // The standalone hpa-apply readiness property is left false; tenant A is read-write.
+        assertThat(readiness.isHpaApply()).isFalse();
+
+        K8sCapabilitiesDto dto = capabilities();
+
+        assertThat(dto.connection().accessLevel()).isEqualTo("READ_WRITE");
+        assertThat(dto.readiness().get("hpa-apply")).satisfies(r -> {
+            assertThat(r.ready()).isTrue();
+            assertThat(r.reason()).isNull();
+            assertThat(r.message()).isNull();
+        });
+        // Every other key is untouched by the derivation (still read from the properties).
+        assertThat(dto.readiness().get("vpa-apply").ready()).isFalse();
+        assertThat(dto.readiness().get("vertical-rightsizing").ready()).isFalse();
+    }
+
+    @Test
+    void hpaApplyReadinessIsFalseForAReadOnlyConnection_withTheStandalonePropertyFalse() {
+        world.tenantA.setAccessType("read-only");
+        assertThat(readiness.isHpaApply()).isFalse();
+
+        K8sCapabilitiesDto dto = capabilities();
+
+        assertThat(dto.connection().accessLevel()).isEqualTo("READ_ONLY");
+        assertThat(dto.readiness().get("hpa-apply")).satisfies(r -> {
+            assertThat(r.ready()).isFalse();
+            assertThat(r.reason()).isEqualTo("CONTROLLER_NOT_READY");
+            assertThat(r.message())
+                    .isEqualTo("Automated HPA changes are disabled until the HPA manager passes safety validation.");
+        });
+    }
+
     // ── XamOps agent thresholds ───────────────────────────────────────────
 
     @Test

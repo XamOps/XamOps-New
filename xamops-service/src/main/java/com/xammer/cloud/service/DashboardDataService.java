@@ -136,6 +136,15 @@ public class DashboardDataService {
     @Autowired
     private com.xammer.cloud.service.security.IamPrivilegeAnalyzer iamPrivilegeAnalyzer;
 
+    /**
+     * Resolves a GCP project's billing currency and its billed-rate USD month-to-date spend,
+     * so the unified dashboard converts GCP cost at GCP's own exchange rate rather than a
+     * hardcoded INR constant. Field-injected for the same reason as {@code iamPrivilegeAnalyzer}
+     * — the constructor is already saturated and a new parameter would touch every call site.
+     */
+    @Autowired
+    private com.xammer.cloud.service.gcp.GcpCostService gcpCostService;
+
     // Dedicated executor for background data-fetch lambdas (IAM, CloudWatch, etc.)
     // Keeps AWS-Async-* threads free for HTTP-facing requests
     private final TaskExecutor backgroundTaskExecutor;
@@ -1511,10 +1520,41 @@ public class DashboardDataService {
             GcpDashboardData data = dataList.get(i);
             CloudAccount acc = accounts.get(i);
 
-            // Convert GCP costs from INR to USD
-            double mtdUsd = currencyConversionService.inrToUsd(data.getMonthToDateSpend());
-            double forecastUsd = currencyConversionService.inrToUsd(data.getForecastedSpend());
-            double lastMonthUsd = currencyConversionService.inrToUsd(data.getLastMonthSpend());
+            // Convert GCP cost to USD at GCP's own billed exchange rate (not a hardcoded
+            // INR constant). A USD-billed project passes through unchanged; a non-USD project
+            // is scaled by the effective billed rate derived from the export's
+            // currency_conversion_rate. If no USD figure is available we keep the native value
+            // and warn once, mirroring the Azure pattern.
+            String projectId = acc.getGcpProjectId();
+            String gcpCurrency = gcpCostService.getProjectCurrencyCode(projectId);
+            double mtdNative = data.getMonthToDateSpend();
+
+            double mtdUsd;
+            double forecastUsd;
+            double lastMonthUsd;
+            // null for USD/unknown/no-conversion => figures pass through unchanged.
+            Double effectiveRate = null;
+
+            if (gcpCurrency == null || gcpCurrency.isBlank() || "USD".equalsIgnoreCase(gcpCurrency)) {
+                mtdUsd = mtdNative;
+                forecastUsd = data.getForecastedSpend();
+                lastMonthUsd = data.getLastMonthSpend();
+            } else {
+                Optional<Double> mtdUsdOpt = gcpCostService.getUnfilteredMonthToDateSpendUsd(projectId);
+                if (mtdUsdOpt.isPresent() && mtdNative > 0) {
+                    mtdUsd = mtdUsdOpt.get();
+                    effectiveRate = mtdUsd / mtdNative;
+                    forecastUsd = data.getForecastedSpend() * effectiveRate;
+                    lastMonthUsd = data.getLastMonthSpend() * effectiveRate;
+                } else {
+                    // No billed USD available — keep native and warn once, like Azure.
+                    mtdUsd = mtdNative;
+                    forecastUsd = data.getForecastedSpend();
+                    lastMonthUsd = data.getLastMonthSpend();
+                    logger.warn("GCP project {} reports {} but no USD conversion was available; "
+                            + "using native figures unchanged in the unified dashboard", projectId, gcpCurrency);
+                }
+            }
 
             totalMTD += mtdUsd;
             totalForecast += forecastUsd;
@@ -1581,26 +1621,18 @@ public class DashboardDataService {
                 List<String> labels = data.getCostHistory().getLabels();
                 List<Double> costs = data.getCostHistory().getCosts();
                 for (int j = 0; j < labels.size(); j++) {
-                    // Note: Labels are already converted to USD if they came from individual
-                    // account fetch,
-                    // but here aggregateGcpDashboardData is also applying INR_TO_USD_RATE.
-                    // Wait, let's check if GcpDataService already converts to USD.
-                    // Yes, it does NOT seem to convert individual history items to USD in
-                    // GcpDataService.
-                    // Actually, GcpDataService (line 289) says:
-                    // costHistory.setCosts(historyList.stream().map(GcpCostDto::getAmount).collect(Collectors.toList()));
-                    // And historyList comes from gcpCostService.getHistoricalCosts(gcpProjectId).
-                    // Most GCP BigQuery results are in INR.
+                    // USD-billed (or no-conversion) projects pass through unchanged; non-USD
+                    // projects are scaled by the same billed effective rate as MTD.
                     double costValue = costs.get(j);
-                    double costUsd = currencyConversionService.inrToUsd(costValue);
+                    double costUsd = effectiveRate != null ? costValue * effectiveRate : costValue;
                     costHistoryMap.merge(labels.get(j), costUsd, Double::sum);
                 }
             }
 
             if (data.getBillingSummary() != null) {
                 for (GcpCostDto bill : data.getBillingSummary()) {
-                    // Convert billing summary from INR to USD
-                    double billUsd = currencyConversionService.inrToUsd(bill.getAmount());
+                    // Scale billing summary by the billed effective rate (unchanged for USD).
+                    double billUsd = effectiveRate != null ? bill.getAmount() * effectiveRate : bill.getAmount();
                     billingSummaryMap.merge(bill.getName(), billUsd, Double::sum);
                 }
             }
@@ -3557,6 +3589,19 @@ public class DashboardDataService {
         return Math.max(0, (int) Math.round(score));
     }
 
+    /**
+     * Scales a cost series by an effective billed rate, preserving nulls. Returns the input
+     * unchanged when it is null so an absent forecast stays absent.
+     */
+    private static List<Double> scaleCosts(List<Double> costs, double rate) {
+        if (costs == null) {
+            return null;
+        }
+        return costs.stream()
+                .map(c -> c == null ? null : c * rate)
+                .collect(Collectors.toList());
+    }
+
     private DashboardData mapAzureDataToDashboardData(com.xammer.cloud.dto.azure.AzureDashboardData azureData,
             CloudAccount account) {
         DashboardData data = new DashboardData();
@@ -3605,8 +3650,20 @@ public class DashboardDataService {
         // Falls back to the native figure when no USD is available, which is also the correct
         // no-op for a subscription already billed in USD.
         Double azureMtdUsd = azureData.getMonthToDateSpendUsd();
-        mainAccount.setMonthToDateSpend(azureMtdUsd != null ? azureMtdUsd : azureData.getMonthToDateSpend());
-        mainAccount.setForecastedSpend(azureData.getForecastedSpend());
+        double azureMtdNative = azureData.getMonthToDateSpend();
+        mainAccount.setMonthToDateSpend(azureMtdUsd != null ? azureMtdUsd : azureMtdNative);
+
+        // Forecast and cost history must share MTD's currency. When MTD is a billed-rate USD
+        // figure, apply that same effective rate (monthToDateSpendUsd / monthToDateSpend) to the
+        // native forecast and history so the unified view does not mix USD and native. When no
+        // USD MTD exists (USD-billed subscription, or conversion unavailable) the native figures
+        // are already correct and pass through unchanged.
+        Double azureEffectiveRate = (azureMtdUsd != null && azureMtdNative > 0)
+                ? azureMtdUsd / azureMtdNative
+                : null;
+        mainAccount.setForecastedSpend(azureEffectiveRate != null
+                ? azureData.getForecastedSpend() * azureEffectiveRate
+                : azureData.getForecastedSpend());
         if (azureMtdUsd == null && azureData.getCurrency() != null
                 && !"USD".equalsIgnoreCase(azureData.getCurrency())) {
             logger.warn("[Unified] Azure subscription {} reports {} but no USD conversion — its spend is "
@@ -3615,9 +3672,14 @@ public class DashboardDataService {
         }
 
         if (azureData.getCostHistory() != null) {
+            // Only the cost values carry currency; getForecast() is a per-point boolean flag
+            // marking which labels are projections, so it passes through unchanged.
+            List<Double> azCosts = azureEffectiveRate != null
+                    ? scaleCosts(azureData.getCostHistory().getCosts(), azureEffectiveRate)
+                    : azureData.getCostHistory().getCosts();
             mainAccount.setCostHistory(new DashboardData.CostHistory(
                     azureData.getCostHistory().getLabels(),
-                    azureData.getCostHistory().getCosts(),
+                    azCosts,
                     azureData.getCostHistory().getForecast()));
         }
 

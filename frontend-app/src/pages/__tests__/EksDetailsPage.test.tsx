@@ -361,12 +361,12 @@ describe('cluster page shell', () => {
     expect(topbar()).not.toHaveTextContent('1.33');
   });
 
-  it('shows the XamOps agent and automation agent clocks separately', async () => {
+  it('shows the XamOps agent and node automation agent clocks separately', async () => {
     renderAt(BASE);
     const clocks = screen.getByRole('group', { name: 'Data freshness' });
     await waitFor(() => expect(clocks).toHaveTextContent('data 4 min ago'));
     expect(clocks).toHaveTextContent('XamOps agent');
-    expect(clocks).toHaveTextContent('Automation agent');
+    expect(clocks).toHaveTextContent('Node automation agent');
     expect(clocks).toHaveTextContent(/seen 4\d s ago/);
   });
 

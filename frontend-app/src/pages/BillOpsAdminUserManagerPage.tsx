@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { Icon } from '@iconify/react';
 import { useTopbar } from '../contexts/TopbarContext';
 import { useBillOpsUserManager } from '../hooks/useBillOpsUserManager';
-import type { BillOpsUser, BillOpsRole } from '../types/billopsUserManager';
+import type { BillOpsUser, BillOpsRole, ClientCloudAccount } from '../types/billopsUserManager';
 import NotificationModal from '../components/Shared/NotificationModal';
 import TrialManagementSection from '../components/BillOps/TrialManagementSection';
 import { AlertDialog } from '../components/ui';
@@ -55,9 +55,90 @@ const FieldSelect: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = ({ 
 const BillOpsAdminUserManagerPage: React.FC = () => {
   const {
     users, loading, error, isEditing, selectedUser, roles,
-    newUser, editUser, cancelEdit, saveUser, deleteUser, updateSelectedUser,
+    newUser, editUser, cancelEdit, saveUser, deleteUser, moveUserToClient, updateSelectedUser,
+    toggleAccount, fetchClientCloudAccounts,
     notification, clearNotification, pendingDeleteId, confirmDelete, cancelDelete,
   } = useBillOpsUserManager();
+
+  /* ── Cloud-account access picker state (loaded for the edited user's client) ── */
+  const [clientAccounts, setClientAccounts] = useState<ClientCloudAccount[]>([]);
+  // Search term for filtering the account-access list (scales to hundreds of accounts).
+  const [accountSearch, setAccountSearch]   = useState('');
+
+  // Resolve the client id of the user being edited. The form keys off clientName, so map the
+  // selected form id → its user row to read clientId; fall back to matching clientName.
+  const editingClientId = useMemo<string | number | null>(() => {
+    if (!isEditing) return null;
+    if (selectedUser.id) {
+      const u = users.find(x => String(x.id) === String(selectedUser.id));
+      if (u?.clientId != null) return u.clientId;
+    }
+    if (selectedUser.clientName) {
+      const u = users.find(x => x.clientName === selectedUser.clientName && x.clientId != null);
+      if (u?.clientId != null) return u.clientId;
+    }
+    return null;
+  }, [isEditing, selectedUser.id, selectedUser.clientName, users]);
+
+  // Load the client's cloud accounts whenever the modal opens or the resolved client changes.
+  useEffect(() => {
+    let cancelled = false;
+    if (isEditing && editingClientId != null) {
+      fetchClientCloudAccounts(editingClientId).then(accounts => {
+        if (!cancelled) setClientAccounts(accounts);
+      });
+    } else {
+      setClientAccounts([]);
+    }
+    // Reset the account search each time the picker's data source changes.
+    setAccountSearch('');
+    return () => { cancelled = true; };
+  }, [isEditing, editingClientId, fetchClientCloudAccounts]);
+
+  // Accounts shown in the picker, filtered by the search term (name / provider / accountId).
+  // Case-insensitive substring match; keeps all accounts when the search is empty.
+  const filteredClientAccounts = useMemo(() => {
+    const q = accountSearch.trim().toLowerCase();
+    if (!q) return clientAccounts;
+    return clientAccounts.filter(acc =>
+      (acc.name || '').toLowerCase().includes(q) ||
+      (acc.provider || '').toLowerCase().includes(q) ||
+      (acc.accountId ? String(acc.accountId).toLowerCase().includes(q) : false)
+    );
+  }, [clientAccounts, accountSearch]);
+
+  /* ── Move-user-between-clients modal state ── */
+  const [moveUser, setMoveUser]             = useState<BillOpsUser | null>(null);
+  const [moveTargetClientId, setMoveTargetClientId] = useState<string>('');
+  const [moveSubmitting, setMoveSubmitting] = useState(false);
+
+  // Distinct clients (id + name), derived from the user list — no extra endpoint needed.
+  const clientOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const u of users) {
+      if (u.clientId != null && u.clientName) map.set(String(u.clientId), u.clientName);
+    }
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [users]);
+
+  const openMoveModal = (user: BillOpsUser) => {
+    setMoveUser(user);
+    setMoveTargetClientId('');
+  };
+  const closeMoveModal = () => {
+    setMoveUser(null);
+    setMoveTargetClientId('');
+    setMoveSubmitting(false);
+  };
+  const confirmMove = async () => {
+    if (!moveUser || !moveTargetClientId) return;
+    setMoveSubmitting(true);
+    const ok = await moveUserToClient(moveUser.id, moveTargetClientId);
+    setMoveSubmitting(false);
+    if (ok) closeMoveModal();
+  };
 
   const [searchQuery, setSearchQuery]     = useState('');
   const [filterRole, setFilterRole]       = useState<BillOpsRole | ''>('');
@@ -150,6 +231,65 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
         onConfirm={confirmDelete}
         onCancel={cancelDelete}
       />
+
+      {/* ── Move user to another client ── */}
+      {moveUser && ReactDOM.createPortal(
+        <div
+          className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 p-4"
+          onClick={closeMoveModal}
+        >
+          <div
+            className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-[rgba(0,0,0,0.08)] overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center gap-2">
+              <Icon icon="mdi:swap-horizontal" width={18} className="text-indigo-600" />
+              <h3 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Move user to another client</h3>
+            </div>
+
+            <div className="px-5 py-4 space-y-4">
+              <div className="text-xs text-[rgba(0,0,0,0.6)]">
+                Moving <strong className="text-[rgba(0,0,0,0.88)]">@{moveUser.username}</strong> from{' '}
+                <strong className="text-[rgba(0,0,0,0.88)]">{moveUser.clientName}</strong>. The user keeps all
+                their tickets, credits and access — only the client changes.
+              </div>
+
+              <div>
+                <FormLabel icon="mdi:office-building-outline" text="Destination client" />
+                <FieldSelect
+                  value={moveTargetClientId}
+                  onChange={e => setMoveTargetClientId(e.target.value)}
+                >
+                  <option value="">Select a client…</option>
+                  {clientOptions
+                    .filter(c => String(c.id) !== String(moveUser.clientId))
+                    .map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                </FieldSelect>
+              </div>
+            </div>
+
+            <div className="px-5 py-4 border-t border-[rgba(0,0,0,0.06)] flex items-center justify-end gap-2">
+              <button
+                onClick={closeMoveModal}
+                className="px-3 py-2 text-xs font-semibold text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.04)] rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmMove}
+                disabled={!moveTargetClientId || moveSubmitting}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <Icon icon="mdi:swap-horizontal" width={13} />
+                {moveSubmitting ? 'Moving…' : 'Move user'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Error */}
       {error && (
@@ -309,6 +449,103 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                       );
                     })}
                   </div>
+                </div>
+              )}
+
+              {/* ── Cloud Account Access (any role; shown once the client's accounts load) ── */}
+              {clientAccounts.length > 0 && (
+                <div className="pt-1">
+                  <div className="flex items-center justify-between mb-2">
+                    <FormLabel icon="mdi:cloud-lock-outline" text="Cloud Account Access" />
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Select all currently-visible (filtered) accounts, merged with any
+                          // already-selected accounts hidden by the active search.
+                          const visibleIds = filteredClientAccounts.map(a => a.id);
+                          const merged = Array.from(new Set([...selectedUser.accountAccessIds, ...visibleIds]));
+                          updateSelectedUser('accountAccessIds', merged);
+                        }}
+                        className="text-[10px] font-semibold text-[rgba(0,0,0,0.6)] hover:text-black"
+                      >
+                        {accountSearch.trim() ? 'Select shown' : 'Select all'}
+                      </button>
+                      <span className="text-[rgba(0,0,0,0.15)]">|</span>
+                      <button
+                        type="button"
+                        onClick={() => updateSelectedUser('accountAccessIds', [])}
+                        className="text-[10px] font-semibold text-rose-500 hover:text-rose-700"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-[rgba(0,0,0,0.4)] mb-3">
+                    Leave all unchecked to grant access to every cloud account for this client. Selecting specific accounts restricts the user to only those.
+                  </p>
+                  {/* Search box — filters the list below; scales to hundreds of accounts. */}
+                  <div className="relative mb-2">
+                    <Icon
+                      icon="mdi:magnify"
+                      width={14}
+                      color="rgba(0,0,0,0.35)"
+                      className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                    />
+                    <input
+                      type="text"
+                      value={accountSearch}
+                      onChange={e => setAccountSearch(e.target.value)}
+                      placeholder="Search accounts by name, provider, or account ID"
+                      className="w-full pl-8 pr-8 py-2 text-[11px] border border-[rgba(0,0,0,0.12)] rounded-lg focus:outline-none focus:border-[rgba(0,0,0,0.4)] placeholder:text-[rgba(0,0,0,0.35)]"
+                    />
+                    {accountSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setAccountSearch('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.35)] hover:text-black"
+                        aria-label="Clear account search"
+                      >
+                        <Icon icon="mdi:close-circle" width={14} />
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-[rgba(0,0,0,0.4)] mb-2">
+                    Showing {filteredClientAccounts.length} of {clientAccounts.length} account{clientAccounts.length === 1 ? '' : 's'}
+                    {selectedUser.accountAccessIds.length > 0 ? ` · ${selectedUser.accountAccessIds.length} selected` : ''}
+                  </p>
+                  {filteredClientAccounts.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center gap-1 py-6 text-[rgba(0,0,0,0.35)]">
+                      <Icon icon="mdi:cloud-search-outline" width={22} />
+                      <span className="text-[11px]">No accounts match "{accountSearch}"</span>
+                    </div>
+                  ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-[280px] overflow-y-auto pr-1">
+                    {filteredClientAccounts.map(acc => {
+                      const checked = selectedUser.accountAccessIds.some(id => String(id) === String(acc.id));
+                      return (
+                        <label
+                          key={acc.id}
+                          className="flex items-center gap-2 px-2.5 py-2 border border-[rgba(0,0,0,0.06)] rounded-lg cursor-pointer hover:bg-[rgba(0,0,0,0.02)] transition-colors"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleAccount(acc.id)}
+                            className="w-3.5 h-3.5 rounded accent-[rgba(0,0,0,0.88)] cursor-pointer flex-shrink-0"
+                          />
+                          <Icon icon="mdi:cloud-outline" width={13} color="rgba(0,0,0,0.45)" />
+                          <span className="flex flex-col min-w-0">
+                            <span className="text-[11px] font-medium text-[rgba(0,0,0,0.7)] truncate">{acc.name}</span>
+                            <span className="text-[10px] text-[rgba(0,0,0,0.4)] truncate">
+                              {acc.provider}{acc.accountId ? ` · ${acc.accountId}` : ''}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  )}
                 </div>
               )}
 
@@ -566,6 +803,13 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                                         <Icon icon="mdi:pencil-outline" width={11} />
                                       </button>
                                       <button
+                                        onClick={() => openMoveModal(primary)}
+                                        title="Move to another client"
+                                        className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-semibold bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 rounded-md transition-colors"
+                                      >
+                                        <Icon icon="mdi:swap-horizontal" width={11} />
+                                      </button>
+                                      <button
                                         onClick={() => deleteUser(primary.id)}
                                         title="Delete user"
                                         className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-semibold bg-rose-50 border border-rose-100 text-rose-500 hover:bg-rose-100 rounded-md transition-colors"
@@ -607,6 +851,13 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                                             className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-semibold bg-[rgba(0,0,0,0.03)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.06)] rounded-md transition-colors"
                                           >
                                             <Icon icon="mdi:pencil-outline" width={11} />
+                                          </button>
+                                          <button
+                                            onClick={() => openMoveModal(sub)}
+                                            title="Move to another client"
+                                            className="inline-flex items-center gap-1 px-2 py-1.5 text-[10px] font-semibold bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 rounded-md transition-colors"
+                                          >
+                                            <Icon icon="mdi:swap-horizontal" width={11} />
                                           </button>
                                           <button
                                             onClick={() => deleteUser(sub.id)}

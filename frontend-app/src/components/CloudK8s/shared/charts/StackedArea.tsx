@@ -8,9 +8,11 @@
  * Every layer sets stroke and fill explicitly from chartTokens, so no recharts default colour is
  * emitted. Deterministic and seek-safe: animation is off.
  */
-import { Area, AreaChart, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { ChartDefs } from './ChartDefs';
-import { SERIES, type SeriesKind } from './chartTokens';
+import { useId } from 'react';
+import { Area, AreaChart, CartesianGrid, Line, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { ChartDefs, chartIdSuffix, hatchId } from './ChartDefs';
+import { HATCH, SERIES, type SeriesKind } from './chartTokens';
+import { bandYBounds, type TimeSeriesBand } from './TimeSeriesChart';
 
 export interface StackedLayer {
   dataKey: string;
@@ -27,23 +29,49 @@ export interface StackedAreaProps {
   xKey: string;
   /** A reference line for the stated total (e.g. provisioned/allocatable), drawn in its token. */
   total?: { dataKey: string; name: string; kind: SeriesKind };
+  /** Hatched spans standing for a real quantity, e.g. "No data before {time}" (§3.2). */
+  bands?: TimeSeriesBand[];
   height?: number;
   width?: number;
   ariaLabel?: string;
+  /** Formats a value-axis tick (e.g. `v => `${v} vCPU``). */
+  tickFormat?: (value: number) => string;
 }
 
 const STACK_ID = 'k8s-stack';
 
-export function StackedArea({ data, layers, xKey, total, height = 220, width, ariaLabel }: StackedAreaProps) {
+export function StackedArea({ data, layers, xKey, total, bands = [], height = 220, width, ariaLabel, tickFormat }: StackedAreaProps) {
+  // This chart's own pattern ids, so a band never resolves to another chart's SVG.
+  const suffix = chartIdSuffix(useId());
   const chart = (
     <AreaChart data={data} margin={{ top: 12, right: 12, bottom: 4, left: 4 }} role="img" aria-label={ariaLabel}>
       <defs>
-        <ChartDefs />
+        <ChartDefs suffix={suffix} />
       </defs>
       <CartesianGrid stroke="currentColor" strokeOpacity={0.12} vertical={false} />
-      <XAxis dataKey={xKey} stroke="currentColor" strokeOpacity={0.4} tick={{ fontSize: 11 }} />
-      <YAxis stroke="currentColor" strokeOpacity={0.4} tick={{ fontSize: 11 }} width={36} />
+      <XAxis dataKey={xKey} stroke="currentColor" strokeOpacity={0.4} tick={{ fontSize: 11 }} minTickGap={24} />
+      <YAxis
+        stroke="currentColor"
+        strokeOpacity={0.4}
+        tick={{ fontSize: 11 }}
+        width={tickFormat ? 52 : 36}
+        tickFormatter={tickFormat ? (v: number) => tickFormat(v) : undefined}
+      />
       <Tooltip isAnimationActive={false} />
+
+      {bands.map((band, i) => (
+        <ReferenceArea
+          key={`band-${i}`}
+          x1={band.x1}
+          x2={band.x2}
+          {...bandYBounds(band)}
+          fill={`url(#${hatchId(HATCH[band.kind].id, suffix)})`}
+          fillOpacity={1}
+          stroke="none"
+          ifOverflow="extendDomain"
+          label={band.label ? { value: band.label, fontSize: 11, fill: 'currentColor' } : undefined}
+        />
+      ))}
 
       {layers.map((layer) => {
         const style = SERIES[layer.kind];
