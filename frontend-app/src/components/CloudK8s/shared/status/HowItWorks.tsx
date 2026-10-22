@@ -129,7 +129,12 @@ export function HowItWorks({ chips, policiesHref, policiesLinkState, collapsed =
                 <Icon icon={step.icon} width={14} aria-hidden="true" className="shrink-0" />
                 {i + 1}. {step.title}
               </span>
-              <span className="text-[11px] leading-snug text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]">{step.line}</span>
+              {/* max-w-[66ch]: on the full-width Overview the step rows span the reclaimed content
+                  width, so a single one-liner would stretch thin across the page; a bounded measure
+                  keeps the sentence legible without re-cramming it into a narrow pill (owner
+                  one-sided review; the earlier unclamped-rows fix stays — the chip still spans the
+                  whole row). */}
+              <span className="max-w-[66ch] text-[11px] leading-snug text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]">{step.line}</span>
               {chip && (
                 // A chip's tint is set over the card (design-delta §2.2 opacity rules). On the
                 // highlighted band the two tints would stack and drop its text below AA in dark

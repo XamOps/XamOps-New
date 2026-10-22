@@ -432,11 +432,16 @@ describe('Automation › Overview (§9.1)', () => {
       }
     });
 
-    it('wraps the Overview in the redesigned PageTemplate with the Access rail in the aside', async () => {
+    it('wraps the Overview in the redesigned PageTemplate, full-width, with the Access rail in the aside', async () => {
       await renderPanel(fixture('demo-aws-001'));
       const main = document.querySelector<HTMLElement>('[data-k8s-redesigned-main]');
       expect(main).not.toBeNull();
-      expect(main).toHaveAttribute('data-page-width', 'prose');
+      // Full-width ('table' → max-w-full, the width the Pods tab uses): the Overview fills the
+      // available content area instead of a left-hugging 935px prose column that left a large
+      // right-side gap (owner one-sided review).
+      expect(main).toHaveAttribute('data-page-width', 'table');
+      expect(main?.className).toContain('max-w-full');
+      expect(main?.className).not.toContain('max-w-[935px]');
       // AccessBlock moved into the right rail (aside), not the main column flow.
       const aside = document.querySelector<HTMLElement>('[data-page-aside]');
       expect(aside).not.toBeNull();

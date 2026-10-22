@@ -959,7 +959,14 @@ export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs =
     <PageTemplate
       title="Automation"
       intro="What XamOps can automate on this cluster, what it is doing now and what it has done — each number from a real source."
-      width="prose"
+      // Full-width (max-w-full, the width the Pods tab uses): the Overview fills the available
+      // content area (viewport − the ~220px app sidebar) instead of a left-hugging 935px prose
+      // column that left a large right-side gap (owner one-sided review). The Access card already
+      // sits as the right rail (`aside`); the hero MetricStrip, NOW banner, How-it-works steps and
+      // the "today" table now breathe into the reclaimed width as a balanced full-width page. Long
+      // single paragraphs stay legible via their own max-w-[66ch] (the intro, the step copy), not a
+      // cap on the whole page.
+      width="table"
       hero={hero}
       aside={<AccessBlock caps={caps} clusterName={clusterName} />}
     >
