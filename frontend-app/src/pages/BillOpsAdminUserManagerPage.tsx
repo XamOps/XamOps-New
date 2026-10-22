@@ -510,11 +510,6 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                   <FormLabel icon="mdi:briefcase-outline" text="Designation" />
                   <FieldInput type="text" value={selectedUser.designation} placeholder="e.g. Cloud Engineer" onChange={e => updateSelectedUser('designation', e.target.value)} />
                 </div>
-                <div className="sm:col-span-2">
-                  <FormLabel icon="mdi:lock-outline" text="Password" />
-                  <FieldInput type="password" value={selectedUser.password} required={!selectedUser.id} placeholder={selectedUser.id ? 'Leave blank to keep current password' : 'Enter password'} onChange={e => updateSelectedUser('password', e.target.value)} />
-                </div>
-
                 {selectedUser.parentId && (
                   <div className="sm:col-span-2">
                     <div className="flex items-center gap-2 px-3 py-2.5 bg-[rgba(0,0,0,0.02)] border border-[rgba(0,0,0,0.08)] rounded-lg">

@@ -224,10 +224,6 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             alert('Client Name is required!');
             return;
         }
-        if (!selectedUser.id && !selectedUser.password?.trim()) {
-            alert('Password is required for new users!');
-            return;
-        }
         // Contact is optional, but a malformed one is worse than none: the backend would store it,
         // the notification sender would silently skip it, and it would surface only as "the
         // customer never got their alerts". Mirrors AppUserService.validateContact.
@@ -239,9 +235,11 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
 
         console.log('[UserManager] Saving user:', selectedUser.id ? 'UPDATE' : 'CREATE');
 
-        // Prepare payload
+        // Prepare payload.
+        // Passwordless: accounts authenticate via email + OTP. Never send a password on create;
+        // on update a blank value means "keep current".
         const payload: Partial<BillOpsUserFormData> = { ...selectedUser };
-        if (payload.id && !payload.password?.trim()) {
+        if (!payload.password?.trim()) {
             delete payload.password;
         }
 
