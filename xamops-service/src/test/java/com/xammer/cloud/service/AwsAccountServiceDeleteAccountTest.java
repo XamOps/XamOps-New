@@ -60,7 +60,8 @@ class AwsAccountServiceDeleteAccountTest {
         // getCallerIdentity() returns null; the constructor catches the resulting NPE.
         service = new AwsAccountService(cloudAccountRepository, mock(ClientRepository.class),
                 mock(AwsClientProvider.class), stsClient, mock(CacheService.class),
-                mock(ApplicationEventPublisher.class));
+                mock(ApplicationEventPublisher.class),
+                mock(com.xammer.cloud.service.cur.CurAutoRegistrationService.class));
 
         ReflectionTestUtils.setField(service, "resourceLabelAssignmentRepository",
                 mock(ResourceLabelAssignmentRepository.class));
