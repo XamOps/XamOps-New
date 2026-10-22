@@ -3,18 +3,17 @@ import { CHART, TEXT, HAIRLINE } from './tokens';
 import { usePrefersReducedMotion } from './usePrefersReducedMotion';
 
 /**
- * Hand-built stacked area chart for "Vulnerability findings by severity".
+ * Hand-built multi-line trend chart for "Vulnerability findings by severity".
  *
- * No charting library — raw SVG only, mirroring the XAM Cloud chart toolkit approach:
- * a ResizeObserver measures the container so the chart renders at exact pixel width (no
- * viewBox stretching / blur), Catmull-Rom smoothing turns the series into curved cubic-bezier
- * paths, friendly axis maxima + gridline ticks are computed locally, and hover is a custom
- * crosshair + marker dots + an absolutely-positioned HTML tooltip. Light-theme palette; the
- * series colors come from the shared CHART.areaStroke map so stroke/fill never drift.
+ * No charting library — raw SVG only, mirroring the XAM Cloud chart toolkit (MultiLineChart):
+ * a ResizeObserver measures the container so the chart renders at exact pixel width (no viewBox
+ * stretching / blur), Catmull-Rom smoothing turns each series into a curved cubic-bezier path,
+ * friendly axis maxima + dotted gridline ticks are computed locally, and hover is a custom
+ * crosshair + marker dots + an absolutely-positioned HTML tooltip.
  *
- * Stacked semantics: bands are drawn bottom-up OTHER → HIGH → CRITICAL, each filled between its
- * own cumulative top and the cumulative top of the band below it, so the visible thickness of a
- * band equals that series' value (matching the previous Recharts stackId behavior).
+ * Each severity is its OWN thin 2px smoothed line (not a stacked fill) — the crisp xam-cloud
+ * look. A faint area is washed under the topmost (Critical) line only, for depth without turning
+ * the chart into a solid blob. Series colors come from the shared CHART.areaStroke map.
  */
 
 export interface SeverityAreaDatum {
@@ -24,17 +23,13 @@ export interface SeverityAreaDatum {
   OTHER: number;
 }
 
-/** Drawn order: first entry is the BOTTOM band. */
-const SERIES: { key: 'OTHER' | 'HIGH' | 'CRITICAL'; label: string }[] = [
-  { key: 'OTHER', label: 'Other' },
-  { key: 'HIGH', label: 'High' },
+const SERIES: { key: 'CRITICAL' | 'HIGH' | 'OTHER'; label: string }[] = [
   { key: 'CRITICAL', label: 'Critical' },
+  { key: 'HIGH', label: 'High' },
+  { key: 'OTHER', label: 'Other' },
 ];
 
-/** Legend order: critical first (reads top-down like the stack). */
-const LEGEND = [...SERIES].reverse();
-
-const PAD = { l: 34, r: 8, t: 8, b: 20 };
+const PAD = { l: 34, r: 10, t: 10, b: 20 };
 
 interface Point { x: number; y: number }
 
@@ -108,16 +103,14 @@ export default function SeverityAreaChart({ data, height = 150 }: Props) {
 
   const n = data.length;
 
-  // Cumulative tops per row (OTHER, OTHER+HIGH, OTHER+HIGH+CRITICAL) and the stack total.
-  const { cum, max } = useMemo(() => {
-    const cumRows = data.map((d) => {
-      const other = Number(d.OTHER) || 0;
-      const high = Number(d.HIGH) || 0;
-      const crit = Number(d.CRITICAL) || 0;
-      return { OTHER: other, HIGH: other + high, CRITICAL: other + high + crit };
-    });
-    const peak = Math.max(1, ...cumRows.map((r) => r.CRITICAL));
-    return { cum: cumRows, max: niceMax(peak) };
+  // Independent lines — axis top is the single largest point across all three series, bumped to
+  // a friendly max. A small headroom keeps a flat top line off the very top edge.
+  const max = useMemo(() => {
+    const peak = Math.max(
+      1,
+      ...data.map((d) => Math.max(Number(d.CRITICAL) || 0, Number(d.HIGH) || 0, Number(d.OTHER) || 0)),
+    );
+    return niceMax(peak * 1.15);
   }, [data]);
 
   const iw = Math.max(0, width - PAD.l - PAD.r);
@@ -132,29 +125,26 @@ export default function SeverityAreaChart({ data, height = 150 }: Props) {
     setHover(i >= 0 && i < n ? i : null);
   };
 
-  // Build a closed band path for a series: its own cumulative top, then back along the baseline
-  // below it (the cumulative top of the band beneath, or y=0 for the bottom band).
-  const bandPath = (key: 'OTHER' | 'HIGH' | 'CRITICAL'): string => {
-    const topPts = cum.map((r, i) => ({ x: xAt(i), y: yAt(r[key]) }));
-    const belowVal = (i: number): number =>
-      key === 'OTHER' ? 0 : key === 'HIGH' ? cum[i].OTHER : cum[i].HIGH;
-    const basePts = cum.map((_, i) => ({ x: xAt(i), y: yAt(belowVal(i)) })).reverse();
-    const top = smoothPath(topPts);
-    // Reverse-direction smooth for the lower edge so the fill closes cleanly.
-    const base = smoothPath(basePts).replace(/^M/, 'L');
-    return `${top} ${base} Z`;
-  };
-
   if (width === 0 || n < 1) {
-    // Measure pass (or empty) — render the measuring container only.
     return <div ref={ref} className="w-full" style={{ height }} />;
   }
+
+  const pointsFor = (key: 'CRITICAL' | 'HIGH' | 'OTHER') =>
+    data.map((d, i) => ({ x: xAt(i), y: yAt(Number(d[key]) || 0) }));
+
+  // Faint fill under the Critical line only (closes down to the baseline).
+  const critPts = pointsFor('CRITICAL');
+  const critLine = smoothPath(critPts);
+  const critArea = critPts.length >= 2
+    ? `${critLine} L${xAt(n - 1)},${PAD.t + ih} L${xAt(0)},${PAD.t + ih} Z`
+    : '';
+  const totalWidth = width;
 
   return (
     <div ref={ref} className="relative w-full">
       {/* Legend */}
       <div className="flex items-center gap-4 mb-2">
-        {LEGEND.map((s) => (
+        {SERIES.map((s) => (
           <span key={s.key} className="inline-flex items-center gap-1.5 text-[11px]" style={{ color: TEXT.muted }}>
             <span className="inline-block rounded-full" style={{ width: 7, height: 7, background: CHART.areaStroke[s.key] }} />
             {s.label}
@@ -162,19 +152,16 @@ export default function SeverityAreaChart({ data, height = 150 }: Props) {
         ))}
       </div>
 
-      <svg width={width} height={height} onMouseMove={onMove} onMouseLeave={() => setHover(null)} className="block">
+      <svg width={totalWidth} height={height} onMouseMove={onMove} onMouseLeave={() => setHover(null)} className="block">
         <defs>
-          {SERIES.map((s) => (
-            <linearGradient key={s.key} id={`sev-area-${s.key}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={CHART.areaStroke[s.key]} stopOpacity={0.45} />
-              <stop offset="100%" stopColor={CHART.areaStroke[s.key]} stopOpacity={0.12} />
-            </linearGradient>
-          ))}
-          {/* Wipe-in reveal: a left-to-right clip that animates width unless reduced-motion. */}
+          <linearGradient id="sev-crit-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={CHART.areaStroke.CRITICAL} stopOpacity={0.14} />
+            <stop offset="100%" stopColor={CHART.areaStroke.CRITICAL} stopOpacity={0} />
+          </linearGradient>
           {!reduced && (
-            <clipPath id="sev-area-reveal">
-              <rect x={0} y={0} height={height} width={width}>
-                <animate attributeName="width" from={PAD.l} to={width} dur="0.6s" fill="freeze" calcMode="spline" keySplines="0.22 1 0.36 1" keyTimes="0;1" />
+            <clipPath id="sev-line-reveal">
+              <rect x={0} y={0} height={height} width={totalWidth}>
+                <animate attributeName="width" from={PAD.l} to={totalWidth} dur="0.7s" fill="freeze" calcMode="spline" keySplines="0.22 1 0.36 1" keyTimes="0;1" />
               </rect>
             </clipPath>
           )}
@@ -183,26 +170,23 @@ export default function SeverityAreaChart({ data, height = 150 }: Props) {
         {/* Dotted horizontal gridlines + y labels */}
         {ticks(max).map((t) => (
           <g key={t}>
-            <line x1={PAD.l} x2={width - PAD.r} y1={yAt(t)} y2={yAt(t)} stroke={HAIRLINE} strokeWidth={1} strokeDasharray="2 5" />
+            <line x1={PAD.l} x2={totalWidth - PAD.r} y1={yAt(t)} y2={yAt(t)} stroke={HAIRLINE} strokeWidth={1} strokeDasharray="2 5" />
             <text x={PAD.l - 6} y={yAt(t) + 3} textAnchor="end" fontSize={10} fill={TEXT.faint} fontFamily="var(--font-mono, ui-monospace, monospace)">
               {fmtAxis(t)}
             </text>
           </g>
         ))}
 
-        {/* Stacked bands, bottom-up, under the reveal clip */}
-        <g clipPath={reduced ? undefined : 'url(#sev-area-reveal)'}>
-          {SERIES.map((s) => (
-            <path key={s.key} d={bandPath(s.key)} fill={`url(#sev-area-${s.key})`} stroke="none" />
-          ))}
-          {/* Top stroke of each cumulative edge for crisp separation */}
+        {/* Lines (+ faint Critical fill), under the left-to-right reveal clip */}
+        <g clipPath={reduced ? undefined : 'url(#sev-line-reveal)'}>
+          {critArea && <path d={critArea} fill="url(#sev-crit-fill)" stroke="none" />}
           {SERIES.map((s) => (
             <path
-              key={`stroke-${s.key}`}
-              d={smoothPath(cum.map((r, i) => ({ x: xAt(i), y: yAt(r[s.key]) })))}
+              key={s.key}
+              d={smoothPath(pointsFor(s.key))}
               fill="none"
               stroke={CHART.areaStroke[s.key]}
-              strokeWidth={1.5}
+              strokeWidth={2}
               strokeLinejoin="round"
               strokeLinecap="round"
             />
@@ -221,7 +205,7 @@ export default function SeverityAreaChart({ data, height = 150 }: Props) {
           <>
             <line x1={xAt(hover)} x2={xAt(hover)} y1={PAD.t} y2={PAD.t + ih} stroke={HAIRLINE} strokeWidth={1} />
             {SERIES.map((s) => (
-              <circle key={s.key} cx={xAt(hover)} cy={yAt(cum[hover][s.key])} r={3} fill={CHART.areaStroke[s.key]} stroke="#ffffff" strokeWidth={1.5} />
+              <circle key={s.key} cx={xAt(hover)} cy={yAt(Number(data[hover][s.key]) || 0)} r={3.5} fill={CHART.areaStroke[s.key]} stroke="#ffffff" strokeWidth={1.5} />
             ))}
           </>
         )}
@@ -232,7 +216,7 @@ export default function SeverityAreaChart({ data, height = 150 }: Props) {
         <div
           className="pointer-events-none absolute z-10 rounded-md px-2.5 py-2"
           style={{
-            left: Math.min(xAt(hover) + 10, width - 150),
+            left: Math.min(xAt(hover) + 10, totalWidth - 150),
             top: PAD.t + 26,
             background: '#ffffff',
             border: `1px solid ${HAIRLINE}`,
@@ -240,7 +224,7 @@ export default function SeverityAreaChart({ data, height = 150 }: Props) {
           }}
         >
           <div className="mb-1 font-mono text-[10px]" style={{ color: TEXT.muted }}>{String(data[hover].date)}</div>
-          {LEGEND.map((s) => (
+          {SERIES.map((s) => (
             <div key={s.key} className="flex items-center gap-1.5 py-px text-[11px]" style={{ color: TEXT.body }}>
               <span className="inline-block rounded-full" style={{ width: 6, height: 6, background: CHART.areaStroke[s.key] }} />
               <span className="mr-3">{s.label}</span>
