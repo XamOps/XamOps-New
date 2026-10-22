@@ -1,14 +1,12 @@
 import React, { useMemo } from 'react';
 import { Icon } from '@iconify/react';
 import { Link } from 'react-router-dom';
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, Legend as ReLegend } from 'recharts';
 import type {
   XamSecureSummary, IssueSummary, PageResp, ThreatDetection, ThreatStoriesSummary, VulnerabilityDashboard,
 } from '../../types/xamsecure';
 import { SEVERITY_ORDER } from '../../types/xamsecure';
 import TrendDelta from './TrendDelta';
-import LightTooltip from './ui/LightTooltip';
-import ChartGradients, { areaGradientId } from './ui/ChartGradients';
+import SeverityAreaChart, { type SeverityAreaDatum } from './ui/SeverityAreaChart';
 import ThreatFunnel from './ui/ThreatFunnel';
 import TrendBars from './ui/TrendBars';
 import CountUp from './ui/CountUp';
@@ -17,9 +15,8 @@ import SectionHeader from './ui/SectionHeader';
 import SeverityDot from './ui/SeverityDot';
 import SeverityPill from './ui/SeverityPill';
 import SeverityBarStrip from './ui/SeverityBarStrip';
-import { usePrefersReducedMotion } from './ui/usePrefersReducedMotion';
 import {
-  CHART, TEXT, HAIRLINE, HAIRLINE_SOFT, ACCENT, SHADOW, SURFACE, SEVERITY,
+  TEXT, HAIRLINE, HAIRLINE_SOFT, ACCENT, SHADOW, SURFACE, SEVERITY,
   panelStyle, focalPanelStyle,
 } from './ui/tokens';
 
@@ -95,7 +92,6 @@ function last7Days(): { key: string; label: string }[] {
 const OverviewTab: React.FC<Props> = ({
   summary, issues, threats, stories, vulnDashboard, isLoading, onOpenStory,
 }) => {
-  const reducedMotion = usePrefersReducedMotion();
   const days = useMemo(() => last7Days(), []);
   const activeStories = stories?.activeCount ?? 0;
   const storyList = stories?.stories ?? [];
@@ -156,7 +152,19 @@ const OverviewTab: React.FC<Props> = ({
   }, [findingsOverTime]);
 
   const threatFeed = useMemo(() => (threats?.content ?? []).slice(0, 3), [threats]);
-  const severityOverTime = vulnDashboard?.severityOverTime ?? [];
+
+  // Normalize the severityOverTime rows (Record<string, number|string>) into the typed shape the
+  // hand-built SVG chart expects. Same series the previous Recharts stack read: CRITICAL/HIGH/OTHER
+  // keyed by date.
+  const severityOverTime = useMemo<SeverityAreaDatum[]>(
+    () => (vulnDashboard?.severityOverTime ?? []).map((row) => ({
+      date: String(row.date ?? ''),
+      CRITICAL: Number(row.CRITICAL) || 0,
+      HIGH: Number(row.HIGH) || 0,
+      OTHER: Number(row.OTHER) || 0,
+    })),
+    [vulnDashboard],
+  );
 
   if (isLoading && !summary && !issues) {
     return <div className="text-center py-16 text-sm" style={{ color: TEXT.muted }}>Loading security overview...</div>;
@@ -285,20 +293,8 @@ const OverviewTab: React.FC<Props> = ({
                   No vulnerability data.
                 </div>
               ) : (
-                <div className="flex-1 mt-3" style={{ width: '100%', minHeight: 150 }}>
-                  <ResponsiveContainer width="100%" height={150}>
-                    <AreaChart data={severityOverTime} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                      <ChartGradients />
-                      <CartesianGrid strokeDasharray="4 4" stroke={HAIRLINE} vertical={false} />
-                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: TEXT.faint }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: TEXT.faint }} axisLine={false} tickLine={false} width={34} />
-                      <Tooltip content={<LightTooltip />} cursor={{ stroke: HAIRLINE, strokeWidth: 1 }} />
-                      <ReLegend wrapperStyle={{ fontSize: 11, paddingTop: 8, color: TEXT.muted }} />
-                      <Area type="monotone" dataKey="CRITICAL" name="Critical" stackId="1" stroke={CHART.areaStroke.CRITICAL} strokeWidth={1.5} fill={`url(#${areaGradientId('CRITICAL')})`} isAnimationActive={!reducedMotion} animationDuration={600} animationEasing="ease-out" />
-                      <Area type="monotone" dataKey="HIGH" name="High" stackId="1" stroke={CHART.areaStroke.HIGH} strokeWidth={1.5} fill={`url(#${areaGradientId('HIGH')})`} isAnimationActive={!reducedMotion} animationDuration={600} animationEasing="ease-out" />
-                      <Area type="monotone" dataKey="OTHER" name="Other" stackId="1" stroke={CHART.areaStroke.OTHER} strokeWidth={1.5} fill={`url(#${areaGradientId('OTHER')})`} isAnimationActive={!reducedMotion} animationDuration={600} animationEasing="ease-out" />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                <div className="flex-1 mt-3">
+                  <SeverityAreaChart data={severityOverTime} height={150} />
                 </div>
               )}
             </div>
