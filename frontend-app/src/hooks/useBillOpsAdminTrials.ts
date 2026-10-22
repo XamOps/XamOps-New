@@ -2,8 +2,8 @@
  * useBillOpsAdminTrials Hook
  *
  * Backs the Trial Management section of the BillOps admin user manager:
- * - GET  /api/billops/admin/trials?includeConverted=true  (list, converted tenants included)
- * - POST /api/billops/admin/trials/{clientId}/extend      (body values must be STRINGS)
+ * - GET  /api/billops/admin/trials                   (live trials only — see LIST_URL)
+ * - POST /api/billops/admin/trials/{clientId}/extend (body values must be STRINGS)
  * - POST /api/billops/admin/trials/{clientId}/convert
  *
  * Deliberately NOT cached in localStorage, unlike useBillOpsAdminCredits and
@@ -24,7 +24,16 @@ import type {
   UseBillOpsAdminTrialsReturn,
 } from '../types/billopsAdminTrials';
 
-const LIST_URL = '/api/billops/admin/trials?includeConverted=true';
+/**
+ * Live trials only — deliberately WITHOUT `?includeConverted=true`.
+ *
+ * Converting a tenant graduates it out of trial management: it keeps its own client (named from
+ * the company name given at signup) and lives on as an ordinary paid client in the list below,
+ * so leaving it in this table would permanently pad a queue of work with tenants that need none.
+ * The conversion is still recorded on the client (`plan_type=PAID`, `trial_status=CONVERTED`),
+ * and the endpoint's `includeConverted` flag remains the audit view over that history.
+ */
+const LIST_URL = '/api/billops/admin/trials';
 
 /**
  * One extractor for every failing response.

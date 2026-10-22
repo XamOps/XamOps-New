@@ -144,7 +144,9 @@ const TrialManagementSection: React.FC = () => {
         ? `Trial extended. This tenant is back on a TRIAL plan and is trial-gated again — every user under it will be blocked with 402 once the trial ends. ${until}`
         : `Trial extended. ${until}`;
     }
-    return `Tenant ${lastResult.clientId} is now PAID and no longer trial-gated. No subscription or invoice record was created.`;
+    return `Tenant ${lastResult.clientId} is now PAID and no longer trial-gated. It has left this `
+      + `table and keeps its own client below, where you can add users to it like any other. `
+      + `No subscription or invoice record was created.`;
   };
 
   return (
@@ -189,7 +191,7 @@ const TrialManagementSection: React.FC = () => {
         <div className="flex flex-col items-center justify-center py-12 gap-2">
           <Icon icon="mdi:information-outline" width={24} color="rgba(0,0,0,0.2)" />
           <p className="text-sm font-semibold text-[rgba(0,0,0,0.5)]">No Trial Tenants</p>
-          <p className="text-xs text-[rgba(0,0,0,0.35)]">Nothing is on a trial, and nothing has been converted from one.</p>
+          <p className="text-xs text-[rgba(0,0,0,0.35)]">Nothing is on a trial. Converted tenants live on as clients below.</p>
         </div>
       ) : rows.length > 0 ? (
         <div className="overflow-x-auto">
@@ -384,12 +386,17 @@ const TrialManagementSection: React.FC = () => {
               every user under it.
             </span>
             <span className="block">
+              It then leaves this table for good and keeps its own client, which carries on in the
+              client list below like any other paid client — same users, same tickets, same access.
+            </span>
+            <span className="block">
               It writes no subscription, no invoice and no entitlement record, so the tenant will
               look like a paying customer to anyone reconciling paid tenants against invoices.
               Billing has to be set up separately.
             </span>
             <span className="block">
-              This cannot be undone from this screen.
+              This cannot be undone from this screen — once the tenant is gone from the table there
+              is no row left to extend.
             </span>
             {/* Inline, like the extend dialog: a modal over this one would be a second
                 react-aria overlay, and ariaHideOutside would hide this still-visible dialog. */}

@@ -164,10 +164,20 @@ public class TeamUserService {
         profile.setCloudAccounts(accountInfos);
         log.info("Returning {} cloud accounts in profile", accountInfos.size());
 
-        // For ROLE_BILLOPS_ADMIN sub-users, include allowed tabs
-        if (currentUser.getCreatedBy() != null && "ROLE_BILLOPS_ADMIN".equals(currentUser.getRole())) {
-            List<String> tabs = userTabAccessRepository.findTabNamesByUserId(currentUserId);
-            profile.setAllowedTabs(tabs);
+        // Allowed sidebar sections for the BillOps admin roles.
+        //
+        // Reported for primary admins too, not just sub-users: the BillOps admin User Manager can
+        // restrict a primary admin's sections at creation, and gating that on createdBy would hand
+        // them the full sidebar regardless of what was selected. Resolved against the user's own
+        // id rather than the token's — a ROLE_BILLOPS_ADMIN_SUB token can carry an id from another
+        // tenant database, which is why currentUser was looked up by username above.
+        //
+        // An empty list is the answer for everyone who has not been restricted, and the sidebar
+        // reads that as "no restriction" (see makeBillopsTabGate). Non-empty restricts to exactly
+        // those keys.
+        String profileRole = effectiveRole;
+        if ("ROLE_BILLOPS_ADMIN".equals(profileRole) || "ROLE_BILLOPS_ADMIN_SUB".equals(profileRole)) {
+            profile.setAllowedTabs(userTabAccessRepository.findTabNamesByUserId(currentUser.getId()));
         }
 
         return profile;

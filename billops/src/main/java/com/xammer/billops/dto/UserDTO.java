@@ -16,8 +16,22 @@ public class UserDTO {
     private String contact;
     private String designation;
     private Long parentId;  // maps to AppUser.createdBy — null = primary user, set = sub-user
-    private List<String> allowedTabs;  // XamOps sidebar tab keys (only used when role == ROLE_XAMOPS)
-    private List<Long> accountAccessIds;  // cloud_account ids this user may access — null = leave unchanged, empty = all
+    /**
+     * Sidebar tab keys scoping this user's navigation. The vocabulary depends on the role —
+     * XamOps module/tab keys for ROLE_XAMOPS, admin tab keys for the BillOps admin roles — so the
+     * two never mix; see UI_TAB_SCOPED_ROLES in AppUserService. Null = leave unchanged,
+     * empty = clear (which reads back as unrestricted).
+     */
+    private List<String> allowedTabs;
+    /**
+     * Cloud-account ids this user may see — null = leave unchanged, empty = clear (which reads
+     * back as access to everything).
+     *
+     * <p>For a customer user these are accounts of their own client. For a BillOps admin they can
+     * be any accounts in the platform, and they double as the admin's client scope: an admin
+     * granted one account of a client is an admin of that client (see AdminAccessScope).
+     */
+    private List<Long> accountAccessIds;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }

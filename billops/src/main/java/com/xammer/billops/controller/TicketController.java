@@ -6,7 +6,6 @@ import com.xammer.billops.dto.RcaRequestDto;
 import com.xammer.billops.dto.TicketDto;
 import com.xammer.billops.dto.TicketReplyDto;
 import com.xammer.billops.domain.Client;
-import com.xammer.billops.repository.AppUserRepository;
 import com.xammer.billops.repository.ClientRepository;
 import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.TicketReplyRepository;
@@ -14,7 +13,6 @@ import com.xammer.billops.repository.TicketRepository;
 import com.xammer.billops.service.RcaService;
 import com.xammer.billops.service.TicketService;
 import com.xammer.billops.util.TicketHtmlSanitizer;
-import com.xammer.cloud.domain.AppUser;
 import com.xammer.cloud.security.ClientUserDetails;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,9 +43,6 @@ public class TicketController {
     private final RcaService rcaService;
 
     @Autowired
-    private AppUserRepository appUserRepository;
-
-    @Autowired
     private ClientRepository clientRepository;
 
     @Autowired
@@ -58,6 +53,9 @@ public class TicketController {
 
     @Autowired
     private TicketRepository ticketRepository;
+
+    @Autowired
+    private com.xammer.billops.service.AdminAccessScope adminAccessScope;
 
     public TicketController(TicketService ticketService, RcaService rcaService) {
         this.ticketService = ticketService;
@@ -534,17 +532,11 @@ public class TicketController {
     @GetMapping("/clients")
     @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB')")
     public ResponseEntity<List<Map<String, Object>>> getAllClients(Authentication authentication) {
-        // Scope to owned clients for ROLE_BILLOPS_ADMIN_SUB
-        boolean isSubAdmin = authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_BILLOPS_ADMIN_SUB"));
-
-        List<Client> clients;
-        if (isSubAdmin) {
-            AppUser caller = appUserRepository.findByUsername(authentication.getName()).orElse(null);
-            clients = (caller != null) ? clientRepository.findByOwnerAdminId(caller.getId()) : List.of();
-        } else {
-            clients = clientRepository.findAll();
-        }
+        // Scope to the clients the caller manages, derived from their granted cloud accounts.
+        // Null = no restriction.
+        java.util.Set<Long> allowedClientIds = adminAccessScope.clientIdsForCurrentUser();
+        List<Client> clients = adminAccessScope.filterClients(
+                clientRepository.findAll(), allowedClientIds);
 
         return ResponseEntity.ok(clients.stream()
                 .map(c -> {

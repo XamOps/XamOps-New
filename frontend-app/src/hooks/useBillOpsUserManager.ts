@@ -25,7 +25,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import type { BillOpsUser, BillOpsUserFormData, BillOpsRole, ClientCloudAccount, UseBillOpsUserManagerResult } from '../types/billopsUserManager';
+import type { BillOpsUser, BillOpsClient, BillOpsUserFormData, BillOpsRole, ClientCloudAccount, UseBillOpsUserManagerResult } from '../types/billopsUserManager';
 
 const EMPTY_FORM: BillOpsUserFormData = {
     id: '',
@@ -40,6 +40,30 @@ const EMPTY_FORM: BillOpsUserFormData = {
     allowedTabs: [],
     accountAccessIds: [],
 };
+
+/**
+ * Which section-key vocabulary a role's `allowedTabs` is written in.
+ *
+ * XamOps keys and BillOps admin keys are stored in the same table, so switching a user's role
+ * between the two families has to drop the selection — see `changeRole`. Roles with no scoped
+ * sidebar map to null and carry no selection at all.
+ */
+const tabVocabularyOf = (role: BillOpsRole | ''): 'xamops' | 'billops-admin' | null => {
+    if (role === 'ROLE_XAMOPS') return 'xamops';
+    if (role === 'ROLE_BILLOPS_ADMIN' || role === 'ROLE_BILLOPS_ADMIN_SUB') return 'billops-admin';
+    return null;
+};
+
+/**
+ * Which set of cloud accounts a role's `accountAccessIds` is chosen from.
+ *
+ * A BillOps admin works across customers, so their picker offers every account in the platform.
+ * Everyone else is confined to their own client and picks from that client's accounts. Changing
+ * role between the two means the previous selection is no longer on offer — see `changeRole`.
+ */
+const accountCatalogOf = (role: BillOpsRole | ''): 'all-clients' | 'own-client' => (
+    role === 'ROLE_BILLOPS_ADMIN' || role === 'ROLE_BILLOPS_ADMIN_SUB' ? 'all-clients' : 'own-client'
+);
 
 const AVAILABLE_ROLES: BillOpsRole[] = ['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB', 'ROLE_XAMOPS'];
 
@@ -57,14 +81,28 @@ const describeMoveFailure = (status: number, body: string): string => {
         return 'The server has no handler for this request (HTTP 404). The BillOps service is likely '
             + 'running an older build than this page — restart it and try again.';
     }
+    return extractServerMessage(body) ?? `The move failed (HTTP ${status}).`;
+};
+
+/**
+ * Pulls a readable message out of a response body.
+ *
+ * These endpoints answer with plain text in some places and JSON in others — the controller's own
+ * `Map.of("message", …)` for the client conflict, Spring's `{"error":…}` for anything that never
+ * reached a handler — so both keys are tried before giving up. Returns null when there is nothing
+ * worth showing, letting the caller pick a status-specific fallback.
+ */
+const extractServerMessage = (body: string): string | null => {
     const text = (body || '').trim();
-    if (!text) return `The move failed (HTTP ${status}).`;
+    if (!text) return null;
     if (text.startsWith('{') || text.startsWith('[')) {
         try {
             const parsed = JSON.parse(text);
-            return parsed.message || parsed.error || `The move failed (HTTP ${status}).`;
+            const message = parsed?.message ?? parsed?.error;
+            return typeof message === 'string' && message.trim() ? message : null;
         } catch {
-            // Not valid JSON after all — fall through and show the raw text.
+            // Not valid JSON after all — the raw text is still better copy than a status code.
+            return text;
         }
     }
     return text;
@@ -102,6 +140,7 @@ const validateContactNumber = (contact: string | undefined): string | null => {
 export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
     // State
     const [users, setUsers] = useState<BillOpsUser[]>([]);
+    const [clients, setClients] = useState<BillOpsClient[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState<boolean>(false);
@@ -161,11 +200,37 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
     }, []);
 
     /**
-     * Initialize - fetch users on mount
+     * Fetch every client the admin may see — including those with no users, which the
+     * user-derived client rows can never show.
+     *
+     * A failure here is deliberately not pushed into `error`: that banner replaces the whole
+     * table, and the user list is still perfectly usable without the empty clients.
+     */
+    const fetchClients = useCallback(async () => {
+        try {
+            const response = await fetch('/api/billops/users/clients', {
+                method: 'GET',
+                credentials: 'include'
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            setClients(Array.isArray(data) ? data : []);
+        } catch (err) {
+            console.error('[UserManager] Failed to fetch clients:', err);
+        }
+    }, []);
+
+    /**
+     * Initialize - fetch users and clients on mount
      */
     useEffect(() => {
         fetchUsers();
-    }, [fetchUsers]);
+        fetchClients();
+    }, [fetchUsers, fetchClients]);
 
     /**
      * Start creating a new user
@@ -274,8 +339,9 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
 
             console.log('[UserManager] User saved successfully');
 
-            // Refresh users list and close form
-            await fetchUsers();
+            // Refresh both lists and close the form. Clients too: saving a user against an unknown
+            // client name creates that client server-side, and the counts on existing ones change.
+            await Promise.all([fetchUsers(), fetchClients()]);
             cancelEdit();
 
             setNotification({
@@ -292,7 +358,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             });
             // Don't close form on error
         }
-    }, [selectedUser, getCsrfToken, fetchUsers, cancelEdit]);
+    }, [selectedUser, getCsrfToken, fetchUsers, fetchClients, cancelEdit]);
 
     /**
      * Delete a user — opens confirmation dialog
@@ -326,7 +392,8 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             }
 
             console.log('[UserManager] User deleted successfully');
-            await fetchUsers();
+            // Clients too: deleting the last user of a client removes that client server-side.
+            await Promise.all([fetchUsers(), fetchClients()]);
 
             setNotification({
                 type: 'success',
@@ -341,7 +408,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
                 message: err instanceof Error ? err.message : 'An error occurred while deleting the user.'
             });
         }
-    }, [pendingDeleteId, getCsrfToken, fetchUsers]);
+    }, [pendingDeleteId, getCsrfToken, fetchUsers, fetchClients]);
 
     /**
      * Move a user to a client and place them in its user tree. Returns true on success.
@@ -400,6 +467,54 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
     }, [getCsrfToken, fetchUsers]);
 
     /**
+     * Delete an empty client. Returns true on success.
+     *
+     * The server refuses with 409 while the client still has users or cloud accounts — deleting a
+     * populated client would cascade through its users and skip the per-user reference cleanup —
+     * so that reason is surfaced verbatim rather than flattened into "delete failed".
+     */
+    const deleteClient = useCallback(async (clientId: number | string): Promise<boolean> => {
+        try {
+            const response = await fetch(`/api/billops/users/clients/${clientId}`, {
+                method: 'DELETE',
+                credentials: 'include',
+                headers: {
+                    'X-XSRF-TOKEN': getCsrfToken()
+                }
+            });
+
+            if (!response.ok) {
+                const body = await response.text();
+                setNotification({
+                    type: 'error',
+                    title: response.status === 409 ? 'Client Not Empty' : 'Delete Failed',
+                    message: extractServerMessage(body)
+                        ?? (response.status === 403
+                            ? 'You need full BillOps admin rights to delete a client.'
+                            : `The client could not be deleted (HTTP ${response.status}).`)
+                });
+                return false;
+            }
+
+            await Promise.all([fetchUsers(), fetchClients()]);
+            setNotification({
+                type: 'success',
+                title: 'Client Deleted',
+                message: 'The client has been removed.'
+            });
+            return true;
+        } catch (err) {
+            console.error('[UserManager] Client delete failed:', err);
+            setNotification({
+                type: 'error',
+                title: 'Delete Failed',
+                message: err instanceof Error ? err.message : 'An unexpected error occurred.'
+            });
+            return false;
+        }
+    }, [getCsrfToken, fetchUsers, fetchClients]);
+
+    /**
      * Update a field in the selected user form
      */
     const updateSelectedUser = useCallback((field: keyof BillOpsUserFormData, value: string | string[] | (string | number)[]) => {
@@ -423,6 +538,29 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
     }, []);
 
     /**
+     * Set the role, discarding selections that belonged to the outgoing role.
+     *
+     * Two things have to go. Section keys, because switching XAMOPS → BILLOPS ADMIN would
+     * otherwise carry the XamOps keys over and save them as the admin's sections: the user would
+     * count as restricted while matching no admin section, leaving them with an empty sidebar.
+     * And cloud accounts, because the two roles pick from different catalogs — one client's
+     * accounts vs. every account in the platform — so ids chosen under the old role are not
+     * offered under the new one and would persist as invisible grants.
+     */
+    const changeRole = useCallback((role: BillOpsRole | '') => {
+        setSelectedUser(prev => {
+            const next = { ...prev, role };
+            if (tabVocabularyOf(role) !== tabVocabularyOf(prev.role)) {
+                next.allowedTabs = [];
+            }
+            if (accountCatalogOf(role) !== accountCatalogOf(prev.role)) {
+                next.accountAccessIds = [];
+            }
+            return next;
+        });
+    }, []);
+
+    /**
      * Toggle a cloud-account id in the selected user's accountAccessIds list.
      * Empty list = access to every cloud account of the client (see ClientDetailsPage.handleLoginAs).
      */
@@ -435,6 +573,8 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             return { ...prev, accountAccessIds };
         });
     }, []);
+
+
 
     /**
      * Fetch the cloud accounts belonging to a client, for the account-access picker.
@@ -456,9 +596,33 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
         }
     }, []);
 
+    /**
+     * Every cloud account the acting admin can see, across all clients — the catalog for a
+     * BillOps admin user, who manages accounts rather than belonging to one client.
+     *
+     * Server-side the list is itself scoped to the caller's own account access, so a restricted
+     * admin can only hand out a subset of what they hold.
+     */
+    const fetchAllCloudAccounts = useCallback(async (): Promise<ClientCloudAccount[]> => {
+        // Unlike fetchClientCloudAccounts, this rethrows on failure rather than swallowing to [].
+        // An empty list and a failed request are different states the picker must show
+        // differently — "no accounts connected yet" vs. "couldn't load, try again" — and the most
+        // common failure here is a 404 from a backend that predates this endpoint, which must not
+        // masquerade as "there are no accounts".
+        const response = await fetch('/api/billops/users/cloud-accounts', {
+            method: 'GET',
+            credentials: 'include'
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return await response.json();
+    }, []);
+
     return {
         // Data
         users,
+        clients,
         loading,
         error,
 
@@ -477,6 +641,8 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
 
         // Actions
         fetchUsers,
+        fetchClients,
+        deleteClient,
         newUser,
         editUser,
         cancelEdit,
@@ -484,9 +650,11 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
         deleteUser,
         moveUserToClient,
         updateSelectedUser,
+        changeRole,
         toggleTab,
         toggleAccount,
         fetchClientCloudAccounts,
+        fetchAllCloudAccounts,
         clearNotification
     };
 };

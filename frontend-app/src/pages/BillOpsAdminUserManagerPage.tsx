@@ -7,8 +7,10 @@ import type { BillOpsUser, BillOpsRole, ClientCloudAccount } from '../types/bill
 import NotificationModal from '../components/Shared/NotificationModal';
 import TrialManagementSection from '../components/BillOps/TrialManagementSection';
 import { AlertDialog } from '../components/ui';
-import { XAMOPS_MODULES, normalizeAllowedTabs, selectAllXamTabs, toggleAllowedTab } from '../constants/xamopsTabs';
+import { XAMOPS_MODULES, normalizeAllowedTabs, selectAllXamTabs } from '../constants/xamopsTabs';
+import { BILLOPS_ADMIN_MODULES } from '../constants/billopsAdminTabs';
 import XamTabPermissionToggle from '../components/Shared/XamTabPermissionToggle';
+import ModuleTabAccessPicker from '../components/Shared/ModuleTabAccessPicker';
 
 const PAGE_SIZE = 10;
 
@@ -54,16 +56,31 @@ const FieldSelect: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = ({ 
 
 const BillOpsAdminUserManagerPage: React.FC = () => {
   const {
-    users, loading, error, isEditing, selectedUser, roles,
-    newUser, editUser, cancelEdit, saveUser, deleteUser, moveUserToClient, updateSelectedUser,
-    toggleAccount, fetchClientCloudAccounts,
+    users, clients, loading, error, isEditing, selectedUser, roles,
+    newUser, editUser, cancelEdit, saveUser, deleteUser, deleteClient, moveUserToClient, updateSelectedUser,
+    changeRole, toggleAccount, fetchClientCloudAccounts, fetchAllCloudAccounts,
     notification, clearNotification, pendingDeleteId, confirmDelete, cancelDelete,
   } = useBillOpsUserManager();
 
-  /* ── Cloud-account access picker state (loaded for the edited user's client) ── */
+  /* ── Cloud-account access picker state ── */
   const [clientAccounts, setClientAccounts] = useState<ClientCloudAccount[]>([]);
+  // In-flight flag for the account catalog fetch, so the picker can show a spinner rather than a
+  // blank. Without it an empty response and a still-loading one look identical.
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  // True when the catalog fetch failed outright (most often a 404 from a backend that predates
+  // the /cloud-accounts endpoint). Kept distinct from an empty result so the picker can say
+  // "couldn't load" rather than wrongly implying no accounts exist.
+  const [accountsError, setAccountsError] = useState(false);
   // Search term for filtering the account-access list (scales to hundreds of accounts).
   const [accountSearch, setAccountSearch]   = useState('');
+
+  /**
+   * Whether the user being edited holds one of the BillOps admin roles. They are the only ones
+   * with an admin sidebar to scope, and the only ones whose cloud accounts are chosen from every
+   * client rather than from their own.
+   */
+  const isAdminRole = selectedUser.role === 'ROLE_BILLOPS_ADMIN'
+    || selectedUser.role === 'ROLE_BILLOPS_ADMIN_SUB';
 
   // Resolve the client id of the user being edited. The form keys off clientName, so map the
   // selected form id → its user row to read clientId; fall back to matching clientName.
@@ -80,20 +97,47 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
     return null;
   }, [isEditing, selectedUser.id, selectedUser.clientName, users]);
 
-  // Load the client's cloud accounts whenever the modal opens or the resolved client changes.
+  /**
+   * Load the catalog for the account picker, which depends on the role being edited.
+   *
+   * A BillOps admin manages accounts across customers, so theirs is every account the acting
+   * admin can see — available immediately, including while creating the user. Everyone else is
+   * confined to their own client, so theirs needs that client resolved first, which is why their
+   * picker only appears once the user exists.
+   */
   useEffect(() => {
     let cancelled = false;
-    if (isEditing && editingClientId != null) {
-      fetchClientCloudAccounts(editingClientId).then(accounts => {
-        if (!cancelled) setClientAccounts(accounts);
-      });
+    const load = (fetcher: () => Promise<ClientCloudAccount[]>) => {
+      setAccountsLoading(true);
+      setAccountsError(false);
+      fetcher()
+        .then(accounts => { if (!cancelled) setClientAccounts(accounts); })
+        .catch(() => {
+          if (!cancelled) {
+            setClientAccounts([]);
+            setAccountsError(true);
+          }
+        })
+        .finally(() => { if (!cancelled) setAccountsLoading(false); });
+    };
+
+    setAccountsError(false);
+    if (!isEditing) {
+      setClientAccounts([]);
+      setAccountsLoading(false);
+    } else if (isAdminRole) {
+      load(fetchAllCloudAccounts);
+    } else if (editingClientId != null) {
+      load(() => fetchClientCloudAccounts(editingClientId));
     } else {
       setClientAccounts([]);
+      setAccountsLoading(false);
     }
-    // Reset the account search each time the picker's data source changes.
+    // Reset the account search each time the picker's data source changes — a stale term would
+    // otherwise hide most of the new list behind an empty state.
     setAccountSearch('');
     return () => { cancelled = true; };
-  }, [isEditing, editingClientId, fetchClientCloudAccounts]);
+  }, [isEditing, isAdminRole, editingClientId, fetchClientCloudAccounts, fetchAllCloudAccounts]);
 
   // Accounts shown in the picker, filtered by the search term (name / provider / accountId).
   // Case-insensitive substring match; keeps all accounts when the search is empty.
@@ -103,6 +147,8 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
     return clientAccounts.filter(acc =>
       (acc.name || '').toLowerCase().includes(q) ||
       (acc.provider || '').toLowerCase().includes(q) ||
+      // Only set on the cross-client list, which is the one long enough to need it.
+      (acc.clientName || '').toLowerCase().includes(q) ||
       (acc.accountId ? String(acc.accountId).toLowerCase().includes(q) : false)
     );
   }, [clientAccounts, accountSearch]);
@@ -115,16 +161,20 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
   const [moveParentId, setMoveParentId]     = useState<string>('');
   const [moveSubmitting, setMoveSubmitting] = useState(false);
 
-  // Distinct clients (id + name), derived from the user list — no extra endpoint needed.
+  // Distinct clients (id + name). Seeded from the clients endpoint so a client with no users is
+  // still a valid destination, then topped up from the user list in case that call failed.
   const clientOptions = useMemo(() => {
     const map = new Map<string, string>();
+    for (const c of clients) {
+      if (c.id != null && c.name) map.set(String(c.id), c.name);
+    }
     for (const u of users) {
       if (u.clientId != null && u.clientName) map.set(String(u.clientId), u.clientName);
     }
     return Array.from(map.entries())
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [users]);
+  }, [clients, users]);
 
   // How many sub-users the user being moved owns. A user with sub-users travels as a family and
   // can never be nested under someone else (the tree is two levels deep), so the placement choice
@@ -200,6 +250,16 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
     closeMoveModal();
   };
 
+  /* ── Delete-client confirmation state ── */
+  // Name is kept alongside the id so the dialog can quote it after the row is gone.
+  const [pendingDeleteClient, setPendingDeleteClient] = useState<{ id: number | string; name: string } | null>(null);
+  const confirmDeleteClient = async () => {
+    if (!pendingDeleteClient) return;
+    const target = pendingDeleteClient;
+    setPendingDeleteClient(null);
+    await deleteClient(target.id);
+  };
+
   const [searchQuery, setSearchQuery]     = useState('');
   const [filterRole, setFilterRole]       = useState<BillOpsRole | ''>('');
   const [sortBy, setSortBy]               = useState<'name-asc' | 'name-desc' | 'count-desc'>('name-asc');
@@ -225,11 +285,27 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
       subMap.get(k)!.push(u);
     }
 
+    // Seed with every known client so a client with no users still gets a row — that row is the
+    // only place it can be given a first user or be deleted. Client names are unique server-side,
+    // so the name is a safe key; ids come from the clients endpoint, or from the users otherwise.
     const clientMap = new Map<string, BillOpsUser[]>();
-    for (const u of users.filter(u => !u.parentId)) {
+    const idByName = new Map<string, number | string>();
+    const totalUsersByName = new Map<string, number>();
+    const accountsByName = new Map<string, number>();
+    for (const c of clients) {
+      if (!c.name) continue;
+      clientMap.set(c.name, []);
+      if (c.id != null) idByName.set(c.name, c.id);
+      totalUsersByName.set(c.name, c.userCount ?? 0);
+      accountsByName.set(c.name, c.cloudAccountCount ?? 0);
+    }
+    for (const u of users) {
       const k = u.clientName || 'Unknown';
       if (!clientMap.has(k)) clientMap.set(k, []);
-      clientMap.get(k)!.push(u);
+      if (u.clientId != null && !idByName.has(k)) idByName.set(k, u.clientId);
+      // Only trust the user list for a count the clients endpoint did not provide.
+      if (!totalUsersByName.has(k)) totalUsersByName.set(k, users.filter(x => (x.clientName || 'Unknown') === k).length);
+      if (!u.parentId) clientMap.get(k)!.push(u);
     }
 
     let entries = Array.from(clientMap.entries()).map(([clientName, primaries]) => {
@@ -237,15 +313,27 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
         if (filterRole !== '' && p.role !== filterRole) return false;
         return match(p) || (subMap.get(String(p.id)) || []).some(s => match(s));
       });
-      return { clientName, primaries: filtered, subMap } as const;
-    }).filter(g => g.primaries.length > 0);
+      return {
+        clientName,
+        clientId: idByName.get(clientName) ?? null,
+        primaries: filtered,
+        subMap,
+        totalUsers: totalUsersByName.get(clientName) ?? 0,
+        cloudAccountCount: accountsByName.get(clientName) ?? 0,
+      } as const;
+    }).filter(g =>
+      // Clients with matching users, as before — plus genuinely empty clients, which have no user
+      // to match on. A role filter is a filter on users, so it hides them; a text search still
+      // applies, matched against the client name.
+      g.primaries.length > 0
+      || (g.totalUsers === 0 && filterRole === '' && (!q || g.clientName.toLowerCase().includes(q))));
 
     if (sortBy === 'name-asc')    entries.sort((a, b) => a.clientName.localeCompare(b.clientName));
     else if (sortBy === 'name-desc') entries.sort((a, b) => b.clientName.localeCompare(a.clientName));
     else if (sortBy === 'count-desc') entries.sort((a, b) => b.primaries.length - a.primaries.length);
 
     return entries;
-  }, [users, searchQuery, filterRole, sortBy]);
+  }, [users, clients, searchQuery, filterRole, sortBy]);
 
   useEffect(() => { setCurrentPage(1); }, [searchQuery, filterRole, sortBy]);
 
@@ -290,6 +378,20 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
         variant="danger"
         onConfirm={confirmDelete}
         onCancel={cancelDelete}
+      />
+
+      {/* Only offered on clients with no users and no cloud accounts, so the copy can promise
+          exactly what goes: the client record itself. */}
+      <AlertDialog
+        isOpen={pendingDeleteClient !== null}
+        title="Delete client?"
+        description={pendingDeleteClient
+          ? `Remove the client "${pendingDeleteClient.name}". It has no users and no cloud accounts, so only the client record goes. This cannot be undone.`
+          : ''}
+        confirmLabel="Delete client"
+        variant="danger"
+        onConfirm={() => { void confirmDeleteClient(); }}
+        onCancel={() => setPendingDeleteClient(null)}
       />
 
       {/* ── Move user to another client ── */}
@@ -492,7 +594,9 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                 </div>
                 <div>
                   <FormLabel icon="mdi:shield-account-outline" text="Role" />
-                  <FieldSelect value={selectedUser.role} required onChange={e => updateSelectedUser('role', e.target.value)}>
+                  {/* changeRole, not updateSelectedUser: switching role families has to drop the
+                      section selection, which is written in the outgoing role's key vocabulary. */}
+                  <FieldSelect value={selectedUser.role} required onChange={e => changeRole(e.target.value as BillOpsRole | '')}>
                     <option value="" disabled>Select Role</option>
                     {roles.map(r => <option key={r} value={r}>{formatRole(r)}</option>)}
                   </FieldSelect>
@@ -528,87 +632,47 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                 )}
               </div>
 
-              {/* ── XamOps module / tab access (only for ROLE_XAMOPS) ── */}
+              {/* ── Sidebar access: XamOps modules for a XamOps user, admin sections for an
+                   admin user. Same picker, same "nothing checked = full access" rule; only the
+                   catalog differs, because the two roles see entirely different sidebars. ── */}
               {selectedUser.role === 'ROLE_XAMOPS' && (
-                <div className="pt-1">
-                  <div className="flex items-center justify-between mb-2">
-                    <FormLabel icon="mdi:view-grid-outline" text="Sidebar Module & Tab Access" />
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <button
-                        type="button"
-                        onClick={() => updateSelectedUser('allowedTabs', selectAllXamTabs(selectedUser.allowedTabs))}
-                        className="text-[10px] font-semibold text-[rgba(0,0,0,0.6)] hover:text-black"
-                      >
-                        Select all
-                      </button>
-                      <span className="text-[rgba(0,0,0,0.15)]">|</span>
-                      <button
-                        type="button"
-                        onClick={() => updateSelectedUser('allowedTabs', [])}
-                        className="text-[10px] font-semibold text-rose-500 hover:text-rose-700"
-                      >
-                        Clear
-                      </button>
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-[rgba(0,0,0,0.4)] mb-3">
-                    Leave everything unchecked to grant full sidebar access. Selecting specific tabs restricts the user to only those.
-                  </p>
-                  <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
-                    {XAMOPS_MODULES.map(mod => {
-                      const moduleTabKeys = mod.tabs.map(t => t.key);
-                      const allChecked = moduleTabKeys.every(k => selectedUser.allowedTabs.includes(k));
-                      // Every change goes through normalizeAllowedTabs, so unchecking a tab or its
-                      // module also removes a permission nested under it (D2).
-                      const toggleModule = () => {
-                        if (allChecked) {
-                          updateSelectedUser('allowedTabs', normalizeAllowedTabs(selectedUser.allowedTabs.filter(k => !moduleTabKeys.includes(k))));
-                        } else {
-                          updateSelectedUser('allowedTabs', normalizeAllowedTabs(Array.from(new Set([...selectedUser.allowedTabs, ...moduleTabKeys]))));
-                        }
-                      };
-                      return (
-                        <div key={mod.key} className="border border-[rgba(0,0,0,0.08)] rounded-xl overflow-hidden">
-                          <label className="flex items-center gap-2.5 px-3 py-2.5 bg-[rgba(0,0,0,0.025)] cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={allChecked}
-                              onChange={toggleModule}
-                              className="w-4 h-4 rounded accent-[rgba(0,0,0,0.88)] cursor-pointer flex-shrink-0"
-                            />
-                            <Icon icon={mod.icon} width={14} color="rgba(0,0,0,0.6)" />
-                            <span className="text-xs font-bold text-[rgba(0,0,0,0.8)]">{mod.label}</span>
-                          </label>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 p-2.5">
-                            {mod.tabs.map(tab => (
-                              <div key={tab.key} className="flex flex-col gap-1">
-                                <label className="flex items-center gap-2 px-2.5 py-2 border border-[rgba(0,0,0,0.06)] rounded-lg cursor-pointer hover:bg-[rgba(0,0,0,0.02)] transition-colors">
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedUser.allowedTabs.includes(tab.key)}
-                                    onChange={() => updateSelectedUser('allowedTabs', toggleAllowedTab(selectedUser.allowedTabs, tab.key))}
-                                    className="w-3.5 h-3.5 rounded accent-[rgba(0,0,0,0.88)] cursor-pointer flex-shrink-0"
-                                  />
-                                  <Icon icon={tab.icon} width={13} color="rgba(0,0,0,0.45)" />
-                                  <span className="text-[11px] font-medium text-[rgba(0,0,0,0.7)]">{tab.label}</span>
-                                </label>
-                                <XamTabPermissionToggle
-                                  parentKey={tab.key}
-                                  allowedTabs={selectedUser.allowedTabs}
-                                  onChange={next => updateSelectedUser('allowedTabs', next)}
-                                />
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                <ModuleTabAccessPicker
+                  label="Sidebar Module & Tab Access"
+                  modules={XAMOPS_MODULES}
+                  selected={selectedUser.allowedTabs}
+                  onChange={next => updateSelectedUser('allowedTabs', next)}
+                  normalize={normalizeAllowedTabs}
+                  selectAll={selectAllXamTabs}
+                  renderTabExtra={tabKey => (
+                    <XamTabPermissionToggle
+                      parentKey={tabKey}
+                      allowedTabs={selectedUser.allowedTabs}
+                      onChange={next => updateSelectedUser('allowedTabs', next)}
+                    />
+                  )}
+                />
               )}
 
-              {/* ── Cloud Account Access (any role; shown once the client's accounts load) ── */}
-              {clientAccounts.length > 0 && (
+              {isAdminRole && (
+                <ModuleTabAccessPicker
+                  label="Admin Section Access"
+                  icon="mdi:shield-crown-outline"
+                  modules={BILLOPS_ADMIN_MODULES}
+                  selected={selectedUser.allowedTabs}
+                  onChange={next => updateSelectedUser('allowedTabs', next)}
+                  helpText="Leave everything unchecked to grant the full admin sidebar. Selecting specific sections restricts the user to only those."
+                />
+              )}
+
+              {/* ── Cloud Account Access ──
+                   The accounts the user may see and "Login As". One picker, two catalogs:
+                   - Admin roles work across customers, so the catalog is every account in the
+                     platform; the section always renders (including while creating the user),
+                     with loading and empty states so it never silently vanishes.
+                   - Customer users are confined to their own client, which only exists once the
+                     user does, so theirs shows only while editing and only when that client has
+                     accounts. */}
+              {(isAdminRole || clientAccounts.length > 0 || accountsLoading || accountsError) && (
                 <div className="pt-1">
                   <div className="flex items-center justify-between mb-2">
                     <FormLabel icon="mdi:cloud-lock-outline" text="Cloud Account Access" />
@@ -637,69 +701,104 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                     </div>
                   </div>
                   <p className="text-[11px] text-[rgba(0,0,0,0.4)] mb-3">
-                    Leave all unchecked to grant access to every cloud account for this client. Selecting specific accounts restricts the user to only those.
+                    {isAdminRole
+                      ? 'Leave all unchecked to let this admin see and Login As every cloud account. Selecting specific accounts restricts their Accounts, Tickets, Billing and Credit views — and who they can Login As — to those accounts and the clients that own them.'
+                      : 'Leave all unchecked to grant access to every cloud account for this client. Selecting specific accounts restricts the user to only those.'}
                   </p>
-                  {/* Search box — filters the list below; scales to hundreds of accounts. */}
-                  <div className="relative mb-2">
-                    <Icon
-                      icon="mdi:magnify"
-                      width={14}
-                      color="rgba(0,0,0,0.35)"
-                      className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
-                    />
-                    <input
-                      type="text"
-                      value={accountSearch}
-                      onChange={e => setAccountSearch(e.target.value)}
-                      placeholder="Search accounts by name, provider, or account ID"
-                      className="w-full pl-8 pr-8 py-2 text-[11px] border border-[rgba(0,0,0,0.12)] rounded-lg focus:outline-none focus:border-[rgba(0,0,0,0.4)] placeholder:text-[rgba(0,0,0,0.35)]"
-                    />
-                    {accountSearch && (
-                      <button
-                        type="button"
-                        onClick={() => setAccountSearch('')}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.35)] hover:text-black"
-                        aria-label="Clear account search"
-                      >
-                        <Icon icon="mdi:close-circle" width={14} />
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-[rgba(0,0,0,0.4)] mb-2">
-                    Showing {filteredClientAccounts.length} of {clientAccounts.length} account{clientAccounts.length === 1 ? '' : 's'}
-                    {selectedUser.accountAccessIds.length > 0 ? ` · ${selectedUser.accountAccessIds.length} selected` : ''}
-                  </p>
-                  {filteredClientAccounts.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center gap-1 py-6 text-[rgba(0,0,0,0.35)]">
-                      <Icon icon="mdi:cloud-search-outline" width={22} />
-                      <span className="text-[11px]">No accounts match "{accountSearch}"</span>
+
+                  {accountsLoading ? (
+                    <div className="flex flex-col items-center justify-center gap-2 py-8 text-[rgba(0,0,0,0.35)]">
+                      <Icon icon="mdi:loading" width={22} className="animate-spin" />
+                      <span className="text-[11px]">Loading cloud accounts…</span>
+                    </div>
+                  ) : accountsError ? (
+                    <div className="flex flex-col items-center justify-center gap-1 py-8 text-rose-500">
+                      <Icon icon="mdi:cloud-alert" width={22} />
+                      <span className="text-[11px]">Couldn't load cloud accounts</span>
+                      <span className="text-[10px] text-center max-w-[360px] text-[rgba(0,0,0,0.45)]">
+                        The account list is temporarily unavailable. You can still save the user now and set their account access later by editing them.
+                      </span>
+                    </div>
+                  ) : clientAccounts.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center gap-1 py-8 text-[rgba(0,0,0,0.35)]">
+                      <Icon icon="mdi:cloud-off-outline" width={22} />
+                      <span className="text-[11px]">No cloud accounts available to assign</span>
+                      <span className="text-[10px] text-center max-w-[360px]">
+                        The user will be able to see every account once some are connected. Add cloud accounts from the Accounts page.
+                      </span>
                     </div>
                   ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-[280px] overflow-y-auto pr-1">
-                    {filteredClientAccounts.map(acc => {
-                      const checked = selectedUser.accountAccessIds.some(id => String(id) === String(acc.id));
-                      return (
-                        <label
-                          key={acc.id}
-                          className="flex items-center gap-2 px-2.5 py-2 border border-[rgba(0,0,0,0.06)] rounded-lg cursor-pointer hover:bg-[rgba(0,0,0,0.02)] transition-colors"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleAccount(acc.id)}
-                            className="w-3.5 h-3.5 rounded accent-[rgba(0,0,0,0.88)] cursor-pointer flex-shrink-0"
-                          />
-                          <Icon icon="mdi:cloud-outline" width={13} color="rgba(0,0,0,0.45)" />
-                          <span className="flex flex-col min-w-0">
-                            <span className="text-[11px] font-medium text-[rgba(0,0,0,0.7)] truncate">{acc.name}</span>
-                            <span className="text-[10px] text-[rgba(0,0,0,0.4)] truncate">
-                              {acc.provider}{acc.accountId ? ` · ${acc.accountId}` : ''}
-                            </span>
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
+                    <>
+                      {/* Search box — filters the list below; scales to hundreds of accounts. */}
+                      <div className="relative mb-2">
+                        <Icon
+                          icon="mdi:magnify"
+                          width={14}
+                          color="rgba(0,0,0,0.35)"
+                          className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                        />
+                        <input
+                          type="text"
+                          value={accountSearch}
+                          onChange={e => setAccountSearch(e.target.value)}
+                          placeholder={isAdminRole
+                            ? 'Search accounts by name, client, provider, or account ID'
+                            : 'Search accounts by name, provider, or account ID'}
+                          className="w-full pl-8 pr-8 py-2 text-[11px] border border-[rgba(0,0,0,0.12)] rounded-lg focus:outline-none focus:border-[rgba(0,0,0,0.4)] placeholder:text-[rgba(0,0,0,0.35)]"
+                        />
+                        {accountSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setAccountSearch('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-[rgba(0,0,0,0.35)] hover:text-black"
+                            aria-label="Clear account search"
+                          >
+                            <Icon icon="mdi:close-circle" width={14} />
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-[rgba(0,0,0,0.4)] mb-2">
+                        Showing {filteredClientAccounts.length} of {clientAccounts.length} account{clientAccounts.length === 1 ? '' : 's'}
+                        {selectedUser.accountAccessIds.length > 0 ? ` · ${selectedUser.accountAccessIds.length} selected` : ''}
+                      </p>
+                      {filteredClientAccounts.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center gap-1 py-6 text-[rgba(0,0,0,0.35)]">
+                          <Icon icon="mdi:cloud-search-outline" width={22} />
+                          <span className="text-[11px]">No accounts match "{accountSearch}"</span>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-[280px] overflow-y-auto pr-1">
+                          {filteredClientAccounts.map(acc => {
+                            const checked = selectedUser.accountAccessIds.some(id => String(id) === String(acc.id));
+                            return (
+                              <label
+                                key={acc.id}
+                                className="flex items-center gap-2 px-2.5 py-2 border border-[rgba(0,0,0,0.06)] rounded-lg cursor-pointer hover:bg-[rgba(0,0,0,0.02)] transition-colors"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleAccount(acc.id)}
+                                  className="w-3.5 h-3.5 rounded accent-[rgba(0,0,0,0.88)] cursor-pointer flex-shrink-0"
+                                />
+                                <Icon icon="mdi:cloud-outline" width={13} color="rgba(0,0,0,0.45)" />
+                                <span className="flex flex-col min-w-0">
+                                  <span className="text-[11px] font-medium text-[rgba(0,0,0,0.7)] truncate">{acc.name}</span>
+                                  <span className="text-[10px] text-[rgba(0,0,0,0.4)] truncate">
+                                    {/* Client first on the cross-client list: it is what
+                                        disambiguates two accounts both called "prod". Absent on
+                                        the single-client list, where it would just repeat the
+                                        form's Client Name. */}
+                                    {acc.clientName ? `${acc.clientName} · ` : ''}
+                                    {acc.provider}{acc.accountId ? ` · ${acc.accountId}` : ''}
+                                  </span>
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -758,7 +857,9 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
             <Icon icon="mdi:loading" width={28} color="rgba(0,0,0,0.25)" className="animate-spin" />
             <p className="text-sm text-[rgba(0,0,0,0.4)]">Loading users…</p>
           </div>
-        ) : users.length === 0 ? (
+        ) : users.length === 0 && clients.length === 0 ? (
+          // Only when there is genuinely nothing: an empty client still deserves its row, so it
+          // can be given a first user or removed.
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <div className="w-14 h-14 rounded-xl bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] flex items-center justify-center">
               <Icon icon="mdi:account-group-outline" width={28} color="rgba(0,0,0,0.2)" />
@@ -862,9 +963,17 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedGroups.map(({ clientName, primaries, subMap }) => {
+                    {paginatedGroups.map(({ clientName, clientId, primaries, subMap, totalUsers, cloudAccountCount }) => {
                       const clientExpanded = isClientExpanded(clientName);
                       const totalInClient  = primaries.reduce((s, p) => s + 1 + (subMap.get(String(p.id))?.length ?? 0), 0);
+                      // Deletable only when genuinely empty — the server refuses anything else,
+                      // because deleting a populated client would cascade through its users and
+                      // skip the per-user reference cleanup. Say why instead of offering a 409.
+                      const deleteBlockedReason =
+                        clientId == null     ? 'These users have no client record to delete.'
+                        : totalUsers > 0     ? `Delete its ${totalUsers} user${totalUsers !== 1 ? 's' : ''} first.`
+                        : cloudAccountCount > 0 ? `Disconnect its ${cloudAccountCount} cloud account${cloudAccountCount !== 1 ? 's' : ''} first.`
+                        : null;
                       return (
                         <React.Fragment key={clientName}>
                           {/* ── Level 1: Client row ── */}
@@ -875,27 +984,50 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
                             <td colSpan={6} className="px-4 py-3">
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
-                                  <Icon
-                                    icon={clientExpanded ? 'mdi:chevron-down' : 'mdi:chevron-right'}
-                                    width={14}
-                                    color="rgba(0,0,0,0.35)"
-                                  />
+                                  {totalUsers === 0 ? (
+                                    // Nothing to expand — keep the row's alignment without a chevron.
+                                    <span className="w-3.5 flex-shrink-0" />
+                                  ) : (
+                                    <Icon
+                                      icon={clientExpanded ? 'mdi:chevron-down' : 'mdi:chevron-right'}
+                                      width={14}
+                                      color="rgba(0,0,0,0.35)"
+                                    />
+                                  )}
                                   <div className="w-8 h-8 rounded-xl bg-[rgba(0,0,0,0.88)] text-white flex items-center justify-center text-[11px] font-bold flex-shrink-0">
                                     {getInitials(clientName)}
                                   </div>
                                   <span className="text-sm font-bold text-[rgba(0,0,0,0.88)]">{clientName}</span>
                                   <span className="px-2 py-0.5 bg-[rgba(0,0,0,0.04)] border border-[rgba(0,0,0,0.08)] text-[rgba(0,0,0,0.5)] rounded-full text-[10px] font-bold">
-                                    {primaries.length} primary · {totalInClient} total
+                                    {totalUsers === 0
+                                      ? 'No users yet'
+                                      : `${primaries.length} primary · ${totalInClient} total`}
                                   </span>
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={e => { e.stopPropagation(); handleNewUserForClient(clientName); }}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white rounded-lg text-[10px] font-bold transition-colors"
-                                >
-                                  <Icon icon="mdi:account-plus-outline" width={11} />
-                                  Add User
-                                </button>
+                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={e => { e.stopPropagation(); handleNewUserForClient(clientName); }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[rgba(0,0,0,0.88)] hover:bg-black text-white rounded-lg text-[10px] font-bold transition-colors"
+                                  >
+                                    <Icon icon="mdi:account-plus-outline" width={11} />
+                                    Add User
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={deleteBlockedReason !== null}
+                                    title={deleteBlockedReason ?? `Delete client ${clientName}`}
+                                    aria-label={`Delete client ${clientName}`}
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      if (clientId != null) setPendingDeleteClient({ id: clientId, name: clientName });
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 border border-rose-100 text-rose-500 hover:bg-rose-100 rounded-lg text-[10px] font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-rose-50"
+                                  >
+                                    <Icon icon="mdi:trash-can-outline" width={11} />
+                                    Delete Client
+                                  </button>
+                                </div>
                               </div>
                             </td>
                           </tr>

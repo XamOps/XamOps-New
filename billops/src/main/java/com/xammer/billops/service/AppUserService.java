@@ -5,6 +5,7 @@ import com.xammer.billops.domain.Client;
 import com.xammer.billops.domain.CloudAccount;
 import com.xammer.billops.domain.UserCloudAccountAccess;
 import com.xammer.billops.domain.UserTabAccess;
+import com.xammer.billops.dto.AdminClientDTO;
 import com.xammer.billops.dto.UserDTO;
 import com.xammer.billops.repository.AgreementRepository;
 import com.xammer.billops.repository.AppUserRepository;
@@ -40,8 +41,18 @@ public class AppUserService {
 
     private static final Logger log = LoggerFactory.getLogger(AppUserService.class);
 
+    /**
+     * Key prefix of the admin client list cached by xamops-service
+     * ({@code BillOpsAdminController.CLIENTS_CACHE_KEY}, plus a per-sub-admin {@code :sub:{id}}
+     * suffix). Deleting a client here has to evict both tiers or the other screens keep showing it.
+     */
+    private static final String ADMIN_CLIENTS_CACHE_PREFIX = "billops:admin:clients";
+
     @Autowired
     private AppUserRepository appUserRepository;
+
+    @Autowired
+    private RedisCacheService redisCacheService;
 
     @Autowired
     private ClientRepository clientRepository;
@@ -80,6 +91,12 @@ public class AppUserService {
     private UserPlatformConnectionRepository userPlatformConnectionRepository;
 
     @Autowired
+    private AdminAccessScope adminAccessScope;
+
+    @jakarta.persistence.PersistenceContext
+    private jakarta.persistence.EntityManager entityManager;
+
+    @Autowired
     private JavaMailSender mailSender;
 
     @Autowired
@@ -93,6 +110,55 @@ public class AppUserService {
 
     @Value("${app.login-url}")
     private String loginUrl;
+
+    /**
+     * Roles whose sidebar can be narrowed with {@code user_tab_access} rows.
+     *
+     * <p>The key vocabulary differs per role family and the two must never mix: ROLE_XAMOPS stores
+     * XamOps module/tab keys (frontend {@code constants/xamopsTabs.ts}), the admin roles store
+     * admin section keys ({@code constants/billopsAdminTabs.ts}). Both land in the same table, so
+     * the UI clears the selection when the role is switched between families — a leftover
+     * {@code finops-cost} row on an admin user would simply never match anything and would read as
+     * "restricted to nothing visible".
+     */
+    private static final java.util.Set<String> UI_TAB_SCOPED_ROLES = java.util.Set.of(
+            "ROLE_XAMOPS", "ROLE_BILLOPS_ADMIN", "ROLE_BILLOPS_ADMIN_SUB");
+
+    private static boolean isTabScopedRole(String role) {
+        return role != null && UI_TAB_SCOPED_ROLES.contains(role);
+    }
+
+    /**
+     * Narrows a requested cloud-account grant list to what the caller may actually hand out.
+     *
+     * <p>The account picker for a BillOps admin user offers every account in the platform, and
+     * {@code GET /api/billops/users/cloud-accounts} scopes that catalog to the caller — but the
+     * catalog is only a suggestion, and {@code accountAccessIds} arrives on the request body. An
+     * admin restricted to three accounts could otherwise POST any id and mint a user who sees
+     * accounts they cannot see themselves, then sign in as them. Access has to be delegable
+     * downwards only, so the request is intersected with the caller's own scope here, on the write
+     * path, rather than trusted because the UI offered a short list.
+     *
+     * <p>Silently dropping rather than rejecting: a caller whose own access was narrowed between
+     * opening the form and saving it should not get an error naming accounts they can no longer
+     * see, and the result — only the accounts they hold — is the same either way. Dropped ids are
+     * logged.
+     */
+    private List<Long> grantableAccountIds(List<Long> requested) {
+        if (requested == null || requested.isEmpty()) {
+            return requested;
+        }
+        java.util.Set<Long> callerScope = adminAccessScope.accountIdsForCurrentUser();
+        if (callerScope == null) {
+            return requested; // caller is unrestricted — anything in the platform is theirs to give
+        }
+        List<Long> allowed = requested.stream().filter(callerScope::contains).collect(Collectors.toList());
+        if (allowed.size() != requested.size()) {
+            List<Long> dropped = requested.stream().filter(id -> !callerScope.contains(id)).collect(Collectors.toList());
+            log.warn("Dropped cloud-account grants {} — outside the granting admin's own access", dropped);
+        }
+        return allowed;
+    }
 
     /**
      * Rejects a contact number the notification sender would not be able to dial.
@@ -170,8 +236,10 @@ public class AppUserService {
         }
         AppUser savedUser = appUserRepository.save(user);
 
-        // Assign XamOps sidebar tab access (only relevant for ROLE_XAMOPS users)
-        if ("ROLE_XAMOPS".equals(savedUser.getRole())
+        // Assign sidebar tab access. Stored for every role whose sidebar can be scoped — XamOps
+        // modules for ROLE_XAMOPS, admin sections for the BillOps admin roles — using the key
+        // vocabulary the UI sent for that role (see UI_TAB_SCOPED_ROLES).
+        if (isTabScopedRole(savedUser.getRole())
                 && dto.getAllowedTabs() != null && !dto.getAllowedTabs().isEmpty()) {
             for (String tabName : dto.getAllowedTabs()) {
                 userTabAccessRepository.save(new UserTabAccess(savedUser, tabName));
@@ -181,7 +249,7 @@ public class AppUserService {
         // Assign cloud-account access (any role). A null list means "none specified" (→ all
         // accounts on read); an explicit list stores one row per resolvable cloud account.
         if (dto.getAccountAccessIds() != null) {
-            for (Long accountId : dto.getAccountAccessIds()) {
+            for (Long accountId : grantableAccountIds(dto.getAccountAccessIds())) {
                 cloudAccountRepository.findById(accountId).ifPresent(cloudAccount ->
                         userCloudAccountAccessRepository.save(new UserCloudAccountAccess(savedUser, cloudAccount)));
             }
@@ -200,34 +268,22 @@ public class AppUserService {
     }
 
     public List<UserDTO> getAllUsers() {
-        // Scope to owned clients for ROLE_BILLOPS_ADMIN_SUB
-        org.springframework.security.core.Authentication auth =
-                SecurityContextHolder.getContext().getAuthentication();
-        boolean isSubAdmin = auth != null && auth.getAuthorities().stream()
-                .anyMatch(a -> "ROLE_BILLOPS_ADMIN_SUB".equals(a.getAuthority()));
+        // Narrow the list to the clients the caller may manage, derived from their granted cloud
+        // accounts (AdminAccessScope). Null means no restriction, which is every admin who has
+        // not been given an explicit account list.
+        java.util.Set<Long> allowedClientIds = adminAccessScope.clientIdsForCurrentUser();
 
         List<AppUser> users;
-        if (isSubAdmin && auth != null) {
-            // Find sub-admin by username (JWT ID may differ from tenant DB ID)
-            AppUser subAdmin = appUserRepository.findByUsername(auth.getName()).orElse(null);
-            if (subAdmin == null) {
-                log.warn("SUB_ADMIN '{}' not found in app_user table — returning empty user list", auth.getName());
-                return java.util.Collections.emptyList();
-            }
-            List<Client> ownedClients = clientRepository.findByOwnerAdminId(subAdmin.getId());
-            if (ownedClients.isEmpty()) {
-                return java.util.Collections.emptyList();
-            }
-            java.util.Set<Long> ownedClientIds = ownedClients.stream()
-                    .map(Client::getId)
-                    .collect(java.util.stream.Collectors.toSet());
-            users = appUserRepository.findAll().stream()
-                    .filter(u -> u.getClient() != null && ownedClientIds.contains(u.getClient().getId()))
-                    .collect(java.util.stream.Collectors.toList());
-            log.info("SUB_ADMIN {} — returning {} scoped users from {} owned clients",
-                    subAdmin.getUsername(), users.size(), ownedClients.size());
-        } else {
+        if (allowedClientIds == null) {
             users = appUserRepository.findAll();
+        } else if (allowedClientIds.isEmpty()) {
+            return java.util.Collections.emptyList();
+        } else {
+            users = appUserRepository.findAll().stream()
+                    .filter(u -> u.getClient() != null && allowedClientIds.contains(u.getClient().getId()))
+                    .collect(java.util.stream.Collectors.toList());
+            log.info("Scoped user list — returning {} users from {} managed clients",
+                    users.size(), allowedClientIds.size());
         }
 
         return users.stream().map(user -> {
@@ -241,12 +297,125 @@ public class AppUserService {
             dto.setContact(user.getContact());
             dto.setDesignation(user.getDesignation());
             dto.setParentId(user.getCreatedBy());  // null = primary user, non-null = sub-user
-            if ("ROLE_XAMOPS".equals(user.getRole())) {
+            // The User Manager edits these in place, so they have to round-trip for every role
+            // whose sidebar can be scoped — otherwise Edit User opens with an empty tree and
+            // saving silently wipes the user's existing access.
+            if (isTabScopedRole(user.getRole())) {
                 dto.setAllowedTabs(userTabAccessRepository.findTabNamesByUserId(user.getId()));
             }
             dto.setAccountAccessIds(userCloudAccountAccessRepository.findCloudAccountIdsByUserId(user.getId()));
             return dto;
         }).collect(Collectors.toList());
+    }
+
+    /**
+     * Every client the caller may administer, with the two counts the delete guard checks.
+     *
+     * <p>The User Manager derives its client rows from the user list, so a client with no users
+     * has no row there: it cannot be given a first user and cannot be deleted. This list is what
+     * lets the page show those clients too. Scoped exactly as {@link #getAllUsers()} is, so an
+     * admin with a managed-client list sees only those.
+     *
+     * <p>Doubles as the catalog behind the Client Access picker in the user-manager modal, which
+     * is why the scoping matters twice over: an admin can only delegate clients they manage
+     * themselves.
+     */
+    public List<AdminClientDTO> getAdminClients() {
+        java.util.Set<Long> allowedClientIds = adminAccessScope.clientIdsForCurrentUser();
+        if (allowedClientIds != null && allowedClientIds.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        List<Client> clients = adminAccessScope.filterClients(
+                clientRepository.findAll(), allowedClientIds);
+
+        // Two grouped queries rather than a count pair per client: this list is every client there is.
+        java.util.Map<Long, Long> userCounts = toCountMap(appUserRepository.countUsersGroupedByClient());
+        java.util.Map<Long, Long> accountCounts = toCountMap(cloudAccountRepository.countAccountsGroupedByClient());
+
+        return clients.stream()
+                .map(c -> new AdminClientDTO(
+                        c.getId(),
+                        c.getName(),
+                        c.getEmail(),
+                        userCounts.getOrDefault(c.getId(), 0L),
+                        accountCounts.getOrDefault(c.getId(), 0L)))
+                .sorted(java.util.Comparator.comparing(
+                        AdminClientDTO::getName,
+                        java.util.Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
+                .collect(Collectors.toList());
+    }
+
+    /** Collapses {@code [clientId, count]} projection rows into a lookup map. */
+    private static java.util.Map<Long, Long> toCountMap(List<Object[]> rows) {
+        java.util.Map<Long, Long> counts = new java.util.HashMap<>();
+        for (Object[] row : rows) {
+            if (row.length >= 2 && row[0] != null && row[1] != null) {
+                counts.put(((Number) row[0]).longValue(), ((Number) row[1]).longValue());
+            }
+        }
+        return counts;
+    }
+
+    /**
+     * Thrown when a client cannot be deleted because something still belongs to it. Carries the
+     * counts so the caller can say exactly what is in the way.
+     */
+    public static class ClientNotEmptyException extends RuntimeException {
+        private final long userCount;
+        private final long cloudAccountCount;
+
+        ClientNotEmptyException(String message, long userCount, long cloudAccountCount) {
+            super(message);
+            this.userCount = userCount;
+            this.cloudAccountCount = cloudAccountCount;
+        }
+
+        public long getUserCount() { return userCount; }
+        public long getCloudAccountCount() { return cloudAccountCount; }
+    }
+
+    /**
+     * Deletes a client that has no users and no cloud accounts.
+     *
+     * <p>Guarded, never a cascade. {@link Client} maps {@code users} and {@code cloudAccounts}
+     * with {@code cascade=ALL, orphanRemoval=true}, and {@code CloudAccount} cascades on down to
+     * invoices — so a bare delete of a populated client would take its users out through
+     * Hibernate's cascade, which bypasses every reference-clearing step in {@link #deleteUser}
+     * (tickets, RCAs, credit requests, agreements, per-user access rows). That ends either as an
+     * FK violation or as silently destroyed history. This refuses with
+     * {@link ClientNotEmptyException} whenever either count is non-zero, naming both, so the only
+     * client that can be removed here is one that is genuinely empty.
+     *
+     * <p>Mirrors {@code BillOpsAdminController.deleteClient} in xamops-service, including the
+     * cache eviction: the admin client list is cached under {@code billops:admin:clients} plus a
+     * per-sub-admin {@code :sub:{id}} key, and leaving those would keep the deleted client on
+     * screen elsewhere.
+     *
+     * @param clientId the client to delete
+     * @throws IllegalArgumentException  if no such client exists
+     * @throws ClientNotEmptyException   if the client still has users or cloud accounts
+     */
+    @Transactional
+    public void deleteClient(Long clientId) {
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new IllegalArgumentException("Client not found: " + clientId));
+
+        long userCount = appUserRepository.countByClientId(clientId);
+        long accountCount = cloudAccountRepository.countByClientId(clientId);
+        if (userCount > 0 || accountCount > 0) {
+            log.info("Refused delete of client {} ('{}'): {} user(s), {} cloud account(s)",
+                    clientId, client.getName(), userCount, accountCount);
+            throw new ClientNotEmptyException(
+                    "Cannot delete client '" + client.getName() + "': it still has " + userCount
+                    + " user(s) and " + accountCount + " cloud account(s). Remove them first.",
+                    userCount, accountCount);
+        }
+
+        clientRepository.delete(client);
+        redisCacheService.evictByPrefix(ADMIN_CLIENTS_CACHE_PREFIX);
+
+        // Deliberately at info: the audit trail for who removed a client and when.
+        log.info("Client {} ('{}') deleted by admin", clientId, client.getName());
     }
 
     public AppUser getUserById(Long id) {
@@ -258,6 +427,10 @@ public class AppUserService {
         AppUser user = appUserRepository.findById(dto.getId())
                 .orElseThrow(() -> new RuntimeException("User not found"));
         validateContact(dto.getContact());
+
+        // Read before the role is overwritten: the access-sync blocks at the bottom need to know
+        // whether this save moved the user out of a role that owned tab or client grants.
+        String previousRole = user.getRole();
 
         // Update basic fields
         user.setUsername(dto.getUsername());
@@ -284,14 +457,21 @@ public class AppUserService {
 
         AppUser savedUser = appUserRepository.save(user);
 
-        // Sync XamOps sidebar tab access — only when the tab list is provided on the request.
+        // Sync sidebar tab access — only when the tab list is provided on the request.
         // A null allowedTabs means "leave tab access unchanged"; an explicit (possibly empty)
         // list replaces the current assignment.
-        if ("ROLE_XAMOPS".equals(savedUser.getRole()) && dto.getAllowedTabs() != null) {
+        if (isTabScopedRole(savedUser.getRole()) && dto.getAllowedTabs() != null) {
             userTabAccessRepository.deleteByUserId(savedUser.getId());
             for (String tabName : dto.getAllowedTabs()) {
                 userTabAccessRepository.save(new UserTabAccess(savedUser, tabName));
             }
+        } else if (isTabScopedRole(previousRole) && !isTabScopedRole(savedUser.getRole())) {
+            // This save moved the user out of a role with a scoped sidebar. Leaving the old rows
+            // behind would hide them from the UI while they still sat in the table, ready to take
+            // effect again the moment the user was switched back — and in the other role's key
+            // vocabulary, which matches nothing. Narrowed to an actual transition so a save on a
+            // role that never had a scoped sidebar touches no rows at all.
+            userTabAccessRepository.deleteByUserId(savedUser.getId());
         }
 
         // Sync cloud-account access — same null/empty contract as tab access above.
@@ -299,7 +479,7 @@ public class AppUserService {
         // replaces the current assignment (empty → zero rows → "all access" on read).
         if (dto.getAccountAccessIds() != null) {
             userCloudAccountAccessRepository.deleteByUserId(savedUser.getId());
-            for (Long accountId : dto.getAccountAccessIds()) {
+            for (Long accountId : grantableAccountIds(dto.getAccountAccessIds())) {
                 cloudAccountRepository.findById(accountId).ifPresent(cloudAccount ->
                         userCloudAccountAccessRepository.save(new UserCloudAccountAccess(savedUser, cloudAccount)));
             }

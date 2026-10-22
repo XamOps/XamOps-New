@@ -11,6 +11,7 @@ import com.xammer.billops.repository.CloudAccountRepository;
 import com.xammer.billops.repository.SupportMessageRepository;
 import com.xammer.billops.repository.SupportTicketStatusRepository;
 import com.xammer.billops.repository.UserCloudAccountAccessRepository;
+import com.xammer.billops.service.AdminAccessScope;
 import com.xammer.billops.service.EmailService;
 import com.xammer.billops.service.ExternalMessagingService;
 import com.xammer.cloud.domain.AppUser;
@@ -52,6 +53,7 @@ public class SupportAdminController {
     private final SupportTicketStatusRepository ticketStatusRepository;
     private final EmailService emailService;
     private final ExternalMessagingService externalMessagingService;
+    private final AdminAccessScope adminAccessScope;
 
     @Value("${support.upload.dir:${user.home}/billops-uploads}")
     private String uploadDir;
@@ -66,7 +68,8 @@ public class SupportAdminController {
                                    UserCloudAccountAccessRepository userCloudAccountAccessRepository,
                                    SupportTicketStatusRepository ticketStatusRepository,
                                    EmailService emailService,
-                                   ExternalMessagingService externalMessagingService) {
+                                   ExternalMessagingService externalMessagingService,
+                                   AdminAccessScope adminAccessScope) {
         this.messageRepository = messageRepository;
         this.cloudAccountRepository = cloudAccountRepository;
         this.clientRepository = clientRepository;
@@ -75,6 +78,7 @@ public class SupportAdminController {
         this.ticketStatusRepository = ticketStatusRepository;
         this.emailService = emailService;
         this.externalMessagingService = externalMessagingService;
+        this.adminAccessScope = adminAccessScope;
     }
 
     // ── helper: build support notification email HTML ──
@@ -119,26 +123,21 @@ public class SupportAdminController {
     /**
      * Returns the set of client IDs accessible to the current user, or null = "no restriction / see all".
      *
-     * ROLE_BILLOPS_ADMIN (primary, createdBy == null)  → null (see ALL clients)
-     * ROLE_BILLOPS_ADMIN_SUB with allAccountsAccess    → null (explicitly given full access)
-     * ROLE_BILLOPS_ADMIN_SUB (no account access)       → only clients where ownerAdminId = their ID
-     * ROLE_BILLOPS_ADMIN sub-user (createdBy != null)  → clients derived from assigned cloud accounts
+     * Granted cloud accounts (any admin role)           → only those accounts' clients
+     * ROLE_BILLOPS_ADMIN (primary, createdBy == null)   → null (see ALL clients)
+     * ROLE_BILLOPS_ADMIN_SUB with allAccountsAccess     → null (explicitly given full access)
+     * ROLE_BILLOPS_ADMIN_SUB (no account access)        → only clients where ownerAdminId = their ID
+     * ROLE_BILLOPS_ADMIN sub-user (createdBy != null)   → clients derived from assigned cloud accounts
+     *
+     * The first three rules are {@link AdminAccessScope}, shared with the Accounts list and the
+     * User Manager so all three screens agree on what an admin manages.
      */
     private Set<Long> getAllowedClientIds(AppUser currentUser) {
         if (currentUser == null) return null;
 
-        // ROLE_BILLOPS_ADMIN_SUB — isolated sub-admin scope
-        if ("ROLE_BILLOPS_ADMIN_SUB".equals(currentUser.getRole())) {
-            if (currentUser.isAllAccountsAccess()) {
-                return null; // explicitly granted full access by the primary admin
-            }
-            // Scope to clients owned by this sub-admin
-            List<Client> ownedClients = clientRepository.findByOwnerAdminId(currentUser.getId());
-            if (ownedClients.isEmpty()) return Collections.emptySet();
-            Set<Long> clientIds = new HashSet<>();
-            for (Client c : ownedClients) clientIds.add(c.getId());
-            return clientIds;
-        }
+        // A granted account list, where one was assigned, outranks everything below.
+        Set<Long> granted = adminAccessScope.resolveClientIds(currentUser);
+        if (granted != null) return granted;
 
         // Primary ROLE_BILLOPS_ADMIN (createdBy == null) — see everything
         if (currentUser.getCreatedBy() == null) {

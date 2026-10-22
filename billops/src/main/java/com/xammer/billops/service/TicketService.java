@@ -73,6 +73,8 @@ public class TicketService {
     private CloudAccountRepository cloudAccountRepository;
     @Autowired
     private com.xammer.billops.repository.TicketEmailMessageRepository ticketEmailMessageRepository;
+    @Autowired
+    private AdminAccessScope adminAccessScope;
 
     @Transactional
     public TicketDto createTicket(TicketDto ticketDto) {
@@ -279,42 +281,40 @@ public class TicketService {
                 .filter(a -> a.startsWith("ROLE_"))
                 .findFirst().orElse(null) : null;
 
-        // ROLE_BILLOPS_ADMIN_SUB — scope to tickets from their owned clients' cloud
-        // accounts
-        // Checked BEFORE createdBy lookup to handle users whose DB role field is null
-        if ("ROLE_BILLOPS_ADMIN_SUB".equals(effectiveRole)) {
+        // Admin roles with a granted account list — scope to tickets raised against those
+        // accounts. Covers ROLE_BILLOPS_ADMIN_SUB (whose accounts come from the legacy
+        // owner_admin_id client ownership) and any admin given an explicit list in the User
+        // Manager. Resolved BEFORE the createdBy lookup to handle users whose DB role field is
+        // null.
+        boolean isAdmin = effectiveRole != null && effectiveRole.contains("BILLOPS_ADMIN");
+        if (isAdmin) {
             // Try findById first, fall back to username if ID doesn't match tenant DB
-            AppUser subAdmin = appUserRepository.findById(userId).orElse(null);
-            if (subAdmin == null && auth != null) {
-                subAdmin = appUserRepository.findByUsername(auth.getName()).orElse(null);
+            AppUser admin = appUserRepository.findById(userId).orElse(null);
+            if (admin == null && auth != null) {
+                admin = appUserRepository.findByUsername(auth.getName()).orElse(null);
             }
-            if (subAdmin == null) {
+            if (admin == null) {
+                // A sub-admin with no tenant row has no scope to speak of; anyone else falls
+                // through to the unrestricted admin view below, as before.
+                return "ROLE_BILLOPS_ADMIN_SUB".equals(effectiveRole)
+                        ? java.util.Collections.emptyList()
+                        : tickets;
+            }
+            Set<Long> allowedAccountIds = adminAccessScope.resolveAccountIds(admin);
+            if (allowedAccountIds == null) {
+                return tickets; // no restriction — the usual primary-admin case
+            }
+            if (allowedAccountIds.isEmpty()) {
                 return java.util.Collections.emptyList();
             }
-            List<Client> ownedClients = clientRepository.findByOwnerAdminId(subAdmin.getId());
-            if (ownedClients.isEmpty()) {
-                return java.util.Collections.emptyList();
-            }
-            Set<Long> ownedClientIds = ownedClients.stream()
-                    .map(Client::getId)
-                    .collect(Collectors.toSet());
-            List<CloudAccount> ownedAccounts = cloudAccountRepository.findAll().stream()
-                    .filter(a -> a.getClient() != null && ownedClientIds.contains(a.getClient().getId()))
-                    .collect(Collectors.toList());
-            Set<String> ownedProviderIds = ownedAccounts.stream()
+            // Tickets carry the provider-specific account id, not the DB id.
+            Set<String> allowedProviderIds = cloudAccountRepository.findAllById(allowedAccountIds).stream()
                     .map(this::resolveProviderAccountId)
                     .filter(id -> id != null && !id.isEmpty())
                     .collect(Collectors.toSet());
             return tickets.stream()
-                    .filter(t -> t.getAccountId() != null && ownedProviderIds.contains(t.getAccountId()))
+                    .filter(t -> t.getAccountId() != null && allowedProviderIds.contains(t.getAccountId()))
                     .collect(Collectors.toList());
-        }
-
-        // Only BILLOPS_ADMIN (primary) sees all tickets — any non-admin role is
-        // filtered
-        boolean isAdmin = effectiveRole != null && effectiveRole.contains("BILLOPS_ADMIN");
-        if (isAdmin) {
-            return tickets;
         }
 
         AppUser currentUser = appUserRepository.findById(userId).orElse(null);

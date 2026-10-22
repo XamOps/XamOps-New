@@ -9,6 +9,7 @@ import { useMyProfile } from '../hooks/useMyProfile';
 import { DialogRoot, DialogPanel } from '../components/ui';
 import { TeamUser, CloudAccount } from '../types/myProfile';
 import { XAMOPS_MODULES, normalizeAllowedTabs, selectAllXamTabs, toggleAllowedTab } from '../constants/xamopsTabs';
+import { ALL_BILLOPS_ADMIN_TABS } from '../constants/billopsAdminTabs';
 import XamTabPermissionToggle from '../components/Shared/XamTabPermissionToggle';
 
 const PROVIDER_DOT: Record<string, string> = {
@@ -54,17 +55,16 @@ const MyProfilePage: React.FC = () => {
     updatePasswordForm, toggleAccountId, toggleTab, setShowPasswordModal,
   } = useMyProfile();
 
-  const BILLOPS_ADMIN_TABS = [
-    { key: 'admin-dashboard',    label: 'Admin Dashboard',    icon: 'mdi:chart-bar' },
-    { key: 'support-inbox',      label: 'Support Inbox',      icon: 'mdi:headset' },
-    { key: 'all-tickets',        label: 'All Tickets',        icon: 'mdi:ticket-outline' },
-    { key: 'all-invoices',       label: 'All Invoices',       icon: 'mdi:file-document-outline' },
-    { key: 'credit-requests',    label: 'Credit Requests',    icon: 'mdi:cash-multiple' },
-    { key: 'agreement-admin',    label: 'Agreement Admin',    icon: 'mdi:file-sign' },
-    { key: 'client-details',     label: 'Client Details',     icon: 'mdi:account-cog-outline' },
-    { key: 'autospotting-admin', label: 'AutoSpotting Admin', icon: 'mdi:auto-fix' },
-    { key: 'user-manager',       label: 'User Manager',       icon: 'mdi:account-settings-outline' },
-  ];
+  /**
+   * The admin sections a sub-user can be granted, taken from the shared catalog rather than
+   * listed here.
+   *
+   * The hand-maintained copy this replaces had drifted four sections behind the sidebar
+   * (demo-users, historical-billing, client-intake, dspm-admin): they rendered in the nav and
+   * were gated on keys that no picker could hand out, so a restricted sub-user could never be
+   * given them.
+   */
+  const BILLOPS_ADMIN_TABS = ALL_BILLOPS_ADMIN_TABS;
 
   const TAB_COLORS: Record<string, string> = {
     'admin-dashboard':    'bg-purple-50 text-purple-700 border-purple-100',
@@ -72,9 +72,13 @@ const MyProfilePage: React.FC = () => {
     'all-tickets':        'bg-blue-50 text-blue-700 border-blue-100',
     'all-invoices':       'bg-teal-50 text-teal-700 border-teal-100',
     'credit-requests':    'bg-emerald-50 text-emerald-700 border-emerald-100',
+    'historical-billing': 'bg-cyan-50 text-cyan-700 border-cyan-100',
     'agreement-admin':    'bg-[rgba(0,0,0,0.04)] text-[rgba(0,0,0,0.6)] border-[rgba(0,0,0,0.08)]',
     'client-details':     'bg-indigo-50 text-indigo-700 border-indigo-100',
+    'client-intake':      'bg-violet-50 text-violet-700 border-violet-100',
+    'demo-users':         'bg-amber-50 text-amber-700 border-amber-100',
     'autospotting-admin': 'bg-orange-50 text-orange-700 border-orange-100',
+    'dspm-admin':         'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-100',
     'user-manager':       'bg-rose-50 text-rose-700 border-rose-100',
   };
 

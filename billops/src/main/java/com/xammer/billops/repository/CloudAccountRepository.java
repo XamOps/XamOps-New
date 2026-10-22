@@ -15,6 +15,16 @@ public interface CloudAccountRepository extends JpaRepository<CloudAccount, Long
 
     List<CloudAccount> findByClientId(Long clientId);
 
+    /** Accounts of one client, without loading them — the delete-client guard only needs the count. */
+    long countByClientId(Long clientId);
+
+    /**
+     * Cloud-account count per client as {@code [clientId, count]} rows, for the admin client list.
+     * Clients with no accounts are absent from the result, so callers must default them to 0.
+     */
+    @Query("SELECT ca.client.id, COUNT(ca) FROM CloudAccount ca WHERE ca.client IS NOT NULL GROUP BY ca.client.id")
+    List<Object[]> countAccountsGroupedByClient();
+
     // --- ADDED: Required for Account Verification Flow ---
     Optional<CloudAccount> findByExternalId(String externalId);
 

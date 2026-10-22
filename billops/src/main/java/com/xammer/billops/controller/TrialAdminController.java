@@ -41,10 +41,10 @@ public class TrialAdminController {
     @GetMapping
     @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_SUPER_ADMIN')")
     public ResponseEntity<List<Map<String, Object>>> listTrials(
-            // Converted tenants drop out of a plan_type='TRIAL' list the instant they are
-            // converted, so an operator who just clicked "convert" gets no confirmation row,
-            // no audit view of past conversions, and no way to put the tenant back on a trial.
-            // Opt-in so the default response stays exactly what it was.
+            // Audit view over tenants that were once on a trial. The admin screen deliberately
+            // asks for the default (live trials only): converting graduates a tenant out of trial
+            // management, and keeping it listed would pad the queue with tenants needing no action.
+            // The conversion stays recorded on the client, and this flag is how you read it back.
             @RequestParam(name = "includeConverted", defaultValue = "false") boolean includeConverted) {
         List<Client> trials = includeConverted
                 ? clientRepository.findTrialOrFormerTrial("TRIAL")
@@ -97,6 +97,19 @@ public class TrialAdminController {
                 "daysRemaining", daysRemaining(client)));
     }
 
+    /**
+     * Graduates a trial tenant to paid.
+     *
+     * <p>The tenant keeps the client it signed up with — self-signup already created it under the
+     * company name given on the form (see {@code GoogleAuthController.completeSignup}), with the
+     * trial's users, tickets and access attached — so there is nothing to create or migrate here.
+     * Flipping {@code plan_type} to PAID is what lifts the 402 gate for every user under it.
+     *
+     * <p>{@code trial_status=CONVERTED} and the trial dates stay on the row as the record that
+     * this client came from a trial. Because the default list is live trials only, that is also
+     * what takes the tenant out of trial management: it carries on as an ordinary paid client,
+     * and the conversion is still readable through {@code ?includeConverted=true}.
+     */
     @PostMapping("/{clientId}/convert")
     @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_SUPER_ADMIN')")
     public ResponseEntity<?> convert(@PathVariable Long clientId) {

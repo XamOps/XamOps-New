@@ -19,6 +19,7 @@ import { queryClient } from './lib/queryClient';
 import clsx from 'clsx';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AccountProvider } from './contexts/AccountContext';
+import { firstAllowedBillopsRoute } from './constants/billopsAdminTabs';
 import { PermissionGapProvider } from './contexts/PermissionGapContext';
 import { MaintenanceProvider, useMaintenanceMode } from './contexts/MaintenanceContext';
 import MaintenancePage from './pages/MaintenancePage';
@@ -289,27 +290,12 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <>{children}</>;
 };
 
-/** Tab key → React route mapping for BillOps admin tabs */
-const BILLOPS_ADMIN_TAB_ROUTES: Record<string, string> = {
-    'admin-dashboard': '/billops-admin-dashboard',
-    'support-inbox': '/billops-support-dashboard',
-    'all-tickets': '/billops-admin-tickets',
-    'all-invoices': '/billops-admin-invoices',
-    'credit-requests': '/billops-admin-credits',
-    'agreement-admin': '/billops-admin-agreements',
-    'client-details': '/billops-client-details',
-    'demo-users': '/billops-admin-demo-users',
-    'autospotting-admin': '/autospotting-admin',
-    'historical-billing': '/billops-admin-historical-billing',
-    'client-intake': '/billops-client-intake',
-};
-const BILLOPS_ADMIN_TAB_ORDER = Object.keys(BILLOPS_ADMIN_TAB_ROUTES);
-
 /**
  * Dashboard Guard - Redirects ROLE_BILLOPS (non-XAMOPS) users to BillOps dashboard
  * whenever they try to access standard dashboards.
- * For ROLE_BILLOPS_ADMIN sub-users, redirects to their first allowed tab instead
- * of always landing on the admin dashboard they may not have access to.
+ * An admin whose sections have been restricted is sent to the first one they hold, rather than to
+ * an admin dashboard they cannot open. The key → route map lives in constants/billopsAdminTabs.ts
+ * alongside the sidebar's, so a section added there is reachable here without a second edit.
  */
 const DashboardGuard: React.FC = () => {
     const { hasAnyRole, isLoading } = useAuth();
@@ -321,14 +307,12 @@ const DashboardGuard: React.FC = () => {
         fetch('/api/billops/team/profile', { credentials: 'include' })
             .then(r => r.ok ? r.json() : null)
             .then(data => {
-                if (!data || data.isPrimaryUser) {
-                    setBillopsRedirect('/billops-admin-dashboard');
-                    return;
-                }
-                // Sub-user: redirect to their first allowed tab
-                const allowedTabs: string[] = data.allowedTabs || [];
-                const firstTab = BILLOPS_ADMIN_TAB_ORDER.find(t => allowedTabs.includes(t));
-                setBillopsRedirect(firstTab ? BILLOPS_ADMIN_TAB_ROUTES[firstTab] : '/billops-admin-dashboard');
+                // Keyed off the section list alone, not isPrimaryUser: a primary admin can be
+                // restricted from the User Manager too, and an empty list means unrestricted for
+                // either kind of user, which lands on the admin dashboard as before.
+                setBillopsRedirect(
+                    firstAllowedBillopsRoute(data?.allowedTabs) ?? '/billops-admin-dashboard'
+                );
             })
             .catch(() => setBillopsRedirect('/billops-admin-dashboard'));
     }, [isLoading]);

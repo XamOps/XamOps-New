@@ -26,8 +26,12 @@ const response = (status: number, body: unknown, bodyText?: string) => ({
   text: () => Promise.resolve(bodyText ?? (body == null ? '' : JSON.stringify(body))),
 }) as unknown as Response;
 
+/**
+ * List calls only. Anchored at the end because the list URL carries no query string any more, and
+ * a plain substring match would also catch `/api/billops/admin/trials/135/extend`.
+ */
 const listCalls = () =>
-  mockFetch.mock.calls.filter(([url]) => String(url).includes('/api/billops/admin/trials?'));
+  mockFetch.mock.calls.filter(([url]) => /\/api\/billops\/admin\/trials$/.test(String(url)));
 
 describe('useBillOpsAdminTrials', () => {
   beforeEach(() => {
@@ -35,13 +39,15 @@ describe('useBillOpsAdminTrials', () => {
     mockFetch.mockResolvedValue(response(200, listBody));
   });
 
-  it('asks for converted tenants too, and sorts blocked rows first', async () => {
+  it('asks for live trials only, and sorts blocked rows first', async () => {
     const { result } = renderHook(() => useBillOpsAdminTrials());
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(listCalls()).toHaveLength(1);
-    expect(String(listCalls()[0][0])).toContain('includeConverted=true');
+    // Converting graduates a tenant out of trial management, so the screen never asks for
+    // converted rows. The fixture still carries one to cover the "not trial-gated last" sort.
+    expect(String(listCalls()[0][0])).not.toContain('includeConverted');
     expect(result.current.rows.map(r => r.clientId)).toEqual([135, 7]);
     expect(result.current.error).toBeNull();
   });

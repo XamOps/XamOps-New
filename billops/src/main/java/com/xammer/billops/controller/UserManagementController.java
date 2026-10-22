@@ -1,21 +1,31 @@
 package com.xammer.billops.controller;
 
+import com.xammer.billops.dto.AdminClientDTO;
 import com.xammer.billops.dto.ClientCloudAccountDTO;
 import com.xammer.billops.dto.UserDTO;
 import com.xammer.billops.domain.CloudAccount;
 import com.xammer.cloud.domain.AppUser;
 import com.xammer.billops.repository.CloudAccountRepository;
+import com.xammer.billops.service.AdminAccessScope;
 import com.xammer.billops.service.AppUserService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/billops/users")
 public class UserManagementController {
+
+    private static final Logger log = LoggerFactory.getLogger(UserManagementController.class);
 
     @Autowired
     private AppUserService service;
@@ -23,9 +33,59 @@ public class UserManagementController {
     @Autowired
     private CloudAccountRepository cloudAccountRepository;
 
+    @Autowired
+    private AdminAccessScope adminAccessScope;
+
     @GetMapping
     public List<UserDTO> getAllUsers() {
         return service.getAllUsers();
+    }
+
+    /**
+     * Every client the caller may administer, with its user and cloud-account counts.
+     *
+     * <p>The User Manager groups the user list by client name to build its client rows, which
+     * means a client with nobody in it never appears: it cannot be given its first user and has
+     * no row to carry a delete action. This endpoint is what lets the page list those clients too.
+     */
+    @GetMapping("/clients")
+    public List<AdminClientDTO> getAllClients() {
+        return service.getAdminClients();
+    }
+
+    /**
+     * Deletes an empty client — no users, no cloud accounts.
+     *
+     * <p>Answers 409 with both counts when the client still has either, because deleting a
+     * populated client would cascade through {@code Client.users} / {@code Client.cloudAccounts}
+     * and bypass the per-user reference cleanup in {@code AppUserService.deleteUser}. Delete the
+     * users first (the rows above this one), then the client.
+     *
+     * <p>Restricted to full BillOps / super admins, matching the equivalent endpoint in
+     * xamops-service: sub-admins can see the client list but not remove entries from it.
+     */
+    @DeleteMapping("/clients/{clientId}")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_SUPER_ADMIN')")
+    public ResponseEntity<?> deleteClient(@PathVariable Long clientId) {
+        try {
+            service.deleteClient(clientId);
+            return ResponseEntity.ok(Map.of("clientId", clientId, "deleted", true));
+        } catch (AppUserService.ClientNotEmptyException e) {
+            Map<String, Object> conflict = new LinkedHashMap<>();
+            conflict.put("clientId", clientId);
+            conflict.put("userCount", e.getUserCount());
+            conflict.put("accountCount", e.getCloudAccountCount());
+            conflict.put("message", e.getMessage());
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(conflict);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", e.getMessage()));
+        } catch (Exception e) {
+            // Most likely an FK from a satellite table that survived an empty client — report it
+            // rather than letting it surface as an opaque 500.
+            log.error("Failed to delete client {}", clientId, e);
+            return ResponseEntity.badRequest().body(Map.of(
+                    "message", "Could not delete the client: " + e.getMessage()));
+        }
     }
 
     /**
@@ -36,12 +96,46 @@ public class UserManagementController {
     @GetMapping("/clients/{clientId}/cloud-accounts")
     public List<ClientCloudAccountDTO> getClientCloudAccounts(@PathVariable Long clientId) {
         return cloudAccountRepository.findByClientId(clientId).stream()
-                .map(ca -> new ClientCloudAccountDTO(
-                        ca.getId(),
-                        ca.getAccountName(),
-                        ca.getProvider(),
-                        deriveAccountId(ca)))
+                .map(UserManagementController::toDto)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * Every cloud account in the platform, for the BillOps admin account-access picker.
+     *
+     * <p>A BillOps admin works across customers, so the accounts they can be granted are not
+     * limited to their own client the way a customer user's are — hence a separate, unkeyed list
+     * rather than the per-client endpoint above. Each row carries its owning client, because
+     * account names repeat across customers.
+     *
+     * <p>Scoped by {@link AdminAccessScope}: an admin who has themselves been restricted to a
+     * subset of accounts can only grant from that subset, so access can be delegated downwards
+     * but never widened.
+     */
+    @GetMapping("/cloud-accounts")
+    @PreAuthorize("hasAnyAuthority('ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB', 'ROLE_SUPER_ADMIN')")
+    public List<ClientCloudAccountDTO> getAllCloudAccounts() {
+        List<CloudAccount> accounts = adminAccessScope.filterAccounts(
+                cloudAccountRepository.findAll(), adminAccessScope.accountIdsForCurrentUser());
+
+        return accounts.stream()
+                .map(UserManagementController::toDto)
+                .sorted(java.util.Comparator
+                        .comparing(ClientCloudAccountDTO::getClientName,
+                                java.util.Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER))
+                        .thenComparing(ClientCloudAccountDTO::getName,
+                                java.util.Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
+                .collect(Collectors.toList());
+    }
+
+    private static ClientCloudAccountDTO toDto(CloudAccount ca) {
+        return new ClientCloudAccountDTO(
+                ca.getId(),
+                ca.getAccountName(),
+                ca.getProvider(),
+                deriveAccountId(ca),
+                ca.getClient() != null ? ca.getClient().getId() : null,
+                ca.getClient() != null ? ca.getClient().getName() : null);
     }
 
     private static String deriveAccountId(CloudAccount ca) {

@@ -53,6 +53,9 @@ public class AccountAccessHelper {
     @Autowired
     private CloudAccountRepository cloudAccountRepository;
 
+    @Autowired
+    private AdminAccessScope adminAccessScope;
+
     /**
      * Returns the set of allowed CloudAccount DB IDs for the current user,
      * or null if the user is a primary admin (no restriction applies).
@@ -89,23 +92,31 @@ public class AccountAccessHelper {
                     return Collections.emptySet();
                 }
 
-                List<Client> ownedClients = clientRepository.findByOwnerAdminId(subAdmin.getId());
-                log.debug("[AccountAccessHelper] SUB_ADMIN userId={} ownedClients count={}", subAdmin.getId(), ownedClients.size());
-                if (ownedClients.isEmpty()) {
-                    return Collections.emptySet();
-                }
-                Set<Long> ownedClientIds = ownedClients.stream()
-                        .map(Client::getId)
-                        .collect(Collectors.toSet());
-                List<Long> accountIds = cloudAccountRepository.findAll().stream()
-                        .filter(a -> a.getClient() != null && ownedClientIds.contains(a.getClient().getId()))
-                        .map(CloudAccount::getId)
-                        .collect(Collectors.toList());
-                return new HashSet<>(accountIds);
+                return adminAccessScope.resolveAccountIds(subAdmin);
             }
 
             // For all other roles: look up the AppUser
             AppUser currentUser = appUserRepository.findById(userId).orElse(null);
+
+            // Other admin roles: the account list assigned in the BillOps admin User Manager
+            // narrows them to exactly those accounts. This is the case the primary-admin check
+            // below would otherwise swallow — a primary admin returned null and was handed
+            // everything regardless of what had been selected for them. Without a grant list this
+            // resolves to null and that path applies unchanged.
+            //
+            // Resolved with its own username fallback rather than reassigning currentUser, whose
+            // id is what the sub-user lookup at the bottom of this method keys off.
+            if (effectiveRole != null && effectiveRole.contains("BILLOPS_ADMIN")) {
+                AppUser admin = currentUser;
+                if (admin == null && auth != null) {
+                    admin = appUserRepository.findByUsername(auth.getName()).orElse(null);
+                }
+                Set<Long> adminScope = adminAccessScope.resolveAccountIds(admin);
+                if (adminScope != null) {
+                    return adminScope;
+                }
+            }
+
             log.debug("[AccountAccessHelper] userId={} effectiveRole={} dbRole={} createdBy={} allAccess={}",
                     userId, effectiveRole,
                     currentUser != null ? currentUser.getRole() : "null",

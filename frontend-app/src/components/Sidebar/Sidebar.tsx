@@ -16,6 +16,7 @@ import NavSection from './NavSection';
 import SubNav from './SubNav';
 import { useTheme } from '../../contexts/ThemeContext';
 import { makeXamTabGate } from '../../constants/xamopsTabs';
+import { makeBillopsTabGate } from '../../constants/billopsAdminTabs';
 import { XAMSECURE_SIDEBAR_TABS } from '../../constants/xamsecureTabs';
 import { XAMLENS_SIDEBAR_TABS } from '../../constants/xamlensTabs';
 import { ClusterSectionsNav } from '../CloudK8s/shared/ClusterSectionsNav';
@@ -81,14 +82,28 @@ const Sidebar: React.FC = () => {
 
   // undefined = profile still loading; hide all admin tabs until resolved
   const billopsProfileLoading = billopsProfile === undefined;
-  // Only restrict tabs for confirmed BILLOPS_ADMIN sub-users (isPrimaryUser explicitly false)
-  // ROLE_BILLOPS_ADMIN_SUB users are always treated as primary (full admin nav, data scoped at backend)
-  const isAdminSubUser = hasAnyRole('ROLE_BILLOPS_ADMIN') && !hasAnyRole('ROLE_BILLOPS_ADMIN_SUB') && billopsProfile !== null && billopsProfile !== undefined && !billopsProfile.isPrimaryUser;
+  /**
+   * Admin nav gate, driven purely by the assigned section list: no sections = full admin sidebar,
+   * one or more = exactly those. Same rule as the XamOps side (makeBillopsTabGate), and the same
+   * rule the picker in the BillOps admin User Manager states.
+   *
+   * It used to additionally require the user to be a sub-user, which meant a primary admin was
+   * handed the whole sidebar no matter what had been selected for them — so restricting one from
+   * the User Manager had no visible effect. Keying off the list alone fixes that and changes
+   * nothing for anyone unrestricted, who has an empty list either way.
+   */
+  const billopsGate = makeBillopsTabGate(billopsProfile?.allowedTabs);
   const isTabAllowed = (tabKey: string): boolean => {
+    // Only BillOps admins have an admin section list. For anyone else reaching these items —
+    // ROLE_SUPER_ADMIN, which gets the User Manager without being a BillOps admin — no profile is
+    // ever fetched, so `billopsProfileLoading` would stay true and gate them out permanently.
+    if (!isBillopsAdminAny) return true;
     if (billopsProfileLoading) return false; // hide everything until we know access
-    if (!isAdminSubUser) return true;
-    return billopsProfile!.allowedTabs.includes(tabKey);
+    return billopsGate.isTabAllowed(tabKey);
   };
+  // Separate from the gate above: "My Team" manages the sub-users a primary admin created, so it
+  // is about position in the user tree rather than about section access.
+  const isAdminSubUser = hasAnyRole('ROLE_BILLOPS_ADMIN') && !hasAnyRole('ROLE_BILLOPS_ADMIN_SUB') && billopsProfile !== null && billopsProfile !== undefined && !billopsProfile.isPrimaryUser;
 
   // ── XamOps sidebar module/tab access ──
   // Fetches the current XamOps user's allowedTabs. Empty/undefined = no restriction (full sidebar);
@@ -605,7 +620,10 @@ const Sidebar: React.FC = () => {
                 Center's Identity & Access tab, reachable from the Security Center nav item
                 above. /user-management still resolves — it redirects there. Not to be confused
                 with "User Manager" below, which manages XamOps console users. */}
-            {(isBillopsAdminAny || hasAnyRole('ROLE_SUPER_ADMIN')) && (!isAdminSubUser || isTabAllowed('user-manager')) && (
+            {/* Gated on the section list alone, like every other admin item. The sub-user check
+                that used to guard it let a restricted primary admin keep the User Manager — and
+                with it the ability to widen their own access. */}
+            {(isBillopsAdminAny || hasAnyRole('ROLE_SUPER_ADMIN')) && isTabAllowed('user-manager') && (
               <NavItem href="/billops-admin-user-manager" icon="fas fa-user-cog" label="User Manager" isActive={isActive('/billops-admin-user-manager')} />
             )}
             {isBillopsAdminAny && !isAdminSubUser && (

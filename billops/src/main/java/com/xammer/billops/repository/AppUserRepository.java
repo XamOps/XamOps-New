@@ -53,6 +53,17 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
      */
     List<AppUser> findByClientId(Long clientId);
 
+    /** Users of one client, without loading them — the delete-client guard only needs the count. */
+    long countByClientId(Long clientId);
+
+    /**
+     * User count per client as {@code [clientId, count]} rows, for the admin client list.
+     * One query instead of a count per client, since that list renders every client there is.
+     * Clients with no users are absent from the result, so callers must default them to 0.
+     */
+    @Query("SELECT u.client.id, COUNT(u) FROM AppUser u WHERE u.client IS NOT NULL GROUP BY u.client.id")
+    List<Object[]> countUsersGroupedByClient();
+
     /**
      * All users of a client whose {@code Client.demo} ({@code is_demo}) flag matches. Derived query
      * over the {@code AppUser.client} {@code @ManyToOne} and {@code Client.demo}
