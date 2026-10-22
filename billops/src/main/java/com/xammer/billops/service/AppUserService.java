@@ -34,6 +34,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -221,7 +222,7 @@ public class AppUserService {
         }
 
         // Create user
-        AppUser user = new AppUser(dto.getUsername(), passwordEncoder.encode(dto.getPassword()), dto.getEmail(),
+        AppUser user = new AppUser(dto.getUsername(), resolveCreatePasswordHash(dto.getPassword()), dto.getEmail(),
                 dto.getRole(), client);
         user.setContact(dto.getContact());
         user.setDesignation(dto.getDesignation());
@@ -255,9 +256,9 @@ public class AppUserService {
             }
         }
 
-        // Send welcome email with credentials
+        // Send welcome email (passwordless — the user signs in with email + OTP)
         try {
-            sendWelcomeEmail(dto.getEmail(), dto.getUsername(), dto.getPassword());
+            sendWelcomeEmail(dto.getEmail(), dto.getUsername());
             log.info("Welcome email sent successfully to: {}", dto.getEmail());
         } catch (Exception e) {
             log.error("Failed to send welcome email to: {}", dto.getEmail(), e);
@@ -674,8 +675,23 @@ public class AppUserService {
         }
     }
 
-    private void sendWelcomeEmail(String email, String username, String password) {
-        String subject = "Welcome to XamOps - Your Account Credentials";
+    /**
+     * Returns a BCrypt hash to store for a newly created account.
+     *
+     * <p>Accounts authenticate only via email + OTP, so no usable password is ever set on create.
+     * The {@code app_user.password} column is non-null and Spring Security needs a non-null hash,
+     * so when no password is supplied we encode a random UUID — a deliberately unusable secret that
+     * nobody knows, mirroring the OAuth user creation in xamops-service's GoogleAuthController.
+     */
+    private String resolveCreatePasswordHash(String rawPassword) {
+        String raw = (rawPassword == null || rawPassword.isBlank())
+                ? UUID.randomUUID().toString()
+                : rawPassword;
+        return passwordEncoder.encode(raw);
+    }
+
+    private void sendWelcomeEmail(String email, String username) {
+        String subject = "Welcome to XamOps - Your Account is Ready";
 
         String htmlBody = "<!DOCTYPE html>" +
                 "<html>" +
@@ -708,16 +724,12 @@ public class AppUserService {
                 "<div class='content'>" +
                 "<p>Hello,</p>" +
                 "<p>Your XamOps account has been created by the administrator. " +
-                "Below are your login credentials to access the platform:</p>" +
+                "To access the platform, sign in with your email below — we'll email you a one-time passcode (OTP) each time you log in. No password is required.</p>" +
                 "<div class='credentials-box'>" +
-                "<h3 style='margin-top: 0; color: #667eea;'>Your Login Credentials</h3>" +
+                "<h3 style='margin-top: 0; color: #667eea;'>Your Login Details</h3>" +
                 "<div class='credential-item'>" +
                 "<span class='label'>Email (Login):</span>" +
                 "<span class='value'>" + email + "</span>" +
-                "</div>" +
-                "<div class='credential-item'>" +
-                "<span class='label'>Password:</span>" +
-                "<span class='value'>" + password + "</span>" +
                 "</div>" +
                 "<div class='credential-item'>" +
                 "<span class='label'>Portal URL:</span>" +
@@ -725,7 +737,7 @@ public class AppUserService {
                 "</div>" +
                 "</div>" +
                 "<div class='warning'>" +
-                "<strong>⚠️ Security Reminder:</strong> Please change your password after your first login for security purposes."
+                "<strong>🔐 How to sign in:</strong> Enter your email on the login page and we'll send a one-time passcode to that address. Enter the passcode to complete sign-in."
                 +
                 "</div>" +
                 "<div style='text-align: center;'>" +

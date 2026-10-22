@@ -276,7 +276,6 @@ const MyProfilePage: React.FC = () => {
                       {[
                         { key: 'username',  label: 'Username', icon: 'mdi:account-outline',  type: 'text',     placeholder: 'Enter username', required: true },
                         { key: 'email',     label: 'Email',    icon: 'mdi:email-outline',      type: 'email',    placeholder: 'Enter email', required: true },
-                        { key: 'password',  label: 'Password', icon: 'mdi:lock-outline',       type: 'password', placeholder: selectedUser.id ? 'Leave blank to keep current' : 'Enter password', required: !selectedUser.id },
                       ].map(field => (
                         <div key={field.key}>
                           <label className="flex items-center gap-1.5 text-[10px] font-bold text-[rgba(0,0,0,0.45)] uppercase tracking-wider mb-1.5">

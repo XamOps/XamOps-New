@@ -84,7 +84,7 @@ export function HowItWorks({ chips, policiesHref, policiesLinkState, collapsed =
   if (collapsed && !open) {
     return (
       <section
-        className={`rounded-lg border border-[rgba(0,0,0,0.08)] bg-white px-4 py-3 dark:border-[rgba(255,255,255,0.1)] dark:bg-[#141414] ${className}`}
+        className={`rounded-[8px] border border-[rgba(0,0,0,0.08)] bg-white px-4 py-3 dark:border-[rgba(255,255,255,0.1)] dark:bg-[#141414] ${className}`}
         data-how-it-works="collapsed"
         data-k8s-kit=""
       >
@@ -105,28 +105,43 @@ export function HowItWorks({ chips, policiesHref, policiesLinkState, collapsed =
 
   return (
     <section
-      className={`rounded-lg border border-[rgba(0,0,0,0.08)] bg-white px-4 py-3 dark:border-[rgba(255,255,255,0.1)] dark:bg-[#141414] ${className}`}
+      className={`rounded-[8px] border border-[rgba(0,0,0,0.08)] bg-white px-4 py-3 dark:border-[rgba(255,255,255,0.1)] dark:bg-[#141414] ${className}`}
       data-how-it-works="expanded"
       data-k8s-kit=""
     >
       {header}
-      <ol className="mt-3 grid gap-2 sm:grid-cols-5">
+      {/*
+        The five steps are ALWAYS full-width ROWS — the number + title sit beside the one-liner, and
+        the state chip gets a whole row's width, so a long chip label + detail ("Measuring — 1
+        workload still measuring", "Waiting for you") reads on one line instead of squeezing into a
+        narrow five-column sliver and wrapping (owner polish review #3). The earlier `xl:grid-cols-5`
+        fan-out re-created that cramped column inside the aside-narrowed content width, so it is
+        dropped: rows give every sub-label the room it needs at every width.
+      */}
+      <ol className="mt-3 flex flex-col gap-2">
         {HOW_STEPS.map((step, i) => {
           const chip = chips[step.key];
           const highlighted = i === highlight;
           const band = highlighted && chip ? `${toneClasses(chip.tone).band} ${toneClasses(chip.tone).border} border-t-2` : 'border-t-2 border-transparent';
           return (
-            <li key={step.key} className={`flex flex-col gap-1 rounded-md px-2 py-2 ${band}`} data-how-step={step.key}>
+            <li key={step.key} className={`flex flex-col gap-1 rounded-[6px] px-2 py-2 ${band}`} data-how-step={step.key}>
               <span className="flex items-center gap-1 text-[12px] font-semibold text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]">
                 <Icon icon={step.icon} width={14} aria-hidden="true" className="shrink-0" />
                 {i + 1}. {step.title}
               </span>
-              <span className="text-[11px] leading-snug text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]">{step.line}</span>
+              {/* max-w-[66ch]: on the full-width Overview the step rows span the reclaimed content
+                  width, so a single one-liner would stretch thin across the page; a bounded measure
+                  keeps the sentence legible without re-cramming it into a narrow pill (owner
+                  one-sided review; the earlier unclamped-rows fix stays — the chip still spans the
+                  whole row). */}
+              <span className="max-w-[66ch] text-[11px] leading-snug text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]">{step.line}</span>
               {chip && (
                 // A chip's tint is set over the card (design-delta §2.2 opacity rules). On the
                 // highlighted band the two tints would stack and drop its text below AA in dark
                 // mode (4.1:1), so the chip sits on a card-coloured base, as it does everywhere else.
-                <span className="mt-0.5 inline-flex self-start rounded-full bg-white dark:bg-[#141414]" data-how-chip="">
+                // max-w-full so the chip's own label can wrap within the full row rather than forcing
+                // a fixed narrow pill.
+                <span className="mt-0.5 inline-flex max-w-full self-start rounded-full bg-white dark:bg-[#141414]" data-how-chip="">
                   <StatusChip tone={chip.tone} icon={chip.icon} label={chip.label} detail={chip.detail} weight="semibold" />
                 </span>
               )}

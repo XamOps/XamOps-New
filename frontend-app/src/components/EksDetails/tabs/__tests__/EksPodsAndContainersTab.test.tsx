@@ -63,16 +63,52 @@ describe('Workloads › Pods (§10.4, D10)', () => {
     await waitFor(() => expect(getCapabilities).toHaveBeenCalled());
   });
 
-  it('filters by status and opens a pod to its containers', async () => {
+  it('filters by status and opens a pod row to its drawer, with full untruncated container detail', async () => {
     const user = userEvent.setup();
     renderWith(<EksPodsTab eksData={eksData} clusterName="prod-eks-cluster" />);
     const table = screen.getByRole('table', { name: PODS_CAPTION });
     await user.click(within(screen.getByRole('group', { name: 'Status' })).getByRole('button', { name: 'Pending' }));
     expect(table.querySelectorAll('tbody tr')).toHaveLength(2);
-    await user.click(within(row(table, 'data-pipeline-pending-1')).getByRole('button'));
-    const containers = screen.getByRole('table', { name: 'Containers of data-pipeline-pending-1' });
-    expect(containers).toHaveTextContent('Waiting · ContainerCreating');
-    expect(containers).toHaveTextContent('Unset / None');
+    // The whole row is the activator (v3 migration: expand chevron → DetailDrawer).
+    await user.click(row(table, 'data-pipeline-pending-1'));
+    const drawer = screen.getByRole('dialog');
+    // Identity reads from the real pod snapshot.
+    expect(drawer).toHaveTextContent('data-pipeline-pending-1');
+    expect(drawer).toHaveTextContent('staging');
+    expect(drawer).toHaveTextContent('BestEffort');
+    // The container's FULL untruncated image and its state.
+    expect(drawer).toHaveTextContent('xammer/data-pipeline:v0.9.1');
+    expect(drawer).toHaveTextContent('Waiting · ContainerCreating');
+    expect(drawer).toHaveTextContent('Unset / None');
+  });
+
+  it('shows the phase with a StatusDot and never fabricates a per-pod cost', async () => {
+    const user = userEvent.setup();
+    renderWith(<EksPodsTab eksData={eksData} clusterName="prod-eks-cluster" />);
+    const table = screen.getByRole('table', { name: PODS_CAPTION });
+    // Phase column is a StatusDot: a tiny aria-hidden svg beside the visible word.
+    const statusCell = cell(table, 'api-server-6d8f7b9c4-xk2pq', 'Status');
+    expect(statusCell.querySelector('[data-tone]')).not.toBeNull();
+    expect(statusCell.querySelector('[data-tone] svg[aria-hidden="true"]')).not.toBeNull();
+    expect(statusCell).toHaveTextContent('Running');
+    // Fixed-width node column truncates but carries the full value as a title tooltip.
+    const nodeCell = cell(table, 'api-server-6d8f7b9c4-xk2pq', 'Node');
+    expect(nodeCell.querySelector('[title="ip-10-0-1-101"]')).not.toBeNull();
+    // The drawer shows the full untruncated node + image, and NO Cost section (per-pod $ GAP).
+    await user.click(row(table, 'api-server-6d8f7b9c4-xk2pq'));
+    const drawer = screen.getByRole('dialog');
+    expect(drawer).toHaveTextContent('ip-10-0-1-101');
+    expect(drawer).toHaveTextContent('xammer/api-server:v2.4.1');
+    expect(drawer).toHaveTextContent('Guaranteed');
+    // Cost section is dropped (all-dash), and no dollar figure is invented anywhere in the drawer.
+    expect(within(drawer).queryByText('Cost')).toBeNull();
+    expect(within(drawer).queryByText(/\$/)).toBeNull();
+  });
+
+  it('exports CSV and keeps the search box', async () => {
+    renderWith(<EksPodsTab eksData={eksData} clusterName="prod-eks-cluster" />);
+    expect(screen.getByRole('button', { name: /Export CSV/i })).toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: /Search pods/i })).toBeInTheDocument();
   });
 
   it("opens on the status a link asked for with phase= (Overview's View pending pods)", async () => {

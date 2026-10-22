@@ -74,7 +74,7 @@ function HatchBlock({ before, note }: { before: string; note?: string }) {
   // A hatched block standing for the span with no history, labelled per glossary §10.
   return (
     <div
-      className="flex min-h-[120px] flex-col items-center justify-center gap-1 rounded-md border border-dashed border-[rgba(0,0,0,0.14)] text-center dark:border-[rgba(255,255,255,0.16)]"
+      className="flex min-h-[120px] flex-col items-center justify-center gap-1 rounded-[6px] border border-dashed border-[rgba(0,0,0,0.14)] text-center dark:border-[rgba(255,255,255,0.16)]"
       data-empty="history-short"
     >
       <svg width="100%" height="60" aria-hidden="true" focusable="false" className="opacity-70">
@@ -94,7 +94,7 @@ function HatchBlock({ before, note }: { before: string; note?: string }) {
 function EmptyNote({ icon, kind = '', children }: { icon: string; kind?: string; children: ReactNode }) {
   return (
     <div
-      className="flex min-h-[120px] flex-col items-center justify-center gap-2 rounded-md border border-dashed border-[rgba(0,0,0,0.14)] px-4 text-center dark:border-[rgba(255,255,255,0.16)]"
+      className="flex min-h-[120px] flex-col items-center justify-center gap-2 rounded-[6px] border border-dashed border-[rgba(0,0,0,0.14)] px-4 text-center dark:border-[rgba(255,255,255,0.16)]"
       data-empty={kind}
     >
       <Icon icon={icon} width={22} aria-hidden="true" className="text-[rgba(0,0,0,0.4)] dark:text-[rgba(255,255,255,0.4)]" />
@@ -106,7 +106,7 @@ function EmptyNote({ icon, kind = '', children }: { icon: string; kind?: string;
 export function ChartCard({ title, source, subline, actions, state = { kind: 'ok' }, children, table, className = '' }: ChartCardProps) {
   return (
     <section
-      className={`rounded-lg border border-[rgba(0,0,0,0.08)] bg-white px-4 py-3 dark:border-[rgba(255,255,255,0.1)] dark:bg-[#141414] ${className}`}
+      className={`rounded-[8px] border border-[rgba(0,0,0,0.08)] bg-white px-4 py-3 dark:border-[rgba(255,255,255,0.1)] dark:bg-[#141414] ${className}`}
       data-chart-card=""
       data-k8s-kit=""
     >
@@ -130,7 +130,7 @@ export function ChartCard({ title, source, subline, actions, state = { kind: 'ok
         )}
         {state.kind === 'loading' && (
           // The app's `.skeleton` shimmer is light; inside the kit the dark variant is a flat tint.
-          <div className="skeleton h-[160px] rounded-md dark:bg-none dark:bg-[rgba(255,255,255,0.06)]" aria-busy="true" data-empty="loading" />
+          <div className="skeleton h-[160px] rounded-[6px] dark:bg-none dark:bg-[rgba(255,255,255,0.06)]" aria-busy="true" data-empty="loading" />
         )}
         {state.kind === 'error' && (
           <EmptyNote icon="mdi:alert-circle-outline" kind="error">
@@ -139,7 +139,7 @@ export function ChartCard({ title, source, subline, actions, state = { kind: 'ok
               <button
                 type="button"
                 onClick={state.onRetry}
-                className="mt-2 rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-3 py-1 text-[12px] font-semibold text-[rgba(0,0,0,0.72)] outline-none hover:bg-[rgba(0,0,0,0.03)] focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.8)] dark:hover:bg-[rgba(255,255,255,0.06)] dark:focus-visible:ring-[rgba(255,255,255,0.92)]"
+                className="mt-2 rounded-[6px] border border-[rgba(0,0,0,0.12)] bg-white px-3 py-1 text-[12px] font-semibold text-[rgba(0,0,0,0.72)] outline-none hover:bg-[rgba(0,0,0,0.03)] focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.8)] dark:hover:bg-[rgba(255,255,255,0.06)] dark:focus-visible:ring-[rgba(255,255,255,0.92)]"
               >
                 Retry
               </button>

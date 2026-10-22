@@ -194,14 +194,11 @@ export const useMyProfile = () => {
       alert('Email is required!');
       return;
     }
-    if (!selectedUser.id && !selectedUser.password?.trim()) {
-      alert('Password is required for new users!');
-      return;
-    }
-
     try {
       const payload: any = { ...selectedUser };
-      if (payload.id && !payload.password?.trim()) {
+      // Passwordless: accounts authenticate via email + OTP. Never send a password on create;
+      // on update a blank value means "keep current".
+      if (!payload.password?.trim()) {
         delete payload.password;
       }
 

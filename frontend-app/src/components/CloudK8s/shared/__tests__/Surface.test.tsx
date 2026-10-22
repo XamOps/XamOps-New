@@ -26,23 +26,23 @@ describe('Surface (DESIGN §3, §8.1)', () => {
       </Surface>,
     );
     const cls = screen.getByLabelText('grouped').className;
-    expect(cls).toContain('rounded-[10px]');
-    expect(cls).toContain('border-[rgba(0,0,0,0.07)]');
-    expect(cls).toContain('bg-white');
+    expect(cls).toContain('rounded-[8px]');
+    expect(cls).toContain('border-[color:var(--chrome-line)]');
+    expect(cls).toContain('bg-[color:var(--chrome-card)]');
     expect(cls).not.toMatch(/shadow-/);
   });
 
-  it('table tier has border + bg + radius + the single shadow', () => {
+  it('table tier reads as the same container as grouped, with NO shadow (v3 removed elevation)', () => {
     render(
       <Surface tier="table" aria-label="table">
         <span>child</span>
       </Surface>,
     );
     const cls = screen.getByLabelText('table').className;
-    expect(cls).toContain('rounded-[10px]');
-    expect(cls).toContain('border-[rgba(0,0,0,0.07)]');
-    expect(cls).toContain('bg-white');
-    expect(cls).toContain('shadow-[0_1px_2px_rgba(0,0,0,0.04)]');
+    expect(cls).toContain('rounded-[8px]');
+    expect(cls).toContain('border-[color:var(--chrome-line)]');
+    expect(cls).toContain('bg-[color:var(--chrome-card)]');
+    expect(cls).not.toMatch(/shadow-/);
   });
 
   it('applies exactly one divider class for divide="y"', () => {
@@ -101,8 +101,9 @@ describe('Surface (DESIGN §3, §8.1)', () => {
       </Surface>,
     );
     let cls = screen.getByLabelText('dark').className;
-    expect(cls).toContain('dark:bg-[#141414]');
-    expect(cls).toContain('dark:border-[rgba(255,255,255,0.09)]');
+    // Chrome now flows through theme-aware --chrome-* tokens (one class, both themes).
+    expect(cls).toContain('bg-[color:var(--chrome-card)]');
+    expect(cls).toContain('border-[color:var(--chrome-line)]');
 
     rerender(
       <Surface tier="table" aria-label="dark">
@@ -110,8 +111,8 @@ describe('Surface (DESIGN §3, §8.1)', () => {
       </Surface>,
     );
     cls = screen.getByLabelText('dark').className;
-    expect(cls).toContain('dark:bg-[#141414]');
-    expect(cls).toContain('dark:border-[rgba(255,255,255,0.09)]');
+    expect(cls).toContain('bg-[color:var(--chrome-card)]');
+    expect(cls).toContain('border-[color:var(--chrome-line)]');
   });
 
   it('renders a title and aside header row', () => {

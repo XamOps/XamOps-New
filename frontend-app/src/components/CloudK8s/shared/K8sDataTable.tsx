@@ -15,7 +15,7 @@
  * colour. Plain `<div>` borders are the one thing those rules don't set, so those dark borders use
  * the kit-scoped variant `dark:[[data-k8s-kit]_&]:`, which leaves every other page's table as it is.
  */
-import { Fragment, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useId, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Icon } from '@iconify/react';
 import { downloadCsv, toCsv, type CsvCell } from '../../../utils/csvExport';
 
@@ -33,6 +33,8 @@ interface ColumnBase<T> {
   /** The CSV value; falls back to `sortValue`. Columns with neither are left out of the CSV. */
   csv?: (row: T) => CsvCell;
   align?: 'left' | 'right' | 'center';
+  /** A fixed column width (a CSS length, e.g. "160px"); drives a `<colgroup>` so wide tables don't reflow. */
+  width?: string;
 }
 
 /** `hideBelowPx` exists only on `low` columns (§11.1). */
@@ -91,12 +93,23 @@ export interface K8sDataTableProps<T> {
   expandRow?: (row: T) => ReactNode | null;
   /** Names a row for its expand toggle, e.g. the pod name. */
   rowLabel?: (row: T) => string;
+  /**
+   * Makes the whole row activatable (click + Enter/Space) with a trailing chevron — the v3 way a row
+   * opens a DetailDrawer. Additive and off unless passed; independent of `expandRow`.
+   */
+  onRowActivate?: (row: T) => void;
+  /** Bounds the table height and sticks the header while the body scrolls. Off unless passed. */
+  stickyHeader?: boolean;
+  /** Right-aligns numeric (sortable-by-number) columns that don't set their own `align`. Off unless passed. */
+  numericAlignRight?: boolean;
 }
 
 const focusRing = 'outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] focus-visible:ring-offset-2';
-const buttonClass = `inline-flex items-center gap-1.5 rounded-md border border-[rgba(0,0,0,0.2)] bg-white px-2.5 py-1 text-[12px] font-semibold text-[rgba(0,0,0,0.88)] hover:bg-[rgba(0,0,0,0.04)] aria-disabled:cursor-default aria-disabled:opacity-50 dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.8)] dark:hover:bg-[rgba(255,255,255,0.06)] ${focusRing}`;
-/** The table's outer box: a white card, a dark one inside the kit. */
-const boxClass = 'rounded-lg border border-[rgba(0,0,0,0.12)] bg-white dark:bg-[#141414] dark:[[data-k8s-kit]_&]:border-[rgba(255,255,255,0.1)]';
+// Controls take the 6px control radius; the table card takes the 8px surface radius (the two
+// sanctioned radii — owner review #4).
+const buttonClass = `inline-flex items-center gap-1.5 rounded-[6px] border border-[rgba(0,0,0,0.2)] bg-white px-2.5 py-1 text-[12px] font-semibold text-[rgba(0,0,0,0.88)] hover:bg-[rgba(0,0,0,0.04)] aria-disabled:cursor-default aria-disabled:opacity-50 dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.8)] dark:hover:bg-[rgba(255,255,255,0.06)] ${focusRing}`;
+/** The table's outer box: a white card, a dark one inside the kit. 8px surface radius. */
+const boxClass = 'rounded-[8px] border border-[rgba(0,0,0,0.12)] bg-white dark:bg-[#141414] dark:[[data-k8s-kit]_&]:border-[rgba(255,255,255,0.1)]';
 const MUTED_TEXT = 'text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]';
 const INK_TEXT = 'text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]';
 const ALIGN = { left: 'text-left', right: 'text-right', center: 'text-center' } as const;
@@ -127,6 +140,7 @@ const NO_FILTERS: ReadonlyArray<never> = [];
 export function K8sDataTable<T>({
   rows, columns, rowKey, caption, search, searchPlaceholder, filters = NO_FILTERS, pageSize: initialPageSize = 25,
   initialSort, exportName, source, loading = false, error = null, onRetry, emptyState, expandRow, rowLabel,
+  onRowActivate, stickyHeader = false, numericAlignRight = false,
 }: K8sDataTableProps<T>) {
   const id = useId();
   const width = useViewportWidth();
@@ -143,6 +157,32 @@ export function K8sDataTable<T>({
     () => columns.filter((c) => !(c.priority === 'low' && c.hideBelowPx !== undefined && width < c.hideBelowPx)),
     [columns, width],
   );
+
+  // With `numericAlignRight`, a column that sorts by a number (sampled from the first row) and sets
+  // no explicit `align` right-aligns; strings and explicitly-aligned columns are untouched.
+  const alignOf = (c: ColumnDef<T>): 'left' | 'right' | 'center' => {
+    if (c.align) return c.align;
+    if (numericAlignRight && c.sortValue && rows.length > 0 && typeof c.sortValue(rows[0]) === 'number') return 'right';
+    return 'left';
+  };
+  const hasFixedWidths = visible.some((c) => c.width !== undefined);
+  // The sum of the declared px column widths (+ the activate / expand gutters), used as the table's
+  // min-width so the columns keep their widths and the card scrolls HORIZONTALLY when the real
+  // content area (viewport − sidebar) is narrower than the table — instead of the last column
+  // compressing and clipping at the edge (owner review #5). Only summed when every width is px.
+  const fixedMinWidthPx = useMemo(() => {
+    if (!hasFixedWidths) return null;
+    let total = 0;
+    for (const c of visible) {
+      if (c.width === undefined) return null; // a non-fixed column flexes; don't force a min-width.
+      const m = /^(\d+(?:\.\d+)?)px$/.exec(c.width.trim());
+      if (!m) return null; // a non-px width (%, rem, …) — leave the table to Tailwind's w-full.
+      total += Number(m[1]);
+    }
+    if (expandRow) total += 36; // 2.25rem gutter
+    if (onRowActivate) total += 40; // 2.5rem gutter
+    return total;
+  }, [hasFixedWidths, visible, expandRow, onRowActivate]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -193,12 +233,12 @@ export function K8sDataTable<T>({
     resetPage();
   };
 
-  const colSpan = visible.length + (expandRow ? 1 : 0);
+  const colSpan = visible.length + (expandRow ? 1 : 0) + (onRowActivate ? 1 : 0);
   const hasToolbar = Boolean(search || filters.length > 0 || exportName);
 
   if (error) {
     return (
-      <div role="alert" className="flex items-start gap-3 rounded-lg border border-[rgba(0,0,0,0.88)] bg-white p-4 dark:bg-[#141414] dark:[[data-k8s-kit]_&]:border-[rgba(255,255,255,0.88)]">
+      <div role="alert" className="flex items-start gap-3 rounded-[8px] border border-[rgba(0,0,0,0.88)] bg-white p-4 dark:bg-[#141414] dark:[[data-k8s-kit]_&]:border-[rgba(255,255,255,0.88)]">
         <Icon icon="mdi:alert-octagon" width={18} aria-hidden="true" className={`mt-0.5 shrink-0 ${INK_TEXT}`} />
         <div className="min-w-0 flex-1 text-[13px]">
           <p className={`font-semibold ${INK_TEXT}`}>{`Couldn't load ${caption.toLowerCase()}`}</p>
@@ -218,7 +258,7 @@ export function K8sDataTable<T>({
     return (
       <div aria-busy="true" className={`space-y-2 p-4 ${boxClass}`}>
         <span className="sr-only">{`Loading ${caption.toLowerCase()}…`}</span>
-        {[0, 1, 2, 3].map((i) => <div key={i} className="h-6 animate-pulse rounded bg-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.06)]" />)}
+        {[0, 1, 2, 3].map((i) => <div key={i} className="h-6 animate-pulse rounded-[6px] bg-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.06)]" />)}
       </div>
     );
   }
@@ -245,7 +285,7 @@ export function K8sDataTable<T>({
                 value={query}
                 onChange={(e) => { setQuery(e.target.value); resetPage(); }}
                 placeholder={searchPlaceholder ?? 'Search'}
-                className={`w-full rounded-md border border-[rgba(0,0,0,0.2)] bg-white py-1.5 pl-8 pr-2 text-[13px] text-[rgba(0,0,0,0.88)] placeholder:text-[rgba(0,0,0,0.6)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.92)] dark:placeholder:text-[rgba(255,255,255,0.5)] ${focusRing}`}
+                className={`w-full rounded-[6px] border border-[rgba(0,0,0,0.2)] bg-white py-1.5 pl-8 pr-2 text-[13px] text-[rgba(0,0,0,0.88)] placeholder:text-[rgba(0,0,0,0.6)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.92)] dark:placeholder:text-[rgba(255,255,255,0.5)] ${focusRing}`}
               />
             </div>
           )}
@@ -255,14 +295,17 @@ export function K8sDataTable<T>({
               {[{ value: '', label: 'All' }, ...f.options].map((o) => {
                 const pressed = (chosen[f.id] ?? '') === o.value;
                 return (
+                  // Light control, NOT a heavy black pill (owner review #4): a 6px-radius chip with a
+                  // hairline border and neutral text. Active state reads through ink weight + a subtle
+                  // neutral fill (a stronger hairline + faint grey wash), never a black fill.
                   <button
                     key={o.value || 'all'}
                     type="button"
                     aria-pressed={pressed}
                     onClick={() => { setChosen((prev) => ({ ...prev, [f.id]: o.value })); resetPage(); }}
-                    className={`rounded-full border px-2.5 py-0.5 text-[12px] ${focusRing} ${pressed
-                      ? 'border-[rgba(0,0,0,0.88)] bg-[rgba(0,0,0,0.88)] font-semibold text-white dark:border-[rgba(255,255,255,0.92)] dark:bg-[rgba(255,255,255,0.92)] dark:text-black'
-                      : 'border-[rgba(0,0,0,0.2)] bg-white font-medium text-[rgba(0,0,0,0.88)] hover:bg-[rgba(0,0,0,0.04)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.8)] dark:hover:bg-[rgba(255,255,255,0.06)]'}`}
+                    className={`rounded-[6px] border px-2.5 py-0.5 text-[12px] ${focusRing} ${pressed
+                      ? 'border-[rgba(0,0,0,0.88)] bg-[rgba(0,0,0,0.06)] font-semibold text-[rgba(0,0,0,0.88)] dark:border-[rgba(255,255,255,0.88)] dark:bg-[rgba(255,255,255,0.1)] dark:text-[rgba(255,255,255,0.92)]'
+                      : 'border-[rgba(0,0,0,0.2)] bg-white font-medium text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.04)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.6)] dark:hover:bg-[rgba(255,255,255,0.06)]'}`}
                   >
                     {o.label}
                   </button>
@@ -279,10 +322,20 @@ export function K8sDataTable<T>({
         </div>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-[13px]">
+      <div className={stickyHeader ? 'max-h-[70vh] overflow-auto' : 'overflow-x-auto'}>
+        <table
+          className={`w-full border-collapse text-[13px] ${hasFixedWidths ? 'table-fixed' : ''}`.trim()}
+          style={fixedMinWidthPx !== null ? { minWidth: `${fixedMinWidthPx}px` } : undefined}
+        >
           <caption className="sr-only">{caption}</caption>
-          <thead>
+          {hasFixedWidths && (
+            <colgroup>
+              {expandRow && <col style={{ width: '2.25rem' }} />}
+              {visible.map((c) => <col key={c.id} style={c.width ? { width: c.width } : undefined} />)}
+              {onRowActivate && <col style={{ width: '2.5rem' }} />}
+            </colgroup>
+          )}
+          <thead className={stickyHeader ? 'sticky top-0 z-10' : undefined}>
             <tr className="border-b border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.02)] dark:border-[rgba(255,255,255,0.1)] dark:bg-[rgba(255,255,255,0.03)]">
               {expandRow && (
                 <th scope="col" className="w-9 px-2 py-2"><span className="sr-only">Details</span></th>
@@ -296,13 +349,13 @@ export function K8sDataTable<T>({
                     scope="col"
                     aria-sort={ariaSort}
                     title={c.headerTitle}
-                    className={`whitespace-nowrap px-3 py-2 text-[12px] font-semibold ${MUTED_TEXT} ${ALIGN[c.align ?? 'left']}`}
+                    className={`whitespace-nowrap px-3 py-2 text-[12px] font-semibold ${MUTED_TEXT} ${ALIGN[alignOf(c)]}`}
                   >
                     {c.sortValue ? (
                       <button
                         type="button"
                         onClick={() => toggleSort(c.id)}
-                        className={`inline-flex items-center gap-1 rounded hover:text-[rgba(0,0,0,0.88)] dark:hover:text-[rgba(255,255,255,0.92)] ${focusRing} ${active ? INK_TEXT : ''}`}
+                        className={`inline-flex items-center gap-1 rounded-[6px] hover:text-[rgba(0,0,0,0.88)] dark:hover:text-[rgba(255,255,255,0.92)] ${focusRing} ${active ? INK_TEXT : ''}`}
                       >
                         {c.header}
                         {active && sort!.direction === 'asc' && <Icon icon="mdi:arrow-up" width={13} aria-hidden="true" />}
@@ -313,6 +366,9 @@ export function K8sDataTable<T>({
                   </th>
                 );
               })}
+              {onRowActivate && (
+                <th scope="col" className="w-10 px-2 py-2"><span className="sr-only">Open</span></th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -329,9 +385,23 @@ export function K8sDataTable<T>({
               const detail = expandRow ? expandRow(row) : null;
               const isOpen = expanded.has(key);
               const detailId = `${id}-detail-${key}`;
+              const activate = onRowActivate ? () => onRowActivate(row) : undefined;
               return (
                 <Fragment key={key}>
-                  <tr className="border-b border-[rgba(0,0,0,0.06)] align-top hover:bg-[rgba(0,0,0,0.02)] dark:border-[rgba(255,255,255,0.08)] dark:hover:bg-[rgba(255,255,255,0.03)]">
+                  <tr
+                    className={`border-b border-[rgba(0,0,0,0.06)] align-top hover:bg-[rgba(0,0,0,0.02)] dark:border-[rgba(255,255,255,0.08)] dark:hover:bg-[rgba(255,255,255,0.03)] ${activate ? `cursor-pointer ${focusRing}` : ''}`.trim()}
+                    {...(activate
+                      ? {
+                        role: 'button' as const,
+                        tabIndex: 0,
+                        'aria-label': rowLabel ? rowLabel(row) : key,
+                        onClick: activate,
+                        onKeyDown: (e: KeyboardEvent) => {
+                          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); }
+                        },
+                      }
+                      : {})}
+                  >
                     {expandRow && (
                       <td className="px-2 py-2">
                         {detail !== null && (
@@ -340,13 +410,16 @@ export function K8sDataTable<T>({
                             aria-expanded={isOpen}
                             aria-controls={isOpen ? detailId : undefined}
                             aria-label={`${isOpen ? 'Hide' : 'Show'} details for ${rowLabel ? rowLabel(row) : key}`}
-                            onClick={() => setExpanded((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(key)) next.delete(key);
-                              else next.add(key);
-                              return next;
-                            })}
-                            className={`flex h-6 w-6 items-center justify-center rounded text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.6)] dark:hover:bg-[rgba(255,255,255,0.06)] dark:hover:text-[rgba(255,255,255,0.92)] ${focusRing}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpanded((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(key)) next.delete(key);
+                                else next.add(key);
+                                return next;
+                              });
+                            }}
+                            className={`flex h-6 w-6 items-center justify-center rounded-[6px] text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.6)] dark:hover:bg-[rgba(255,255,255,0.06)] dark:hover:text-[rgba(255,255,255,0.92)] ${focusRing}`}
                           >
                             <Icon icon={isOpen ? 'mdi:chevron-down' : 'mdi:chevron-right'} width={16} aria-hidden="true" />
                           </button>
@@ -354,8 +427,13 @@ export function K8sDataTable<T>({
                       </td>
                     )}
                     {visible.map((c) => (
-                      <td key={c.id} className={`px-3 py-2 ${INK_TEXT} ${ALIGN[c.align ?? 'left']}`}>{c.cell(row)}</td>
+                      <td key={c.id} className={`px-3 py-2 ${INK_TEXT} ${ALIGN[alignOf(c)]}`}>{c.cell(row)}</td>
                     ))}
+                    {onRowActivate && (
+                      <td className="px-2 py-2 text-right align-middle">
+                        <Icon icon="mdi:chevron-right" width={16} aria-hidden="true" className={`inline-block ${MUTED_TEXT}`} />
+                      </td>
+                    )}
                   </tr>
                   {isOpen && detail !== null && (
                     <tr id={detailId} className="border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)] dark:border-[rgba(255,255,255,0.08)] dark:bg-[rgba(255,255,255,0.03)]">
@@ -382,7 +460,7 @@ export function K8sDataTable<T>({
             id={`${id}-page-size`}
             value={pageSize}
             onChange={(e) => { setPageSize(Number(e.target.value) as PageSize); resetPage(); }}
-            className={`rounded border border-[rgba(0,0,0,0.2)] bg-white px-1.5 py-0.5 text-[12px] text-[rgba(0,0,0,0.88)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.92)] ${focusRing}`}
+            className={`rounded-[6px] border border-[rgba(0,0,0,0.2)] bg-white px-1.5 py-0.5 text-[12px] text-[rgba(0,0,0,0.88)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.92)] ${focusRing}`}
           >
             {PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
           </select>

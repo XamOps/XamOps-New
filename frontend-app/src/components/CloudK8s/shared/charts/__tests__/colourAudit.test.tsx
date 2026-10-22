@@ -37,6 +37,12 @@ import type { ResourceCapacity } from '../../../../../utils/k8sDerivations';
 
 import StatusChip from '../../status/StatusChip';
 import KpiCard from '../../status/KpiCard';
+import StatusDot from '../../status/StatusDot';
+import Trend from '../../status/Trend';
+import CellDelta from '../../status/CellDelta';
+import CapacityBar from '../../CapacityBar';
+import MetricStrip from '../../MetricStrip';
+import EmptyState from '../../EmptyState';
 import StepIndicator from '../../status/StepIndicator';
 import ApplyStepper from '../../status/ApplyStepper';
 import FeatureMark, { FeatureDot } from '../../status/FeatureMark';
@@ -298,6 +304,35 @@ function AllComponents() {
       ))}
       <KpiCard tone="good" icon="mdi:cash" label="Saving now" value="$42/mo"><span>in place</span></KpiCard>
       <KpiCard tone="warn" icon="mdi:cash" label="Can save now" value="$9/mo" />
+
+      {/* FEAT-001 primitives. StatusDot carries a data-tone (covered by check #3); the rest paint
+          chrome or series tokens only. */}
+      {(['good', 'warn', 'bad', 'info', 'off'] as const).map((tone) => (
+        <StatusDot key={tone} tone={tone} label={`Dot ${tone}`} />
+      ))}
+      <Trend current={120} prior={100} />
+      <Trend current={80} prior={100} goodDirection="down" />
+      <Trend current={5} prior={null} />
+      <CellDelta value={12} />
+      <CellDelta value={-3} tone="warn" />
+      <CapacityBar
+        resource="CPU"
+        allocatable={7}
+        requested={4}
+        used={3}
+        overhead={1}
+        format={(v) => (v === null ? '—' : `${v} cores`)}
+        missingReason="no agent"
+      />
+      <MetricStrip
+        aria-label="Cluster metrics"
+        cells={[
+          { label: 'Monthly cost', value: '$1,240', trend: { current: 1240, prior: 1100, goodDirection: 'down' } },
+          { label: 'Nodes', value: '12', sub: 'ready' },
+          { label: 'Pods', value: '318', trend: { current: 318, prior: null } },
+        ]}
+      />
+      <EmptyState icon="mdi:cloud-off-outline" message="Nothing to show yet." action={{ label: 'Refresh', onClick: () => {} }} blurredBackdrop />
       <StepIndicator states={life} />
       <StepIndicator states={life} variant="full" details={{ applying: 'Applying now' }} />
       <ApplyStepper outcome={outcome('APPLIED', [pod('idle-batch-listener-x', true)])} />

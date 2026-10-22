@@ -152,10 +152,20 @@ async function renderPanel(
   return screen.getByRole('table', { name: 'What automation can do on this cluster today' });
 }
 
+/** A capability row in the DataTable, found by its visible Capability label (no more data-row). */
 const rowOf = (table: HTMLElement, id: string) => {
-  const row = table.querySelector<HTMLElement>(`[data-row="${id}"]`);
+  const label = TODAY_ROWS.find((r) => r.id === id)?.label;
+  if (!label) throw new Error(`unknown row id ${id}`);
+  const row = [...table.querySelectorAll<HTMLElement>('tbody tr[role="button"]')].find((tr) => tr.textContent?.includes(label));
   if (!row) throw new Error(`no row ${id}`);
   return row;
+};
+
+/** Open a capability row's DetailDrawer and return the dialog element. */
+const openDrawer = async (table: HTMLElement, id: string) => {
+  const user = userEvent.setup();
+  await user.click(rowOf(table, id));
+  return screen.getByRole('dialog');
 };
 
 /** The Access block's value for one term. */
@@ -170,10 +180,21 @@ const card = (title: string) => {
   return heading.closest('section') as HTMLElement;
 };
 
+/**
+ * A MetricStrip cell in the Overview summary, found by its LABEL caption (replaces the KpiCard).
+ * Cells are tagged `data-metric-cell` ('hero' for the dominant lead, 'strip' for its peers — owner
+ * review #3), so selecting by that attribute is stable whether or not the lead is the hero; the
+ * lead cell no longer carries `min-w-0` (it is `shrink-0`), so the old class-based selector missed it.
+ */
 const kpi = (label: string) => {
-  const el = [...document.querySelectorAll<HTMLElement>('[data-kpi-tone]')].find((k) => k.textContent?.includes(label.toUpperCase()) || k.textContent?.includes(label));
-  if (!el) throw new Error(`no KPI ${label}`);
-  return el;
+  const strip = document.querySelector<HTMLElement>('[data-overview-kpis]');
+  if (!strip) throw new Error('no metric strip');
+  // Each cell is a flex column whose first child is the LABEL caption.
+  const cell = [...strip.querySelectorAll<HTMLElement>('[data-metric-cell]')].find(
+    (c) => c.firstElementChild?.textContent === label,
+  );
+  if (!cell) throw new Error(`no KPI ${label}`);
+  return cell;
 };
 
 describe('Automation › Overview (§9.1)', () => {
@@ -186,33 +207,42 @@ describe('Automation › Overview (§9.1)', () => {
 
   it('lists every §9.1 capability in order', async () => {
     const table = await renderPanel(fixture('demo-aws-001'));
-    const labels = [...table.querySelectorAll('tbody th')].map((th) => th.textContent);
+    // DataTable rows: the Capability is the first cell of each activatable row, in display order.
+    const labels = [...table.querySelectorAll('tbody tr[role="button"]')].map((tr) => tr.querySelector('td')?.textContent);
     expect(labels).toEqual(TODAY_ROWS.map((r) => r.label));
   });
 
-  it('read-write fixture: each row carries its readiness reason, and nothing else blocks it', async () => {
+  it('read-write fixture: each row\'s readiness reason resolves in its drawer; the table marks every gated row', async () => {
     const table = await renderPanel(fixture('demo-aws-001'));
 
-    const workload = rowOf(table, 'workload-rightsizing');
-    expect(workload).toHaveTextContent('Recommendations');
-    // NIT 8: the workload row reads can('vertical.apply')'s primary message, the contract block.
-    expect(workload).toHaveTextContent(CONTRACT_BLOCK_MESSAGE);
-
-    expect(rowOf(table, 'node-consolidation')).toHaveTextContent(DEMO_READINESS_MESSAGES['evictor-live']);
+    // Migration: the full gate / reason copy moved off the table row into the row's DetailDrawer.
+    // The table row still shows the analysis text and a gated lock + status word (never colour alone).
+    expect(rowOf(table, 'workload-rightsizing')).toHaveTextContent('Recommendations');
     expect(rowOf(table, 'node-consolidation')).toHaveTextContent('Analysis not yet reliable');
-    expect(rowOf(table, 'node-optimizer')).toHaveTextContent(DEMO_READINESS_MESSAGES['node-optimizer-actions']);
-    expect(rowOf(table, 'rebalancing')).toHaveTextContent(DEMO_READINESS_MESSAGES.rebalancer);
-    expect(rowOf(table, 'hpa-manager')).toHaveTextContent(DEMO_READINESS_MESSAGES['hpa-apply']);
-    expect(rowOf(table, 'scale-out')).toHaveTextContent(DEMO_READINESS_MESSAGES['scale-out']);
-    expect(rowOf(table, 'node-templates')).toHaveTextContent(DEMO_READINESS_MESSAGES['node-templates']);
-    expect(rowOf(table, 'vpa-baseline')).toHaveTextContent(DEMO_READINESS_MESSAGES['vpa-apply']);
-    // No readiness key: only the demo session holds it.
-    expect(rowOf(table, 'spot-interruption')).toHaveTextContent(DEMO_TEXT);
-
-    expect(within(table).queryByText(/Also needs/)).toBeNull();
-    expect(within(table).queryByText(READ_ONLY_TEXT)).toBeNull();
     // Every blocked cell is marked by a lock as well as its words (Iconify draws it after mount).
     await waitFor(() => expect(table.querySelectorAll('[data-gated-lock]')).toHaveLength(TODAY_ROWS.length));
+    // The reasons are NOT in the table itself anymore.
+    expect(within(table).queryByText(/Also needs/)).toBeNull();
+    expect(within(table).queryByText(CONTRACT_BLOCK_MESSAGE)).toBeNull();
+
+    // Open each row's drawer and read its Apply section's reason.
+    const reasonInDrawer = async (id: string, text: string) => {
+      const dialog = await openDrawer(table, id);
+      expect(dialog).toHaveTextContent(text);
+      await userEvent.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    };
+    // NIT 8: the workload row reads can('vertical.apply')'s primary message, the contract block.
+    await reasonInDrawer('workload-rightsizing', CONTRACT_BLOCK_MESSAGE);
+    await reasonInDrawer('node-consolidation', DEMO_READINESS_MESSAGES['evictor-live']);
+    await reasonInDrawer('node-optimizer', DEMO_READINESS_MESSAGES['node-optimizer-actions']);
+    await reasonInDrawer('rebalancing', DEMO_READINESS_MESSAGES.rebalancer);
+    await reasonInDrawer('hpa-manager', DEMO_READINESS_MESSAGES['hpa-apply']);
+    await reasonInDrawer('scale-out', DEMO_READINESS_MESSAGES['scale-out']);
+    await reasonInDrawer('node-templates', DEMO_READINESS_MESSAGES['node-templates']);
+    await reasonInDrawer('vpa-baseline', DEMO_READINESS_MESSAGES['vpa-apply']);
+    // No readiness key: only the demo session holds it.
+    await reasonInDrawer('spot-interruption', DEMO_TEXT);
 
     expect(accessValue('Connection')).toHaveTextContent('Read-write');
     expect(accessValue('Your permission')).toHaveTextContent('You can change automation');
@@ -223,7 +253,7 @@ describe('Automation › Overview (§9.1)', () => {
     expect(overlays).toEqual(['demo']);
   });
 
-  it('read-only fixture: the read-only banner, and the connection named wherever it blocks', async () => {
+  it('read-only fixture: the read-only banner, and the connection named in each gated drawer', async () => {
     const user = userEvent.setup();
     const table = await renderPanel(fixture('demo-aws-002'));
 
@@ -243,14 +273,26 @@ describe('Automation › Overview (§9.1)', () => {
     expect(explainer).toHaveClass('block');
     expect(within(connection).getByRole('link', { name: 'Contact support' })).toHaveAttribute('href', '/tickets');
 
+    const drawerHas = async (id: string, assert: (dialog: HTMLElement) => void) => {
+      const dialog = await openDrawer(table, id);
+      assert(dialog);
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    };
     // Readiness ranks above the connection, so it stays primary and the connection is listed after it.
-    expect(rowOf(table, 'node-consolidation')).toHaveTextContent(DEMO_READINESS_MESSAGES['evictor-live']);
-    expect(rowOf(table, 'node-consolidation')).toHaveTextContent('Also needs: read-write access');
-    expect(rowOf(table, 'workload-rightsizing')).toHaveTextContent(CONTRACT_BLOCK_MESSAGE);
-    expect(rowOf(table, 'workload-rightsizing')).toHaveTextContent('Also needs: read-write access');
+    await drawerHas('node-consolidation', (d) => {
+      expect(d).toHaveTextContent(DEMO_READINESS_MESSAGES['evictor-live']);
+      expect(d).toHaveTextContent('Also needs: read-write access');
+    });
+    await drawerHas('workload-rightsizing', (d) => {
+      expect(d).toHaveTextContent(CONTRACT_BLOCK_MESSAGE);
+      expect(d).toHaveTextContent('Also needs: read-write access');
+    });
     // Where nothing ranks higher, the connection is the reason.
-    expect(rowOf(table, 'spot-interruption')).toHaveTextContent(READ_ONLY_TEXT);
-    expect(rowOf(table, 'spot-interruption')).not.toHaveTextContent(DEMO_TEXT);
+    await drawerHas('spot-interruption', (d) => {
+      expect(d).toHaveTextContent(READ_ONLY_TEXT);
+      expect(d).not.toHaveTextContent(DEMO_TEXT);
+    });
   });
 
   it('reads "Not turned on in this environment" for workloads while the vertical engine is off (V7)', async () => {
@@ -366,6 +408,60 @@ describe('Automation › Overview (§9.1)', () => {
       // formatMoney renders whole dollars above $1: 23.67 → $24.
       expect(monthly).toHaveTextContent('$24');
       expect(monthly.querySelector('[data-priced-line]')).toHaveTextContent('8 of 9 priced');
+      // The cost figure carries NO Trend chip: CostSummaryView has no prior-period field (backend
+      // GAP), so there is no real prior to compare against and a trend is never fabricated.
+      expect(monthly.querySelector('[data-trend]')).toBeNull();
+    });
+
+    // FEAT-002 migration: the 52px KpiHeroStrip/KpiCard hero is gone (no 7th font size survives the
+    // gate), the summary is a single MetricStrip, and no duplicate cluster-vitals strip renders.
+    it('migrates the hero to a MetricStrip: no 52px node, no KpiCard, no cluster-vitals duplicate', async () => {
+      await renderPanel(fixture('demo-aws-001'));
+      await waitFor(() => expect(document.querySelector('[data-overview-kpis]')).not.toBeNull());
+      // No 7th font size, no legacy KpiCard chrome.
+      expect(document.querySelector('.text-\\[52px\\]')).toBeNull();
+      expect(document.querySelector('[data-kpi-tone]')).toBeNull();
+      expect(document.querySelector('[data-kpi-hero]')).toBeNull();
+      // The summary is one MetricStrip hero (not a hero + strip pair).
+      expect(document.querySelectorAll('[data-overview-kpis] [data-surface-tier="hero"]')).toHaveLength(1);
+      // No cluster-vitals (Health / Nodes ready / Pods running) duplicate — ClusterStatusStrip owns
+      // those and is not rendered inside OverviewPanel.
+      const strip = document.querySelector<HTMLElement>('[data-overview-kpis]')!;
+      for (const vital of ['Health', 'Nodes ready', 'Pods running', 'Node automation']) {
+        expect(strip.textContent).not.toContain(vital);
+      }
+    });
+
+    it('wraps the Overview in the redesigned PageTemplate, full-width, with the Access rail in the aside', async () => {
+      await renderPanel(fixture('demo-aws-001'));
+      const main = document.querySelector<HTMLElement>('[data-k8s-redesigned-main]');
+      expect(main).not.toBeNull();
+      // Full-width ('table' → max-w-full, the width the Pods tab uses): the Overview fills the
+      // available content area instead of a left-hugging 935px prose column that left a large
+      // right-side gap (owner one-sided review).
+      expect(main).toHaveAttribute('data-page-width', 'table');
+      expect(main?.className).toContain('max-w-full');
+      expect(main?.className).not.toContain('max-w-[935px]');
+      // AccessBlock moved into the right rail (aside), not the main column flow.
+      const aside = document.querySelector<HTMLElement>('[data-page-aside]');
+      expect(aside).not.toBeNull();
+      expect(within(aside!).getByRole('heading', { name: 'Access' })).toBeInTheDocument();
+    });
+
+    it('opens a DetailDrawer with Capability / Apply / How-this-is-calculated when a Today row is activated', async () => {
+      const user = userEvent.setup();
+      const table = await renderPanel(fixture('demo-aws-001'), 'prod-eks-cluster', { hrefs: { hpa: '/h' } });
+      await user.click(rowOf(table, 'hpa-manager'));
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByRole('heading', { name: 'HPA manager' })).toBeInTheDocument();
+      expect(dialog).toHaveTextContent('Capability');
+      expect(dialog).toHaveTextContent('Apply');
+      expect(dialog).toHaveTextContent('How this is calculated');
+      // The HPA-apply gate copy resolves inside the drawer, not the row.
+      expect(dialog).toHaveTextContent(DEMO_READINESS_MESSAGES['hpa-apply']);
+      // Esc closes and returns focus to the row.
+      await user.keyboard('{Escape}');
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     });
 
     it('lights How it works from this cluster: suggestions waiting, the confirmed change and the wait', async () => {
@@ -593,7 +689,7 @@ describe('Automation › Overview: the activity log, its summary and the usage f
     await renderPanel(fixture('demo-aws-001'));
     const saving = await waitFor(() => kpi('Saving now'));
     expect(saving).toHaveTextContent('—');
-    expect(saving).toHaveTextContent("1 in place, but the activity log doesn't hold the size before for it");
+    expect(saving).toHaveTextContent("1 change is in place, but its earlier size isn't recorded.");
   });
 
   it('counts the changes of the last 7 days per IST day from the summary, since the day it began recording', async () => {

@@ -2,7 +2,9 @@ import React, { useState, useEffect, FormEvent } from 'react';
 import { activateDemoModeIfNeeded } from '../../demo/demoConfig';
 
 interface LoginFormProps {
-  onForgotPassword: () => void;
+  // Retained for API compatibility with LoginPage. Password login was removed in favour
+  // of email + OTP, so there is no longer a "Forgot password?" trigger inside the form.
+  onForgotPassword?: () => void;
 }
 
 interface LoginResponse {
@@ -13,16 +15,14 @@ interface LoginResponse {
 
 type LoginStep = 'credentials' | 'otp';
 
-const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
+const LoginForm: React.FC<LoginFormProps> = () => {
   // Wipe any previous user's session the moment the login page is visited,
   // regardless of whether they clicked logout or just navigated here directly.
   useEffect(() => { sessionStorage.clear(); }, []);
 
   const [loginStep, setLoginStep] = useState<LoginStep>('credentials');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,11 +35,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
     }
   }, [error]);
 
-  const togglePasswordVisibility = () => {
-    setShowPassword(!showPassword);
-  };
-
-  // Step 1: Validate email + password, send OTP
+  // Step 1: Validate email, send OTP
   const handleCredentialsSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
@@ -56,7 +52,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
 
       const data: LoginResponse = await response.json();
@@ -162,7 +158,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
         </div>
       )}
 
-      {/* Step 1: Email + Password */}
+      {/* Step 1: Email */}
       {loginStep === 'credentials' && (
         <form onSubmit={handleCredentialsSubmit} id="loginForm" className="form-stack">
           <div className="input-group">
@@ -182,42 +178,6 @@ const LoginForm: React.FC<LoginFormProps> = ({ onForgotPassword }) => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
-            </div>
-          </div>
-
-          <div className="input-group">
-            <div className="label-row">
-              <label htmlFor="password" className="label-text">
-                Password
-              </label>
-              <button
-                type="button"
-                onClick={onForgotPassword}
-                className="text-link"
-              >
-                Forgot password?
-              </button>
-            </div>
-            <div className="input-container">
-              <i className="fas fa-key-skeleton input-icon-left"></i>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                id="password"
-                name="password"
-                className="input-field pr-12"
-                placeholder="••••••••"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              <button
-                type="button"
-                className="password-toggle-btn"
-                onClick={togglePasswordVisibility}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-              >
-                <i className={`fas ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
-              </button>
             </div>
           </div>
 

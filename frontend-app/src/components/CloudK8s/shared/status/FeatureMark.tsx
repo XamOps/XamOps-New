@@ -87,7 +87,7 @@ export function FeatureMark({ feature, title, rule = true, className = '' }: Fea
   return (
     <span className={`inline-flex flex-col gap-1 ${className}`} data-feature={feature} data-k8s-kit="">
       <span className="inline-flex items-center gap-2">
-        <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded ${f.tile} ${f.text}`} aria-hidden="true">
+        <span className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] ${f.tile} ${f.text}`} aria-hidden="true">
           <Icon icon={f.icon} width={15} />
         </span>
         <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]">

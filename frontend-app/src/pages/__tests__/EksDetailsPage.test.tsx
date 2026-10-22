@@ -76,6 +76,15 @@ import type { CapabilitiesDto } from '../../types/k8sAutomation';
 const ACCOUNT = '123456789012';
 const BASE = `/eks-details?name=prod-eks-cluster&region=us-east-1&accountIds=${ACCOUNT}`;
 const AUTOMATION_HEADING = 'What automation can do on this cluster today';
+/** A marker unique to the Overview's redesigned PageTemplate (the table caption duplicates the heading). */
+const OVERVIEW_INTRO = /What XamOps can automate on this cluster/;
+
+/** A capability row in the redesigned Automation DataTable, by its visible Capability label. */
+const rowByLabel = (table: HTMLElement, label: string): HTMLElement => {
+  const row = [...table.querySelectorAll<HTMLElement>('tbody tr[role="button"]')].find((tr) => tr.querySelector('td')?.textContent === label);
+  if (!row) throw new Error(`no row ${label}`);
+  return row;
+};
 
 /** The demo read-write fixture under a real account number, outside a demo session. */
 function capabilities(edit?: (dto: CapabilitiesDto) => void): CapabilitiesDto {
@@ -170,9 +179,9 @@ describe('legacy ?tab= links (§5.2)', () => {
     ['security', 'security', 'vulnerabilities', 'Security', 'Vulnerabilities', 'Security tab content'],
     ['cost', 'cost', 'cluster', 'Cost', 'Cluster', 'Cost tab content'],
     ['karpenter', 'nodes', 'karpenter', 'Nodes', 'Karpenter', 'Karpenter tab content'],
-    ['autoscaling', 'automation', 'overview', 'Automation', 'Overview', AUTOMATION_HEADING],
+    ['autoscaling', 'automation', 'overview', 'Automation', 'Overview', OVERVIEW_INTRO],
     // The realtime branch's Automation tab on the old page.
-    ['automation', 'automation', 'overview', 'Automation', 'Overview', AUTOMATION_HEADING],
+    ['automation', 'automation', 'overview', 'Automation', 'Overview', OVERVIEW_INTRO],
   ])('?tab=%s lands on %s › %s with today\'s content', async (legacy, tab, sub, primaryLabel, subLabel, content) => {
     renderAt(`${BASE}&tab=${legacy}`);
     expect(await find(content)).toBeInTheDocument();
@@ -407,7 +416,8 @@ describe('cluster page shell', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     getCapabilities.mockReset().mockRejectedValue(new K8sApiError({ status: 500, code: 'K8S_INTERNAL' }));
     renderAt(`${BASE}&tab=automation`);
-    await find(AUTOMATION_HEADING);
+    // The table's name duplicates the visible heading (sr-only caption), so wait on the table role.
+    await screen.findByRole('table', { name: AUTOMATION_HEADING }, { timeout: 4000 });
 
     await waitFor(() => expect(document.querySelector('[data-overlay="capabilities-error"]')).not.toBeNull());
     const banner = document.querySelector<HTMLElement>('[data-overlay="capabilities-error"]')!;
@@ -415,12 +425,18 @@ describe('cluster page shell', () => {
     expect(within(banner).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
 
     const table = screen.getByRole('table', { name: AUTOMATION_HEADING });
+    // v3 migration: each blocked row shows a lock + "Blocked"; the reason copy lives in its drawer.
     expect(within(table).queryByText('Available')).toBeNull();
-    expect(table.querySelector('[data-row="spot-interruption"]')).toHaveTextContent("Couldn't check automation access.");
+    expect(rowByLabel(table, 'Spot interruption handling')).toHaveTextContent('Blocked');
     // The workloads row points at the hosted Workload autoscaler, which keeps its own gates (review S2).
-    expect(table.querySelector('[data-row="workload-rightsizing"]')).not.toHaveTextContent(CONTRACT_BLOCK_MESSAGE);
-    expect(table.querySelector('[data-row="workload-rightsizing"]')).toHaveTextContent('Decided per workload in Automation › Workload autoscaler');
+    const workloadRow = rowByLabel(table, 'Workload rightsizing');
+    expect(workloadRow).not.toHaveTextContent(CONTRACT_BLOCK_MESSAGE);
+    expect(workloadRow).toHaveTextContent('Decided per workload in Automation › Workload autoscaler');
     await waitFor(() => expect(table.querySelectorAll('[data-gated-lock]').length).toBe(8));
+    // The gate reason resolves inside the row's DetailDrawer, not the table.
+    await userEvent.click(rowByLabel(table, 'Spot interruption handling'));
+    expect(screen.getByRole('dialog')).toHaveTextContent("Couldn't check automation access.");
+    await userEvent.keyboard('{Escape}');
 
     expect(screen.getByRole('group', { name: 'Data freshness' })).toHaveTextContent('unknown');
   });
@@ -428,7 +444,7 @@ describe('cluster page shell', () => {
   it('allows what nothing blocks when capabilities load (read-write, permitted, no demo)', async () => {
     renderAt(`${BASE}&tab=automation`);
     const table = await screen.findByRole('table', { name: AUTOMATION_HEADING }, { timeout: 4000 });
-    await waitFor(() => expect(table.querySelector('[data-row="spot-interruption"]')).toHaveTextContent('Available'));
+    await waitFor(() => expect(rowByLabel(table, 'Spot interruption handling')).toHaveTextContent('Available'));
     expect(document.querySelector('[data-overlay]')).toBeNull();
   });
 

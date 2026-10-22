@@ -179,12 +179,17 @@ function ClusterPage({ link, debug }: { link: ClusterLink; debug: boolean }) {
   const dark = theme === 'dark';
 
   return (
+    // FEAT-004 docs reconciliation (ui-revamp-design.md §14): the CloudK8s surface uses the app's
+    // system sans stack, not a pinned 'Inter' — the design contract never names Inter.
     <main
-      className={`flex min-h-screen flex-1 flex-col ${dark ? 'dark bg-[#0d0d0d]' : 'bg-white'}`}
+      className={`flex min-h-screen min-w-0 flex-1 flex-col bg-[color:var(--chrome-page)] ${dark ? 'dark' : ''}`.trim()}
       data-cloudk8s-theme={theme}
-      style={{ fontFamily: "'Inter', sans-serif" }}
+      style={{ fontFamily: 'ui-sans-serif, system-ui, sans-serif' }}
     >
-      <div className="w-full space-y-4 p-6">
+      {/* min-w-0 down the chain: the content area is viewport − the ~220px app sidebar; without it a
+          wide table (Workloads › Pods) would push this column past that width and clip the last
+          column at the edge instead of scrolling inside its own card (owner polish review #5). */}
+      <div className="w-full min-w-0 space-y-4 p-6">
         <ClusterHeader
           clusterName={clusterName}
           accountId={accountId}
@@ -216,7 +221,7 @@ function ClusterPage({ link, debug }: { link: ClusterLink; debug: boolean }) {
 
             {/* Today's tabs still read eks-details.css through this class (removed in item 31); the
                 overrides drop the page-level min-height and tinted background it also sets. */}
-            <div className="eks-details-page !min-h-0 !bg-transparent">
+            <div className="eks-details-page !min-h-0 min-w-0 !bg-transparent">
               <SectionPanel
                 tab={route.tab}
                 clusterName={clusterName}
