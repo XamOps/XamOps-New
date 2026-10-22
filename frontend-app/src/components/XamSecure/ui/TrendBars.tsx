@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { usePrefersReducedMotion } from './usePrefersReducedMotion';
+import { CHART, TEXT } from './tokens';
 
 interface Datum {
   label: string;
@@ -59,13 +60,13 @@ const TrendBars: React.FC<Props> = ({ data }) => {
                 className="w-full max-w-[24px] rounded-t-md"
                 style={{
                   height: `${h}px`,
-                  background: 'linear-gradient(to bottom, #3b82f6, #60a5fa)',
+                  background: `linear-gradient(to bottom, ${CHART.trendBarTop}, ${CHART.trendBarBottom})`,
                   transition: reduced ? undefined : 'height 650ms cubic-bezier(0.22,1,0.36,1)',
-                  boxShadow: hover === i ? '0 2px 6px rgba(37,99,235,0.25)' : undefined,
+                  boxShadow: hover === i ? '0 2px 6px rgba(15,23,42,0.12)' : undefined,
                 }}
               />
             </div>
-            <span className="text-[9px] text-gray-400 whitespace-nowrap">{d.label}</span>
+            <span className="text-[9px] whitespace-nowrap" style={{ color: TEXT.faint }}>{d.label}</span>
           </div>
         );
       })}

@@ -1,5 +1,6 @@
 import React, { useId } from 'react';
 import { ribbonPath, type Point } from '../funnelPath';
+import { CHART, TEXT } from './tokens';
 
 interface Stage {
   label: string;
@@ -24,9 +25,10 @@ const MAX_HALF = 46;  // half-height of the widest (first) stage
  * Detections to Stories. Uses `ribbonPath` from funnelPath so the profile is one smooth curve
  * with level tangents at each stage rather than wedged corners.
  *
- * Light-only styling: a left-to-right brand gradient fill plus a soft low-alpha drop shadow for
- * depth (not a glow). Scales to the panel width via a viewBox. Accessible via role="img" and an
- * aria-label that summarises the three stages.
+ * Light-only Upwind styling: a pale coral/salmon left-to-right gradient fill plus a pinned, very
+ * soft near-neutral drop shadow for calm depth (not a glow). Scales to the panel width via a
+ * viewBox. Accessible via role="img" and an aria-label that summarizes the three stages. Static
+ * SVG — no draw animation (calm over flashy).
  */
 const ThreatFunnel: React.FC<Props> = ({ events, detections, stories }) => {
   const uid = useId().replace(/[:]/g, '');
@@ -65,12 +67,12 @@ const ThreatFunnel: React.FC<Props> = ({ events, detections, stories }) => {
       >
         <defs>
           <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#2563eb" stopOpacity={0.9} />
-            <stop offset="55%" stopColor="#7c3aed" stopOpacity={0.9} />
-            <stop offset="100%" stopColor="#0891b2" stopOpacity={0.92} />
+            <stop offset="0%" stopColor={CHART.funnelStart} stopOpacity={0.75} />
+            <stop offset="55%" stopColor={CHART.funnelMid} stopOpacity={0.65} />
+            <stop offset="100%" stopColor={CHART.funnelEnd} stopOpacity={0.6} />
           </linearGradient>
           <filter id={shadowId} x="-20%" y="-40%" width="140%" height="180%">
-            <feDropShadow dx="0" dy="3" stdDeviation="4" floodColor="#2563eb" floodOpacity={0.18} />
+            <feDropShadow dx="0" dy="2" stdDeviation="4" floodColor="#9F1239" floodOpacity={0.08} />
           </filter>
         </defs>
 
@@ -91,8 +93,7 @@ const ThreatFunnel: React.FC<Props> = ({ events, detections, stories }) => {
                 x={x + dx}
                 y={MID_Y - halves[i] - 8}
                 textAnchor={anchor}
-                className="fill-gray-900"
-                style={{ fontSize: 15, fontWeight: 800 }}
+                style={{ fontSize: 15, fontWeight: 800, fill: TEXT.strong }}
               >
                 {s.value.toLocaleString()}
               </text>
@@ -100,8 +101,7 @@ const ThreatFunnel: React.FC<Props> = ({ events, detections, stories }) => {
                 x={x + dx}
                 y={MID_Y + halves[i] + 16}
                 textAnchor={anchor}
-                className="fill-gray-400"
-                style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.05em' }}
+                style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', fill: TEXT.faint }}
               >
                 {s.label.toUpperCase()}
               </text>
