@@ -16,7 +16,6 @@ import org.mockito.MockitoAnnotations;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -24,7 +23,6 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.util.List;
 import java.util.Optional;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -39,13 +37,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * uses field injection).
  *
  * Covers the two-step login flow:
- *   1. POST /api/auth/initiate-login   — validates credentials, sends OTP
+ *   1. POST /api/auth/initiate-login   — validates the email is known, sends OTP
  *   2. POST /api/auth/verify-login-otp — verifies OTP, creates session
  */
 class LoginOtpControllerTest {
 
     @Mock private UserRepository userRepository;
-    @Mock private PasswordEncoder passwordEncoder;
     @Mock private EmailService emailService;
     @Mock private RedisCacheService redisCacheService;
     @Mock private UserDetailsService userDetailsService;
@@ -63,7 +60,6 @@ class LoginOtpControllerTest {
 
         LoginOtpController controller = new LoginOtpController();
         ReflectionTestUtils.setField(controller, "userRepository", userRepository);
-        ReflectionTestUtils.setField(controller, "passwordEncoder", passwordEncoder);
         ReflectionTestUtils.setField(controller, "emailService", emailService);
         ReflectionTestUtils.setField(controller, "redisCacheService", redisCacheService);
         ReflectionTestUtils.setField(controller, "userDetailsService", userDetailsService);
@@ -99,15 +95,7 @@ class LoginOtpControllerTest {
     void initiateLogin_blankEmail_returns400() throws Exception {
         mockMvc.perform(post("/api/auth/initiate-login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"\",\"password\":\"pass\"}"))
-                .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    void initiateLogin_blankPassword_returns400() throws Exception {
-        mockMvc.perform(post("/api/auth/initiate-login")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"user@example.com\",\"password\":\"\"}"))
+                        .content("{\"email\":\"\"}"))
                 .andExpect(status().isBadRequest());
     }
 
@@ -117,74 +105,41 @@ class LoginOtpControllerTest {
 
         mockMvc.perform(post("/api/auth/initiate-login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"unknown@example.com\",\"password\":\"any\"}"))
+                        .content("{\"email\":\"unknown@example.com\"}"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.error").value("Invalid email or password"));
+                .andExpect(jsonPath("$.error").value("Invalid email"));
     }
 
     @Test
-    void initiateLogin_wrongPassword_returns401() throws Exception {
+    void initiateLogin_knownEmail_sends200WithOtpRequired() throws Exception {
         when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(validUser));
-        when(passwordEncoder.matches("wrong-pass", "encoded-password")).thenReturn(false);
 
         mockMvc.perform(post("/api/auth/initiate-login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"user@example.com\",\"password\":\"wrong-pass\"}"))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.error").value("Invalid email or password"));
-    }
-
-    @Test
-    void initiateLogin_wrongPassword_sameErrorAsUnknownEmail_preventsEnumeration() throws Exception {
-        when(userRepository.findByEmail("unknown@x.com")).thenReturn(Optional.empty());
-        String unknownResult = mockMvc.perform(post("/api/auth/initiate-login")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"unknown@x.com\",\"password\":\"any\"}"))
-                .andReturn().getResponse().getContentAsString();
-
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(validUser));
-        when(passwordEncoder.matches("wrong", "encoded-password")).thenReturn(false);
-        String wrongPassResult = mockMvc.perform(post("/api/auth/initiate-login")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"user@example.com\",\"password\":\"wrong\"}"))
-                .andReturn().getResponse().getContentAsString();
-
-        assertThat(unknownResult).isEqualTo(wrongPassResult);
-    }
-
-    @Test
-    void initiateLogin_validCredentials_sends200WithOtpRequired() throws Exception {
-        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(validUser));
-        when(passwordEncoder.matches("correct-pass", "encoded-password")).thenReturn(true);
-
-        mockMvc.perform(post("/api/auth/initiate-login")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"user@example.com\",\"password\":\"correct-pass\"}"))
+                        .content("{\"email\":\"user@example.com\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("OTP_REQUIRED"));
     }
 
     @Test
-    void initiateLogin_validCredentials_savesOtpInRedis() throws Exception {
+    void initiateLogin_knownEmail_savesOtpInRedis() throws Exception {
         when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(validUser));
-        when(passwordEncoder.matches("correct-pass", "encoded-password")).thenReturn(true);
 
         mockMvc.perform(post("/api/auth/initiate-login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"user@example.com\",\"password\":\"correct-pass\"}"));
+                        .content("{\"email\":\"user@example.com\"}"));
 
         verify(redisCacheService).saveLoginOtp(eq("user@example.com"), anyString());
         verify(redisCacheService).savePreAuthFlag("user@example.com");
     }
 
     @Test
-    void initiateLogin_validCredentials_sendsOtpEmail() throws Exception {
+    void initiateLogin_knownEmail_sendsOtpEmail() throws Exception {
         when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(validUser));
-        when(passwordEncoder.matches("correct-pass", "encoded-password")).thenReturn(true);
 
         mockMvc.perform(post("/api/auth/initiate-login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"user@example.com\",\"password\":\"correct-pass\"}"));
+                        .content("{\"email\":\"user@example.com\"}"));
 
         verify(emailService).sendHtmlEmail(eq("user@example.com"), anyString(), anyString());
     }
@@ -192,13 +147,12 @@ class LoginOtpControllerTest {
     @Test
     void initiateLogin_emailSendFailure_returns500() throws Exception {
         when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(validUser));
-        when(passwordEncoder.matches("correct-pass", "encoded-password")).thenReturn(true);
         doThrow(new RuntimeException("SMTP down")).when(emailService)
                 .sendHtmlEmail(anyString(), anyString(), anyString());
 
         mockMvc.perform(post("/api/auth/initiate-login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"user@example.com\",\"password\":\"correct-pass\"}"))
+                        .content("{\"email\":\"user@example.com\"}"))
                 .andExpect(status().isInternalServerError());
     }
 

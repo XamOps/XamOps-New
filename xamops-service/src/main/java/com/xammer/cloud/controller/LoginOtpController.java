@@ -22,7 +22,6 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -37,7 +36,7 @@ import java.util.Arrays;
 
 /**
  * Handles the two-step email+OTP login flow:
- * 1. POST /api/auth/initiate-login  — validates email+password, sends OTP
+ * 1. POST /api/auth/initiate-login  — validates the email is known, sends OTP
  * 2. POST /api/auth/verify-login-otp — verifies OTP, creates authenticated session
  */
 @RestController
@@ -47,9 +46,6 @@ public class LoginOtpController {
 
     @Autowired
     private UserRepository userRepository;
-
-    @Autowired
-    private PasswordEncoder passwordEncoder;
 
     @Autowired
     private EmailService emailService;
@@ -84,16 +80,16 @@ public class LoginOtpController {
     private static final String LOGIN_OTP_SCOPE = "login";
 
     /**
-     * Step 1: Validate email + password, send OTP to email.
-     * Body: { "email": "...", "password": "..." }
+     * Step 1: Validate that the email belongs to a known user, then send an OTP to it.
+     * Password is no longer required — the email OTP is the sole login factor.
+     * Body: { "email": "..." }
      */
     @PostMapping("/initiate-login")
     public ResponseEntity<?> initiateLogin(@RequestBody Map<String, String> body, HttpServletRequest request) {
         String email = body.get("email");
-        String password = body.get("password");
 
-        if (email == null || email.isBlank() || password == null || password.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Email and password are required"));
+        if (email == null || email.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Email is required"));
         }
 
         email = email.toLowerCase().trim();
@@ -101,18 +97,11 @@ public class LoginOtpController {
         Optional<User> userOpt = userRepository.findByEmail(email);
         if (userOpt.isEmpty()) {
             log.warn("Login attempt with unknown email: {}", email);
-            // Return same error as wrong password to avoid user enumeration
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Invalid email or password"));
+                    .body(Map.of("error", "Invalid email"));
         }
 
         User user = userOpt.get();
-
-        if (!passwordEncoder.matches(password, user.getPassword())) {
-            log.warn("Invalid password for email: {}", email);
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("error", "Invalid email or password"));
-        }
 
         // Demo users skip OTP — authenticate directly and return redirectUrl
         if (DEMO_EMAILS.contains(email)) {
