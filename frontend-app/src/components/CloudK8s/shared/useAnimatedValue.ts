@@ -1,8 +1,8 @@
 /**
  * Animated count-up hook (DESIGN.md §4.2), extracted from `CostKPICards`.
  *
- * Kept as-is from the source: the 900 ms cubic ease-out requestAnimationFrame
- * loop, cancel-on-unmount cleanup, the `target === prevRef.current` no-op, and
+ * Kept as-is from the source: the cubic ease-out requestAnimationFrame loop (now a `duration`
+ * param, default 900 ms), cancel-on-unmount cleanup, the `target === prevRef.current` no-op, and
  * the `target === 0` instant-snap early return.
  *
  * Added here (new behaviour the source hook lacked): a
@@ -15,7 +15,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 
-export function useAnimatedValue(target: number) {
+export function useAnimatedValue(target: number, duration = 900) {
   const animRef = useRef<number | undefined>(undefined);
   const prevRef = useRef(target);
   const [value, setValue] = useState(target);
@@ -27,7 +27,6 @@ export function useAnimatedValue(target: number) {
     if (animRef.current) cancelAnimationFrame(animRef.current);
     if (target === 0) { setValue(0); return; }
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setValue(target); return; }
-    const duration = 900;
     const startTime = performance.now();
     const step = (now: number) => {
       const t = Math.min((now - startTime) / duration, 1);
@@ -38,7 +37,7 @@ export function useAnimatedValue(target: number) {
     };
     animRef.current = requestAnimationFrame(step);
     return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
-  }, [target]);
+  }, [target, duration]);
 
   return value;
 }

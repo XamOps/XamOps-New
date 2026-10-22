@@ -1,0 +1,32 @@
+/*
+ * CloudK8s chrome tokens (FEAT-001): the page's black / white / grey chrome, set once per theme.
+ *
+ * These are the neutral surfaces, ink and hairlines every v3 primitive paints with — never a
+ * meaning colour. Meaning colour reaches the page only through the status / chart / series
+ * components (src/styles/k8sSemanticTokens.css). Every value here is equal-channel (a grey hex or an
+ * `rgba(n,n,n,a)` with equal R/G/B) so the design-rule `rgb-colour` guard stays green; the file lives
+ * under components/CloudK8s/shared/ so it is auto-guarded by the recursive GUARDED_PATHS entry.
+ *
+ * `--chrome-*` names (not `--k8s-…`) so the guard's `scope-raw-var` family — which matches only
+ * `var(--k8s-` — never flags a primitive for using these tokens.
+ */
+:root {
+  /* Text: primary ink and the muted / secondary grey. */
+  --chrome-ink: rgba(0, 0, 0, 0.88);
+  --chrome-muted: rgba(0, 0, 0, 0.60);
+  /* Surfaces: the page behind the cards, a card, and the second (inset) surface. */
+  --chrome-page: #f6f6f6;
+  --chrome-card: #ffffff;
+  --chrome-surface-2: #f0f0f0;
+  /* The single hairline weight. */
+  --chrome-line: rgba(0, 0, 0, 0.08);
+}
+
+.dark {
+  --chrome-ink: rgba(255, 255, 255, 0.92);
+  --chrome-muted: rgba(255, 255, 255, 0.60);
+  --chrome-page: #0e0e0e;
+  --chrome-card: #141414;
+  --chrome-surface-2: #181818;
+  --chrome-line: rgba(255, 255, 255, 0.10);
+}

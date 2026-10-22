@@ -128,10 +128,11 @@ const SCOPED_FAMILIES: ScopedFamily[] = [
     allowed: [
       'components/CloudK8s/shared/charts/',
       'components/CloudK8s/shared/CapacityDonut.tsx',
+      'components/CloudK8s/shared/CapacityBar.tsx',
       'components/CloudK8s/shared/RequestBar.tsx',
       'components/EksDetails/sections/overview/SummaryPanel.tsx',
     ],
-    message: 'series colour class outside the chart components, CapacityDonut, RequestBar or SummaryPanel',
+    message: 'series colour class outside the chart components, CapacityDonut, CapacityBar, RequestBar or SummaryPanel',
   },
   {
     id: 'scope-feature',

@@ -214,4 +214,53 @@ describe('K8sDataTable (§11.1, D14)', () => {
   it('orders numbers before strings and nulls last', () => {
     expect([3, null, 'b', 1, 'a10', 'a9'].sort(compareSortValues)).toEqual([1, 3, 'a9', 'a10', 'b', null]);
   });
+
+  // ─── FEAT-001 additive props ────────────────────────────────────────────────
+
+  it('leaves existing expandRow callers unaffected when the new props are unset', async () => {
+    const user = userEvent.setup();
+    renderTable({ expandRow: (r) => (r.cpu === null ? null : <p>Detail of {r.name}</p>), rowLabel: (r) => r.name });
+    // Rows are not clickable buttons, and no trailing chevron / "Open" column exists.
+    expect(screen.queryByRole('columnheader', { name: 'Open' })).toBeNull();
+    const toggle = screen.getByRole('button', { name: 'Show details for pod-01' });
+    await user.click(toggle);
+    expect(screen.getByRole('button', { name: 'Hide details for pod-01' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('onRowActivate makes each row a clickable button, triggered by click and Enter/Space', async () => {
+    const user = userEvent.setup();
+    const onRowActivate = vi.fn();
+    renderTable({ onRowActivate, rowLabel: (r) => r.name, initialSort: { columnId: 'name', direction: 'asc' } });
+    const row = screen.getByRole('button', { name: 'pod-00' });
+    await user.click(row);
+    expect(onRowActivate).toHaveBeenCalledWith(expect.objectContaining({ name: 'pod-00' }));
+    row.focus();
+    await user.keyboard('{Enter}');
+    await user.keyboard(' ');
+    expect(onRowActivate).toHaveBeenCalledTimes(3);
+  });
+
+  it('stickyHeader bounds the body and sticks the thead', () => {
+    const { container } = renderTable({ stickyHeader: true });
+    expect(container.querySelector('.max-h-\\[70vh\\]')).toBeTruthy();
+    expect(screen.getByRole('table', { name: 'Pods' }).querySelector('thead')!.className).toContain('sticky');
+  });
+
+  it('numericAlignRight right-aligns number-sorted columns but not string ones', () => {
+    renderTable({ numericAlignRight: true });
+    // CPU sorts by number -> right; Name sorts by string -> left.
+    expect(screen.getByRole('columnheader', { name: 'CPU' }).className).toContain('text-right');
+    expect(screen.getByRole('columnheader', { name: 'Name' }).className).toContain('text-left');
+  });
+
+  it('applies a colgroup when a column sets width', () => {
+    const cols: ColumnDef<Row>[] = COLUMNS.map((c) => (c.id === 'name' ? { ...c, width: '200px' } : c));
+    const { container } = render(
+      <K8sDataTable<Row> rows={ROWS} columns={cols} rowKey={(r) => r.name} caption="Pods" />,
+    );
+    const col = container.querySelector('colgroup col') as HTMLTableColElement | null;
+    expect(col).toBeTruthy();
+    expect(col!.style.width).toBe('200px');
+    expect(container.querySelector('table')!.className).toContain('table-fixed');
+  });
 });

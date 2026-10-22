@@ -6,13 +6,14 @@
  *
  *   hero    — no card; sits directly on the page background.
  *   grouped — one container (radius + border + bg), NO shadow.
- *   table   — one container + the single allowed elevation step.
+ *   table   — the same container as grouped (no shadow; v3 removed the elevation step).
  *
- * Colour safety: this component uses ONLY neutral rgba(0,0,0,x) /
- * rgba(255,255,255,x), bg-white and #141414 (all equal-channel), and carries
- * no text-status, text-series, text-feature or var(--k8s-...) classes — those
- * are token-scope-restricted to the status/chart components. Status/series
- * colour enters a Surface only through the children the caller passes.
+ * Colour safety: this component paints only the `--chrome-*` tokens
+ * (components/CloudK8s/shared/styles/k8sChromeTokens.css) — the card surface and the single
+ * hairline — and carries no text-status, text-series, text-feature or var(--k8s-...) classes, so the
+ * token-scope guard stays green. Status/series colour enters a Surface only through the children the
+ * caller passes. The `--chrome-*` names keep the `scope-raw-var` guard (which matches `var(--k8s-`)
+ * from flagging it.
  */
 import type { ReactNode } from 'react';
 import { EYEBROW, TITLE } from './typeScale';
@@ -35,16 +36,16 @@ export interface SurfaceProps {
 }
 
 // The tokens the component holds internally (do NOT re-declare these per page).
-const RADIUS = 'rounded-[10px]';
-const BORDER = 'border border-[rgba(0,0,0,0.07)] dark:border-[rgba(255,255,255,0.09)]';
-const BG = 'bg-white dark:bg-[#141414]';
-const DIVIDE_C = 'divide-[rgba(0,0,0,0.06)] dark:divide-[rgba(255,255,255,0.08)]';
-const SHADOW = 'shadow-[0_1px_2px_rgba(0,0,0,0.04)]';
+const RADIUS = 'rounded-[8px]';
+const BORDER = 'border border-[color:var(--chrome-line)]';
+const BG = 'bg-[color:var(--chrome-card)]';
+const DIVIDE_C = 'divide-[color:var(--chrome-line)]';
 
 const CHROME: Record<SurfaceTier, string> = {
   hero: 'px-0 py-0',
   grouped: `${RADIUS} ${BORDER} ${BG} p-5`,
-  table: `${RADIUS} ${BORDER} ${BG} ${SHADOW}`,
+  // v3 removed the elevation step: table reads as the same container as grouped, no shadow.
+  table: `${RADIUS} ${BORDER} ${BG}`,
 };
 
 const DIVIDE: Record<NonNullable<SurfaceProps['divide']>, string> = {

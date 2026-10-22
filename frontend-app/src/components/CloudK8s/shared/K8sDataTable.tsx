@@ -15,7 +15,7 @@
  * colour. Plain `<div>` borders are the one thing those rules don't set, so those dark borders use
  * the kit-scoped variant `dark:[[data-k8s-kit]_&]:`, which leaves every other page's table as it is.
  */
-import { Fragment, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useId, useMemo, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Icon } from '@iconify/react';
 import { downloadCsv, toCsv, type CsvCell } from '../../../utils/csvExport';
 
@@ -33,6 +33,8 @@ interface ColumnBase<T> {
   /** The CSV value; falls back to `sortValue`. Columns with neither are left out of the CSV. */
   csv?: (row: T) => CsvCell;
   align?: 'left' | 'right' | 'center';
+  /** A fixed column width (a CSS length, e.g. "160px"); drives a `<colgroup>` so wide tables don't reflow. */
+  width?: string;
 }
 
 /** `hideBelowPx` exists only on `low` columns (§11.1). */
@@ -91,6 +93,15 @@ export interface K8sDataTableProps<T> {
   expandRow?: (row: T) => ReactNode | null;
   /** Names a row for its expand toggle, e.g. the pod name. */
   rowLabel?: (row: T) => string;
+  /**
+   * Makes the whole row activatable (click + Enter/Space) with a trailing chevron — the v3 way a row
+   * opens a DetailDrawer. Additive and off unless passed; independent of `expandRow`.
+   */
+  onRowActivate?: (row: T) => void;
+  /** Bounds the table height and sticks the header while the body scrolls. Off unless passed. */
+  stickyHeader?: boolean;
+  /** Right-aligns numeric (sortable-by-number) columns that don't set their own `align`. Off unless passed. */
+  numericAlignRight?: boolean;
 }
 
 const focusRing = 'outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] focus-visible:ring-offset-2';
@@ -127,6 +138,7 @@ const NO_FILTERS: ReadonlyArray<never> = [];
 export function K8sDataTable<T>({
   rows, columns, rowKey, caption, search, searchPlaceholder, filters = NO_FILTERS, pageSize: initialPageSize = 25,
   initialSort, exportName, source, loading = false, error = null, onRetry, emptyState, expandRow, rowLabel,
+  onRowActivate, stickyHeader = false, numericAlignRight = false,
 }: K8sDataTableProps<T>) {
   const id = useId();
   const width = useViewportWidth();
@@ -143,6 +155,15 @@ export function K8sDataTable<T>({
     () => columns.filter((c) => !(c.priority === 'low' && c.hideBelowPx !== undefined && width < c.hideBelowPx)),
     [columns, width],
   );
+
+  // With `numericAlignRight`, a column that sorts by a number (sampled from the first row) and sets
+  // no explicit `align` right-aligns; strings and explicitly-aligned columns are untouched.
+  const alignOf = (c: ColumnDef<T>): 'left' | 'right' | 'center' => {
+    if (c.align) return c.align;
+    if (numericAlignRight && c.sortValue && rows.length > 0 && typeof c.sortValue(rows[0]) === 'number') return 'right';
+    return 'left';
+  };
+  const hasFixedWidths = visible.some((c) => c.width !== undefined);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -193,7 +214,7 @@ export function K8sDataTable<T>({
     resetPage();
   };
 
-  const colSpan = visible.length + (expandRow ? 1 : 0);
+  const colSpan = visible.length + (expandRow ? 1 : 0) + (onRowActivate ? 1 : 0);
   const hasToolbar = Boolean(search || filters.length > 0 || exportName);
 
   if (error) {
@@ -279,10 +300,17 @@ export function K8sDataTable<T>({
         </div>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-[13px]">
+      <div className={stickyHeader ? 'max-h-[70vh] overflow-auto' : 'overflow-x-auto'}>
+        <table className={`w-full border-collapse text-[13px] ${hasFixedWidths ? 'table-fixed' : ''}`.trim()}>
           <caption className="sr-only">{caption}</caption>
-          <thead>
+          {hasFixedWidths && (
+            <colgroup>
+              {expandRow && <col style={{ width: '2.25rem' }} />}
+              {visible.map((c) => <col key={c.id} style={c.width ? { width: c.width } : undefined} />)}
+              {onRowActivate && <col style={{ width: '2.5rem' }} />}
+            </colgroup>
+          )}
+          <thead className={stickyHeader ? 'sticky top-0 z-10' : undefined}>
             <tr className="border-b border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.02)] dark:border-[rgba(255,255,255,0.1)] dark:bg-[rgba(255,255,255,0.03)]">
               {expandRow && (
                 <th scope="col" className="w-9 px-2 py-2"><span className="sr-only">Details</span></th>
@@ -296,7 +324,7 @@ export function K8sDataTable<T>({
                     scope="col"
                     aria-sort={ariaSort}
                     title={c.headerTitle}
-                    className={`whitespace-nowrap px-3 py-2 text-[12px] font-semibold ${MUTED_TEXT} ${ALIGN[c.align ?? 'left']}`}
+                    className={`whitespace-nowrap px-3 py-2 text-[12px] font-semibold ${MUTED_TEXT} ${ALIGN[alignOf(c)]}`}
                   >
                     {c.sortValue ? (
                       <button
@@ -313,6 +341,9 @@ export function K8sDataTable<T>({
                   </th>
                 );
               })}
+              {onRowActivate && (
+                <th scope="col" className="w-10 px-2 py-2"><span className="sr-only">Open</span></th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -329,9 +360,23 @@ export function K8sDataTable<T>({
               const detail = expandRow ? expandRow(row) : null;
               const isOpen = expanded.has(key);
               const detailId = `${id}-detail-${key}`;
+              const activate = onRowActivate ? () => onRowActivate(row) : undefined;
               return (
                 <Fragment key={key}>
-                  <tr className="border-b border-[rgba(0,0,0,0.06)] align-top hover:bg-[rgba(0,0,0,0.02)] dark:border-[rgba(255,255,255,0.08)] dark:hover:bg-[rgba(255,255,255,0.03)]">
+                  <tr
+                    className={`border-b border-[rgba(0,0,0,0.06)] align-top hover:bg-[rgba(0,0,0,0.02)] dark:border-[rgba(255,255,255,0.08)] dark:hover:bg-[rgba(255,255,255,0.03)] ${activate ? `cursor-pointer ${focusRing}` : ''}`.trim()}
+                    {...(activate
+                      ? {
+                        role: 'button' as const,
+                        tabIndex: 0,
+                        'aria-label': rowLabel ? rowLabel(row) : key,
+                        onClick: activate,
+                        onKeyDown: (e: KeyboardEvent) => {
+                          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); }
+                        },
+                      }
+                      : {})}
+                  >
                     {expandRow && (
                       <td className="px-2 py-2">
                         {detail !== null && (
@@ -340,12 +385,15 @@ export function K8sDataTable<T>({
                             aria-expanded={isOpen}
                             aria-controls={isOpen ? detailId : undefined}
                             aria-label={`${isOpen ? 'Hide' : 'Show'} details for ${rowLabel ? rowLabel(row) : key}`}
-                            onClick={() => setExpanded((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(key)) next.delete(key);
-                              else next.add(key);
-                              return next;
-                            })}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpanded((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(key)) next.delete(key);
+                                else next.add(key);
+                                return next;
+                              });
+                            }}
                             className={`flex h-6 w-6 items-center justify-center rounded text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.6)] dark:hover:bg-[rgba(255,255,255,0.06)] dark:hover:text-[rgba(255,255,255,0.92)] ${focusRing}`}
                           >
                             <Icon icon={isOpen ? 'mdi:chevron-down' : 'mdi:chevron-right'} width={16} aria-hidden="true" />
@@ -354,8 +402,13 @@ export function K8sDataTable<T>({
                       </td>
                     )}
                     {visible.map((c) => (
-                      <td key={c.id} className={`px-3 py-2 ${INK_TEXT} ${ALIGN[c.align ?? 'left']}`}>{c.cell(row)}</td>
+                      <td key={c.id} className={`px-3 py-2 ${INK_TEXT} ${ALIGN[alignOf(c)]}`}>{c.cell(row)}</td>
                     ))}
+                    {onRowActivate && (
+                      <td className="px-2 py-2 text-right align-middle">
+                        <Icon icon="mdi:chevron-right" width={16} aria-hidden="true" className={`inline-block ${MUTED_TEXT}`} />
+                      </td>
+                    )}
                   </tr>
                   {isOpen && detail !== null && (
                     <tr id={detailId} className="border-b border-[rgba(0,0,0,0.06)] bg-[rgba(0,0,0,0.02)] dark:border-[rgba(255,255,255,0.08)] dark:bg-[rgba(255,255,255,0.03)]">
