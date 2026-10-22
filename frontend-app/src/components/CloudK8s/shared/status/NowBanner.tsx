@@ -16,7 +16,7 @@ export interface NowBannerProps {
 export function NowBanner({ sentence, className = '' }: NowBannerProps) {
   return (
     <div
-      className={`rounded-lg border border-[rgba(0,0,0,0.08)] bg-white px-4 py-3 dark:border-[rgba(255,255,255,0.1)] dark:bg-[#141414] ${className}`}
+      className={`rounded-[8px] border border-[rgba(0,0,0,0.08)] bg-white px-4 py-3 dark:border-[rgba(255,255,255,0.1)] dark:bg-[#141414] ${className}`}
       data-now-banner=""
       data-k8s-kit=""
     >

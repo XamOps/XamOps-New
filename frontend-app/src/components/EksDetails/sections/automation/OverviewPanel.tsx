@@ -646,7 +646,7 @@ function Kpis({ view, now, feed, summary }: { view: VerticalEngineView; now: num
 
   return (
     <div data-overview-kpis="">
-      <MetricStrip cells={cells} aria-label="Automation summary" />
+      <MetricStrip cells={cells} heroLead aria-label="Automation summary" />
     </div>
   );
 }
@@ -955,7 +955,7 @@ export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs =
     <>
       <AccessBanner capabilities={caps} cluster={clusterName} />
       <NowBanner sentence={sentence} />
-      {read.loading && !read.result && <div className="skeleton h-28 rounded-lg" />}
+      {read.loading && !read.result && <div className="skeleton h-28 rounded-[8px]" />}
       {read.result && read.result.kind !== 'ok' && <ReadFailureCard failure={read.result} onRetry={read.reload} />}
       {view && <Kpis view={view} now={now} feed={feed} summary={summary} />}
     </>

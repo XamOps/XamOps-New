@@ -180,12 +180,17 @@ const card = (title: string) => {
   return heading.closest('section') as HTMLElement;
 };
 
-/** A MetricStrip cell in the Overview summary, found by its LABEL caption (replaces the KpiCard). */
+/**
+ * A MetricStrip cell in the Overview summary, found by its LABEL caption (replaces the KpiCard).
+ * Cells are tagged `data-metric-cell` ('hero' for the dominant lead, 'strip' for its peers — owner
+ * review #3), so selecting by that attribute is stable whether or not the lead is the hero; the
+ * lead cell no longer carries `min-w-0` (it is `shrink-0`), so the old class-based selector missed it.
+ */
 const kpi = (label: string) => {
   const strip = document.querySelector<HTMLElement>('[data-overview-kpis]');
   if (!strip) throw new Error('no metric strip');
   // Each cell is a flex column whose first child is the LABEL caption.
-  const cell = [...strip.querySelectorAll<HTMLElement>('div.flex.min-w-0.flex-col')].find(
+  const cell = [...strip.querySelectorAll<HTMLElement>('[data-metric-cell]')].find(
     (c) => c.firstElementChild?.textContent === label,
   );
   if (!cell) throw new Error(`no KPI ${label}`);

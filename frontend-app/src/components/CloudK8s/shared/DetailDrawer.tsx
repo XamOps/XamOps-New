@@ -72,9 +72,9 @@ function SkeletonBody() {
     <div className="flex flex-col gap-4 px-5 py-4" aria-hidden="true">
       {[0, 1, 2].map((i) => (
         <div key={i} className="flex flex-col gap-2">
-          <span className="h-3 w-24 rounded bg-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.08)]" />
-          <span className="h-4 w-full rounded bg-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.08)]" />
-          <span className="h-4 w-2/3 rounded bg-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.08)]" />
+          <span className="h-3 w-24 rounded-[6px] bg-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.08)]" />
+          <span className="h-4 w-full rounded-[6px] bg-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.08)]" />
+          <span className="h-4 w-2/3 rounded-[6px] bg-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.08)]" />
         </div>
       ))}
     </div>
@@ -162,7 +162,7 @@ export function DetailDrawer({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="-mr-2 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[color:var(--chrome-muted)] hover:bg-[rgba(0,0,0,0.04)] hover:text-[color:var(--chrome-ink)] dark:hover:bg-[rgba(255,255,255,0.06)] outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--chrome-ink)]"
+            className="-mr-2 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-[6px] text-[color:var(--chrome-muted)] hover:bg-[rgba(0,0,0,0.04)] hover:text-[color:var(--chrome-ink)] dark:hover:bg-[rgba(255,255,255,0.06)] outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--chrome-ink)]"
           >
             <Icon icon="mdi:close" width={20} aria-hidden="true" />
           </button>

@@ -31,9 +31,9 @@ export const RULE = 'border-[rgba(0,0,0,0.08)] dark:border-[rgba(255,255,255,0.1
 /** RULE's colours for the lines `divide-y` draws between children (a parent's border colour doesn't reach them). */
 export const DIVIDE = 'divide-[rgba(0,0,0,0.08)] dark:divide-[rgba(255,255,255,0.1)]';
 export const FOCUS = 'outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] dark:focus-visible:ring-[rgba(255,255,255,0.92)]';
-export const LINK = `rounded-md font-semibold underline underline-offset-2 ${INK} ${FOCUS}`;
-export const BUTTON = `rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-3 py-1.5 text-[12px] font-semibold text-[rgba(0,0,0,0.72)] hover:bg-[rgba(0,0,0,0.03)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.8)] dark:hover:bg-[rgba(255,255,255,0.06)] ${FOCUS}`;
-export const CONTROL = `rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-2 py-1.5 text-[12px] text-[rgba(0,0,0,0.88)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.92)] ${FOCUS}`;
+export const LINK = `rounded-[6px] font-semibold underline underline-offset-2 ${INK} ${FOCUS}`;
+export const BUTTON = `rounded-[6px] border border-[rgba(0,0,0,0.12)] bg-white px-3 py-1.5 text-[12px] font-semibold text-[rgba(0,0,0,0.72)] hover:bg-[rgba(0,0,0,0.03)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.8)] dark:hover:bg-[rgba(255,255,255,0.06)] ${FOCUS}`;
+export const CONTROL = `rounded-[6px] border border-[rgba(0,0,0,0.12)] bg-white px-2 py-1.5 text-[12px] text-[rgba(0,0,0,0.88)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.92)] ${FOCUS}`;
 
 /** A link to another view of this page: the page stays mounted, so nothing is read again. */
 export function InPageLink({
@@ -57,13 +57,13 @@ export function Notice({ children, onDismiss }: { children: ReactNode; onDismiss
   return (
     <div
       role="status"
-      className={`flex items-center gap-3 rounded-lg border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.03)] px-3.5 py-2.5 text-[13px] dark:border-[rgba(255,255,255,0.14)] dark:bg-[rgba(255,255,255,0.04)] ${INK}`}
+      className={`flex items-center gap-3 rounded-[8px] border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.03)] px-3.5 py-2.5 text-[13px] dark:border-[rgba(255,255,255,0.14)] dark:bg-[rgba(255,255,255,0.04)] ${INK}`}
       data-k8s-kit=""
     >
       <Icon icon="mdi:information-outline" width={16} aria-hidden="true" className={`shrink-0 ${MUTED}`} />
       <span className="min-w-0 flex-1">{children}</span>
       {onDismiss && (
-        <button type="button" onClick={onDismiss} aria-label="Dismiss" className={`rounded-md p-0.5 ${MUTED} ${FOCUS}`}>
+        <button type="button" onClick={onDismiss} aria-label="Dismiss" className={`rounded-[6px] p-0.5 ${MUTED} ${FOCUS}`}>
           <Icon icon="mdi:close" width={16} aria-hidden="true" />
         </button>
       )}
@@ -74,7 +74,7 @@ export function Notice({ children, onDismiss }: { children: ReactNode; onDismiss
 /** A neutral grey tag: where a value comes from, never a status. */
 export function Tag({ icon, children }: { icon: string; children: ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-[rgba(0,0,0,0.12)] px-2 py-0.5 text-[11px] font-semibold text-[rgba(0,0,0,0.6)] dark:border-[rgba(255,255,255,0.16)] dark:text-[rgba(255,255,255,0.6)]">
+    <span className="inline-flex items-center gap-1 rounded-[6px] border border-[rgba(0,0,0,0.12)] px-2 py-0.5 text-[11px] font-semibold text-[rgba(0,0,0,0.6)] dark:border-[rgba(255,255,255,0.16)] dark:text-[rgba(255,255,255,0.6)]">
       <Icon icon={icon} width={12} aria-hidden="true" className="shrink-0" />
       <span>{children}</span>
     </span>

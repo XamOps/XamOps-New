@@ -1,9 +1,11 @@
 /**
  * The CloudK8s v3 type scale (FEAT-001; docs/cloudk8s/ui-revamp-design.md §7).
  *
- * Exactly six ranked sizes, no more. One figure role (`FIGURE`, 28px) that the hero and every strip
- * cell share, and five supporting levels. No two peers compete at the same size for the same
- * meaning; hierarchy rests on placement, not on a different figure size per tier.
+ * Seven ranked sizes, no more. The owner's converge visual review reversed the earlier "hero and
+ * strip share one figure size" decision: a page now has a dominant HERO_FIGURE (28px) that
+ * out-weighs the subordinate strip FIGURE (20px), plus five supporting levels. Hierarchy rests on
+ * weight AND placement — the lead number is bigger, not just first. The visual gate's font-size
+ * budget (metricGate.test.tsx) is seven to match.
  *
  * Every token embeds its own chrome colour through the `--chrome-*` tokens
  * (components/CloudK8s/shared/styles/k8sChromeTokens.css) — primary ink or the muted grey — so a
@@ -11,8 +13,15 @@
  * tokens. The `--chrome-*` names (not `--k8s-…`) keep the design-rule `scope-raw-var` guard green.
  */
 
-/** 28px bold figure: the one big-number role. Hero and strip cells share this size. */
-export const FIGURE = 'text-[28px] font-bold tabular-nums leading-none text-[color:var(--chrome-ink)]';
+/**
+ * 28px bold: the dominant HERO figure — the one lead number a page leads with (MetricStrip's
+ * `heroLead` cell). The owner's visual review (converge round) reversed the earlier "hero and strip
+ * share one size" decision: the hero must out-weigh its neighbours, so it is its own rank above the
+ * strip figure below.
+ */
+export const HERO_FIGURE = 'text-[28px] font-bold tabular-nums leading-none text-[color:var(--chrome-ink)]';
+/** 20px bold: the strip-cell figure. Clearly subordinate to the 28px hero; peers share this size. */
+export const FIGURE = 'text-[20px] font-bold tabular-nums leading-none text-[color:var(--chrome-ink)]';
 /** 16px/600: a section heading. */
 export const SECTION = 'text-[16px] font-semibold leading-tight text-[color:var(--chrome-ink)]';
 /** 14px/600: a card / group title. */

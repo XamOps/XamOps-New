@@ -179,10 +179,12 @@ function ClusterPage({ link, debug }: { link: ClusterLink; debug: boolean }) {
   const dark = theme === 'dark';
 
   return (
+    // FEAT-004 docs reconciliation (ui-revamp-design.md §14): the CloudK8s surface uses the app's
+    // system sans stack, not a pinned 'Inter' — the design contract never names Inter.
     <main
-      className={`flex min-h-screen flex-1 flex-col ${dark ? 'dark bg-[#0d0d0d]' : 'bg-white'}`}
+      className={`flex min-h-screen flex-1 flex-col bg-[color:var(--chrome-page)] ${dark ? 'dark' : ''}`.trim()}
       data-cloudk8s-theme={theme}
-      style={{ fontFamily: "'Inter', sans-serif" }}
+      style={{ fontFamily: 'ui-sans-serif, system-ui, sans-serif' }}
     >
       <div className="w-full space-y-4 p-6">
         <ClusterHeader

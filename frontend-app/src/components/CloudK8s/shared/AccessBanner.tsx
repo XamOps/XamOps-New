@@ -70,7 +70,7 @@ export function accessOverlays(
 const OFFERS_ENABLE: ReadonlySet<AccessOverlay> = new Set<AccessOverlay>(['read-only', 'no-permission']);
 
 const actionClass =
-  'inline-flex items-center gap-1 rounded-md border border-[rgba(0,0,0,0.2)] bg-white px-2.5 py-1 text-[12px] font-semibold '
+  'inline-flex items-center gap-1 rounded-[6px] border border-[rgba(0,0,0,0.2)] bg-white px-2.5 py-1 text-[12px] font-semibold '
   + 'text-[rgba(0,0,0,0.88)] hover:bg-[rgba(0,0,0,0.04)] outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] focus-visible:ring-offset-2';
 
 export interface AccessBannerProps {
@@ -96,7 +96,7 @@ export function AccessBanner({ capabilities, cluster, className = '' }: AccessBa
             key={overlay}
             role={isError ? 'alert' : undefined}
             data-overlay={overlay}
-            className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border px-3.5 py-2.5 text-[13px] text-[rgba(0,0,0,0.88)] ${
+            className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[8px] border px-3.5 py-2.5 text-[13px] text-[rgba(0,0,0,0.88)] ${
               isError ? 'border-[rgba(0,0,0,0.88)] bg-white' : 'border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.03)]'
             }`}
           >

@@ -22,7 +22,7 @@ export interface EmptyStateProps {
 }
 
 const buttonClass =
-  'inline-flex items-center gap-1.5 rounded-md border border-[color:var(--chrome-line)] bg-[color:var(--chrome-card)] px-3 py-1.5 text-[13px] font-semibold text-[color:var(--chrome-ink)] hover:bg-[rgba(0,0,0,0.04)] dark:hover:bg-[rgba(255,255,255,0.06)] outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--chrome-ink)] focus-visible:ring-offset-2';
+  'inline-flex items-center gap-1.5 rounded-[6px] border border-[color:var(--chrome-line)] bg-[color:var(--chrome-card)] px-3 py-1.5 text-[13px] font-semibold text-[color:var(--chrome-ink)] hover:bg-[rgba(0,0,0,0.04)] dark:hover:bg-[rgba(255,255,255,0.06)] outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--chrome-ink)] focus-visible:ring-offset-2';
 
 function SkeletonBackdrop() {
   // A blurred grey skeleton — placeholder bars only, no numbers, no sample data.
@@ -33,7 +33,7 @@ function SkeletonBackdrop() {
       data-empty-skeleton=""
     >
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="h-5 w-full rounded-md bg-[rgba(0,0,0,0.08)] dark:bg-[rgba(255,255,255,0.08)]" />
+        <div key={i} className="h-5 w-full rounded-[6px] bg-[rgba(0,0,0,0.08)] dark:bg-[rgba(255,255,255,0.08)]" />
       ))}
     </div>
   );

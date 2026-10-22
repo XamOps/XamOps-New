@@ -24,13 +24,16 @@ describe('PageTemplate (FEAT-001, §8)', () => {
     expect(positions).toBeTruthy();
   });
 
-  it('defaults to prose width (935px) and takes table width (1200px)', () => {
+  it('defaults to prose width (935px) and takes a responsive table width (max-w-full)', () => {
     const { rerender } = render(<PageTemplate title="A"><p>x</p></PageTemplate>);
     expect(screen.getByRole('main').className).toContain('max-w-[935px]');
     expect(screen.getByRole('main')).toHaveAttribute('data-page-width', 'prose');
 
+    // owner review #5: 'table' fills the available container (viewport − sidebar) instead of pinning
+    // a fixed 1200px that clips the last column; the table card scrolls internally.
     rerender(<PageTemplate title="A" width="table"><p>x</p></PageTemplate>);
-    expect(screen.getByRole('main').className).toContain('max-w-[1200px]');
+    expect(screen.getByRole('main').className).toContain('max-w-full');
+    expect(screen.getByRole('main').className).not.toContain('max-w-[1200px]');
     expect(screen.getByRole('main')).toHaveAttribute('data-page-width', 'table');
   });
 

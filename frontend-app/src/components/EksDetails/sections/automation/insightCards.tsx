@@ -31,7 +31,7 @@ import { FAINT, FOCUS, MUTED } from './automationUi';
 /** CPU | Memory, as pressed buttons (an in-page view switch, never navigation). */
 export function ResourceToggle({ value, onChange, options = ['cpu', 'memory'] }: { value: UsageResource; onChange: (r: UsageResource) => void; options?: readonly UsageResource[] }) {
   return (
-    <div role="group" aria-label="Resource" className="inline-flex overflow-hidden rounded-lg border border-[rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.16)]">
+    <div role="group" aria-label="Resource" className="inline-flex overflow-hidden rounded-[6px] border border-[rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.16)]">
       {options.map((r) => (
         <button
           key={r}
