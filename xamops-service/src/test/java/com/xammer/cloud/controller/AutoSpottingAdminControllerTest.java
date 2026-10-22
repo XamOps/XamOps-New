@@ -297,6 +297,9 @@ class AutoSpottingAdminControllerTest {
         demoClient.setDemo(true);
         demoClientUser.setClient(demoClient);
         when(userRepository.findById(DEMO_USER_ID)).thenReturn(Optional.of(demoClientUser));
+        // DemoClientMembership now loads via findByIdWithClient (JOIN FETCH client) to avoid lazy
+        // init in the pre-transaction guard; stub it so the is_demo client is seen.
+        when(userRepository.findByIdWithClient(DEMO_USER_ID)).thenReturn(Optional.of(demoClientUser));
         clearInvocations(autoSpottingService);
         for (String read : READS) {
             mvc.perform(get(BASE + read)

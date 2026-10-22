@@ -87,6 +87,10 @@ public final class K8sAutomationTestWorld {
                 .filter(c -> c.getId().equals(inv.getArgument(0))).findFirst());
         when(userRepository.findById(anyLong()))
                 .thenAnswer(inv -> Optional.ofNullable(users.get(inv.<Long>getArgument(0))));
+        // DemoClientMembership loads the user via findByIdWithClient (JOIN FETCH client); mirror the
+        // findById stub so demo-client resolution works the same way in this test world.
+        when(userRepository.findByIdWithClient(anyLong()))
+                .thenAnswer(inv -> Optional.ofNullable(users.get(inv.<Long>getArgument(0))));
         when(userTabAccessRepository.findTabNamesByUserId(anyLong()))
                 .thenAnswer(inv -> tabs.getOrDefault(inv.<Long>getArgument(0), List.of()));
         when(userCloudAccountAccessRepository.findCloudAccountIdsByUserId(anyLong())).thenReturn(List.of());
