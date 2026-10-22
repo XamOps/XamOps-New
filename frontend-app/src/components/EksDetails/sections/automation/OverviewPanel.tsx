@@ -969,21 +969,28 @@ export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs =
       width="table"
       hero={hero}
       aside={<AccessBlock caps={caps} clusterName={clusterName} />}
+      // Only the How-it-works card pairs with the Access rail (the balanced top row); every section
+      // below it spans the FULL content width via `detail`, so the short Access card no longer
+      // reserves a tall 280px rail that left a dead band down the right (owner one-sided review).
+      detail={
+        <div className="flex min-w-0 flex-col gap-6">
+          <Timeline result={read.result} feed={feed} now={now} />
+          <FeatureCards result={read.result} caps={caps} clusterName={clusterName} eksData={eksData} hrefs={hrefs} now={now} />
+          <NamespaceChart result={read.result} eksData={eksData} clusterName={clusterName} accountId={accountId} region={region} />
+          <ClusterUsageCard clusterName={clusterName} accountId={accountId} region={region} title="CPU and memory over time" total="capacity" />
+          <TodayTable
+            caps={caps}
+            clusterName={clusterName}
+            workloadAutoscalerHref={hrefs.workloadAutoscaler}
+            pageHrefs={{ hpa: hrefs.hpa, vpa: hrefs.vpa }}
+          />
+        </div>
+      }
     >
       <HowItWorks
         chips={view ? howItWorksChips(view, now) : {}}
         policiesHref={hrefs.policies}
         policiesLinkState={inPageState(location)}
-      />
-      <Timeline result={read.result} feed={feed} now={now} />
-      <FeatureCards result={read.result} caps={caps} clusterName={clusterName} eksData={eksData} hrefs={hrefs} now={now} />
-      <NamespaceChart result={read.result} eksData={eksData} clusterName={clusterName} accountId={accountId} region={region} />
-      <ClusterUsageCard clusterName={clusterName} accountId={accountId} region={region} title="CPU and memory over time" total="capacity" />
-      <TodayTable
-        caps={caps}
-        clusterName={clusterName}
-        workloadAutoscalerHref={hrefs.workloadAutoscaler}
-        pageHrefs={{ hpa: hrefs.hpa, vpa: hrefs.vpa }}
       />
     </PageTemplate>
   );

@@ -88,13 +88,23 @@ export function PageTemplate({
       {titleBlock}
       {heroBlock}
       {hasAside ? (
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-          <div className="flex min-w-0 flex-1 flex-col gap-6">
-            {childrenBlock}
-            {detailBlock}
+        /*
+          The right rail pairs with the TOP of the body only. A flex two-column split that ran the
+          FULL body height pinned every section to the ~868px column left of the rail even though the
+          Access card is short (≈220px) while the body below it runs ~1000px — that left a ~280px ×
+          ~840px empty band down the right of the page (owner one-sided review; measured at 1440px as
+          main 868×1055 against aside 280×219). So the aside pairs with the FIRST body section
+          (`children` — the How-it-works card, as tall as makes a balanced top row), and the rest of
+          the body (`detail`) spans the FULL content width below the row, reclaiming the band. Below
+          lg the row stacks and the aside sits under its paired section, full width, as before.
+        */
+        <>
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+            <div className="flex min-w-0 flex-1 flex-col gap-6">{childrenBlock}</div>
+            <aside className="w-full shrink-0 lg:w-[280px]" data-page-aside="">{aside}</aside>
           </div>
-          <aside className="w-full shrink-0 lg:w-[280px]" data-page-aside="">{aside}</aside>
-        </div>
+          {detailBlock}
+        </>
       ) : (
         <>
           {childrenBlock}
