@@ -3840,11 +3840,11 @@ ${xmlEdges}
               const lsubnets = lnodes.filter(e => (e.data as NodeData).type === 'Subnet');
               const lresources = lnodes.filter(e => !['VPC', 'Subnet'].includes((e.data as NodeData).type ?? ''));
               const layerDefs: Array<{ id: LiveLayer; label: string; hint: string }> = [
-                { id: 'security', label: 'Security groups', hint: 'Show security groups and their rules. While hidden, rules are drawn as "can reach" lines between resources.' },
+                { id: 'security', label: 'Security', hint: 'Show security groups and their rules. While hidden, rules are drawn as "can reach" lines between resources.' },
                 { id: 'routing', label: 'Routing', hint: 'Show route tables and which subnets they govern.' },
                 { id: 'storage', label: 'Storage', hint: 'Show EBS volumes and Elastic IPs and what they attach to.' },
                 { id: 'scaling', label: 'Scaling', hint: 'Show Auto Scaling groups and target groups. While hidden, load balancers point straight at their targets.' },
-                { id: 'interfaces', label: 'Interfaces', hint: 'Show network interfaces (ENIs) and the instances they attach to. Kubernetes pod networking can create hundreds.' },
+                { id: 'interfaces', label: 'ENIs', hint: 'Show network interfaces (ENIs) and the instances they attach to. Kubernetes pod networking can create hundreds.' },
               ];
               return (
                 <>
@@ -3856,7 +3856,6 @@ ${xmlEdges}
                   </div>
                   <div className="toolbar-separator" />
                   <div className="cm-layers" role="group" aria-label="Layers">
-                    <span className="cm-layers-label">Layers</span>
                     {layerDefs.map(l => {
                       const on = liveLayers[l.id];
                       const n = liveTopology.hidden[l.id];
@@ -3883,16 +3882,16 @@ ${xmlEdges}
                       <i className="fas fa-table-cells-large" />
                     </button>
                   </Tooltip>
-                  <button
-                    className="toolbar-button"
-                    style={{ gap: '0.35rem', display: 'flex', alignItems: 'center', padding: '0 0.6rem', fontSize: '0.72rem', fontWeight: 600 }}
-                    onClick={handleRefreshTopology}
-                    disabled={refreshingTopology}
-                    title="Rescan the account"
-                  >
-                    <i className="fas fa-sync-alt" style={refreshingTopology ? { animation: 'spin 0.8s linear infinite' } : {}} />
-                    {refreshingTopology ? 'Refreshing…' : 'Refresh'}
-                  </button>
+                  <Tooltip text={refreshingTopology ? 'Rescanning the account…' : 'Rescan the account'}>
+                    <button
+                      className="toolbar-button"
+                      onClick={handleRefreshTopology}
+                      disabled={refreshingTopology}
+                      aria-label="Refresh topology"
+                    >
+                      <i className="fas fa-sync-alt" style={refreshingTopology ? { animation: 'spin 0.8s linear infinite' } : {}} />
+                    </button>
+                  </Tooltip>
                   <Tooltip text={showMinimap ? 'Hide minimap' : 'Show minimap'}>
                     <button
                       className={`toolbar-button ${showMinimap ? 'toolbar-button-active' : ''}`}
