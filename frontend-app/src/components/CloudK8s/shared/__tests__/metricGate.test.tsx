@@ -230,10 +230,17 @@ function assertBudget(name: string, scopes: ReadonlyArray<HTMLElement | null>) {
  * #3): the row container must be a non-wrapping flex row (`flex` without `flex-wrap`). A vertical
  * stack would re-introduce the long scrolling page the review flagged.
  */
-function assertMetricStripIsOneRow(name: string, scope: HTMLElement) {
-  const row = scope.querySelector<HTMLElement>('[data-metric-strip-row]');
-  expect(row, `${name}: no MetricStrip row ([data-metric-strip-row]) found.`).not.toBeNull();
-  const cls = row!.getAttribute('class') ?? '';
+async function assertMetricStripIsOneRow(name: string, scope: HTMLElement) {
+  // The hero MetricStrip (Overview's <Kpis>) renders only after the async useAutomationRead
+  // resolves, so a synchronous querySelector races the dark render (FEAT-001: intermittent
+  // 'no MetricStrip row found'). Await the row before asserting — this hardens determinism
+  // WITHOUT weakening the check; the same one-row (flex, no flex-wrap) assertions still run on it.
+  const row = await waitFor(() => {
+    const r = scope.querySelector<HTMLElement>('[data-metric-strip-row]');
+    expect(r, `${name}: no MetricStrip row ([data-metric-strip-row]) found.`).not.toBeNull();
+    return r!;
+  });
+  const cls = row.getAttribute('class') ?? '';
   expect(cls.includes('flex'), `${name}: MetricStrip row is not a flex row. class="${cls}"`).toBe(true);
   expect(cls.includes('flex-wrap'), `${name}: MetricStrip row wraps (flex-wrap) — it must stay one row. class="${cls}"`).toBe(false);
 }
@@ -306,14 +313,14 @@ describe('visual + scoped-metric gate (FEAT-004 §11; jsdom fallback, Playwright
       it('Automation › Overview stays within the premium budget', async () => {
         const main = await mountOverview(theme);
         expect(main, 'Overview must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        await assertMetricStripIsOneRow(`Overview (${theme})`, main);
         assertBudget(`Overview (${theme})`, [main]);
-        assertMetricStripIsOneRow(`Overview (${theme})`, main);
       });
 
       it('Workloads › Pods stays within the premium budget, drawer included', async () => {
         const main = await mountPods(theme);
         expect(main, 'Pods must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
-        assertMetricStripIsOneRow(`Pods (${theme})`, main);
+        await assertMetricStripIsOneRow(`Pods (${theme})`, main);
         assertTableScrolls(`Pods (${theme})`, main);
 
         // Open the first pod's DetailDrawer so its FIXED portal (rendered OUTSIDE the main subtree) is
