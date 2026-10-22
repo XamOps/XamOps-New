@@ -49,8 +49,8 @@ function Cell({ cell }: { cell: MetricCell }) {
 function SkeletonCell() {
   return (
     <div className="flex min-w-0 flex-col gap-2 px-5 py-4 first:pl-0 last:pr-0" aria-hidden="true">
-      <span className="h-2.5 w-16 rounded bg-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.08)]" />
-      <span className="h-7 w-24 rounded bg-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.08)]" />
+      <span className="h-2.5 w-16 rounded-md bg-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.08)]" />
+      <span className="h-7 w-24 rounded-md bg-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.08)]" />
     </div>
   );
 }

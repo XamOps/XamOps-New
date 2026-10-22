@@ -20,9 +20,9 @@ import { Surface } from '../../../CloudK8s/shared/Surface';
  * The automation pages' card chrome is the one Surface `grouped` tier (DESIGN §3): CARD carries the
  * tier's radius + border + bg so a card that can't use the component (ReadFailureCard) still matches
  * it, and Card itself delegates to <Surface tier="grouped">. Border aligned to the Surface token
- * rgba(0,0,0,0.07)/dark 0.09 and the one radius rounded-[10px].
+ * rgba(0,0,0,0.07)/dark 0.09 and the one radius rounded-[8px] (matches Surface's grouped tier).
  */
-export const CARD = 'rounded-[10px] border border-[rgba(0,0,0,0.07)] bg-white dark:border-[rgba(255,255,255,0.09)] dark:bg-[#141414]';
+export const CARD = 'rounded-[8px] border border-[rgba(0,0,0,0.07)] bg-white dark:border-[rgba(255,255,255,0.09)] dark:bg-[#141414]';
 export const INK = 'text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]';
 export const MUTED = 'text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]';
 /** Tertiary text (source lines, gate reasons, dash explanations): 0.56 is 4.9:1 on white, AA at 11–12 px. */
@@ -31,7 +31,7 @@ export const RULE = 'border-[rgba(0,0,0,0.08)] dark:border-[rgba(255,255,255,0.1
 /** RULE's colours for the lines `divide-y` draws between children (a parent's border colour doesn't reach them). */
 export const DIVIDE = 'divide-[rgba(0,0,0,0.08)] dark:divide-[rgba(255,255,255,0.1)]';
 export const FOCUS = 'outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] dark:focus-visible:ring-[rgba(255,255,255,0.92)]';
-export const LINK = `rounded-sm font-semibold underline underline-offset-2 ${INK} ${FOCUS}`;
+export const LINK = `rounded-md font-semibold underline underline-offset-2 ${INK} ${FOCUS}`;
 export const BUTTON = `rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-3 py-1.5 text-[12px] font-semibold text-[rgba(0,0,0,0.72)] hover:bg-[rgba(0,0,0,0.03)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.8)] dark:hover:bg-[rgba(255,255,255,0.06)] ${FOCUS}`;
 export const CONTROL = `rounded-lg border border-[rgba(0,0,0,0.12)] bg-white px-2 py-1.5 text-[12px] text-[rgba(0,0,0,0.88)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.92)] ${FOCUS}`;
 
@@ -63,7 +63,7 @@ export function Notice({ children, onDismiss }: { children: ReactNode; onDismiss
       <Icon icon="mdi:information-outline" width={16} aria-hidden="true" className={`shrink-0 ${MUTED}`} />
       <span className="min-w-0 flex-1">{children}</span>
       {onDismiss && (
-        <button type="button" onClick={onDismiss} aria-label="Dismiss" className={`rounded p-0.5 ${MUTED} ${FOCUS}`}>
+        <button type="button" onClick={onDismiss} aria-label="Dismiss" className={`rounded-md p-0.5 ${MUTED} ${FOCUS}`}>
           <Icon icon="mdi:close" width={16} aria-hidden="true" />
         </button>
       )}

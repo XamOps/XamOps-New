@@ -33,7 +33,7 @@ function SkeletonBackdrop() {
       data-empty-skeleton=""
     >
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="h-5 w-full rounded bg-[rgba(0,0,0,0.08)] dark:bg-[rgba(255,255,255,0.08)]" />
+        <div key={i} className="h-5 w-full rounded-md bg-[rgba(0,0,0,0.08)] dark:bg-[rgba(255,255,255,0.08)]" />
       ))}
     </div>
   );

@@ -239,7 +239,7 @@ export function K8sDataTable<T>({
     return (
       <div aria-busy="true" className={`space-y-2 p-4 ${boxClass}`}>
         <span className="sr-only">{`Loading ${caption.toLowerCase()}…`}</span>
-        {[0, 1, 2, 3].map((i) => <div key={i} className="h-6 animate-pulse rounded bg-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.06)]" />)}
+        {[0, 1, 2, 3].map((i) => <div key={i} className="h-6 animate-pulse rounded-md bg-[rgba(0,0,0,0.06)] dark:bg-[rgba(255,255,255,0.06)]" />)}
       </div>
     );
   }
@@ -330,7 +330,7 @@ export function K8sDataTable<T>({
                       <button
                         type="button"
                         onClick={() => toggleSort(c.id)}
-                        className={`inline-flex items-center gap-1 rounded hover:text-[rgba(0,0,0,0.88)] dark:hover:text-[rgba(255,255,255,0.92)] ${focusRing} ${active ? INK_TEXT : ''}`}
+                        className={`inline-flex items-center gap-1 rounded-md hover:text-[rgba(0,0,0,0.88)] dark:hover:text-[rgba(255,255,255,0.92)] ${focusRing} ${active ? INK_TEXT : ''}`}
                       >
                         {c.header}
                         {active && sort!.direction === 'asc' && <Icon icon="mdi:arrow-up" width={13} aria-hidden="true" />}
@@ -394,7 +394,7 @@ export function K8sDataTable<T>({
                                 return next;
                               });
                             }}
-                            className={`flex h-6 w-6 items-center justify-center rounded text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.6)] dark:hover:bg-[rgba(255,255,255,0.06)] dark:hover:text-[rgba(255,255,255,0.92)] ${focusRing}`}
+                            className={`flex h-6 w-6 items-center justify-center rounded-md text-[rgba(0,0,0,0.6)] hover:bg-[rgba(0,0,0,0.06)] hover:text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.6)] dark:hover:bg-[rgba(255,255,255,0.06)] dark:hover:text-[rgba(255,255,255,0.92)] ${focusRing}`}
                           >
                             <Icon icon={isOpen ? 'mdi:chevron-down' : 'mdi:chevron-right'} width={16} aria-hidden="true" />
                           </button>
@@ -435,7 +435,7 @@ export function K8sDataTable<T>({
             id={`${id}-page-size`}
             value={pageSize}
             onChange={(e) => { setPageSize(Number(e.target.value) as PageSize); resetPage(); }}
-            className={`rounded border border-[rgba(0,0,0,0.2)] bg-white px-1.5 py-0.5 text-[12px] text-[rgba(0,0,0,0.88)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.92)] ${focusRing}`}
+            className={`rounded-md border border-[rgba(0,0,0,0.2)] bg-white px-1.5 py-0.5 text-[12px] text-[rgba(0,0,0,0.88)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.92)] ${focusRing}`}
           >
             {PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
           </select>
