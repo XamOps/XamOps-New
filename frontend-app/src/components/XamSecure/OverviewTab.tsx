@@ -66,11 +66,11 @@ const KpiTile: React.FC<{
   numberColor?: string;
   meta?: React.ReactNode;
 }> = ({ caption, value, numberColor, meta }) => (
-  <div className="flex flex-col gap-1.5 px-5 py-4">
+  <div className="flex flex-col gap-1 px-5 py-2.5">
     <PanelLabel>{caption}</PanelLabel>
     <CountUp
       value={value}
-      className="font-mono tabular-nums text-3xl md:text-4xl font-bold tracking-tight"
+      className="font-mono tabular-nums text-3xl font-bold tracking-tight leading-none"
       style={{ color: numberColor ?? TEXT.strong }}
     />
     {meta && <div className="text-xs" style={{ color: TEXT.muted }}>{meta}</div>}
@@ -163,7 +163,7 @@ const OverviewTab: React.FC<Props> = ({
   }
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-6">
       {/* ── PAGE HEADER — plain text on white, no band, no gradient, no topology ── */}
       <header>
         <h1 className="text-xl font-semibold" style={{ color: TEXT.strong }}>Security overview</h1>
@@ -175,26 +175,26 @@ const OverviewTab: React.FC<Props> = ({
       {/* ── SECTION — SECURITY POSTURE ──────────────────────────────────────────────── */}
       <section>
         <SectionHeader icon="mdi:shield-check-outline" title="Security posture" accent={ACCENT.green} chipBg={ACCENT.greenSoft} />
-        <div className="mt-5">
+        <div className="mt-3">
           <RevealCard>
-            <div className="rounded-2xl p-5 md:p-6" style={panelStyle}>
-              <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
+            <div className="rounded-2xl p-4 md:p-5" style={panelStyle}>
+              <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 items-stretch">
                 {/* Focal-hero well — totalIssues */}
-                <div className="lg:col-span-1 rounded-xl p-6 flex flex-col items-start justify-center" style={focalPanelStyle}>
+                <div className="lg:col-span-1 rounded-xl px-5 py-4 flex flex-col items-start justify-center" style={focalPanelStyle}>
                   <span
-                    className="inline-flex items-center justify-center rounded-full mb-4"
-                    style={{ width: 44, height: 44, background: ACCENT.greenSoft }}
+                    className="inline-flex items-center justify-center rounded-full mb-2"
+                    style={{ width: 34, height: 34, background: ACCENT.greenSoft }}
                   >
-                    <Icon icon="mdi:shield-check-outline" width={24} style={{ color: ACCENT.green }} aria-hidden="true" />
+                    <Icon icon="mdi:shield-check-outline" width={19} style={{ color: ACCENT.green }} aria-hidden="true" />
                   </span>
                   <CountUp
                     value={totalIssues}
-                    className="font-mono tabular-nums text-6xl md:text-7xl font-bold tracking-tight"
+                    className="font-mono tabular-nums text-5xl font-bold tracking-tight leading-none"
                     style={{ color: TEXT.strong }}
                   />
-                  <p className="mt-2 text-[11px] uppercase tracking-wide" style={{ color: TEXT.muted }}>Total issues</p>
+                  <p className="mt-1.5 text-[11px] uppercase tracking-wide" style={{ color: TEXT.muted }}>Total issues</p>
                   {issuesTrend && (
-                    <div className="mt-2">
+                    <div className="mt-1.5">
                       <TrendDelta from={issuesTrend.from} to={issuesTrend.to} label="over 7 days" />
                     </div>
                   )}
@@ -233,23 +233,19 @@ const OverviewTab: React.FC<Props> = ({
                     </div>
                   </div>
 
-                  {/* Findings by severity — dots + count pills, then the mini bar-strip (once). */}
-                  <div className="mt-5 pt-5 px-5" style={{ borderTop: `1px solid ${HAIRLINE_SOFT}` }}>
-                    <PanelLabel className="mb-3">Findings by severity</PanelLabel>
-                    <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-                      {SEVERITY_ORDER.map((sev) => (
-                        <span key={sev} className="inline-flex items-center gap-2">
-                          <SeverityDot severity={sev} />
-                          <SeverityPill severity={sev} count={findingsBySeverity[sev] ?? 0} />
-                        </span>
-                      ))}
-                    </div>
-                    <div className="mt-4">
+                  {/* Findings by severity — dots + count pills on the left, mini bar-strip filling
+                      the rest of the row, kept on one line to stay compact. */}
+                  <div className="mt-3 pt-3 px-5 flex flex-wrap items-center gap-x-6 gap-y-2" style={{ borderTop: `1px solid ${HAIRLINE_SOFT}` }}>
+                    <PanelLabel className="w-full sm:w-auto">Findings by severity</PanelLabel>
+                    {SEVERITY_ORDER.map((sev) => (
+                      <span key={sev} className="inline-flex items-center gap-2">
+                        <SeverityDot severity={sev} />
+                        <SeverityPill severity={sev} count={findingsBySeverity[sev] ?? 0} />
+                      </span>
+                    ))}
+                    <div className="flex-1 min-w-[140px]">
                       <SeverityBarStrip counts={findingsBySeverity} />
                     </div>
-                    <p className="mt-3 text-xs tabular-nums" style={{ color: TEXT.muted }}>
-                      {totalIssues.toLocaleString()} total issues
-                    </p>
                   </div>
                 </div>
               </div>
@@ -261,7 +257,7 @@ const OverviewTab: React.FC<Props> = ({
       {/* ── SECTION — SECURITY ISSUES ───────────────────────────────────────────────── */}
       <section>
         <SectionHeader icon="mdi:file-alert-outline" title="Security issues" accent="#64748B" chipBg="#F7F8FA" />
-        <div className="mt-5 grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+        <div className="mt-3 grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
           {/* Findings over time */}
           <RevealCard>
             <div className="rounded-2xl p-5 flex flex-col h-full" style={panelStyle}>
@@ -289,8 +285,8 @@ const OverviewTab: React.FC<Props> = ({
                   No vulnerability data.
                 </div>
               ) : (
-                <div className="flex-1 mt-3" style={{ width: '100%', minHeight: 180 }}>
-                  <ResponsiveContainer width="100%" height={180}>
+                <div className="flex-1 mt-3" style={{ width: '100%', minHeight: 150 }}>
+                  <ResponsiveContainer width="100%" height={150}>
                     <AreaChart data={severityOverTime} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                       <ChartGradients />
                       <CartesianGrid strokeDasharray="4 4" stroke={HAIRLINE} vertical={false} />
@@ -336,7 +332,7 @@ const OverviewTab: React.FC<Props> = ({
           {/* Top security issues findings — full width */}
           <div className="lg:col-span-3">
             <RevealCard>
-              <div className="rounded-2xl p-5 flex flex-col h-full" style={panelStyle}>
+              <div className="rounded-2xl p-4 flex flex-col h-full" style={panelStyle}>
                 <div className="flex items-center justify-between">
                   <PanelLabel>Top security issues findings</PanelLabel>
                   <AllLink to="/xamsecure/issues" label="All findings" />
@@ -347,7 +343,7 @@ const OverviewTab: React.FC<Props> = ({
                     <PanelLabel>Resources</PanelLabel>
                   </div>
                   {topFindings.map((f) => (
-                    <div key={f.check} className="flex items-center justify-between py-3" style={{ borderBottom: `1px solid ${HAIRLINE_SOFT}` }}>
+                    <div key={f.check} className="flex items-center justify-between py-2" style={{ borderBottom: `1px solid ${HAIRLINE_SOFT}` }}>
                       <span className="flex items-center gap-2.5 min-w-0">
                         <SeverityDot severity={f.severity} />
                         <span className="text-sm truncate" style={{ color: TEXT.body }}>{f.title}</span>
@@ -373,7 +369,7 @@ const OverviewTab: React.FC<Props> = ({
       {/* ── SECTION — THREATS ───────────────────────────────────────────────────────── */}
       <section>
         <SectionHeader icon="mdi:radar" title="Threats" accent="#FB7185" chipBg="#FFF1F2" />
-        <div className="mt-5 grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+        <div className="mt-3 grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
           {/* Noise to signal threat funnel */}
           <RevealCard>
             <div className="rounded-2xl p-5 flex flex-col h-full" style={panelStyle}>
@@ -475,9 +471,9 @@ const OverviewTab: React.FC<Props> = ({
       </section>
 
       {/* ── FOOTER — DATA FRESHNESS (set apart by a hairline rule) ───────────────────── */}
-      <section className="pt-8" style={{ borderTop: `1px solid ${HAIRLINE}` }}>
-        <PanelLabel className="mb-4">Data freshness</PanelLabel>
-        <div className="space-y-3">
+      <section className="pt-5" style={{ borderTop: `1px solid ${HAIRLINE}` }}>
+        <PanelLabel className="mb-3">Data freshness</PanelLabel>
+        <div className="space-y-1.5">
           {(summary?.syncState ?? []).map((s) => (
             <div key={s.domain} className="flex items-center justify-between gap-3 py-2" style={{ borderBottom: `1px solid ${HAIRLINE_SOFT}` }}>
               <span className="text-sm font-medium" style={{ color: TEXT.body }}>{s.domain}</span>
