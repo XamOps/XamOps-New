@@ -127,3 +127,63 @@ describe('layoutHierarchicalGrid', () => {
     expect(Number.isFinite(p.x) && Number.isFinite(p.y)).toBe(true);
   });
 });
+
+describe('layoutHierarchicalGrid — availability zone matrix', () => {
+  // Shape produced by shapeLiveTopology: AZ containers between the VPC and its subnets.
+  const vpcWithZones = () => mk([
+    node('vpc', 'VPC'),
+    { group: 'nodes', data: { id: 'az-a', label: 'az-a', type: 'Availability Zone', containerType: 'az', parent: 'vpc' } },
+    { group: 'nodes', data: { id: 'az-b', label: 'az-b', type: 'Availability Zone', containerType: 'az', parent: 'vpc' } },
+    { group: 'nodes', data: { id: 'pub-a', label: 'pub-a', type: 'Subnet', tier: 'Public', parent: 'az-a' } },
+    { group: 'nodes', data: { id: 'app-a', label: 'app-a', type: 'Subnet', tier: 'Private', parent: 'az-a' } },
+    { group: 'nodes', data: { id: 'app-b', label: 'app-b', type: 'Subnet', tier: 'Private', parent: 'az-b' } },
+    node('igw', 'Internet Gateway', 'vpc'),
+    node('alb', 'Load Balancer', 'pub-a'),
+    node('web-1', 'EC2 Instance', 'app-a'),
+    node('web-2', 'EC2 Instance', 'app-a'),
+    node('web-3', 'EC2 Instance', 'app-a'),
+    node('db', 'RDS Instance', 'app-b'),
+  ]);
+
+  it('puts public subnets above private ones', () => {
+    const cy = vpcWithZones();
+    layoutHierarchicalGrid(cy);
+    expect(cy.getElementById('pub-a').boundingBox().y2).toBeLessThan(cy.getElementById('app-a').boundingBox().y1);
+  });
+
+  it('aligns the same tier across zones', () => {
+    const cy = vpcWithZones();
+    layoutHierarchicalGrid(cy);
+    const a = cy.getElementById('app-a').boundingBox();
+    const b = cy.getElementById('app-b').boundingBox();
+    expect(Math.abs(a.y1 - b.y1)).toBeLessThan(1);
+    // The shorter cell is stretched to the row, so the boxes line up top and bottom.
+    expect(Math.abs(a.y2 - b.y2)).toBeLessThan(1);
+  });
+
+  it('places the internet gateway above the zones', () => {
+    const cy = vpcWithZones();
+    layoutHierarchicalGrid(cy);
+    expect(cy.getElementById('igw').boundingBox().y2).toBeLessThan(cy.getElementById('az-a').boundingBox().y1);
+  });
+
+  it('keeps zones side by side and disjoint', () => {
+    const cy = vpcWithZones();
+    layoutHierarchicalGrid(cy);
+    const a = cy.getElementById('az-a').boundingBox();
+    const b = cy.getElementById('az-b').boundingBox();
+    expect(a.x2).toBeLessThan(b.x1);
+  });
+
+  it('draws an empty subnet as a box, not a resource card', () => {
+    const cy = mk([
+      node('vpc', 'VPC'),
+      { group: 'nodes', data: { id: 'az-a', label: 'az-a', type: 'Availability Zone', containerType: 'az', parent: 'vpc' } },
+      { group: 'nodes', data: { id: 'empty', label: 'empty', type: 'Subnet', tier: 'Isolated', parent: 'az-a' } },
+    ]);
+    layoutHierarchicalGrid(cy);
+    const s = cy.getElementById('empty');
+    expect(s.width()).toBeGreaterThan(CARD_W);
+    expect(s.style('label')).toBe('empty');
+  });
+});

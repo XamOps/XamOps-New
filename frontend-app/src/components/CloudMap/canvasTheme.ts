@@ -25,6 +25,7 @@
  */
 
 import { AWS_ICONS, NODE_TYPE_DATA, TAILWIND_COLORS } from '../../types/cloudmap';
+import { TIER_ORDER as TIER_RANK } from './liveTopology';
 
 export type CanvasTheme = 'light' | 'dark';
 
@@ -183,18 +184,121 @@ function svgDataUrl(svg: string): string {
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
+// ─── Icon preloading ─────────────────────────────────────────────────────────
+
+/**
+ * Service icons as data URLs, so they can be baked into the card SVG.
+ *
+ * An SVG used as an image cannot load an external file, but it can draw a nested data:
+ * URL. Fetching each icon once and inlining it lets the whole card — chrome, icon, name,
+ * caption, status — be one background image. That is what finally makes the card render
+ * the same in every browser: the two-layer attempt mis-indexed its layers, and the
+ * single-layer 'contain' icon ignored its own width and filled the card height.
+ */
+const iconDataCache = new Map<string, string>();
+const iconInflight = new Map<string, Promise<void>>();
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Re-encode an icon as a small PNG before it is baked into cards.
+ *
+ * Source icons are up to 512px. Every card carries its own copy, so on a 700-resource
+ * account full-size icons meant ~13MB of data URLs for the canvas to decode. A 64px
+ * raster is crisp at 30px on a 2x display and a few KB. Falls back to the original when
+ * there is no canvas (tests) or decoding fails.
+ */
+function downscaleIcon(dataUrl: string): Promise<string> {
+  const SIZE = 64;
+  if (typeof document === 'undefined' || typeof Image === 'undefined') return Promise.resolve(dataUrl);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = SIZE;
+        canvas.height = SIZE;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return resolve(dataUrl);
+        const scale = Math.min(SIZE / (img.naturalWidth || SIZE), SIZE / (img.naturalHeight || SIZE));
+        const w = (img.naturalWidth || SIZE) * scale;
+        const h = (img.naturalHeight || SIZE) * scale;
+        ctx.drawImage(img, (SIZE - w) / 2, (SIZE - h) / 2, w, h);
+        resolve(canvas.toDataURL('image/png'));
+      } catch {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+function loadIcon(url: string): Promise<void> {
+  if (url.startsWith('data:')) { iconDataCache.set(url, url); return Promise.resolve(); }
+  if (iconDataCache.has(url)) return Promise.resolve();
+  const existing = iconInflight.get(url);
+  if (existing) return existing;
+  const p = fetch(url)
+    .then((res) => (res.ok ? res.blob() : Promise.reject(new Error(String(res.status)))))
+    .then(blobToDataUrl)
+    .then(downscaleIcon)
+    .then((data) => { iconDataCache.set(url, data); })
+    // A missing icon must not block the map: the card falls back to initials.
+    .catch(() => { iconDataCache.set(url, ''); })
+    .finally(() => { iconInflight.delete(url); });
+  iconInflight.set(url, p);
+  return p;
+}
+
+/** Fetch every icon the given types need. Resolves even if some fail. */
+export function preloadCardIcons(types: Iterable<string>): Promise<void> {
+  const urls = new Set<string>();
+  for (const t of types) {
+    const url = AWS_ICONS[t];
+    if (url) urls.add(url);
+  }
+  return Promise.all([...urls].map(loadIcon)).then(() => undefined);
+}
+
+/** Inline icon for a type, or '' when none is loaded. */
+function inlineIconFor(type: string): string {
+  const url = AWS_ICONS[type];
+  return url ? iconDataCache.get(url) ?? '' : '';
+}
+
+/** Monochrome globe for the synthetic Internet node; no AWS icon exists for it. */
+function globeSvg(x: number, y: number, size: number, ink: string): string {
+  const s = size / 24;
+  return `<g transform="translate(${x} ${y}) scale(${s})" fill="none" stroke="${ink}" stroke-width="1.5" stroke-linecap="round">
+    <circle cx="12" cy="12" r="9.5"/>
+    <path d="M2.5 12h19M12 2.5c2.8 2.6 4.2 5.8 4.2 9.5s-1.4 6.9-4.2 9.5M12 2.5C9.2 5.1 7.8 8.3 7.8 12s1.4 6.9 4.2 9.5"/>
+  </g>`;
+}
+
 // ─── Resource card ───────────────────────────────────────────────────────────
 
+/**
+ * Inner padding of each live-mode container, shared by the stylesheet and the layout so the
+ * layout's idea of a box matches what Cytoscape draws.
+ */
+export const CONTAINER_PAD = { VPC: 34, az: 18, Subnet: 16, default: 30 } as const;
+
 /** Node box for a live-mode resource card. */
-export const CARD_W = 184;
-export const CARD_H = 56;
+export const CARD_W = 200;
+export const CARD_H = 60;
 
 /** Icon well geometry, shared by the chrome SVG and the icon overlay layer. */
 const WELL_X = 10;
 const WELL_Y = 12;
 const WELL_SIZE = 32;
-/** Side of the square icon well on a live card. */
-const ICON_BOX = 22;
 
 const TEXT_X = WELL_X + WELL_SIZE + 11; // 53
 const DOT_CX = CARD_W - 15;
@@ -294,6 +398,105 @@ export function resourceCardUrl(spec: CardSpec): string {
   return url;
 }
 
+/**
+ * The live card, fully baked: chrome, service icon, name, caption and status in one SVG.
+ *
+ * Colour is reserved for meaning. The card and its text are greyscale; the only hues are the
+ * provider's own service icon and the status dot (green running, amber transitional, red
+ * failed, grey stopped). An unknown state draws no dot rather than a guess.
+ */
+export function liveCardUrl(spec: {
+  name: string;
+  type: string;
+  state?: string | null;
+  theme: CanvasTheme;
+  selected?: boolean;
+}): string {
+  const { name, type, state, theme, selected } = spec;
+  const icon = type === 'Internet' ? 'globe' : inlineIconFor(type);
+  const key = `L|${theme}|${selected ? 's' : 'n'}|${type}|${state ?? ''}|${icon.length}|${name}`;
+  const cached = cardCache.get(key);
+  if (cached) return cached;
+
+  const t = CANVAS_TOKENS[theme];
+  const tone = stateTone(state);
+  const W = CARD_W;
+  const H = CARD_H;
+  const ICON = 30;
+  const IX = 13;
+  const IY = (H - ICON) / 2;
+  const TX = IX + ICON + 12;
+  const font = "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+
+  let iconMarkup: string;
+  if (icon === 'globe') {
+    iconMarkup = globeSvg(IX + 1, IY + 1, ICON - 2, t.ink);
+  } else if (icon) {
+    iconMarkup = `<image href="${icon}" x="${IX}" y="${IY}" width="${ICON}" height="${ICON}" preserveAspectRatio="xMidYMid meet"/>`;
+  } else {
+    const initials = type.split(/[\s-]+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('');
+    iconMarkup = `<rect x="${IX}" y="${IY}" width="${ICON}" height="${ICON}" rx="7" fill="${theme === 'light' ? '#f1f5f9' : 'rgba(255,255,255,0.06)'}" stroke="${t.hairline}"/>
+      <text x="${IX + ICON / 2}" y="${IY + ICON / 2 + 4}" text-anchor="middle" fill="${t.inkMuted}" font-family="${font}" font-size="11" font-weight="700">${xmlEscape(initials)}</text>`;
+  }
+
+  // Say the state in words when it is not the normal one, so colour is never the only cue.
+  const stateWord = state && tone !== 'healthy' && tone !== 'unknown' ? String(state).toLowerCase() : '';
+  const caption = type === 'Internet' ? 'Public internet' : stateWord ? `${type} · ${stateWord}` : type;
+  const hasDot = tone !== 'unknown';
+  const nameBudget = W - TX - (hasDot ? 26 : 14);
+  const displayName = ellipsize(name || type, nameBudget, 6.9);
+  const displayCaption = ellipsize(caption, W - TX - 12, 5.6);
+
+  const border = selected ? t.accent : t.hairline;
+  const borderW = selected ? 2 : 1;
+  const uid = `l${Math.abs(hashString(key)).toString(36)}`;
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+  <defs>
+    <filter id="${uid}s" x="-10%" y="-20%" width="120%" height="150%">
+      <feDropShadow dx="0" dy="1" stdDeviation="1.6" flood-color="${t.shadow}" flood-opacity="${theme === 'light' ? 0.55 : 1}"/>
+    </filter>
+  </defs>
+  <rect x="2" y="2" width="${W - 4}" height="${H - 5}" rx="10" fill="${t.card}" filter="url(#${uid}s)"/>
+  <rect x="2" y="2" width="${W - 4}" height="${H - 5}" rx="10" fill="none" stroke="${border}" stroke-width="${borderW}"/>
+  ${iconMarkup}
+  <text x="${TX}" y="${H / 2 - 3}" fill="${t.ink}" font-family="${font}" font-size="12.5" font-weight="600" letter-spacing="-0.1">${xmlEscape(displayName)}</text>
+  <text x="${TX}" y="${H / 2 + 12}" fill="${t.inkMuted}" font-family="${font}" font-size="10" font-weight="500">${xmlEscape(displayCaption)}</text>
+  ${hasDot ? `<circle cx="${W - 15}" cy="${H / 2 - 7}" r="3.6" fill="${TONE_COLOR[tone]}"/>` : ''}
+</svg>`;
+
+  const url = svgDataUrl(svg);
+  if (cardCache.size > 4000) cardCache.clear();
+  cardCache.set(key, url);
+  return url;
+}
+
+/** Far-zoom chip: the service icon on a card, plus the status dot. No text. */
+export function liveChipUrl(type: string, state: string | null | undefined, theme: CanvasTheme, selected?: boolean): string {
+  const icon = type === 'Internet' ? 'globe' : inlineIconFor(type);
+  const key = `C|${theme}|${selected ? 's' : 'n'}|${type}|${state ?? ''}|${icon.length}`;
+  const cached = chipCache.get(key);
+  if (cached) return cached;
+  const t = CANVAS_TOKENS[theme];
+  const tone = stateTone(state);
+  const S = CHIP_W;
+  const I = 34;
+  const o = (S - I) / 2;
+  const iconMarkup = icon === 'globe'
+    ? globeSvg(o, o, I, t.ink)
+    : icon
+      ? `<image href="${icon}" x="${o}" y="${o}" width="${I}" height="${I}" preserveAspectRatio="xMidYMid meet"/>`
+      : `<rect x="${o}" y="${o}" width="${I}" height="${I}" rx="8" fill="${t.hairline}"/>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">
+  <rect x="2" y="2" width="${S - 4}" height="${S - 4}" rx="12" fill="${t.card}" stroke="${selected ? t.accent : t.hairline}" stroke-width="${selected ? 2.5 : 1.2}"/>
+  ${iconMarkup}
+  ${tone !== 'unknown' ? `<circle cx="${S - 10}" cy="10" r="5" fill="${TONE_COLOR[tone]}" stroke="${t.card}" stroke-width="1.5"/>` : ''}
+</svg>`;
+  const url = svgDataUrl(svg);
+  chipCache.set(key, url);
+  return url;
+}
+
 function hashString(value: string): number {
   let h = 5381;
   for (let i = 0; i < value.length; i++) h = ((h << 5) + h + value.charCodeAt(i)) | 0;
@@ -315,8 +518,6 @@ export const LOD_ZOOM_THRESHOLD = 0.42;
 /** Chip box for the far view. Square so tiling stays predictable. */
 export const CHIP_W = 60;
 export const CHIP_H = 60;
-/** Icon side on a far-zoom chip; leaves a margin so the status ring stays visible. */
-const CHIP_ICON = 30;
 
 const chipCache = new Map<string, string>();
 
@@ -460,121 +661,148 @@ export function buildCytoscapeStyle(theme: CanvasTheme, mode: 'live' | 'design')
 
   const style: any[] = [];
 
-  // ── Live-mode resource cards ───────────────────────────────────────────────
+  // ── Live mode: baked cards, architecture containers ────────────────────────
   if (live) {
+    /*
+     * One background image per card, sized to the whole node, carrying everything the card
+     * shows. The label stays empty: the name is baked into the image so it can sit beside the
+     * icon with a caption under it, which Cytoscape's single label cannot lay out.
+     */
     style.push({
       selector: 'node',
       style: {
-        /*
-         * One background layer, and the name drawn by Cytoscape rather than baked.
-         *
-         * This was previously two layers: a card SVG authored at CARD_W x CARD_H in
-         * slot 0, and the service icon in slot 1 with its own smaller width, height
-         * and offset supplied as per-slot arrays. It rendered as a wide stretched
-         * icon with no card and no name, and setting slot 1 to 'contain' did not
-         * help — which is the tell. If the icon were really in slot 1 it could not
-         * be stretched to the full card width. It was landing in slot 0 and picking
-         * up slot 0's 'none' fit and CARD_W width, because the card image in front
-         * of it never resolved, and the per-slot arrays are only positional.
-         *
-         * Rather than keep guessing at Cytoscape's multi-layer resolution, the card
-         * is now drawn with the properties made for it — shape, background-color and
-         * border — the icon is the only background image, and the label is a real
-         * Cytoscape label. A single layer cannot be mis-indexed, so 'contain' is
-         * guaranteed to apply to the icon and the aspect ratio is safe whatever
-         * AWS_ICONS returns. It also puts the name back on the node, which is what
-         * the baked card was for.
-         */
         shape: 'round-rectangle',
         width: CARD_W,
         height: CARD_H,
-        'background-color': t.card,
-        'background-opacity': 1,
-        'border-width': 1,
-        'border-color': t.hairline,
-
-        'background-image': (ele: any) => iconLayerUrl(ele.data('type'), theme),
+        'background-color': t.canvas,
+        'background-opacity': 0,
+        'border-width': 0,
+        'background-image': (ele: any) => liveCardUrl({
+          name: ele.data('label'), type: ele.data('type'), state: ele.data('state'), theme,
+        }),
         'background-fit': 'contain',
-        'background-width': ICON_BOX,
-        'background-height': ICON_BOX,
-        'background-image-containment': 'inside',
-        // Anchored left so the icon sits in a fixed well and the text always starts
-        // at the same x, however wide the icon's own artwork is.
-        'background-position-x': WELL_X,
-        'background-position-y': '50%',
-        'background-offset-y': 0,
-
-        label: 'data(label)',
-        color: t.ink,
-        'font-size': 11,
-        'font-weight': 600,
-        'text-valign': 'center',
-        'text-halign': 'right',
-        // Pulled back inside the node: 'right' aligns the text to the node's right
-        // edge and grows outward, so without this the label floats off the card.
-        'text-margin-x': -(CARD_W - WELL_X - ICON_BOX - 8),
-        'text-wrap': 'ellipsis',
-        'text-max-width': CARD_W - WELL_X - ICON_BOX - 14,
-        'text-overflow-wrap': 'anywhere',
+        'background-width': '100%',
+        'background-height': '100%',
+        'background-clip': 'none',
+        label: '',
+        'overlay-opacity': 0,
         'z-index': 10,
       },
     });
 
-    /*
-     * Far view: square chips. Zoomed out past LOD_ZOOM_THRESHOLD a name is sub-pixel
-     * anyway, so the label is dropped and only shape, service and status remain.
-     *
-     * Kept to one background layer for the same reason as the card above: a second
-     * layer whose size comes from a positional array is what stretched the icon, and
-     * a chip is the view where a distorted icon is the only thing left to read.
-     */
+    style.push({
+      selector: 'node:selected',
+      style: {
+        'background-image': (ele: any) => liveCardUrl({
+          name: ele.data('label'), type: ele.data('type'), state: ele.data('state'), theme, selected: true,
+        }),
+        'z-index': 30,
+      },
+    });
+
+    // Far view: icon chips. A 12px name at 0.2 zoom is noise.
     style.push({
       selector: 'node.cm-far',
       style: {
         width: CHIP_W,
         height: CHIP_H,
-        label: '',
-        'background-image': (ele: any) => iconLayerUrl(ele.data('type'), theme),
-        'background-fit': 'contain',
-        'background-width': CHIP_ICON,
-        'background-height': CHIP_ICON,
-        'background-position-x': '50%',
-        'background-position-y': '50%',
+        'background-image': (ele: any) => liveChipUrl(ele.data('type'), ele.data('state'), theme, ele.selected()),
       },
     });
 
-    // Selection is redrawn into the card (accent border) rather than layered as
-    // a Cytoscape outline, so it reads at any zoom.
-    style.push({
-      selector: 'node:selected',
-      style: { 'z-index': 30 },
-    });
+    // ── Containers ──────────────────────────────────────────────────────────
+    const containerBase = {
+      shape: 'round-rectangle',
+      'background-image': 'none',
+      'background-opacity': 1,
+      'background-color': t.containerFill,
+      'border-width': 1,
+      'border-style': 'solid',
+      'border-color': t.hairline,
+      label: (ele: any) => ele.data('displayLabel') || ele.data('label') || '',
+      'text-valign': 'top',
+      'text-halign': 'center',
+      'text-margin-y': -8,
+      color: t.containerInk,
+      'font-family': 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+      'text-wrap': 'ellipsis',
+      'text-max-width': '640px',
+      'min-width-bias-left': '0%',
+      'min-width-bias-right': '100%',
+      'min-height-bias-top': '0%',
+      'min-height-bias-bottom': '100%',
+      'z-index': 1,
+    };
+    style.push({ selector: ':parent', style: { ...containerBase, padding: `${CONTAINER_PAD.default}px`, 'font-size': '12px', 'font-weight': 600 } });
 
-    // Containers must not inherit the card background.
-    style.push({
-      selector: ':parent',
-      style: {
-        shape: 'round-rectangle',
-        'background-image': 'none',
-        'background-opacity': 1,
-        'background-color': t.containerFill,
-        'border-width': 1.5,
-        'border-style': 'dashed',
-        'border-color': t.hairline,
-        label: 'data(label)',
-        'text-valign': 'top',
-        'text-halign': 'center',
-        'text-margin-y': -9,
-        'font-size': '13px',
-        'font-weight': 700,
-        'letter-spacing': 0.2,
-        color: t.containerInk,
-        'text-wrap': 'ellipsis',
-        'text-max-width': '320px',
-        padding: '38px',
-        'z-index': 1,
+    style.push(
+      {
+        selector: 'node[type="VPC"]',
+        style: {
+          ...containerBase,
+          padding: `${CONTAINER_PAD.VPC}px`,
+          'background-color': theme === 'light' ? '#f6f8fb' : '#070d1a',
+          'border-width': 1.5,
+          'border-color': theme === 'light' ? '#94a3b8' : '#33435f',
+          color: t.ink,
+          'font-size': '15px',
+          'font-weight': 700,
+          'text-margin-y': -10,
+        },
       },
-    });
+      {
+        selector: 'node[containerType="az"]',
+        style: {
+          ...containerBase,
+          padding: `${CONTAINER_PAD.az}px`,
+          'background-opacity': 0,
+          'border-style': 'dashed',
+          'border-dash-pattern': [4, 4],
+          'border-color': theme === 'light' ? '#c3ccd9' : '#2a3852',
+          color: t.inkMuted,
+          'font-size': '11px',
+          'font-weight': 600,
+          'text-transform': 'uppercase',
+        } as any,
+      },
+      {
+        selector: 'node[type="Subnet"]',
+        style: {
+          ...containerBase,
+          padding: `${CONTAINER_PAD.Subnet}px`,
+          'background-color': t.card,
+          'border-color': t.hairline,
+          'font-size': '11.5px',
+          'font-weight': 600,
+          'min-width': (ele: any) => `${ele.data('minW') ?? 0}px`,
+          'min-height': (ele: any) => `${ele.data('minH') ?? 0}px`,
+        },
+      },
+      // A subnet with nothing in it is a leaf, not a compound, but must still read as a box.
+      {
+        selector: 'node[type="Subnet"]:childless',
+        style: {
+          width: (ele: any) => ele.data('boxW') ?? CARD_W + CONTAINER_PAD.Subnet * 2,
+          height: (ele: any) => ele.data('boxH') ?? CARD_H,
+          'text-valign': 'top',
+          'text-margin-y': -8,
+        },
+      },
+      {
+        selector: `node[id="${GLOBAL_SCOPE_ID}"]`,
+        style: {
+          ...containerBase,
+          padding: `${CONTAINER_PAD.default}px`,
+          'border-style': 'dashed',
+          'border-dash-pattern': [6, 4],
+          'border-color': theme === 'light' ? '#b6c1d1' : '#2f3d58',
+          'background-color': theme === 'light' ? '#f6f8fb' : '#070d1a',
+          'font-size': '13px',
+          'font-weight': 700,
+          'text-margin-y': -10,
+        } as any,
+      },
+    );
   } else {
     // ── Design mode: native labels, upgraded chrome ─────────────────────────
     style.push({
@@ -660,14 +888,15 @@ export function buildCytoscapeStyle(theme: CanvasTheme, mode: 'live' | 'design')
     }
   }
 
-  // ── Container variants, both modes ────────────────────────────────────────
+  // ── Container variants, design mode ───────────────────────────────────────
+  // Live mode draws containers in greyscale above; per-type hues there were decoration.
   const containerTone = (border: string, fillLight: string) => ({
     'border-color': border,
     'background-color': theme === 'light' ? fillLight : t.containerFill,
     'background-opacity': 1,
   });
 
-  style.push(
+  if (!live) style.push(
     { selector: 'node[containerType="vpc"], node[type="VPC"]:parent',
       style: { ...containerTone(theme === 'light' ? '#64748b' : '#3d4f73', '#f1f5f9'), 'border-width': 2 } },
     { selector: 'node[containerType="subnet"], node[type="Subnet"]:parent',
@@ -706,7 +935,46 @@ export function buildCytoscapeStyle(theme: CanvasTheme, mode: 'live' | 'design')
     } as any,
   });
 
-  for (const [kind, tone] of Object.entries(EDGE_TONE)) {
+  if (live) {
+    /*
+     * Flow styles. Greyscale by design: line weight and dash say what a line means, so
+     * colour is left for status and for the highlighted path. Labels are off until a line
+     * is hovered, selected or part of a focused neighbourhood — sixty always-on labels are
+     * what made the old view unreadable.
+     */
+    const strong = theme === 'light' ? '#334155' : '#a9b7cf';
+    const mid = theme === 'light' ? '#7b8aa3' : '#5f7090';
+    const faint = theme === 'light' ? '#a9b4c6' : '#3a4a68';
+    style.push(
+      { selector: 'edge', style: { label: '', 'curve-style': 'bezier', 'control-point-step-size': 28, opacity: 1, width: 1.2, 'line-color': faint, 'target-arrow-color': faint, 'arrow-scale': 0.75 } },
+      { selector: 'edge[kind="traffic"]', style: { width: 1.8, 'line-color': strong, 'target-arrow-color': strong, 'arrow-scale': 0.85, 'z-index': 8 } },
+      // Permissions, not traffic: present but quiet until a hover traces them.
+      { selector: 'edge[kind="reach"]', style: { width: 1.1, 'line-color': mid, 'target-arrow-color': mid, 'line-style': 'dashed', 'line-dash-pattern': [6, 4], opacity: 0.55, 'curve-style': 'straight' } },
+      { selector: 'edge[kind="egress"]', style: { width: 1.3, 'line-color': mid, 'target-arrow-color': mid, 'line-style': 'dashed', 'line-dash-pattern': [2, 4], 'target-arrow-shape': 'triangle' } },
+      { selector: 'edge[kind="security"]', style: { 'line-style': 'dotted', 'line-color': mid, 'target-arrow-color': mid } },
+      { selector: 'edge[kind="routing"], edge[kind="storage"], edge[kind="scaling"]', style: { 'line-color': faint, 'target-arrow-color': faint } },
+      {
+        selector: 'edge.cm-labelled, edge:selected, edge.cm-highlight',
+        style: {
+          label: 'data(label)', 'text-opacity': 1, 'font-size': '10px', 'font-weight': 600, color: t.ink,
+          'text-background-color': t.edgeLabelBg, 'text-background-opacity': 0.95, 'text-background-padding': '3px',
+          'text-background-shape': 'roundrectangle', 'text-rotation': 'none',
+        },
+      },
+      { selector: 'node.cm-hover-dim, edge.cm-hover-dim', style: { opacity: 0.18 } },
+      {
+        selector: 'edge.cm-hover-path',
+        style: {
+          width: 2.4, opacity: 1, 'line-color': t.accent, 'target-arrow-color': t.accent, 'z-index': 60,
+          label: 'data(label)', 'font-size': '10px', 'font-weight': 600, color: t.ink,
+          'text-background-color': t.edgeLabelBg, 'text-background-opacity': 0.95, 'text-background-padding': '3px',
+          'text-background-shape': 'roundrectangle', 'text-border-width': 1, 'text-border-color': t.hairline, 'text-border-opacity': 1,
+        },
+      },
+    );
+  }
+
+  if (!live) for (const [kind, tone] of Object.entries(EDGE_TONE)) {
     if (kind === 'generic') continue;
     style.push({
       selector: `edge[kind="${kind}"]`,
@@ -846,6 +1114,8 @@ export const GLOBAL_SCOPE_ID = '__cm-global-scope';
  */
 const STRUCTURAL_TYPES = new Set([
   'VPC', 'Subnet', 'Availability Zone', 'Region', 'Scope',
+  // The synthetic Internet node sits above every VPC; it is not a VPC-less resource.
+  'Internet',
 ]);
 
 function isStructuralType(type: unknown): boolean {
@@ -985,90 +1255,241 @@ function shelfPack(
 export function layoutHierarchicalGrid(cy: any): void {
   if (!cy) return;
 
-  const GAP_X = 26;
-  const GAP_Y = 20;
-  const COMPOUND_GAP_X = 52;
-  const COMPOUND_GAP_Y = 46;
-  // Matches the 38px style padding, plus headroom for the container label.
-  const PAD = 40;
-  const LABEL_ROOM = 30;
+  const GAP_X = 18;
+  const GAP_Y = 16;
+  const COMPOUND_GAP_X = 40;
+  const COMPOUND_GAP_Y = 44;
+  /** Room above a container for its label, which Cytoscape draws outside the box. */
+  const LABEL_ROOM = 24;
+  /** Space between tier rows inside a zone, on top of the next subnet's label room. */
+  const TIER_GAP = 26;
+  /** Subnet with nothing in it: wide enough for one card, short enough not to dominate. */
+  const EMPTY_SUBNET = { w: CARD_W + CONTAINER_PAD.Subnet * 2, h: 64 };
+  const GATEWAY_TYPES = new Set(['Internet Gateway', 'Transit Gateway', 'VPN Gateway', 'Virtual Private Gateway']);
+
+  const padOf = (n: any): number => {
+    const type = n.data('type');
+    if (type === 'VPC') return CONTAINER_PAD.VPC;
+    if (n.data('containerType') === 'az') return CONTAINER_PAD.az;
+    if (type === 'Subnet') return CONTAINER_PAD.Subnet;
+    return CONTAINER_PAD.default;
+  };
+  const tierRank = (n: any): number => {
+    const r = TIER_RANK[String(n.data('tier') ?? '')];
+    return r === undefined ? 3 : r;
+  };
+  const byName = (a: any, b: any) =>
+    String(a.data('label') ?? a.id()).localeCompare(String(b.data('label') ?? b.id()));
+  const sortLeaves = (a: any, b: any) => {
+    const ta = String(a.data('type') ?? '');
+    const tb = String(b.data('type') ?? '');
+    return ta !== tb ? ta.localeCompare(tb) : byName(a, b);
+  };
 
   const sizes = new Map<string, { w: number; h: number }>();
   const offsets = new Map<string, PackItem[]>();
 
-  const sortLeaves = (a: any, b: any) => {
-    const ta = String(a.data('type') ?? '');
-    const tb = String(b.data('type') ?? '');
-    if (ta !== tb) return ta.localeCompare(tb);
-    return String(a.data('label') ?? a.id()).localeCompare(String(b.data('label') ?? b.id()));
-  };
+  // Reset stretch from a previous pass, so a relayout measures natural sizes.
+  cy.nodes().forEach((n: any) => {
+    if (n.data('minW') !== undefined) n.removeData('minW');
+    if (n.data('minH') !== undefined) n.removeData('minH');
+  });
 
-  /** Bottom-up: measure a node, recording how its children pack inside it. */
+  /**
+   * Columns for n cards: two or three for a typical subnet, then roughly square-ish and
+   * landscape for big ones, so a subnet with 300 instances is a block, not a 100-row column.
+   */
+  const gridCols = (n: number): number =>
+    n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : Math.min(16, Math.ceil(Math.sqrt(n * 1.6)));
+
+  /** A fixed-column grid: cards in a subnet line up instead of ragged shelves. */
+  function gridPack(items: PackItem[], cols: number): { w: number; h: number } {
+    const cellW = items.reduce((m, it) => Math.max(m, it.w), 0);
+    let rowH = 0;
+    let y = 0;
+    let w = 0;
+    items.forEach((it, i) => {
+      const c = i % cols;
+      if (c === 0 && i > 0) { y += rowH + GAP_Y; rowH = 0; }
+      it.x = c * (cellW + GAP_X);
+      it.y = y;
+      rowH = Math.max(rowH, it.h);
+      w = Math.max(w, it.x + it.w);
+    });
+    return { w, h: items.length ? y + rowH : 0 };
+  }
+
+  /** Stretch a container (or empty-subnet leaf) to an outer box, via min sizes. */
+  function stretch(n: any, outerW: number, outerH: number) {
+    const cur = sizes.get(n.id())!;
+    const w = Math.max(cur.w, outerW);
+    const h = Math.max(cur.h, outerH);
+    sizes.set(n.id(), { w, h });
+    if (n.isParent()) {
+      const pad = padOf(n);
+      n.data('minW', w - pad * 2);
+      n.data('minH', h - LABEL_ROOM - pad * 2);
+    } else {
+      n.data('boxW', w);
+      n.data('boxH', h - LABEL_ROOM);
+    }
+  }
+
   function measure(node: any): { w: number; h: number } {
     if (!node.isParent()) {
-      const box = { w: CARD_W, h: CARD_H };
+      const box = node.data('type') === 'Subnet'
+        ? { w: EMPTY_SUBNET.w, h: EMPTY_SUBNET.h + LABEL_ROOM }
+        // Cytoscape's bounding box adds 1px around every node; measured, not assumed.
+        : { w: CARD_W + 2, h: CARD_H + 2 };
       sizes.set(node.id(), box);
       return box;
     }
 
+    const pad = padOf(node);
     const kids = node.children();
-    const compounds = kids.filter((c: any) => c.isParent()).toArray();
-    const leaves = kids.filter((c: any) => !c.isParent()).toArray().sort(sortLeaves);
+    const isVpc = node.data('type') === 'VPC';
+    const compounds = kids.filter((c: any) => c.isParent() || c.data('type') === 'Subnet').toArray();
+    const leaves = kids.filter((c: any) => !c.isParent() && c.data('type') !== 'Subnet').toArray().sort(sortLeaves);
+    const gateways = isVpc ? leaves.filter((l: any) => GATEWAY_TYPES.has(l.data('type'))) : [];
+    const loose = leaves.filter((l: any) => !gateways.includes(l));
 
-    compounds.forEach(measure);
-    leaves.forEach(measure);
+    let y = 0;
+    let innerW = 0;
 
-    // Child containers pack as one block above the loose cards, so a VPC reads
-    // as "these subnets, plus these VPC-level resources".
-    const compItems: PackItem[] = compounds.map((c: any) => ({ id: c.id(), ...sizes.get(c.id())! }));
-    const leafItems: PackItem[] = leaves.map((l: any) => ({ id: l.id(), ...sizes.get(l.id())! }));
+    // ── Availability Zone matrix ──────────────────────────────────────────
+    const azs = compounds.filter((c: any) => c.data('containerType') === 'az').sort(byName);
+    const others = compounds.filter((c: any) => !azs.includes(c)).sort((a: any, b: any) => tierRank(a) - tierRank(b) || byName(a, b));
+    let blockItems: PackItem[] = [];
+    let blockBox = { w: 0, h: 0 };
 
-    const compBox = shelfPack(compItems, COMPOUND_GAP_X, COMPOUND_GAP_Y);
-    // Loose resources spread across whatever width the child containers set.
-    const leafBox = shelfPack(leafItems, GAP_X, GAP_Y, compBox.w);
+    if (azs.length > 0) {
+      /*
+       * Columns are zones, rows are tiers. Public sits on top because that is where traffic
+       * enters; isolated sits at the bottom. A row is as tall as its tallest cell across all
+       * zones, and every subnet in a column is as wide as the widest, so prod-app-1a lines up
+       * with prod-app-1b and the eye can compare zones directly.
+       */
+      const columns: Array<{ az: any; subs: any[] }> = azs.map((az: any) => {
+        const subs = az.children().toArray().sort((a: any, b: any) => tierRank(a) - tierRank(b) || byName(a, b));
+        subs.forEach(measure);
+        return { az, subs };
+      });
+      const ranks: number[] = [...new Set<number>(columns.flatMap((c) => c.subs.map(tierRank)))].sort((a, b) => a - b);
+      const rowH = new Map<number, number>();
+      for (const r of ranks) {
+        let h = 0;
+        for (const col of columns) {
+          const cell = col.subs.filter((s: any) => tierRank(s) === r);
+          const cellH = cell.reduce((sum: number, s: any) => sum + sizes.get(s.id())!.h, 0) + Math.max(0, cell.length - 1) * GAP_Y;
+          h = Math.max(h, cellH);
+        }
+        rowH.set(r, h);
+      }
+      const colW = Math.max(...columns.flatMap((c) => c.subs.map((s: any) => sizes.get(s.id())!.w)), EMPTY_SUBNET.w);
 
-    const innerW = Math.max(compBox.w, leafBox.w);
-    const gapBetween = compItems.length && leafItems.length ? COMPOUND_GAP_Y : 0;
-    const innerH = compBox.h + gapBetween + leafBox.h;
-
-    // Centre each block horizontally within the container.
-    for (const it of compItems) it.x! += (innerW - compBox.w) / 2;
-    for (const it of leafItems) {
-      it.x! += (innerW - leafBox.w) / 2;
-      it.y! += compBox.h + gapBetween;
+      let x = 0;
+      for (const { az, subs } of columns) {
+        const azPad = padOf(az);
+        const subItems: PackItem[] = [];
+        let cy0 = 0;
+        for (const r of ranks) {
+          const cell = subs.filter((s: any) => tierRank(s) === r);
+          if (cell.length === 1) stretch(cell[0], colW, rowH.get(r)!);
+          else cell.forEach((s: any) => stretch(s, colW, sizes.get(s.id())!.h));
+          let yy = cy0;
+          for (const s of cell) {
+            subItems.push({ id: s.id(), ...sizes.get(s.id())!, x: 0, y: yy });
+            yy += sizes.get(s.id())!.h + GAP_Y;
+          }
+          cy0 += rowH.get(r)! + TIER_GAP;
+        }
+        const innerH = Math.max(0, cy0 - TIER_GAP);
+        offsets.set(az.id(), subItems);
+        const azBox = { w: colW + azPad * 2, h: innerH + azPad * 2 + LABEL_ROOM };
+        sizes.set(az.id(), azBox);
+        blockItems.push({ id: az.id(), ...azBox, x, y: 0 });
+        x += azBox.w + COMPOUND_GAP_X;
+      }
+      blockBox = { w: x - COMPOUND_GAP_X, h: Math.max(...blockItems.map((b) => b.h)) };
     }
 
-    offsets.set(node.id(), [...compItems, ...leafItems]);
+    if (others.length > 0) {
+      others.forEach(measure);
+      const otherItems = others.map((c: any) => ({ id: c.id(), ...sizes.get(c.id())! }));
+      const ob = shelfPack(otherItems, COMPOUND_GAP_X, COMPOUND_GAP_Y, blockBox.w);
+      const dy = blockItems.length ? blockBox.h + COMPOUND_GAP_Y : 0;
+      otherItems.forEach((it: PackItem) => { it.y! += dy; });
+      blockItems = [...blockItems, ...otherItems];
+      blockBox = { w: Math.max(blockBox.w, ob.w), h: dy + ob.h };
+    }
 
-    const box = { w: innerW + PAD * 2, h: innerH + PAD * 2 + LABEL_ROOM };
+    // ── Leaves ────────────────────────────────────────────────────────────
+    gateways.forEach(measure);
+    loose.forEach(measure);
+    const gwItems: PackItem[] = gateways.map((g: any) => ({ id: g.id(), ...sizes.get(g.id())! }));
+    const gwBox = gridPack(gwItems, Math.max(1, gwItems.length));
+    const leafItems: PackItem[] = loose.map((l: any) => ({ id: l.id(), ...sizes.get(l.id())! }));
+    const leafCols = compounds.length > 0
+      ? Math.max(1, Math.floor((Math.max(blockBox.w, CARD_W) + GAP_X) / (CARD_W + GAP_X)))
+      : gridCols(leafItems.length);
+    const leafBox = gridPack(leafItems, leafCols);
+
+    innerW = Math.max(gwBox.w, blockBox.w, leafBox.w);
+    const center = (box: { w: number }, list: PackItem[]) => list.forEach((it) => { it.x! += (innerW - box.w) / 2; });
+
+    // Gateways first: they are the VPC's front door.
+    center(gwBox, gwItems);
+    gwItems.forEach((it) => { it.y! += y; });
+    if (gwItems.length) y += gwBox.h + COMPOUND_GAP_Y;
+
+    center(blockBox, blockItems);
+    blockItems.forEach((it) => { it.y! += y; });
+    if (blockItems.length) y += blockBox.h + (leafItems.length ? COMPOUND_GAP_Y : 0);
+
+    center(leafBox, leafItems);
+    leafItems.forEach((it) => { it.y! += y; });
+    if (leafItems.length) y += leafBox.h;
+
+    offsets.set(node.id(), [...gwItems, ...blockItems, ...leafItems]);
+    const box = { w: innerW + pad * 2, h: y + pad * 2 + LABEL_ROOM };
     sizes.set(node.id(), box);
     return box;
   }
 
-  /** Top-down: convert packed offsets into absolute centre positions. */
+  /** Top-down: packed offsets into absolute centre positions. */
   function place(node: any, topLeftX: number, topLeftY: number): void {
     const size = sizes.get(node.id())!;
     if (!node.isParent()) {
-      node.position({ x: topLeftX + size.w / 2, y: topLeftY + size.h / 2 });
+      // Leaf boxes reserve LABEL_ROOM above an empty subnet for its label.
+      const top = node.data('type') === 'Subnet' ? topLeftY + LABEL_ROOM : topLeftY;
+      const h = node.data('type') === 'Subnet' ? size.h - LABEL_ROOM : size.h;
+      node.position({ x: topLeftX + size.w / 2, y: top + h / 2 });
       return;
     }
-    const innerX = topLeftX + PAD;
-    const innerY = topLeftY + PAD + LABEL_ROOM;
+    const pad = padOf(node);
+    const innerX = topLeftX + pad;
+    const innerY = topLeftY + LABEL_ROOM + pad;
     for (const item of offsets.get(node.id()) ?? []) {
       place(cy.getElementById(item.id), innerX + item.x!, innerY + item.y!);
     }
   }
 
   const roots = cy.nodes().filter((n: any) => n.ancestors().length === 0);
+  const internet = roots.filter((n: any) => n.data('type') === 'Internet').toArray();
   const rootCompounds = roots.filter((n: any) => n.isParent()).toArray();
-  const rootLeaves = roots.filter((n: any) => !n.isParent()).toArray().sort(sortLeaves);
+  const rootLeaves = roots
+    .filter((n: any) => !n.isParent() && n.data('type') !== 'Internet')
+    .toArray().sort(sortLeaves);
 
   rootCompounds.forEach(measure);
   rootLeaves.forEach(measure);
+  internet.forEach(measure);
 
-  // The global-scope box is an appendix; keep it last so it lands on the right.
+  // VPCs first, VPCs with an internet gateway before those without, the global box last.
+  const hasIgw = (n: any) => n.descendants().some((d: any) => d.data('type') === 'Internet Gateway');
   const ordered = [
-    ...rootCompounds.filter((n: any) => n.id() !== GLOBAL_SCOPE_ID),
+    ...rootCompounds.filter((n: any) => n.id() !== GLOBAL_SCOPE_ID)
+      .sort((a: any, b: any) => Number(hasIgw(b)) - Number(hasIgw(a)) || byName(a, b)),
     ...rootCompounds.filter((n: any) => n.id() === GLOBAL_SCOPE_ID),
   ];
 
@@ -1077,23 +1498,21 @@ export function layoutHierarchicalGrid(cy: any): void {
     ...rootLeaves.map((l: any) => ({ id: l.id(), ...sizes.get(l.id())! })),
   ];
 
-  /*
-   * Keep a small number of top-level boxes on one row.
-   *
-   * The area heuristic wrapped a two-item root (one VPC plus the global box) into
-   * a column, making the whole diagram portrait — 872x1033 in a landscape panel,
-   * which cost 20% of the fitted zoom. Canvases are wider than they are tall, so
-   * bias the top level toward a row and only let it wrap once there are enough
-   * VPCs that a single row would be worse.
-   */
+  // Few top-level boxes stay on one row: canvases are wider than tall.
   const rootPreferred = rootItems.length <= 4
-    ? rootItems.reduce((sum, it) => sum + it.w, 0) + COMPOUND_GAP_X * (rootItems.length - 1)
+    ? rootItems.reduce((sum, it) => sum + it.w, 0) + COMPOUND_GAP_X * 2 * (rootItems.length - 1)
     : 0;
-  shelfPack(rootItems, COMPOUND_GAP_X, COMPOUND_GAP_Y, rootPreferred);
+  shelfPack(rootItems, COMPOUND_GAP_X * 2, COMPOUND_GAP_Y * 2, rootPreferred);
 
   cy.batch(() => {
-    for (const item of rootItems) {
-      place(cy.getElementById(item.id), item.x!, item.y!);
+    for (const item of rootItems) place(cy.getElementById(item.id), item.x!, item.y!);
+
+    // The Internet sits above the VPCs it enters, centred over their gateways.
+    if (internet.length) {
+      const gws = cy.nodes('[type="Internet Gateway"]');
+      const xs = gws.map((g: any) => g.position('x'));
+      const cx = xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : 0;
+      internet[0].position({ x: cx, y: -CARD_H - 70 });
     }
   });
 }
