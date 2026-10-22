@@ -110,6 +110,9 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
   /* ── Move-user-between-clients modal state ── */
   const [moveUser, setMoveUser]             = useState<BillOpsUser | null>(null);
   const [moveTargetClientId, setMoveTargetClientId] = useState<string>('');
+  // Where the moved user lands in the destination client's tree: on its own, or under a parent.
+  const [movePlacement, setMovePlacement]   = useState<'primary' | 'sub'>('primary');
+  const [moveParentId, setMoveParentId]     = useState<string>('');
   const [moveSubmitting, setMoveSubmitting] = useState(false);
 
   // Distinct clients (id + name), derived from the user list — no extra endpoint needed.
@@ -123,21 +126,78 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [users]);
 
+  // How many sub-users the user being moved owns. A user with sub-users travels as a family and
+  // can never be nested under someone else (the tree is two levels deep), so the placement choice
+  // is offered only for individual users.
+  const moveUserSubCount = useMemo(
+    () => (moveUser ? users.filter(u => u.parentId != null && String(u.parentId) === String(moveUser.id)).length : 0),
+    [moveUser, users]
+  );
+  const moveUserIsIndividual = !!moveUser && moveUserSubCount === 0;
+
+  // Destination clients. An individual user can also be re-parented inside its own client, so the
+  // current client stays selectable for them; for a family move it would be a no-op.
+  const moveClientOptions = useMemo(() => {
+    if (!moveUser) return [];
+    return moveUserIsIndividual
+      ? clientOptions
+      : clientOptions.filter(c => String(c.id) !== String(moveUser.clientId));
+  }, [clientOptions, moveUser, moveUserIsIndividual]);
+
+  // Primary users of the selected destination client that this user can be attached to. Excludes
+  // the user itself and anyone who is already a sub-user, matching what the backend accepts.
+  const moveParentCandidates = useMemo(() => {
+    if (!moveUser || !moveTargetClientId) return [];
+    return users
+      .filter(u =>
+        u.clientId != null && String(u.clientId) === String(moveTargetClientId) &&
+        u.parentId == null &&
+        String(u.id) !== String(moveUser.id))
+      .sort((a, b) => a.username.localeCompare(b.username));
+  }, [users, moveTargetClientId, moveUser]);
+
+  // True when the chosen destination + placement is exactly where the user already sits.
+  const moveIsNoOp = useMemo(() => {
+    if (!moveUser || !moveTargetClientId) return false;
+    if (String(moveUser.clientId ?? '') !== String(moveTargetClientId)) return false;
+    return movePlacement === 'sub'
+      ? !!moveParentId && String(moveUser.parentId ?? '') === String(moveParentId)
+      : moveUser.parentId == null;
+  }, [moveUser, moveTargetClientId, movePlacement, moveParentId]);
+
   const openMoveModal = (user: BillOpsUser) => {
     setMoveUser(user);
     setMoveTargetClientId('');
+    setMovePlacement('primary');
+    setMoveParentId('');
   };
   const closeMoveModal = () => {
     setMoveUser(null);
     setMoveTargetClientId('');
+    setMovePlacement('primary');
+    setMoveParentId('');
     setMoveSubmitting(false);
   };
+  // Switching client invalidates the parent picker — its candidates belong to the old selection.
+  const changeMoveTargetClient = (clientId: string) => {
+    setMoveTargetClientId(clientId);
+    setMovePlacement('primary');
+    setMoveParentId('');
+  };
   const confirmMove = async () => {
-    if (!moveUser || !moveTargetClientId) return;
+    if (!moveUser || !moveTargetClientId || moveIsNoOp) return;
+    if (movePlacement === 'sub' && !moveParentId) return;
+    const newParentId = movePlacement === 'sub' ? moveParentId : null;
+    const targetClientName = moveClientOptions.find(c => String(c.id) === String(moveTargetClientId))?.name;
     setMoveSubmitting(true);
-    const ok = await moveUserToClient(moveUser.id, moveTargetClientId);
+    const ok = await moveUserToClient(moveUser.id, moveTargetClientId, newParentId);
     setMoveSubmitting(false);
-    if (ok) closeMoveModal();
+    if (!ok) return;
+    // Show where the user landed — a sub-user is only visible once its client group and its new
+    // parent row are both expanded, so the move would otherwise look like nothing happened.
+    if (targetClientName) setExpandedClients(prev => new Set(prev).add(targetClientName));
+    if (newParentId) setExpandedPrimaryUsers(prev => new Set(prev).add(String(newParentId)));
+    closeMoveModal();
   };
 
   const [searchQuery, setSearchQuery]     = useState('');
@@ -244,30 +304,116 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
           >
             <div className="px-5 py-4 border-b border-[rgba(0,0,0,0.06)] flex items-center gap-2">
               <Icon icon="mdi:swap-horizontal" width={18} className="text-indigo-600" />
-              <h3 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">Move user to another client</h3>
+              <h3 className="text-sm font-bold text-[rgba(0,0,0,0.88)]">
+                {moveUserIsIndividual ? 'Move or re-assign user' : 'Move user to another client'}
+              </h3>
             </div>
 
             <div className="px-5 py-4 space-y-4">
               <div className="text-xs text-[rgba(0,0,0,0.6)]">
                 Moving <strong className="text-[rgba(0,0,0,0.88)]">@{moveUser.username}</strong> from{' '}
                 <strong className="text-[rgba(0,0,0,0.88)]">{moveUser.clientName}</strong>. The user keeps all
-                their tickets, credits and access — only the client changes.
+                their tickets, credits and access — only where they sit changes.
+                {moveUserIsIndividual
+                  ? ' Pick the same client to re-assign them under a different primary user.'
+                  : ` Their ${moveUserSubCount} sub-user${moveUserSubCount !== 1 ? 's' : ''} move along with them.`}
               </div>
 
               <div>
                 <FormLabel icon="mdi:office-building-outline" text="Destination client" />
                 <FieldSelect
                   value={moveTargetClientId}
-                  onChange={e => setMoveTargetClientId(e.target.value)}
+                  onChange={e => changeMoveTargetClient(e.target.value)}
                 >
                   <option value="">Select a client…</option>
-                  {clientOptions
-                    .filter(c => String(c.id) !== String(moveUser.clientId))
-                    .map(c => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
+                  {moveClientOptions.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}{String(c.id) === String(moveUser.clientId) ? ' (current client)' : ''}
+                    </option>
+                  ))}
                 </FieldSelect>
               </div>
+
+              {/* Placement picker — individual users only; a family always lands as a primary. */}
+              {moveUserIsIndividual && moveTargetClientId && (
+                <div>
+                  <FormLabel icon="mdi:file-tree-outline" text="Placement in that client" />
+                  <div className="space-y-2">
+                    <label
+                      className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
+                        movePlacement === 'primary'
+                          ? 'bg-indigo-50 border-indigo-200'
+                          : 'bg-[rgba(0,0,0,0.02)] border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.04)]'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="move-placement"
+                        value="primary"
+                        checked={movePlacement === 'primary'}
+                        onChange={() => { setMovePlacement('primary'); setMoveParentId(''); }}
+                        className="mt-0.5 accent-indigo-600"
+                      />
+                      <span className="flex flex-col leading-tight">
+                        <span className="text-xs font-semibold text-[rgba(0,0,0,0.88)]">Another primary user</span>
+                        <span className="text-[10px] text-[rgba(0,0,0,0.5)]">
+                          Sits directly under the client, with no parent user.
+                        </span>
+                      </span>
+                    </label>
+
+                    <label
+                      className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg border transition-colors ${
+                        moveParentCandidates.length === 0
+                          ? 'bg-[rgba(0,0,0,0.02)] border-[rgba(0,0,0,0.06)] opacity-60 cursor-not-allowed'
+                          : movePlacement === 'sub'
+                            ? 'bg-indigo-50 border-indigo-200 cursor-pointer'
+                            : 'bg-[rgba(0,0,0,0.02)] border-[rgba(0,0,0,0.08)] hover:bg-[rgba(0,0,0,0.04)] cursor-pointer'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="move-placement"
+                        value="sub"
+                        checked={movePlacement === 'sub'}
+                        disabled={moveParentCandidates.length === 0}
+                        onChange={() => setMovePlacement('sub')}
+                        className="mt-0.5 accent-indigo-600"
+                      />
+                      <span className="flex flex-col leading-tight">
+                        <span className="text-xs font-semibold text-[rgba(0,0,0,0.88)]">Sub-user of an existing user</span>
+                        <span className="text-[10px] text-[rgba(0,0,0,0.5)]">
+                          {moveParentCandidates.length === 0
+                            ? 'That client has no other primary user to attach to.'
+                            : 'Nests this user under one of the client’s primary users.'}
+                        </span>
+                      </span>
+                    </label>
+
+                    {movePlacement === 'sub' && moveParentCandidates.length > 0 && (
+                      <FieldSelect
+                        value={moveParentId}
+                        aria-label="Parent primary user"
+                        onChange={e => setMoveParentId(e.target.value)}
+                      >
+                        <option value="">Select a primary user…</option>
+                        {moveParentCandidates.map(p => (
+                          <option key={p.id} value={p.id}>
+                            @{p.username}{p.email ? ` · ${p.email}` : ''}
+                          </option>
+                        ))}
+                      </FieldSelect>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {moveIsNoOp && (
+                <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-100 rounded-lg text-[11px] text-amber-700">
+                  <Icon icon="mdi:information-outline" width={13} className="mt-0.5 flex-shrink-0" />
+                  That is where this user already sits — pick a different client or placement.
+                </div>
+              )}
             </div>
 
             <div className="px-5 py-4 border-t border-[rgba(0,0,0,0.06)] flex items-center justify-end gap-2">
@@ -279,11 +425,20 @@ const BillOpsAdminUserManagerPage: React.FC = () => {
               </button>
               <button
                 onClick={confirmMove}
-                disabled={!moveTargetClientId || moveSubmitting}
+                disabled={
+                  !moveTargetClientId ||
+                  moveIsNoOp ||
+                  (movePlacement === 'sub' && !moveParentId) ||
+                  moveSubmitting
+                }
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <Icon icon="mdi:swap-horizontal" width={13} />
-                {moveSubmitting ? 'Moving…' : 'Move user'}
+                {moveSubmitting
+                  ? 'Saving…'
+                  : String(moveUser.clientId ?? '') === String(moveTargetClientId)
+                    ? 'Re-assign user'
+                    : 'Move user'}
               </button>
             </div>
           </div>

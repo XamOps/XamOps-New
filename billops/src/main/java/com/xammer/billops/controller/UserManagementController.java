@@ -106,13 +106,23 @@ public class UserManagementController {
     /** Request body for moving a user to a different client. */
     public static class MoveUserRequest {
         private Long clientId;
+        /**
+         * Optional primary user of {@code clientId} to nest the moved user under. {@code null}
+         * places them as a primary user (and detaches them if they were a sub-user).
+         */
+        private Long parentUserId;
         public Long getClientId() { return clientId; }
         public void setClientId(Long clientId) { this.clientId = clientId; }
+        public Long getParentUserId() { return parentUserId; }
+        public void setParentUserId(Long parentUserId) { this.parentUserId = parentUserId; }
     }
 
     /**
-     * Moves a user to a different (existing) client. Only the client association changes; the
-     * user's tickets, credits, agreements and access all stay with the user.
+     * Moves a user to an existing client and places them in that client's user tree — as a primary
+     * user, or as a sub-user of an existing primary user when {@code parentUserId} is given. Only
+     * the client association and the parent pointer change; the user's tickets, credits,
+     * agreements and access all stay with the user. Passing the client the user already belongs to
+     * is how an individual user is re-parented inside their own client.
      */
     @PatchMapping("/{id}/client")
     public ResponseEntity<?> moveUserToClient(@PathVariable Long id, @RequestBody MoveUserRequest request) {
@@ -120,7 +130,7 @@ public class UserManagementController {
             return ResponseEntity.badRequest().body("Target clientId is required.");
         }
         try {
-            AppUser moved = service.moveUserToClient(id, request.getClientId());
+            AppUser moved = service.moveUserToClient(id, request.getClientId(), request.getParentUserId());
 
             UserDTO result = new UserDTO();
             result.setId(moved.getId());
@@ -131,6 +141,7 @@ public class UserManagementController {
             result.setClientName(moved.getClient() != null ? moved.getClient().getName() : "Unknown");
             result.setContact(moved.getContact());
             result.setDesignation(moved.getDesignation());
+            result.setParentId(moved.getCreatedBy());  // null = primary user, set = sub-user of that id
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(e.getMessage());

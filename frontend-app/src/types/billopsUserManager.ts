@@ -89,7 +89,12 @@ export interface UseBillOpsUserManagerResult {
     cancelEdit: () => void;
     saveUser: () => Promise<void>;
     deleteUser: (id: string) => void;
-    moveUserToClient: (userId: string, targetClientId: string | number) => Promise<boolean>;
+    /**
+     * Moves a user to `targetClientId`. `parentUserId` nests them under that primary user of the
+     * destination client; null/omitted places them as a primary user. The destination may be the
+     * client the user already belongs to, which re-parents them inside their own client.
+     */
+    moveUserToClient: (userId: string, targetClientId: string | number, parentUserId?: string | number | null) => Promise<boolean>;
     updateSelectedUser: (field: keyof BillOpsUserFormData, value: string | string[] | (string | number)[]) => void;
     toggleTab: (tabKey: string) => void;
     toggleAccount: (accountId: string | number) => void;

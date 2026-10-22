@@ -309,27 +309,47 @@ public class AppUserService {
     }
 
     /**
-     * Moves a user to another existing client, keeping the user tree consistent in every case.
+     * Moves a user to an existing client as a standalone primary user.
      *
-     * <p>Only client membership changes — tickets, credit requests, agreements and access rows
-     * stay with each user, so nothing is lost. The tree stays valid because:
-     * <ul>
-     *   <li><b>Primary user with sub-users:</b> the primary and <em>all</em> of its sub-users move
-     *       together, so the family is never split across two clients.</li>
-     *   <li><b>Sub-user:</b> moving it to a different client detaches it from its parent
-     *       (created_by cleared) so it becomes a primary user on the destination client. A
-     *       sub-user can never end up pointing at a parent that lives in another client.</li>
-     *   <li><b>Plain primary user:</b> just changes client.</li>
-     * </ul>
-     *
-     * <p>If the old client is left with no users, it is cleaned up, same as {@link #deleteUser}.
-     *
-     * @param userId          the user to move
-     * @param targetClientId  the client to move them to (must already exist)
-     * @return the updated user
+     * @see #moveUserToClient(Long, Long, Long)
      */
     @Transactional
     public AppUser moveUserToClient(Long userId, Long targetClientId) {
+        return moveUserToClient(userId, targetClientId, null);
+    }
+
+    /**
+     * Moves a user to an existing client and decides where they sit in that client's user tree,
+     * keeping the tree consistent in every case.
+     *
+     * <p>Only client membership and the parent pointer change — tickets, credit requests,
+     * agreements and access rows stay with each user, so nothing is lost. The three outcomes are:
+     * <ul>
+     *   <li><b>{@code newParentUserId} given:</b> the user is nested under that primary user
+     *       ({@code created_by} set). The parent must be a primary user <em>of the destination
+     *       client</em>, and the user being moved must not own sub-users itself — the tree is
+     *       deliberately kept two levels deep. Because the destination client may be the one the
+     *       user is already on, this is also how an individual user is re-parented inside its own
+     *       client.</li>
+     *   <li><b>No parent, user owns sub-users:</b> the primary and <em>all</em> of its sub-users
+     *       move together, so the family is never split across two clients.</li>
+     *   <li><b>No parent, individual user:</b> it lands as a standalone primary user; if it was a
+     *       sub-user it is detached from its parent ({@code created_by} cleared), so a sub-user can
+     *       never end up pointing at a parent that lives in another client.</li>
+     * </ul>
+     *
+     * <p>If the move empties the old client, that client is cleaned up, same as
+     * {@link #deleteUser}. A request that would not change anything is a no-op.
+     *
+     * @param userId           the user to move
+     * @param targetClientId   the client to move them to (must already exist)
+     * @param newParentUserId  primary user in the destination client to nest them under, or
+     *                         {@code null} to place them as a primary user
+     * @return the updated user
+     * @throws IllegalArgumentException if the requested parent would produce an invalid tree
+     */
+    @Transactional
+    public AppUser moveUserToClient(Long userId, Long targetClientId, Long newParentUserId) {
         AppUser user = appUserRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
         Client target = clientRepository.findById(targetClientId)
@@ -337,38 +357,76 @@ public class AppUserService {
 
         Client oldClient = user.getClient();
         Long oldClientId = oldClient != null ? oldClient.getId() : null;
+        boolean clientChanged = oldClientId == null || !oldClientId.equals(targetClientId);
 
-        if (oldClientId != null && oldClientId.equals(targetClientId)) {
-            // Already on the target client — nothing to do.
-            return user;
-        }
+        // Sub-users this user owns. Loaded up front because it decides both whether the user may
+        // be nested under someone else and whether a client change has to drag a family along.
+        List<AppUser> subUsers = appUserRepository.findByCreatedBy(userId);
+        boolean hasSubUsers = !subUsers.isEmpty();
+        Long currentParentId = user.getCreatedBy();
 
-        boolean isSubUser = user.getCreatedBy() != null;
-        if (isSubUser) {
-            // A sub-user cannot keep a parent that lives in a different client, so detach it:
-            // it becomes a standalone primary user on the destination client.
+        if (newParentUserId != null) {
+            // --- Place as a sub-user of an existing primary user in the destination client ---
+            if (hasSubUsers) {
+                throw new IllegalArgumentException(
+                        "'" + user.getUsername() + "' already has " + subUsers.size() + " sub-user(s), so it cannot "
+                        + "become a sub-user itself. Move it as a primary user instead.");
+            }
+            if (newParentUserId.equals(userId)) {
+                throw new IllegalArgumentException("A user cannot be made a sub-user of themselves.");
+            }
+            AppUser parent = appUserRepository.findById(newParentUserId)
+                    .orElseThrow(() -> new RuntimeException("Parent user not found: " + newParentUserId));
+            Long parentClientId = parent.getClient() != null ? parent.getClient().getId() : null;
+            if (parentClientId == null || !parentClientId.equals(targetClientId)) {
+                throw new IllegalArgumentException(
+                        "'" + parent.getUsername() + "' does not belong to '" + target.getName() + "', so it cannot be "
+                        + "the parent there. Pick a primary user of that client.");
+            }
+            if (parent.getCreatedBy() != null) {
+                // Nesting under a sub-user would make a third level, which the UI cannot render
+                // and which every "primary = created_by IS NULL" check in the app would misread.
+                throw new IllegalArgumentException(
+                        "'" + parent.getUsername() + "' is itself a sub-user. Pick a primary user as the parent.");
+            }
+
+            if (!clientChanged && newParentUserId.equals(currentParentId)) {
+                return user; // Already a sub-user of this parent on this client — nothing to do.
+            }
+            user.setClient(target);
+            user.setCreatedBy(newParentUserId);
+            log.info("Moved user {} ('{}') from client {} to client {} ('{}') as a sub-user of {} ('{}')",
+                    userId, user.getUsername(), oldClientId, targetClientId, target.getName(),
+                    parent.getId(), parent.getUsername());
+        } else if (hasSubUsers) {
+            // --- Primary user with a family: move it and bring the sub-users along ---
+            if (!clientChanged && currentParentId == null) {
+                return user; // Already a primary user on this client — nothing to do.
+            }
+            user.setClient(target);
             user.setCreatedBy(null);
-            user.setClient(target);
-            log.info("Moved sub-user {} ('{}') from client {} to client {} ('{}') as a primary user",
-                    userId, user.getUsername(), oldClientId, targetClientId, target.getName());
-        } else {
-            // Primary user: move it and bring its sub-users along so the family stays together.
-            user.setClient(target);
-            List<AppUser> subUsers = appUserRepository.findByCreatedBy(userId);
             for (AppUser sub : subUsers) {
                 sub.setClient(target);
             }
-            if (!subUsers.isEmpty()) {
-                appUserRepository.saveAll(subUsers);
-            }
+            appUserRepository.saveAll(subUsers);
             log.info("Moved primary user {} ('{}') and {} sub-user(s) from client {} to client {} ('{}')",
                     userId, user.getUsername(), subUsers.size(), oldClientId, targetClientId, target.getName());
+        } else {
+            // --- Individual user placed as a standalone primary user ---
+            if (!clientChanged && currentParentId == null) {
+                return user; // Already a standalone primary user on this client — nothing to do.
+            }
+            user.setClient(target);
+            user.setCreatedBy(null);
+            log.info("Moved user {} ('{}') from client {} to client {} ('{}') as a primary user (previous parent: {})",
+                    userId, user.getUsername(), oldClientId, targetClientId, target.getName(), currentParentId);
         }
 
         AppUser saved = appUserRepository.save(user);
 
-        // If the old client is now empty, remove it (same housekeeping as deleteUser).
-        if (oldClientId != null) {
+        // If the old client is now empty, remove it (same housekeeping as deleteUser). Skipped on a
+        // same-client re-parent, where the "old" client is the destination and still has this user.
+        if (clientChanged && oldClientId != null) {
             long remaining = appUserRepository.findByClientId(oldClientId).size();
             if (remaining == 0) {
                 clientRepository.deleteById(oldClientId);

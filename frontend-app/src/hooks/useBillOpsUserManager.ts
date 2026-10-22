@@ -44,6 +44,33 @@ const EMPTY_FORM: BillOpsUserFormData = {
 const AVAILABLE_ROLES: BillOpsRole[] = ['ROLE_BILLOPS', 'ROLE_BILLOPS_ADMIN', 'ROLE_BILLOPS_ADMIN_SUB', 'ROLE_XAMOPS'];
 
 /**
+ * Turns a failed move response into something readable in the notification dialog.
+ *
+ * The move endpoint answers with a plain-text reason, which is shown as-is. Anything that does
+ * not reach that handler answers with Spring's JSON error body instead
+ * ({@code {"timestamp":…,"status":404,"error":"Not Found","path":"…"}}), and dumping that raw
+ * leaves an admin staring at JSON. A 404 in particular never means "bad input" here — the route
+ * itself is missing, which in practice means the BillOps service is older than the UI calling it.
+ */
+const describeMoveFailure = (status: number, body: string): string => {
+    if (status === 404) {
+        return 'The server has no handler for this request (HTTP 404). The BillOps service is likely '
+            + 'running an older build than this page — restart it and try again.';
+    }
+    const text = (body || '').trim();
+    if (!text) return `The move failed (HTTP ${status}).`;
+    if (text.startsWith('{') || text.startsWith('[')) {
+        try {
+            const parsed = JSON.parse(text);
+            return parsed.message || parsed.error || `The move failed (HTTP ${status}).`;
+        } catch {
+            // Not valid JSON after all — fall through and show the raw text.
+        }
+    }
+    return text;
+};
+
+/**
  * Validates the optional mobile number used for SMS / WhatsApp alerts.
  *
  * Mirrors the server-side rules in AppUserService.validateContact, which in turn defer to
@@ -317,9 +344,18 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
     }, [pendingDeleteId, getCsrfToken, fetchUsers]);
 
     /**
-     * Move a user to a different client. Returns true on success.
+     * Move a user to a client and place them in its user tree. Returns true on success.
+     *
+     * `parentUserId` nests the user under that primary user of the destination client; omitting it
+     * (or passing null) places them as a primary user. Passing the client the user already belongs
+     * to re-parents them inside their own client.
      */
-    const moveUserToClient = useCallback(async (userId: string, targetClientId: string | number): Promise<boolean> => {
+    const moveUserToClient = useCallback(async (
+        userId: string,
+        targetClientId: string | number,
+        parentUserId?: string | number | null
+    ): Promise<boolean> => {
+        const asSubUser = parentUserId != null && parentUserId !== '';
         try {
             const response = await fetch(`/api/billops/users/${userId}/client`, {
                 method: 'PATCH',
@@ -328,7 +364,10 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
                     'Content-Type': 'application/json',
                     'X-XSRF-TOKEN': getCsrfToken()
                 },
-                body: JSON.stringify({ clientId: targetClientId })
+                body: JSON.stringify({
+                    clientId: targetClientId,
+                    parentUserId: asSubUser ? parentUserId : null
+                })
             });
 
             if (!response.ok) {
@@ -336,7 +375,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
                 setNotification({
                     type: 'error',
                     title: 'Move Failed',
-                    message: errorText || 'An error occurred while moving the user.'
+                    message: describeMoveFailure(response.status, errorText)
                 });
                 return false;
             }
@@ -345,7 +384,9 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             setNotification({
                 type: 'success',
                 title: 'User Moved',
-                message: 'The user has been moved to the selected client.'
+                message: asSubUser
+                    ? 'The user is now a sub-user of the selected primary user.'
+                    : 'The user has been moved to the selected client.'
             });
             return true;
         } catch (err) {
