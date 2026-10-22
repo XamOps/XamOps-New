@@ -36,19 +36,26 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getCapabilities } = vi.hoisted(() => ({ getCapabilities: vi.fn() }));
+const { getCapabilities, getVerticalStatus } = vi.hoisted(() => ({ getCapabilities: vi.fn(), getVerticalStatus: vi.fn() }));
 vi.mock('../../../../api/k8sAutomationApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../api/k8sAutomationApi')>();
   return { ...actual, getCapabilities };
+});
+vi.mock('../../../../api/verticalRecommendationsApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../api/verticalRecommendationsApi')>();
+  return { ...actual, getVerticalStatus };
 });
 vi.mock('../../../../utils/apiClient', () => ({ default: { fetch: vi.fn() } }));
 
 import apiClient from '../../../../utils/apiClient';
 import { K8sCapabilitiesProvider } from '../../../../hooks/useK8sCapabilities';
-import { demoCapabilities } from '../../../../demo/k8sAutomationMockData';
+import { useEksSectionRoute } from '../../../../hooks/useEksSectionRoute';
+import { clearVerticalCacheForTests } from '../../../../hooks/useVerticalRecommendations';
+import { demoCapabilities, demoVerticalStatus } from '../../../../demo/k8sAutomationMockData';
 import { demoEksDashboard } from '../../../../demo/xamopsMockData';
 import type { UseEksDashboardReturn } from '../../../../hooks/useEksDashboard';
 import { OverviewPanel } from '../../../EksDetails/sections/automation/OverviewPanel';
+import SummaryPanel from '../../../EksDetails/sections/overview/SummaryPanel';
 import EksPodsTab from '../../../EksDetails/tabs/EksPodsTab';
 
 const mockedFetch = apiClient.fetch as unknown as ReturnType<typeof vi.fn>;
@@ -299,12 +306,47 @@ async function mountPods(theme: 'light' | 'dark') {
   return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
 }
 
+/** Overview › Summary (FEAT-002): the v3-rolled-out panel, mounted exactly as the cluster page does
+ * (a SectionRoute from the URL), so the gate measures its real [data-k8s-redesigned-main] region. */
+function SummaryHarness() {
+  const route = useEksSectionRoute();
+  return (
+    <SummaryPanel
+      clusterName="prod-eks-cluster"
+      accountId="demo-aws-001"
+      region="us-east-1"
+      eksData={GATE_EKS_DATA}
+      route={route}
+      onOpenGuide={() => {}}
+    />
+  );
+}
+
+async function mountSummary(theme: 'light' | 'dark') {
+  getCapabilities.mockResolvedValue(demoCapabilities('demo-aws-001'));
+  getVerticalStatus.mockResolvedValue(demoVerticalStatus('prod-eks-cluster'));
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <MemoryRouter initialEntries={['/eks-details?name=prod-eks-cluster&region=us-east-1&accountIds=demo-aws-001&tab=overview&sub=summary']}>
+        <K8sCapabilitiesProvider accountId="demo-aws-001" demo>
+          <SummaryHarness />
+        </K8sCapabilitiesProvider>
+      </MemoryRouter>
+    </div>,
+  );
+  await screen.findByRole('table', { name: 'Namespace utilisation' });
+  await waitFor(() => expect(getCapabilities).toHaveBeenCalled());
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
 // ─── The gate ────────────────────────────────────────────────────────────────────────────────────
 
 describe('visual + scoped-metric gate (FEAT-004 §11; jsdom fallback, Playwright not installed)', () => {
   beforeEach(() => {
     getCapabilities.mockReset();
+    getVerticalStatus.mockReset();
     mockedFetch.mockReset();
+    clearVerticalCacheForTests();
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -315,6 +357,16 @@ describe('visual + scoped-metric gate (FEAT-004 §11; jsdom fallback, Playwright
         expect(main, 'Overview must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
         await assertMetricStripIsOneRow(`Overview (${theme})`, main);
         assertBudget(`Overview (${theme})`, [main]);
+      });
+
+      it('Overview › Summary stays within the premium budget', async () => {
+        const main = await mountSummary(theme);
+        expect(main, 'Overview Summary must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        // FEAT-002: one hero MetricStrip row (Monthly cost leads), never a wrapped vertical stack,
+        // and the whole subtree inside the chrome budget (7 sizes / 2 greys / {8px,6px,pill}).
+        await assertMetricStripIsOneRow(`Overview Summary (${theme})`, main);
+        assertTableScrolls(`Overview Summary (${theme})`, main);
+        assertBudget(`Overview Summary (${theme})`, [main]);
       });
 
       it('Workloads › Pods stays within the premium budget, drawer included', async () => {

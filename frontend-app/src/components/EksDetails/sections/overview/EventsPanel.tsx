@@ -6,16 +6,20 @@
  * k8s-resources". Both the agent's shape (`involvedObject`, `objectKind`, `lastTime`) and the older
  * one (`name`, `lastTimestamp`) are read.
  */
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { useK8sCapabilities } from '../../../../hooks/useK8sCapabilities';
 import { DASH, formatAge, toNumber } from '../../../../utils/k8sQuantities';
-import { K8sDataTable, type ColumnDef, type FilterDef } from '../../../CloudK8s/shared/K8sDataTable';
+import { type ColumnDef, type FilterDef } from '../../../CloudK8s/shared/K8sDataTable';
+import { DataTable } from '../../../CloudK8s/shared/DataTable';
+import { PageTemplate } from '../../../CloudK8s/shared/PageTemplate';
+import type { DrawerSection } from '../../../CloudK8s/shared/DetailDrawer';
 import { SourceLabel } from '../../../CloudK8s/shared/SourceLabel';
 import { StatusMark } from '../../../CloudK8s/shared/StatusMark';
+import { SECONDARY } from '../../../CloudK8s/shared/typeScale';
 import type { EksSectionProps } from '../sectionTypes';
 
 export const EVENTS_CAPTION = 'Kubernetes events';
-const secondary = 'text-[12px] text-[rgba(0,0,0,0.6)]';
+const secondary = SECONDARY;
 
 export interface EventRow {
   key: string;
@@ -72,26 +76,55 @@ const FILTERS: ReadonlyArray<FilterDef<EventRow>> = [
   { id: 'type', label: 'Type', options: [{ value: 'Warning', label: 'Warning' }, { value: 'Normal', label: 'Normal' }], match: (r, v) => r.type === v },
 ];
 
+/** An event row's DetailDrawer (FEAT-002): every field as the agent reported it, honest "—" when
+ * absent (DetailDrawer renders the dash with its reason and drops an all-empty section). */
+function eventSections(r: EventRow): DrawerSection[] {
+  const dash = (v: string | null) => (v === null || v === DASH ? null : v);
+  return [
+    {
+      title: 'Event',
+      data: [
+        { label: 'Type', value: r.type === 'Warning' ? <StatusMark state="attention" label="Warning" /> : <StatusMark state="not-set-up" label={r.type} /> },
+        { label: 'Reason', value: dash(r.reason), reason: 'The agent reported no reason.' },
+        { label: 'Object', value: r.object === DASH ? null : <span className="font-mono text-[12px]">{r.object}</span>, reason: 'The agent reported no involved object.' },
+        { label: 'Namespace', value: dash(r.namespace), reason: 'The agent reported no namespace.' },
+        { label: 'Count', value: r.count === null ? null : <span className="tabular-nums">{r.count}</span>, reason: 'The agent reported no count.' },
+        { label: 'Last seen', value: r.lastSeen ? `${formatAge(r.lastSeen)} ago` : null, reason: 'The agent reported no timestamp.' },
+      ],
+    },
+    {
+      title: 'Message',
+      data: [{ label: 'Message', value: dash(r.message), reason: 'The agent reported no message.' }],
+    },
+  ];
+}
+
 export default function EventsPanel({ clusterName, eksData }: EksSectionProps) {
   const caps = useK8sCapabilities();
   const rows = useMemo(() => eventRows(eksData.dashboard?.k8sEvents), [eksData.dashboard]);
   const at = caps.forCluster(clusterName)?.dataSources.find((s) => s.type === 'k8s-resources')?.collectedAt ?? null;
   const warnings = rows.filter((r) => r.type === 'Warning').length;
+  const intro: ReactNode = `The Kubernetes events the XamOps agent collected — Warning first, then newest. ${rows.length} events · ${warnings} warnings.`;
   return (
-    <div className="space-y-3" data-panel="events">
-      <p className={secondary}>{`${rows.length} events · ${warnings} warnings`}</p>
-      <K8sDataTable
-        rows={rows}
-        columns={COLUMNS}
-        rowKey={(r) => r.key}
-        caption={EVENTS_CAPTION}
-        search={(r) => `${r.reason} ${r.object} ${r.namespace} ${r.message}`}
-        searchPlaceholder="Search events"
-        filters={FILTERS}
-        exportName={`${clusterName}-events`}
-        source={<SourceLabel source="XamOps agent · k8s-resources" at={at} verb="data" missingText="no data yet" />}
-        emptyState={<p className={`px-4 py-8 text-center ${secondary}`}>The agent reported no Kubernetes events.</p>}
-      />
-    </div>
+    <PageTemplate title="Events" intro={intro} width="table">
+      <div className="flex min-w-0 flex-col gap-3" data-panel="events">
+        <DataTable<EventRow>
+          rows={rows}
+          columns={COLUMNS}
+          rowKey={(r) => r.key}
+          caption={EVENTS_CAPTION}
+          search={(r) => `${r.reason} ${r.object} ${r.namespace} ${r.message}`}
+          searchPlaceholder="Search events"
+          filters={FILTERS}
+          exportName={`${clusterName}-events`}
+          rowLabel={(r) => `${r.reason} · ${r.object}`}
+          rowTitle={(r) => (r.reason === DASH ? r.object : r.reason)}
+          rowSubtitle={(r) => r.object}
+          rowToSections={eventSections}
+          source={<SourceLabel source="XamOps agent · k8s-resources" at={at} verb="data" missingText="no data yet" />}
+          emptyState={<p className={`px-4 py-8 text-center ${secondary}`}>The agent reported no Kubernetes events.</p>}
+        />
+      </div>
+    </PageTemplate>
   );
 }

@@ -22,10 +22,11 @@ import { demoCapabilities, demoVerticalStatus } from '../../../../../demo/k8sAut
 import { demoEksDashboard, demoEksEmptyShellDashboard } from '../../../../../demo/xamopsMockData';
 import type { CapabilitiesDto } from '../../../../../types/k8sAutomation';
 import { CAPACITY_TERMS } from '../../../../CloudK8s/shared/CapacityDonut';
+import { DASH } from '../../../../../utils/k8sQuantities';
 import { NOT_MONITORED_TITLE } from '../../../../CloudK8s/shared/NotMonitoredPanel';
 import SummaryPanel, {
   ALERTS_HREF, ATTENTION_TITLE, AUTOMATION_TITLE, CLUSTER_TITLE, COST_TITLE, NODES_TITLE, NODE_AUTOSCALER,
-  PODS_TITLE, REVIEW_SUGGESTIONS, USED_NOT_REPORTED, VIEW_ALL_ALERTS, VIEW_PENDING_PODS, WORKLOAD_AUTOSCALER,
+  PODS_TITLE, REVIEW_SUGGESTIONS, USED_NOT_REPORTED, VIEW_ALL_ALERTS, WORKLOAD_AUTOSCALER,
 } from '../SummaryPanel';
 
 const ACCOUNT = 'demo-aws-001';
@@ -69,8 +70,6 @@ function renderPanel({ cluster = PROD, dashboard = clone(), caps, engine = demoV
 }
 
 const region = (name: string) => screen.getByRole('region', { name });
-const fact = (card: HTMLElement, term: string) => card.querySelector(`[data-fact="${term}"] dd`);
-const capacityRow = (resource: string, term: string) => region(resource).querySelector(`[data-capacity-row="${term}"]`) as HTMLElement;
 /** The section and subtab a link opens, through the page's own resolver. */
 const resolved = (href: string) => {
   const url = new URL(href, 'http://x');
@@ -98,67 +97,44 @@ describe('Overview › Summary, laid out like the cast.ai Dashboard (23b)', () =
     expect(onOpenGuide).toHaveBeenCalledTimes(1);
   });
 
-  it('lays out the mock: four cards, CPU and memory, the Workload autoscaler, Automation and Needs attention', async () => {
+  it('rolls out the v3 system: PageTemplate, one hero MetricStrip row, and the kept sections', async () => {
     renderPanel();
-    for (const name of [CLUSTER_TITLE, NODES_TITLE, PODS_TITLE, COST_TITLE, 'CPU', 'Memory', `${WORKLOAD_AUTOSCALER} summary`, AUTOMATION_TITLE, ATTENTION_TITLE]) {
-      expect(await screen.findByRole('region', { name })).toBeInTheDocument();
+    // FEAT-002: the page is a PageTemplate (one [data-k8s-redesigned-main] region) with a single
+    // hero MetricStrip row. The duplicate Cluster / Nodes / Pods summary cards are GONE — the sticky
+    // ClusterStatusStrip owns those vitals — so those regions no longer exist on this page.
+    await screen.findByRole('table', { name: 'Namespace utilisation' });
+    expect(document.querySelector('[data-k8s-redesigned-main]')).not.toBeNull();
+    expect(document.querySelectorAll('[data-metric-strip-row]')).toHaveLength(1);
+    expect(screen.queryByRole('region', { name: CLUSTER_TITLE })).toBeNull();
+    expect(screen.queryByRole('region', { name: COST_TITLE })).toBeNull();
+    // The kept sections stay labelled regions.
+    for (const name of ['CPU', 'Memory', `${WORKLOAD_AUTOSCALER} summary`, AUTOMATION_TITLE, ATTENTION_TITLE]) {
+      expect(screen.getByRole('region', { name })).toBeInTheDocument();
     }
     // No time-series charts and no list-price dollars until their sources exist.
     expect(document.body).not.toHaveTextContent(/over time/i);
     expect(document.body).not.toHaveTextContent(/list price/i);
     expect(document.body).not.toHaveTextContent(/score/i);
-    // FEAT-002: exactly one hero number (text-[52px]) on the panel.
+    // The old 52px hero number is gone (the deprecated HERO_NUMBER was replaced by the type scale).
     const panel = document.querySelector('[data-panel="overview-summary"]')!;
     const heroes = [...panel.querySelectorAll('[class]')].filter((el) => (el.getAttribute('class') ?? '').includes('text-[52px]'));
-    expect(heroes.length).toBe(1);
+    expect(heroes).toHaveLength(0);
   });
 
-  it('describes the cluster from the link and the agent', async () => {
+  it('leads the hero MetricStrip with the node, pod and namespace totals', async () => {
     renderPanel();
-    const cluster = await screen.findByRole('region', { name: CLUSTER_TITLE });
-    await waitFor(() => expect(fact(cluster, 'XamOps agent')).toHaveTextContent('v2.1.0'));
-    expect(cluster).toHaveTextContent('Connected');
-    expect(fact(cluster, 'Kubernetes')).toHaveTextContent('1.29');
-    expect(fact(cluster, 'Region')).toHaveTextContent('us-east-1, 3 zones');
-    expect(fact(cluster, 'Namespaces')).toHaveTextContent('8');
+    await screen.findByRole('table', { name: 'Namespace utilisation' });
+    // FEAT-002: the Nodes / Pods counts now live in the hero MetricStrip (and the sticky
+    // ClusterStatusStrip), not in a duplicate summary card. 6 nodes, 18 pods, 8 namespaces.
+    expect(document.querySelector('[data-kpi="nodes"]')).toHaveTextContent('6');
+    expect(document.querySelector('[data-kpi="pods"]')).toHaveTextContent('18');
+    expect(document.querySelector('[data-kpi="namespaces"]')).toHaveTextContent('8');
+    // The removed summary cards' detail is no longer on this page (it is owned elsewhere).
+    expect(screen.queryByRole('region', { name: NODES_TITLE })).toBeNull();
+    expect(screen.queryByRole('region', { name: PODS_TITLE })).toBeNull();
   });
 
-  it('counts nodes by capacity type, names instance types and node groups, and shows unused requests', async () => {
-    renderPanel({ dashboard: clone((d) => { d.clusterOverview.cpuUsageMillicores = 1000; }) });
-    const nodes = await screen.findByRole('region', { name: NODES_TITLE });
-    // FEAT-002: the node count is the hero KPI strip; the Nodes region keeps the breakdown.
-    expect(document.querySelector('[data-kpi="nodes"]')).toHaveTextContent('Nodes6');
-    const chip = (label: string) => nodes.querySelector(`[data-capacity-type="${label}"]`);
-    expect(chip('On-demand')).toHaveTextContent('On-demand3');
-    expect(chip('Spot')).toHaveTextContent('Spot3');
-    expect(chip('Unknown')).toHaveTextContent('Unknown0');
-    const types = nodes.querySelector('[data-instance-types]')!;
-    expect(types).toHaveTextContent('2 · c5.xlarge (4 vCPU, 7.57 GiB), 2 · m5.xlarge (4 vCPU, 15.36 GiB), +2 more types');
-    expect(nodes.querySelector('[data-node-groups]')).toHaveTextContent('Node groups: general, default, self-managed');
-    // 2143m requested and 1000m used: 53% of the requests sit unused.
-    expect(nodes.querySelector('[data-unused-requests]')).toHaveTextContent('Unused requests: CPU 53%');
-  });
-
-  it('says unused requests are unknown, not 0%, when Prometheus reported no usage', async () => {
-    renderPanel({ dashboard: clone((d) => { d.clusterOverview.cpuUsagePercent = 0; d.clusterOverview.memoryUsagePercent = 0; delete d.nodeUtilization; }) });
-    const nodes = await screen.findByRole('region', { name: NODES_TITLE });
-    expect(nodes.querySelector('[data-unused-requests]')).toHaveTextContent('Unused requests: — (usage not reported by Prometheus in your cluster)');
-  });
-
-  it('splits pods into running on a node and waiting for one, linking to the pending pods', async () => {
-    renderPanel();
-    // FEAT-002: the pod total moved into the hero KPI strip; the Pods region keeps the placement detail.
-    expect(document.querySelector('[data-kpi="pods"]')).toHaveTextContent('Pods18');
-    const pods = await screen.findByRole('region', { name: PODS_TITLE });
-    expect(pods.querySelector('[data-pod-placement]')).toHaveTextContent('16 running on a node · 2 waiting for a node');
-    expect(pods.querySelector('[data-unschedulable]')).toBeNull();
-    const link = within(pods).getByRole('link', { name: VIEW_PENDING_PODS });
-    const target = resolved(link.getAttribute('href')!);
-    expect([target.tab, target.sub, target.corrected]).toEqual(['workloads', 'pods', null]);
-    expect(target.params.get('phase')).toBe('Pending');
-  });
-
-  it('calls out a pod no node can fit, with what it asks for and the largest node', async () => {
+  it('calls a pod no node can fit out in Needs attention, not twice with the scheduler event', async () => {
     renderPanel({
       dashboard: clone((d) => {
         const pod = d.k8sPods.find((p: any) => p.name === 'data-pipeline-pending-1');
@@ -167,37 +143,41 @@ describe('Overview › Summary, laid out like the cast.ai Dashboard (23b)', () =
         pod.containers[0].memoryRequest = '64Gi';
       }),
     });
-    const pods = await screen.findByRole('region', { name: PODS_TITLE });
-    expect(pods.querySelector('[data-unschedulable]')).toHaveTextContent(
-      'staging/data-pipeline-pending-1 asks for 32 vCPU and 64 GiB. The largest node has 7.91 vCPU allocatable.',
-    );
-    const attention = region(ATTENTION_TITLE);
+    const attention = await screen.findByRole('region', { name: ATTENTION_TITLE });
     const item = attention.querySelector('[data-attention="unschedulable"]')!;
     expect(item).toHaveTextContent("1 pod can't be scheduled");
     expect(item).toHaveTextContent('no node is that large.');
+    // The pending pods stay reachable through the attention item's deep link.
+    const target = resolved(item.querySelector('a')!.getAttribute('href')!);
+    expect([target.tab, target.sub, target.corrected]).toEqual(['workloads', 'pods', null]);
+    expect(target.params.get('phase')).toBe('Pending');
     // The scheduler event that says the same thing isn't listed twice.
     expect(attention).not.toHaveTextContent('FailedScheduling');
   });
 
-  it('shows cost as the cost source reports it, in whole dollars', async () => {
+  it('shows cost as the cost source reports it in the hero strip, in whole dollars', async () => {
     renderPanel();
-    // FEAT-002: cost is the hero number; the supporting line folds "Today $X · from {source}".
-    const cost = await screen.findByRole('region', { name: COST_TITLE });
-    expect(cost).toHaveTextContent('$1,480/mo');
-    expect(cost).toHaveTextContent('Today $49');
-    expect(cost).toHaveTextContent('from XamOps cost exporter (Prometheus)');
+    // FEAT-002: cost is the hero MetricStrip cell; the sub-line folds "Today $X · from {source}".
+    await screen.findByRole('table', { name: 'Namespace utilisation' });
+    const strip = document.querySelector('[data-metric-strip-row]')!;
+    expect(strip.querySelector('[data-hero-cost]')).toHaveTextContent('$1,480/mo');
+    expect(strip).toHaveTextContent('Today $49');
+    expect(strip).toHaveTextContent('from XamOps cost exporter (Prometheus)');
   });
 
   it('never shows $0 for a cluster without a cost source: falls back to freed capacity', async () => {
-    // FEAT-002: with no priced cost source the hero shows the honest freed-capacity figure (the
-    // demo engine is over-provisioned), never a fabricated $0 and never a value animated up from 0.
+    // FEAT-002: with no priced cost source the hero strip shows the honest freed-capacity figure
+    // (the demo engine is over-provisioned), never a fabricated $0.
     renderPanel({ dashboard: clone((d) => { delete d.agentCostMetrics; delete d.openCost; delete d.costMetrics; }) });
-    const cost = await screen.findByRole('region', { name: COST_TITLE });
-    await waitFor(() => expect(cost.querySelector('[data-hero-freed]')).not.toBeNull());
-    expect(cost.querySelector('[data-hero-freed]')).toHaveTextContent(/Could free/);
-    expect(cost).toHaveTextContent('no priced cost source for this cluster');
-    expect(cost).not.toHaveTextContent('$0');
-    expect(cost.querySelector('[data-hero-cost]')).toBeNull();
+    const strip = await waitFor(() => {
+      const s = document.querySelector('[data-metric-strip-row]');
+      expect(s?.querySelector('[data-hero-freed]')).not.toBeNull();
+      return s!;
+    });
+    expect(strip.querySelector('[data-hero-freed]')).toHaveTextContent(/Could free/);
+    expect(strip).toHaveTextContent('no priced cost source for this cluster');
+    expect(strip).not.toHaveTextContent('$0');
+    expect(strip.querySelector('[data-hero-cost]')).toBeNull();
   });
 
   it('shows a plain dash when there is neither a cost source nor any freed capacity', async () => {
@@ -207,32 +187,41 @@ describe('Overview › Summary, laid out like the cast.ai Dashboard (23b)', () =
       dashboard: clone((d) => { delete d.agentCostMetrics; delete d.openCost; delete d.costMetrics; }),
       engine: { ...demoVerticalStatus(PROD), workloads: [] },
     });
-    const cost = await screen.findByRole('region', { name: COST_TITLE });
-    await waitFor(() => expect(cost.querySelector('[data-hero-dash]')).not.toBeNull());
-    expect(cost.querySelector('[data-hero-dash]')).toHaveTextContent('$—');
-    expect(cost).toHaveTextContent('No cost source reported for this cluster.');
-    expect(cost).not.toHaveTextContent('$0');
+    const strip = await waitFor(() => {
+      const s = document.querySelector('[data-metric-strip-row]');
+      expect(s?.querySelector('[data-hero-dash]')).not.toBeNull();
+      return s!;
+    });
+    expect(strip.querySelector('[data-hero-dash]')).toHaveTextContent('$—');
+    expect(strip).toHaveTextContent('No cost source reported for this cluster.');
+    expect(strip).not.toHaveTextContent('$0');
   });
 
-  it('draws CPU from node capacity, pod requests and Prometheus, each with its glossary definition', async () => {
+  it('draws CPU from node allocatable, pod requests and Prometheus as a CapacityBar', async () => {
     renderPanel();
-    await screen.findByRole('region', { name: 'CPU' });
-    // Six nodes: 26 cores of capacity, 25.52 allocatable; 16 scheduled pods request 2143m.
-    expect(region('CPU')).toHaveTextContent('26.00 vCPUprovisioned');
-    expect(capacityRow('CPU', 'Requested')).toHaveTextContent('Requested2.14 vCPU8% of allocatable');
-    expect(capacityRow('CPU', 'Used')).toHaveTextContent('Used12.48 vCPU');
-    expect(capacityRow('CPU', 'Allocatable')).toHaveTextContent('Allocatable25.52 vCPUwhat pods can use');
-    expect(capacityRow('CPU', 'Overhead')).toHaveTextContent('Overhead0.48 vCPUkept by the node for the system');
-    expect(capacityRow('CPU', 'Requested').querySelector('dt')).toHaveAttribute('title', CAPACITY_TERMS.requested);
-    expect(capacityRow('Memory', 'Used')).toHaveTextContent('Used40 GiB');
+    const cpu = await screen.findByRole('region', { name: 'CPU' });
+    const bar = cpu.querySelector('[data-capacity-bar="CPU"]')!;
+    // The CapacityBar shows Requested / Used / Allocatable: 25.52 allocatable, 2143m requested,
+    // 12.48 used; each term carries the glossary definition as its tooltip.
+    expect(bar).toHaveTextContent('Requested2.14 vCPU');
+    expect(bar).toHaveTextContent('Used12.48 vCPU');
+    expect(bar).toHaveTextContent('Allocatable25.52 vCPU');
+    const requestedTerm = [...bar.querySelectorAll('span')].find((el) => el.textContent === 'Requested')!;
+    expect(requestedTerm).toHaveAttribute('title', CAPACITY_TERMS.requested);
+    const memory = screen.getByRole('region', { name: 'Memory' });
+    expect(memory.querySelector('[data-capacity-bar="Memory"]')).toHaveTextContent('Used40 GiB');
   });
 
   it('shows used as — with the missing source, never 0, when Prometheus reported nothing', async () => {
     renderPanel({ dashboard: clone((d) => { d.clusterOverview.cpuUsagePercent = 0; d.clusterOverview.memoryUsagePercent = 0; delete d.nodeUtilization; }) });
-    await screen.findByRole('region', { name: 'CPU' });
-    const used = capacityRow('CPU', 'Used');
-    expect(used).toHaveTextContent(`Used—${USED_NOT_REPORTED}`);
-    expect(used.querySelector('dd')).toHaveAttribute('title', USED_NOT_REPORTED);
+    const cpu = await screen.findByRole('region', { name: 'CPU' });
+    const bar = cpu.querySelector('[data-capacity-bar="CPU"]')!;
+    const usedTerm = [...bar.querySelectorAll('span')].find((el) => el.textContent === 'Used')!;
+    // The Used figure sits next to its term; when Prometheus reported nothing it is "—" with the
+    // missing-source tooltip, never a 0.
+    const usedValue = usedTerm.nextElementSibling!;
+    expect(usedValue).toHaveTextContent(DASH);
+    expect(usedValue).toHaveAttribute('title', USED_NOT_REPORTED);
   });
 
   it("splits the Workload autoscaler's workloads into the glossary's buckets, in order, and links to its suggestions", async () => {
@@ -310,7 +299,7 @@ describe('Overview › Summary, laid out like the cast.ai Dashboard (23b)', () =
     renderPanel({ caps: new K8sApiError({ status: 500, code: 'K8S_INTERNAL' }) });
     const sources = await screen.findByRole('region', { name: 'Data sources' });
     await waitFor(() => expect(sources).toHaveTextContent("Couldn't check data sources."));
-    expect(document.querySelector('[data-kpi="nodes"]')).toHaveTextContent('Nodes6');
+    expect(document.querySelector('[data-kpi="nodes"]')).toHaveTextContent('6');
     expect(region(NODE_AUTOSCALER)).toHaveTextContent('Unknown');
   });
 
