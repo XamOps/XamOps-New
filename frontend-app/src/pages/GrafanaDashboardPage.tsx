@@ -20,6 +20,8 @@ import apiClient from '../utils/apiClient';
 import { Account } from '../types/account';
 import { useTopbar } from '../contexts/TopbarContext';
 import Skeleton from '../components/Shared/Skeleton';
+import DemoGrafanaDashboard from '../components/Grafana/DemoGrafanaDashboard';
+import { isDemoMode } from '../demo/demoConfig';
 
 interface GrafanaConfig {
   iframeSrc: string;
@@ -368,11 +370,23 @@ const GrafanaDashboardPage: React.FC = () => {
             </div>
           </div>
         ) : grafanaConfig ? (
-          <iframe
-            src={grafanaConfig.iframeSrc}
-            title="Grafana Dashboard"
-            className="w-full h-[calc(100vh-6rem)] border-0 rounded-xl shadow-sm grafana-iframe"
-          />
+          /*
+           * In demo mode the account's grafanaIp is play.grafana.org, which — like every real
+           * Grafana — serves X-Frame-Options: deny, so the browser blocks the iframe
+           * (ERR_BLOCKED_BY_RESPONSE / "refused to connect"). There is nothing to fix on the
+           * embed; a public Grafana cannot be framed. So render a representative dashboard of our
+           * own instead, and leave the "View in Grafana" topbar link — which opens in a new tab,
+           * where framing rules do not apply — to reach the real board.
+           */
+          isDemoMode() ? (
+            <DemoGrafanaDashboard accountName={grafanaConfig.accountName} />
+          ) : (
+            <iframe
+              src={grafanaConfig.iframeSrc}
+              title="Grafana Dashboard"
+              className="w-full h-[calc(100vh-6rem)] border-0 rounded-xl shadow-sm grafana-iframe"
+            />
+          )
         ) : null}
       </div>
 

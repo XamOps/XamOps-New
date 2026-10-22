@@ -144,9 +144,18 @@ const withCostSourceForManualRefresh = (url: string | URL): string | URL => {
 };
 
 export const apiFetch = async (url: string | URL, options: FetchOptions = {}): Promise<Response> => {
-  // Demo mode: return static mock response without hitting the network
+  // Demo mode: return static mock response without hitting the network.
+  //
+  // Method and body are forwarded, matching the window.fetch patch in main.tsx. This used to
+  // pass the URL alone, which meant a fixture could only ever key off the path and query
+  // string — so an endpoint that carries its parameters in a POST body was indistinguishable
+  // from any other call to the same path. The Observability traces endpoints are exactly that:
+  // they are POSTs whose body holds `providerAccountId`, so without the body a demo fixture
+  // cannot tell which account was selected.
   if (isDemoMode()) {
-    const mockResponse = resolveDemoResponse(url.toString());
+    const method = (typeof options.method === 'string' ? options.method : 'GET').toUpperCase();
+    const body = typeof options.body === 'string' ? options.body : undefined;
+    const mockResponse = resolveDemoResponse(url.toString(), method, body);
     if (mockResponse) return mockResponse;
   }
 

@@ -25,9 +25,11 @@ import type {
   CveGroupRow, CveResourceFinding, InventoryAsset, InventoryCategory, InventoryRisk, IssueDetail,
   ConfigGraph, TopologyNode, TopologyEdge, ThreatStoryDetail, StoryDetection, SensorCoverage,
   IssueSummary, NetworkTopology, NetworkNode, OnboardingAccount, PageResp, PostureFinding,
+  IdentitiesSummary, IdentityRow, PrivilegedIdentity,
   SbomComponent, Severity, ThreatDetection, ThreatPolicy, ThreatStoriesSummary, ThreatOverview,
   CodeScan, CodeScansResponse, CodeScanFindings, CodeCve,
   VulnGroupPage, VulnGroupRow, VulnGroupDimension, ThreatGroups, ThreatGroupRow, ThreatGroupDimension,
+  ResourceDetail,
   VulnerabilityDashboard, VulnerabilityFinding, Workflow, XamSecureSummary,
   FrameworkControl, FrameworkControls, AssetRelationships,
 } from '../types/xamsecure';
@@ -70,6 +72,61 @@ const REGIONS = [
 ] as const;
 
 const ACCOUNT_IDS = ['112233445566', '223344556677', '334455667788'] as const;
+
+// ─── Provider scoping ────────────────────────────────────────────────────────
+// XamSecure's real endpoints take `accountId` and nothing else: XamSecureService.resolveAccountIds
+// turns it into "the AWS account / GCP project / Azure subscription this client owns", and every
+// synced row carries a cloud_provider that Upwind reported. So selecting the GCP project returns
+// GCP assets — a GCP account showing EC2 instances is a demo-only artefact, not the product.
+//
+// The demo previously ignored accountId altogether and served one all-AWS estate to every
+// account, with ~33 of the 224 inventory rows randomly stamped 'GCP'/'Azure' while keeping an
+// AWS label, AWS region, AWS account id and an `aws_ec2_instance/...` resource id. That is what
+// produced rows reading "provider: GCP" next to "aws_ec2_instance/prod-ec2-01".
+
+export type EstateProvider = 'AWS' | 'GCP' | 'Azure';
+
+/** Demo account id → provider, matching demoAccounts in xamopsMockData. */
+const PROVIDER_BY_DEMO_ACCOUNT: Record<string, EstateProvider> = {
+  'demo-aws-001': 'AWS',
+  'demo-aws-002': 'AWS',
+  'demo-gcp-001': 'GCP',
+  'demo-azure-001': 'Azure',
+};
+
+/**
+ * Provider for the selected account. `accountId` may be a comma-separated list (the page joins
+ * multi-select), so the first recognised id wins; an unknown or absent id falls back to AWS,
+ * which keeps every existing caller and the AWS demo account on exactly the data they had.
+ */
+export const providerForUrl = (url: string): EstateProvider => {
+  const raw = qs(url).get('accountId');
+  if (!raw) return 'AWS';
+  for (const id of raw.split(',')) {
+    const hit = PROVIDER_BY_DEMO_ACCOUNT[id.trim()];
+    if (hit) return hit;
+  }
+  return 'AWS';
+};
+
+const GCP_REGIONS = [
+  'us-central1', 'europe-west1', 'asia-south1', 'us-east1', 'europe-west4', 'us-west1',
+] as const;
+const GCP_PROJECT_IDS = ['demo-gcp-001', 'xammer-analytics-prod', 'xammer-data-lake'] as const;
+
+const AZURE_REGIONS = [
+  'eastus', 'westeurope', 'centralindia', 'southeastasia', 'uksouth', 'westus2',
+] as const;
+const AZURE_SUBSCRIPTION_IDS = [
+  'demo-azure-001', '8f4a2b1c-7d3e-4a91-b6c2-1e5f9a0d3b47', 'c2d7e019-4b6a-4f8d-9e13-72a5b8c4f601',
+] as const;
+
+const REGIONS_BY_PROVIDER: Record<EstateProvider, readonly string[]> = {
+  AWS: REGIONS, GCP: GCP_REGIONS, Azure: AZURE_REGIONS,
+};
+const ACCOUNTS_BY_PROVIDER: Record<EstateProvider, readonly string[]> = {
+  AWS: ACCOUNT_IDS, GCP: GCP_PROJECT_IDS, Azure: AZURE_SUBSCRIPTION_IDS,
+};
 
 // ─── Query-string aware paging ───────────────────────────────────────────────
 // The tables send ?page=&size= (and inventory sends &category=). Honouring them
@@ -152,6 +209,96 @@ export const demoIssues: IssueSummary[] = [
   issue('ec2_instance_missing_ssm_agent', 'EC2 instance is not managed by SSM', 'LOW', 12, ['SOC 2'], 26),
 ];
 
+/**
+ * The same estate expressed in GCP's own terms. Checks, resource kinds and frameworks are
+ * GCP-native — a GCP project reporting `s3_bucket_public_read_acl` against `CIS AWS 1.5` was the
+ * same inaccuracy as the inventory rows, one layer down.
+ */
+export const demoIssuesGcp: IssueSummary[] = [
+  issue('storage_bucket_public_access', 'Cloud Storage bucket is publicly accessible', 'CRITICAL', 3, ['CIS GCP 2.0', 'SOC 2', 'PCI DSS 3.2.1'], 21),
+  issue('service_account_user_managed_key', 'Service account has a user-managed key', 'CRITICAL', 2, ['CIS GCP 2.0', 'SOC 2'], 14),
+  issue('cloudsql_instance_public_ip', 'Cloud SQL instance is reachable on a public IP', 'CRITICAL', 2, ['CIS GCP 2.0', 'HIPAA'], 5),
+  issue('secret_in_cloud_run_env', 'Plaintext secret in a Cloud Run environment variable', 'CRITICAL', 4, ['CIS GCP 2.0', 'SOC 2'], 3),
+  issue('gke_control_plane_public', 'GKE control plane endpoint is public', 'CRITICAL', 2, ['CIS GKE 1.4', 'SOC 2'], 9),
+  issue('kms_key_rotation_over_90_days', 'KMS key rotation period exceeds 90 days', 'CRITICAL', 5, ['CIS GCP 2.0', 'PCI DSS 3.2.1'], 17),
+  issue('firewall_allows_ssh_from_anywhere', 'Firewall rule allows SSH (22) from 0.0.0.0/0', 'HIGH', 9, ['CIS GCP 2.0', 'PCI DSS 3.2.1'], 30),
+  issue('firewall_allows_rdp_from_anywhere', 'Firewall rule allows RDP (3389) from 0.0.0.0/0', 'HIGH', 3, ['CIS GCP 2.0'], 26),
+  issue('persistent_disk_no_cmek', 'Persistent disk is not encrypted with a customer-managed key', 'HIGH', 17, ['SOC 2', 'HIPAA', 'ISO 27001'], 30),
+  issue('iam_primitive_role_at_project', 'Primitive role roles/editor granted at project level', 'HIGH', 6, ['CIS GCP 2.0', 'SOC 2'], 3),
+  issue('iam_service_account_token_creator', 'Service account granted serviceAccountTokenCreator broadly', 'HIGH', 4, ['CIS GCP 2.0', 'SOC 2'], 19),
+  issue('cloudsql_backup_retention_too_short', 'Cloud SQL backup retention is under 7 days', 'HIGH', 3, ['SOC 2', 'ISO 27001'], 11),
+  issue('subnetwork_flow_logs_disabled', 'VPC flow logs are disabled on the subnetwork', 'HIGH', 3, ['CIS GCP 2.0', 'PCI DSS 3.2.1'], 23),
+  issue('filestore_no_cmek', 'Filestore instance is not encrypted with a CMEK', 'HIGH', 2, ['HIPAA', 'ISO 27001'], 15),
+  issue('cloud_function_env_contains_secret', 'Cloud Function environment variable looks like a secret', 'HIGH', 7, ['SOC 2'], 6),
+  issue('artifact_registry_scanning_disabled', 'Artifact Registry vulnerability scanning is disabled', 'HIGH', 8, ['SOC 2', 'ISO 27001'], 13),
+  issue('audit_log_sink_missing', 'No aggregated log sink for admin activity audit logs', 'MEDIUM', 2, ['CIS GCP 2.0'], 12),
+  issue('lb_access_logs_disabled', 'Load balancer access logging is disabled', 'MEDIUM', 4, ['SOC 2', 'ISO 27001'], 2),
+  issue('cloud_function_runtime_deprecated', 'Cloud Function uses a deprecated runtime', 'MEDIUM', 5, ['ISO 27001'], 1),
+  issue('lb_forwarding_rule_http_only', 'Load balancer forwarding rule accepts plaintext HTTP', 'MEDIUM', 5, ['PCI DSS 3.2.1'], 8),
+  issue('ssl_policy_tls_version_outdated', 'SSL policy permits TLS 1.0', 'MEDIUM', 3, ['PCI DSS 3.2.1'], 16),
+  issue('pubsub_topic_no_cmek', 'Pub/Sub topic is not encrypted with a CMEK', 'MEDIUM', 9, ['SOC 2'], 20),
+  issue('bigquery_dataset_publicly_readable', 'BigQuery dataset grants allAuthenticatedUsers', 'MEDIUM', 6, ['SOC 2'], 20),
+  issue('firestore_pitr_disabled', 'Firestore point-in-time recovery is disabled', 'MEDIUM', 7, ['SOC 2', 'ISO 27001'], 18),
+  issue('gke_workload_runs_privileged', 'GKE workload runs as a privileged container', 'MEDIUM', 2, ['CIS GKE 1.4'], 10),
+  issue('memorystore_transit_encryption_disabled', 'Memorystore in-transit encryption is disabled', 'MEDIUM', 4, ['PCI DSS 3.2.1'], 22),
+  issue('api_gateway_logging_disabled', 'API Gateway config has request logging disabled', 'MEDIUM', 5, ['SOC 2'], 7),
+  issue('security_command_centre_not_premium', 'Security Command Center is not on the Premium tier', 'MEDIUM', 4, ['CIS GCP 2.0'], 25),
+  issue('os_login_not_enforced', 'OS Login is not enforced at the project level', 'MEDIUM', 3, ['CIS GCP 2.0', 'SOC 2'], 27),
+  issue('storage_bucket_versioning_disabled', 'Cloud Storage bucket versioning is disabled', 'LOW', 11, ['SOC 2'], 30),
+  issue('resource_missing_owner_label', 'Resource is missing a required owner label', 'LOW', 28, ['ISO 27001'], 30),
+  issue('resource_missing_cost_centre_label', 'Resource is missing a required cost-centre label', 'LOW', 24, ['ISO 27001'], 30),
+  issue('storage_lifecycle_policy_absent', 'Cloud Storage bucket has no lifecycle policy', 'LOW', 15, ['ISO 27001'], 29),
+  issue('compute_instance_no_ops_agent', 'Compute Engine instance has no Ops Agent installed', 'LOW', 19, ['SOC 2'], 28),
+  issue('service_account_key_older_than_90_days', 'Service account key is older than 90 days', 'LOW', 8, ['CIS GCP 2.0'], 24),
+  issue('compute_instance_default_service_account', 'Instance runs as the default Compute service account', 'LOW', 12, ['CIS GCP 2.0'], 26),
+];
+
+/** The same estate in Azure's terms. */
+export const demoIssuesAzure: IssueSummary[] = [
+  issue('storage_container_public_access', 'Blob container allows anonymous public read', 'CRITICAL', 3, ['CIS Azure 2.0', 'SOC 2', 'PCI DSS 3.2.1'], 21),
+  issue('key_vault_no_purge_protection', 'Key Vault has purge protection disabled', 'CRITICAL', 2, ['CIS Azure 2.0', 'SOC 2'], 14),
+  issue('sql_server_public_network_access', 'SQL server allows public network access', 'CRITICAL', 2, ['CIS Azure 2.0', 'HIPAA'], 5),
+  issue('secret_in_app_settings', 'Plaintext secret in App Service application settings', 'CRITICAL', 4, ['CIS Azure 2.0', 'SOC 2'], 3),
+  issue('aks_api_server_public', 'AKS API server is reachable from any network', 'CRITICAL', 2, ['CIS AKS 1.4', 'SOC 2'], 9),
+  issue('key_vault_key_no_expiry', 'Key Vault key has no expiry date set', 'CRITICAL', 5, ['CIS Azure 2.0', 'PCI DSS 3.2.1'], 17),
+  issue('nsg_allows_ssh_from_internet', 'NSG rule allows SSH (22) from Internet', 'HIGH', 9, ['CIS Azure 2.0', 'PCI DSS 3.2.1'], 30),
+  issue('nsg_allows_rdp_from_internet', 'NSG rule allows RDP (3389) from Internet', 'HIGH', 3, ['CIS Azure 2.0'], 26),
+  issue('managed_disk_no_cmk', 'Managed disk is not encrypted with a customer-managed key', 'HIGH', 17, ['SOC 2', 'HIPAA', 'ISO 27001'], 30),
+  issue('aad_user_mfa_not_enforced', 'Entra ID user without MFA enforced', 'HIGH', 6, ['CIS Azure 2.0', 'SOC 2'], 3),
+  issue('role_assignment_owner_at_subscription', 'Owner role assigned at subscription scope', 'HIGH', 4, ['CIS Azure 2.0', 'SOC 2'], 19),
+  issue('sql_backup_retention_too_short', 'SQL database backup retention is under 7 days', 'HIGH', 3, ['SOC 2', 'ISO 27001'], 11),
+  issue('nsg_flow_logs_disabled', 'NSG flow logs are disabled', 'HIGH', 3, ['CIS Azure 2.0', 'PCI DSS 3.2.1'], 23),
+  issue('file_share_no_cmk', 'Azure Files share is not encrypted with a CMK', 'HIGH', 2, ['HIPAA', 'ISO 27001'], 15),
+  issue('function_app_env_contains_secret', 'Function App setting looks like a secret', 'HIGH', 7, ['SOC 2'], 6),
+  issue('acr_image_scanning_disabled', 'Container Registry has image scanning disabled', 'HIGH', 8, ['SOC 2', 'ISO 27001'], 13),
+  issue('activity_log_no_diagnostic_setting', 'Activity log has no diagnostic setting exporting it', 'MEDIUM', 2, ['CIS Azure 2.0'], 12),
+  issue('load_balancer_diagnostics_disabled', 'Load balancer diagnostic logging is disabled', 'MEDIUM', 4, ['SOC 2', 'ISO 27001'], 2),
+  issue('function_runtime_deprecated', 'Function App uses a deprecated runtime', 'MEDIUM', 5, ['ISO 27001'], 1),
+  issue('app_gateway_listener_http_only', 'Application Gateway listener accepts plaintext HTTP', 'MEDIUM', 5, ['PCI DSS 3.2.1'], 8),
+  issue('app_service_min_tls_outdated', 'App Service permits TLS 1.0', 'MEDIUM', 3, ['PCI DSS 3.2.1'], 16),
+  issue('service_bus_queue_no_cmk', 'Service Bus queue is not encrypted with a CMK', 'MEDIUM', 9, ['SOC 2'], 20),
+  issue('event_grid_topic_public', 'Event Grid topic allows public network access', 'MEDIUM', 6, ['SOC 2'], 20),
+  issue('cosmos_continuous_backup_disabled', 'Cosmos DB continuous backup is disabled', 'MEDIUM', 7, ['SOC 2', 'ISO 27001'], 18),
+  issue('aks_workload_runs_privileged', 'AKS workload runs as a privileged container', 'MEDIUM', 2, ['CIS AKS 1.4'], 10),
+  issue('redis_non_ssl_port_enabled', 'Redis Cache has the non-SSL port enabled', 'MEDIUM', 4, ['PCI DSS 3.2.1'], 22),
+  issue('api_management_logging_disabled', 'API Management has request logging disabled', 'MEDIUM', 5, ['SOC 2'], 7),
+  issue('defender_for_cloud_not_standard', 'Defender for Cloud is not on the Standard plan', 'MEDIUM', 4, ['CIS Azure 2.0'], 25),
+  issue('storage_secure_transfer_disabled', 'Storage account does not require secure transfer', 'MEDIUM', 3, ['CIS Azure 2.0', 'SOC 2'], 27),
+  issue('blob_versioning_disabled', 'Blob versioning is disabled on the storage account', 'LOW', 11, ['SOC 2'], 30),
+  issue('resource_missing_owner_tag', 'Resource is missing a required Owner tag', 'LOW', 28, ['ISO 27001'], 30),
+  issue('resource_missing_cost_centre_tag', 'Resource is missing a required CostCentre tag', 'LOW', 24, ['ISO 27001'], 30),
+  issue('blob_lifecycle_policy_absent', 'Storage account has no blob lifecycle policy', 'LOW', 15, ['ISO 27001'], 29),
+  issue('vm_no_monitoring_agent', 'Virtual machine has no Azure Monitor agent', 'LOW', 19, ['SOC 2'], 28),
+  issue('aad_app_credential_older_than_90_days', 'App registration credential is older than 90 days', 'LOW', 8, ['CIS Azure 2.0'], 24),
+  issue('vm_no_managed_identity', 'Virtual machine has no managed identity assigned', 'LOW', 12, ['SOC 2'], 26),
+];
+
+const ISSUES_BY_PROVIDER: Record<EstateProvider, IssueSummary[]> = {
+  AWS: demoIssues, GCP: demoIssuesGcp, Azure: demoIssuesAzure,
+};
+
+export const demoIssuesFor = (url: string): IssueSummary[] => ISSUES_BY_PROVIDER[providerForUrl(url)];
+
 // ─── /api/xamsecure/issues/detail ────────────────────────────────────────────
 
 const RESOURCE_KINDS = [
@@ -169,18 +316,55 @@ const RESOURCE_NAMES = [
   'prod-web-sg', 'bastion-sg', 'legacy-app-sg', 'svc-deploy', 'svc-backup',
 ] as const;
 
+const GCP_RESOURCE_KINDS = [
+  'GCP_COMPUTE_INSTANCE', 'GCP_STORAGE_BUCKET', 'GCP_CLOUD_SQL_INSTANCE', 'GCP_FIREWALL_RULE',
+  'GCP_PERSISTENT_DISK', 'GCP_CLOUD_FUNCTION', 'GCP_SERVICE_ACCOUNT', 'GCP_GKE_POD',
+] as const;
+
+const AZURE_RESOURCE_KINDS = [
+  'AZURE_VIRTUAL_MACHINE', 'AZURE_STORAGE_ACCOUNT', 'AZURE_SQL_DATABASE', 'AZURE_NETWORK_SECURITY_GROUP',
+  'AZURE_MANAGED_DISK', 'AZURE_FUNCTION_APP', 'AZURE_AD_USER', 'AZURE_AKS_POD',
+] as const;
+
+const GCP_RESOURCE_NAMES = [
+  'gce-prod-api-01', 'gce-prod-api-02', 'gce-prod-web-01', 'gce-prod-web-02', 'gce-prod-cache-01',
+  'gce-analytics-01', 'gce-analytics-02', 'gce-analytics-03', 'gce-etl-runner-01',
+  'gce-etl-runner-02', 'checkout-run-7d9f', 'billing-run-5c2a', 'search-indexer-2b81',
+  'notification-worker-4c19', 'reporting-function', 'image-resizer-function',
+  'xammer-gcs-assets', 'xammer-gcs-logs-archive', 'xammer-gcs-public-exports',
+  'xammer-gcs-legacy-backups', 'cloudsql-prod-orders', 'cloudsql-prod-billing', 'cloudsql-staging-orders',
+  'prod-web-allow-ssh', 'bastion-allow-ssh', 'legacy-app-allow-all', 'svc-deploy', 'svc-backup',
+] as const;
+
+const AZURE_RESOURCE_NAMES = [
+  'vm-prod-api-01', 'vm-prod-api-02', 'vm-prod-web-01', 'vm-prod-web-02', 'vm-prod-cache-01',
+  'vm-analytics-01', 'vm-analytics-02', 'vm-analytics-03', 'vm-etl-runner-01',
+  'vm-etl-runner-02', 'checkout-aci-7d9f', 'billing-aci-5c2a', 'search-indexer-2b81',
+  'notification-worker-4c19', 'reporting-func', 'image-resizer-func',
+  'xammerprodassets', 'xammerlogsarchive', 'xammerpublicexports',
+  'xammerlegacybackups', 'sqldb-prod-orders', 'sqldb-prod-billing', 'sqldb-staging-orders',
+  'nsg-prod-web', 'nsg-bastion', 'nsg-legacy-app', 'sp-deploy', 'sp-backup',
+] as const;
+
+const RESOURCE_KINDS_BY_PROVIDER: Record<EstateProvider, readonly string[]> = {
+  AWS: RESOURCE_KINDS, GCP: GCP_RESOURCE_KINDS, Azure: AZURE_RESOURCE_KINDS,
+};
+const RESOURCE_NAMES_BY_PROVIDER: Record<EstateProvider, readonly string[]> = {
+  AWS: RESOURCE_NAMES, GCP: GCP_RESOURCE_NAMES, Azure: AZURE_RESOURCE_NAMES,
+};
+
 /** Builds the affected-resource table for a check, sized to its resourceCount. */
-const resourcesFor = (check: string, count: number, severity: Severity) =>
+const resourcesFor = (check: string, count: number, severity: Severity, provider: EstateProvider = 'AWS') =>
   Array.from({ length: Math.min(count, 25) }, (_, i) => {
     const seed = check.length + i;
-    const name = at(RESOURCE_NAMES, seed);
+    const name = at(RESOURCE_NAMES_BY_PROVIDER[provider], seed);
     return {
       resourceId: `${name}-${(seed * 7) % 97}`,
       resourceName: name,
-      resourceType: at(RESOURCE_KINDS, seed),
-      cloudProvider: 'AWS',
-      cloudAccountId: at(ACCOUNT_IDS, seed),
-      region: at(REGIONS, seed),
+      resourceType: at(RESOURCE_KINDS_BY_PROVIDER[provider], seed),
+      cloudProvider: provider,
+      cloudAccountId: at(ACCOUNTS_BY_PROVIDER[provider], seed),
+      region: at(REGIONS_BY_PROVIDER[provider], seed),
       severity: i % 4 === 3 ? 'MEDIUM' : severity,
       lastSeenTime: hoursAgo(spread(i, 2, 30)),
     };
@@ -217,7 +401,13 @@ const DESCRIPTION: Record<string, string> = {
 };
 
 export const demoIssueDetail = (check: string): IssueDetail => {
-  const known = demoIssues.find((i) => i.check === check);
+  // Resolved across all three estates, and the provider is taken from whichever one owns the
+  // check — so a GCP finding's affected-resource table lists GCP resources in GCP regions.
+  const provider: EstateProvider =
+    demoIssuesGcp.some((i) => i.check === check) ? 'GCP'
+    : demoIssuesAzure.some((i) => i.check === check) ? 'Azure'
+    : 'AWS';
+  const known = ISSUES_BY_PROVIDER[provider].find((i) => i.check === check);
   const title = known?.title ?? check.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
   const severity = known?.severity ?? 'MEDIUM';
   const resourceCount = known?.resourceCount ?? 3;
@@ -234,7 +424,7 @@ export const demoIssueDetail = (check: string): IssueDetail => {
     firstSeen: known?.firstSeen ?? daysAgo(9),
     lastEvaluation: hoursAgo(4),
     resourceCount,
-    resources: resourcesFor(check, resourceCount, severity),
+    resources: resourcesFor(check, resourceCount, severity, provider),
   };
 };
 
@@ -291,6 +481,106 @@ export const demoAttackSurface: AttackSurfaceSummary = {
     exposureFinding('alb_no_deletion_protection', 'Load balancer has deletion protection disabled', 'LOW', 4, ['ISO 27001'], 21, 'AWS_ALB', 'Availability'),
   ],
 };
+
+/**
+ * Internet-exposed GCP surface. Same totals and severity mix as the AWS estate so the demo reads
+ * consistently whichever account is selected, but every resource type, check and framework is
+ * GCP-native. The AWS version was being served for GCP projects, which is why the dashboard
+ * listed CloudFront distributions and Elasticsearch domains against a GCP account.
+ */
+export const demoAttackSurfaceGcp: AttackSurfaceSummary = {
+  exposedResourceCount: 63,
+  exposedByType: [
+    { type: 'GCP_STORAGE_BUCKET', count: 14 },
+    { type: 'GCP_COMPUTE_INSTANCE', count: 12 },
+    { type: 'GCP_LOAD_BALANCER', count: 9 },
+    { type: 'GCP_DNS_RECORD_SET', count: 8 },
+    { type: 'GCP_CLOUD_CDN', count: 6 },
+    { type: 'GCP_API_GATEWAY', count: 5 },
+    { type: 'GCP_CLOUD_RUN_SERVICE', count: 3 },
+    { type: 'GCP_CLOUD_SQL_INSTANCE', count: 2 },
+    { type: 'GCP_FILESTORE', count: 2 },
+    { type: 'GCP_BIGQUERY_DATASET', count: 2 },
+  ],
+  exposedByLocation: [
+    { country: 'India',          coordinates: [78.9629, 20.5937], count: 24 },
+    { country: 'United States',  coordinates: [-95.7129, 37.0902], count: 18 },
+    { country: 'Belgium',        coordinates: [4.4699, 50.5039], count: 7 },
+    { country: 'Netherlands',    coordinates: [5.2913, 52.1326], count: 5 },
+    { country: 'Singapore',      coordinates: [103.8198, 1.3521], count: 4 },
+    { country: 'Japan',          coordinates: [138.2529, 36.2048], count: 3 },
+    { country: 'Australia',      coordinates: [133.7751, -25.2744], count: 2 },
+  ],
+  severityCounts: { CRITICAL: 9, HIGH: 24, MEDIUM: 21, LOW: 9 },
+  findings: [
+    exposureFinding('storage_bucket_public_access', 'Cloud Storage bucket is publicly accessible', 'CRITICAL', 3, ['CIS GCP 2.0', 'SOC 2'], 21, 'GCP_STORAGE_BUCKET', 'Data exposure'),
+    exposureFinding('cloudsql_instance_public_ip', 'Cloud SQL instance is reachable on a public IP', 'CRITICAL', 2, ['CIS GCP 2.0', 'HIPAA'], 5, 'GCP_CLOUD_SQL_INSTANCE', 'Direct database access'),
+    exposureFinding('bigquery_dataset_publicly_readable', 'BigQuery dataset grants allAuthenticatedUsers', 'CRITICAL', 2, ['SOC 2'], 12, 'GCP_BIGQUERY_DATASET', 'Data exposure'),
+    exposureFinding('gke_control_plane_public', 'GKE control plane endpoint is public', 'CRITICAL', 2, ['CIS GKE 1.4'], 9, 'GCP_COMPUTE_INSTANCE', 'Cluster takeover'),
+    exposureFinding('firewall_allows_ssh_from_anywhere', 'Firewall rule allows SSH (22) from 0.0.0.0/0', 'HIGH', 9, ['CIS GCP 2.0'], 30, 'GCP_COMPUTE_INSTANCE', 'Remote access'),
+    exposureFinding('firewall_allows_rdp_from_anywhere', 'Firewall rule allows RDP (3389) from 0.0.0.0/0', 'HIGH', 3, ['CIS GCP 2.0'], 26, 'GCP_COMPUTE_INSTANCE', 'Remote access'),
+    exposureFinding('lb_forwarding_rule_http_only', 'Load balancer forwarding rule accepts plaintext HTTP', 'HIGH', 5, ['PCI DSS 3.2.1'], 8, 'GCP_LOAD_BALANCER', 'Traffic interception'),
+    exposureFinding('api_gateway_no_authenticator', 'API Gateway route has no authenticator', 'HIGH', 5, ['SOC 2'], 7, 'GCP_API_GATEWAY', 'Unauthenticated access'),
+    exposureFinding('ssl_policy_tls_version_outdated', 'SSL policy permits TLS 1.0', 'HIGH', 3, ['PCI DSS 3.2.1'], 16, 'GCP_CLOUD_CDN', 'Traffic interception'),
+    exposureFinding('dns_record_points_to_unclaimed_bucket', 'DNS record points to an unclaimed origin', 'MEDIUM', 4, ['ISO 27001'], 6, 'GCP_DNS_RECORD_SET', 'Subdomain takeover'),
+    exposureFinding('cloud_run_allows_unauthenticated', 'Cloud Run service allows allUsers invocation', 'MEDIUM', 3, ['SOC 2'], 33, 'GCP_CLOUD_RUN_SERVICE', 'Unauthenticated access'),
+    exposureFinding('storage_bucket_website_hosting_enabled', 'Cloud Storage static website hosting is enabled', 'MEDIUM', 6, ['SOC 2'], 19, 'GCP_STORAGE_BUCKET', 'Data exposure'),
+    exposureFinding('cloud_armor_policy_absent', 'Load balancer has no Cloud Armor policy attached', 'MEDIUM', 6, ['SOC 2'], 14, 'GCP_CLOUD_CDN', 'Application attack'),
+    exposureFinding('filestore_reachable_from_public_subnet', 'Filestore instance reachable from the public subnetwork', 'LOW', 2, ['SOC 2'], 16, 'GCP_FILESTORE', 'Data exposure'),
+    exposureFinding('lb_no_deletion_protection', 'Load balancer has deletion protection disabled', 'LOW', 4, ['ISO 27001'], 21, 'GCP_LOAD_BALANCER', 'Availability'),
+  ],
+};
+
+/** Internet-exposed Azure surface, same construction as the GCP one above. */
+export const demoAttackSurfaceAzure: AttackSurfaceSummary = {
+  exposedResourceCount: 63,
+  exposedByType: [
+    { type: 'AZURE_STORAGE_ACCOUNT', count: 14 },
+    { type: 'AZURE_VIRTUAL_MACHINE', count: 12 },
+    { type: 'AZURE_LOAD_BALANCER', count: 9 },
+    { type: 'AZURE_DNS_RECORD_SET', count: 8 },
+    { type: 'AZURE_CDN_ENDPOINT', count: 6 },
+    { type: 'AZURE_API_MANAGEMENT', count: 5 },
+    { type: 'AZURE_APP_SERVICE', count: 3 },
+    { type: 'AZURE_SQL_DATABASE', count: 2 },
+    { type: 'AZURE_FILE_SHARE', count: 2 },
+    { type: 'AZURE_SYNAPSE_WORKSPACE', count: 2 },
+  ],
+  exposedByLocation: [
+    { country: 'India',          coordinates: [78.9629, 20.5937], count: 24 },
+    { country: 'United States',  coordinates: [-95.7129, 37.0902], count: 18 },
+    { country: 'Netherlands',    coordinates: [5.2913, 52.1326], count: 7 },
+    { country: 'United Kingdom', coordinates: [-3.4360, 55.3781], count: 5 },
+    { country: 'Singapore',      coordinates: [103.8198, 1.3521], count: 4 },
+    { country: 'Japan',          coordinates: [138.2529, 36.2048], count: 3 },
+    { country: 'Australia',      coordinates: [133.7751, -25.2744], count: 2 },
+  ],
+  severityCounts: { CRITICAL: 9, HIGH: 24, MEDIUM: 21, LOW: 9 },
+  findings: [
+    exposureFinding('storage_container_public_access', 'Blob container allows anonymous public read', 'CRITICAL', 3, ['CIS Azure 2.0', 'SOC 2'], 21, 'AZURE_STORAGE_ACCOUNT', 'Data exposure'),
+    exposureFinding('sql_server_public_network_access', 'SQL server allows public network access', 'CRITICAL', 2, ['CIS Azure 2.0', 'HIPAA'], 5, 'AZURE_SQL_DATABASE', 'Direct database access'),
+    exposureFinding('synapse_workspace_public', 'Synapse workspace is reachable from the internet', 'CRITICAL', 2, ['SOC 2'], 12, 'AZURE_SYNAPSE_WORKSPACE', 'Data exposure'),
+    exposureFinding('aks_api_server_public', 'AKS API server is reachable from any network', 'CRITICAL', 2, ['CIS AKS 1.4'], 9, 'AZURE_VIRTUAL_MACHINE', 'Cluster takeover'),
+    exposureFinding('nsg_allows_ssh_from_internet', 'NSG rule allows SSH (22) from Internet', 'HIGH', 9, ['CIS Azure 2.0'], 30, 'AZURE_VIRTUAL_MACHINE', 'Remote access'),
+    exposureFinding('nsg_allows_rdp_from_internet', 'NSG rule allows RDP (3389) from Internet', 'HIGH', 3, ['CIS Azure 2.0'], 26, 'AZURE_VIRTUAL_MACHINE', 'Remote access'),
+    exposureFinding('app_gateway_listener_http_only', 'Application Gateway listener accepts plaintext HTTP', 'HIGH', 5, ['PCI DSS 3.2.1'], 8, 'AZURE_LOAD_BALANCER', 'Traffic interception'),
+    exposureFinding('api_management_no_subscription_key', 'API Management operation requires no subscription key', 'HIGH', 5, ['SOC 2'], 7, 'AZURE_API_MANAGEMENT', 'Unauthenticated access'),
+    exposureFinding('app_service_min_tls_outdated', 'App Service permits TLS 1.0', 'HIGH', 3, ['PCI DSS 3.2.1'], 16, 'AZURE_CDN_ENDPOINT', 'Traffic interception'),
+    exposureFinding('dns_record_points_to_unclaimed_origin', 'DNS record points to an unclaimed origin', 'MEDIUM', 4, ['ISO 27001'], 6, 'AZURE_DNS_RECORD_SET', 'Subdomain takeover'),
+    exposureFinding('app_service_allows_anonymous', 'App Service allows anonymous authentication', 'MEDIUM', 3, ['SOC 2'], 33, 'AZURE_APP_SERVICE', 'Unauthenticated access'),
+    exposureFinding('static_website_hosting_enabled', 'Storage account static website hosting is enabled', 'MEDIUM', 6, ['SOC 2'], 19, 'AZURE_STORAGE_ACCOUNT', 'Data exposure'),
+    exposureFinding('front_door_waf_absent', 'CDN endpoint has no WAF policy attached', 'MEDIUM', 6, ['SOC 2'], 14, 'AZURE_CDN_ENDPOINT', 'Application attack'),
+    exposureFinding('file_share_public_endpoint', 'Azure Files share reachable on its public endpoint', 'LOW', 2, ['SOC 2'], 16, 'AZURE_FILE_SHARE', 'Data exposure'),
+    exposureFinding('load_balancer_no_delete_lock', 'Load balancer has no delete lock', 'LOW', 4, ['ISO 27001'], 21, 'AZURE_LOAD_BALANCER', 'Availability'),
+  ],
+};
+
+const ATTACK_SURFACE_BY_PROVIDER: Record<EstateProvider, AttackSurfaceSummary> = {
+  AWS: demoAttackSurface, GCP: demoAttackSurfaceGcp, Azure: demoAttackSurfaceAzure,
+};
+
+export const demoAttackSurfaceFor = (url: string): AttackSurfaceSummary =>
+  ATTACK_SURFACE_BY_PROVIDER[providerForUrl(url)];
 
 // ─── /api/xamsecure/threats ──────────────────────────────────────────────────
 
@@ -850,6 +1140,55 @@ const POSTURE_RESOURCE_BY_CHECK: Record<string, readonly [string, string]> = {
   vpc_flow_logs_disabled: ['prod-vpc', 'AWS_VPC'],
 };
 
+const GCP_POSTURE_RESOURCE_BY_CHECK: Record<string, readonly [string, string]> = {
+  storage_bucket_public_access: ['xammer-gcs-assets', 'GCP_STORAGE_BUCKET'],
+  storage_bucket_versioning_disabled: ['xammer-gcs-logs-archive', 'GCP_STORAGE_BUCKET'],
+  storage_lifecycle_policy_absent: ['xammer-gcs-legacy-backups', 'GCP_STORAGE_BUCKET'],
+  service_account_user_managed_key: ['svc-deploy', 'GCP_SERVICE_ACCOUNT'],
+  service_account_key_older_than_90_days: ['svc-backup', 'GCP_SERVICE_ACCOUNT'],
+  iam_primitive_role_at_project: ['roles/editor', 'GCP_IAM_ROLE'],
+  iam_service_account_token_creator: ['svc-deploy', 'GCP_SERVICE_ACCOUNT'],
+  cloudsql_instance_public_ip: ['cloudsql-prod-orders', 'GCP_CLOUD_SQL_INSTANCE'],
+  cloudsql_backup_retention_too_short: ['cloudsql-staging-orders', 'GCP_CLOUD_SQL_INSTANCE'],
+  firewall_allows_ssh_from_anywhere: ['prod-web-allow-ssh', 'GCP_FIREWALL_RULE'],
+  firewall_allows_rdp_from_anywhere: ['legacy-app-allow-all', 'GCP_FIREWALL_RULE'],
+  persistent_disk_no_cmek: ['gce-prod-api-01-boot', 'GCP_PERSISTENT_DISK'],
+  cloud_function_runtime_deprecated: ['reporting-function', 'GCP_CLOUD_FUNCTION'],
+  cloud_function_env_contains_secret: ['image-resizer-function', 'GCP_CLOUD_FUNCTION'],
+  lb_access_logs_disabled: ['prod-public-lb', 'GCP_LOAD_BALANCER'],
+  lb_forwarding_rule_http_only: ['prod-public-lb', 'GCP_LOAD_BALANCER'],
+  audit_log_sink_missing: ['xammer-org-sink', 'GCP_LOG_SINK'],
+  subnetwork_flow_logs_disabled: ['prod-subnet', 'GCP_SUBNETWORK'],
+};
+
+const AZURE_POSTURE_RESOURCE_BY_CHECK: Record<string, readonly [string, string]> = {
+  storage_container_public_access: ['xammerprodassets', 'AZURE_STORAGE_ACCOUNT'],
+  blob_versioning_disabled: ['xammerlogsarchive', 'AZURE_STORAGE_ACCOUNT'],
+  blob_lifecycle_policy_absent: ['xammerlegacybackups', 'AZURE_STORAGE_ACCOUNT'],
+  aad_user_mfa_not_enforced: ['sp-deploy', 'AZURE_AD_USER'],
+  aad_app_credential_older_than_90_days: ['sp-backup', 'AZURE_AD_USER'],
+  role_assignment_owner_at_subscription: ['Owner', 'AZURE_ROLE_ASSIGNMENT'],
+  key_vault_no_purge_protection: ['kv-prod-xammer', 'AZURE_KEY_VAULT'],
+  key_vault_key_no_expiry: ['kv-prod-xammer', 'AZURE_KEY_VAULT'],
+  sql_server_public_network_access: ['sqldb-prod-orders', 'AZURE_SQL_DATABASE'],
+  sql_backup_retention_too_short: ['sqldb-staging-orders', 'AZURE_SQL_DATABASE'],
+  nsg_allows_ssh_from_internet: ['nsg-prod-web', 'AZURE_NETWORK_SECURITY_GROUP'],
+  nsg_allows_rdp_from_internet: ['nsg-legacy-app', 'AZURE_NETWORK_SECURITY_GROUP'],
+  managed_disk_no_cmk: ['vm-prod-api-01-osdisk', 'AZURE_MANAGED_DISK'],
+  function_runtime_deprecated: ['reporting-func', 'AZURE_FUNCTION_APP'],
+  function_app_env_contains_secret: ['image-resizer-func', 'AZURE_FUNCTION_APP'],
+  load_balancer_diagnostics_disabled: ['lb-prod-public', 'AZURE_LOAD_BALANCER'],
+  app_gateway_listener_http_only: ['appgw-prod-public', 'AZURE_APPLICATION_GATEWAY'],
+  activity_log_no_diagnostic_setting: ['xammer-activity-log', 'AZURE_DIAGNOSTIC_SETTING'],
+  nsg_flow_logs_disabled: ['nsg-prod-web', 'AZURE_NETWORK_SECURITY_GROUP'],
+};
+
+const POSTURE_RESOURCE_BY_PROVIDER: Record<EstateProvider, Record<string, readonly [string, string]>> = {
+  AWS: POSTURE_RESOURCE_BY_CHECK,
+  GCP: GCP_POSTURE_RESOURCE_BY_CHECK,
+  Azure: AZURE_POSTURE_RESOURCE_BY_CHECK,
+};
+
 const FRAMEWORK_OF = (frameworks: string[]) => frameworks[0] ?? 'SOC 2';
 
 /**
@@ -857,38 +1196,53 @@ const FRAMEWORK_OF = (frameworks: string[]) => frameworks[0] ?? 'SOC 2';
  * Configurations table and the Issues table describe the same estate.
  * ~250 rows across five pages.
  */
-export const demoPostureAll: PostureFinding[] = demoIssues.flatMap((iss, issueIndex) =>
-  Array.from({ length: Math.min(iss.resourceCount, 12) }, (_, r) => {
-    const seed = issueIndex * 13 + r;
-    const [fallbackName, fallbackType] = [at(RESOURCE_NAMES, seed), at(RESOURCE_KINDS, seed)];
-    const [name, type] = POSTURE_RESOURCE_BY_CHECK[iss.check] ?? [fallbackName, fallbackType];
-    return {
-      id: seed + 1,
-      upwindId: `pst-${(seed + 1).toString().padStart(5, '0')}`,
-      resourceId: `${name}-${(seed * 7) % 97}`,
-      severity: iss.severity,
-      status: 'OPEN',
-      title: iss.title,
-      frameworkTitle: FRAMEWORK_OF(iss.frameworks),
-      checkTitle: iss.check,
-      cloudProvider: 'AWS',
-      cloudAccountId: at(ACCOUNT_IDS, seed),
-      region: at(REGIONS, seed),
-      resourceName: r === 0 ? name : `${name}-${r}`,
-      resourceType: type,
-      // A slice of the estate is Kubernetes, so the cluster/namespace column has something
-      // to show. Cloud resources keep these null, as the real payload does.
-      clusterId: seed % 9 === 0 ? '4122e4ce-1ca2-408a-8fb9-fff348a8c525' : null,
-      namespace: seed % 9 === 0 ? at(['prod', 'staging', 'analytics'], seed) : null,
-      firstSeenTime: iss.firstSeen,
-      lastSeenTime: hoursAgo(4),
-      rawPayload: null,
-    };
-  })
-);
+const buildPosture = (provider: EstateProvider): PostureFinding[] => {
+  const names = RESOURCE_NAMES_BY_PROVIDER[provider];
+  const kinds = RESOURCE_KINDS_BY_PROVIDER[provider];
+  const byCheck = POSTURE_RESOURCE_BY_PROVIDER[provider];
+  const accounts = ACCOUNTS_BY_PROVIDER[provider];
+  const regions = REGIONS_BY_PROVIDER[provider];
+
+  return ISSUES_BY_PROVIDER[provider].flatMap((iss, issueIndex) =>
+    Array.from({ length: Math.min(iss.resourceCount, 12) }, (_, r) => {
+      const seed = issueIndex * 13 + r;
+      const [fallbackName, fallbackType] = [at(names, seed), at(kinds, seed)];
+      const [name, type] = byCheck[iss.check] ?? [fallbackName, fallbackType];
+      return {
+        id: seed + 1,
+        upwindId: `pst-${(seed + 1).toString().padStart(5, '0')}`,
+        resourceId: `${name}-${(seed * 7) % 97}`,
+        severity: iss.severity,
+        status: 'OPEN',
+        title: iss.title,
+        frameworkTitle: FRAMEWORK_OF(iss.frameworks),
+        checkTitle: iss.check,
+        cloudProvider: provider,
+        cloudAccountId: at(accounts, seed),
+        region: at(regions, seed),
+        resourceName: r === 0 ? name : `${name}-${r}`,
+        resourceType: type,
+        // A slice of the estate is Kubernetes, so the cluster/namespace column has something
+        // to show. Cloud resources keep these null, as the real payload does.
+        clusterId: seed % 9 === 0 ? '4122e4ce-1ca2-408a-8fb9-fff348a8c525' : null,
+        namespace: seed % 9 === 0 ? at(['prod', 'staging', 'analytics'], seed) : null,
+        firstSeenTime: iss.firstSeen,
+        lastSeenTime: hoursAgo(4),
+        rawPayload: null,
+      };
+    })
+  );
+};
+
+/** The AWS estate, kept as a named export because the Overview rollups derive from it. */
+export const demoPostureAll: PostureFinding[] = buildPosture('AWS');
+
+const POSTURE_BY_PROVIDER: Record<EstateProvider, PostureFinding[]> = {
+  AWS: demoPostureAll, GCP: buildPosture('GCP'), Azure: buildPosture('Azure'),
+};
 
 export const demoPosturePage = (url: string): PageResp<PostureFinding> =>
-  paginate(bySeverity(demoPostureAll, url), url);
+  paginate(bySeverity(POSTURE_BY_PROVIDER[providerForUrl(url)], url), url);
 
 // ─── /api/xamsecure/inventory ────────────────────────────────────────────────
 
@@ -924,14 +1278,86 @@ const ASSET_SHAPES: ReadonlyArray<readonly [string, string, string, string]> = [
   ['messaging',  'topic',           'AWS_SNS_TOPIC',          'topic'],
 ];
 
+const GCP_ASSET_SHAPES: ReadonlyArray<readonly [string, string, string, string]> = [
+  // category, sub-category, resource type, name prefix
+  ['compute',    'instance',        'GCP_COMPUTE_INSTANCE',      'gce'],
+  ['compute',    'instance',        'GCP_COMPUTE_INSTANCE',      'worker'],
+  ['compute',    'container',       'GCP_CLOUD_RUN_SERVICE',     'run'],
+  ['compute',    'container',       'GCP_GKE_POD',               'pod'],
+  ['compute',    'auto-scaling',    'GCP_INSTANCE_GROUP',        'mig'],
+  ['serverless', 'function',        'GCP_CLOUD_FUNCTION',        'fn'],
+  ['serverless', 'step-function',   'GCP_WORKFLOW',              'flow'],
+  ['storage',    'object-storage',  'GCP_STORAGE_BUCKET',        'xammer-bucket'],
+  ['storage',    'block-storage',   'GCP_PERSISTENT_DISK',       'disk'],
+  ['storage',    'file-storage',    'GCP_FILESTORE',             'filestore'],
+  ['storage',    'backup',          'GCP_BACKUP_VAULT',          'vault'],
+  ['database',   'relational',      'GCP_CLOUD_SQL_INSTANCE',    'cloudsql'],
+  ['database',   'nosql',           'GCP_FIRESTORE_DATABASE',    'firestore'],
+  ['database',   'cache',           'GCP_MEMORYSTORE_INSTANCE',  'memstore'],
+  ['database',   'warehouse',       'GCP_BIGQUERY_DATASET',      'bq'],
+  ['networking', 'vpc',             'GCP_VPC_NETWORK',           'vpc'],
+  ['networking', 'subnet',          'GCP_SUBNETWORK',            'subnet'],
+  ['networking', 'security-group',  'GCP_FIREWALL_RULE',         'fw'],
+  ['networking', 'load-balancer',   'GCP_LOAD_BALANCER',         'lb'],
+  ['networking', 'nat-gateway',     'GCP_CLOUD_NAT',             'nat'],
+  ['networking', 'internet-gateway', 'GCP_CLOUD_ROUTER',         'router'],
+  ['networking', 'dns',             'GCP_DNS_MANAGED_ZONE',      'zone'],
+  ['identity',   'user',            'GCP_SERVICE_ACCOUNT',       'sa'],
+  ['identity',   'role',            'GCP_IAM_ROLE',              'role'],
+  ['identity',   'policy',          'GCP_IAM_POLICY_BINDING',    'binding'],
+  ['identity',   'secret',          'GCP_SECRET_MANAGER_SECRET', 'secret'],
+  ['messaging',  'queue',           'GCP_PUBSUB_SUBSCRIPTION',   'sub'],
+  ['messaging',  'topic',           'GCP_PUBSUB_TOPIC',          'topic'],
+];
+
+const AZURE_ASSET_SHAPES: ReadonlyArray<readonly [string, string, string, string]> = [
+  ['compute',    'instance',        'AZURE_VIRTUAL_MACHINE',        'vm'],
+  ['compute',    'instance',        'AZURE_VIRTUAL_MACHINE',        'worker'],
+  ['compute',    'container',       'AZURE_CONTAINER_INSTANCE',     'aci'],
+  ['compute',    'container',       'AZURE_AKS_POD',                'pod'],
+  ['compute',    'auto-scaling',    'AZURE_VM_SCALE_SET',           'vmss'],
+  ['serverless', 'function',        'AZURE_FUNCTION_APP',           'fn'],
+  ['serverless', 'step-function',   'AZURE_LOGIC_APP',              'flow'],
+  ['storage',    'object-storage',  'AZURE_STORAGE_ACCOUNT',        'xammerbucket'],
+  ['storage',    'block-storage',   'AZURE_MANAGED_DISK',           'disk'],
+  ['storage',    'file-storage',    'AZURE_FILE_SHARE',             'share'],
+  ['storage',    'backup',          'AZURE_RECOVERY_SERVICES_VAULT', 'vault'],
+  ['database',   'relational',      'AZURE_SQL_DATABASE',           'sqldb'],
+  ['database',   'nosql',           'AZURE_COSMOS_DB_ACCOUNT',      'cosmos'],
+  ['database',   'cache',           'AZURE_REDIS_CACHE',            'redis'],
+  ['database',   'warehouse',       'AZURE_SYNAPSE_WORKSPACE',      'synapse'],
+  ['networking', 'vpc',             'AZURE_VIRTUAL_NETWORK',        'vnet'],
+  ['networking', 'subnet',          'AZURE_SUBNET',                 'subnet'],
+  ['networking', 'security-group',  'AZURE_NETWORK_SECURITY_GROUP', 'nsg'],
+  ['networking', 'load-balancer',   'AZURE_LOAD_BALANCER',          'lb'],
+  ['networking', 'nat-gateway',     'AZURE_NAT_GATEWAY',            'nat'],
+  ['networking', 'internet-gateway', 'AZURE_APPLICATION_GATEWAY',   'appgw'],
+  ['networking', 'dns',             'AZURE_DNS_ZONE',               'zone'],
+  ['identity',   'user',            'AZURE_AD_USER',                'user'],
+  ['identity',   'role',            'AZURE_ROLE_ASSIGNMENT',        'role'],
+  ['identity',   'policy',          'AZURE_POLICY_ASSIGNMENT',      'policy'],
+  ['identity',   'secret',          'AZURE_KEY_VAULT_SECRET',       'secret'],
+  ['messaging',  'queue',           'AZURE_SERVICE_BUS_QUEUE',      'queue'],
+  ['messaging',  'topic',           'AZURE_EVENT_GRID_TOPIC',       'topic'],
+];
+
+const ASSET_SHAPES_BY_PROVIDER: Record<EstateProvider, ReadonlyArray<readonly [string, string, string, string]>> = {
+  AWS: ASSET_SHAPES, GCP: GCP_ASSET_SHAPES, Azure: AZURE_ASSET_SHAPES,
+};
+
 const ENVIRONMENTS = ['prod', 'staging', 'dev', 'analytics'] as const;
 
 /** 224 assets — five pages at 50 per page, spread across eight categories. */
-export const demoInventoryAll: InventoryAsset[] = Array.from({ length: 224 }, (_, i) => {
-  const [assetCategory, assetSubCategory, resourceType, prefix] = at(ASSET_SHAPES, i);
+const buildInventory = (provider: EstateProvider): InventoryAsset[] =>
+  Array.from({ length: 224 }, (_, i) => {
+  const [assetCategory, assetSubCategory, resourceType, prefix] = at(ASSET_SHAPES_BY_PROVIDER[provider], i);
   const env = at(ENVIRONMENTS, Math.floor(i / 7));
   const name = `${env}-${prefix}-${String((i % 60) + 1).padStart(2, '0')}`;
-  const provider = i % 11 === 0 ? 'GCP' : i % 17 === 0 ? 'Azure' : 'AWS';
+  // The three vulnerability counts were independent expressions, so an asset could report
+  // "3 critical" inside a total of 0 — visible in the asset panel's Risk section, and
+  // impossible for the real rollup, where the total is the sum over the bands.
+  const vulnCritical = i % 7 === 0 ? (i % 4) : 0;
+  const vulnHigh = i % 5 === 0 ? (i % 9) : 0;
   return {
     id: i + 1,
     upwindId: `inv-${(i + 1).toString().padStart(5, '0')}`,
@@ -939,10 +1365,10 @@ export const demoInventoryAll: InventoryAsset[] = Array.from({ length: 224 }, (_
     assetSubCategory,
     label: resourceType,
     cloudProvider: provider,
-    cloudAccountId: at(ACCOUNT_IDS, i),
+    cloudAccountId: at(ACCOUNTS_BY_PROVIDER[provider], i),
     cloudResourceId: `${resourceType.toLowerCase()}/${name}`,
     name,
-    region: at(REGIONS, i),
+    region: at(REGIONS_BY_PROVIDER[provider], i),
     status: i % 23 === 0 ? 'STOPPED' : 'ACTIVE',
     rawPayload: null,
     // Catalog risk signals. Sparse on purpose: most assets carry none, which is what makes
@@ -954,9 +1380,9 @@ export const demoInventoryAll: InventoryAsset[] = Array.from({ length: 224 }, (_
     sensitivePiiInTransit: assetCategory === 'compute_platform' && i % 13 === 0,
     sensitivePhiInTransit: false,
     sensitivePciInTransit: false,
-    vulnCriticalCount: i % 7 === 0 ? (i % 4) : 0,
-    vulnHighCount: i % 5 === 0 ? (i % 9) : 0,
-    vulnTotalCount: i % 3 === 0 ? (i % 24) : 0,
+    vulnCriticalCount: vulnCritical,
+    vulnHighCount: vulnHigh,
+    vulnTotalCount: Math.max(i % 3 === 0 ? (i % 24) : 0, vulnCritical + vulnHigh),
     detectionTotalCount: i % 11 === 0 ? (i % 5) : 0,
     internetExposureType: i % 8 === 0 ? 'wide' : null,
     // Empty on every real asset measured, so the demo keeps it mostly null rather than
@@ -972,20 +1398,25 @@ export const demoInventoryAll: InventoryAsset[] = Array.from({ length: 224 }, (_
   };
 });
 
-/** Rollup derived from the assets above, so the strip agrees with the table. */
-export const demoInventoryRisk: InventoryRisk = {
-  assets: demoInventoryAll.length,
-  pii: demoInventoryAll.filter((a) => a.sensitivePiiAtRest || a.sensitivePiiInTransit).length,
-  phi: 0,
-  pci: demoInventoryAll.filter((a) => a.sensitivePciAtRest).length,
-  elevatedPrivilege: demoInventoryAll.filter((a) => a.hasElevatedPrivilege).length,
-  eolTechnology: demoInventoryAll.filter((a) => a.hasEolTechnology).length,
-  internetExposed: demoInventoryAll.filter((a) => a.internetExposureType !== null).length,
+/** The AWS estate, kept as a named export because other fixtures index into it. */
+export const demoInventoryAll: InventoryAsset[] = buildInventory('AWS');
+
+const INVENTORY_BY_PROVIDER: Record<EstateProvider, InventoryAsset[]> = {
+  AWS: demoInventoryAll, GCP: buildInventory('GCP'), Azure: buildInventory('Azure'),
 };
 
-/** Counts come from the assets themselves, so the rail agrees with the table. */
-export const demoInventoryCategories: InventoryCategory[] = Object.entries(
-  demoInventoryAll.reduce<Record<string, number>>((acc, a) => {
+const riskOf = (assets: InventoryAsset[]): InventoryRisk => ({
+  assets: assets.length,
+  pii: assets.filter((a) => a.sensitivePiiAtRest || a.sensitivePiiInTransit).length,
+  phi: 0,
+  pci: assets.filter((a) => a.sensitivePciAtRest).length,
+  elevatedPrivilege: assets.filter((a) => a.hasElevatedPrivilege).length,
+  eolTechnology: assets.filter((a) => a.hasEolTechnology).length,
+  internetExposed: assets.filter((a) => a.internetExposureType !== null).length,
+});
+
+const categoriesOf = (assets: InventoryAsset[]): InventoryCategory[] => Object.entries(
+  assets.reduce<Record<string, number>>((acc, a) => {
     const key = a.assetCategory ?? 'uncategorized';
     acc[key] = (acc[key] ?? 0) + 1;
     return acc;
@@ -994,16 +1425,29 @@ export const demoInventoryCategories: InventoryCategory[] = Object.entries(
   .map(([category, count]) => ({ category, count }))
   .sort((a, b) => b.count - a.count);
 
+/** Rollup derived from the assets above, so the strip agrees with the table. */
+export const demoInventoryRisk: InventoryRisk = riskOf(demoInventoryAll);
+
+/** Counts come from the assets themselves, so the rail agrees with the table. */
+export const demoInventoryCategories: InventoryCategory[] = categoriesOf(demoInventoryAll);
+
+export const demoInventoryRiskFor = (url: string): InventoryRisk =>
+  riskOf(INVENTORY_BY_PROVIDER[providerForUrl(url)]);
+
+export const demoInventoryCategoriesFor = (url: string): InventoryCategory[] =>
+  categoriesOf(INVENTORY_BY_PROVIDER[providerForUrl(url)]);
+
 export const demoInventoryPage = (url: string): PageResp<InventoryAsset> => {
+  const assets = INVENTORY_BY_PROVIDER[providerForUrl(url)];
   const category = qs(url).get('category');
   const filtered = category
-    ? demoInventoryAll.filter((a) => a.assetCategory === category)
-    : demoInventoryAll;
+    ? assets.filter((a) => a.assetCategory === category)
+    : assets;
   return paginate(filtered, url);
 };
 
-const networkNodes: NetworkNode[] = Object.entries(
-  demoInventoryAll
+const networkNodesOf = (assets: InventoryAsset[]): NetworkNode[] => Object.entries(
+  assets
     .filter((a) => a.assetCategory === 'networking')
     .reduce<Record<string, number>>((acc, a) => {
       const key = a.assetSubCategory ?? 'other';
@@ -1014,6 +1458,8 @@ const networkNodes: NetworkNode[] = Object.entries(
   .map(([subCategory, count]) => ({ subCategory, count }))
   .sort((a, b) => b.count - a.count);
 
+const networkNodes: NetworkNode[] = networkNodesOf(demoInventoryAll);
+
 /**
  * Demo configuration graph, shaped like the real one: VPCs holding subnets, subnets holding
  * network interfaces, instances attached to interfaces, security groups sitting in the VPC with
@@ -1022,17 +1468,50 @@ const networkNodes: NetworkNode[] = Object.entries(
  * Proportions follow the live measurement (97% of nodes connected, load balancers and NAT
  * gateways the honest orphans) so demo mode does not imply a cleaner topology than production.
  */
-const buildDemoGraph = (): ConfigGraph => {
+// Node type strings per provider. The structure is identical across clouds — a network holding
+// subnets, subnets holding interfaces, instances attached to interfaces — only the labels differ.
+// Without this the Inventory tab's Network map drew aws_vpc / aws_ec2_instance nodes for a GCP
+// project, same as the Catalog table did.
+interface GraphLabels {
+  vpc: string; securityGroup: string; subnet: string; nic: string; instance: string;
+  loadBalancer: string; natGateway: string; sgToken: string; nicToken: string;
+}
+
+const GRAPH_LABELS: Record<EstateProvider, GraphLabels> = {
+  AWS: {
+    vpc: 'aws_vpc', securityGroup: 'aws_security_group', subnet: 'aws_subnet',
+    nic: 'aws_elastic_network_interface', instance: 'aws_ec2_instance',
+    loadBalancer: 'aws_application_load_balancer', natGateway: 'aws_nat_gateway',
+    sgToken: 'sg', nicToken: 'eni',
+  },
+  GCP: {
+    vpc: 'gcp_vpc_network', securityGroup: 'gcp_firewall_rule', subnet: 'gcp_subnetwork',
+    nic: 'gcp_network_interface', instance: 'gcp_compute_instance',
+    loadBalancer: 'gcp_load_balancer', natGateway: 'gcp_cloud_nat',
+    sgToken: 'allow', nicToken: 'nic',
+  },
+  Azure: {
+    vpc: 'azure_virtual_network', securityGroup: 'azure_network_security_group',
+    subnet: 'azure_subnet', nic: 'azure_network_interface', instance: 'azure_virtual_machine',
+    loadBalancer: 'azure_load_balancer', natGateway: 'azure_nat_gateway',
+    sgToken: 'nsg', nicToken: 'nic',
+  },
+};
+
+const buildDemoGraph = (provider: EstateProvider = 'AWS'): ConfigGraph => {
   const nodes: TopologyNode[] = [];
   const edges: TopologyEdge[] = [];
   const vpcCount = 3;
+  const L = GRAPH_LABELS[provider];
+  const regions = REGIONS_BY_PROVIDER[provider];
+  const account = ACCOUNTS_BY_PROVIDER[provider][0];
 
   for (let v = 0; v < vpcCount; v++) {
     const vpcId = `uwr-demo-vpc-${v}`;
     nodes.push({
-      id: vpcId, type: 'aws_vpc', name: `${['prod', 'staging', 'sandbox'][v]}-vpc`,
+      id: vpcId, type: L.vpc, name: `${['prod', 'staging', 'sandbox'][v]}-vpc`,
       category: 'networking', subCategory: 'virtual_private_cloud',
-      region: at(REGIONS, v), cloudAccountId: ACCOUNT_IDS[0],
+      region: at(regions, v), cloudAccountId: account,
       resourceId: `vpc-0demo${v}`, cidrBlock: `10.${v}.0.0/16`,
       exposure: null, synthetic: false,
     });
@@ -1041,9 +1520,9 @@ const buildDemoGraph = (): ConfigGraph => {
     for (let s = 0; s < 3 - v; s++) {
       const sgId = `uwr-demo-sg-${v}-${s}`;
       nodes.push({
-        id: sgId, type: 'aws_security_group', name: `${['web', 'app', 'data'][s]}-sg-${v}`,
-        category: 'networking', subCategory: 'security_group', region: at(REGIONS, v),
-        cloudAccountId: ACCOUNT_IDS[0], resourceId: `sg-0demo${v}${s}`,
+        id: sgId, type: L.securityGroup, name: `${['web', 'app', 'data'][s]}-${L.sgToken}-${v}`,
+        category: 'networking', subCategory: 'security_group', region: at(regions, v),
+        cloudAccountId: account, resourceId: `${L.sgToken}-0demo${v}${s}`,
         exposure: v === 0 && s === 0 ? 'wide' : null, synthetic: false,
       });
       edges.push({ source: sgId, target: vpcId, kind: 'in-vpc' });
@@ -1053,7 +1532,7 @@ const buildDemoGraph = (): ConfigGraph => {
       // Synthetic: Upwind does not model subnets as assets.
       const subnetId = `subnet:subnet-0demo${v}${sn}`;
       nodes.push({
-        id: subnetId, type: 'aws_subnet', name: `subnet-0demo${v}${sn}`,
+        id: subnetId, type: L.subnet, name: `subnet-0demo${v}${sn}`,
         category: 'networking', subCategory: 'subnet',
         resourceId: `subnet-0demo${v}${sn}`, exposure: null, synthetic: true,
       });
@@ -1063,20 +1542,20 @@ const buildDemoGraph = (): ConfigGraph => {
         const eniId = `uwr-demo-eni-${v}-${sn}-${i}`;
         const instId = `uwr-demo-i-${v}-${sn}-${i}`;
         nodes.push({
-          id: eniId, type: 'aws_elastic_network_interface',
-          name: `eni-0demo${v}${sn}${i}`, category: 'networking',
-          subCategory: 'virtual_private_cloud', region: at(REGIONS, v),
-          cloudAccountId: ACCOUNT_IDS[0], resourceId: `eni-0demo${v}${sn}${i}`,
+          id: eniId, type: L.nic,
+          name: `${L.nicToken}-0demo${v}${sn}${i}`, category: 'networking',
+          subCategory: 'virtual_private_cloud', region: at(regions, v),
+          cloudAccountId: account, resourceId: `${L.nicToken}-0demo${v}${sn}${i}`,
           exposure: null, synthetic: false,
         });
         edges.push({ source: eniId, target: subnetId, kind: 'in-subnet' });
         edges.push({ source: eniId, target: vpcId, kind: 'in-vpc' });
 
         nodes.push({
-          id: instId, type: 'aws_ec2_instance',
+          id: instId, type: L.instance,
           name: `${['api', 'worker', 'db'][i]}-${v}${sn}`, category: 'compute_platform',
-          subCategory: 'virtual_machine', region: at(REGIONS, v),
-          cloudAccountId: ACCOUNT_IDS[0], resourceId: `i-0demo${v}${sn}${i}`,
+          subCategory: 'virtual_machine', region: at(regions, v),
+          cloudAccountId: account, resourceId: `i-0demo${v}${sn}${i}`,
           exposure: v === 0 && i === 0 ? 'wide' : null, synthetic: false,
         });
         edges.push({ source: instId, target: eniId, kind: 'attached-to' });
@@ -1086,15 +1565,15 @@ const buildDemoGraph = (): ConfigGraph => {
 
   // Unplaceable: no VPC, subnet or address is returned for these upstream.
   nodes.push({
-    id: 'uwr-demo-alb-0', type: 'aws_application_load_balancer', name: 'public-alb',
-    category: 'networking', subCategory: 'load_balancer', region: at(REGIONS, 0),
-    cloudAccountId: ACCOUNT_IDS[0], resourceId: 'a1b2c3d4', exposure: 'wide',
+    id: 'uwr-demo-alb-0', type: L.loadBalancer, name: 'public-lb',
+    category: 'networking', subCategory: 'load_balancer', region: at(regions, 0),
+    cloudAccountId: account, resourceId: 'a1b2c3d4', exposure: 'wide',
     synthetic: false,
   });
   nodes.push({
-    id: 'uwr-demo-nat-0', type: 'aws_nat_gateway', name: 'prod-nat',
-    category: 'networking', subCategory: 'internet_gateway', region: at(REGIONS, 0),
-    cloudAccountId: ACCOUNT_IDS[0], resourceId: 'nat-0demo', exposure: null,
+    id: 'uwr-demo-nat-0', type: L.natGateway, name: 'prod-nat',
+    category: 'networking', subCategory: 'internet_gateway', region: at(regions, 0),
+    cloudAccountId: account, resourceId: 'nat-0demo', exposure: null,
     synthetic: false,
   });
 
@@ -1176,6 +1655,17 @@ export const demoNetworkTopology: NetworkTopology = {
   accounts: ACCOUNT_IDS.length,
   nodes: networkNodes,
   graph: buildDemoGraph(),
+};
+
+export const demoNetworkTopologyFor = (url: string): NetworkTopology => {
+  const provider = providerForUrl(url);
+  const accounts = ACCOUNTS_BY_PROVIDER[provider];
+  return {
+    accountId: accounts[0],
+    accounts: accounts.length,
+    nodes: networkNodesOf(INVENTORY_BY_PROVIDER[provider]),
+    graph: buildDemoGraph(provider),
+  };
 };
 
 // ─── /api/xamsecure/compliance ───────────────────────────────────────────────
@@ -1315,6 +1805,274 @@ export const demoAssetRelationships = (assetId: string): AssetRelationships => {
   };
 };
 
+// ─── /api/xamsecure/resource ─────────────────────────────────────────────────
+//
+// The cross-domain join behind every ResourceLink in this section — the dotted-underline
+// resource name with the ↗ mark. It had no demo route, so it fell to the `/api/xamsecure/`
+// `{}` catch-all. ResourceDrawer builds its nav from `detail.counts`, so `{}` produced a panel
+// with an empty nav and a body reading "Nothing to show."
+//
+// On the Inventory table that looked like randomness, because an asset row has two click
+// targets: the row opens the asset catalog panel, which renders from data the table already
+// holds and so always worked, while the asset NAME opens this cross-domain panel, which never
+// had data. Same asset, two outcomes depending on where the pointer landed.
+//
+// Mirrors XamSecureService.getResourceDetail: identity prefers the inventory asset and falls
+// back to the first finding that names the resource (posture, then vulnerabilities, then
+// detections), counts are the list sizes, and topSeverity is the worst band across all three.
+
+type DetailConfig = ResourceDetail['configurations'][number];
+type DetailVuln = ResourceDetail['vulnerabilities'][number];
+type DetailDetection = ResourceDetail['detections'][number];
+
+/** Worst band across every domain touching the resource, for the drawer header. */
+const topSeverityOf = (...groups: { severity: Severity | null }[][]): Severity | null => {
+  let best: Severity | null = null;
+  for (const group of groups) {
+    for (const row of group) {
+      if (!row.severity) continue;
+      const i = SEVERITY_ORDER.indexOf(row.severity);
+      if (i < 0) continue;
+      if (best === null || i < SEVERITY_ORDER.indexOf(best)) best = row.severity;
+    }
+  }
+  return best;
+};
+
+/** The CVE pool split by band, so an asset's rollup is filled with CVEs that really carry it. */
+const CVES_BY_SEVERITY: Record<Severity, CveGroupRow[]> = {
+  CRITICAL: demoCveRowsAll.filter((c) => c.severity === 'CRITICAL'),
+  HIGH: demoCveRowsAll.filter((c) => c.severity === 'HIGH'),
+  MEDIUM: demoCveRowsAll.filter((c) => c.severity === 'MEDIUM'),
+  LOW: demoCveRowsAll.filter((c) => c.severity === 'LOW'),
+};
+
+const asDetailVuln = (c: CveGroupRow): DetailVuln => ({
+  cveId: c.cveId,
+  name: c.name,
+  severity: c.severity,
+  cvssScore: c.cvssScore == null ? null : String(c.cvssScore),
+  epssScore: c.epssScore == null ? null : String(c.epssScore),
+  exploitable: c.exploitable,
+  lastScanTime: hoursAgo(3),
+});
+
+/**
+ * The asset's own vulnerability rollup, expanded into rows.
+ *
+ * Read from the catalog counts rather than the findings table on purpose: this panel and the
+ * asset panel's Risk section then report the same numbers for the same asset, instead of one
+ * saying 15 CVEs and the other none.
+ */
+const assetVulns = (a: InventoryAsset): DetailVuln[] => {
+  const total = a.vulnTotalCount ?? 0;
+  if (total <= 0) return [];
+  const crit = Math.min(a.vulnCriticalCount ?? 0, total);
+  const high = Math.min(a.vulnHighCount ?? 0, total - crit);
+  const band = (sev: Severity, n: number, offset: number): CveGroupRow[] =>
+    Array.from({ length: n }, (_, k) => at(CVES_BY_SEVERITY[sev], a.id * 3 + offset + k));
+  return [
+    ...band('CRITICAL', crit, 0),
+    ...band('HIGH', high, 11),
+    // The tail of a real estate is medium and low, so the remainder comes from those bands.
+    ...Array.from({ length: total - crit - high }, (_, k) =>
+      at(CVES_BY_SEVERITY[k % 3 === 0 ? 'LOW' : 'MEDIUM'], a.id * 5 + k)),
+  ].map(asDetailVuln);
+};
+
+/** Same idea for the asset's detection rollup. */
+const assetDetections = (a: InventoryAsset): DetailDetection[] =>
+  Array.from({ length: a.detectionTotalCount ?? 0 }, (_, k) => {
+    const seed = a.id * 5 + k;
+    const [title, , mitreTactics, severity] = at(THREAT_TEMPLATES, seed);
+    return {
+      upwindId: `thr-${a.upwindId}-${k + 1}`,
+      title,
+      severity: severity as Severity,
+      status: 'OPEN',
+      mitreTactics,
+      lastSeenTime: hoursAgo(spread(seed, 1, 36)),
+    };
+  });
+
+/**
+ * Failing checks for an asset the posture table does not name.
+ *
+ * An asset carrying no risk signal at all legitimately passes everything — a clean resource
+ * showing zero failing checks is the honest answer, not an empty panel — so only the assets
+ * the catalog already flags get rows here.
+ */
+const assetConfigs = (a: InventoryAsset, provider: EstateProvider): DetailConfig[] => {
+  const flagged = a.hasElevatedPrivilege || a.hasEolTechnology
+    || a.internetExposureType != null || a.publicIpAddresses != null
+    || a.sensitivePiiAtRest || a.sensitivePciAtRest;
+  const pool = ISSUES_BY_PROVIDER[provider];
+  return Array.from({ length: flagged ? 1 + (a.id % 3) : a.id % 2 }, (_, k) => {
+    const iss = at(pool, a.id * 5 + k * 11);
+    return {
+      check: iss.check,
+      severity: iss.severity,
+      framework: FRAMEWORK_OF(iss.frameworks),
+      lastSeenTime: hoursAgo(spread(a.id + k, 1, 20)),
+    };
+  });
+};
+
+/**
+ * Types for ids that are not catalog resource ids. The Relationships section links straight to
+ * provider references (`sg-…`, a target-group ARN), and those resolve to nothing in any table,
+ * so the id itself is the only thing left to read a type off.
+ */
+const ID_PREFIX_TYPES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^sg-/, 'AWS_SECURITY_GROUP'],
+  [/^subnet-/, 'AWS_SUBNET'],
+  [/^vpc-/, 'AWS_VPC'],
+  [/^i-/, 'AWS_EC2_INSTANCE'],
+  [/^vol-/, 'AWS_EBS_VOLUME'],
+  [/:targetgroup\//, 'AWS_TARGET_GROUP'],
+  [/:instance-profile\//, 'AWS_IAM_INSTANCE_PROFILE'],
+  [/^arn:aws:iam:/, 'AWS_IAM_ROLE'],
+];
+
+const derivedIdentity = (
+  resourceId: string, baseName: string, provider: EstateProvider,
+): ResourceDetail['identity'] => {
+  const seed = resourceId.length;
+  const fromPrefix = ID_PREFIX_TYPES.find(([re]) => re.test(resourceId))?.[1];
+  // A catalog-shaped id carries its own type in the first segment: `aws_eks_pod/prod-pod-04`.
+  const fromPath = resourceId.includes('/')
+    ? resourceId.slice(0, resourceId.indexOf('/')).toUpperCase()
+    : null;
+  return {
+    resourceId,
+    name: baseName || resourceId,
+    resourceType: fromPrefix ?? fromPath ?? at(RESOURCE_KINDS_BY_PROVIDER[provider], seed),
+    assetCategory: null,
+    cloudProvider: provider,
+    cloudAccountId: at(ACCOUNTS_BY_PROVIDER[provider], seed),
+    region: at(REGIONS_BY_PROVIDER[provider], seed),
+  };
+};
+
+export const demoResourceDetail = (url: string): ResourceDetail | Record<string, never> => {
+  const resourceId = (qs(url).get('resourceId') ?? '').trim();
+  // What the real endpoint answers for a blank id or an account it cannot resolve. The drawer
+  // has its own "nothing references this resource" state for it.
+  if (!resourceId) return {};
+
+  const urlProvider = providerForUrl(url);
+  // The selected account decides the estate, but the asset is looked up across all three so a
+  // request that arrives without an accountId still resolves the thing that was clicked.
+  const search: EstateProvider[] = [
+    urlProvider,
+    ...(['AWS', 'GCP', 'Azure'] as EstateProvider[]).filter((p) => p !== urlProvider),
+  ];
+  let asset: InventoryAsset | undefined;
+  let provider = urlProvider;
+  for (const p of search) {
+    asset = INVENTORY_BY_PROVIDER[p].find((a) => a.cloudResourceId === resourceId)
+      ?? INVENTORY_BY_PROVIDER[p].find((a) => a.name === resourceId);
+    if (asset) { provider = p; break; }
+  }
+
+  // Findings that name this resource. Every other tab links on the `name-NN` id the posture,
+  // threat and CVE-finding fixtures key on, so those joins hit for real there.
+  const posture = POSTURE_BY_PROVIDER[provider].filter((p) => p.resourceId === resourceId);
+  const threats = demoThreatsAll.filter((t) => t.resourceId === resourceId);
+  const baseName = resourceId.includes('/')
+    ? resourceId.slice(resourceId.lastIndexOf('/') + 1)
+    : resourceId.replace(/-\d+$/, '');
+  // The vulnerability fixture carries no resource id, only a name — which is the name those
+  // `name-NN` ids were built from.
+  const vulns = asset ? [] : demoVulnerabilitiesAll.filter((v) => v.resourceName === baseName);
+
+  const identity: ResourceDetail['identity'] = asset
+    ? {
+        resourceId,
+        name: asset.name,
+        resourceType: asset.label,
+        assetCategory: asset.assetCategory,
+        cloudProvider: asset.cloudProvider,
+        cloudAccountId: asset.cloudAccountId,
+        region: asset.region,
+      }
+    : posture.length > 0
+      ? {
+          resourceId,
+          name: posture[0].resourceName,
+          resourceType: posture[0].resourceType,
+          assetCategory: null,
+          cloudProvider: posture[0].cloudProvider,
+          cloudAccountId: posture[0].cloudAccountId,
+          region: posture[0].region,
+        }
+      : vulns.length > 0
+        ? {
+            resourceId,
+            name: vulns[0].resourceName,
+            resourceType: vulns[0].resourceType,
+            assetCategory: null,
+            cloudProvider: vulns[0].cloudProvider,
+            cloudAccountId: vulns[0].cloudAccountId,
+            region: vulns[0].region,
+          }
+        : threats.length > 0
+          ? {
+              resourceId,
+              name: threats[0].resourceName,
+              resourceType: threats[0].resourceType,
+              assetCategory: null,
+              cloudProvider: threats[0].cloudProvider,
+              cloudAccountId: threats[0].cloudAccountId,
+              // The real payload omits region on the detection fallback.
+              region: null,
+            }
+          : derivedIdentity(resourceId, baseName, provider);
+
+  const configurations: DetailConfig[] = posture.length > 0
+    ? posture.map((p) => ({
+        check: p.checkTitle ?? p.title,
+        severity: p.severity,
+        framework: p.frameworkTitle,
+        lastSeenTime: p.lastSeenTime,
+      }))
+    : asset ? assetConfigs(asset, provider) : [];
+
+  const vulnerabilities: DetailVuln[] = asset ? assetVulns(asset) : vulns.map((v) => ({
+    cveId: v.cveId,
+    name: v.vulnerabilityName,
+    severity: v.severity,
+    cvssScore: v.cvssScore,
+    epssScore: v.epssScore,
+    exploitable: v.exploitable,
+    lastScanTime: v.lastScanTime,
+  }));
+
+  const detections: DetailDetection[] = threats.length > 0
+    ? threats.map((t) => ({
+        upwindId: t.upwindId,
+        title: t.title,
+        severity: t.severity,
+        status: t.status,
+        mitreTactics: t.mitreTactics,
+        lastSeenTime: t.lastSeenTime,
+      }))
+    : asset ? assetDetections(asset) : [];
+
+  return {
+    identity,
+    counts: {
+      configurations: configurations.length,
+      vulnerabilities: vulnerabilities.length,
+      detections: detections.length,
+    },
+    topSeverity: topSeverityOf(configurations, vulnerabilities, detections),
+    configurations,
+    vulnerabilities,
+    detections,
+  };
+};
+
 // ─── /api/xamsecure/configurations/dashboard ─────────────────────────────────
 
 const postureSeverityCounts = demoPostureAll.reduce<Record<string, number>>((acc, p) => {
@@ -1326,23 +2084,184 @@ const postureSeverityCounts = demoPostureAll.reduce<Record<string, number>>((acc
 const avgComplianceScore =
   Math.round((demoCompliance.reduce((a, f) => a + (f.score ?? 0), 0) / demoCompliance.length) * 10) / 10;
 
-export const demoConfigDashboard: ConfigurationsDashboard = {
-  severityCounts: postureSeverityCounts,
-  totalFindings: demoPostureAll.length,
-  newLast7Days: demoIssues.filter((i) => {
-    const seen = i.firstSeen ? Date.parse(i.firstSeen) : 0;
-    return Date.now() - seen <= 7 * MS_DAY;
-  }).length,
-  topFindings: demoIssues.slice(0, 8),
-  findingsOverTime: last7Keys().map((key, i) => ({
-    date: key.slice(5),
-    HIGH: Math.round(((postureSeverityCounts.CRITICAL ?? 0) + (postureSeverityCounts.HIGH ?? 0)) * (0.86 + i * 0.023)),
-    OTHER: Math.round(((postureSeverityCounts.MEDIUM ?? 0) + (postureSeverityCounts.LOW ?? 0)) * (0.89 + i * 0.018)),
-  })),
-  frameworkScores: demoCompliance,
-  avgComplianceScore,
-  frameworkCount: demoCompliance.length,
+const configDashboardFor = (provider: EstateProvider): ConfigurationsDashboard => {
+  const postureRows = POSTURE_BY_PROVIDER[provider];
+  const issues = ISSUES_BY_PROVIDER[provider];
+  const counts = postureRows.reduce<Record<string, number>>((acc, p) => {
+    const key = (p.severity ?? 'LOW').toUpperCase();
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+  return {
+    severityCounts: counts,
+    totalFindings: postureRows.length,
+    newLast7Days: issues.filter((i) => {
+      const seen = i.firstSeen ? Date.parse(i.firstSeen) : 0;
+      return Date.now() - seen <= 7 * MS_DAY;
+    }).length,
+    topFindings: issues.slice(0, 8),
+    findingsOverTime: last7Keys().map((key, i) => ({
+      date: key.slice(5),
+      HIGH: Math.round(((counts.CRITICAL ?? 0) + (counts.HIGH ?? 0)) * (0.86 + i * 0.023)),
+      OTHER: Math.round(((counts.MEDIUM ?? 0) + (counts.LOW ?? 0)) * (0.89 + i * 0.018)),
+    })),
+    frameworkScores: demoCompliance,
+    avgComplianceScore,
+    frameworkCount: demoCompliance.length,
+  };
 };
+
+export const demoConfigDashboard: ConfigurationsDashboard = configDashboardFor('AWS');
+
+export const demoConfigDashboardFor = (url: string): ConfigurationsDashboard =>
+  configDashboardFor(providerForUrl(url));
+
+// ─── /api/xamsecure/identities ───────────────────────────────────────────────
+//
+// Had no demo route at all, so it fell to the `/api/xamsecure/` catch-all and got `{}`. The tab
+// reads `data?.total ?? 0` for each card and `data?.identities ?? []` for the table, so every
+// card showed 0 and the table showed "No identities discovered for the selected account."
+//
+// Derived rather than hand-written, mirroring XamSecureService.getIdentities: the roster is the
+// ACTIVE identity-category assets from the inventory catalogue, annotated with the failing
+// posture checks recorded against them. Building it that way means the Identities tab, the
+// Inventory catalogue and the Configurations table all describe the same estate — a check you
+// can see in Configurations shows up here against the identity it was raised on.
+//
+// One demo-only bridge is unavoidable: the two fixtures do not share resource ids (posture rows
+// are keyed `${name}-${n}`, inventory assets `${type}/${name}`), so a literal id join — which is
+// what the backend does — would match nothing. Rows are matched on resourceType instead and
+// distributed round-robin across the identities of that type, which leaves some identities
+// clean, exactly as the real roster does.
+
+const worseSeverity = (a: string | null, b: string | null): string | null => {
+  if (!a) return b;
+  if (!b) return a;
+  return SEVERITY_ORDER.indexOf(a) <= SEVERITY_ORDER.indexOf(b) ? a : b;
+};
+
+const buildIdentities = (provider: EstateProvider): IdentitiesSummary => {
+  const active = INVENTORY_BY_PROVIDER[provider].filter((a) => a.status === 'ACTIVE');
+  // findIdentityAssets: assetCategory = 'identity' AND status = 'ACTIVE', ordered by name.
+  const assets = active
+    .filter((a) => a.assetCategory === 'identity')
+    .slice()
+    .sort((x, y) => (x.name ?? '').localeCompare(y.name ?? ''));
+
+  const posture = POSTURE_BY_PROVIDER[provider];
+  const postureByType = posture.reduce<Record<string, PostureFinding[]>>((acc, p) => {
+    const t = p.resourceType ?? '';
+    (acc[t] ??= []).push(p);
+    return acc;
+  }, {});
+
+  const perLabel = assets.reduce<Record<string, number>>((acc, a) => {
+    const l = a.label ?? '';
+    acc[l] = (acc[l] ?? 0) + 1;
+    return acc;
+  }, {});
+  const seen: Record<string, number> = {};
+
+  const identities: IdentityRow[] = assets.map((a) => {
+    const label = a.label ?? '';
+    const slot = seen[label] ?? 0;
+    seen[label] = slot + 1;
+    const pool = postureByType[label] ?? [];
+    const mine = pool.filter((_, i) => i % Math.max(perLabel[label], 1) === slot);
+
+    const checks = [...new Set(
+      mine.map((p) => p.checkTitle ?? p.title ?? '').filter(Boolean),
+    )];
+    const severity = mine.reduce<string | null>(
+      (acc, p) => worseSeverity(acc, p.severity ?? null), null);
+    const firsts = mine.map((p) => p.firstSeenTime).filter(Boolean).sort();
+    const lasts = mine.map((p) => p.lastSeenTime).filter(Boolean).sort();
+
+    return {
+      resourceId: a.cloudResourceId,
+      name: a.name,
+      // The backend reports the catalogue `label`, not the sub-category.
+      resourceType: a.label,
+      cloudProvider: a.cloudProvider,
+      cloudAccountId: a.cloudAccountId,
+      severity: checks.length > 0 ? (severity as Severity | null) : null,
+      findingCount: checks.length,
+      checks,
+      region: a.region,
+      firstSeen: checks.length > 0 ? (firsts[0] ?? null) : null,
+      lastSeen: checks.length > 0 ? (lasts[lasts.length - 1] ?? null) : null,
+      elevatedPrivilege: Boolean(a.hasElevatedPrivilege),
+      inInventory: true,
+    };
+  });
+
+  // Worst severity first, then most failing checks, then privileged, then by name — so the rows
+  // that need attention lead and clean identities sort last.
+  identities.sort((x, y) => {
+    const rank = (s: string | null) => {
+      const i = s == null ? -1 : SEVERITY_ORDER.indexOf(s);
+      return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+    };
+    return rank(x.severity) - rank(y.severity)
+      || y.findingCount - x.findingCount
+      || (x.elevatedPrivilege ? 0 : 1) - (y.elevatedPrivilege ? 0 : 1)
+      || (x.name ?? '').localeCompare(y.name ?? '');
+  });
+
+  // findElevatedPrivilegeAssets spans every category, not just identities: an instance carrying
+  // a highly-privileged role is as interesting as the role. In this demo estate only identity
+  // assets carry the flag, so the two lists overlap more than they would in production.
+  const privileged: PrivilegedIdentity[] = active
+    .filter((a) => a.hasElevatedPrivilege)
+    .map((a) => ({
+      resourceId: a.cloudResourceId,
+      name: a.name,
+      resourceType: a.label,
+      category: a.assetCategory,
+      cloudProvider: a.cloudProvider,
+      cloudAccountId: a.cloudAccountId,
+      region: a.region,
+      internetExposureType: a.internetExposureType,
+      sensitivePii: Boolean(a.sensitivePiiAtRest || a.sensitivePiiInTransit),
+      hasFindings: identities.some(
+        (i) => i.resourceId === a.cloudResourceId && i.findingCount > 0),
+    }));
+
+  // Zero-count severities are omitted, as the backend does — the Critical card reads
+  // `severityCounts.CRITICAL ?? 0`, so an absent key is the same as 0 to the UI.
+  const severityCounts = SEVERITY_ORDER.reduce<Record<string, number>>((acc, sev) => {
+    const n = identities.filter((i) => i.severity === sev).length;
+    if (n > 0) acc[sev] = n;
+    return acc;
+  }, {});
+
+  const byType = Object.entries(
+    identities.reduce<Record<string, number>>((acc, i) => {
+      const t = i.resourceType ?? 'other';
+      acc[t] = (acc[t] ?? 0) + 1;
+      return acc;
+    }, {}),
+  )
+    .map(([type, count]) => ({ type, count }))
+    .sort((a, b) => b.count - a.count);
+
+  return {
+    identities,
+    severityCounts,
+    byType,
+    total: identities.length,
+    withFindings: identities.filter((i) => i.findingCount > 0).length,
+    privilegedTotal: privileged.length,
+    privileged,
+  };
+};
+
+const IDENTITIES_BY_PROVIDER: Record<EstateProvider, IdentitiesSummary> = {
+  AWS: buildIdentities('AWS'), GCP: buildIdentities('GCP'), Azure: buildIdentities('Azure'),
+};
+
+export const demoIdentitiesFor = (url: string): IdentitiesSummary =>
+  IDENTITIES_BY_PROVIDER[providerForUrl(url)];
 
 // ─── /api/xamsecure/api-security ─────────────────────────────────────────────
 

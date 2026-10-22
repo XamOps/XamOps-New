@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import type { KPIData, CostHistory, OptimizationData, ResourceInventory } from '../../types/liveDashboard';
 import { fmtMoney } from '../../utils/currency';
+import { resolveProviderLink } from '../../utils/providerRoutes';
 import KPIManageModal, { ALL_KPI_CARDS, DEFAULT_SELECTED, LEGACY_DEFAULT_SELECTED, MIN_SELECTED, type KPICardDef } from './KPIManageModal';
 
 const LS_KEY = (provider: string) =>
@@ -82,27 +83,10 @@ const PROVIDER_OVERRIDES: Record<string, Record<string, Partial<KPICardDef>>> = 
 const PROVIDER_HIDDEN_CARDS: Record<string, ReadonlySet<string>> = {
   Azure: new Set(['autoSpottingSavings', 'autoSpottingInstances']),
 };
-// "View more" targets — swap the AWS route for the provider's variant when one exists
-const PROVIDER_LINKS: Record<string, Record<string, string>> = {
-  GCP: {
-    '/cost':            '/gcp-cost',
-    '/finops':          '/gcp-finops',
-    '/waste':           '/gcp-waste',
-    '/rightsizing':     '/gcp-rightsizing',
-    '/alerts':          '/gcp-alerts',
-    '/dataops':         '/gcp-dataops',
-    '/ebs-rightsizing': '/gcp-disk-rightsizing',
-  },
-  Azure: {
-    '/cost':            '/azure-cost',
-    '/finops':          '/azure-finops',
-    '/waste':           '/azure-waste',
-    '/rightsizing':     '/azure-rightsizing',
-    '/alerts':          '/azure-alerts',
-    '/dataops':         '/azure-dataops',
-    '/ebs-rightsizing': '/azure-disk-rightsizing',
-  },
-};
+// "View more" targets are declared as AWS routes on the card definitions and swapped for
+// the active provider's variant by resolveProviderLink (utils/providerRoutes). This used to
+// be a local table here that was missing /cloudlist and /spot-automation, so the resource
+// count cards and the AutoSpotting cards still sent GCP users to the AWS pages.
 
 interface KPISectionProps {
   kpiData: KPIData;
@@ -340,14 +324,13 @@ const KPISection: React.FC<KPISectionProps> = ({ kpiData, costHistory, optimizat
   };
 
   const providerOverrides = PROVIDER_OVERRIDES[provider] || {};
-  const providerLinks = PROVIDER_LINKS[provider] || {};
   const activeCards: KPICardDef[] = useMemo(() =>
     ALL_KPI_CARDS
       .filter(card => !PROVIDER_HIDDEN_CARDS[provider]?.has(card.id))
       .map(card => ({
         ...card,
         ...(providerOverrides[card.id] || {}),
-        link: card.link ? (providerLinks[card.link] || card.link) : undefined,
+        link: card.link ? resolveProviderLink(card.link, provider) : undefined,
       })),
   [provider]); // eslint-disable-line react-hooks/exhaustive-deps
 

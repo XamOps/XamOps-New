@@ -6,6 +6,25 @@
 import { useState, useEffect, useMemo } from 'react';
 import { DevOpsScript, DevOpsFilters } from '../types/devopsInTheBox';
 import apiClient from '../utils/apiClient';
+import { useAccounts } from '../contexts/AccountContext';
+
+/**
+ * True when a script belongs on the shelf for `provider`.
+ *
+ * A script with no provider tag, or one tagged `multi-cloud`, is cloud-agnostic and shows
+ * everywhere; otherwise it must name the selected provider. With no account selected (or an
+ * unknown provider) the whole catalogue is shown, so the page is never empty on first load.
+ */
+const matchesProvider = (script: DevOpsScript, provider?: string): boolean => {
+  if (!provider) return true;
+  const providers = script.cloudProviders ?? [];
+  if (providers.length === 0) return true;
+  const wanted = provider.toLowerCase();
+  return providers.some((p) => {
+    const tag = p?.toLowerCase();
+    return tag === 'multi-cloud' || tag === wanted;
+  });
+};
 
 interface UseDevOpsScriptsReturn {
   scripts: DevOpsScript[];
@@ -26,6 +45,15 @@ export const useDevOpsScripts = (): UseDevOpsScriptsReturn => {
     searchTerm: '',
     filterCategory: 'all',
   });
+
+  // The selected account's provider scopes the catalogue: a GCP project should be offered GCP
+  // tooling, not EC2/S3 scripts. A multi-account selection is single-provider by construction
+  // (AccountContext blocks mixing clouds), so the first selected account decides the shelf.
+  const { accounts, selectedAccountIds } = useAccounts();
+  const selectedProvider = useMemo(() => {
+    if (selectedAccountIds.length === 0) return undefined;
+    return accounts.find((a) => a.id === selectedAccountIds[0])?.provider;
+  }, [accounts, selectedAccountIds]);
 
   /**
    * Fetch scripts from backend API
@@ -68,6 +96,11 @@ export const useDevOpsScripts = (): UseDevOpsScriptsReturn => {
   const filteredScripts = useMemo(() => {
     let result = [...scripts];
 
+    // Scope to the selected account's cloud (multi-cloud and untagged scripts always pass).
+    if (selectedProvider) {
+      result = result.filter((script) => matchesProvider(script, selectedProvider));
+    }
+
     // Filter by category
     if (filters.filterCategory !== 'all') {
       result = result.filter(
@@ -86,7 +119,7 @@ export const useDevOpsScripts = (): UseDevOpsScriptsReturn => {
     }
 
     return result;
-  }, [scripts, filters]);
+  }, [scripts, filters, selectedProvider]);
 
   /**
    * Update search term

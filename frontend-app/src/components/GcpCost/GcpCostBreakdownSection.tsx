@@ -278,11 +278,13 @@ const GcpCostBreakdownSection: React.FC<GcpCostBreakdownSectionProps> = ({
             <p className="text-[13px] font-semibold text-[rgba(0,0,0,0.88)] mb-4">Cost Distribution</p>
             <div className="relative flex-1 min-h-[360px]">
               <canvas ref={chartRef}></canvas>
-              {/* Total in the donut hole (matches AWS). Currency stays ₹ / en-IN. */}
+              {/* Total in the donut hole (matches AWS). Formatted from the billing account's
+                  currency like every other figure here — this hardcoded ₹ / en-IN, so on a
+                  dollar-billed project it contradicted the $ amounts in the table beside it. */}
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[rgba(0,0,0,0.4)]">Total</span>
                 <span className="text-[22px] font-bold text-[rgba(0,0,0,0.85)] tabular-nums leading-tight">
-                  ₹{totalCost.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                  {formatCurrency(totalCost)}
                 </span>
                 <span className="text-[10px] text-[rgba(0,0,0,0.35)] font-medium">{sortedData.length} categories</span>
               </div>

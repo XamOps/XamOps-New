@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Icon } from '@iconify/react';
 import { Cell, PieChart, Pie, ResponsiveContainer } from 'recharts';
 import { fmtMoneyShort } from '../../utils/currency';
+import { resolveProviderLink } from '../../utils/providerRoutes';
 import { normaliseAlerts } from '../../hooks/useAlertsData';
 
 interface SummaryCardsSectionProps {
@@ -133,8 +134,14 @@ const ChartEmpty: React.FC<{ color: string; icon: string; line1: string; line2?:
 interface ShellProps {
   accentColor: string; icon: string; title: string; subtitle: string;
   badge?: string; link: string; children: React.ReactNode;
+  /**
+   * Cards declare `link` as the AWS route; this rewrites it to the active provider's
+   * equivalent. Without it the GCP dashboard's "View Details" links landed on the AWS
+   * pages (e.g. Rightsizing → /rightsizing instead of /gcp-rightsizing).
+   */
+  provider?: string;
 }
-const CardShell: React.FC<ShellProps> = ({ accentColor, icon, title, subtitle, badge, link, children }) => (
+const CardShell: React.FC<ShellProps> = ({ accentColor, icon, title, subtitle, badge, link, provider, children }) => (
   <div className="bg-white border border-[rgba(0,0,0,0.1)] rounded-2xl overflow-hidden flex flex-col hover:shadow-md transition-shadow duration-200">
     <div className="relative">{children}</div>
     <div className="h-px bg-[rgba(0,0,0,0.06)] mx-4" />
@@ -155,7 +162,7 @@ const CardShell: React.FC<ShellProps> = ({ accentColor, icon, title, subtitle, b
             {badge}
           </span>
         )}
-        <Link to={link}
+        <Link to={resolveProviderLink(link, provider)}
           className="flex items-center gap-0.5 text-[11px] font-semibold whitespace-nowrap hover:opacity-70 transition-opacity"
           style={{ color: accentColor }}>
           View Details <Icon icon="mdi:arrow-right" width={10} />
@@ -263,7 +270,7 @@ const computeTicketSummary = (raw: RawTicket[], accountId: string | null): Ticke
 // ══════════════════════════════════════════════════════════════════════════════
 const AlertsCard: React.FC<{ summary: AlertSummary | null; loading: boolean; provider?: string }> = ({ summary, loading, provider }) => {
   if (loading) return (
-    <CardShell accentColor="#ef4444" icon="mdi:bell-alert-outline" title="Alerts" subtitle="Loading…" link="/alerts">
+    <CardShell accentColor="#ef4444" icon="mdi:bell-alert-outline" title="Alerts" subtitle="Loading…" link="/alerts" provider={provider}>
       <div className="h-[96px] flex items-center justify-center">
         <div className="w-5 h-5 rounded-full border-2 border-[#ef4444] border-t-transparent animate-spin" />
       </div>
@@ -275,7 +282,7 @@ const AlertsCard: React.FC<{ summary: AlertSummary | null; loading: boolean; pro
     : 'No alert data';
 
   return (
-    <CardShell accentColor="#ef4444" icon="mdi:bell-alert-outline" title="Alerts & Anomalies" subtitle={subtitle} link="/alerts">
+    <CardShell accentColor="#ef4444" icon="mdi:bell-alert-outline" title="Alerts & Anomalies" subtitle={subtitle} link="/alerts" provider={provider}>
       {summary && summary.anomalies.length > 0
         ? <TopList data={summary.anomalies} color="#ef4444" provider={provider} />
         : summary && summary.critical > 0
@@ -290,7 +297,7 @@ const AlertsCard: React.FC<{ summary: AlertSummary | null; loading: boolean; pro
 // ══════════════════════════════════════════════════════════════════════════════
 interface SecCounts { Critical: number; High: number; Medium: number; Low: number }
 
-const SecurityCard: React.FC<{ accountId: string | null; apiBase: string }> = ({ accountId, apiBase }) => {
+const SecurityCard: React.FC<{ accountId: string | null; apiBase: string; provider?: string }> = ({ accountId, apiBase, provider }) => {
   const [counts, setCounts] = useState<SecCounts | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -324,7 +331,7 @@ const SecurityCard: React.FC<{ accountId: string | null; apiBase: string }> = ({
   return (
     <CardShell accentColor="#dc2626" icon="mdi:shield-alert-outline" title="Security"
       subtitle={loading ? 'Scanning…' : counts ? `${total.toLocaleString()} total findings` : !accountId ? 'No account' : 'No scan data'}
-      link="/security">
+      link="/security" provider={provider}>
       <MiniDonut segs={segs} sub="findings" isLoading={loading && !counts} />
     </CardShell>
   );
@@ -335,7 +342,7 @@ const SecurityCard: React.FC<{ accountId: string | null; apiBase: string }> = ({
 // ══════════════════════════════════════════════════════════════════════════════
 const WasteCard: React.FC<{ summary: WasteSummary | null; loading: boolean; provider?: string }> = ({ summary, loading, provider }) => {
   if (loading) return (
-    <CardShell accentColor="#f59e0b" icon="mdi:delete-sweep-outline" title="Waste" subtitle="Loading…" link="/waste">
+    <CardShell accentColor="#f59e0b" icon="mdi:delete-sweep-outline" title="Waste" subtitle="Loading…" link="/waste" provider={provider}>
       <div className="h-[96px] flex items-center justify-center">
         <div className="w-5 h-5 rounded-full border-2 border-[#f59e0b] border-t-transparent animate-spin" />
       </div>
@@ -349,7 +356,7 @@ const WasteCard: React.FC<{ summary: WasteSummary | null; loading: boolean; prov
     : 'No waste detected';
 
   return (
-    <CardShell accentColor="#f59e0b" icon="mdi:delete-sweep-outline" title="Waste" subtitle={subtitle} link="/waste">
+    <CardShell accentColor="#f59e0b" icon="mdi:delete-sweep-outline" title="Waste" subtitle={subtitle} link="/waste" provider={provider}>
       {summary && summary.byType.length > 0
         ? <TopList data={summary.byType} color="#f59e0b" suffix="/mo" provider={provider} />
         : <ChartEmpty color="#10b981" icon="mdi:check-circle-outline" line1="No waste detected" />}
@@ -362,7 +369,7 @@ const WasteCard: React.FC<{ summary: WasteSummary | null; loading: boolean; prov
 // ══════════════════════════════════════════════════════════════════════════════
 const RightsizingCard: React.FC<{ summary: RightsizingSummary | null; loading: boolean; provider?: string }> = ({ summary, loading, provider }) => {
   if (loading) return (
-    <CardShell accentColor="#8b5cf6" icon="mdi:server-outline" title="Rightsizing" subtitle="Loading…" link="/rightsizing">
+    <CardShell accentColor="#8b5cf6" icon="mdi:server-outline" title="Rightsizing" subtitle="Loading…" link="/rightsizing" provider={provider}>
       <div className="h-[96px] flex items-center justify-center">
         <div className="w-5 h-5 rounded-full border-2 border-[#8b5cf6] border-t-transparent animate-spin" />
       </div>
@@ -376,7 +383,7 @@ const RightsizingCard: React.FC<{ summary: RightsizingSummary | null; loading: b
     : 'All instances right-sized';
 
   return (
-    <CardShell accentColor="#8b5cf6" icon="mdi:server-outline" title="Rightsizing" subtitle={subtitle} link="/rightsizing">
+    <CardShell accentColor="#8b5cf6" icon="mdi:server-outline" title="Rightsizing" subtitle={subtitle} link="/rightsizing" provider={provider}>
       {summary && summary.byInstance.length > 0
         ? <TopList data={summary.byInstance} color="#8b5cf6" suffix="/mo" provider={provider} />
         : count > 0
@@ -391,7 +398,7 @@ const RightsizingCard: React.FC<{ summary: RightsizingSummary | null; loading: b
 // ══════════════════════════════════════════════════════════════════════════════
 const LambdaCard: React.FC<{ wasteSummary: WasteSummary | null; loading: boolean; provider?: string }> = ({ wasteSummary, loading, provider }) => {
   if (loading) return (
-    <CardShell accentColor="#0ea5e9" icon="mdi:lightning-bolt-outline" title="Lambda" subtitle="Loading…" link="/waste">
+    <CardShell accentColor="#0ea5e9" icon="mdi:lightning-bolt-outline" title="Lambda" subtitle="Loading…" link="/waste" provider={provider}>
       <div className="h-[96px] flex items-center justify-center">
         <div className="w-5 h-5 rounded-full border-2 border-[#0ea5e9] border-t-transparent animate-spin" />
       </div>
@@ -405,7 +412,7 @@ const LambdaCard: React.FC<{ wasteSummary: WasteSummary | null; loading: boolean
     : 'No Lambda waste';
 
   return (
-    <CardShell accentColor="#0ea5e9" icon="mdi:lightning-bolt-outline" title="Lambda Waste" subtitle={subtitle} link="/waste">
+    <CardShell accentColor="#0ea5e9" icon="mdi:lightning-bolt-outline" title="Lambda Waste" subtitle={subtitle} link="/waste" provider={provider}>
       {count > 0
         ? <ChartEmpty color="#0ea5e9" icon="mdi:lightning-bolt" line1={`${count} function${count !== 1 ? 's' : ''}`} line2={`${fmt(savings, provider)}/mo waste detected`} />
         : <ChartEmpty color="#10b981" icon="mdi:check-circle-outline" line1="No Lambda waste" />}
@@ -527,7 +534,7 @@ const SummaryCardsSection: React.FC<SummaryCardsSectionProps> = ({ accountId, is
   return (
     <div className={`grid grid-cols-2 md:grid-cols-3 gap-4 ${showLambdaCard ? 'lg:grid-cols-6' : 'lg:grid-cols-5'}`}>
       <AlertsCard     summary={alertSummary}     loading={alertLoading} provider={provider} />
-      <SecurityCard   accountId={accountId} apiBase={apiBase} />
+      <SecurityCard   accountId={accountId} apiBase={apiBase} provider={provider} />
       <WasteCard      summary={wasteSummary}      loading={wasteLoading} provider={provider} />
       <RightsizingCard summary={rightsizeSummary} loading={rightsizeLoading} provider={provider} />
       {showLambdaCard && (

@@ -293,13 +293,18 @@ const EbsRightsizingPage: React.FC = () => {
                   </span>
                 </div>
 
-                {/* Column headers */}
-                <div className="grid grid-cols-12 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] border-b border-[rgba(0,0,0,0.06)]">
-                  <div className="col-span-3">Volume</div>
+                {/* Column headers.
+                    gap-x-4 so the right-aligned Size / Usage cell can't butt up against the
+                    Attached To text beside it, and Attached To is col-span-2 because a 1/12 column
+                    is too narrow for an instance id plus its device path — the two were colliding.
+                    The extra column comes from Volume (3 -> 2); the id and name both truncate.
+                    Widths sum to 12: 2 + 1 + 1 + 2 + 2 + 1 + 3. */}
+                <div className="grid grid-cols-12 gap-x-4 px-5 py-2 bg-[rgba(0,0,0,0.02)] text-[11px] font-semibold uppercase tracking-wide text-[rgba(0,0,0,0.4)] border-b border-[rgba(0,0,0,0.06)]">
+                  <div className="col-span-2">Volume</div>
                   <div className="col-span-1">Region</div>
                   <div className="col-span-1">Type</div>
                   <div className="col-span-2 text-right">Size / Usage</div>
-                  <div className="col-span-1">Attached To</div>
+                  <div className="col-span-2">Attached To</div>
                   <div className="col-span-1 text-right">Cost/mo</div>
                   <div className="col-span-3">Action</div>
                 </div>
@@ -333,11 +338,11 @@ const EbsRightsizingPage: React.FC = () => {
                           if ((e.target as HTMLElement).closest('button')) return;
                           setMonitoringVolume(vol);
                         }}
-                        className="grid grid-cols-12 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors cursor-pointer text-[13px]"
+                        className="grid grid-cols-12 gap-x-4 items-center px-5 py-3.5 border-t border-[rgba(0,0,0,0.04)] hover:bg-[rgba(0,0,0,0.01)] transition-colors cursor-pointer text-[13px]"
                         style={{ animation: `fadeInUp 0.3s ease ${Math.min(idx * 0.03, 0.45)}s both` }}
                       >
                         {/* Volume */}
-                        <div className="col-span-3 min-w-0">
+                        <div className="col-span-2 min-w-0">
                           <div className="flex items-center gap-1.5">
                             <p className="font-mono text-[12px] text-[rgba(0,0,0,0.88)] font-semibold truncate">{vol.volumeId}</p>
                             {vol.encrypted && <Icon icon="mdi:lock" width={10} color="#6366F1" />}
@@ -390,7 +395,7 @@ const EbsRightsizingPage: React.FC = () => {
                         </div>
 
                         {/* Attached to */}
-                        <div className="col-span-1 min-w-0">
+                        <div className="col-span-2 min-w-0">
                           {vol.instanceId ? (
                             <div>
                               <p className="font-mono text-[11px] text-[rgba(0,0,0,0.7)] truncate">{vol.instanceId}</p>

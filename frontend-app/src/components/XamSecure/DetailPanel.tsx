@@ -72,7 +72,17 @@ const DetailPanel: React.FC<Props> = ({
     };
   }, [onClose]);
 
-  const active = sections.find((s) => s.id === activeId);
+  /*
+   * Which section the body shows, derived rather than read straight off state.
+   *
+   * These panels mount while their payload is still in flight, so the first render has no
+   * sections and `activeId` settles on ''. The effect above repairs it once sections arrive,
+   * but that is a render later — and in between, the body fell through to "Nothing to show."
+   * over data it already had. Deriving the selection means the first render with sections
+   * already shows one, and the effect only keeps the stored id in step.
+   */
+  const active = sections.find((s) => s.id === activeId && s.available !== false) ?? usable[0];
+  const activeKey = active?.id ?? '';
 
   // A nav listing a single destination is noise. Panels for small, cohesive entities
   // (a framework, a workflow) declare one section and get the shell's chrome, keyboard
@@ -135,7 +145,7 @@ const DetailPanel: React.FC<Props> = ({
                   )}
                   {g.items.map((s) => {
                     const disabled = s.available === false;
-                    const isActive = s.id === activeId;
+                    const isActive = s.id === activeKey;
                     return (
                       <button
                         key={s.id}

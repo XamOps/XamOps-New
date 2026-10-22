@@ -45,7 +45,7 @@ interface UseCICDPipelinesReturn {
   selectedRunUrl: string;
   pipelineStages: PipelineStage[];
   isStagesLoading: boolean;
-  selectRunFromHistory: (run: RunHistory) => Promise<void>;
+  selectRunFromHistory: (run: RunHistory, workflowOverride?: SelectedWorkflow) => Promise<void>;
 
   // Utility functions
   refreshData: () => Promise<void>;
@@ -164,9 +164,10 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
         setWorkflowHistory(data);
         console.log(`✅ Loaded ${data.length} workflow runs`);
 
-        // Select first run by default
+        // Select first run by default. `item` is passed explicitly: setSelectedWorkflow(item)
+        // above has not been applied to this closure's state yet.
         if (data.length > 0) {
-          await selectRunFromHistory(data[0]);
+          await selectRunFromHistory(data[0], item as SelectedWorkflow);
         }
       }
       // It's a Jenkins job
@@ -180,7 +181,7 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
           console.log(`✅ Loaded ${data.length} Jenkins builds`);
 
           // Select first build by default
-          await selectRunFromHistory(data[0]);
+          await selectRunFromHistory(data[0], item as SelectedWorkflow);
         } else {
           // Fallback: create a single run from lastBuild
           const fallbackRun = {
@@ -195,7 +196,7 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
             result: item.displayStatus.toUpperCase() as any,
           };
           setWorkflowHistory([fallbackRun]);
-          await selectRunFromHistory(fallbackRun);
+          await selectRunFromHistory(fallbackRun, item as SelectedWorkflow);
         }
       }
     } catch (err) {
@@ -209,7 +210,15 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
   /**
    * Select a run from history and fetch its stages
    */
-  const selectRunFromHistory = useCallback(async (run: RunHistory) => {
+  const selectRunFromHistory = useCallback(async (run: RunHistory, workflowOverride?: SelectedWorkflow) => {
+    // `workflowOverride` exists because viewWorkflowHistory calls this immediately after
+    // setSelectedWorkflow(item), within the same tick — so the `selectedWorkflow` captured in
+    // this closure is still the pre-update value (null on the first open). Both branches below
+    // are gated on it, so neither ran and no /stages request was ever issued: the modal always
+    // opened on "No stage information available for this run". Clicking a run in the list
+    // afterwards worked, which is what made it look like missing data rather than a missing call.
+    const workflow = workflowOverride ?? selectedWorkflow;
+
     setSelectedRun(run);
     setIsStagesLoading(true);
     setPipelineStages([]);
@@ -224,8 +233,8 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
 
     try {
       // Check if it's a GitHub run
-      if (selectedWorkflow && 'repository' in selectedWorkflow && selectedWorkflow.repository) {
-        const repository = selectedWorkflow.repository as GitHubRepository;
+      if (workflow && 'repository' in workflow && workflow.repository) {
+        const repository = workflow.repository as GitHubRepository;
         const [owner, repo] = repository.full_name.split('/');
         const runId = 'id' in run ? run.id : '';
 
@@ -239,8 +248,8 @@ export const useCICDPipelines = (): UseCICDPipelinesReturn => {
         console.log(`✅ Loaded ${data.length} stages`);
       }
       // It's a Jenkins build
-      else if (selectedWorkflow) {
-        const jobName = selectedWorkflow.name;
+      else if (workflow) {
+        const jobName = workflow.name;
 
         console.log(`🔧 Fetching Jenkins build stages for ${jobName}/${runNumber}`);
         const response = await apiClient.get(

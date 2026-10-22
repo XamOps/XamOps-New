@@ -32,6 +32,11 @@ const ResourceDrawer: React.FC<Props> = ({ resourceId, detail, isLoading, onClos
   const identity = detail?.identity;
   const name = identity?.name ?? resourceId;
 
+  // `counts` is the gate, not `detail`: the endpoint answers `{}` for a resource it cannot
+  // resolve, and `{}` is truthy, so keying the empty state off `detail` alone sent that case
+  // down the "has sections" path with no sections to show — a blank nav and "Nothing to show."
+  const resolved = !!counts;
+
   const sections: PanelSection[] = detail && counts ? [
     {
       id: 'overview', label: 'Overview', icon: 'mdi:information-outline', group: 'Resource',
@@ -148,7 +153,7 @@ const ResourceDrawer: React.FC<Props> = ({ resourceId, detail, isLoading, onClos
       sections={sections}
       isLoading={isLoading}
       onClose={onClose}
-      emptyState={!isLoading && !detail ? (
+      emptyState={!isLoading && !resolved ? (
         <div className="max-w-xs text-center">
           <Icon icon="mdi:database-off-outline" width={36} className="mx-auto text-gray-300" />
           <p className="mt-3 text-sm font-semibold text-gray-900">Nothing references this resource</p>

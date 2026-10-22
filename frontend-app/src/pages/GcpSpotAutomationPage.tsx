@@ -13,6 +13,7 @@ import { isConversionsPausedError, parseAutoSpottingError, PAUSED_MESSAGE } from
 import { useAutoSpottingFeatureStatus } from '../hooks/useAutoSpottingFeatureStatus';
 import { useTabState } from '../hooks/useTabState';
 import { useTopbar } from '../contexts/TopbarContext';
+import { fmtMoney } from '../utils/currency';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -495,8 +496,10 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ accountId }) => {
                                 <p className="text-[11px] font-semibold text-[rgba(0,0,0,0.45)] uppercase tracking-wider">
                                     Total Spot Savings ({range === 'last7d' ? '7d' : '30d'})
                                 </p>
+                                {/* ₹, like every other GCP figure in the product and like the
+                                    Actions History tab's savings card. This said $. */}
                                 <p style={NUM_STYLE} className="text-emerald-600 mt-1">
-                                    ${summary.totalEstimatedSavings.toFixed(2)}
+                                    {fmtMoney(summary.totalEstimatedSavings, 'GCP')}
                                 </p>
                             </div>
                             <div className="w-12 h-12 bg-emerald-50 border border-emerald-100 rounded-xl flex items-center justify-center">
@@ -528,7 +531,7 @@ const AnalyticsTab: React.FC<AnalyticsTabProps> = ({ accountId }) => {
                                                 </span>
                                             </td>
                                             <td className={`${COL} text-right font-bold text-emerald-600`}>
-                                                ${stats.savings.toFixed(4)}
+                                                {fmtMoney(stats.savings, 'GCP')}
                                             </td>
                                         </tr>
                                     ))}

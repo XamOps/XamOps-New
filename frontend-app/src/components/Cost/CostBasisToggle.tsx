@@ -181,7 +181,14 @@ const CostBasisToggle: React.FC<CostBasisToggleProps> = ({
       {description && (
         <p
           id={descriptionId}
-          className="absolute top-full right-0 mt-1 w-[280px] text-[10.5px] text-[rgba(0,0,0,0.45)] leading-relaxed text-right"
+          /*
+           * Anchored left, not right. This toggle is the first child of the filter row, so its
+           * container sits against the card's left edge and is only as wide as the button group
+           * plus the info icon — roughly 160px. A 280px box pinned by its right edge therefore
+           * started about 120px to the LEFT of the card and ran off the viewport, which is where
+           * the "Demo data is unblended only…" sentence was disappearing to.
+           */
+          className="absolute top-full left-0 mt-1 w-[280px] max-w-[calc(100vw-2rem)] text-[10.5px] text-[rgba(0,0,0,0.45)] leading-relaxed text-left"
         >
           {description}
         </p>

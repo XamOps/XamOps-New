@@ -288,6 +288,109 @@ export const demoRightsizingData = [
   { resourceId: 'i-0abc1003', instanceName: 'prod-db-01',   service: 'EC2', currentType: 'r5.2xlarge', recommendedType: 'r5.xlarge',  currentMonthlyCost: 3480, recommendedMonthlyCost: 1740, estimatedMonthlySavings: 1740, recommendationReason: 'Memory utilisation consistently below 45%', region: 'eu-west-1' },
 ];
 
+// ─── /api/xamops/optimization/rightsizing/live — XamOpsRecommendation[] ──────
+// The "XamAi Recommendations" tab on the Rightsizing page. This endpoint had no demo route, so
+// it fell to the generic `/api/xamops/optimization` catch-all that answers `[]`, and the tab
+// rendered its "No XamAi Recommendations / Could not load custom recommendations" empty state.
+//
+// This is deliberately a DIFFERENT analysis from the AWS tab, not a relabelling of it:
+//   • It reaches instances AWS Cost Optimization Hub leaves out (worker/cache/monitoring nodes),
+//     and skips prod-db-01 — which the AWS tab already covers — so the two tabs don't duplicate.
+//   • Every row proposes BOTH an Intel (x86) and an AMD/Graviton option, which is the
+//     cross-architecture angle the table's subheader advertises. The arm64 column on an x86
+//     instance is flagged requiresArchitectureMigration and marked not-applicable with a reason,
+//     because it needs a rebuilt AMI and can't be applied in place.
+//
+// Field/format contract the table (XamOpsRecommendationsTable) enforces:
+//   • intelRecommendation / amdRecommendation are "<type> (<util line>)" — the table splits on
+//     the first '(' to get the instance type the Apply button sends, so the prefix must be a
+//     real type and must differ from currentInstance.
+//   • The Savings column prefers estimatedMonthlySavings (a number) and shows "Unknown" when
+//     savingsUnknown is true; a priced figure must equal currentMonthlyCost minus the cheapest
+//     APPLICABLE option, since a blocked column is not a realizable saving.
+//   • Instances are named from the CloudList EC2 estate (demoCloudlistServices) so the ids,
+//     names, regions and current types all agree with what CloudList reports.
+
+interface XamAiSeed {
+  instanceId: string;
+  instanceName: string;
+  currentInstance: string;
+  region: string;
+  currentUtil: string;        // shown under the current type
+  loadRange: string;
+  projectedMaxUtil: string;
+  reason: string;
+  intelType: string;
+  intelUtil: string;
+  amdType: string;
+  amdUtil: string;
+  currentMonthlyCost: number | null;
+  intelMonthlyCost: number | null;
+  amdMonthlyCost: number | null;
+  /** Set when the AMD/Graviton option crosses x86 -> arm64 and cannot be applied in place. */
+  amdMigration?: boolean;
+}
+
+// us-east-1 on-demand monthly rates (730h) used across the seeds, so the arithmetic is checkable.
+const XAMAI_SEEDS: XamAiSeed[] = [
+  // Covered by the AWS tab too (prod-web-01) — but XamAi reaches a cheaper cross-family target.
+  { instanceId: 'i-0abc1001', instanceName: 'prod-web-01',    currentInstance: 't3.large',   region: 'us-east-1', currentUtil: 'CPU 12%', loadRange: '8–18%',  projectedMaxUtil: '34%', reason: 'Sustained low CPU with burst headroom — a smaller current-gen or Graviton node holds the same peak',
+    intelType: 'c6i.large',  intelUtil: 'proj. 31% CPU', amdType: 'c7g.large',  amdUtil: 'proj. 29% CPU', currentMonthlyCost: 60.74, intelMonthlyCost: 50.37, amdMonthlyCost: 41.23, amdMigration: true },
+  // AWS-only estate reaches these next three; the AWS tab does not.
+  { instanceId: 'i-0abc1005', instanceName: 'prod-worker-01', currentInstance: 'c5.2xlarge', region: 'us-east-1', currentUtil: 'CPU 38%', loadRange: '22–54%', projectedMaxUtil: '61%', reason: 'Batch worker peaks well below provisioned vCPU — one size down absorbs the peak',
+    intelType: 'c6i.xlarge', intelUtil: 'proj. 58% CPU', amdType: 'c7g.xlarge', amdUtil: 'proj. 55% CPU', currentMonthlyCost: 248.20, intelMonthlyCost: 124.10, amdMonthlyCost: 99.28, amdMigration: true },
+  { instanceId: 'i-0abc1006', instanceName: 'prod-worker-02', currentInstance: 'c5.2xlarge', region: 'us-east-1', currentUtil: 'CPU 41%', loadRange: '25–57%', projectedMaxUtil: '64%', reason: 'Same workload profile as prod-worker-01 — downsize keeps peak under 70%',
+    intelType: 'c6i.xlarge', intelUtil: 'proj. 61% CPU', amdType: 'c7g.xlarge', amdUtil: 'proj. 58% CPU', currentMonthlyCost: 248.20, intelMonthlyCost: 124.10, amdMonthlyCost: 99.28, amdMigration: true },
+  { instanceId: 'i-0abc1010', instanceName: 'prod-monitoring',currentInstance: 'm5.large',   region: 'us-east-1', currentUtil: 'CPU 9%',  loadRange: '5–16%',  projectedMaxUtil: '28%', reason: 'Monitoring agent is memory-light and CPU-idle — a burstable node fits the duty cycle',
+    intelType: 't3.medium',  intelUtil: 'proj. 27% CPU', amdType: 't4g.medium', amdUtil: 'proj. 25% CPU', currentMonthlyCost: 70.08, intelMonthlyCost: 30.37, amdMonthlyCost: 24.31, amdMigration: true },
+  // eu-west-1 instance — a current-gen in-place swap (no migration), both columns applicable.
+  { instanceId: 'i-0abc1008', instanceName: 'eu-web-01',      currentInstance: 't3.large',   region: 'eu-west-1', currentUtil: 'CPU 17%', loadRange: '10–24%', projectedMaxUtil: '39%', reason: 'Current-gen swap holds the peak at a lower rate without changing architecture',
+    intelType: 't3.medium',  intelUtil: 'proj. 38% CPU', amdType: 't4g.medium', amdUtil: 'proj. 35% CPU', currentMonthlyCost: 66.87, intelMonthlyCost: 33.43, amdMonthlyCost: 26.75, amdMigration: true },
+  // A row nothing could be priced in-region — exercises the savingsUnknown branch.
+  { instanceId: 'i-0abc1007', instanceName: 'prod-db-proxy',  currentInstance: 'r5.2xlarge', region: 'us-east-1', currentUtil: 'CPU 22%', loadRange: '14–33%', projectedMaxUtil: '47%', reason: 'Memory-bound proxy — a memory-optimised downsize is indicated, but live pricing was unavailable in this region',
+    intelType: 'r6i.xlarge', intelUtil: 'proj. 45% CPU', amdType: 'r7g.xlarge', amdUtil: 'proj. 43% CPU', currentMonthlyCost: null, intelMonthlyCost: null, amdMonthlyCost: null },
+];
+
+export const demoXamOpsRightsizing = XAMAI_SEEDS.map((s) => {
+  const priced = s.currentMonthlyCost != null;
+  // Best realizable saving: the AMD column is blocked on an x86 instance (needs an AMI rebuild),
+  // so only the Intel option counts toward the figure even though AMD is cheaper on paper.
+  const amdApplicable = !s.amdMigration;
+  const candidates = priced
+    ? [s.intelMonthlyCost!, amdApplicable ? s.amdMonthlyCost! : Infinity]
+    : [];
+  const bestCost = candidates.length ? Math.min(...candidates) : null;
+  const estimatedMonthlySavings = priced && bestCost != null
+    ? +(s.currentMonthlyCost! - bestCost).toFixed(2)
+    : undefined;
+
+  return {
+    instanceId: s.instanceId,
+    instanceName: s.instanceName,
+    currentInstance: s.currentInstance,
+    currentUtilization: s.currentUtil,
+    loadRange: s.loadRange,
+    intelRecommendation: `${s.intelType} (${s.intelUtil})`,
+    amdRecommendation: `${s.amdType} (${s.amdUtil})`,
+    projectedMaxUtil: s.projectedMaxUtil,
+    approxCostSavings: priced ? `~${Math.round((estimatedMonthlySavings! / s.currentMonthlyCost!) * 100)}% lower` : 'see analysis',
+    reason: s.reason,
+    region: s.region,
+    currentMonthlyCost: s.currentMonthlyCost,
+    intelMonthlyCost: s.intelMonthlyCost,
+    amdMonthlyCost: s.amdMonthlyCost,
+    estimatedMonthlySavings,
+    savingsUnknown: !priced,
+    intelApplicable: true,
+    intelBlockedReason: null,
+    amdApplicable,
+    amdBlockedReason: amdApplicable
+      ? null
+      : 'Crosses x86 → arm64 (Graviton). Needs an arm64 AMI rebuilt and tested before it can be applied in place.',
+    requiresArchitectureMigration: Boolean(s.amdMigration),
+  };
+});
+
 // ─── /api/xamops/metrics/insights ────────────────────────────────────────────
 // PerformanceInsight[] — matches src/types/performance.ts PerformanceInsight interface
 export const demoPerformanceInsights = [
@@ -1046,13 +1149,200 @@ export const demoCicdJenkinsMetrics = {
 };
 
 // ─── /api/dev_ops_script ──────────────────────────────────────────────────────
+//
+// DevOps-in-the-Box script catalogue. Each script carries `cloudProviders` so the page can
+// brand it and — once the shelf is scoped to the selected account's provider — so a GCP project
+// shows GCP tooling instead of EC2/S3/RDS scripts. The catalogue used to be five AWS-only
+// scripts with no provider tag at all, which is why every account (GCP and Azure included) was
+// offered `EC2 Auto Shutdown` and `S3 Lifecycle Policy`.
+//
+// The three single-cloud shelves mirror each other: one bash shutdown, one terraform lifecycle,
+// one python backup validator, and one ansible identity auditor — so every category pill
+// (terraform / bash / python / ansible) is covered on each provider. `K8s Resource Limits` is
+// genuinely cloud-agnostic (it patches Kubernetes deployments, not a cloud API), so it is tagged
+// `multi-cloud` and surfaces on all three shelves.
 export const demoDevOpsScripts = [
-  { id: 1, name: 'EC2 Auto Shutdown',       description: 'Automatically stop idle EC2 instances outside business hours to save cost',    category: 'bash',      code: '#!/bin/bash\nregion=${1:-us-east-1}\necho "Stopping idle EC2 in $region..."\naws ec2 stop-instances --region $region ...',              downloads: 142, lastUpdated: '2026-04-01', version: '1.2.0', usage: 'bash auto-shutdown.sh us-east-1'     },
-  { id: 2, name: 'S3 Lifecycle Policy',     description: 'Apply intelligent-tiering lifecycle policies to reduce long-term storage costs', category: 'terraform', code: 'resource "aws_s3_bucket_lifecycle_configuration" "example" {\n  bucket = var.bucket_id\n  rule { id = "tier" status = "Enabled" ... }\n}', downloads: 98,  lastUpdated: '2026-03-15', version: '2.0.1', usage: 'terraform apply -var bucket_id=my-bucket' },
-  { id: 3, name: 'RDS Backup Validator',    description: 'Validate that all RDS instances have automated backups enabled with 7-day retention', category: 'python', code: 'import boto3\n\ndef check_rds_backups(region="us-east-1"):\n    client = boto3.client("rds", region_name=region)\n    ...',        downloads: 76,  lastUpdated: '2026-04-10', version: '1.0.3', usage: 'python rds_backup_check.py'          },
-  { id: 4, name: 'K8s Resource Limits',     description: 'Enforce CPU and memory resource limits on all Kubernetes deployments via Ansible', category: 'ansible',  code: '---\n- name: Apply K8s Resource Limits\n  hosts: localhost\n  tasks:\n    - name: Patch deployments ...',                                 downloads: 54,  lastUpdated: '2026-02-28', version: '1.1.0', usage: 'ansible-playbook k8s-limits.yml'      },
-  { id: 5, name: 'IAM Policy Auditor',      description: 'Scan IAM policies for overly-permissive wildcards and generate a remediation report', category: 'python', code: 'import boto3, json\n\ndef audit_iam_policies():\n    iam = boto3.client("iam")\n    policies = iam.list_policies(Scope="Local")...',        downloads: 120, lastUpdated: '2026-04-20', version: '1.3.1', usage: 'python iam_auditor.py'               },
+  // ── AWS ──
+  { id: 1, name: 'EC2 Auto Shutdown',       cloudProviders: ['aws'],   description: 'Automatically stop idle EC2 instances outside business hours to save cost',    category: 'bash',      code: '#!/bin/bash\nregion=${1:-us-east-1}\necho "Stopping idle EC2 in $region..."\naws ec2 stop-instances --region $region ...',              downloads: 142, lastUpdated: '2026-04-01', version: '1.2.0', usage: 'bash auto-shutdown.sh us-east-1'     },
+  { id: 2, name: 'S3 Lifecycle Policy',     cloudProviders: ['aws'],   description: 'Apply intelligent-tiering lifecycle policies to reduce long-term storage costs', category: 'terraform', code: 'resource "aws_s3_bucket_lifecycle_configuration" "example" {\n  bucket = var.bucket_id\n  rule { id = "tier" status = "Enabled" ... }\n}', downloads: 98,  lastUpdated: '2026-03-15', version: '2.0.1', usage: 'terraform apply -var bucket_id=my-bucket' },
+  { id: 3, name: 'RDS Backup Validator',    cloudProviders: ['aws'],   description: 'Validate that all RDS instances have automated backups enabled with 7-day retention', category: 'python', code: 'import boto3\n\ndef check_rds_backups(region="us-east-1"):\n    client = boto3.client("rds", region_name=region)\n    ...',        downloads: 76,  lastUpdated: '2026-04-10', version: '1.0.3', usage: 'python rds_backup_check.py'          },
+  { id: 4, name: 'IAM Policy Auditor',      cloudProviders: ['aws'],   description: 'Scan IAM policies for overly-permissive wildcards and generate a remediation report', category: 'ansible', code: '---\n- name: Audit IAM policies\n  hosts: localhost\n  tasks:\n    - name: List local policies ...',                            downloads: 120, lastUpdated: '2026-04-20', version: '1.3.1', usage: 'ansible-playbook iam-audit.yml'       },
+
+  // ── GCP ──
+  { id: 5, name: 'GCE Idle VM Shutdown',    cloudProviders: ['gcp'],   description: 'Stop idle Compute Engine VMs outside business hours to reduce spend',          category: 'bash',      code: '#!/bin/bash\nproject=${1:-xammer-analytics-prod}\necho "Stopping idle GCE VMs in $project..."\ngcloud compute instances stop ...',       downloads: 88,  lastUpdated: '2026-04-02', version: '1.1.0', usage: 'bash gce-idle-shutdown.sh xammer-analytics-prod' },
+  { id: 6, name: 'Cloud Storage Lifecycle', cloudProviders: ['gcp'],   description: 'Apply Nearline/Coldline lifecycle rules to GCS buckets to cut storage cost',     category: 'terraform', code: 'resource "google_storage_bucket" "example" {\n  name = var.bucket_name\n  lifecycle_rule { action { type = "SetStorageClass" ... } }\n}', downloads: 61, lastUpdated: '2026-03-18', version: '1.4.0', usage: 'terraform apply -var bucket_name=my-bucket' },
+  { id: 7, name: 'Cloud SQL Backup Validator', cloudProviders: ['gcp'], description: 'Confirm every Cloud SQL instance has automated backups with point-in-time recovery', category: 'python', code: 'from google.cloud import sql_v1\n\ndef check_cloudsql_backups(project):\n    client = sql_v1.SqlInstancesServiceClient()\n    ...',       downloads: 47,  lastUpdated: '2026-04-11', version: '1.0.2', usage: 'python cloudsql_backup_check.py'    },
+  { id: 8, name: 'IAM Role Auditor',        cloudProviders: ['gcp'],   description: 'Flag primitive roles and broad IAM bindings at the project level',               category: 'ansible',  code: '---\n- name: Audit GCP IAM bindings\n  hosts: localhost\n  tasks:\n    - name: Get IAM policy ...',                                   downloads: 72,  lastUpdated: '2026-04-21', version: '1.2.0', usage: 'ansible-playbook gcp-iam-audit.yml'   },
+
+  // ── Azure ──
+  { id: 9,  name: 'VM Auto Deallocate',     cloudProviders: ['azure'], description: 'Deallocate idle Azure VMs outside business hours so you stop paying for compute', category: 'bash',     code: '#!/bin/bash\nrg=${1:-xammer-prod}\necho "Deallocating idle VMs in $rg..."\naz vm deallocate --resource-group $rg ...',                downloads: 69,  lastUpdated: '2026-04-03', version: '1.1.0', usage: 'bash vm-auto-deallocate.sh xammer-prod' },
+  { id: 10, name: 'Blob Lifecycle Policy',  cloudProviders: ['azure'], description: 'Tier blobs to Cool/Archive on a schedule to reduce storage account cost',          category: 'terraform', code: 'resource "azurerm_storage_management_policy" "example" {\n  storage_account_id = var.account_id\n  rule { ... }\n}',                 downloads: 53,  lastUpdated: '2026-03-20', version: '1.3.0', usage: 'terraform apply -var account_id=...'   },
+  { id: 11, name: 'SQL Backup Validator',   cloudProviders: ['azure'], description: 'Validate that Azure SQL databases have long-term retention backups configured',   category: 'python',    code: 'from azure.mgmt.sql import SqlManagementClient\n\ndef check_sql_backups(subscription_id):\n    ...',                               downloads: 41,  lastUpdated: '2026-04-12', version: '1.0.1', usage: 'python sql_backup_check.py'        },
+  { id: 12, name: 'RBAC Role Auditor',      cloudProviders: ['azure'], description: 'Report Owner/Contributor assignments at the subscription scope for review',       category: 'ansible',  code: '---\n- name: Audit Azure RBAC assignments\n  hosts: localhost\n  tasks:\n    - name: List role assignments ...',                     downloads: 58,  lastUpdated: '2026-04-22', version: '1.1.0', usage: 'ansible-playbook azure-rbac-audit.yml' },
+
+  // ── Multi-cloud (Kubernetes is the same API on every cloud) ──
+  { id: 13, name: 'K8s Resource Limits',    cloudProviders: ['multi-cloud'], description: 'Enforce CPU and memory resource limits on all Kubernetes deployments via Ansible', category: 'ansible', code: '---\n- name: Apply K8s Resource Limits\n  hosts: localhost\n  tasks:\n    - name: Patch deployments ...',                        downloads: 54,  lastUpdated: '2026-02-28', version: '1.1.0', usage: 'ansible-playbook k8s-limits.yml'      },
 ];
+
+// ─── CI/CD run detail (/api/cicd/github/runs/{owner}/{repo}/{runId}/...) ─────
+// The pipeline modal's three tabs. These are keyed by run id so the one failing run in
+// demoGithubRuns (11003 "Security Scan") actually reads as a failure, rather than every run
+// showing the same canned analysis.
+//
+// Shapes come from types/cicdPipelines.ts and are NOT forgiving: FailureAnalysis.snippets,
+// ErrorSnippet.lines, DiffSummary.commits and DiffSummary.changedFiles are all required arrays
+// that the components `.map` and read `.length` on without guards.
+
+const CICD_RUN_IDS = { deploy: 11001, build: 11002, security: 11003, infra: 11004 } as const;
+
+// `status` must be one of success | failure | running | skipped | pending (GitHubStage).
+export const demoCicdStages: Record<number, { name: string; status: string; duration: string }[]> = {
+  [CICD_RUN_IDS.deploy]: [
+    { name: 'Checkout',    status: 'success', duration: '8s'    },
+    { name: 'Build',       status: 'success', duration: '2m 14s' },
+    { name: 'Test',        status: 'success', duration: '3m 02s' },
+    { name: 'Deploy',      status: 'success', duration: '1m 48s' },
+    { name: 'Smoke Test',  status: 'success', duration: '42s'   },
+  ],
+  [CICD_RUN_IDS.build]: [
+    { name: 'Checkout',     status: 'success', duration: '7s'    },
+    { name: 'Install Deps', status: 'success', duration: '54s'   },
+    { name: 'Lint',         status: 'success', duration: '28s'   },
+    { name: 'Unit Tests',   status: 'success', duration: '2m 36s' },
+    { name: 'Build',        status: 'success', duration: '1m 52s' },
+  ],
+  [CICD_RUN_IDS.security]: [
+    { name: 'Checkout',          status: 'success', duration: '6s'    },
+    { name: 'Dependency Audit',  status: 'success', duration: '41s'   },
+    { name: 'SAST Scan',         status: 'failure', duration: '1m 18s' },
+    { name: 'Container Scan',    status: 'skipped', duration: '-'     },
+    { name: 'Report',            status: 'skipped', duration: '-'     },
+  ],
+  [CICD_RUN_IDS.infra]: [
+    { name: 'Checkout',        status: 'success', duration: '6s'    },
+    { name: 'Terraform Init',  status: 'success', duration: '22s'   },
+    { name: 'Terraform Plan',  status: 'success', duration: '1m 08s' },
+    { name: 'Policy Check',    status: 'success', duration: '19s'   },
+  ],
+};
+
+export const demoCicdRunStages = (runId: number) =>
+  demoCicdStages[runId] ?? demoCicdStages[CICD_RUN_IDS.deploy];
+
+// fallback: false means "we identified the error" and the tab titles itself "Why it failed";
+// true means "here are the last log lines", which is the honest answer for a run that passed.
+export const demoCicdFailureAnalysis = (runId: number) => {
+  if (runId === CICD_RUN_IDS.security) {
+    return {
+      fallback: false,
+      snippets: [
+        {
+          matchLine: 3,
+          lines: [
+            'Run semgrep --config=p/security-audit --sarif --output=results.sarif',
+            '  semgrep scan report',
+            '  ────────────────────',
+            '  ERROR: 2 blocking findings (severity: HIGH)',
+            '    src/api/auth/session.ts:88  jwt-hardcoded-secret',
+            '    src/api/upload/handler.ts:42  path-traversal',
+            '  Blocking policy: fail on HIGH or above',
+          ],
+        },
+        {
+          matchLine: 2,
+          lines: [
+            '  Uploading SARIF report to code scanning',
+            '  ────────────────────',
+            'Error: Process completed with exit code 1.',
+            '##[error]SAST Scan failed after 1m 18s',
+          ],
+        },
+      ],
+    };
+  }
+  return {
+    fallback: true,
+    snippets: [
+      {
+        matchLine: 4,
+        lines: [
+          '  Finished: build',
+          '  Uploading artifacts',
+          '    dist/ (14.2 MB)',
+          '  Job succeeded',
+          '##[section]Finishing: Complete job',
+        ],
+      },
+    ],
+  };
+};
+
+export const demoCicdDiffSummary = (runId: number) => {
+  if (runId === CICD_RUN_IDS.security) {
+    return {
+      noPreviousSuccess: false,
+      filesChanged: 4,
+      commits: [
+        { sha: 'a4f21c8', message: 'Add signed upload URLs for tenant assets', author: 'priya',  timestamp: new Date(Date.now() - 7200_000).toISOString() },
+        { sha: '9db30e1', message: 'Refactor session token helper',            author: 'rohan',  timestamp: new Date(Date.now() - 10800_000).toISOString() },
+        { sha: '1c7a94f', message: 'Bump semgrep ruleset to p/security-audit', author: 'akshay', timestamp: new Date(Date.now() - 14400_000).toISOString() },
+      ],
+      changedFiles: [
+        'src/api/auth/session.ts',
+        'src/api/upload/handler.ts',
+        '.github/workflows/security-scan.yml',
+        'package-lock.json',
+      ],
+    };
+  }
+  return {
+    noPreviousSuccess: false,
+    filesChanged: 2,
+    commits: [
+      { sha: '7e52ab0', message: 'Tighten retry budget on cost sync job', author: 'ananya', timestamp: new Date(Date.now() - 5400_000).toISOString() },
+      { sha: '3f1d6c4', message: 'Add unit tests for budget alert rules', author: 'vijay',  timestamp: new Date(Date.now() - 9000_000).toISOString() },
+    ],
+    changedFiles: [
+      'src/jobs/costSync.ts',
+      'src/jobs/__tests__/budgetAlerts.test.ts',
+    ],
+  };
+};
+
+// Plain string — CicdLogViewer does `typeof text === 'string' ? text : JSON.stringify(text)`,
+// so anything else renders as a JSON blob.
+export const demoCicdRunLog = (runId: number) =>
+  runId === CICD_RUN_IDS.security
+    ? [
+        '##[section]Starting: Checkout',
+        'Syncing repository: xammer/cloud-app',
+        '##[section]Finishing: Checkout',
+        '##[section]Starting: Dependency Audit',
+        '  found 0 vulnerabilities',
+        '##[section]Finishing: Dependency Audit',
+        '##[section]Starting: SAST Scan',
+        'Run semgrep --config=p/security-audit --sarif --output=results.sarif',
+        '  semgrep scan report',
+        '  ERROR: 2 blocking findings (severity: HIGH)',
+        '    src/api/auth/session.ts:88  jwt-hardcoded-secret',
+        '    src/api/upload/handler.ts:42  path-traversal',
+        'Error: Process completed with exit code 1.',
+        '##[error]SAST Scan failed after 1m 18s',
+      ].join('\n')
+    : [
+        '##[section]Starting: Checkout',
+        'Syncing repository: xammer/cloud-app',
+        '##[section]Finishing: Checkout',
+        '##[section]Starting: Build',
+        '  vite v5.4.0 building for production...',
+        '  ✓ 1842 modules transformed',
+        '##[section]Finishing: Build',
+        '##[section]Starting: Test',
+        '  Test Files  150 passed (150)',
+        '       Tests  2045 passed (2045)',
+        '##[section]Finishing: Test',
+        '  Job succeeded',
+      ].join('\n');
 
 // ─── /api/dbops/*/summary ─────────────────────────────────────────────────────
 export const demoDbSavingsSummary = {
@@ -1575,6 +1865,261 @@ export const demoObservabilityClusters = [
   { clusterName: 'staging-eks-cluster', region: 'us-east-1' },
 ];
 
+// ─── Observability Traces (/api/observability/traces/{search,stats,spans}) ───
+//
+// These three had no demo route, so they fell through to the `/api/observability/` catch-all
+// and got `{}`. The explorer reads `data.traces` and `data.spans` off the envelope and treats
+// `stats.summary.n` as the request count, so all three came back empty and TracesExplorer took
+// its `!hasAnyData && noFilters` branch — the "No trace data yet / install a collector" screen —
+// even though the Overview tab was simultaneously advertising a traces stream with 32,400 docs.
+//
+// Unit contract, from TracesExplorer: `duration` is MICROseconds (fmtDur divides by 1000) and
+// `start_time` / `end_time` are NANOseconds (startMsOf divides by 1e6). Getting these wrong
+// renders rows whose Time column reads "—" and drops them from the scatter chart.
+//
+// Unlike the other observability fixtures these vary by provider. The explorer sends the
+// selected account as `providerAccountId` in the POST body (not the query string), and
+// resolveDemoResponse already receives that body, so the host names and downstream span names
+// can reflect the cloud the spans would really have come from: EC2/EKS for AWS, GKE for GCP,
+// AKS for Azure. The application services are the same either way — that is the point of
+// tracing an app rather than an estate.
+
+type TraceProvider = 'AWS' | 'GCP' | 'Azure';
+
+const TRACE_PROVIDER_BY_ACCOUNT: Record<string, TraceProvider> = {
+  'demo-aws-001': 'AWS',
+  'demo-aws-002': 'AWS',
+  'demo-gcp-001': 'GCP',
+  'demo-azure-001': 'Azure',
+};
+
+/** Reads providerAccountId out of the POST body; defaults to AWS when absent or unknown. */
+const traceProviderOf = (body?: string): TraceProvider => {
+  if (!body) return 'AWS';
+  try {
+    const id = (JSON.parse(body) as { providerAccountId?: string }).providerAccountId;
+    return (id && TRACE_PROVIDER_BY_ACCOUNT[id]) || 'AWS';
+  } catch {
+    return 'AWS';
+  }
+};
+
+interface TraceProviderProfile {
+  hosts: string[];
+  /** Downstream dependency span names, in the provider's own vocabulary. */
+  db: string;
+  cache: string;
+  objectStore: string;
+  queue: string;
+  dbSpan: string;
+  cacheSpan: string;
+  objectSpan: string;
+  queueSpan: string;
+}
+
+const TRACE_PROFILES: Record<TraceProvider, TraceProviderProfile> = {
+  AWS: {
+    hosts: ['ip-10-0-1-42.ec2.internal', 'ip-10-0-2-18.ec2.internal', 'ip-10-0-3-91.ec2.internal'],
+    db: 'RDS', cache: 'ElastiCache', objectStore: 'S3', queue: 'SQS',
+    dbSpan: 'SELECT orders', cacheSpan: 'GET session', objectSpan: 'S3.GetObject', queueSpan: 'SQS.SendMessage',
+  },
+  GCP: {
+    hosts: ['gke-prod-cluster-default-pool-7f3a', 'gke-prod-cluster-default-pool-b2e9', 'gke-prod-cluster-batch-pool-4c17'],
+    db: 'Cloud SQL', cache: 'Memorystore', objectStore: 'Cloud Storage', queue: 'Pub/Sub',
+    dbSpan: 'SELECT orders', cacheSpan: 'GET session', objectSpan: 'storage.objects.get', queueSpan: 'pubsub.publish',
+  },
+  Azure: {
+    hosts: ['aks-nodepool1-vmss000002', 'aks-nodepool1-vmss000005', 'aks-batchpool-vmss000001'],
+    db: 'Azure SQL', cache: 'Redis Cache', objectStore: 'Blob Storage', queue: 'Service Bus',
+    dbSpan: 'SELECT orders', cacheSpan: 'GET session', objectSpan: 'blob.download', queueSpan: 'servicebus.send',
+  },
+};
+
+interface TraceSeed {
+  op: string;
+  service: string;
+  /** Root duration in milliseconds. */
+  ms: number;
+  minutesAgo: number;
+  http: string;
+  method: string;
+  spans: number;
+  error?: boolean;
+  statusMessage?: string;
+}
+
+/** 24 traces spread across the default 6-hour window, error-weighted like a real estate. */
+const TRACE_SEEDS: TraceSeed[] = [
+  { op: 'POST /api/v1/checkout',            service: 'checkout-service', ms: 1842, minutesAgo: 4,   http: '500', method: 'POST', spans: 11, error: true, statusMessage: 'payment gateway timeout after 1500ms' },
+  { op: 'GET /api/v1/orders',               service: 'api-server',       ms: 96,   minutesAgo: 6,   http: '200', method: 'GET',  spans: 6 },
+  { op: 'GET /api/v1/finops/breakdown',     service: 'api-server',       ms: 412,  minutesAgo: 9,   http: '200', method: 'GET',  spans: 8 },
+  { op: 'POST /api/v1/billing/invoices',    service: 'billing-api',      ms: 284,  minutesAgo: 13,  http: '201', method: 'POST', spans: 7 },
+  { op: 'GET /api/v1/search',               service: 'search-indexer',   ms: 61,   minutesAgo: 17,  http: '200', method: 'GET',  spans: 4 },
+  { op: 'GET /api/v1/accounts',             service: 'api-server',       ms: 74,   minutesAgo: 22,  http: '200', method: 'GET',  spans: 5 },
+  { op: 'POST /api/v1/auth/login',          service: 'api-server',       ms: 148,  minutesAgo: 28,  http: '200', method: 'POST', spans: 5 },
+  { op: 'GET /api/v1/orders/{id}',          service: 'api-server',       ms: 3284, minutesAgo: 34,  http: '504', method: 'GET',  spans: 9, error: true, statusMessage: 'upstream read timeout' },
+  { op: 'GET /api/v1/reports/export',       service: 'reporting-worker', ms: 8420, minutesAgo: 41,  http: '200', method: 'GET',  spans: 12 },
+  { op: 'POST /api/v1/images/resize',       service: 'image-worker',     ms: 624,  minutesAgo: 48,  http: '200', method: 'POST', spans: 5 },
+  { op: 'GET /api/v1/catalogue',            service: 'api-server',       ms: 42,   minutesAgo: 56,  http: '200', method: 'GET',  spans: 3 },
+  { op: 'POST /api/v1/checkout/refund',     service: 'checkout-service', ms: 512,  minutesAgo: 64,  http: '200', method: 'POST', spans: 8 },
+  { op: 'GET /api/v1/billing/usage',        service: 'billing-api',      ms: 196,  minutesAgo: 73,  http: '200', method: 'GET',  spans: 6 },
+  { op: 'POST /api/v1/notifications/send',  service: 'notification-worker', ms: 88, minutesAgo: 82, http: '202', method: 'POST', spans: 4 },
+  { op: 'GET /api/v1/orders',               service: 'api-server',       ms: 112,  minutesAgo: 94,  http: '200', method: 'GET',  spans: 6 },
+  { op: 'POST /api/v1/billing/webhooks',    service: 'billing-api',      ms: 1284, minutesAgo: 108, http: '502', method: 'POST', spans: 7, error: true, statusMessage: 'connection reset by peer' },
+  { op: 'GET /api/v2/analytics/events',     service: 'analytics-worker', ms: 2148, minutesAgo: 121, http: '200', method: 'GET',  spans: 10 },
+  { op: 'GET /api/v1/search',               service: 'search-indexer',   ms: 54,   minutesAgo: 136, http: '200', method: 'GET',  spans: 4 },
+  { op: 'PUT /api/v1/accounts/{id}',        service: 'api-server',       ms: 168,  minutesAgo: 152, http: '200', method: 'PUT',  spans: 6 },
+  { op: 'GET /api/v1/finops/breakdown',     service: 'api-server',       ms: 486,  minutesAgo: 178, http: '200', method: 'GET',  spans: 8 },
+  { op: 'POST /api/v1/files/upload',        service: 'api-server',       ms: 942,  minutesAgo: 204, http: '200', method: 'POST', spans: 7 },
+  { op: 'GET /api/v1/support/tickets/{id}', service: 'api-server',       ms: 78,   minutesAgo: 238, http: '200', method: 'GET',  spans: 5 },
+  { op: 'POST /internal/etl/trigger',       service: 'analytics-worker', ms: 14820, minutesAgo: 281, http: '200', method: 'POST', spans: 14 },
+  { op: 'GET /api/v1/catalogue/{sku}',      service: 'api-server',       ms: 38,   minutesAgo: 326, http: '404', method: 'GET',  spans: 3, error: true, statusMessage: 'sku not found' },
+];
+
+/** Stable 32-hex id per seed, so the list and the span lookup agree across calls. */
+const traceIdFor = (i: number) =>
+  (0x9e3779b1 * (i + 1)).toString(16).padStart(8, '0').repeat(4).slice(0, 32);
+
+const spanIdFor = (traceIdx: number, spanIdx: number) =>
+  (0x7f4a7c15 * (traceIdx + 1) + spanIdx * 0x165667b1).toString(16).padStart(8, '0').slice(0, 16).padEnd(16, '0');
+
+const buildTrace = (seed: TraceSeed, i: number, profile: TraceProviderProfile) => ({
+  trace_id: traceIdFor(i),
+  operation_name: seed.op,
+  service_name: seed.service,
+  duration: seed.ms * 1000,                                    // ms → µs
+  start_time: (Date.now() - seed.minutesAgo * 60_000) * 1e6,   // ms → ns
+  span_status: seed.error ? 'ERROR' : 'OK',
+  status_message: seed.statusMessage ?? '',
+  http_status_code: seed.http,
+  http_method: seed.method,
+  span_count: seed.spans,
+  error_count: seed.error ? 1 : 0,
+  service_count: seed.service === 'api-server' ? 3 : 2,
+  service_host_name: profile.hosts[i % profile.hosts.length],
+});
+
+export const demoObservabilityTraces = (body?: string) => {
+  const profile = TRACE_PROFILES[traceProviderOf(body)];
+  return { traces: TRACE_SEEDS.map((seed, i) => buildTrace(seed, i, profile)) };
+};
+
+/**
+ * The waterfall for one trace. `traceId` comes off the request body, so every row in the table
+ * opens a tree whose root operation matches the row it was opened from rather than a single
+ * canned trace.
+ */
+export const demoObservabilityTraceSpans = (body?: string) => {
+  const provider = traceProviderOf(body);
+  const profile = TRACE_PROFILES[provider];
+  let traceId = '';
+  try { traceId = (JSON.parse(body ?? '{}') as { traceId?: string }).traceId ?? ''; } catch { /* ignore */ }
+
+  const idx = Math.max(0, TRACE_SEEDS.findIndex((_, i) => traceIdFor(i) === traceId));
+  const seed = TRACE_SEEDS[idx];
+  const host = profile.hosts[idx % profile.hosts.length];
+  const rootStartNs = (Date.now() - seed.minutesAgo * 60_000) * 1e6;
+  const totalUs = seed.ms * 1000;
+
+  const span = (
+    spanIdx: number, parent: number | null, name: string, svc: string,
+    kind: string, offsetFrac: number, durFrac: number, isErr = false,
+  ) => {
+    const startNs = rootStartNs + Math.round(totalUs * offsetFrac) * 1000;
+    const durUs = Math.max(Math.round(totalUs * durFrac), 1);
+    return {
+      trace_id: traceIdFor(idx),
+      span_id: spanIdFor(idx, spanIdx),
+      reference_parent_span_id: parent == null ? undefined : spanIdFor(idx, parent),
+      operation_name: name,
+      service_name: svc,
+      duration: durUs,
+      start_time: startNs,
+      end_time: startNs + durUs * 1000,
+      span_status: isErr ? 'ERROR' : 'OK',
+      span_kind: kind,
+      status_message: isErr ? (seed.statusMessage ?? 'span failed') : '',
+      service_host_name: host,
+    };
+  };
+
+  // Root server span, an auth check and a cache read, then the data-layer work the request
+  // actually spends its time in. The failing trace's error is attached to the last child as
+  // well as the root, which is how an OTLP tree reports a downstream failure.
+  const spans = [
+    span(0, null, seed.op, seed.service, '2', 0, 1, seed.error),
+    span(1, 0, profile.cacheSpan, seed.service, '3', 0.04, 0.06),
+    span(2, 0, 'auth.verify_token', 'api-server', '1', 0.11, 0.08),
+    span(3, 0, `${profile.db}: ${profile.dbSpan}`, seed.service, '3', 0.22, 0.34),
+    span(4, 3, `${profile.db}: SELECT line_items`, seed.service, '3', 0.30, 0.18),
+    span(5, 0, profile.objectSpan, seed.service, '3', 0.60, 0.14),
+  ];
+  if (seed.spans > 6) spans.push(span(6, 0, profile.queueSpan, seed.service, '4', 0.76, 0.09));
+  if (seed.spans > 7) spans.push(span(7, 0, 'render.response', seed.service, '1', 0.87, 0.11, seed.error));
+  return { spans };
+};
+
+export const demoObservabilityTraceStats = (body?: string) => {
+  const profile = TRACE_PROFILES[traceProviderOf(body)];
+
+  // Buckets at 10-minute spacing, which is what histIntervalFor returns for the default
+  // 6-hour range. Keys are ISO strings — parseBucketTs accepts those as well as epochs.
+  const histogram = Array.from({ length: 36 }, (_, i) => {
+    const ts = new Date(Date.now() - (35 - i) * 10 * 60_000);
+    // A midday-shaped load curve plus a ripple, so the area chart has a believable profile.
+    const wave = 0.72 + 0.28 * Math.sin((i / 36) * Math.PI) + 0.08 * Math.sin(i * 1.7);
+    return {
+      key: ts.toISOString(),
+      total: Math.round(180 * wave),
+      errors: i % 7 === 3 ? Math.round(4 * wave) : i % 11 === 0 ? 1 : 0,
+    };
+  });
+
+  const byService = TRACE_SEEDS.reduce<Record<string, number>>((acc, s) => {
+    acc[s.service] = (acc[s.service] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  return {
+    // Consistent with the traces-default stream the Overview tab already reports
+    // (32,400 spans ≈ 6,480 traces at the ~5 spans/trace this fixture averages).
+    summary: { n: 6480, errors: 142, avg_us: 184_000, p50: 96_000, p95: 412_000, p99: 1_240_000 },
+    histogram,
+    operations: [
+      { operation_name: 'GET /api/v1/orders',            service_name: 'api-server',          n: 1842, avg_us: 104_000,   p95: 268_000,   errors: 4  },
+      { operation_name: 'GET /api/v1/catalogue',         service_name: 'api-server',          n: 1284, avg_us: 44_000,    p95: 96_000,    errors: 1  },
+      { operation_name: 'POST /api/v1/checkout',         service_name: 'checkout-service',    n: 842,  avg_us: 918_000,   p95: 1_842_000, errors: 61 },
+      { operation_name: 'GET /api/v1/finops/breakdown',  service_name: 'api-server',          n: 648,  avg_us: 448_000,   p95: 912_000,   errors: 2  },
+      { operation_name: 'GET /api/v1/search',            service_name: 'search-indexer',      n: 612,  avg_us: 58_000,    p95: 124_000,   errors: 0  },
+      { operation_name: 'POST /api/v1/billing/invoices', service_name: 'billing-api',         n: 484,  avg_us: 292_000,   p95: 684_000,   errors: 18 },
+      { operation_name: 'GET /api/v2/analytics/events',  service_name: 'analytics-worker',    n: 324,  avg_us: 2_148_000, p95: 4_820_000, errors: 6  },
+      { operation_name: 'GET /api/v1/reports/export',    service_name: 'reporting-worker',    n: 182,  avg_us: 8_420_000, p95: 14_800_000, errors: 3 },
+      { operation_name: 'POST /internal/etl/trigger',    service_name: 'analytics-worker',    n: 96,   avg_us: 14_820_000, p95: 22_400_000, errors: 2 },
+      { operation_name: 'POST /api/v1/images/resize',    service_name: 'image-worker',        n: 86,   avg_us: 624_000,   p95: 1_120_000, errors: 1  },
+    ],
+    services: Object.entries(byService)
+      .map(([service_name, seedCount]) => ({ service_name, n: seedCount * 270 }))
+      .sort((a, b) => b.n - a.n),
+    hosts: profile.hosts.map((service_host_name, i) => ({
+      service_host_name,
+      n: [2840, 2160, 1480][i] ?? 980,
+    })),
+  };
+};
+
+// ─── /api/observability/agents ───────────────────────────────────────────────
+// The Overview tab's Connected Instances list. Also had no route, so it took the same
+// catch-all `{}` and `data?.agents || []` left the panel empty beside an overview that
+// reported six active streams.
+export const demoObservabilityAgents = {
+  agents: [
+    { instanceId: 'i-0abc1001', hostname: 'ip-10-0-1-42.ec2.internal',  status: 'healthy', version: '0.96.0', lastSeen: new Date(Date.now() - 42_000).toISOString(),  logsEnabled: true,  metricsEnabled: true,  tracesEnabled: true  },
+    { instanceId: 'i-0abc1002', hostname: 'ip-10-0-2-18.ec2.internal',  status: 'healthy', version: '0.96.0', lastSeen: new Date(Date.now() - 51_000).toISOString(),  logsEnabled: true,  metricsEnabled: true,  tracesEnabled: true  },
+    { instanceId: 'i-0abc1005', hostname: 'ip-10-0-3-91.ec2.internal',  status: 'healthy', version: '0.94.1', lastSeen: new Date(Date.now() - 38_000).toISOString(),  logsEnabled: true,  metricsEnabled: true,  tracesEnabled: false },
+    { instanceId: 'i-0abc1009', hostname: 'ip-10-0-1-20.ec2.internal',  status: 'stale',   version: '0.91.0', lastSeen: new Date(Date.now() - 42 * 60_000).toISOString(), logsEnabled: true, metricsEnabled: false, tracesEnabled: false },
+  ],
+};
+
 // ─── DbOps instance timeseries (/api/dbops/aws/*/instance/*/timeseries) ───────
 // Generate simple time series points for the last 24 hours
 function genTs(base: number, count = 24, jitter = 0.2) {
@@ -1712,6 +2257,140 @@ export const demoAgentQueryStats = [
   { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', queryDigest: 'INSERT INTO api_request_logs (tenant_id, user_id, endpoint, method, status_code, duration_ms, created_at) VALUES ($1, $2, $3, $4, $5, $6, NOW())', callCount: 184000, totalTimeSeconds: 184.0, avgTimeSeconds: 0.00100, maxTimeSeconds: 0.48, rowsExamined: 0, rowsSent: 184000, sharedBlksHit: 184000, sharedBlksRead: 0, noIndexUsed: false, lockTimeSeconds: 0.000, collectedAt: new Date().toISOString() },
   { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', queryDigest: 'SELECT r.*, t.name AS tag_name FROM cloud_resources r LEFT JOIN resource_tags t ON r.id = t.resource_id WHERE r.account_id = $1 AND r.status = $2', callCount: 3280, totalTimeSeconds: 196.8, avgTimeSeconds: 0.06000, maxTimeSeconds: 1.92, rowsExamined: 432000, rowsSent: 3280, sharedBlksHit: 42000, sharedBlksRead: 8400, noIndexUsed: true, lockTimeSeconds: 0.000, collectedAt: new Date().toISOString() },
   { dsnAlias: 'rds-prod-002', dbEngine: 'mysql',    dbHost: 'rds-prod-002.us-east-1.rds.amazonaws.com', queryDigest: 'SELECT * FROM sessions WHERE user_id = ? AND expires_at > NOW() AND revoked = ?', callCount: 18400, totalTimeSeconds: 68.0, avgTimeSeconds: 0.00370, maxTimeSeconds: 0.62, rowsExamined: 18400, rowsSent: 18400, sharedBlksHit: 36800, sharedBlksRead: 0, noIndexUsed: false, lockTimeSeconds: 0.000, collectedAt: new Date().toISOString() },
+];
+
+// ─── DbOps Agent Timeseries (/api/dbops/*/agent-timeseries?hours=N) ──────────
+// Feeds the instance drawer's Performance tab ("Agent Metrics" charts). Shape is
+// AgentTimeseries[] from useDbOpsData: one entry per agent, each holding a snapshots[].
+//
+// Three things the chart code requires, learned the hard way from reading it:
+//   • The drawer picks the entry whose `agentName` equals the instance id, or whose `dbHost`
+//     is contained in the instance endpoint — so both are set to match demoDbInstances.
+//   • `totalQueries`, `comSelect/Insert/Update/Delete` and `innodbRowLockWaits` are plotted as
+//     per-second deltas (agentChartRate), so they MUST increase monotonically or every
+//     throughput chart flatlines at zero.
+//   • Charts need >= 2 snapshots to render at all, and the rate series drops the first point,
+//     so anything under 3 looks like a single dot.
+//
+// `totalSlowQueries` is read as a gauge for postgres ("Slow Query Patterns") and as a rate for
+// mysql ("Slow Query Rate"), hence `slowQueriesCumulative` per profile.
+interface DemoAgentProfile {
+  qpsBase: number;
+  connectionsBase: number;
+  maxConnections: number;
+  threadsBase: number;
+  slowQueriesCumulative: boolean;
+  slowQueryBase: number;
+}
+
+// Named distinctly: this file already declares a `round2` further down.
+const agentRound2 = (v: number) => +v.toFixed(2);
+
+function buildDemoAgentSnapshots(hours: number, p: DemoAgentProfile) {
+  // Fixed point count rather than a fixed interval, so 6h and 7d both come back as a readable
+  // chart instead of 72 points one way and 2016 the other.
+  const points = 72;
+  const stepMs = (hours * 3600_000) / points;
+  const stepSec = stepMs / 1000;
+  const start = Date.now() - hours * 3600_000;
+
+  let totalQueries = p.qpsBase * 86_400 * 7;
+  let comSelect = totalQueries * 0.78;
+  let comInsert = totalQueries * 0.13;
+  let comUpdate = totalQueries * 0.07;
+  let comDelete = totalQueries * 0.02;
+  let rowLockWaits = 1_240;
+  let deadlocks = 6;
+  let slowQueries = p.slowQueryBase * 120;
+
+  const snapshots = [];
+  for (let i = 0; i < points; i++) {
+    const ts = start + i * stepMs;
+    const d = new Date(ts);
+    const hourOfDay = d.getUTCHours() + d.getUTCMinutes() / 60;
+    // Deterministic load curve — a daily trough around 04:00 and peak around 16:00, plus a
+    // faster ripple for texture. No Math.random, so switching 6h/1d/2d/7d redraws a stable
+    // shape rather than an unrelated random walk on every click.
+    const daily = 0.675 - 0.325 * Math.cos(((hourOfDay - 4) / 24) * 2 * Math.PI);
+    const ripple = 1 + 0.12 * Math.sin(i * 0.7) + 0.06 * Math.sin(i * 1.9);
+    const load = Math.max(0.15, daily * ripple);
+
+    const qps = p.qpsBase * load;
+    totalQueries += qps * stepSec;
+    comSelect += qps * 0.78 * stepSec;
+    comInsert += qps * 0.13 * stepSec;
+    comUpdate += qps * 0.07 * stepSec;
+    comDelete += qps * 0.02 * stepSec;
+    rowLockWaits += 0.04 * load * stepSec;
+    if (i % 23 === 0) deadlocks += 1;
+    if (p.slowQueriesCumulative) slowQueries += 0.012 * load * stepSec;
+
+    snapshots.push({
+      ts: d.toISOString(),
+      connections: Math.round(p.connectionsBase * load),
+      maxConnections: p.maxConnections,
+      bufferPoolHitPct: agentRound2(99.4 - 0.6 * (load - 0.675)),
+      totalQueries: Math.round(totalQueries),
+      totalSlowQueries: p.slowQueriesCumulative
+        ? Math.round(slowQueries)
+        : Math.max(1, Math.round(p.slowQueryBase * load)),
+      comSelect: Math.round(comSelect),
+      comInsert: Math.round(comInsert),
+      comUpdate: Math.round(comUpdate),
+      comDelete: Math.round(comDelete),
+      innodbRowLockWaits: Math.round(rowLockWaits),
+      innodbDeadlocks: deadlocks,
+      threadsRunning: Math.max(1, Math.round(p.threadsBase * load)),
+    });
+  }
+  return snapshots;
+}
+
+export const demoAgentTimeseries = (hours = 24) => [
+  {
+    agentName: 'rds-prod-001',
+    dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com',
+    snapshots: buildDemoAgentSnapshots(hours, { qpsBase: 620, connectionsBase: 142, maxConnections: 1000, threadsBase: 9, slowQueriesCumulative: false, slowQueryBase: 7 }),
+  },
+  {
+    agentName: 'rds-prod-002',
+    dbHost: 'rds-prod-002.us-east-1.rds.amazonaws.com',
+    snapshots: buildDemoAgentSnapshots(hours, { qpsBase: 240, connectionsBase: 68, maxConnections: 500, threadsBase: 5, slowQueriesCumulative: true, slowQueryBase: 2 }),
+  },
+  {
+    agentName: 'rds-staging-001',
+    dbHost: 'rds-staging-001.eu-west-1.rds.amazonaws.com',
+    snapshots: buildDemoAgentSnapshots(hours, { qpsBase: 40, connectionsBase: 14, maxConnections: 200, threadsBase: 2, slowQueriesCumulative: false, slowQueryBase: 1 }),
+  },
+];
+
+// ─── DbOps Agent Instance Metrics (/api/dbops/*/agent-instance-metrics) ──────
+// Matched by `endpoint.includes(dbHost)`, so dbHost carries no port. This also drives the
+// Performance tab's engine branch: without it `dbEngine` is undefined, so a postgres instance
+// rendered the MySQL chart set (Buffer Pool Hit %, Row Lock Waits/s) instead of the postgres one.
+// ec2* fields are deliberately omitted — these are managed instances, and populating them would
+// put agent-derived EC2 pricing on the Cost & Savings tab.
+export const demoAgentInstanceMetrics = [
+  { agentName: 'rds-prod-001', dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', dbName: 'analytics', region: 'us-east-1', dbSizeBytes: 182_400_000_000, currentConnections: 142, maxConnections: 1000, maxUsedConnections: 318, totalQueries: 374_820_000, totalSlowQueries: 7, comSelect: 292_359_600, comInsert: 48_726_600, comUpdate: 26_237_400, comDelete: 7_496_400, innodbBufferPoolReads: 14_200, innodbBufferPoolHitPct: 99.4, innodbRowLockWaits: 1_240, innodbDeadlocks: 6, threadsRunning: 9, bytesReceived: 84_200_000_000, bytesSent: 412_800_000_000, uptime: 1_842_000, version: '15.4', collectedAt: new Date().toISOString() },
+  { agentName: 'rds-prod-002', dsnAlias: 'rds-prod-002', dbEngine: 'mysql',    dbHost: 'rds-prod-002.us-east-1.rds.amazonaws.com', dbName: 'sessions',  region: 'us-east-1', dbSizeBytes: 64_800_000_000,  currentConnections: 68,  maxConnections: 500,  maxUsedConnections: 142, totalQueries: 145_152_000, totalSlowQueries: 284, comSelect: 113_218_560, comInsert: 18_869_760, comUpdate: 10_160_640, comDelete: 2_903_040, innodbBufferPoolReads: 28_600, innodbBufferPoolHitPct: 98.1, innodbRowLockWaits: 3_480, innodbDeadlocks: 14, threadsRunning: 5, bytesReceived: 32_400_000_000, bytesSent: 148_200_000_000, uptime: 2_640_000, version: '8.0.35', collectedAt: new Date().toISOString() },
+  { agentName: 'rds-staging-001', dsnAlias: 'rds-staging-001', dbEngine: 'postgres', dbHost: 'rds-staging-001.eu-west-1.rds.amazonaws.com', dbName: 'staging', region: 'eu-west-1', dbSizeBytes: 8_400_000_000, currentConnections: 14, maxConnections: 200, maxUsedConnections: 42, totalQueries: 24_192_000, totalSlowQueries: 1, comSelect: 18_869_760, comInsert: 3_144_960, comUpdate: 1_693_440, comDelete: 483_840, innodbBufferPoolReads: 2_400, innodbBufferPoolHitPct: 99.8, innodbRowLockWaits: 120, innodbDeadlocks: 0, threadsRunning: 2, bytesReceived: 4_200_000_000, bytesSent: 18_600_000_000, uptime: 864_000, version: '15.4', collectedAt: new Date().toISOString() },
+];
+
+// ─── DbOps Agent Table Sizes (/api/dbops/*/agent-table-sizes) ────────────────
+// The "Table Sizes" table at the bottom of the Performance tab; sorted by totalSizeBytes and
+// capped at 20 rows by the drawer. Matched on dbHost only.
+export const demoAgentTableSizes = [
+  { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', schemaName: 'public', tableName: 'billing_entries',   dataSizeBytes: 62_400_000_000, indexSizeBytes: 18_200_000_000, totalSizeBytes: 80_600_000_000, rows: 864_000,  collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', schemaName: 'public', tableName: 'api_request_logs',  dataSizeBytes: 38_200_000_000, indexSizeBytes:  8_400_000_000, totalSizeBytes: 46_600_000_000, rows: 184_000_000, collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', schemaName: 'public', tableName: 'audit_logs',        dataSizeBytes: 21_800_000_000, indexSizeBytes:  4_200_000_000, totalSizeBytes: 26_000_000_000, rows: 432_000,  collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', schemaName: 'public', tableName: 'cloud_resources',   dataSizeBytes: 12_400_000_000, indexSizeBytes:  3_800_000_000, totalSizeBytes: 16_200_000_000, rows: 284_200,  collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', schemaName: 'public', tableName: 'orders',            dataSizeBytes:  8_600_000_000, indexSizeBytes:  2_400_000_000, totalSizeBytes: 11_000_000_000, rows: 142_600,  collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', schemaName: 'public', tableName: 'users',             dataSizeBytes:  4_200_000_000, indexSizeBytes:  1_800_000_000, totalSizeBytes:  6_000_000_000, rows: 284_200,  collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', schemaName: 'public', tableName: 'profiles',          dataSizeBytes:  2_800_000_000, indexSizeBytes:    840_000_000, totalSizeBytes:  3_640_000_000, rows: 284_200,  collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-prod-001', dbEngine: 'postgres', dbHost: 'rds-prod-001.us-east-1.rds.amazonaws.com', schemaName: 'public', tableName: 'resource_tags',     dataSizeBytes:  1_240_000_000, indexSizeBytes:    420_000_000, totalSizeBytes:  1_660_000_000, rows: 864_000,  collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-prod-002', dbEngine: 'mysql',    dbHost: 'rds-prod-002.us-east-1.rds.amazonaws.com', schemaName: 'app',    tableName: 'sessions',          dataSizeBytes: 18_400_000_000, indexSizeBytes:  4_800_000_000, totalSizeBytes: 23_200_000_000, rows: 18_400_000, collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-prod-002', dbEngine: 'mysql',    dbHost: 'rds-prod-002.us-east-1.rds.amazonaws.com', schemaName: 'app',    tableName: 'user_tokens',       dataSizeBytes:  3_200_000_000, indexSizeBytes:    980_000_000, totalSizeBytes:  4_180_000_000, rows: 2_840_000, collectedAt: new Date().toISOString() },
+  { dsnAlias: 'rds-staging-001', dbEngine: 'postgres', dbHost: 'rds-staging-001.eu-west-1.rds.amazonaws.com', schemaName: 'public', tableName: 'users',       dataSizeBytes:    420_000_000, indexSizeBytes:    120_000_000, totalSizeBytes:    540_000_000, rows: 28_400,   collectedAt: new Date().toISOString() },
 ];
 
 // ─── BillOps User Tickets (/api/billops/tickets/category/Account%20and%20Billing) ──
@@ -2203,6 +2882,115 @@ export const demoGcpAutoSpottingHistory = {
   },
 };
 
+// ─── GCP AutoSpotting events (/api/gcp/autospotting/events/{accountId}) ──────
+// Feeds BOTH the "Launch Analytics" tab and the "Actions History" tab, which share this
+// endpoint. Envelope mirrors the backend EventsResponse: { start, end, count, summary, events }.
+//
+// Two shape constraints worth keeping:
+//   • `event_type` must be one of instance_replacement | spot_interruption | launch_failure —
+//     those are the literals AnalyticsTab counts for its KPI cards. Anything else counts as zero.
+//   • the savings total is read as `total_estimated_savings` by ActionsHistory and as
+//     `totalEstimatedSavings` by AnalyticsTab, so both keys are present.
+// `asg_name` reuses the MIG names from demoGcpAutoSpottingMigs so all three tabs agree, and the
+// interruptions are spread across different days so the MTBI card reads in days rather than hours.
+const demoGcpAutoSpottingEventRows = [
+  { daysAgo: 1,  event_type: 'instance_replacement', result: 'Success',     asg_name: 'prod-worker-mig', region: 'us-central1',  old_instance_type: 'n2-standard-4', new_instance_type: 'n2-standard-4', old_hourly_price: 0.1942, new_hourly_price: 0.0582, estimated_savings: 99.28, reason: 'On-demand VM replaced with a Spot VM of the same machine type' },
+  { daysAgo: 2,  event_type: 'spot_interruption',    result: 'Interrupted', asg_name: 'batch-jobs-mig',  region: 'us-central1',  old_instance_type: 'e2-standard-4', new_instance_type: 'e2-standard-4', old_hourly_price: 0.0402, new_hourly_price: 0.0402, estimated_savings: 0,     reason: 'GCP Spot VM preemption — the MIG autoscaler recreated the VM' },
+  { daysAgo: 4,  event_type: 'instance_replacement', result: 'Success',     asg_name: 'batch-jobs-mig',  region: 'us-central1',  old_instance_type: 'e2-standard-4', new_instance_type: 'e2-standard-4', old_hourly_price: 0.1340, new_hourly_price: 0.0402, estimated_savings: 68.47, reason: 'On-demand VM replaced with a Spot VM of the same machine type' },
+  { daysAgo: 6,  event_type: 'launch_failure',       result: 'Failed',      asg_name: 'staging-api-mig', region: 'europe-west1', old_instance_type: 'n2-standard-2', new_instance_type: 'n2-standard-2', old_hourly_price: 0.0971, new_hourly_price: 0.0291, estimated_savings: 0,     reason: 'ZONE_RESOURCE_POOL_EXHAUSTED — no Spot capacity in europe-west1-b' },
+  { daysAgo: 8,  event_type: 'instance_replacement', result: 'Success',     asg_name: 'prod-worker-mig', region: 'us-central1',  old_instance_type: 'n2-standard-4', new_instance_type: 'n2-standard-4', old_hourly_price: 0.1942, new_hourly_price: 0.0582, estimated_savings: 99.28, reason: 'On-demand VM replaced with a Spot VM of the same machine type' },
+  { daysAgo: 11, event_type: 'spot_interruption',    result: 'Interrupted', asg_name: 'prod-worker-mig', region: 'us-central1',  old_instance_type: 'n2-standard-4', new_instance_type: 'n2-standard-4', old_hourly_price: 0.0582, new_hourly_price: 0.0594, estimated_savings: 0,     reason: 'GCP Spot VM preemption — the MIG autoscaler recreated the VM' },
+  { daysAgo: 14, event_type: 'instance_replacement', result: 'Success',     asg_name: 'batch-jobs-mig',  region: 'us-central1',  old_instance_type: 'e2-standard-4', new_instance_type: 'e2-standard-4', old_hourly_price: 0.1340, new_hourly_price: 0.0402, estimated_savings: 68.47, reason: 'On-demand VM replaced with a Spot VM of the same machine type' },
+  { daysAgo: 17, event_type: 'instance_replacement', result: 'Success',     asg_name: 'prod-worker-mig', region: 'us-central1',  old_instance_type: 'n2-standard-8', new_instance_type: 'n2-standard-8', old_hourly_price: 0.3885, new_hourly_price: 0.1165, estimated_savings: 198.56, reason: 'On-demand VM replaced with a Spot VM of the same machine type' },
+  { daysAgo: 21, event_type: 'spot_interruption',    result: 'Interrupted', asg_name: 'batch-jobs-mig',  region: 'us-central1',  old_instance_type: 'e2-standard-4', new_instance_type: 'e2-standard-4', old_hourly_price: 0.0402, new_hourly_price: 0.0410, estimated_savings: 0,     reason: 'GCP Spot VM preemption — the MIG autoscaler recreated the VM' },
+  { daysAgo: 24, event_type: 'instance_replacement', result: 'Success',     asg_name: 'batch-jobs-mig',  region: 'us-central1',  old_instance_type: 'e2-standard-2', new_instance_type: 'e2-standard-2', old_hourly_price: 0.0670, new_hourly_price: 0.0201, estimated_savings: 34.24, reason: 'On-demand VM replaced with a Spot VM of the same machine type' },
+  { daysAgo: 27, event_type: 'launch_failure',       result: 'Failed',      asg_name: 'staging-api-mig', region: 'europe-west1', old_instance_type: 'n2-standard-2', new_instance_type: 'n2-standard-2', old_hourly_price: 0.0971, new_hourly_price: 0.0291, estimated_savings: 0,     reason: 'Spot price above the configured maximum — conversion skipped' },
+  { daysAgo: 29, event_type: 'instance_replacement', result: 'Success',     asg_name: 'prod-worker-mig', region: 'us-central1',  old_instance_type: 'n2-standard-4', new_instance_type: 'n2-standard-4', old_hourly_price: 0.1942, new_hourly_price: 0.0582, estimated_savings: 99.28, reason: 'On-demand VM replaced with a Spot VM of the same machine type' },
+];
+
+const demoGcpAutoSpottingEventList = demoGcpAutoSpottingEventRows.map((row, i) => {
+  const { daysAgo, ...rest } = row;
+  const slug = rest.asg_name.replace('-mig', '');
+  return {
+    ...rest,
+    timestamp: new Date(Date.now() - daysAgo * 86400_000).toISOString(),
+    old_instance_id: `${slug}-${(i + 11).toString(36)}${i}a`,
+    new_instance_id: `${slug}-${(i + 23).toString(36)}${i}b`,
+    old_lifecycle: rest.event_type === 'spot_interruption' ? 'spot' : 'on-demand',
+    new_lifecycle: 'spot',
+  };
+});
+
+const demoGcpAutoSpottingSavingsTotal = parseFloat(
+  demoGcpAutoSpottingEventList.reduce((sum, e) => sum + e.estimated_savings, 0).toFixed(2),
+);
+
+export const demoGcpAutoSpottingEvents = {
+  start: new Date(Date.now() - 30 * 86400_000).toISOString(),
+  end:   new Date().toISOString(),
+  count: demoGcpAutoSpottingEventList.length,
+  summary: {
+    total_replacements:  demoGcpAutoSpottingEventList.filter(e => e.event_type === 'instance_replacement').length,
+    total_interruptions: demoGcpAutoSpottingEventList.filter(e => e.event_type === 'spot_interruption').length,
+    total_estimated_savings: demoGcpAutoSpottingSavingsTotal,
+    totalEstimatedSavings:   demoGcpAutoSpottingSavingsTotal,
+  },
+  events: demoGcpAutoSpottingEventList,
+};
+
+// ─── GCP CloudSitter (/api/gcp/cloudsitter/vms|policies|assignments) ─────────
+// `/vms` returns a flat string map per VM, exactly as GcpCloudsitterService.listVmsForProject
+// builds it: name, zone, machineType (last path segment) and status in GCP's own upper case.
+// useGcpCloudSitter maps each row to an EC2Resource and keys it `${name}|${zone}`.
+export const demoGcpCloudSitterVms = [
+  { name: 'gce-prod-analytics-01', zone: 'us-central1-a',  machineType: 'n2-standard-8', status: 'RUNNING' },
+  { name: 'gce-prod-batch-01',     zone: 'us-central1-b',  machineType: 'n2-standard-4', status: 'RUNNING' },
+  { name: 'gce-prod-worker-01',    zone: 'us-central1-c',  machineType: 'n2-standard-4', status: 'RUNNING' },
+  { name: 'gce-prod-worker-02',    zone: 'us-central1-c',  machineType: 'n2-standard-4', status: 'RUNNING' },
+  { name: 'gce-analytics-02',      zone: 'us-central1-a',  machineType: 'e2-standard-4', status: 'RUNNING' },
+  { name: 'gce-eu-web-01',         zone: 'europe-west1-b', machineType: 'e2-standard-2', status: 'RUNNING' },
+  { name: 'gce-staging-api-01',    zone: 'europe-west1-b', machineType: 'n2-standard-4', status: 'RUNNING' },
+  { name: 'gce-asia-web-01',       zone: 'asia-south1-a',  machineType: 'e2-standard-2', status: 'RUNNING' },
+  { name: 'gce-dev-bastion',       zone: 'us-central1-a',  machineType: 'e2-micro',      status: 'TERMINATED' },
+];
+
+// Office-hours grid: Mon–Fri 08:00–20:00. The policy form reads scheduleJson as
+// { DAY: [activeHours] } with upper-case day names.
+const demoOfficeHoursSchedule = JSON.stringify(
+  Object.fromEntries(
+    ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'].map(d => [
+      d,
+      Array.from({ length: 12 }, (_, i) => i + 8),
+    ]),
+  ),
+);
+
+// Overnight batch window: 00:00–06:00 every day, when on-demand capacity is cheapest to idle.
+const demoBatchWindowSchedule = JSON.stringify(
+  Object.fromEntries(
+    ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'].map(d => [
+      d,
+      Array.from({ length: 6 }, (_, i) => i),
+    ]),
+  ),
+);
+
+export const demoGcpCloudSitterPolicies = [
+  { id: 901, name: 'Office Hours (IST)',   type: 'SCHEDULE', timeZone: 'Asia/Kolkata', notificationsEnabled: true,  scheduleJson: demoOfficeHoursSchedule },
+  { id: 902, name: 'Batch Window',         type: 'SCHEDULE', timeZone: 'Asia/Kolkata', notificationsEnabled: false, scheduleJson: demoBatchWindowSchedule },
+  { id: 903, name: 'Always On (Prod)',     type: 'SCHEDULE', timeZone: 'Asia/Kolkata', notificationsEnabled: true,  scheduleJson: '' },
+];
+
+// Object map keyed `${name}|${zone}` — NOT an array. useGcpCloudSitter does
+// assignResponse[resourceKey], so an array here silently leaves every row unmanaged.
+export const demoGcpCloudSitterAssignments: Record<string, { policy: typeof demoGcpCloudSitterPolicies[number]; monthlySavings: number }> = {
+  'gce-prod-batch-01|us-central1-b':  { policy: demoGcpCloudSitterPolicies[1], monthlySavings: 182.40 },
+  'gce-analytics-02|us-central1-a':   { policy: demoGcpCloudSitterPolicies[0], monthlySavings: 124.80 },
+  'gce-staging-api-01|europe-west1-b':{ policy: demoGcpCloudSitterPolicies[0], monthlySavings: 148.20 },
+  'gce-asia-web-01|asia-south1-a':    { policy: demoGcpCloudSitterPolicies[0], monthlySavings: 64.50 },
+  'gce-eu-web-01|europe-west1-b':     { policy: demoGcpCloudSitterPolicies[2], monthlySavings: 0 },
+};
+
 // ─── Azure Dashboard (/api/xamops/azure/dashboard-data) ──────────────────────
 export const demoAzureDashboard = {
   accountId: 'demo-azure-001',
@@ -2370,6 +3158,88 @@ export const demoAzureSecurityData = {
     { assessmentId: 'az-asm-002', displayName: 'SQL servers should use customer-managed keys',  severity: 'Medium', statusCode: 'Unhealthy', resourceId: '/subscriptions/demo/sql-prod-001',        resourceName: 'sql-prod-postgres', category: 'Data',      remediation: 'Configure CMK for SQL server encryption' },
     { assessmentId: 'az-asm-003', displayName: 'Endpoint protection should be installed on VMs',severity: 'High',  statusCode: 'Unhealthy', resourceId: '/subscriptions/demo/vm-staging-web-01',   resourceName: 'vm-staging-web-01', category: 'Compute',   remediation: 'Install Microsoft Defender for Endpoint' },
   ],
+  // The Score Controls tab. This key was simply absent, and useAzureSecurityData normalises with
+  // `Array.isArray(raw.scoreControls) ? raw.scoreControls : []` — so the tab rendered its
+  // "Enable Microsoft Defender for Cloud" prompt while every other tab on the page had data.
+  //
+  // currentScore / maxScore are weighted points, not resource counts, and they are chosen to
+  // reconcile with the secureScore above: 31.9 of 47 points is 67.9%, which is the 68.0 the KPI
+  // card shows. The component divides and calls .toFixed on each number, so none may be absent.
+  scoreControls: [
+    { controlName: 'Enable MFA',                             currentScore: 5.0, maxScore: 10, percentage: 50,  healthyResourceCount: 3,  unhealthyResourceCount: 3, recoverableScore: 5.0 },
+    { controlName: 'Secure management ports',                currentScore: 6.0, maxScore: 8,  percentage: 75,  healthyResourceCount: 14, unhealthyResourceCount: 4, recoverableScore: 2.0 },
+    { controlName: 'Apply system updates',                   currentScore: 6.0, maxScore: 6,  percentage: 100, healthyResourceCount: 18, unhealthyResourceCount: 0, recoverableScore: 0.0 },
+    { controlName: 'Remediate vulnerabilities',              currentScore: 3.6, maxScore: 6,  percentage: 60,  healthyResourceCount: 12, unhealthyResourceCount: 8, recoverableScore: 2.4 },
+    { controlName: 'Encrypt data at rest',                   currentScore: 3.0, maxScore: 4,  percentage: 75,  healthyResourceCount: 7,  unhealthyResourceCount: 1, recoverableScore: 1.0 },
+    { controlName: 'Manage access and permissions',          currentScore: 2.0, maxScore: 4,  percentage: 50,  healthyResourceCount: 16, unhealthyResourceCount: 6, recoverableScore: 2.0 },
+    { controlName: 'Restrict unauthorized network access',   currentScore: 2.8, maxScore: 4,  percentage: 70,  healthyResourceCount: 21, unhealthyResourceCount: 5, recoverableScore: 1.2 },
+    { controlName: 'Enable endpoint protection',             currentScore: 0.5, maxScore: 2,  percentage: 25,  healthyResourceCount: 17, unhealthyResourceCount: 1, recoverableScore: 1.5 },
+    { controlName: 'Protect applications against DDoS',      currentScore: 2.0, maxScore: 2,  percentage: 100, healthyResourceCount: 4,  unhealthyResourceCount: 0, recoverableScore: 0.0 },
+    { controlName: 'Enable auditing and logging',            currentScore: 1.0, maxScore: 1,  percentage: 100, healthyResourceCount: 9,  unhealthyResourceCount: 0, recoverableScore: 0.0 },
+  ],
+};
+
+// ─── Azure Disk Rightsizing (/api/azure/disks/volumes/{accountId}) ───────────
+// Mirrors demoGcpDisks, but with Azure's vocabulary: resourceGroup instead of zone, and a
+// diskType from Premium_LRS | Standard_LRS | StandardSSD_LRS | UltraSSD_LRS, which is what
+// diskTypeLabel() on the page maps to a friendly name.
+//
+// The KPI cards are all derived from this one array — potential savings sums estimatedSavings,
+// and the three counters filter on `recommendation` — so there is no separate summary fixture.
+// Attached disks carry a numeric usedPercent and agentDeployed: true, because the page shows an
+// amber "install the disk agent" banner for any attached disk missing usage data.
+export const demoAzureDisks = [
+  { diskName: 'vm-prod-api-01-datadisk',  resourceGroup: 'rg-production', region: 'eastus',       diskType: 'Premium_LRS',     sizeGb: 512, status: 'Attached', attached: true,  instanceName: 'vm-prod-api-01',    monthlyCost: 5248, usedPercent: 28, usedGb: 143, freeGb: 369, agentDeployed: true,  recommendation: 'SHRINK',            recommendedSizeGb: 256, estimatedSavings: 2624, recommendationReason: 'Average usage 28% over 30 days — 256 GB is sufficient' },
+  { diskName: 'vm-analytics-01-datadisk', resourceGroup: 'rg-data',       region: 'centralindia', diskType: 'StandardSSD_LRS', sizeGb: 256, status: 'Attached', attached: true,  instanceName: 'vm-analytics-01',   monthlyCost: 1536, usedPercent: 91, usedGb: 233, freeGb: 23,  agentDeployed: true,  recommendation: 'EXPAND',            recommendedSizeGb: 512, estimatedSavings: -1536, recommendationReason: 'Disk usage at 91% — approaching capacity' },
+  { diskName: 'vm-legacy-web-01-osdisk',  resourceGroup: 'rg-legacy',     region: 'eastus',       diskType: 'Premium_LRS',     sizeGb: 128, status: 'Unattached', attached: false, instanceName: undefined,         monthlyCost: 1312, usedPercent: 0,  usedGb: 0,   freeGb: 128, agentDeployed: false, recommendation: 'DELETE_UNATTACHED', recommendedSizeGb: 0,   estimatedSavings: 1312, recommendationReason: 'Unattached for 52 days — the VM was deleted on 30 Aug' },
+  { diskName: 'vmss-batch-restore-disk',  resourceGroup: 'rg-data',       region: 'centralindia', diskType: 'Standard_LRS',    sizeGb: 1024, status: 'Unattached', attached: false, instanceName: undefined,        monthlyCost: 3686, usedPercent: 0,  usedGb: 0,   freeGb: 1024, agentDeployed: false, recommendation: 'DELETE_UNATTACHED', recommendedSizeGb: 0,  estimatedSavings: 3686, recommendationReason: 'Restore-point disk unattached for 38 days' },
+  { diskName: 'vm-staging-web-01-osdisk', resourceGroup: 'rg-staging',    region: 'westeurope',   diskType: 'StandardSSD_LRS', sizeGb: 128, status: 'Attached', attached: true,  instanceName: 'vm-staging-web-01', monthlyCost: 768,  usedPercent: 22, usedGb: 28,  freeGb: 100, agentDeployed: true,  recommendation: 'SHRINK',            recommendedSizeGb: 64,  estimatedSavings: 384,  recommendationReason: 'Usage consistently below 30% over 30 days' },
+  { diskName: 'vm-prod-api-01-osdisk',    resourceGroup: 'rg-production', region: 'eastus',       diskType: 'Premium_LRS',     sizeGb: 128, status: 'Attached', attached: true,  instanceName: 'vm-prod-api-01',    monthlyCost: 1312, usedPercent: 57, usedGb: 73,  freeGb: 55,  agentDeployed: true,  recommendation: 'NONE',              recommendedSizeGb: 128, estimatedSavings: 0,    recommendationReason: 'Utilization optimal' },
+  { diskName: 'sqldb-prod-datadisk',      resourceGroup: 'rg-production', region: 'eastus',       diskType: 'Premium_LRS',     sizeGb: 256, status: 'Attached', attached: true,  instanceName: 'sqldb-prod-orders', monthlyCost: 2624, usedPercent: 64, usedGb: 164, freeGb: 92,  agentDeployed: true,  recommendation: 'NONE',              recommendedSizeGb: 256, estimatedSavings: 0,    recommendationReason: 'Utilization optimal' },
+];
+
+// ─── Azure disk action history (/api/azure/disks/history/{accountId}) ────────
+// The Action History tab renders `volumeId` in its Disk column, not diskName.
+export const demoAzureDiskActions = [
+  { id: 4102, volumeId: 'vm-dev-sandbox-01-osdisk',  region: 'eastus',       actionType: 'DELETE_UNATTACHED', oldSizeGb: 128, newSizeGb: 0,   estimatedSavings: 1312, status: 'SUCCESS',     initiatedAt: new Date(Date.now() - 3 * 86400_000).toISOString(),  completedAt: new Date(Date.now() - 3 * 86400_000 + 42_000).toISOString() },
+  { id: 4101, volumeId: 'vm-etl-runner-02-datadisk', region: 'centralindia', actionType: 'SHRINK',            oldSizeGb: 512, newSizeGb: 256, estimatedSavings: 2624, status: 'SUCCESS',     initiatedAt: new Date(Date.now() - 6 * 86400_000).toISOString(),  completedAt: new Date(Date.now() - 6 * 86400_000 + 318_000).toISOString() },
+  { id: 4100, volumeId: 'vm-analytics-02-datadisk',  region: 'centralindia', actionType: 'EXPAND',            oldSizeGb: 256, newSizeGb: 512, estimatedSavings: -1536, status: 'SUCCESS',    initiatedAt: new Date(Date.now() - 11 * 86400_000).toISOString(), completedAt: new Date(Date.now() - 11 * 86400_000 + 266_000).toISOString() },
+  { id: 4099, volumeId: 'vm-legacy-db-01-datadisk',  region: 'westeurope',   actionType: 'SHRINK',            oldSizeGb: 1024, newSizeGb: 512, estimatedSavings: 3686, status: 'FAILED',     initiatedAt: new Date(Date.now() - 14 * 86400_000).toISOString(), completedAt: new Date(Date.now() - 14 * 86400_000 + 94_000).toISOString(), errorMessage: 'Azure rejected the resize: the disk must be detached before shrinking. Deallocate vm-legacy-db-01 and retry.' },
+];
+
+// ─── Azure CloudSitter (/api/azure/cloudsitter/vms|policies|assignments) ────
+// `/vms` returns a flat string map per VM, exactly as AzureCloudsitterService.fetchVmsFromAzure
+// builds it: name, resourceGroup, region, size and state. `state` is Azure's own
+// PowerState.toString(), hence the "PowerState/" prefix.
+//
+// useAzureCloudSitter keys each row `${name}|${resourceGroup}` — note resourceGroup, not region,
+// unlike GCP which keys on the zone.
+export const demoAzureCloudSitterVms = [
+  { name: 'vm-prod-api-01',    resourceGroup: 'rg-production', region: 'eastus',       size: 'Standard_D4s_v3',  state: 'PowerState/running' },
+  { name: 'vm-prod-api-02',    resourceGroup: 'rg-production', region: 'eastus',       size: 'Standard_D4s_v3',  state: 'PowerState/running' },
+  { name: 'vm-prod-web-01',    resourceGroup: 'rg-production', region: 'eastus',       size: 'Standard_D2s_v3',  state: 'PowerState/running' },
+  { name: 'vm-staging-web-01', resourceGroup: 'rg-staging',    region: 'westeurope',   size: 'Standard_B2ms',    state: 'PowerState/running' },
+  { name: 'vm-analytics-01',   resourceGroup: 'rg-data',       region: 'centralindia', size: 'Standard_E8s_v3',  state: 'PowerState/running' },
+  { name: 'vm-analytics-02',   resourceGroup: 'rg-data',       region: 'centralindia', size: 'Standard_E8s_v3',  state: 'PowerState/running' },
+  { name: 'vm-etl-runner-01',  resourceGroup: 'rg-data',       region: 'centralindia', size: 'Standard_D8s_v3',  state: 'PowerState/running' },
+  { name: 'vm-dev-bastion',    resourceGroup: 'rg-dev',        region: 'eastus',       size: 'Standard_B1s',     state: 'PowerState/deallocated' },
+];
+
+export const demoAzureCloudSitterPolicies = [
+  { id: 801, name: 'Office Hours (IST)', type: 'SCHEDULE', timeZone: 'Asia/Kolkata', notificationsEnabled: true,  scheduleJson: demoOfficeHoursSchedule },
+  { id: 802, name: 'Batch Window',       type: 'SCHEDULE', timeZone: 'Asia/Kolkata', notificationsEnabled: false, scheduleJson: demoBatchWindowSchedule },
+  { id: 803, name: 'Always On (Prod)',   type: 'SCHEDULE', timeZone: 'Asia/Kolkata', notificationsEnabled: true,  scheduleJson: '' },
+];
+
+// Object map keyed `${name}|${resourceGroup}` — NOT an array. The hook does
+// assignResponse[resourceKey] and then reads assignment.policy.name unguarded, so the empty
+// array that used to be served here was the wrong shape as well as empty.
+export const demoAzureCloudSitterAssignments: Record<string, { policy: typeof demoAzureCloudSitterPolicies[number]; monthlySavings: number }> = {
+  'vm-staging-web-01|rg-staging': { policy: demoAzureCloudSitterPolicies[0], monthlySavings: 164.80 },
+  'vm-analytics-02|rg-data':      { policy: demoAzureCloudSitterPolicies[1], monthlySavings: 412.60 },
+  'vm-etl-runner-01|rg-data':     { policy: demoAzureCloudSitterPolicies[1], monthlySavings: 286.40 },
+  'vm-dev-bastion|rg-dev':        { policy: demoAzureCloudSitterPolicies[0], monthlySavings: 42.20 },
+  'vm-prod-api-01|rg-production': { policy: demoAzureCloudSitterPolicies[2], monthlySavings: 0 },
 };
 
 // ─── Azure Performance (/api/xamops/azure/performance) ───────────────────────

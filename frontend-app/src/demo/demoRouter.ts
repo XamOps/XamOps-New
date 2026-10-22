@@ -13,6 +13,7 @@
 import { getDemoRole } from './demoConfig';
 import { buildDemoComplianceReport } from './complianceReportDemo';
 import * as xamops from './xamopsMockData';
+import * as xamops_media from './mediaOpsMockData';
 import * as k8sAutomation from './k8sAutomationMockData';
 import * as identity from './xamopsIdentityMockData';
 import * as billops from './billopsAdminMockData';
@@ -209,6 +210,12 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(xamops.demoGcpCostForecast);
   if (url.includes('/api/xamops/gcp/costs/breakdown'))
     return makeResponse(xamops.demoGcpCostBreakdown);
+  // The billing account's currency. Without this the request fell to the /api/xamops/gcp
+  // catch-all, which answers {} — so useGcpCostData kept its 'USD' initial value and the whole
+  // Cost Management page rendered the demo project's rupee figures with a dollar sign, while the
+  // GCP dashboard beside it formatted the same numbers as ₹.
+  if (url.includes('/api/xamops/gcp/costs/currency'))
+    return makeResponse({ currency: 'INR' });
   if (url.includes('/api/xamops/gcp/optimization/waste-report'))
     return makeResponse(xamops.demoGcpWasteData);
   if (url.includes('/api/xamops/gcp/rightsizing/recommendations'))
@@ -395,7 +402,11 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   if (url.includes('/api/xamops/rightsizing'))
     return makeResponse(xamops.demoRightsizingData);
 
-  // XamOps optimization / live rightsizing
+  // XamOps optimization / live rightsizing. The XamAi Recommendations tab's live endpoint must
+  // precede the generic /optimization catch-all, which returned [] and left the tab on its
+  // "No XamAi Recommendations" empty state.
+  if (url.includes('/api/xamops/optimization/rightsizing/live'))
+    return makeResponse(xamops.demoXamOpsRightsizing);
   if (url.includes('/api/xamops/optimization'))
     return makeResponse([]);
 
@@ -648,14 +659,25 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(xamops.demoGcpAutoSpottingMigs);
   if (url.includes('/api/gcp/autospotting/history/'))
     return makeResponse(xamops.demoGcpAutoSpottingHistory);
+  // Shared by the Launch Analytics and Actions History tabs. Both were empty because this fell to
+  // the catch-all below, which answers {} — so `data.events || []` and `data.summary || null`
+  // produced the "No events in this period" state on a MIG list that showed live conversions.
+  if (url.includes('/api/gcp/autospotting/events/'))
+    return makeResponse(xamops.demoGcpAutoSpottingEvents);
   if (url.includes('/api/gcp/autospotting/'))
     return makeResponse(xamops.demoGenericEmpty);
 
   // GCP CloudSitter
   if (url.includes('/api/gcp/cloudsitter/policies'))
-    return makeResponse([]);
+    return makeResponse(xamops.demoGcpCloudSitterPolicies);
+  // An object map keyed `${name}|${zone}`, which is what the page indexes into — the empty array
+  // here was the wrong shape as well as empty.
   if (url.includes('/api/gcp/cloudsitter/assignments'))
-    return makeResponse([]);
+    return makeResponse(xamops.demoGcpCloudSitterAssignments);
+  // The VM list, which had no route of its own: the catch-all's {} made `gcpVms.map` throw inside
+  // the hook's try/catch, leaving the page on its "No Resources Found" state.
+  if (url.includes('/api/gcp/cloudsitter/vms'))
+    return makeResponse(xamops.demoGcpCloudSitterVms);
   if (url.includes('/api/gcp/cloudsitter/'))
     return makeResponse(xamops.demoGenericEmpty);
 
@@ -666,15 +688,27 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(xamops.demoGcpDisks);
 
 
-  // Azure CloudSitter
+  // Azure CloudSitter — the same three gaps GCP had, fixed the same way.
   if (url.includes('/api/azure/cloudsitter/policies'))
-    return makeResponse([]);
+    return makeResponse(xamops.demoAzureCloudSitterPolicies);
+  // Object map keyed `${name}|${resourceGroup}` (resourceGroup, not region — that is what the
+  // Azure hook keys on). An array here left every row unmanaged even when populated.
   if (url.includes('/api/azure/cloudsitter/assignments'))
-    return makeResponse([]);
+    return makeResponse(xamops.demoAzureCloudSitterAssignments);
+  // The VM list had no route, so the catch-all's {} made `azureVms.map` throw inside the hook's
+  // try/catch and the page stayed on "No Resources Found".
+  if (url.includes('/api/azure/cloudsitter/vms'))
+    return makeResponse(xamops.demoAzureCloudSitterVms);
   if (url.includes('/api/azure/cloudsitter/'))
     return makeResponse(xamops.demoGenericEmpty);
 
-  // Azure Disk Rightsizing
+  // Azure Disk Rightsizing. One catch-all used to answer `[]` for every sub-path including
+  // /volumes/, which is the array the page's table AND all four KPI cards derive from — hence
+  // "No Disks Found" above ₹0.00 / 0 / 0. History first, since both contain '/api/azure/disks/'.
+  if (url.includes('/api/azure/disks/history/'))
+    return makeResponse(xamops.demoAzureDiskActions);
+  if (url.includes('/api/azure/disks/volumes'))
+    return makeResponse(xamops.demoAzureDisks);
   if (url.includes('/api/azure/disks/'))
     return makeResponse([]);
 
@@ -721,7 +755,27 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   if (url.includes('/api/flexcompute/'))
     return makeResponse([]);
 
-  // CICD Pipelines — specific GitHub route before generic catch-all
+  // CICD Pipelines.
+  //
+  // The run-detail routes MUST precede the bare `/api/cicd/github/runs` test below, which is a
+  // prefix of all of them. It used to match first and hand back the demoGithubRuns ARRAY to
+  // every sub-path, so the pipeline modal's Failure Analysis tab read `snippets` off an array
+  // (undefined → `.map` threw → "Something went wrong"), the Diff tab did the same with
+  // `commits.length`, and /stages rendered four run objects as nameless stages.
+  {
+    const run = url.match(/\/api\/cicd\/github\/runs\/[^/]+\/[^/?]+\/(\d+)\//);
+    if (run) {
+      const runId = Number(run[1]);
+      if (url.includes('/failure-analysis'))
+        return makeResponse(xamops.demoCicdFailureAnalysis(runId));
+      if (url.includes('/diff-summary'))
+        return makeResponse(xamops.demoCicdDiffSummary(runId));
+      if (url.includes('/stages'))
+        return makeResponse(xamops.demoCicdRunStages(runId));
+      if (url.includes('/logs'))
+        return makeResponse(xamops.demoCicdRunLog(runId));
+    }
+  }
   if (url.includes('/api/cicd/github/runs'))
     return makeResponse(xamops.demoGithubRuns);
   if (url.includes('/api/cicd/github/metrics'))
@@ -745,7 +799,19 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   if (url.includes('/api/v1/agent/'))
     return makeResponse({ success: true });
 
-  // DbOps — specific sub-paths so hooks render real data instead of empty state
+  // DbOps — specific sub-paths so hooks render real data instead of empty state.
+  //
+  // The three `agent-*` routes below must stay ABOVE the `/timeseries` and `/metrics` tests.
+  // Not for precedence — the hyphen in `agent-timeseries` means it never matched `/timeseries`
+  // in the first place, which is exactly why the instance drawer's Performance tab was empty:
+  // the request fell all the way through to the `[]` catch-all. Keeping them first makes that
+  // distinction visible instead of leaving it to be rediscovered.
+  if (url.includes('/api/dbops/') && url.includes('agent-timeseries'))
+    return makeResponse(xamops.demoAgentTimeseries(Number(param(url, 'hours')) || 24));
+  if (url.includes('/api/dbops/') && url.includes('agent-instance-metrics'))
+    return makeResponse(xamops.demoAgentInstanceMetrics);
+  if (url.includes('/api/dbops/') && url.includes('agent-table-sizes'))
+    return makeResponse(xamops.demoAgentTableSizes);
   if (url.includes('/api/dbops/') && url.includes('/timeseries'))
     return makeResponse(xamops.demoDbInstanceTimeseries);
   if (url.includes('/api/dbops/') && url.includes('/summary'))
@@ -784,10 +850,15 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(xamsecure.demoXamSecureSummary);
   if (url.includes('/api/xamsecure/issues/detail'))
     return makeResponse(xamsecure.demoIssueDetail(param(url, 'check')));
+  // These four read ?accountId off the URL and answer with that account's provider estate.
+  // The real endpoints take accountId and nothing else — XamSecureService.resolveAccountIds maps
+  // it to an AWS account / GCP project / Azure subscription and the repositories filter on it —
+  // so a GCP project genuinely returns GCP assets. The demo used to serve one all-AWS estate to
+  // every account, which is why selecting "GCP Analytics" showed EC2 instances and S3 buckets.
   if (url.includes('/api/xamsecure/issues'))
-    return makeResponse(xamsecure.demoIssues);
+    return makeResponse(xamsecure.demoIssuesFor(url));
   if (url.includes('/api/xamsecure/attack-surface'))
-    return makeResponse(xamsecure.demoAttackSurface);
+    return makeResponse(xamsecure.demoAttackSurfaceFor(url));
   // Story detail BEFORE the story list: the detail URL contains the list path as a substring,
   // so matching the list first returned the list payload for every detail request. The loader
   // reads `.id` to decide whether a story was withheld for tenancy, the list has none, and so
@@ -834,9 +905,13 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   if (url.includes('/api/xamsecure/posture'))
     return makeResponse(xamsecure.demoPosturePage(url));
   if (url.includes('/api/xamsecure/inventory/categories'))
-    return makeResponse(xamsecure.demoInventoryCategories);
+    return makeResponse(xamsecure.demoInventoryCategoriesFor(url));
+  // Had no route of its own, so it fell through to the inventory LIST route below and answered a
+  // paged envelope where the Inventory risk strip reads flat counts (assets/pii/pci/...).
+  if (url.includes('/api/xamsecure/inventory/risk'))
+    return makeResponse(xamsecure.demoInventoryRiskFor(url));
   if (url.includes('/api/xamsecure/inventory/network'))
-    return makeResponse(xamsecure.demoNetworkTopology);
+    return makeResponse(xamsecure.demoNetworkTopologyFor(url));
   if (url.includes('/api/xamsecure/sensor-coverage'))
     return makeResponse(xamsecure.demoSensorCoverage);
   // Per-asset relationships, ahead of the inventory list route that would otherwise swallow it.
@@ -852,7 +927,12 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
   if (url.includes('/api/xamsecure/compliance'))
     return makeResponse(xamsecure.demoCompliance);
   if (url.includes('/api/xamsecure/configurations/dashboard'))
-    return makeResponse(xamsecure.demoConfigDashboard);
+    return makeResponse(xamsecure.demoConfigDashboardFor(url));
+  // Had no route, so it took the `{}` catch-all below: every stat card read 0 and the table
+  // showed "No identities discovered for the selected account." Derived from the same
+  // provider-aware inventory and posture estates the Inventory and Configurations tabs use.
+  if (url.includes('/api/xamsecure/identities'))
+    return makeResponse(xamsecure.demoIdentitiesFor(url));
   if (url.includes('/api/xamsecure/api-security'))
     return makeResponse(xamsecure.demoApiSecurity);
   if (url.includes('/api/xamsecure/components'))
@@ -897,6 +977,15 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     });
   if (url.includes('/api/xamsecure/onboarding'))
     return makeResponse(xamsecure.demoOnboarding);
+
+  // The cross-domain resource panel, opened from the resource name in every XamSecure table.
+  // Had no route, so it took the `{}` catch-all below, and the drawer — which builds its nav
+  // from `detail.counts` — rendered an empty nav and "Nothing to show." On Inventory that read
+  // as random: the row opens the asset panel (data already in hand), the asset NAME opens this
+  // one, and only the row worked.
+  if (url.includes('/api/xamsecure/resource'))
+    return makeResponse(xamsecure.demoResourceDetail(url));
+
   // Anything else under XamSecure — {} is safe, every remaining consumer is a
   // POST action whose response is ignored.
   if (url.includes('/api/xamsecure/'))
@@ -1000,9 +1089,58 @@ function routeXamops(url: string, method = 'GET', body?: string): Response | nul
     return makeResponse(xamops.demoObservabilityClusters);
   if (url.includes('/api/observability/metrics/'))
     return makeResponse(xamops.demoObservabilityMetrics);
+  // Traces. Three separate checks rather than one `/traces/` prefix, because the explorer reads
+  // a different envelope off each (`data.traces`, the whole stats object, `data.spans`) and a
+  // shared fixture would satisfy none of them. These are POSTs whose body carries the selected
+  // account as `providerAccountId`, so the fixtures take `body` and vary host names and
+  // downstream span names per cloud.
+  if (url.includes('/api/observability/traces/search'))
+    return makeResponse(xamops.demoObservabilityTraces(body));
+  if (url.includes('/api/observability/traces/stats'))
+    return makeResponse(xamops.demoObservabilityTraceStats(body));
+  if (url.includes('/api/observability/traces/spans'))
+    return makeResponse(xamops.demoObservabilityTraceSpans(body));
+  // Connected Instances on the Overview tab — same missing-route story as traces.
+  if (url.includes('/api/observability/agents'))
+    return makeResponse(xamops.demoObservabilityAgents);
   if (url.includes('/api/observability/setup/'))
     return makeResponse('# Demo configuration — contact support to deploy collectors');
   if (url.includes('/api/observability/'))
+    return makeResponse({});
+
+  // MediaOps. There was no matcher here at all, not even a catch-all, so routeXamops returned
+  // null, main.tsx fell through to the real fetch, and every call hit media-ops-service with no
+  // session — the page showed "Could not connect to media-ops-service: 401" with empty tables.
+  //
+  // Order matters, most specific first: unread-count is a prefix-sibling of notifications,
+  // storage/files of storage, and the per-job action suffixes of the bare /jobs list.
+  if (url.includes('/api/media-ops/notifications/unread-count'))
+    return makeResponse(xamops_media.demoMediaOpsUnreadCount());
+  if (url.includes('/api/media-ops/notifications'))
+    return makeResponse(xamops_media.demoMediaOpsNotifications);
+  if (url.includes('/api/media-ops/overview'))
+    return makeResponse(xamops_media.demoMediaOpsOverview());
+  if (url.includes('/api/media-ops/storage/files'))
+    return makeResponse(xamops_media.demoMediaOpsFiles);
+  if (url.includes('/api/media-ops/storage/usage'))
+    return makeResponse({ usedBytes: xamops_media.demoMediaOpsOverview().storageUsedBytes });
+  if (url.includes('/api/media-ops/storage/upload'))
+    return makeResponse(xamops_media.demoMediaOpsFiles[0]);
+  if (url.includes('/api/media-ops/user-s3/configs/') && url.includes('/files'))
+    return makeResponse(xamops_media.demoMediaOpsUserS3Files);
+  if (url.includes('/api/media-ops/user-s3/configs/') && url.includes('/presign'))
+    return makeResponse({ url: 'https://xammer-media-src.s3.amazonaws.com/campaigns/launch-keynote-4k.mov?X-Amz-Signature=demo' });
+  if (url.includes('/api/media-ops/user-s3/configs'))
+    return makeResponse(xamops_media.demoMediaOpsUserS3Configs);
+  if (url.includes('/api/media-ops/streams'))
+    return makeResponse(xamops_media.demoMediaOpsStreams);
+  // Per-job mutations (retry/pause/resume/cancel/schedule) answer the job itself, which is what
+  // the hook splices back into the list. Must precede the bare /jobs list route.
+  if (url.includes('/api/media-ops/jobs/'))
+    return makeResponse(xamops_media.demoMediaOpsJobs()[0]);
+  if (url.includes('/api/media-ops/jobs'))
+    return makeResponse(xamops_media.demoMediaOpsJobs());
+  if (url.includes('/api/media-ops/'))
     return makeResponse({});
 
   // BillOps User Dashboard
@@ -1057,8 +1195,8 @@ function routeBillopsAdmin(url: string): Response | null {
     return makeResponse(billops.demoBillopsTeamProfile);
 
   // Trial management — mutations before the list, because the list matcher is a prefix of both.
-  // apiFetch calls resolveDemoResponse(url) with no method, so a POST is only distinguishable
-  // by its URL suffix; keep the suffix checks. All three MUST stay above the final
+  // These match on the URL suffix rather than the method; apiFetch now forwards the method too,
+  // but the suffix checks are what these rely on, so keep them. All three MUST stay above the final
   // `/api/billops/` catch-all, which answers {} and would make the list hook's sort/map throw.
   if (url.includes('/api/billops/admin/trials/') && url.includes('/extend'))
     return makeResponse(billops.demoTrialExtendResult);

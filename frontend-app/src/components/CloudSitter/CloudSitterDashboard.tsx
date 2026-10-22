@@ -47,8 +47,15 @@ interface KpiData {
   potentialSavings: number;
 }
 
+/**
+ * Compared case-insensitively because only EC2 reports a lower-case state. GCP returns
+ * `RUNNING` / `TERMINATED` and Azure `VM running` / `VM deallocated`, so an upper-case
+ * `TERMINATED` passed both tests here — counting a dead VM as managed-eligible and adding
+ * a full month of runtime for it to the Monthly Cost card.
+ */
 function isActive(resource: EC2Resource): boolean {
-  return resource.state !== 'terminated' && resource.state !== 'stopped';
+  const state = (resource.state || '').toLowerCase();
+  return !state.includes('terminated') && !state.includes('stopped') && !state.includes('deallocated');
 }
 
 function computeKpis(allResources: EC2Resource[]): KpiData {
@@ -327,7 +334,11 @@ const CloudSitterDashboard: React.FC<CloudSitterDashboardProps> = ({
 
                 {/* State */}
                 <div className="col-span-1 flex items-center gap-1.5">
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${resource.state === 'running' ? 'bg-emerald-500' : 'bg-[rgba(0,0,0,0.2)]'}`} />
+                  {/* Substring match for the same reason as isActive: only EC2 reports a bare
+                      lower-case 'running'. GCP sends 'RUNNING' and Azure 'PowerState/running',
+                      so an equality test left every non-AWS VM on the grey "not running" dot.
+                      'running' is not a substring of terminated/stopped/deallocated. */}
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${(resource.state || '').toLowerCase().includes('running') ? 'bg-emerald-500' : 'bg-[rgba(0,0,0,0.2)]'}`} />
                   <span className="capitalize text-[rgba(0,0,0,0.65)]">{resource.state}</span>
                 </div>
 
