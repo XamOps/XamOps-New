@@ -291,6 +291,9 @@ function globeSvg(x: number, y: number, size: number, ink: string): string {
  */
 export const CONTAINER_PAD = { VPC: 34, az: 18, Subnet: 16, default: 30 } as const;
 
+/** Box for a VPC with no workload, which the live view collapses. */
+export const COLLAPSED_VPC = { w: 280, h: 68 } as const;
+
 /** Node box for a live-mode resource card. */
 export const CARD_W = 200;
 export const CARD_H = 60;
@@ -777,6 +780,32 @@ export function buildCytoscapeStyle(theme: CanvasTheme, mode: 'live' | 'design')
           'min-width': (ele: any) => `${ele.data('minW') ?? 0}px`,
           'min-height': (ele: any) => `${ele.data('minH') ?? 0}px`,
         },
+      },
+      // A VPC with no workload, collapsed by shapeLiveTopology: a small summary box.
+      {
+        selector: 'node[type="VPC"]:childless',
+        style: {
+          width: COLLAPSED_VPC.w,
+          height: COLLAPSED_VPC.h,
+          'background-image': 'none',
+          'background-opacity': 1,
+          'background-color': theme === 'light' ? '#f6f8fb' : '#070d1a',
+          'border-width': 1,
+          'border-style': 'dashed',
+          'border-color': theme === 'light' ? '#b6c1d1' : '#2f3d58',
+          label: (ele: any) => ele.data('displayLabel') || ele.data('label') || '',
+          'text-valign': 'center',
+          'text-halign': 'center',
+          'text-margin-y': 0,
+          'text-wrap': 'wrap',
+          // Unnamed VPCs are labelled by a 21-character id with no space to break on.
+          'text-overflow-wrap': 'anywhere',
+          'text-max-width': `${COLLAPSED_VPC.w - 24}px`,
+          'line-height': 1.5,
+          'font-size': '11.5px',
+          'font-weight': 600,
+          color: t.inkMuted,
+        } as any,
       },
       // A subnet with nothing in it is a leaf, not a compound, but must still read as a box.
       {
@@ -1265,7 +1294,9 @@ export function layoutHierarchicalGrid(cy: any): void {
   const TIER_GAP = 26;
   /** Subnet with nothing in it: wide enough for one card, short enough not to dominate. */
   const EMPTY_SUBNET = { w: CARD_W + CONTAINER_PAD.Subnet * 2, h: 64 };
-  const GATEWAY_TYPES = new Set(['Internet Gateway', 'Transit Gateway', 'VPN Gateway', 'Virtual Private Gateway']);
+  // NAT gateways normally sit in their public subnet; only one with no known subnet (inferred
+  // from a route table) reaches the VPC level, and then it belongs in the gateway row too.
+  const GATEWAY_TYPES = new Set(['Internet Gateway', 'NAT Gateway', 'Transit Gateway', 'VPN Gateway', 'Virtual Private Gateway']);
 
   const padOf = (n: any): number => {
     const type = n.data('type');
@@ -1337,7 +1368,9 @@ export function layoutHierarchicalGrid(cy: any): void {
 
   function measure(node: any): { w: number; h: number } {
     if (!node.isParent()) {
-      const box = node.data('type') === 'Subnet'
+      const box = node.data('type') === 'VPC'
+        ? { w: COLLAPSED_VPC.w + 2, h: COLLAPSED_VPC.h + 2 }
+        : node.data('type') === 'Subnet'
         ? { w: EMPTY_SUBNET.w, h: EMPTY_SUBNET.h + LABEL_ROOM }
         // Cytoscape's bounding box adds 1px around every node; measured, not assumed.
         : { w: CARD_W + 2, h: CARD_H + 2 };
@@ -1493,8 +1526,21 @@ export function layoutHierarchicalGrid(cy: any): void {
     ...rootCompounds.filter((n: any) => n.id() === GLOBAL_SCOPE_ID),
   ];
 
+  /*
+   * Each VPC with an internet gateway has its own Internet entry, drawn above it. Its box
+   * is grown to make room, so the entry packs with the VPC and never lands on a neighbour.
+   */
+  const INTERNET_ROOM = CARD_H + 2 + 56;
+  const internetOf = new Map<string, any>();
+  for (const inet of internet) {
+    const vpc = inet.data('forVpc');
+    if (vpc) internetOf.set(vpc, inet);
+  }
   const rootItems: PackItem[] = [
-    ...ordered.map((c: any) => ({ id: c.id(), ...sizes.get(c.id())! })),
+    ...ordered.map((c: any) => {
+      const sz = sizes.get(c.id())!;
+      return { id: c.id(), w: sz.w, h: sz.h + (internetOf.has(c.id()) ? INTERNET_ROOM : 0) };
+    }),
     ...rootLeaves.map((l: any) => ({ id: l.id(), ...sizes.get(l.id())! })),
   ];
 
@@ -1505,14 +1551,25 @@ export function layoutHierarchicalGrid(cy: any): void {
   shelfPack(rootItems, COMPOUND_GAP_X * 2, COMPOUND_GAP_Y * 2, rootPreferred);
 
   cy.batch(() => {
-    for (const item of rootItems) place(cy.getElementById(item.id), item.x!, item.y!);
+    for (const item of rootItems) {
+      const inet = internetOf.get(item.id);
+      place(cy.getElementById(item.id), item.x!, item.y! + (inet ? INTERNET_ROOM : 0));
+      if (inet) {
+        // Centred over this VPC's gateways, so the entry line drops straight down.
+        const gws = cy.getElementById(item.id).descendants('[type="Internet Gateway"]');
+        const xs = gws.map((g: any) => g.position('x'));
+        const cx = xs.length ? xs.reduce((a: number, b: number) => a + b, 0) / xs.length : item.x! + item.w / 2;
+        inet.position({ x: cx, y: item.y! + CARD_H / 2 });
+      }
+    }
 
-    // The Internet sits above the VPCs it enters, centred over their gateways.
-    if (internet.length) {
+    // An entry with no VPC (a gateway outside any VPC box) sits above everything.
+    const loose = internet.filter((n: any) => !n.data('forVpc'));
+    if (loose.length) {
       const gws = cy.nodes('[type="Internet Gateway"]');
       const xs = gws.map((g: any) => g.position('x'));
       const cx = xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : 0;
-      internet[0].position({ x: cx, y: -CARD_H - 70 });
+      loose[0].position({ x: cx, y: -CARD_H - 70 });
     }
   });
 }

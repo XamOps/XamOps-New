@@ -3828,7 +3828,10 @@ ${xmlEdges}
             {mode === 'live' && !messageOverlay.show && (() => {
               // Use source/target presence (same as renderGraph) so stats work
               // regardless of whether the API returns group:'nodes' or group:'node'
-              const lnodes = graphElements.filter(e => !(e.data as any).source && !(e.data as any).target);
+              // Unique by id: the all-VPCs merge can carry the same node from two responses.
+              const lnodes = [...new Map(graphElements
+                .filter(e => !(e.data as any).source && !(e.data as any).target)
+                .map(e => [e.data.id, e] as const)).values()];
               const ledges = graphElements.filter(e => !!(e.data as any).source && !!(e.data as any).target);
               // Single-VPC selection: 1 VPC is implicit; All-VPCs: count VPC roots
               const lvpcsCount = selectedVpcValue && selectedVpcValue !== ALL_VPCS_VALUE
@@ -3841,6 +3844,7 @@ ${xmlEdges}
                 { id: 'routing', label: 'Routing', hint: 'Show route tables and which subnets they govern.' },
                 { id: 'storage', label: 'Storage', hint: 'Show EBS volumes and Elastic IPs and what they attach to.' },
                 { id: 'scaling', label: 'Scaling', hint: 'Show Auto Scaling groups and target groups. While hidden, load balancers point straight at their targets.' },
+                { id: 'interfaces', label: 'Interfaces', hint: 'Show network interfaces (ENIs) and the instances they attach to. Kubernetes pod networking can create hundreds.' },
               ];
               return (
                 <>

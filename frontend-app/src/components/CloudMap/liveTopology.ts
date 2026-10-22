@@ -24,7 +24,7 @@
  * reading the raw elements.
  */
 
-export type LiveLayer = 'security' | 'routing' | 'storage' | 'scaling';
+export type LiveLayer = 'security' | 'routing' | 'storage' | 'scaling' | 'interfaces';
 
 export type LiveLayers = Record<LiveLayer, boolean>;
 
@@ -33,6 +33,7 @@ export const DEFAULT_LIVE_LAYERS: LiveLayers = {
   routing: false,
   storage: false,
   scaling: false,
+  interfaces: false,
 };
 
 /** What an edge means on the canvas. Drives line style and the legend. */
@@ -64,6 +65,9 @@ const LAYER_OF_TYPE: Record<string, LiveLayer> = {
   'Elastic IP': 'storage',
   'Target Group': 'scaling',
   'Auto Scaling Group': 'scaling',
+  // Hundreds per VPC under EKS pod networking, with no relationships of their own: on UAT
+  // they were 520 of 714 resources and buried every instance and gateway.
+  'Network Interface': 'interfaces',
 };
 
 /** Layer and meaning for each relationship label CloudMapService.createAllEdges emits. */
@@ -108,7 +112,7 @@ const bareId = (id: string) => {
 };
 
 export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE_LAYERS): LiveTopology {
-  const hidden: Record<LiveLayer, number> = { security: 0, routing: 0, storage: 0, scaling: 0 };
+  const hidden: Record<LiveLayer, number> = { security: 0, routing: 0, storage: 0, scaling: 0, interfaces: 0 };
 
   // Dedupe first: the all-VPCs merge can report a cross-VPC node from both sides.
   const nodes = new Map<string, El>();
@@ -117,6 +121,40 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
     if (!el?.data?.id) continue;
     if (isEdge(el)) rawEdges.push(el);
     else if (!nodes.has(el.data.id)) nodes.set(el.data.id, { ...el, group: 'nodes', data: { ...el.data } });
+  }
+
+  /*
+   * Gateways the scan did not return, recovered from the route tables that name them.
+   *
+   * A route table's default route names its internet gateway or NAT gateway by id, but the
+   * inventory scan does not always return the gateway itself — on UAT every route table
+   * pointed at an igw- and nat- id with no node behind it. Their "default via" and "egress
+   * for" edges were then dropped as dangling, and the one path that explains how a VPC
+   * reaches the internet disappeared. The route table is AWS's own statement that the
+   * gateway exists, so it is drawn, marked as inferred and with no status of its own.
+   */
+  const GATEWAY_BY_PREFIX: Array<[string, string]> = [
+    ['igw-', 'Internet Gateway'], ['nat-', 'NAT Gateway'], ['tgw-', 'Transit Gateway'], ['vgw-', 'VPN Gateway'],
+  ];
+  for (const e of rawEdges) {
+    const { source, target, label } = e.data;
+    if (label !== 'default via' && label !== 'egress for') continue;
+    const gw = label === 'default via' ? target : source;
+    const anchor = label === 'default via' ? source : target;
+    if (nodes.has(gw) || !nodes.has(anchor)) continue;
+    const raw = bareId(gw);
+    const kind = GATEWAY_BY_PREFIX.find(([prefix]) => raw.startsWith(prefix));
+    if (!kind) continue;
+    // Route tables hang off the VPC; for a subnet anchor, its parent is the VPC too.
+    const vpc = nodes.get(anchor)!.data.parent;
+    nodes.set(gw, {
+      group: 'nodes',
+      data: {
+        id: gw, label: raw, type: kind[1], inferred: true,
+        ...(vpc ? { parent: vpc, 'VPC ID': bareId(vpc) } : {}),
+        Source: 'Inferred from the route table that targets it',
+      },
+    });
   }
 
   /*
@@ -143,12 +181,57 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
     visible.add(id);
   }
 
+  // ── VPC membership, computed before subnets move under AZ containers ──────
+  const vpcOf = (id: string): string | undefined => {
+    let cur: string | undefined = id;
+    let guard = 0;
+    while (cur && guard++ < 16) {
+      const d: Record<string, any> | undefined = nodes.get(cur)?.data;
+      if (!d) return undefined;
+      if (d.type === 'VPC') return cur;
+      cur = d.parent;
+    }
+    return undefined;
+  };
+
+  /*
+   * Collapse VPCs that hold nothing but networking scaffolding.
+   *
+   * Every region's default VPC arrives with three to six subnets and a route table and no
+   * workload. On UAT that was most of 30 VPCs, and drawn in full they took most of the
+   * canvas while saying nothing. They become a small labelled box that still says how many
+   * subnets they have, so nobody wonders where they went.
+   */
+  const SCAFFOLD = new Set(['VPC', 'Subnet', 'Availability Zone', 'Route Table', 'Internet Gateway', 'Security Group', 'Scope']);
+  const resourcesIn = new Map<string, number>();
+  const subnetsIn = new Map<string, number>();
+  for (const [id, nd] of nodes) {
+    const vpc = vpcOf(id);
+    if (!vpc || vpc === id) continue;
+    if (nd.data.type === 'Subnet') subnetsIn.set(vpc, (subnetsIn.get(vpc) ?? 0) + 1);
+    if (!SCAFFOLD.has(nd.data.type) && !nd.data.inferred) resourcesIn.set(vpc, (resourcesIn.get(vpc) ?? 0) + 1);
+  }
+  const collapsed = new Set<string>();
+  for (const [id, nd] of nodes) {
+    if (nd.data.type !== 'VPC' || (resourcesIn.get(id) ?? 0) > 0) continue;
+    collapsed.add(id);
+    const subnets = subnetsIn.get(id) ?? 0;
+    nd.data.collapsed = true;
+    nd.data.displayLabel = `${nd.data.label}\n${subnets} subnet${subnets === 1 ? '' : 's'} · no resources`;
+  }
+  if (collapsed.size > 0) {
+    for (const id of [...visible]) {
+      const vpc = vpcOf(id);
+      if (vpc && vpc !== id && collapsed.has(vpc)) visible.delete(id);
+    }
+  }
+
   // ── Availability Zone columns ─────────────────────────────────────────────
   const azNodes: El[] = [];
   const azIds = new Set<string>();
   for (const n of nodes.values()) {
     const d = n.data;
-    if (d.type !== 'Subnet' || !d.parent) continue;
+    if (d.type !== 'Subnet' || !d.parent || !visible.has(d.id)) continue;
     const az = d['Availability Zone'];
     if (!az || az === 'N/A') continue;
     const azId = `${d.parent}${AZ_PREFIX}${az}`;
@@ -174,7 +257,7 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
   // VPC header: name, CIDR when the backend sent one, and the subnet / AZ shape.
   for (const n of nodes.values()) {
     const d = n.data;
-    if (d.type !== 'VPC') continue;
+    if (d.type !== 'VPC' || d.collapsed) continue;
     const azCount = azNodes.filter((a) => a.data.parent === d.id).length;
     d.displayLabel = [d.label, azCount ? `${azCount} AZ${azCount === 1 ? '' : 's'}` : null].filter(Boolean).join('  ·  ');
   }
@@ -220,6 +303,17 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
     if (label === 'admits') sgAdmits.push([source, target]);
   }
 
+  // Interfaces name the instance they are attached to; that is their only relationship.
+  if (layers.interfaces) {
+    for (const n of nodes.values()) {
+      if (n.data.type !== 'Network Interface') continue;
+      const inst = n.data['Attached to'];
+      if (!inst || inst === 'N/A') continue;
+      const scoped = [...nodes.keys()].find((k) => k === inst || k.endsWith(`::${inst}`));
+      if (scoped) pushEdge(n.data.id, scoped, 'attached to', 'storage');
+    }
+  }
+
   for (const e of rawEdges) {
     const { source, target, label } = e.data;
     const rule = EDGE_RULES[label] ?? { layer: null, kind: 'traffic' as FlowKind };
@@ -253,11 +347,25 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
   // ── Internet ─────────────────────────────────────────────────────────────
   const gateways = [...visible].filter((id) => nodes.get(id)?.data.type === 'Internet Gateway');
   const extra: El[] = [];
-  if (gateways.length > 0) {
-    // No state: a status dot on "the internet" would claim something nobody measured.
-    extra.push({ group: 'nodes', data: { id: INTERNET_NODE_ID, label: 'Internet', type: 'Internet' } });
-    visible.add(INTERNET_NODE_ID);
-    for (const g of gateways) pushEdge(INTERNET_NODE_ID, g, 'ingress', 'traffic', true);
+  /*
+   * One Internet entry per VPC, drawn directly above it.
+   *
+   * A single shared node had to sit somewhere, and with 30 VPCs across many regions its
+   * lines crossed the entire canvas to reach each gateway. The internet is not a place on
+   * this map, so each VPC gets its own entry point and its lines stay short and vertical.
+   */
+  const internetFor = new Map<string, string>();
+  for (const g of gateways) {
+    const vpc = vpcOf(g) ?? '';
+    let inet = internetFor.get(vpc);
+    if (!inet) {
+      inet = vpc ? `${INTERNET_NODE_ID}::${vpc}` : INTERNET_NODE_ID;
+      internetFor.set(vpc, inet);
+      // No state: a status dot on "the internet" would claim something nobody measured.
+      extra.push({ group: 'nodes', data: { id: inet, label: 'Internet', type: 'Internet', ...(vpc ? { forVpc: vpc } : {}) } });
+      visible.add(inet);
+    }
+    pushEdge(inet, g, 'ingress', 'traffic', true);
   }
 
   // Short ids for the inspector header, without the scope prefix.
