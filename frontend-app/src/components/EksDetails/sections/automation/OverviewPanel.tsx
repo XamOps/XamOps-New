@@ -44,10 +44,14 @@ import { StatusMark } from '../../../CloudK8s/shared/StatusMark';
 import { NowBanner } from '../../../CloudK8s/shared/status/NowBanner';
 import { HowItWorks } from '../../../CloudK8s/shared/status/HowItWorks';
 import { FeatureMark, type Feature } from '../../../CloudK8s/shared/status/FeatureMark';
-import { KpiCard } from '../../../CloudK8s/shared/status/KpiCard';
-import { KpiHeroStrip } from '../../../CloudK8s/shared/status/KpiHeroStrip';
 import { Delta } from '../../../CloudK8s/shared/status/Delta';
 import { StatusChip } from '../../../CloudK8s/shared/status/StatusChip';
+import { StatusDot } from '../../../CloudK8s/shared/status/StatusDot';
+import { PageTemplate } from '../../../CloudK8s/shared/PageTemplate';
+import { MetricStrip, type MetricCell } from '../../../CloudK8s/shared/MetricStrip';
+import { DataTable } from '../../../CloudK8s/shared/DataTable';
+import type { ColumnDef } from '../../../CloudK8s/shared/K8sDataTable';
+import type { DrawerSection, DrawerDatum } from '../../../CloudK8s/shared/DetailDrawer';
 import { nowSentence, type AutomationOverviewInputs, type NowSentence } from '../../../CloudK8s/shared/status/nowSentence';
 import { Bars } from '../../../CloudK8s/shared/charts/Bars';
 import { ChartCard } from '../../../CloudK8s/shared/charts/ChartCard';
@@ -76,7 +80,7 @@ import {
   type FeatureStatus,
   type Resource,
 } from './automationDerivations';
-import { CARD, FAINT, INK, InPageLink, MUTED, ReadFailureCard, readFailureText } from './automationUi';
+import { CARD, INK, InPageLink, MUTED, ReadFailureCard, readFailureText } from './automationUi';
 import { dayLabel, feedTimeline, feedWeekCounts, savingNow, weekCounts, type WeekCounts } from './activity/activityInsights';
 import { activityResultChip } from './activity/activityText';
 import { ClusterUsageCard, ResourceToggle } from './insightCards';
@@ -151,24 +155,38 @@ function dataAge(at: string | null, now: number): string {
   return ago ? `data ${ago.replace(/ ago$/, '')} old` : 'no data yet';
 }
 
+/**
+ * The Apply column's compact mark (§14): a status word with its icon, never colour alone. The full
+ * gate / reason / RCA copy lives in the row's DetailDrawer (opened by activating the row), not in
+ * the cell — the table stays a scannable grid and the detail reads in the drawer.
+ */
 function ApplyCell({ capability }: { capability: Capability }) {
-  if (capability.allowed) return <StatusMark state="healthy" label="Available" />;
+  if (capability.allowed) return <StatusDot tone="good" label="Available" />;
   const gate = capability.gate;
   if (!gate) return <span className={MUTED}>{CHECKING_ACCESS_TEXT}</span>;
-  const copy = reasonCopy(gate);
-  const also = alsoNeedsLine(capability.also);
   return (
-    <span className="flex items-start gap-1.5">
-      <LockIcon className="mt-0.5" />
-      <span className="min-w-0">
-        <span className={`block ${INK}`} title={gate.raw}>
-          {copy.heading && <span className="font-semibold">{copy.heading}: </span>}
-          {copy.text}
-        </span>
-        {also && <span className={`mt-0.5 block text-[12px] ${MUTED}`}>{also}</span>}
-      </span>
+    <span className="inline-flex items-center gap-1.5" title={gate.raw}>
+      <LockIcon />
+      <StatusDot tone="off" label="Blocked" />
     </span>
   );
+}
+
+/** The drawer's Apply section for a gated row: the gate heading, text, "Also needs" and raw reason. */
+function applyDrawerData(capability: Capability): DrawerDatum[] {
+  if (capability.allowed) {
+    return [{ label: 'Apply', value: 'Available — XamOps may make this change on the cluster.' }];
+  }
+  const gate = capability.gate;
+  if (!gate) return [{ label: 'Apply', value: CHECKING_ACCESS_TEXT }];
+  const copy = reasonCopy(gate);
+  const also = alsoNeedsLine(capability.also);
+  return [
+    { label: 'Status', value: 'Blocked' },
+    { label: copy.heading ?? 'Reason', value: copy.text },
+    { label: 'Also needs', value: also ?? null, reason: 'Nothing else is required.' },
+    { label: 'Server reason', value: gate.raw ?? null, reason: 'XamOps resolved a known reason, with no raw server message.' },
+  ];
 }
 
 function AccessRow({ term, children }: { term: string; children: ReactNode }) {
@@ -264,19 +282,34 @@ function AccessBlock({ caps, clusterName }: { caps: K8sCapabilitiesValue; cluste
   );
 }
 
-function analysisCell(caps: K8sCapabilitiesValue, row: TodayRow): ReactNode {
+/** The analysis a row shows in its Analysis cell, as plain text (never a fabricated value). */
+function analysisText(caps: K8sCapabilitiesValue, row: TodayRow): string {
   if (row.vertical && caps.status === 'error') return 'Unknown';
-  if (row.analysis === null || (row.vertical && caps.status === 'loading')) {
-    return (
-      <>
-        <span aria-hidden="true">—</span>
-        <span className="sr-only">None</span>
-      </>
-    );
-  }
+  if (row.analysis === null || (row.vertical && caps.status === 'loading')) return '—';
   return row.analysis;
 }
 
+/** How this analysis is calculated / where Apply comes from — the §7 provenance, in the drawer. */
+function howCalculatedData(row: TodayRow): DrawerDatum[] {
+  return [
+    {
+      label: 'Analysis',
+      value: 'Analysis is what XamOps reads and recommends from the cluster; it changes nothing on its own.',
+    },
+    {
+      label: 'Apply',
+      value: 'Apply is whether XamOps may make this change — your permission, the connection and the controller’s readiness, checked live.',
+    },
+    row.page ? { label: 'Shown on', value: row.page.label } : { label: 'Shown on', value: null, reason: 'This capability has no dedicated page yet.' },
+  ];
+}
+
+/**
+ * "What automation can do on this cluster today" (§9.1): one row per capability in DataTable, each
+ * row opening a DetailDrawer with its Capability, Apply (the gate / RCA / reason copy) and
+ * How-this-is-calculated sections. Analysis is what XamOps reads and recommends; Apply is whether
+ * XamOps may change the cluster.
+ */
 function TodayTable({
   caps,
   clusterName,
@@ -292,64 +325,108 @@ function TodayTable({
   const headingId = useId();
   const location = useLocation();
   const engineOff = caps.status === 'ready' && !caps.verticalEngineEnabled;
+
+  const columns: ColumnDef<TodayRow>[] = [
+    {
+      id: 'capability',
+      header: 'Capability',
+      width: '28%',
+      cell: (row) => <span className={`font-semibold ${INK}`}>{row.label}</span>,
+      sortValue: (row) => row.label,
+    },
+    {
+      id: 'analysis',
+      header: 'Analysis',
+      width: '34%',
+      cell: (row) => {
+        if (row.vertical && engineOff) return <span className={MUTED}>{NOT_TURNED_ON_TEXT}</span>;
+        const text = analysisText(caps, row);
+        return (
+          <span className={MUTED} data-analysis={row.id}>
+            {text === '—' ? <><span aria-hidden="true">—</span><span className="sr-only">None</span></> : text}
+            {row.page && pageHrefs[row.page.target] && (
+              <span className="mt-0.5 block text-[12px]" data-analysis-page={row.page.target}>
+                <InPageLink to={pageHrefs[row.page.target]!}>{row.page.label}</InPageLink>
+              </span>
+            )}
+          </span>
+        );
+      },
+    },
+    {
+      id: 'apply',
+      header: 'Apply',
+      cell: (row) => {
+        if (row.vertical && engineOff) return <span aria-hidden="true" className={MUTED}>—</span>;
+        if (row.vertical && workloadAutoscalerHref) {
+          return (
+            <span className={INK} data-apply="workload-autoscaler">
+              <span>{'Decided per workload in '}</span>
+              <Link
+                to={workloadAutoscalerHref}
+                state={inPageState(location)}
+                className="font-semibold underline-offset-2 hover:underline outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] focus-visible:ring-offset-2"
+                data-k8s-kit=""
+              >
+                {WORKLOAD_AUTOSCALER_LINK}
+              </Link>
+            </span>
+          );
+        }
+        return <ApplyCell capability={applyCapability(caps, row, clusterName)} />;
+      },
+    },
+  ];
+
+  const rowToSections = (row: TodayRow): DrawerSection[] => {
+    const capabilitySection: DrawerSection = {
+      title: 'Capability',
+      data: [
+        { label: 'Analysis', value: row.vertical && engineOff ? NOT_TURNED_ON_TEXT : analysisText(caps, row) === '—' ? null : analysisText(caps, row), reason: 'XamOps reads nothing to recommend here yet.' },
+        row.page && pageHrefs[row.page.target]
+          ? { label: 'Automation page', value: <InPageLink to={pageHrefs[row.page.target]!}>{row.page.label}</InPageLink> }
+          : { label: 'Automation page', value: row.page ? row.page.label : null, reason: 'This capability has no dedicated page yet.' },
+      ],
+    };
+    const applySection: DrawerSection =
+      row.vertical && (engineOff || workloadAutoscalerHref)
+        ? {
+          title: 'Apply',
+          data: engineOff
+            ? [{ label: 'Apply', value: NOT_TURNED_ON_TEXT }]
+            : [{
+              label: 'Apply',
+              value: workloadAutoscalerHref
+                ? <span>{'Decided per workload in '}<InPageLink to={workloadAutoscalerHref}>{WORKLOAD_AUTOSCALER_LINK}</InPageLink></span>
+                : null,
+            }],
+        }
+        : { title: 'Apply', data: applyDrawerData(applyCapability(caps, row, clusterName)) };
+    return [
+      capabilitySection,
+      applySection,
+      { title: 'How this is calculated', data: howCalculatedData(row) },
+    ];
+  };
+
   return (
     // data-k8s-kit: every colour here has its dark variant, so the legacy dark CSS leaves it alone.
-    <section aria-labelledby={headingId} className={`${CARD} pt-4`} data-k8s-kit="">
-      <h2 id={headingId} className={`px-4 text-[14px] font-semibold ${INK}`}>
+    <section aria-labelledby={headingId} className="flex flex-col gap-2" data-k8s-kit="">
+      <h2 id={headingId} className={`text-[14px] font-semibold ${INK}`}>
         What automation can do on this cluster today
       </h2>
-      <p className={`px-4 pt-1 text-[12px] ${MUTED}`}>
-        Analysis is what XamOps reads and recommends. Apply is whether XamOps may change the cluster.
+      <p className={`text-[12px] ${MUTED}`}>
+        Analysis is what XamOps reads and recommends. Apply is whether XamOps may change the cluster. Open a row for the detail.
       </p>
-      <div className="mt-3 overflow-x-auto">
-        <table aria-labelledby={headingId} className="w-full border-collapse text-left text-[13px]">
-          <thead>
-            <tr className={`border-y border-[rgba(0,0,0,0.08)] bg-[rgba(0,0,0,0.03)] text-[12px] dark:border-[rgba(255,255,255,0.1)] dark:bg-[rgba(255,255,255,0.03)] ${MUTED}`}>
-              <th scope="col" className="w-[22%] px-4 py-2 font-semibold">Capability</th>
-              <th scope="col" className="w-[28%] px-4 py-2 font-semibold">Analysis</th>
-              <th scope="col" className="px-4 py-2 font-semibold">Apply</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[rgba(0,0,0,0.08)] dark:divide-[rgba(255,255,255,0.08)]">
-            {TODAY_ROWS.map((row) => (
-              <tr key={row.id} data-row={row.id} className="align-top">
-                <th scope="row" className={`px-4 py-2.5 font-semibold ${INK}`}>{row.label}</th>
-                {row.vertical && engineOff ? (
-                  <td colSpan={2} className={`px-4 py-2.5 ${MUTED}`}>{NOT_TURNED_ON_TEXT}</td>
-                ) : (
-                  <>
-                    <td className={`px-4 py-2.5 ${MUTED}`}>
-                      {analysisCell(caps, row)}
-                      {row.page && pageHrefs[row.page.target] && (
-                        <span className="mt-0.5 block text-[12px]" data-analysis-page={row.page.target}>
-                          <InPageLink to={pageHrefs[row.page.target]!}>{row.page.label}</InPageLink>
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {row.vertical && workloadAutoscalerHref ? (
-                        <span className={INK} data-apply="workload-autoscaler">
-                          <span>{'Decided per workload in '}</span>
-                          <Link
-                            to={workloadAutoscalerHref}
-                            state={inPageState(location)}
-                            className="font-semibold underline-offset-2 hover:underline outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] focus-visible:ring-offset-2"
-                            data-k8s-kit=""
-                          >
-                            {WORKLOAD_AUTOSCALER_LINK}
-                          </Link>
-                        </span>
-                      ) : (
-                        <ApplyCell capability={applyCapability(caps, row, clusterName)} />
-                      )}
-                    </td>
-                  </>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<TodayRow>
+        rows={TODAY_ROWS}
+        columns={columns}
+        rowKey={(row) => row.id}
+        rowLabel={(row) => row.label}
+        caption="What automation can do on this cluster today"
+        rowTitle={(row) => row.label}
+        rowToSections={rowToSections}
+      />
     </section>
   );
 }
@@ -387,52 +464,61 @@ function overviewSentence(clusterName: string, result: AutomationReadResult | nu
   return nowSentence('automation-overview', inputs);
 }
 
+/** A MetricStrip sub-line: the SECONDARY-sized supporting copy that sat under a KpiCard's number. */
+function Sub({ children }: { children: ReactNode }) {
+  return <span className="flex flex-col gap-0.5">{children}</span>;
+}
+
 /**
  * "Saving now" (glossary §10): what the changes in place free, in vCPU and memory. Its $ is a dash:
  * the FEAT-002 cost read prices what a suggestion would still free, not capacity already freed.
  * Which workloads are in place comes from endpoint 1; each one's amount from the activity log's
  * before and after for that same change. Unknown amounts are left out and counted as such.
  */
-function SavingNowKpi({ view, feed }: { view: VerticalEngineView; feed: UseAutomationActivityState }) {
+function savingNowCell({ view, feed }: { view: VerticalEngineView; feed: UseAutomationActivityState }): MetricCell {
   const s = savingNow(view.workloads, feed.entries);
   const pods = s.counted.reduce((n, c) => n + c.pods, 0);
   const who = s.counted.length === 1 ? s.counted[0].workload.ref.name : `${s.counted.length} workloads`;
-  return (
-    <KpiCard tone="good" icon="mdi:check-circle" label="Saving now" value={s.counted.length > 0 ? formatVcpu(s.cpuM) : '—'}>
-      {s.counted.length > 0 ? (
-        <>
-          {s.memMi > 0 && <p>{formatMemory(s.memMi)} memory freed</p>}
-          <p>{`${who}, in place on ${pods} ${pods === 1 ? 'pod' : 'pods'}`}</p>
-        </>
-      ) : (
-        <p>
-          {s.inPlace === 0
-            ? 'No change is in place now'
-            : `${s.inPlace} in place, but the activity log doesn't hold the size before for ${s.inPlace === 1 ? 'it' : 'them'}`}
-        </p>
-      )}
-      {s.counted.length > 0 && s.notCounted > 0 && (
-        <p>{`${s.notCounted} more in place, not counted: the size before isn't recorded, or the change is older than 7 days`}</p>
-      )}
-      {s.raised > 0 && <p>{`${s.raised} raised a request, so ${s.raised === 1 ? 'it frees' : 'they free'} nothing`}</p>}
-      {view.cost && (
-        <p data-saving-now-usd="">
-          In $: <span title="The cost read prices what a suggestion would still free, not what a change already freed.">—</span>, the cost
-          read prices suggestions still to come
-        </p>
-      )}
-      <p>From the activity log&apos;s before and after. A rollout since then would undo a change.</p>
-    </KpiCard>
-  );
+  return {
+    label: 'Saving now',
+    value: s.counted.length > 0 ? formatVcpu(s.cpuM) : '—',
+    sub: (
+      <Sub>
+        {s.counted.length > 0 ? (
+          <>
+            {s.memMi > 0 && <span>{formatMemory(s.memMi)} memory freed</span>}
+            <span>{`${who}, in place on ${pods} ${pods === 1 ? 'pod' : 'pods'}`}</span>
+          </>
+        ) : (
+          <span>
+            {s.inPlace === 0
+              ? 'No change is in place now'
+              : `${s.inPlace} in place, but the activity log doesn't hold the size before for ${s.inPlace === 1 ? 'it' : 'them'}`}
+          </span>
+        )}
+        {s.counted.length > 0 && s.notCounted > 0 && (
+          <span>{`${s.notCounted} more in place, not counted: the size before isn't recorded, or the change is older than 7 days`}</span>
+        )}
+        {s.raised > 0 && <span>{`${s.raised} raised a request, so ${s.raised === 1 ? 'it frees' : 'they free'} nothing`}</span>}
+        {view.cost && (
+          <span data-saving-now-usd="">
+            In $: <span title="The cost read prices what a suggestion would still free, not what a change already freed.">—</span>, the cost
+            read prices suggestions still to come
+          </span>
+        )}
+        <span>From the activity log&apos;s before and after. A rollout since then would undo a change.</span>
+      </Sub>
+    ),
+  };
 }
 
 /** "Changes, last 7 days": per IST day from the summary, else the feed's entries, else endpoint 1. */
-function ChangesKpi({ k, feed, summary, now }: {
+function changesCell({ k, feed, summary, now }: {
   k: ReturnType<typeof automationKpis>;
   feed: UseAutomationActivityState;
   summary: InsightReadState<ActivitySummaryView>;
   now: number;
-}) {
+}): MetricCell {
   let week: WeekCounts | null = null;
   let basis: string;
   if (summary.result?.kind === 'ok' && (week = weekCounts(summary.result.view)) !== null) {
@@ -443,108 +529,126 @@ function ChangesKpi({ k, feed, summary, now }: {
   } else {
     basis = 'latest change per workload';
   }
-  if (!week) {
-    return (
-      <KpiCard tone="info" icon="mdi:history" label="Changes, last 7 days" value={k.changes7d}>
-        <p>{basis}</p>
-        {k.changes7dByResult.length > 0 && (
-          <div className="flex flex-wrap gap-1 pt-0.5">
-            {k.changes7dByResult.map((r) => (
+  const byResult = week ? week.byResult : k.changes7dByResult;
+  const total = week ? week.total : k.changes7d;
+  return {
+    label: 'Changes, last 7 days',
+    value: total,
+    sub: (
+      <Sub>
+        {byResult.length > 0 && (
+          <span className="flex flex-wrap gap-1 pt-0.5">
+            {byResult.map((r) => (
               <StatusChip key={r.key} tone={r.tone} icon={r.icon} label={`${r.label}: ${r.count}`} weight="normal" />
             ))}
-          </div>
+          </span>
         )}
-      </KpiCard>
-    );
-  }
-  return (
-    <KpiCard tone="info" icon="mdi:history" label="Changes, last 7 days" value={week.total}>
-      {week.byResult.length > 0 && (
-        <div className="flex flex-wrap gap-1 pt-0.5">
-          {week.byResult.map((r) => (
-            <StatusChip key={r.key} tone={r.tone} icon={r.icon} label={`${r.label}: ${r.count}`} weight="normal" />
-          ))}
-        </div>
-      )}
-      {week.testRuns > 0 && <p>{`${week.testRuns} of the ${week.total} ${week.testRuns === 1 ? 'was a test run' : 'were test runs'}: nothing was sent.`}</p>}
-      <p>{basis}</p>
-    </KpiCard>
-  );
+        {week && week.testRuns > 0 && (
+          <span>{`${week.testRuns} of the ${week.total} ${week.testRuns === 1 ? 'was a test run' : 'were test runs'}: nothing was sent.`}</span>
+        )}
+        <span>{basis}</span>
+      </Sub>
+    ),
+  };
 }
 
+/**
+ * The automation metric strip (DESIGN §4.1): automation's own figures — the cluster's monthly cost
+ * (when the FEAT-002 roll-up prices it) or Can save now as the lead cell, then Saving now / Applied
+ * live, Can save now, Needs more and Changes. Each cell is one FIGURE; placement, not a bigger
+ * number, sets the hierarchy. The cost cell carries NO Trend chip: CostSummaryView has no
+ * prior-period field, so there is no real prior to compare against (a named backend GAP), and a
+ * fabricated trend is never shown. The Health / Nodes / Pods cluster vitals are NOT here — the
+ * sticky ClusterStatusStrip owns them; this strip is automation's numbers alone.
+ */
 function Kpis({ view, now, feed, summary }: { view: VerticalEngineView; now: number; feed: UseAutomationActivityState; summary: InsightReadState<ActivitySummaryView> }) {
   const k = automationKpis(view.workloads, now);
   const unknownSave = k.overProvisioned > 0 && k.canSave.counted === 0;
-  // FEAT-002: when the cluster cost roll-up carries a real $/mo saving, the card leads with it (the
-  // money tone + arrow live inside Delta, so this file writes no money class); the freed vCPU/GiB
-  // stay as the grey sub-line. A null roll-up keeps the freed-capacity figure, never a `$0`.
+  // FEAT-002: when the cluster cost roll-up carries a real $/mo saving, the Can-save-now cell leads
+  // with it (the money tone + arrow live inside Delta, so this file writes no money class); the
+  // freed vCPU/GiB stay as the grey sub-line. A null roll-up keeps the freed-capacity figure, never
+  // a `$0`.
   const cost = view.cost;
   const moneyValue = cost && cost.monthlySavings !== null;
   // The cluster's real monthly cost, shown independently of savings: with no recommendation yet
   // every saving is a true $0, but the cluster still costs real money, so this figure proves cost
   // is flowing. A null roll-up (feature off / nothing priceable) renders a dash, never a fake $0.
   const clusterCost = cost && cost.clusterMonthlyCost !== null;
-  // DESIGN §4.1.1: the hero is the `Monthly cost` card when the FEAT-002 roll-up prices the cluster,
-  // else `Can save now`. The exact $/savings precedence below is unchanged — only the chosen card's
-  // size/placement moves. The `heroIsMonthly` flag chooses which card carries `hero`, and the other
-  // demotes into the `divide-x` strip verbatim.
+  // DESIGN §4.1.1: the lead cell is Monthly cost when the FEAT-002 roll-up prices the cluster, else
+  // Can save now. Precedence below is unchanged — only which figure leads the strip.
   const heroIsMonthly = Boolean(cost);
-  const monthlyCard = (isHero: boolean) =>
-    cost ? (
-      <KpiCard tone="info" icon="mdi:cash" label="Monthly cost" value={clusterCost ? formatMoney(cost.clusterMonthlyCost) : '—'} hero={isHero}>
-        <p data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</p>
-        <p>what these workloads reserve, at the nodes&apos; live AWS price</p>
-      </KpiCard>
-    ) : null;
-  const savingOrApplied =
-    feed.result?.kind === 'ok' ? (
-      <SavingNowKpi view={view} feed={feed} />
-    ) : (
-      // Without the activity log: "Applied live", not "Saving now". Endpoint 1's lastAction has no
-      // before and after, so a raise for a workload that needed more counts here too.
-      <KpiCard tone="good" icon="mdi:check-circle" label="Applied live" value={k.liveApplied}>
-        <p>{k.liveApplied === 1 ? 'workload' : 'workloads'} whose latest change was applied live</p>
-        {feed.result && feed.result.kind !== 'not-deployed' ? (
-          <p>Before and after: —, XamOps couldn&apos;t read the activity log just now</p>
-        ) : (
-          <p>
-            Before and after: <span title="Not recorded yet: XamOps keeps the size before a change once the activity feed is on.">—</span>, recorded
-            once the activity feed is on
-          </p>
-        )}
-      </KpiCard>
-    );
-  const canSaveCard = (isHero: boolean) => (
-    <KpiCard
-      tone="warn"
-      icon="mdi:arrow-collapse-down"
-      label="Can save now"
-      hero={isHero}
-      value={moneyValue ? <Delta direction="saved" amount={formatMonthlyUsd(cost!.monthlySavings)} /> : unknownSave ? '—' : formatVcpu(k.canSave.cpuM)}
-    >
-      {moneyValue && cost && (
-        <p data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</p>
-      )}
-      {moneyValue
-        ? (unknownSave ? <p>Freed capacity isn&apos;t known: replica counts are missing</p> : <p>{`Frees ${formatVcpu(k.canSave.cpuM)} and ${formatMemory(k.canSave.memMi)}`}</p>)
-        : <p>{unknownSave ? "The replica counts aren't known, so the amount isn't either" : `${formatMemory(k.canSave.memMi)} memory`}</p>}
-      <p>{k.overProvisioned} over-provisioned {k.overProvisioned === 1 ? 'workload' : 'workloads'}, waiting for you</p>
-      {k.notCounted > 0 && !unknownSave && <p>{k.notCounted} not counted: replicas or pod sizes unknown</p>}
-    </KpiCard>
-  );
-  const needsMoreCard = (
-    <KpiCard tone="warn" icon="mdi:speedometer" label="Needs more" value={k.needsMore}>
-      <p>{k.needsMore > 0 ? `+${formatCapacity(k.needsMoreAdds.cpuM, k.needsMoreAdds.memMi)} added if applied` : 'No workload needs more'}</p>
-    </KpiCard>
-  );
-  const changesCard = <ChangesKpi k={k} feed={feed} summary={summary} now={now} />;
 
-  // Hero = Monthly cost (when priced) else Can save now; the remaining four cards demote to the strip.
-  const hero = heroIsMonthly ? monthlyCard(true) : canSaveCard(true);
-  const strip = heroIsMonthly
-    ? [savingOrApplied, canSaveCard(false), needsMoreCard, changesCard]
-    : [savingOrApplied, needsMoreCard, changesCard];
-  return <KpiHeroStrip hero={hero} strip={strip} rootProps={{ 'data-overview-kpis': '' }} />;
+  const monthlyCell: MetricCell | null = cost
+    ? {
+      label: 'Monthly cost',
+      // No Trend: CostSummaryView has no prior-period field (backend GAP), so prior is null and a
+      // trend would be fabricated.
+      value: clusterCost ? formatMoney(cost.clusterMonthlyCost) : '—',
+      sub: (
+        <Sub>
+          <span data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</span>
+          <span>what these workloads reserve, at the nodes&apos; live AWS price</span>
+        </Sub>
+      ),
+    }
+    : null;
+
+  const savingOrApplied: MetricCell =
+    feed.result?.kind === 'ok'
+      ? savingNowCell({ view, feed })
+      : {
+        // Without the activity log: "Applied live", not "Saving now". Endpoint 1's lastAction has no
+        // before and after, so a raise for a workload that needed more counts here too.
+        label: 'Applied live',
+        value: k.liveApplied,
+        sub: (
+          <Sub>
+            <span>{k.liveApplied === 1 ? 'workload' : 'workloads'} whose latest change was applied live</span>
+            {feed.result && feed.result.kind !== 'not-deployed' ? (
+              <span>Before and after: —, XamOps couldn&apos;t read the activity log just now</span>
+            ) : (
+              <span>
+                Before and after: <span title="Not recorded yet: XamOps keeps the size before a change once the activity feed is on.">—</span>, recorded
+                once the activity feed is on
+              </span>
+            )}
+          </Sub>
+        ),
+      };
+
+  const canSaveCell: MetricCell = {
+    label: 'Can save now',
+    value: moneyValue ? <Delta direction="saved" amount={formatMonthlyUsd(cost!.monthlySavings)} /> : unknownSave ? '—' : formatVcpu(k.canSave.cpuM),
+    sub: (
+      <Sub>
+        {moneyValue && cost && <span data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</span>}
+        {moneyValue
+          ? (unknownSave ? <span>Freed capacity isn&apos;t known: replica counts are missing</span> : <span>{`Frees ${formatVcpu(k.canSave.cpuM)} and ${formatMemory(k.canSave.memMi)}`}</span>)
+          : <span>{unknownSave ? "The replica counts aren't known, so the amount isn't either" : `${formatMemory(k.canSave.memMi)} memory`}</span>}
+        <span>{k.overProvisioned} over-provisioned {k.overProvisioned === 1 ? 'workload' : 'workloads'}, waiting for you</span>
+        {k.notCounted > 0 && !unknownSave && <span>{k.notCounted} not counted: replicas or pod sizes unknown</span>}
+      </Sub>
+    ),
+  };
+
+  const needsMoreCell: MetricCell = {
+    label: 'Needs more',
+    value: k.needsMore,
+    sub: <Sub><span>{k.needsMore > 0 ? `+${formatCapacity(k.needsMoreAdds.cpuM, k.needsMoreAdds.memMi)} added if applied` : 'No workload needs more'}</span></Sub>,
+  };
+
+  const changes = changesCell({ k, feed, summary, now });
+
+  // Lead = Monthly cost (when priced) else Can save now; the rest follow in the one strip.
+  const cells: MetricCell[] = heroIsMonthly
+    ? [monthlyCell!, savingOrApplied, canSaveCell, needsMoreCell, changes]
+    : [canSaveCell, savingOrApplied, needsMoreCell, changes];
+
+  return (
+    <div data-overview-kpis="">
+      <MetricStrip cells={cells} aria-label="Automation summary" />
+    </div>
+  );
 }
 
 /** How many entries the Overview reads for its 7-day timeline (the feed's page limit). */
@@ -585,7 +689,7 @@ function FeedTimeline({ feed, now }: { feed: UseAutomationActivityState; now: nu
     >
       <div className="overflow-x-auto">
         <LanesTimeline lanes={t.lanes} width={720} ariaLabel="Every change XamOps recorded, last 7 days, one lane per workload or HPA" />
-        <div className={`ml-[120px] flex w-[600px] justify-between text-[11px] ${FAINT}`} aria-hidden="true">
+        <div className={`ml-[120px] flex w-[600px] justify-between text-[11px] ${MUTED}`} aria-hidden="true">
           <span>{istShort(now - 7 * DAY_MS)}</span>
           <span>now</span>
         </div>
@@ -648,7 +752,7 @@ function Timeline({ result, feed, now }: { result: AutomationReadResult | null; 
     >
       <div className="overflow-x-auto">
         <LanesTimeline lanes={lanes} width={720} ariaLabel="The latest change XamOps recorded for each workload, last 7 days" />
-        <div className={`ml-[120px] flex w-[600px] justify-between text-[11px] ${FAINT}`} aria-hidden="true">
+        <div className={`ml-[120px] flex w-[600px] justify-between text-[11px] ${MUTED}`} aria-hidden="true">
           <span>{istShort(now - 7 * DAY_MS)}</span>
           <span>now</span>
         </div>
@@ -804,7 +908,7 @@ function NamespaceChart({
         height={240}
         ariaLabel={cpu ? 'CPU by namespace, in vCPU' : 'Memory by namespace, in GiB'}
       />
-      <p className={`mt-1 text-[11px] ${FAINT}`}>{cpu ? 'vCPU' : 'GiB'}</p>
+      <p className={`mt-1 text-[11px] ${MUTED}`}>{cpu ? 'vCPU' : 'GiB'}</p>
     </ChartCard>
   );
 }
@@ -845,13 +949,26 @@ export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs =
   const view = read.result?.kind === 'ok' ? read.result.view.vertical : null;
   const sentence = overviewSentence(clusterName, read.result, read.loading, now);
 
-  return (
-    <div className="space-y-8">
+  // The hero is automation's own metric strip (never the Health/Nodes/Pods cluster vitals — the
+  // sticky ClusterStatusStrip owns those, so the duplicate strip is not rendered here).
+  const hero = (
+    <>
       <AccessBanner capabilities={caps} cluster={clusterName} />
       <NowBanner sentence={sentence} />
       {read.loading && !read.result && <div className="skeleton h-28 rounded-lg" />}
       {read.result && read.result.kind !== 'ok' && <ReadFailureCard failure={read.result} onRetry={read.reload} />}
       {view && <Kpis view={view} now={now} feed={feed} summary={summary} />}
+    </>
+  );
+
+  return (
+    <PageTemplate
+      title="Automation"
+      intro="What XamOps can automate on this cluster, what it is doing now and what it has done — each number from a real source."
+      width="prose"
+      hero={hero}
+      aside={<AccessBlock caps={caps} clusterName={clusterName} />}
+    >
       <HowItWorks
         chips={view ? howItWorksChips(view, now) : {}}
         policiesHref={hrefs.policies}
@@ -861,14 +978,13 @@ export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs =
       <FeatureCards result={read.result} caps={caps} clusterName={clusterName} eksData={eksData} hrefs={hrefs} now={now} />
       <NamespaceChart result={read.result} eksData={eksData} clusterName={clusterName} accountId={accountId} region={region} />
       <ClusterUsageCard clusterName={clusterName} accountId={accountId} region={region} title="CPU and memory over time" total="capacity" />
-      <AccessBlock caps={caps} clusterName={clusterName} />
       <TodayTable
         caps={caps}
         clusterName={clusterName}
         workloadAutoscalerHref={hrefs.workloadAutoscaler}
         pageHrefs={{ hpa: hrefs.hpa, vpa: hrefs.vpa }}
       />
-    </div>
+    </PageTemplate>
   );
 }
 

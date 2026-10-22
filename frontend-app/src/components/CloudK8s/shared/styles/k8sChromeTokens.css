@@ -1,32 +1,39 @@
 /*
- * CloudK8s chrome tokens (FEAT-001): the page's black / white / grey chrome, set once per theme.
+ * CloudK8s chrome tokens (FEAT-001): the page's slate-tinted neutral chrome (colour only for
+ * meaning), set once per theme.
  *
  * These are the neutral surfaces, ink and hairlines every v3 primitive paints with — never a
- * meaning colour. Meaning colour reaches the page only through the status / chart / series
- * components (src/styles/k8sSemanticTokens.css). Every value here is equal-channel (a grey hex or an
- * `rgba(n,n,n,a)` with equal R/G/B) so the design-rule `rgb-colour` guard stays green; the file lives
- * under components/CloudK8s/shared/ so it is auto-guarded by the recursive GUARDED_PATHS entry.
+ * meaning colour. The owner's authoritative palette decision is a subtly COOL / SLATE-tinted ramp
+ * (R≠G≠B, blue channel highest), NOT pure grey: it gives the page depth without a competing hue.
+ * Meaning colour still reaches the page only through the status / chart / series components
+ * (src/styles/k8sSemanticTokens.css); brand green = good / savings lives there, never here.
+ *
+ * Exactly TWO text greys (--chrome-ink, --chrome-muted) so the distinct-grey metric gate stays in
+ * budget. The slate hexes / rgba here are non-equal-channel on purpose, so the design-rule
+ * `hex-colour` / `rgb-colour` guards would flag them; a narrowly-scoped, reviewed allow-list in
+ * designRules.test.ts (CHROME_RAMP, keyed to THIS file + these exact values) lets them pass while
+ * every other non-grey colour elsewhere still fails. The ramp must match CHROME_RAMP exactly.
  *
  * `--chrome-*` names (not `--k8s-…`) so the guard's `scope-raw-var` family — which matches only
  * `var(--k8s-` — never flags a primitive for using these tokens.
  */
 :root {
-  /* Text: primary ink and the muted / secondary grey. */
-  --chrome-ink: rgba(0, 0, 0, 0.88);
-  --chrome-muted: rgba(0, 0, 0, 0.60);
-  /* Surfaces: the page behind the cards, a card, and the second (inset) surface. */
-  --chrome-page: #f6f6f6;
-  --chrome-card: #ffffff;
-  --chrome-surface-2: #f0f0f0;
-  /* The single hairline weight. */
-  --chrome-line: rgba(0, 0, 0, 0.08);
+  /* Text: slate-900/800 ink and the slate-500 muted / secondary grey (exactly two text greys). */
+  --chrome-ink: #1E293B;
+  --chrome-muted: #64748B;
+  /* Surfaces: the slate-tinted page behind the cards, a white card, and the slate inset surface. */
+  --chrome-page: #F4F6F9;
+  --chrome-card: #FFFFFF;
+  --chrome-surface-2: #EDF1F6;
+  /* The single hairline weight: slate-900 (#0F172A) at low alpha, not pure black. */
+  --chrome-line: rgba(15, 23, 42, 0.08);
 }
 
 .dark {
-  --chrome-ink: rgba(255, 255, 255, 0.92);
-  --chrome-muted: rgba(255, 255, 255, 0.60);
-  --chrome-page: #0e0e0e;
-  --chrome-card: #141414;
-  --chrome-surface-2: #181818;
-  --chrome-line: rgba(255, 255, 255, 0.10);
+  --chrome-ink: #E2E8F0;
+  --chrome-muted: #94A3B8;
+  --chrome-page: #0B0F17;
+  --chrome-card: #121824;
+  --chrome-surface-2: #1A2130;
+  --chrome-line: rgba(148, 163, 184, 0.12);
 }

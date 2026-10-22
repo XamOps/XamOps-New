@@ -48,6 +48,7 @@ export function PageTemplate({
   return (
     <main
       data-k8s-redesigned-main=""
+      data-k8s-kit=""
       data-page-width={width}
       aria-labelledby={titleId}
       className={`mx-auto w-full ${maxWidth} ${className}`.trim()}

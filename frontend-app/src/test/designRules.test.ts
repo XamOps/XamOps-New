@@ -25,16 +25,42 @@ const SRC = fileURLToPath(new URL('..', import.meta.url));
 export const PALETTE_FILE = 'styles/k8sSemanticTokens.css';
 
 /**
+ * The one file that carries the slate-tinted chrome ramp (owner-decided; see the file header).
+ *
+ * Chrome neutrals are NOT pure grey — the owner's palette is a cool, slate-tinted ramp (R≠G≠B, blue
+ * channel highest) that gives the page depth without a competing hue. Those values are non-equal
+ * channel on purpose, so the `hex-colour` / `rgb-colour` colour rules are skipped for THIS file
+ * ONLY, and the exact values are pinned by CHROME_RAMP + the `chrome-matches-file` test below so the
+ * ramp can't silently drift (or slide back to grey). This is a narrow, reviewed exemption — it does
+ * NOT widen either rule anywhere else; any non-grey colour in any other file still fails.
+ */
+export const CHROME_RAMP_FILE = 'components/CloudK8s/shared/styles/k8sChromeTokens.css';
+
+/** The exact slate chrome ramp this file must carry (`:root` light / `.dark` dark). */
+export const CHROME_RAMP: Record<string, { light: string; dark: string }> = {
+  '--chrome-ink': { light: '#1E293B', dark: '#E2E8F0' },
+  '--chrome-muted': { light: '#64748B', dark: '#94A3B8' },
+  '--chrome-page': { light: '#F4F6F9', dark: '#0B0F17' },
+  '--chrome-card': { light: '#FFFFFF', dark: '#121824' },
+  '--chrome-surface-2': { light: '#EDF1F6', dark: '#1A2130' },
+  '--chrome-line': { light: 'rgba(15, 23, 42, 0.08)', dark: 'rgba(148, 163, 184, 0.12)' },
+};
+
+/** Colour rules the slate chrome ramp file is exempt from (pinned by CHROME_RAMP instead). */
+const CHROME_RAMP_EXEMPT: readonly string[] = ['hex-colour', 'rgb-colour'];
+
+/**
  * design-delta v3 §2.2. A colour change edits this table and the token file together, in one
  * reviewed change. `role` drives the contrast threshold: 'text' needs 4.5:1, 'graphic' needs 3:1.
  */
 export const PALETTE: Record<string, { light: string; dark: string; role: 'text' | 'graphic' }> = {
-  '--k8s-status-good': { light: '30 122 62', dark: '143 209 106', role: 'text' },
+  // Brand green = good = savings (merged, owner-decided): deep #0B8F5A on light, bright #1BE68B on dark.
+  '--k8s-status-good': { light: '7 122 77', dark: '27 230 139', role: 'text' },
   '--k8s-status-warn': { light: '138 90 0', dark: '235 170 60', role: 'text' },
   '--k8s-status-bad': { light: '196 22 63', dark: '255 90 102', role: 'text' },
   '--k8s-status-info': { light: '10 95 191', dark: '107 163 242', role: 'text' },
   '--k8s-status-off': { light: '102 102 102', dark: '158 158 158', role: 'text' },
-  '--k8s-money-saved': { light: '30 122 62', dark: '143 209 106', role: 'text' },
+  '--k8s-money-saved': { light: '7 122 77', dark: '27 230 139', role: 'text' },
   '--k8s-money-extra': { light: '138 90 0', dark: '235 170 60', role: 'text' },
   '--k8s-series-capacity': { light: '102 117 131', dark: '163 173 182', role: 'graphic' },
   '--k8s-series-requested': { light: '11 103 160', dark: '86 171 228', role: 'graphic' },
@@ -265,6 +291,9 @@ export function scanText(file: string, text: string): Violation[] {
       // The palette file is the one place allowed to carry unequal channels; it is checked by
       // palette-matches-file instead.
       if (rule.id === 'channel-triple' && file === PALETTE_FILE) continue;
+      // The slate chrome ramp carries non-grey hex/rgba on purpose (owner-decided); its exact values
+      // are pinned by chrome-matches-file, so the two colour rules are skipped for this file ONLY.
+      if (file === CHROME_RAMP_FILE && CHROME_RAMP_EXEMPT.includes(rule.id)) continue;
       if (rule.test(line)) out.push({ file, line: index + 1, rule: rule.id, text: line.trim() });
     }
     for (const family of SCOPED_FAMILIES) {
@@ -489,6 +518,41 @@ describe('design-rule guard: palette', () => {
   it('palette-contrast: a bad status-good (120 200 120) fails', () => {
     const broken = { ...PALETTE, '--k8s-status-good': { light: '120 200 120', dark: '120 200 120', role: 'text' as const } };
     expect(contrastFailures(broken).some((f) => f.startsWith('--k8s-status-good'))).toBe(true);
+  });
+
+  it('chrome-matches-file: the slate chrome ramp equals CHROME_RAMP exactly (no drift back to grey)', () => {
+    const css = readFileSync(join(SRC, CHROME_RAMP_FILE), 'utf8');
+    const code = css.replace(/\/\*[\s\S]*?\*\//g, (block) => block.replace(/[^\n]/g, ' '));
+    const blockOf = (name: string): string => {
+      const m = code.match(new RegExp(`${name.replace('.', '\\.')}\\s*\\{([^}]*)\\}`));
+      return m ? m[1] : '';
+    };
+    const vars = (block: string): Record<string, string> => {
+      const out: Record<string, string> = {};
+      const re = /(--chrome-[\w-]+)\s*:\s*([^;]+);/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(block)) !== null) out[m[1]] = m[2].trim();
+      return out;
+    };
+    const light = vars(blockOf(':root'));
+    const dark = vars(blockOf('.dark'));
+    const expected = Object.keys(CHROME_RAMP).sort();
+    expect(Object.keys(light).sort(), 'light chrome tokens').toEqual(expected);
+    expect(Object.keys(dark).sort(), 'dark chrome tokens').toEqual(expected);
+    for (const [name, def] of Object.entries(CHROME_RAMP)) {
+      expect(light[name], `${name} light`).toBe(def.light);
+      expect(dark[name], `${name} dark`).toBe(def.dark);
+    }
+    // The ramp must stay visibly slate-tinted (cool: blue channel highest) in both themes, not grey.
+    const hexCool = (hex: string) => {
+      const h = hex.replace('#', '');
+      const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+      return b >= g && g >= r && b > r; // slate: b ≥ g ≥ r, and not neutral
+    };
+    for (const key of ['--chrome-ink', '--chrome-muted', '--chrome-page', '--chrome-surface-2'] as const) {
+      expect(hexCool(CHROME_RAMP[key].light), `${key} light is slate-tinted`).toBe(true);
+      expect(hexCool(CHROME_RAMP[key].dark), `${key} dark is slate-tinted`).toBe(true);
+    }
   });
 });
 
