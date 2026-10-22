@@ -207,6 +207,40 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+/**
+ * Re-encode an icon as a small PNG before it is baked into cards.
+ *
+ * Source icons are up to 512px. Every card carries its own copy, so on a 700-resource
+ * account full-size icons meant ~13MB of data URLs for the canvas to decode. A 64px
+ * raster is crisp at 30px on a 2x display and a few KB. Falls back to the original when
+ * there is no canvas (tests) or decoding fails.
+ */
+function downscaleIcon(dataUrl: string): Promise<string> {
+  const SIZE = 64;
+  if (typeof document === 'undefined' || typeof Image === 'undefined') return Promise.resolve(dataUrl);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = SIZE;
+        canvas.height = SIZE;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return resolve(dataUrl);
+        const scale = Math.min(SIZE / (img.naturalWidth || SIZE), SIZE / (img.naturalHeight || SIZE));
+        const w = (img.naturalWidth || SIZE) * scale;
+        const h = (img.naturalHeight || SIZE) * scale;
+        ctx.drawImage(img, (SIZE - w) / 2, (SIZE - h) / 2, w, h);
+        resolve(canvas.toDataURL('image/png'));
+      } catch {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
 function loadIcon(url: string): Promise<void> {
   if (url.startsWith('data:')) { iconDataCache.set(url, url); return Promise.resolve(); }
   if (iconDataCache.has(url)) return Promise.resolve();
@@ -215,6 +249,7 @@ function loadIcon(url: string): Promise<void> {
   const p = fetch(url)
     .then((res) => (res.ok ? res.blob() : Promise.reject(new Error(String(res.status)))))
     .then(blobToDataUrl)
+    .then(downscaleIcon)
     .then((data) => { iconDataCache.set(url, data); })
     // A missing icon must not block the map: the card falls back to initials.
     .catch(() => { iconDataCache.set(url, ''); })
@@ -1260,6 +1295,13 @@ export function layoutHierarchicalGrid(cy: any): void {
     if (n.data('minH') !== undefined) n.removeData('minH');
   });
 
+  /**
+   * Columns for n cards: two or three for a typical subnet, then roughly square-ish and
+   * landscape for big ones, so a subnet with 300 instances is a block, not a 100-row column.
+   */
+  const gridCols = (n: number): number =>
+    n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : Math.min(16, Math.ceil(Math.sqrt(n * 1.6)));
+
   /** A fixed-column grid: cards in a subnet line up instead of ragged shelves. */
   function gridPack(items: PackItem[], cols: number): { w: number; h: number } {
     const cellW = items.reduce((m, it) => Math.max(m, it.w), 0);
@@ -1389,7 +1431,7 @@ export function layoutHierarchicalGrid(cy: any): void {
     const leafItems: PackItem[] = loose.map((l: any) => ({ id: l.id(), ...sizes.get(l.id())! }));
     const leafCols = compounds.length > 0
       ? Math.max(1, Math.floor((Math.max(blockBox.w, CARD_W) + GAP_X) / (CARD_W + GAP_X)))
-      : leafItems.length <= 1 ? 1 : leafItems.length <= 4 ? 2 : 3;
+      : gridCols(leafItems.length);
     const leafBox = gridPack(leafItems, leafCols);
 
     innerW = Math.max(gwBox.w, blockBox.w, leafBox.w);
