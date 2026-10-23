@@ -36,20 +36,53 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getCapabilities } = vi.hoisted(() => ({ getCapabilities: vi.fn() }));
+const { getCapabilities, getVerticalStatus, getAutomationDashboard, getNodeFleet, getRebalanceStatus } = vi.hoisted(() => ({
+  getCapabilities: vi.fn(),
+  getVerticalStatus: vi.fn(),
+  getAutomationDashboard: vi.fn(),
+  getNodeFleet: vi.fn(),
+  getRebalanceStatus: vi.fn(),
+}));
 vi.mock('../../../../api/k8sAutomationApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../api/k8sAutomationApi')>();
-  return { ...actual, getCapabilities };
+  return { ...actual, getCapabilities, getAutomationDashboard, getNodeFleet, getRebalanceStatus };
+});
+vi.mock('../../../../api/verticalRecommendationsApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../api/verticalRecommendationsApi')>();
+  return { ...actual, getVerticalStatus };
 });
 vi.mock('../../../../utils/apiClient', () => ({ default: { fetch: vi.fn() } }));
 
+// FEAT-003: the Cost tab reads all money from useEksClusterCost (which calls apiClient.get, not
+// .fetch). Mock the hook directly — exactly as EksCostTab.cost.test.tsx does — so the gate drives a
+// deterministic, clearly-marked cost fixture. This mock is inert for the Overview / Summary / Pods
+// mounts, which never import the hook.
+const costHook = vi.hoisted(() => ({ value: null as unknown }));
+vi.mock('../../../../hooks/useEksClusterCost', () => ({
+  useEksClusterCost: () => costHook.value,
+  default: () => costHook.value,
+}));
+
 import apiClient from '../../../../utils/apiClient';
 import { K8sCapabilitiesProvider } from '../../../../hooks/useK8sCapabilities';
-import { demoCapabilities } from '../../../../demo/k8sAutomationMockData';
+import { useEksSectionRoute } from '../../../../hooks/useEksSectionRoute';
+import { clearVerticalCacheForTests } from '../../../../hooks/useVerticalRecommendations';
+import { demoAutomationDashboard, demoCapabilities, demoNodeFleet, demoVerticalStatus } from '../../../../demo/k8sAutomationMockData';
 import { demoEksDashboard } from '../../../../demo/xamopsMockData';
 import type { UseEksDashboardReturn } from '../../../../hooks/useEksDashboard';
 import { OverviewPanel } from '../../../EksDetails/sections/automation/OverviewPanel';
+import { WorkloadsPage } from '../../../EksDetails/sections/automation/workload/WorkloadsPage';
+import { NodeAutoscalerPage } from '../../../EksDetails/sections/automation/node/NodeAutoscalerPage';
+import { HpaPage } from '../../../EksDetails/sections/automation/hpa/HpaPage';
+import { VpaPage } from '../../../EksDetails/sections/automation/vpa/VpaPage';
+import { ActivityPage } from '../../../EksDetails/sections/automation/activity/ActivityPage';
+import SummaryPanel from '../../../EksDetails/sections/overview/SummaryPanel';
 import EksPodsTab from '../../../EksDetails/tabs/EksPodsTab';
+import EksCostTab from '../../../EksDetails/tabs/EksCostTab';
+import EksNodesTab from '../../../EksDetails/tabs/EksNodesTab';
+import EksKarpenterTab from '../../../EksDetails/tabs/EksKarpenterTab';
+import EksPerformanceTab from '../../../EksDetails/tabs/EksPerformanceTab';
+import EksSecurityTab from '../../../EksDetails/tabs/EksSecurityTab';
 
 const mockedFetch = apiClient.fetch as unknown as ReturnType<typeof vi.fn>;
 
@@ -86,6 +119,23 @@ const GATE_VERTICAL = {
       provenance: { percentile: 95, windowHours: 24, windowStart: null, windowEnd: null, sampleCoverage: 0.94, usageSource: 'prometheus-proxy', policySource: 'DEFAULTS' },
       horizontal: null,
     },
+    {
+      // A second workload that carries a lastAction (so Automation › Activity's FEAT-003 latest-change
+      // table has a row) and an upstream (native) VPA target (so Automation › VPA's coexistence table
+      // has a row) — the gate measures CHROME, these figures are irrelevant test data.
+      ref: { namespace: 'team-a', kind: 'Deployment', name: 'coexist-api' },
+      policy: { mode: 'RECOMMEND', headroomPct: 25, percentile: 95, window: '24h', applyMethod: 'IN_PLACE' },
+      replicas: 3,
+      hpa: { present: false, name: null },
+      gitopsManaged: false,
+      skipReason: null,
+      findings: [],
+      containers: [{ name: 'api', qosClass: 'Burstable', current: { cpuRequestM: 500, memRequestMi: 512, cpuLimitM: null, memLimitMi: null }, recommended: { cpuRequestM: 400, memRequestMi: 480, cpuLimitM: null, memLimitMi: null }, reasons: [], upstreamVpa: { cpuRequestM: 420, memRequestMi: 500, source: 'vpa', observedAt: null } }],
+      lastAction: { at: new Date(Date.now() - 60 * 60_000).toISOString(), outcome: 'APPLIED', dryRun: false },
+      autoApplyEligible: false,
+      provenance: { percentile: 95, windowHours: 24, windowStart: null, windowEnd: null, sampleCoverage: 0.9, usageSource: 'prometheus-proxy', policySource: 'DEFAULTS' },
+      horizontal: null,
+    },
   ],
 };
 
@@ -103,6 +153,109 @@ function serveGateReads() {
 }
 
 const GATE_EKS_DATA = { dashboard: demoEksDashboard } as unknown as UseEksDashboardReturn;
+
+/**
+ * GATE fixture (FEAT-004): the demo dashboard with a REPORTED Karpenter controller so the Karpenter
+ * tab lights every surface — the hero MetricStrip and the NodePools / EC2NodeClasses / NodeClaims
+ * DataTables — rather than the labels-only branch. Clearly test data; the gate measures CHROME.
+ */
+const GATE_EKS_DATA_KARPENTER = {
+  dashboard: {
+    ...demoEksDashboard,
+    karpenter: {
+      healthy: true,
+      version: 'v1.0.6',
+      nodePools: [{ name: 'default', ready: true, nodeCount: 3, cpuLimit: '100', memoryLimit: '' }],
+      ec2NodeClasses: [{ name: 'default', ready: false, readyMessage: 'AMI resolution failed', amiFamily: 'AL2023', instanceProfile: 'KarpenterNodeRole' }],
+      nodeClaims: [{ name: 'default-x7k2p', nodePoolName: 'default', phase: 'Ready', instanceType: 'm5.xlarge', capacityType: 'spot', zone: 'us-east-1b', nodeName: 'ip-10-0-1-102', createdAt: new Date(Date.now() - 3_600_000).toISOString() }],
+      totalActiveClaims: 1, totalPendingClaims: 0, spotNodesCount: 3, onDemandNodesCount: 0, provisionedNodes: 3, pendingPods: 0,
+    },
+  },
+} as unknown as UseEksDashboardReturn;
+
+/**
+ * GATE fixture (FEAT-003): a realistic cost roll-up — a real cluster monthly, priced + unpriced
+ * nodes / namespaces, and both priced and dash workloads — so every Cost surface lights up (the hero
+ * MetricStrip, the Namespace / Node-fleet panels and the Workload ranking DataTable). Clearly test
+ * data; the gate measures CHROME, not these numbers. Mirrors EksCostTab.cost.test.tsx's `fullCost`.
+ */
+const GATE_COST = {
+  cost: {
+    currency: 'USD',
+    hoursPerMonth: 730,
+    monthlySavings: 4.2,
+    monthlySavingsUnavailableReason: null,
+    clusterMonthlyCost: 23.67,
+    pricedWorkloads: 2,
+    unpricedWorkloads: 1,
+    nodeCosts: [
+      { nodeName: 'ip-10-0-1-10', instanceType: 'm5.large', capacityType: 'on-demand', capacityTypeInferred: false, monthlyCost: 70.08, source: 'PRICE_LIST', reason: null, note: null },
+      { nodeName: 'fargate-node-1', instanceType: null, capacityType: null, capacityTypeInferred: false, monthlyCost: null, source: null, reason: 'FARGATE_UNPRICEABLE', note: null },
+    ],
+    namespaceCosts: [
+      { namespace: 'default', monthlyCost: 18.5, pricedWorkloads: 1, unpricedWorkloads: 0 },
+      { namespace: 'kube-system', monthlyCost: null, pricedWorkloads: 0, unpricedWorkloads: 1 },
+    ],
+  },
+  workloads: [
+    { ref: { namespace: 'default', kind: 'Deployment', name: 'web-api' }, cost: { monthlyCost: 12.34, monthlySavings: 2.1, reason: null, source: 'PRICE_LIST', capacityType: 'on-demand', capacityTypeInferred: false, note: null } },
+    { ref: { namespace: 'kube-system', kind: 'Deployment', name: 'coredns' }, cost: { monthlyCost: null, monthlySavings: null, reason: 'NODE_CAPACITY_UNKNOWN', source: null, capacityType: null, capacityTypeInferred: false, note: null } },
+  ],
+  engine: undefined,
+  loading: false,
+  error: null,
+};
+
+/**
+ * GATE fixture (FEAT-005): the demo dashboard with a REPORTED Trivy scan, Falco runtime events and a
+ * Kubescape compliance report so every Security surface lights up — the hero MetricStrip, the
+ * runtime-alerts / framework / vulnerable-workload / vulnerable-image DataTables and their drawers.
+ * Clearly test data; the gate measures CHROME, not these numbers.
+ */
+const GATE_EKS_DATA_SECURITY = {
+  dashboard: {
+    ...demoEksDashboard,
+    securityMetrics: {
+      totalEvents: 5,
+      eventsLastHour: 5,
+      eventsByPriority: { CRITICAL: 1, HIGH: 2, WARNING: 2 },
+      alerts: [
+        { rule: 'Terminal shell in container', priority: 'CRITICAL', pod: 'api-7d9f', namespace: 'production', count: 3 },
+        { rule: 'Read sensitive file untrusted', priority: 'HIGH', pod: 'worker-1', namespace: 'batch', count: 2 },
+      ],
+    },
+    kubescape: {
+      complianceScore: 72,
+      totalCritical: 2, totalHigh: 4, totalMedium: 6, totalLow: 3, totalWorkloads: 9,
+      namespaceBreakdown: {
+        production: { critical: 2, high: 2, medium: 1, low: 0 },
+        batch: { critical: 0, high: 2, medium: 5, low: 3 },
+      },
+      frameworks: [
+        { name: 'NSA-CISA', score: 72, passedControls: 58, failedControls: 22 },
+        { name: 'MITRE', score: 64, passedControls: 40, failedControls: 24 },
+        { name: 'CIS Kubernetes Benchmark', score: 81, passedControls: 70, failedControls: 16 },
+      ],
+      vulnerabilities: [
+        { workloadName: 'orders-api', namespace: 'production', workloadKind: 'Deployment', criticalCount: 2, highCount: 2, mediumCount: 1, lowCount: 0 },
+        { workloadName: 'etl-processor', namespace: 'batch', workloadKind: 'StatefulSet', criticalCount: 0, highCount: 2, mediumCount: 5, lowCount: 3 },
+      ],
+    },
+    trivy: {
+      summary: { totalCritical: 3, totalHigh: 7, totalMedium: 12, totalLow: 5, uniqueImagesScanned: 14, namespacesCovered: 4, totalExposedSecrets: 1 },
+      workloads: [
+        {
+          name: 'orders-api', namespace: 'production', critical: 3, high: 4, medium: 6, low: 2,
+          vulnerabilities: [
+            { vulnerabilityId: 'CVE-2024-1234', severity: 'CRITICAL', packageName: 'openssl', installedVersion: '3.0.1', fixedVersion: '3.0.8', score: 9.8, primaryLink: 'https://example.test/CVE-2024-1234' },
+            { vulnerabilityId: 'CVE-2024-5678', severity: 'HIGH', packageName: 'curl', installedVersion: '7.80.0', fixedVersion: null, score: 7.4, primaryLink: null },
+          ],
+        },
+        { name: 'web-frontend', namespace: 'production', critical: 0, high: 3, medium: 6, low: 3, vulnerabilities: [] },
+      ],
+    },
+  },
+} as unknown as UseEksDashboardReturn;
 
 // ─── The scoped counter (the way a reviewer measures the page) ─────────────────────────────────
 
@@ -230,10 +383,17 @@ function assertBudget(name: string, scopes: ReadonlyArray<HTMLElement | null>) {
  * #3): the row container must be a non-wrapping flex row (`flex` without `flex-wrap`). A vertical
  * stack would re-introduce the long scrolling page the review flagged.
  */
-function assertMetricStripIsOneRow(name: string, scope: HTMLElement) {
-  const row = scope.querySelector<HTMLElement>('[data-metric-strip-row]');
-  expect(row, `${name}: no MetricStrip row ([data-metric-strip-row]) found.`).not.toBeNull();
-  const cls = row!.getAttribute('class') ?? '';
+async function assertMetricStripIsOneRow(name: string, scope: HTMLElement) {
+  // The hero MetricStrip (Overview's <Kpis>) renders only after the async useAutomationRead
+  // resolves, so a synchronous querySelector races the dark render (FEAT-001: intermittent
+  // 'no MetricStrip row found'). Await the row before asserting — this hardens determinism
+  // WITHOUT weakening the check; the same one-row (flex, no flex-wrap) assertions still run on it.
+  const row = await waitFor(() => {
+    const r = scope.querySelector<HTMLElement>('[data-metric-strip-row]');
+    expect(r, `${name}: no MetricStrip row ([data-metric-strip-row]) found.`).not.toBeNull();
+    return r!;
+  });
+  const cls = row.getAttribute('class') ?? '';
   expect(cls.includes('flex'), `${name}: MetricStrip row is not a flex row. class="${cls}"`).toBe(true);
   expect(cls.includes('flex-wrap'), `${name}: MetricStrip row wraps (flex-wrap) — it must stay one row. class="${cls}"`).toBe(false);
 }
@@ -292,12 +452,199 @@ async function mountPods(theme: 'light' | 'dark') {
   return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
 }
 
+/** Overview › Summary (FEAT-002): the v3-rolled-out panel, mounted exactly as the cluster page does
+ * (a SectionRoute from the URL), so the gate measures its real [data-k8s-redesigned-main] region. */
+function SummaryHarness() {
+  const route = useEksSectionRoute();
+  return (
+    <SummaryPanel
+      clusterName="prod-eks-cluster"
+      accountId="demo-aws-001"
+      region="us-east-1"
+      eksData={GATE_EKS_DATA}
+      route={route}
+      onOpenGuide={() => {}}
+    />
+  );
+}
+
+async function mountSummary(theme: 'light' | 'dark') {
+  getCapabilities.mockResolvedValue(demoCapabilities('demo-aws-001'));
+  getVerticalStatus.mockResolvedValue(demoVerticalStatus('prod-eks-cluster'));
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <MemoryRouter initialEntries={['/eks-details?name=prod-eks-cluster&region=us-east-1&accountIds=demo-aws-001&tab=overview&sub=summary']}>
+        <K8sCapabilitiesProvider accountId="demo-aws-001" demo>
+          <SummaryHarness />
+        </K8sCapabilitiesProvider>
+      </MemoryRouter>
+    </div>,
+  );
+  await screen.findByRole('table', { name: 'Namespace utilisation' });
+  await waitFor(() => expect(getCapabilities).toHaveBeenCalled());
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
+/** Cost (FEAT-003): the v3-rolled-out Cost tab, mounted with a deterministic cost fixture, so the
+ * gate measures its real [data-k8s-redesigned-main] region (hero MetricStrip + ranking DataTable). */
+async function mountCost(theme: 'light' | 'dark') {
+  costHook.value = GATE_COST;
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <EksCostTab eksData={GATE_EKS_DATA} clusterName="prod-eks-cluster" accountId="demo-aws-001" region="us-east-1" />
+    </div>,
+  );
+  await screen.findByRole('table', { name: 'Deployment cost ranking' });
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
+/** Nodes › Nodes (FEAT-004): the wide-table v3 slice, PageTemplate width='table' + hero MetricStrip. */
+async function mountNodes(theme: 'light' | 'dark') {
+  getCapabilities.mockResolvedValue(demoCapabilities('demo-aws-001'));
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <K8sCapabilitiesProvider accountId="demo-aws-001" demo>
+        <EksNodesTab eksData={GATE_EKS_DATA} clusterName="prod-eks-cluster" />
+      </K8sCapabilitiesProvider>
+    </div>,
+  );
+  await screen.findByRole('table', { name: 'Nodes' });
+  await waitFor(() => expect(getCapabilities).toHaveBeenCalled());
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
+/** Nodes › Karpenter (FEAT-004), reported branch: hero MetricStrip + the three DataTables. */
+async function mountKarpenter(theme: 'light' | 'dark') {
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <EksKarpenterTab eksData={GATE_EKS_DATA_KARPENTER} />
+    </div>,
+  );
+  await screen.findByRole('table', { name: 'NodePools' });
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
+/** Nodes › Utilization (FEAT-004): hero MetricStrip + the per-node usage DataTable. */
+async function mountUtilization(theme: 'light' | 'dark') {
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <EksPerformanceTab eksData={GATE_EKS_DATA} />
+    </div>,
+  );
+  await screen.findByRole('table', { name: 'Node utilisation' });
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
+/** Security (FEAT-005): hero MetricStrip + the Trivy / Falco / Kubescape DataTables and their drawers. */
+async function mountSecurity(theme: 'light' | 'dark') {
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <EksSecurityTab eksData={GATE_EKS_DATA_SECURITY} />
+    </div>,
+  );
+  await screen.findByRole('table', { name: 'Most vulnerable images' });
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
+// ─── Automation sub-pages (FEAT-006): each v3-rolled-out page, one hero MetricStrip inside the
+// redesigned region, measured under the SAME chrome budget in light + dark. The gate serves the
+// endpoint-1 vertical read (GATE_VERTICAL) and 404s every Phase-2 read, exactly like the Overview
+// mount, so the pages render their one-row strip deterministically. ─────────────────────────────
+
+/** Automation › Workload autoscaler › Workloads: the hero strip + the at-a-glance table. */
+async function mountWorkloads(theme: 'light' | 'dark') {
+  getCapabilities.mockResolvedValue(demoCapabilities('demo-aws-001'));
+  serveGateReads();
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <MemoryRouter initialEntries={['/eks-details?name=prod-eks-cluster&tab=automation&sub=workload-autoscaler']}>
+        <K8sCapabilitiesProvider accountId="demo-aws-001" demo>
+          <WorkloadsPage clusterName="prod-eks-cluster" accountId="demo-aws-001" region="us-east-1" workloadsHref="/eks-details?name=prod-eks-cluster&tab=automation&sub=workload-autoscaler" />
+        </K8sCapabilitiesProvider>
+      </MemoryRouter>
+    </div>,
+  );
+  await screen.findByRole('table', { name: 'Workloads at a glance' });
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
+/** Automation › Node autoscaler: the hero strip + per-node bars + the levers table (read-only). */
+async function mountNodeAutoscaler(theme: 'light' | 'dark') {
+  getCapabilities.mockResolvedValue(demoCapabilities('demo-aws-001'));
+  getAutomationDashboard.mockResolvedValue(demoAutomationDashboard('prod-eks-cluster'));
+  getNodeFleet.mockResolvedValue(demoNodeFleet('prod-eks-cluster'));
+  getRebalanceStatus.mockResolvedValue({ status: 'idle', message: 'No rebalance has been run yet' });
+  // The cluster CPU usage card reads the usage feed; a not-deployed 404 keeps it off (no strip impact).
+  mockedFetch.mockImplementation(async () => gateJson(404, null));
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <K8sCapabilitiesProvider accountId="demo-aws-001" demo>
+        <NodeAutoscalerPage clusterName="prod-eks-cluster" accountId="demo-aws-001" region="us-east-1" eksData={GATE_EKS_DATA} />
+      </K8sCapabilitiesProvider>
+    </div>,
+  );
+  await screen.findByText('What node autoscaling would do now');
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
+/** Automation › HPA: the hero strip + the HPA table with its PRESERVED gated Apply (in v3 chrome). */
+async function mountHpa(theme: 'light' | 'dark') {
+  getCapabilities.mockResolvedValue(demoCapabilities('demo-aws-001'));
+  serveGateReads();
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <MemoryRouter initialEntries={['/eks-details?name=prod-eks-cluster&tab=automation&sub=hpa']}>
+        <K8sCapabilitiesProvider accountId="demo-aws-001" demo>
+          <HpaPage clusterName="prod-eks-cluster" accountId="demo-aws-001" region="us-east-1" eksData={GATE_EKS_DATA} />
+        </K8sCapabilitiesProvider>
+      </MemoryRouter>
+    </div>,
+  );
+  await screen.findByText('How XamOps changes HPAs here');
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
+/** Automation › VPA: the hero strip + the coexistence table (read-only / coexistence-only). */
+async function mountVpa(theme: 'light' | 'dark') {
+  getCapabilities.mockResolvedValue(demoCapabilities('demo-aws-001'));
+  serveGateReads();
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <K8sCapabilitiesProvider accountId="demo-aws-001" demo>
+        <VpaPage clusterName="prod-eks-cluster" accountId="demo-aws-001" region="us-east-1" eksData={GATE_EKS_DATA} />
+      </K8sCapabilitiesProvider>
+    </div>,
+  );
+  await screen.findByText(/Kubernetes VPA coexistence/i);
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
+/** Automation › Activity: the FEAT-003 latest-change hero strip (feed 404), RCA + the latest table. */
+async function mountActivity(theme: 'light' | 'dark') {
+  getCapabilities.mockResolvedValue(demoCapabilities('demo-aws-001'));
+  serveGateReads();
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <K8sCapabilitiesProvider accountId="demo-aws-001" demo>
+        <ActivityPage clusterName="prod-eks-cluster" accountId="demo-aws-001" region="us-east-1" eksData={GATE_EKS_DATA} />
+      </K8sCapabilitiesProvider>
+    </div>,
+  );
+  await screen.findByRole('table', { name: 'Latest change per workload' });
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
 // ─── The gate ────────────────────────────────────────────────────────────────────────────────────
 
 describe('visual + scoped-metric gate (FEAT-004 §11; jsdom fallback, Playwright not installed)', () => {
   beforeEach(() => {
     getCapabilities.mockReset();
+    getVerticalStatus.mockReset();
+    getAutomationDashboard.mockReset();
+    getNodeFleet.mockReset();
+    getRebalanceStatus.mockReset();
     mockedFetch.mockReset();
+    clearVerticalCacheForTests();
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -306,14 +653,24 @@ describe('visual + scoped-metric gate (FEAT-004 §11; jsdom fallback, Playwright
       it('Automation › Overview stays within the premium budget', async () => {
         const main = await mountOverview(theme);
         expect(main, 'Overview must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        await assertMetricStripIsOneRow(`Overview (${theme})`, main);
         assertBudget(`Overview (${theme})`, [main]);
-        assertMetricStripIsOneRow(`Overview (${theme})`, main);
+      });
+
+      it('Overview › Summary stays within the premium budget', async () => {
+        const main = await mountSummary(theme);
+        expect(main, 'Overview Summary must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        // FEAT-002: one hero MetricStrip row (Monthly cost leads), never a wrapped vertical stack,
+        // and the whole subtree inside the chrome budget (7 sizes / 2 greys / {8px,6px,pill}).
+        await assertMetricStripIsOneRow(`Overview Summary (${theme})`, main);
+        assertTableScrolls(`Overview Summary (${theme})`, main);
+        assertBudget(`Overview Summary (${theme})`, [main]);
       });
 
       it('Workloads › Pods stays within the premium budget, drawer included', async () => {
         const main = await mountPods(theme);
         expect(main, 'Pods must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
-        assertMetricStripIsOneRow(`Pods (${theme})`, main);
+        await assertMetricStripIsOneRow(`Pods (${theme})`, main);
         assertTableScrolls(`Pods (${theme})`, main);
 
         // Open the first pod's DetailDrawer so its FIXED portal (rendered OUTSIDE the main subtree) is
@@ -328,6 +685,144 @@ describe('visual + scoped-metric gate (FEAT-004 §11; jsdom fallback, Playwright
         // Measure the main subtree AND the drawer portal together: the whole redesigned surface a
         // viewer actually sees must stay within one budget.
         assertBudget(`Pods + drawer (${theme})`, [main, drawerPortal]);
+      });
+
+      it('Cost tab stays within the premium budget, drawer included', async () => {
+        const main = await mountCost(theme);
+        expect(main, 'Cost must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        // FEAT-003: one hero MetricStrip row (Monthly Est. leads), never a wrapped vertical stack,
+        // the ranking table in a scroll container, and the whole subtree inside the chrome budget.
+        await assertMetricStripIsOneRow(`Cost (${theme})`, main);
+        assertTableScrolls(`Cost (${theme})`, main);
+
+        // Open the first workload's DetailDrawer so its FIXED portal (rendered OUTSIDE the main
+        // subtree) is measured under the SAME budget as the page.
+        const firstRow = main.querySelector<HTMLElement>('tbody tr[role="button"]');
+        expect(firstRow, `Cost (${theme}): no activatable row to open the drawer.`).not.toBeNull();
+        fireEvent.click(firstRow!);
+        const drawer = await screen.findByRole('dialog');
+        const drawerPortal = drawer.closest<HTMLElement>('[data-detail-drawer]') ?? drawer;
+
+        assertBudget(`Cost + drawer (${theme})`, [main, drawerPortal]);
+      });
+
+      it('Nodes › Nodes stays within the premium budget, drawer included', async () => {
+        const main = await mountNodes(theme);
+        expect(main, 'Nodes must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        // FEAT-004: one hero MetricStrip row (capacity + status), never a wrapped vertical stack, the
+        // wide node table in a scroll container so the last column never clips, and the whole subtree
+        // inside the chrome budget (7 sizes / 2 greys / {8px,6px,pill}).
+        await assertMetricStripIsOneRow(`Nodes (${theme})`, main);
+        assertTableScrolls(`Nodes (${theme})`, main);
+
+        // Open the first node's DetailDrawer so its FIXED portal (rendered OUTSIDE the main subtree)
+        // is measured under the SAME budget as the page.
+        const firstRow = main.querySelector<HTMLElement>('tbody tr[role="button"]');
+        expect(firstRow, `Nodes (${theme}): no activatable row to open the drawer.`).not.toBeNull();
+        fireEvent.click(firstRow!);
+        const drawer = await screen.findByRole('dialog');
+        const drawerPortal = drawer.closest<HTMLElement>('[data-detail-drawer]') ?? drawer;
+
+        assertBudget(`Nodes + drawer (${theme})`, [main, drawerPortal]);
+      });
+
+      it('Nodes › Karpenter stays within the premium budget, drawer included', async () => {
+        const main = await mountKarpenter(theme);
+        expect(main, 'Karpenter must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        await assertMetricStripIsOneRow(`Karpenter (${theme})`, main);
+        // The Karpenter tab stacks three wide DataTables; each must scroll inside its own card.
+        assertTableScrolls(`Karpenter (${theme})`, main);
+
+        const firstRow = main.querySelector<HTMLElement>('tbody tr[role="button"]');
+        expect(firstRow, `Karpenter (${theme}): no activatable row to open the drawer.`).not.toBeNull();
+        fireEvent.click(firstRow!);
+        const drawer = await screen.findByRole('dialog');
+        const drawerPortal = drawer.closest<HTMLElement>('[data-detail-drawer]') ?? drawer;
+
+        assertBudget(`Karpenter + drawer (${theme})`, [main, drawerPortal]);
+      });
+
+      it('Nodes › Utilization stays within the premium budget, drawer included', async () => {
+        const main = await mountUtilization(theme);
+        expect(main, 'Utilization must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        await assertMetricStripIsOneRow(`Utilization (${theme})`, main);
+        assertTableScrolls(`Utilization (${theme})`, main);
+
+        const firstRow = main.querySelector<HTMLElement>('tbody tr[role="button"]');
+        expect(firstRow, `Utilization (${theme}): no activatable row to open the drawer.`).not.toBeNull();
+        fireEvent.click(firstRow!);
+        const drawer = await screen.findByRole('dialog');
+        const drawerPortal = drawer.closest<HTMLElement>('[data-detail-drawer]') ?? drawer;
+
+        assertBudget(`Utilization + drawer (${theme})`, [main, drawerPortal]);
+      });
+
+      it('Security stays within the premium budget, drawer included', async () => {
+        const main = await mountSecurity(theme);
+        expect(main, 'Security must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        // FEAT-005: one hero MetricStrip row (security score leads), never a wrapped vertical stack,
+        // the Trivy / Falco / Kubescape tables in scroll containers so the last column never clips,
+        // and the whole subtree (including the nested Falco + Kubescape views) inside the chrome
+        // budget (7 sizes / 2 greys / {8px,6px,pill}) in both light and dark.
+        await assertMetricStripIsOneRow(`Security (${theme})`, main);
+        assertTableScrolls(`Security (${theme})`, main);
+
+        // Open the first vulnerable image's DetailDrawer so its FIXED portal (rendered OUTSIDE the
+        // main subtree) is measured under the SAME budget as the page.
+        const imageTable = screen.getByRole('table', { name: 'Most vulnerable images' });
+        const firstRow = imageTable.querySelector<HTMLElement>('tbody tr[role="button"]');
+        expect(firstRow, `Security (${theme}): no activatable row to open the drawer.`).not.toBeNull();
+        fireEvent.click(firstRow!);
+        const drawer = await screen.findByRole('dialog');
+        const drawerPortal = drawer.closest<HTMLElement>('[data-detail-drawer]') ?? drawer;
+
+        assertBudget(`Security + drawer (${theme})`, [main, drawerPortal]);
+      });
+
+      // ── Automation sub-pages (FEAT-006) ──────────────────────────────────────────────────────
+      // Each v3-rolled-out automation sub-page renders inside PageTemplate with a one-row hero
+      // MetricStrip, the wide tables in scroll containers, and the whole redesigned region inside the
+      // same chrome budget (7 sizes / 2 greys / {8px,6px,pill}) in light + dark. The PRESERVED HPA
+      // gating controls, VPA coexistence and Activity filters all live inside that budget now.
+
+      it('Automation › Workloads stays within the premium budget', async () => {
+        const main = await mountWorkloads(theme);
+        expect(main, 'Workloads must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        await assertMetricStripIsOneRow(`Workloads (${theme})`, main);
+        assertTableScrolls(`Workloads (${theme})`, main);
+        assertBudget(`Workloads (${theme})`, [main]);
+      });
+
+      it('Automation › Node autoscaler stays within the premium budget', async () => {
+        const main = await mountNodeAutoscaler(theme);
+        expect(main, 'Node autoscaler must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        await assertMetricStripIsOneRow(`NodeAutoscaler (${theme})`, main);
+        assertTableScrolls(`NodeAutoscaler (${theme})`, main);
+        assertBudget(`NodeAutoscaler (${theme})`, [main]);
+      });
+
+      it('Automation › HPA stays within the premium budget', async () => {
+        const main = await mountHpa(theme);
+        expect(main, 'HPA must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        await assertMetricStripIsOneRow(`HPA (${theme})`, main);
+        assertTableScrolls(`HPA (${theme})`, main);
+        assertBudget(`HPA (${theme})`, [main]);
+      });
+
+      it('Automation › VPA stays within the premium budget', async () => {
+        const main = await mountVpa(theme);
+        expect(main, 'VPA must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        await assertMetricStripIsOneRow(`VPA (${theme})`, main);
+        assertTableScrolls(`VPA (${theme})`, main);
+        assertBudget(`VPA (${theme})`, [main]);
+      });
+
+      it('Automation › Activity stays within the premium budget', async () => {
+        const main = await mountActivity(theme);
+        expect(main, 'Activity must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        await assertMetricStripIsOneRow(`Activity (${theme})`, main);
+        assertTableScrolls(`Activity (${theme})`, main);
+        assertBudget(`Activity (${theme})`, [main]);
       });
     });
   }

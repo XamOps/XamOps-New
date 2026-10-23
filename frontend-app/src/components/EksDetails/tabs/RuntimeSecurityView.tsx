@@ -1,10 +1,27 @@
 /**
- * Runtime Security View - Comprehensive Falco Security Monitoring
+ * Runtime Security View — Falco runtime threat monitoring.
  *
- * Customer-centric security dashboard with detailed threat analysis and remediation guidance
+ * FEAT-005 v3 roll-out: the decorative per-severity hex ramps and the tinted red / amber Tailwind
+ * pills are gone — severity reaches the page only as a StatusDot (dot + word) or a token-filled bar,
+ * so dark mode is automatic. The summary cards collapse into one hero MetricStrip; the hand-rolled
+ * SVG donut becomes a token-filled "alerts by namespace" bar list inside a Surface; the alert list
+ * is a DataTable whose rows open a DetailDrawer carrying the real Falco rule catalog (description,
+ * impact, recommendations, references). Radii are only the sanctioned {8px, 6px, pill}.
+ *
+ * The Falco totalEvents / eventsByPriority roll-up and the alert pagination are unchanged.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
+import { Surface } from '../../CloudK8s/shared/Surface';
+import { MetricStrip, type MetricCell } from '../../CloudK8s/shared/MetricStrip';
+import { DataTable } from '../../CloudK8s/shared/DataTable';
+import { EmptyState } from '../../CloudK8s/shared/EmptyState';
+import { StatusDot } from '../../CloudK8s/shared/status/StatusDot';
+import type { Tone } from '../../CloudK8s/shared/status/statusTones';
+import { toneClasses } from '../../CloudK8s/shared/status/toneClasses';
+import type { ColumnDef } from '../../CloudK8s/shared/K8sDataTable';
+import type { DrawerSection, DrawerDatum } from '../../CloudK8s/shared/DetailDrawer';
+import { TITLE, BODY, SECONDARY, LABEL } from '../../CloudK8s/shared/typeScale';
 
 interface SecurityAlert {
   rule: string;
@@ -372,37 +389,49 @@ const FALCO_RULE_CATALOG: Record<string, {
   }
 };
 
+const DASH = '—';
+
+/** Chrome ink / muted / hairline, all through the chrome tokens so dark mode is free. */
+const INK = 'text-[color:var(--chrome-ink)]';
+const MUTED = 'text-[color:var(--chrome-muted)]';
+const HAIRLINE = 'border-[color:var(--chrome-line)]';
+
+/** A Falco priority → a semantic tone: colour only as a dot + word, never a tinted pill. */
+function priorityTone(priority: string | null | undefined): { tone: Tone; label: string } {
+  const p = (priority ?? '').toUpperCase();
+  if (p === 'CRITICAL' || p === '4') return { tone: 'bad', label: 'Critical' };
+  if (p === 'HIGH' || p === '3') return { tone: 'warn', label: 'High' };
+  if (p === 'WARNING' || p === '2') return { tone: 'warn', label: 'Warning' };
+  return { tone: 'info', label: priority ? priority.charAt(0).toUpperCase() + priority.slice(1).toLowerCase() : 'Info' };
+}
+
+interface AlertRow {
+  key: string;
+  alert: SecurityAlert;
+}
+
 const RuntimeSecurityView: React.FC<RuntimeSecurityViewProps> = ({ securityMetrics }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   const [selectedNamespace, setSelectedNamespace] = useState<string>('all');
-  const [expandedAlert, setExpandedAlert] = useState<number | null>(null);
-  const [hoveredSegment, setHoveredSegment] = useState<string | null>(null);
   const alertsPerPage = 5;
 
+  // PRESERVED roll-up: totalEvents + eventsByPriority buckets (CRITICAL/4, HIGH/3, WARNING/2).
   const totalEvents = securityMetrics?.totalEvents || 0;
-  const criticalEvents = securityMetrics?.eventsByPriority?.['CRITICAL'] ||
-    securityMetrics?.eventsByPriority?.['4'] || 0;
-  const highEvents = securityMetrics?.eventsByPriority?.['HIGH'] ||
-    securityMetrics?.eventsByPriority?.['3'] || 0;
-  const warningEvents = securityMetrics?.eventsByPriority?.['WARNING'] ||
-    securityMetrics?.eventsByPriority?.['2'] || 0;
+  const criticalEvents = securityMetrics?.eventsByPriority?.['CRITICAL'] || securityMetrics?.eventsByPriority?.['4'] || 0;
+  const highEvents = securityMetrics?.eventsByPriority?.['HIGH'] || securityMetrics?.eventsByPriority?.['3'] || 0;
+  const warningEvents = securityMetrics?.eventsByPriority?.['WARNING'] || securityMetrics?.eventsByPriority?.['2'] || 0;
 
-  // Get unique namespaces
   const namespaces = useMemo(() => {
     const ns = new Set<string>();
-    securityMetrics?.alerts?.forEach(alert => {
-      if (alert.namespace) ns.add(alert.namespace);
-    });
+    securityMetrics?.alerts?.forEach((alert) => { if (alert.namespace) ns.add(alert.namespace); });
     return Array.from(ns).sort();
   }, [securityMetrics?.alerts]);
 
-  // Filter alerts
   const filteredAlerts = useMemo(() => {
     let alerts = securityMetrics?.alerts || [];
-
     if (selectedSeverity !== 'all') {
-      alerts = alerts.filter(alert => {
+      alerts = alerts.filter((alert) => {
         const priority = alert.priority?.toUpperCase();
         if (selectedSeverity === 'CRITICAL') return priority === 'CRITICAL' || priority === '4';
         if (selectedSeverity === 'HIGH') return priority === 'HIGH' || priority === '3';
@@ -410,98 +439,30 @@ const RuntimeSecurityView: React.FC<RuntimeSecurityViewProps> = ({ securityMetri
         return true;
       });
     }
-
-    if (selectedNamespace !== 'all') {
-      alerts = alerts.filter(alert => alert.namespace === selectedNamespace);
-    }
-
+    if (selectedNamespace !== 'all') alerts = alerts.filter((alert) => alert.namespace === selectedNamespace);
     return [...alerts].sort((a, b) => (b.count || 0) - (a.count || 0));
   }, [securityMetrics?.alerts, selectedSeverity, selectedNamespace]);
 
-  // Pagination
-  const totalPages = Math.ceil(filteredAlerts.length / alertsPerPage);
+  // PRESERVED pagination.
+  const totalPages = Math.ceil(filteredAlerts.length / alertsPerPage) || 1;
   const startIndex = (currentPage - 1) * alertsPerPage;
   const paginatedAlerts = filteredAlerts.slice(startIndex, startIndex + alertsPerPage);
 
-  // Namespace breakdown with distinct light colors for better differentiation
+  // Alert count per namespace, for the "alerts by namespace" token bar list.
   const namespaceData = useMemo(() => {
     const breakdown: Record<string, number> = {};
-    securityMetrics?.alerts?.forEach(alert => {
+    securityMetrics?.alerts?.forEach((alert) => {
       const ns = alert.namespace || 'unknown';
       breakdown[ns] = (breakdown[ns] || 0) + (alert.count || 0);
     });
-
-    // Professional light color palette with excellent visual differentiation
-    const colorPalette = [
-      { fill: '#60A5FA', stroke: '#3B82F6', name: 'Sky Blue' },      // Light blue
-      { fill: '#FCD34D', stroke: '#F59E0B', name: 'Amber' },         // Light yellow
-      { fill: '#6EE7B7', stroke: '#10B981', name: 'Emerald' },       // Light green
-      { fill: '#F87171', stroke: '#EF4444', name: 'Red' },           // Light red
-      { fill: '#A78BFA', stroke: '#8B5CF6', name: 'Purple' },        // Light purple
-      { fill: '#FB923C', stroke: '#F97316', name: 'Orange' },        // Light orange
-      { fill: '#5EEAD4', stroke: '#14B8A6', name: 'Teal' },          // Light teal
-      { fill: '#F9A8D4', stroke: '#EC4899', name: 'Pink' },          // Light pink
-      { fill: '#A3E635', stroke: '#84CC16', name: 'Lime' },          // Light lime
-      { fill: '#93C5FD', stroke: '#3B82F6', name: 'Blue' },          // Lighter blue
-      { fill: '#FDE047', stroke: '#EAB308', name: 'Yellow' },        // Bright yellow
-      { fill: '#86EFAC', stroke: '#22C55E', name: 'Green' }          // Bright green
-    ];
-
+    const total = Object.values(breakdown).reduce((sum, c) => sum + c, 0);
     return Object.entries(breakdown)
-      .map(([name, count], index) => ({
-        name,
-        count,
-        color: colorPalette[index % colorPalette.length].fill,
-        strokeColor: colorPalette[index % colorPalette.length].stroke,
-        percentage: 0
-      }))
+      .map(([name, count]) => ({ name, count, percentage: total > 0 ? (count / total) * 100 : 0 }))
       .sort((a, b) => b.count - a.count);
   }, [securityMetrics?.alerts]);
 
-  // Calculate percentages
-  const totalCount = namespaceData.reduce((sum, ns) => sum + ns.count, 0);
-  namespaceData.forEach(ns => {
-    ns.percentage = totalCount > 0 ? (ns.count / totalCount) * 100 : 0;
-  });
-
-  const getSeverityIcon = (priority: string) => {
-    const p = priority?.toUpperCase();
-    if (p === 'CRITICAL' || p === '4') return 'fa-skull-crossbones';
-    if (p === 'HIGH' || p === '3') return 'fa-exclamation-triangle';
-    if (p === 'WARNING' || p === '2') return 'fa-exclamation-circle';
-    return 'fa-info-circle';
-  };
-
-  const getSeverityColor = (priority: string) => {
-    const p = priority?.toUpperCase();
-    if (p === 'CRITICAL' || p === '4') return {
-      bg: 'bg-red-50',
-      border: 'border-red-200',
-      text: 'text-red-700',
-      badge: 'bg-red-600'
-    };
-    if (p === 'HIGH' || p === '3') return {
-      bg: 'bg-orange-50',
-      border: 'border-orange-200',
-      text: 'text-orange-700',
-      badge: 'bg-orange-600'
-    };
-    if (p === 'WARNING' || p === '2') return {
-      bg: 'bg-amber-50',
-      border: 'border-amber-200',
-      text: 'text-amber-700',
-      badge: 'bg-amber-600'
-    };
-    return {
-      bg: 'bg-blue-50',
-      border: 'border-blue-200',
-      text: 'text-blue-700',
-      badge: 'bg-blue-600'
-    };
-  };
-
-  const getRuleInfo = (ruleName: string) => {
-    return FALCO_RULE_CATALOG[ruleName] || {
+  const getRuleInfo = (ruleName: string) =>
+    FALCO_RULE_CATALOG[ruleName] || {
       category: 'Security Event',
       description: 'A security event was detected in your cluster. Review the details and take appropriate action.',
       impact: 'Potential security risk that requires investigation.',
@@ -509,503 +470,203 @@ const RuntimeSecurityView: React.FC<RuntimeSecurityViewProps> = ({ securityMetri
         'Review the affected resource and verify its legitimacy',
         'Check container logs for suspicious activity',
         'Implement appropriate security policies',
-        'Monitor for recurring patterns'
+        'Monitor for recurring patterns',
       ],
-      references: ['Falco Default Rules', 'Kubernetes Security Best Practices']
+      references: ['Falco Default Rules', 'Kubernetes Security Best Practices'],
     };
+
+  const stripCells: readonly MetricCell[] = [
+    { label: 'Total events', value: <span className={totalEvents > 0 ? toneClasses('warn').text : toneClasses('good').text}>{totalEvents}</span>, sub: 'last hour' },
+    { label: 'Critical', value: <span className={criticalEvents > 0 ? toneClasses('bad').text : INK}>{criticalEvents}</span>, sub: 'immediate action' },
+    { label: 'High', value: <span className={highEvents > 0 ? toneClasses('warn').text : INK}>{highEvents}</span>, sub: 'priority response' },
+    { label: 'Warning', value: <span className={warningEvents > 0 ? toneClasses('warn').text : INK}>{warningEvents}</span>, sub: 'review and investigate' },
+  ];
+
+  const alertRows: readonly AlertRow[] = paginatedAlerts.map((alert, i) => ({
+    key: `${startIndex + i}-${alert.rule}-${alert.namespace}`,
+    alert,
+  }));
+
+  const columns: ReadonlyArray<ColumnDef<AlertRow>> = [
+    {
+      id: 'rule', header: 'Rule', priority: 'essential', width: '280px',
+      cell: (r) => <span className={`block truncate font-semibold ${BODY}`} title={r.alert.rule}>{r.alert.rule}</span>,
+      sortValue: (r) => r.alert.rule, csv: (r) => r.alert.rule,
+    },
+    {
+      id: 'priority', header: 'Priority', width: '140px',
+      cell: (r) => { const m = priorityTone(r.alert.priority); return <StatusDot tone={m.tone} label={m.label} />; },
+      sortValue: (r) => r.alert.priority, csv: (r) => priorityTone(r.alert.priority).label,
+    },
+    {
+      id: 'namespace', header: 'Namespace', width: '160px',
+      cell: (r) => <span className={`block truncate font-mono text-[12px] ${MUTED}`} title={r.alert.namespace}>{r.alert.namespace || DASH}</span>,
+      sortValue: (r) => r.alert.namespace, csv: (r) => r.alert.namespace ?? '',
+    },
+    {
+      id: 'pod', header: 'Pod', width: '200px',
+      cell: (r) => <span className={`block truncate font-mono text-[12px] ${MUTED}`} title={r.alert.pod}>{r.alert.pod || DASH}</span>,
+      sortValue: (r) => r.alert.pod, csv: (r) => r.alert.pod ?? '',
+    },
+    {
+      id: 'count', header: 'Occurrences', align: 'right', width: '120px',
+      cell: (r) => <span className="tabular-nums">{r.alert.count}</span>,
+      sortValue: (r) => r.alert.count, csv: (r) => r.alert.count,
+    },
+  ];
+
+  /** The per-alert drawer: Identity + the real Falco rule catalog (category, impact, actions, refs). */
+  const rowToSections = (r: AlertRow): DrawerSection[] => {
+    const alert = r.alert;
+    const info = getRuleInfo(alert.rule);
+    const m = priorityTone(alert.priority);
+    const identity: DrawerSection = {
+      title: 'Alert',
+      data: [
+        { label: 'Rule', value: <span className="break-words">{alert.rule}</span> },
+        { label: 'Priority', value: <StatusDot tone={m.tone} label={m.label} /> },
+        { label: 'Category', value: info.category },
+        { label: 'Namespace', value: alert.namespace ? <span className="break-all font-mono text-[12px]">{alert.namespace}</span> : null, reason: 'Falco reported no namespace for this event.' },
+        { label: 'Pod', value: alert.pod ? <span className="break-all font-mono text-[12px]">{alert.pod}</span> : null, reason: 'Falco reported no pod for this event.' },
+        { label: 'Occurrences', value: <span className="tabular-nums">{alert.count}</span> },
+      ],
+    };
+    const context: DrawerSection = {
+      title: 'What this means',
+      data: [
+        { label: 'Description', value: <span className="leading-relaxed">{info.description}</span> },
+        { label: 'Potential impact', value: <span className="leading-relaxed">{info.impact}</span> },
+      ],
+    };
+    const actionsData: DrawerDatum[] = info.recommendations.map((rec, i) => ({
+      label: `Action ${i + 1}`,
+      value: <span className="leading-relaxed">{rec}</span>,
+    }));
+    const actions: DrawerSection = { title: 'Recommended actions', data: actionsData };
+    const refs: DrawerSection = {
+      title: 'Industry standards',
+      data: info.references.map((ref, i) => ({ label: `Reference ${i + 1}`, value: <span className="font-mono text-[12px]">{ref}</span> })),
+    };
+    return [identity, context, actions, refs];
   };
 
-  // Create pie chart segments
-  const createPieChart = () => {
-    if (namespaceData.length === 0) return null;
-
-    let currentAngle = -90;
-    const segments = namespaceData.map((ns) => {
-      const angle = (ns.percentage / 100) * 360;
-      const startAngle = currentAngle;
-      const endAngle = currentAngle + angle;
-      currentAngle = endAngle;
-
-      const startX = 100 + 80 * Math.cos((startAngle * Math.PI) / 180);
-      const startY = 100 + 80 * Math.sin((startAngle * Math.PI) / 180);
-      const endX = 100 + 80 * Math.cos((endAngle * Math.PI) / 180);
-      const endY = 100 + 80 * Math.sin((endAngle * Math.PI) / 180);
-
-      const largeArcFlag = angle > 180 ? 1 : 0;
-
-      const pathData = [
-        `M 100 100`,
-        `L ${startX} ${startY}`,
-        `A 80 80 0 ${largeArcFlag} 1 ${endX} ${endY}`,
-        `Z`
-      ].join(' ');
-
-      return {
-        pathData,
-        color: ns.color,
-        strokeColor: ns.strokeColor,
-        name: ns.name,
-        count: ns.count,
-        percentage: ns.percentage
-      };
-    });
-
-    return segments;
-  };
-
-  const pieSegments = createPieChart();
+  const selectClass =
+    `rounded-[6px] border px-3 py-1.5 text-[12px] font-medium ${HAIRLINE} ${INK} bg-[color:var(--chrome-card)] ` +
+    'outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--chrome-ink)]';
 
   return (
-    <div className="space-y-6">
-      {/* Header Section - Compact */}
-      <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center">
-              <i className="fas fa-shield-virus text-red-600 text-lg"></i>
-            </div>
-            <div>
-              <h3 className="text-xl font-bold text-gray-900">Runtime Security</h3>
-              <p className="text-sm text-gray-600">Real-time threat detection and behavioral monitoring</p>
-            </div>
-          </div>
-
-          <div className={`px-4 py-2 rounded-lg border flex items-center gap-2 ${totalEvents > 0
-            ? 'bg-red-50 border-red-200 text-red-700'
-            : 'bg-green-50 border-green-200 text-green-700'
-            }`}>
-            <div className={`w-2 h-2 rounded-full animate-pulse ${totalEvents > 0 ? 'bg-red-600' : 'bg-green-600'
-              }`}></div>
-            <span className="font-semibold text-sm">
-              {totalEvents > 0 ? `${totalEvents} Events` : 'All Clear'}
-            </span>
-          </div>
+    <Surface tier="table" className="overflow-hidden" aria-label="Runtime security">
+      <div className={`flex items-center justify-between border-b px-5 py-3.5 ${HAIRLINE}`}>
+        <div className="min-w-0">
+          <span className={TITLE}>Runtime security</span>
+          <p className={SECONDARY}>Real-time threat detection, powered by Falco.</p>
         </div>
+        <StatusDot tone={totalEvents > 0 ? 'bad' : 'good'} label={totalEvents > 0 ? `${totalEvents} events` : 'All clear'} />
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Critical</span>
-            <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
-              <i className="fas fa-skull-crossbones text-red-600 text-sm"></i>
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-gray-900 mb-1">{criticalEvents}</div>
-          <div className="text-xs text-gray-600">Immediate action required</div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">High</span>
-            <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center">
-              <i className="fas fa-exclamation-triangle text-orange-600 text-sm"></i>
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-gray-900 mb-1">{highEvents}</div>
-          <div className="text-xs text-gray-600">Priority response needed</div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Warning</span>
-            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
-              <i className="fas fa-exclamation-circle text-amber-600 text-sm"></i>
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-gray-900 mb-1">{warningEvents}</div>
-          <div className="text-xs text-gray-600">Review and investigate</div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Total Events</span>
-            <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-              <i className="fas fa-stream text-blue-600 text-sm"></i>
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-gray-900 mb-1">{totalEvents}</div>
-          <div className="text-xs text-gray-600">Last hour activity</div>
-        </div>
+      {/* Hero strip (PRESERVED roll-up) */}
+      <div className={`border-b px-5 py-4 ${HAIRLINE}`}>
+        <MetricStrip cells={stripCells} aria-label="Runtime events" />
       </div>
 
-      {/* Namespace Distribution Chart - Professional with light, distinct colors */}
+      {/* Alerts by namespace — token-filled bars (replaces the hand-rolled hex donut) */}
       {namespaceData.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-          <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
-            <i className="fas fa-chart-pie text-red-600"></i>
-            Alerts by Namespace
-            <span className="ml-2 px-2 py-1 bg-red-100 text-red-700 rounded-lg text-xs font-bold">
-              {namespaceData.length} Namespaces
-            </span>
-          </h3>
-
-          <div className="flex items-center gap-8">
-            {/* Professional Donut Chart with light colors - Compact size */}
-            <div className="relative flex-shrink-0">
-              <svg width="200" height="200" viewBox="0 0 200 200" className="transform -rotate-90 drop-shadow-lg">
-                {/* Outer ring with namespace segments */}
-                {pieSegments?.map((segment, index) => {
-                  const nsData = namespaceData.find(ns => ns.name === segment.name);
-                  return (
-                    <g key={index}>
-                      <path
-                        d={segment.pathData}
-                        fill={segment.color}
-                        stroke={nsData?.strokeColor || '#FFFFFF'}
-                        strokeWidth="2.5"
-                        className="transition-all duration-200 cursor-pointer"
-                        opacity={hoveredSegment === null || hoveredSegment === segment.name ? 1 : 0.4}
-                        onMouseEnter={() => setHoveredSegment(segment.name)}
-                        onMouseLeave={() => setHoveredSegment(null)}
-                        style={{
-                          filter: hoveredSegment === segment.name ? 'brightness(1.15) drop-shadow(0 4px 8px rgba(0,0,0,0.2))' : 'none',
-                          transform: hoveredSegment === segment.name ? 'scale(1.05)' : 'scale(1)',
-                          transformOrigin: '100px 100px',
-                          transition: 'all 0.2s ease-out'
-                        }}
-                      />
-                    </g>
-                  );
-                })}
-                {/* Inner circle to create donut effect with gradient */}
-                <defs>
-                  <radialGradient id="innerGradient" cx="50%" cy="50%" r="50%">
-                    <stop offset="0%" stopColor="#ffffff" />
-                    <stop offset="100%" stopColor="#f9fafb" />
-                  </radialGradient>
-                </defs>
-                <circle cx="100" cy="100" r="50" fill="url(#innerGradient)" stroke="#e5e7eb" strokeWidth="2" />
-              </svg>
-
-              {/* Center Info - Dynamic and professional */}
-              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
-                {hoveredSegment ? (
-                  <div className="bg-white px-3 py-2 rounded-md border border-[rgba(0,0,0,0.12)]">
-                    <div className="text-[20px] font-semibold text-[rgba(0,0,0,0.88)] mb-0.5">
-                      {namespaceData.find(ns => ns.name === hoveredSegment)?.count || 0}
-                    </div>
-                    <div className="text-[10px] text-[rgba(0,0,0,0.4)] uppercase tracking-wide mb-0.5">Alerts</div>
-                    <div className="text-[10px] text-[rgba(0,0,0,0.5)] font-mono max-w-[80px] truncate">
-                      {hoveredSegment}
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="text-[26px] font-semibold text-[rgba(0,0,0,0.88)] mb-0.5">{totalCount}</div>
-                    <div className="text-[10px] text-[rgba(0,0,0,0.4)] uppercase tracking-wide">Total Alerts</div>
-                  </>
-                )}
+        <div className={`border-b px-5 py-4 ${HAIRLINE}`}>
+          <span className={LABEL}>Alerts by namespace</span>
+          <div className="mt-3 flex flex-col gap-2">
+            {namespaceData.map((ns) => (
+              <div key={ns.name} className="flex items-center gap-3">
+                <span className={`w-40 truncate font-mono text-[12px] ${MUTED}`} title={ns.name}>{ns.name}</span>
+                <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-[color:var(--chrome-surface-2)]">
+                  <span className="block h-full rounded-full bg-[color:var(--chrome-muted)]" style={{ width: `${ns.percentage}%` }} />
+                </span>
+                <span className={`w-10 text-right tabular-nums ${BODY} ${INK}`}>{ns.count}</span>
+                <span className={`w-12 tabular-nums ${SECONDARY}`}>{ns.percentage.toFixed(0)}%</span>
               </div>
-            </div>
-
-            {/* Enhanced Legend with color-coded cards */}
-            <div className="flex-1 grid grid-cols-2 gap-3">
-              {namespaceData.map((ns, index) => (
-                <div
-                  key={index}
-                  className={`flex items-center gap-3 p-3 rounded-md border transition-all cursor-pointer ${hoveredSegment === ns.name
-                    ? 'border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.02)]'
-                    : 'border-[rgba(0,0,0,0.06)] hover:border-[rgba(0,0,0,0.12)]'
-                    }`}
-                  onMouseEnter={() => setHoveredSegment(ns.name)}
-                  onMouseLeave={() => setHoveredSegment(null)}
-                >
-                  <div className="flex-shrink-0">
-                    <div
-                      className="w-5 h-5 rounded"
-                      style={{ backgroundColor: ns.color }}
-                    ></div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[12px] font-medium text-[rgba(0,0,0,0.88)] truncate font-mono">
-                      {ns.name}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[12px] font-semibold text-[rgba(0,0,0,0.88)]">{ns.count}</span>
-                      <span className="text-[11px] text-[rgba(0,0,0,0.4)]">({ns.percentage.toFixed(1)}%)</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Horizontal Bar Chart View */}
-          <div className="mt-6 pt-5 border-t border-[rgba(0,0,0,0.06)]">
-            <h4 className="text-[11px] font-medium text-[rgba(0,0,0,0.4)] mb-4 uppercase tracking-wider flex items-center gap-2">
-              <i className="fas fa-chart-bar text-[#cf222e]"></i>
-              Alert Distribution by Namespace
-            </h4>
-            <div className="space-y-2.5">
-              {namespaceData.map((ns, index) => (
-                <div
-                  key={index}
-                  className="group cursor-pointer"
-                  onMouseEnter={() => setHoveredSegment(ns.name)}
-                  onMouseLeave={() => setHoveredSegment(null)}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-3 h-3 rounded-sm"
-                        style={{ backgroundColor: ns.color }}
-                      ></div>
-                      <span className="text-[12px] font-medium text-[rgba(0,0,0,0.5)] font-mono">{ns.name}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[12px] font-semibold text-[rgba(0,0,0,0.88)]">{ns.count}</span>
-                      <span className="text-[11px] text-[rgba(0,0,0,0.4)]">alerts</span>
-                    </div>
-                  </div>
-                  <div className="w-full bg-[rgba(0,0,0,0.06)] rounded-full h-1.5 overflow-hidden">
-                    <div
-                      className="h-1.5 rounded-full transition-all duration-500"
-                      style={{
-                        width: `${ns.percentage}%`,
-                        backgroundColor: ns.color
-                      }}
-                    ></div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Alerts Section */}
-      <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-            <i className="fas fa-bell text-red-600"></i>
-            Security Alerts
-            <span className="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded">
-              {filteredAlerts.length}
-            </span>
-          </h3>
-
+      {/* Security alerts — DataTable + per-row DetailDrawer of the real rule catalog */}
+      <div>
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+          <span className={TITLE}>Security alerts <span className={SECONDARY}>({filteredAlerts.length})</span></span>
           <div className="flex items-center gap-2">
             <select
+              aria-label="Filter by severity"
               value={selectedSeverity}
-              onChange={(e) => {
-                setSelectedSeverity(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500"
+              onChange={(e) => { setSelectedSeverity(e.target.value); setCurrentPage(1); }}
+              className={selectClass}
             >
-              <option value="all">All Severities</option>
+              <option value="all">All severities</option>
               <option value="CRITICAL">Critical</option>
               <option value="HIGH">High</option>
               <option value="WARNING">Warning</option>
             </select>
-
             <select
+              aria-label="Filter by namespace"
               value={selectedNamespace}
-              onChange={(e) => {
-                setSelectedNamespace(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onChange={(e) => { setSelectedNamespace(e.target.value); setCurrentPage(1); }}
+              className={selectClass}
             >
-              <option value="all">All Namespaces</option>
-              {namespaces.map(ns => (
-                <option key={ns} value={ns}>{ns}</option>
-              ))}
+              <option value="all">All namespaces</option>
+              {namespaces.map((ns) => <option key={ns} value={ns}>{ns}</option>)}
             </select>
           </div>
         </div>
 
-        {/* Alerts List */}
-        <div className="space-y-3">
-          {paginatedAlerts.length === 0 ? (
-            <div className="text-center py-12 bg-gray-50 rounded-lg border border-gray-200">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <i className="fas fa-shield-check text-green-600 text-2xl"></i>
-              </div>
-              <h4 className="text-lg font-bold text-gray-900 mb-1">No Security Threats</h4>
-              <p className="text-sm text-gray-600">Your cluster is secure with the selected filters</p>
-            </div>
+        <div className="px-5 pb-5">
+          {filteredAlerts.length > 0 ? (
+            <DataTable<AlertRow>
+              rows={alertRows}
+              columns={columns}
+              rowKey={(r) => r.key}
+              caption="Security alerts"
+              rowLabel={(r) => r.alert.rule}
+              rowTitle={(r) => r.alert.rule}
+              rowSubtitle={(r) => r.alert.namespace}
+              rowToSections={rowToSections}
+            />
           ) : (
-            paginatedAlerts.map((alert, index) => {
-              const colors = getSeverityColor(alert.priority);
-              const icon = getSeverityIcon(alert.priority);
-              const ruleInfo = getRuleInfo(alert.rule);
-              const isExpanded = expandedAlert === startIndex + index;
-
-              return (
-                <div
-                  key={startIndex + index}
-                  className={`border rounded-lg transition-all ${isExpanded ? `${colors.border} border-2 shadow-md` : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                >
-                  {/* Alert Header */}
-                  <div
-                    className="p-4 cursor-pointer"
-                    onClick={() => setExpandedAlert(isExpanded ? null : startIndex + index)}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className={`w-10 h-10 ${colors.badge} rounded-lg flex items-center justify-center text-white flex-shrink-0`}>
-                        <i className={`fas ${icon}`}></i>
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1">
-                            <h4 className="text-base font-semibold text-gray-900 mb-2">{alert.rule}</h4>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold ${colors.bg} ${colors.text}`}>
-                                {alert.priority?.toUpperCase()}
-                              </span>
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs font-medium font-mono">
-                                <i className="fas fa-cube text-xs"></i>
-                                {alert.namespace}
-                              </span>
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 rounded text-xs font-medium font-mono">
-                                <i className="fas fa-server text-xs"></i>
-                                {alert.pod}
-                              </span>
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-semibold">
-                                {alert.count} occurrences
-                              </span>
-                            </div>
-                          </div>
-
-                          <button className="text-gray-400 hover:text-gray-600 transition-colors">
-                            <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'}`}></i>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Expanded Details */}
-                  {isExpanded && (
-                    <div className={`border-t p-5 ${colors.bg} space-y-4`}>
-                      <div>
-                        <span className={`px-2 py-1 ${colors.badge} text-white rounded text-xs font-semibold uppercase tracking-wide`}>
-                          {ruleInfo.category}
-                        </span>
-                        <p className="text-sm text-gray-700 mt-3 leading-relaxed">{ruleInfo.description}</p>
-                      </div>
-
-                      <div className="bg-white rounded-lg p-4 border border-amber-200">
-                        <h5 className="font-semibold text-gray-900 mb-2 flex items-center gap-2 text-sm">
-                          <i className="fas fa-exclamation-triangle text-amber-600"></i>
-                          Potential Impact
-                        </h5>
-                        <p className="text-sm text-gray-700">{ruleInfo.impact}</p>
-                      </div>
-
-                      <div className="bg-white rounded-lg p-4 border border-green-200">
-                        <h5 className="font-semibold text-gray-900 mb-3 flex items-center gap-2 text-sm">
-                          <i className="fas fa-lightbulb text-green-600"></i>
-                          Recommended Actions
-                        </h5>
-                        <ul className="space-y-2">
-                          {ruleInfo.recommendations.map((rec, idx) => (
-                            <li key={idx} className="flex items-start gap-2 text-sm">
-                              <div className="w-5 h-5 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                                <span className="text-green-700 font-bold text-xs">{idx + 1}</span>
-                              </div>
-                              <span className="text-gray-700">{rec}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      <div className="bg-white rounded-lg p-4 border border-blue-200">
-                        <h5 className="font-semibold text-gray-900 mb-2 flex items-center gap-2 text-sm">
-                          <i className="fas fa-book text-blue-600"></i>
-                          Industry Standards
-                        </h5>
-                        <div className="flex flex-wrap gap-2">
-                          {ruleInfo.references.map((ref, idx) => (
-                            <span key={idx} className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-medium">
-                              {ref}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })
+            <EmptyState icon="mdi:shield-check-outline" message="No runtime security alerts with the selected filters." />
           )}
         </div>
 
-        {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200">
-            <div className="text-sm text-gray-600">
-              Showing {startIndex + 1}-{Math.min(startIndex + alertsPerPage, filteredAlerts.length)} of {filteredAlerts.length}
-            </div>
-
-            <div className="flex items-center gap-1">
+          <div className={`flex items-center justify-between border-t px-5 py-3 ${HAIRLINE}`}>
+            <span className={SECONDARY}>
+              {startIndex + 1}–{Math.min(startIndex + alertsPerPage, filteredAlerts.length)} of {filteredAlerts.length}
+            </span>
+            <div className="flex gap-2">
               <button
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
-                className="px-3 py-1 border border-gray-300 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                className={`rounded-[6px] border px-3 py-1.5 text-[12px] font-semibold ${HAIRLINE} ${INK} hover:bg-[color:var(--chrome-surface-2)] disabled:opacity-40 outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--chrome-ink)]`}
               >
-                <i className="fas fa-chevron-left"></i>
+                Previous
               </button>
-
-              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                let page;
-                if (totalPages <= 5) {
-                  page = i + 1;
-                } else if (currentPage <= 3) {
-                  page = i + 1;
-                } else if (currentPage >= totalPages - 2) {
-                  page = totalPages - 4 + i;
-                } else {
-                  page = currentPage - 2 + i;
-                }
-
-                return (
-                  <button
-                    key={page}
-                    onClick={() => setCurrentPage(page)}
-                    className={`w-8 h-8 rounded-lg text-sm font-semibold transition-all ${page === currentPage
-                      ? 'bg-red-600 text-white'
-                      : 'border border-gray-300 text-gray-700 hover:bg-gray-50'
-                      }`}
-                  >
-                    {page}
-                  </button>
-                );
-              })}
-
               <button
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                type="button"
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
-                className="px-3 py-1 border border-gray-300 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                className={`rounded-[6px] border px-3 py-1.5 text-[12px] font-semibold ${HAIRLINE} ${INK} hover:bg-[color:var(--chrome-surface-2)] disabled:opacity-40 outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--chrome-ink)]`}
               >
-                <i className="fas fa-chevron-right"></i>
+                Next
               </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Info Footer */}
-      <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-        <div className="flex items-start gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
-            <i className="fas fa-info-circle text-white text-sm"></i>
-          </div>
-          <div>
-            <h4 className="font-semibold text-gray-900 text-sm mb-1">About Runtime Security</h4>
-            <p className="text-xs text-gray-700 leading-relaxed">
-              Runtime security monitoring , a CNCF-graduated project that provides real-time threat detection
-              for Kubernetes workloads. Review alerts regularly and implement recommended security policies.
-            </p>
-          </div>
-        </div>
+      {/* Info footer */}
+      <div className={`border-t px-5 py-4 ${HAIRLINE}`}>
+        <p className={SECONDARY}>
+          Runtime security monitoring with Falco, a CNCF-graduated project for real-time threat detection on Kubernetes workloads.
+        </p>
       </div>
-    </div>
+    </Surface>
   );
 };
 

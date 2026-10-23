@@ -1,18 +1,22 @@
 /**
- * Overview › Summary, laid out like the cast.ai Dashboard (owner's direction, mock 01-overview-light;
- * docs/cloudk8s/ui-revamp-design.md §10.1, D9, D10, §14; glossary §1, §2, §9).
+ * Overview › Summary (UI v3 plan §2; docs/cloudk8s/ui-revamp-design.md §8, §10.1, D9, D10, §14;
+ * glossary §1, §2, §9), rolled out on the v3 system to match the two flagship slices exactly
+ * (EksPodsTab, Automation › OverviewPanel).
  *
- * Row 1: the cluster, its nodes (capacity types, instance types, node groups, unused requests), its
- * pods (on a node or waiting, with the unschedulable callout) and its cost as the cost source reports
- * it. Row 2: CPU and memory as provisioned, requested, used, allocatable and overhead, and the
- * Workload autoscaler's split of the workloads it analysed. Row 3: what each automation feature is
- * doing, and what needs attention. Then namespace utilisation, the top pods and the data sources.
+ * The page is a PageTemplate with a hero MetricStrip (Monthly cost leads, then Nodes · Pods ·
+ * Namespaces). The duplicate Cluster / Nodes / Pods summary cards are GONE: the sticky
+ * ClusterStatusStrip (EksDetails/ClusterStatusStrip.tsx) owns the cluster vitals — health, nodes
+ * ready, pods running, node automation and access — above every section, so this page never repeats
+ * them. What stays, restyled onto Surface tiers: the Now sentence, CPU and memory as
+ * provisioned/requested/used/allocatable/overhead (CapacityBar), the Workload autoscaler's split,
+ * what each automation feature is doing, what needs attention, namespace utilisation, the top pods
+ * and the data sources.
  *
- * Every figure names its source, and anything unreported renders "—", never 0. Not here yet, on
- * purpose: time-series charts (no history endpoint) and list-price dollars (no pricing source), so
- * the Workload autoscaler card shows capacity it could free instead of $/mo. A cluster XamOps doesn't
- * monitor shows the Not monitored panel. Status and series colours are the semantic tokens
- * (src/styles/k8sSemanticTokens.css); no grey here carries meaning.
+ * Every figure names its source, and anything unreported renders "—" (DASH), never 0. Not here yet,
+ * on purpose: time-series charts (no history endpoint) and list-price dollars (no pricing source),
+ * so the Workload autoscaler shows capacity it could free instead of $/mo when the cost roll-up
+ * can't price it. A cluster XamOps doesn't monitor shows the Not monitored panel. Status and series
+ * colours are the semantic tokens; chrome is the shared `--chrome-*` tokens, so dark mode is free.
  */
 import { useMemo, type ReactNode } from 'react';
 import { Icon } from '@iconify/react';
@@ -26,27 +30,29 @@ import type { CapabilitiesCluster } from '../../../../types/k8sAutomation';
 import type { EksDashboard, EksSectionId, EksSubtabId } from '../../../../types/eksTypes';
 import type { Known, VerticalEngineView, VerticalWorkload } from '../../../../types/verticalRecommendations';
 import {
-  capacityTypeCounts, clusterCapacity, clusterCostSource, clusterNodes, freedCapacity, healthSignals, hpaStates, instanceTypeCounts,
-  largestNodeAllocatable, monitoringState, nodeGroups, nodeProvisioners, notRunningWorkloads, podCounts, podPlacement,
-  sumRequests, workloadKey, MONTHLY_FROM_DAILY, UNMANAGED_GROUP, type HpaState, type NodeProvisioners, type ResourceCapacity,
+  clusterCapacity, clusterCostSource, clusterNodes, freedCapacity, hpaStates,
+  largestNodeAllocatable, monitoringState, nodeProvisioners, notRunningWorkloads, podCounts, podPlacement,
+  sumRequests, workloadKey, healthSignals, type HpaState, type NodeProvisioners,
 } from '../../../../utils/k8sDerivations';
 import {
   DASH, formatCpu, formatGib, formatMemoryMiB, formatMoney, formatPercent, formatVcpu, toNumber,
 } from '../../../../utils/k8sQuantities';
-import { displayVersion, resolveClusterVersion } from '../../../../utils/k8sVersion';
 import { inPageState } from '../../../../utils/inPageNavigation';
 import { formatMonthlyUsd } from '../../../../api/verticalRightsizerAdapter';
-import { CapacityDonut } from '../../../CloudK8s/shared/CapacityDonut';
+import { CapacityBar } from '../../../CloudK8s/shared/CapacityBar';
 import { Delta } from '../../../CloudK8s/shared/status/Delta';
-import { K8sDataTable, type ColumnDef } from '../../../CloudK8s/shared/K8sDataTable';
+import { PageTemplate } from '../../../CloudK8s/shared/PageTemplate';
+import { MetricStrip, type MetricCell } from '../../../CloudK8s/shared/MetricStrip';
+import { DataTable } from '../../../CloudK8s/shared/DataTable';
+import { type ColumnDef } from '../../../CloudK8s/shared/K8sDataTable';
+import type { DrawerSection } from '../../../CloudK8s/shared/DetailDrawer';
 import { NotMonitoredPanel } from '../../../CloudK8s/shared/NotMonitoredPanel';
 import { SourceLabel, formatAgo } from '../../../CloudK8s/shared/SourceLabel';
 import { StatusMark, type StatusState } from '../../../CloudK8s/shared/StatusMark';
 import { NowBanner } from '../../../CloudK8s/shared/status/NowBanner';
 import { nowSentence } from '../../../CloudK8s/shared/status/nowSentence';
 import { Surface } from '../../../CloudK8s/shared/Surface';
-import { HERO_NUMBER, KPI_NUMBER, EYEBROW, TITLE, BODY, SECONDARY } from '../../../CloudK8s/shared/typeScale';
-import { useAnimatedValue } from '../../../CloudK8s/shared/useAnimatedValue';
+import { TITLE, BODY, SECONDARY } from '../../../CloudK8s/shared/typeScale';
 import { bucketCounts, workloadBucket } from '../automation/verticalCopy';
 import type { EksSectionProps } from '../sectionTypes';
 
@@ -87,18 +93,18 @@ const DATA_SOURCE_LABELS: Record<string, string> = {
   'autoscaling-metrics': 'Node automation agent',
 };
 
-// FEAT-002: the local card/cardHeader chrome is gone — structure is rendered through <Surface>
-// (DESIGN §3). The text roles re-point to the shared typeScale tokens (DESIGN §7) so the panel
-// never re-declares a size: `cardTitle`→TITLE, `eyebrow`→EYEBROW, `body`→BODY, `secondary`→SECONDARY,
-// and the demoted KPI strip uses KPI_NUMBER. Links/buttons below stay local (they are controls).
+// FEAT-002: the v3 roll-out. Structure is rendered through <Surface> (DESIGN §3) and every text
+// role is a shared typeScale token (DESIGN §7) carrying its own `--chrome-*` colour, so the panel
+// never re-declares a size or a grey — dark mode is free and the gate's font/grey budget holds:
+// `cardTitle`→TITLE, `body`→BODY, `secondary`→SECONDARY, `label`→LABEL. Controls take the sanctioned
+// 6px radius (never a named rounded-md / bare rounded, which the gate rejects).
 const cardTitle = TITLE;
-const eyebrow = EYEBROW;
 const body = BODY;
 const secondary = SECONDARY;
-const focusRing = 'outline-none focus-visible:ring-2 focus-visible:ring-[rgba(0,0,0,0.88)] focus-visible:ring-offset-2';
-const linkClass = `inline-flex items-center gap-1 rounded text-[12px] font-semibold text-[rgba(0,0,0,0.88)] underline-offset-2 hover:underline ${focusRing}`;
-const primaryButton = `inline-flex items-center gap-1.5 rounded-md bg-[rgba(0,0,0,0.88)] px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-black ${focusRing}`;
-const secondaryButton = `inline-flex items-center gap-1.5 rounded-md border border-[rgba(0,0,0,0.2)] bg-white px-3 py-1.5 text-[13px] font-semibold text-[rgba(0,0,0,0.88)] hover:bg-[rgba(0,0,0,0.04)] ${focusRing}`;
+const focusRing = 'outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--chrome-ink)] focus-visible:ring-offset-2';
+const linkClass = `inline-flex items-center gap-1 rounded-[6px] text-[12px] font-semibold text-[color:var(--chrome-ink)] underline-offset-2 hover:underline ${focusRing}`;
+const primaryButton = `inline-flex items-center gap-1.5 rounded-[6px] bg-[color:var(--chrome-ink)] px-3 py-1.5 text-[13px] font-semibold text-[color:var(--chrome-card)] hover:opacity-90 ${focusRing}`;
+const secondaryButton = `inline-flex items-center gap-1.5 rounded-[6px] border border-[color:var(--chrome-line)] bg-[color:var(--chrome-card)] px-3 py-1.5 text-[13px] font-semibold text-[color:var(--chrome-ink)] hover:bg-[color:var(--chrome-surface-2)] ${focusRing}`;
 
 type AnyRecord = Record<string, any>;
 const records = (value: unknown): AnyRecord[] =>
@@ -314,61 +320,6 @@ export function attentionItems(input: {
 
 // ── Pieces ───────────────────────────────────────────────────────────────────
 
-/**
- * A titled, borderless region inside a Surface tier (FEAT-002): the chrome now belongs to the
- * enclosing <Surface>, so a group only contributes its eyebrow title + optional action and its
- * content. Still a labelled landmark so the region is reachable by name.
- */
-function Cell({ title, label, children, className = '', action }: { title: string; label?: string; children: ReactNode; className?: string; action?: ReactNode }) {
-  return (
-    <section className={`flex min-w-0 flex-col gap-3 ${className}`.trim()} aria-label={label ?? title}>
-      <div className="flex items-start justify-between gap-2">
-        <h3 className={eyebrow}>{title}</h3>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-/**
- * The hero cluster-cost number (DESIGN §4.3). Rendered ONLY when a real monthly cost exists, so the
- * count-up hook always receives a finite number (the null/freed fallback is a sibling branch at the
- * call site — never a fabricated $0, never a number fed to the hook when there is none).
- */
-function HeroCost({ monthlyCost, fromDaily }: { monthlyCost: number; fromDaily: boolean }) {
-  const animated = useAnimatedValue(monthlyCost);
-  return (
-    <p className={HERO_NUMBER} title={fromDaily ? MONTHLY_FROM_DAILY : undefined} data-hero-cost="">
-      {formatMoney(animated)}
-      <span className="ml-1 text-[22px] font-normal text-[rgba(0,0,0,0.6)] dark:text-[rgba(255,255,255,0.6)]">/mo</span>
-    </p>
-  );
-}
-
-function FactRow({ term, children, title }: { term: string; children: ReactNode; title?: string }) {
-  return (
-    <div className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-2 border-b border-[rgba(0,0,0,0.06)] py-1.5 last:border-b-0" data-fact={term}>
-      <dt className={secondary}>{term}</dt>
-      <dd className={`${body} min-w-0 break-words`} title={title}>{children}</dd>
-    </div>
-  );
-}
-
-function Chip({ label, count }: { label: string; count: number }) {
-  const filled = count > 0;
-  return (
-    <li
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-semibold tabular-nums ${filled
-        ? 'bg-[rgba(0,0,0,0.88)] text-white' : 'border border-[rgba(0,0,0,0.2)] text-[rgba(0,0,0,0.6)]'}`}
-      data-capacity-type={label}
-    >
-      {label}
-      <span>{count}</span>
-    </li>
-  );
-}
-
 /** One cell of the borderless Automation 2×2 (FEAT-002): the box chrome is the enclosing Surface. */
 function FeatureCard({ name, line, status, next }: { name: string; line: string; status: FeatureStatus; next?: ReactNode }) {
   return (
@@ -407,10 +358,10 @@ function TopPods({ title, pods, format, at }: { title: string; pods: TopPod[]; f
             {pods.map((pod) => (
               <li key={`${pod.namespace}/${pod.name}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
                 <span className="flex min-w-0 items-baseline gap-2">
-                  <span className="truncate font-mono text-[13px] font-semibold text-[rgba(0,0,0,0.88)]" title={pod.name}>{pod.name}</span>
+                  <span className={`truncate font-mono text-[13px] font-semibold text-[color:var(--chrome-ink)]`} title={pod.name}>{pod.name}</span>
                   <span className={`truncate ${secondary}`}>{pod.namespace}</span>
                 </span>
-                <span className="text-right text-[12px] font-semibold tabular-nums text-[rgba(0,0,0,0.88)]">{format(pod.value)}</span>
+                <span className="text-right text-[12px] font-semibold tabular-nums text-[color:var(--chrome-ink)]">{format(pod.value)}</span>
                 <span className="col-span-2 h-1.5 overflow-hidden rounded-full bg-series-allocatable" aria-hidden="true">
                   <span className="block h-full rounded-full bg-series-used" style={{ width: `${Math.min(100, (pod.value / max) * 100)}%` }} />
                 </span>
@@ -442,13 +393,23 @@ const NAMESPACE_COLUMNS: ReadonlyArray<ColumnDef<NamespaceRow>> = [
   { id: 'pods', header: 'Pods', align: 'right', cell: (r) => (r.pods === null ? DASH : r.pods), sortValue: (r) => r.pods },
 ];
 
-/** "Unused requests: CPU 84% · memory 71%" (glossary §9.1: requested minus used, of requested). */
-function unusedLine(cpu: ResourceCapacity, memory: ResourceCapacity): string {
-  const unused = (r: ResourceCapacity) => (r.used === null || r.requested <= 0 ? null : Math.max(0, ((r.requested - r.used) / r.requested) * 100));
-  const c = unused(cpu);
-  const m = unused(memory);
-  if (c === null && m === null) return `Unused requests: ${DASH} (usage not reported by Prometheus in your cluster)`;
-  return `Unused requests: CPU ${formatPercent(c)} · memory ${formatPercent(m)}`;
+/**
+ * A namespace row's DetailDrawer (FEAT-002): its CPU / memory used (with the % of allocatable the
+ * cell shows) and pod count, each from Prometheus — honest "—" with the missing source when
+ * unreported, never a fabricated 0 (DetailDrawer renders the dash and drops an all-empty section).
+ */
+function namespaceSections(r: NamespaceRow): DrawerSection[] {
+  const promReason = `Not reported by ${PROMETHEUS_SOURCE}`;
+  return [
+    {
+      title: 'Utilisation',
+      data: [
+        { label: 'CPU used', value: r.cpuM === null ? null : <span className="tabular-nums">{withPct(formatCpu(r.cpuM), r.cpuPct)}</span>, reason: promReason },
+        { label: 'Memory used', value: r.memMi === null ? null : <span className="tabular-nums">{withPct(formatMemoryMiB(r.memMi), r.memPct)}</span>, reason: promReason },
+        { label: 'Pods', value: r.pods === null ? null : <span className="tabular-nums">{r.pods}</span>, reason: 'Not reported by the XamOps agent.' },
+      ],
+    },
+  ];
 }
 
 // ── Panel ────────────────────────────────────────────────────────────────────
@@ -470,12 +431,7 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
       capacity: clusterCapacity(dashboard),
       placement: podPlacement(dashboard),
       counts: podCounts(dashboard),
-      types: capacityTypeCounts(nodes),
-      instanceTypes: instanceTypeCounts(nodes),
-      groups: nodeGroups(dashboard).map((g) => (g.name === UNMANAGED_GROUP ? 'self-managed' : g.name)),
-      zones: new Set(nodes.map((n) => n.zone).filter(Boolean)).size,
       namespaces: toNumber(overview?.totalNamespaces) || podNamespaces || null,
-      version: resolveClusterVersion(new URLSearchParams(location.search).get('version'), overview?.version),
       cost: clusterCostSource(dashboard),
       trivy: trivyCounts(dashboard),
       hpas: hpaStates(dashboard),
@@ -495,7 +451,7 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
         pods: toNumber(n.podCount),
       })).filter((n) => n.namespace !== ''),
     };
-  }, [dashboard, clusterName, region, accountId, location.search]);
+  }, [dashboard, clusterName, region, accountId]);
 
   const engine = useMemo(() => {
     const workloads = vertical.view?.workloads ?? [];
@@ -511,6 +467,11 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
       freed: freedCapacity(over, dashboard),
       heldByHpa: vertical.view ? heldByHpa : null,
       monthlySavings: cost ? cost.monthlySavings : null,
+      // The cluster's real monthly cost from the Workload-autoscaler cost roll-up — the SAME value
+      // the Automation › Overview hero shows (BUG A). The Summary hero reads it as a fallback when
+      // the agent-dashboard cost source reports nothing, so a cluster that shows e.g. $26 on
+      // Automation shows $26 here too, never a dash. Null only when the roll-up is genuinely null.
+      clusterMonthly: cost ? cost.clusterMonthlyCost : null,
       priced: cost ? { priced: cost.pricedWorkloads, unpriced: cost.unpricedWorkloads } : null,
     };
   }, [vertical.view, derived.notRunning, dashboard]);
@@ -529,9 +490,6 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
   const analysed = engine.workloads.length;
   const attention = attentionItems({ dashboard, alerts: derived.alerts, workloads: engine.workloads });
   const vpaCollected = sources.some((s) => s.type === 'vpa-recommendations');
-  const largest = largestNodeAllocatable(derived.nodes);
-  const firstUnschedulable = placement?.unschedulable[0] ?? null;
-  const ask = firstUnschedulable ? sumRequests(firstUnschedulable.containers) : null;
   const engineCounts = analysed > 0 ? engine.buckets : [];
   const needsMore = engine.buckets.find((b) => b.bucket === 'Needs more resources')?.count ?? 0;
   const overCount = engine.buckets.find((b) => b.bucket === 'Over-provisioned')?.count ?? 0;
@@ -547,170 +505,115 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
     needMore: vertical.view ? needsMore : undefined,
   });
 
-  // FEAT-002 hero: the cluster monthly cost is the one HERO_NUMBER. When there is no priced cost
-  // source we never fabricate $0 — fall back to the honest freed-capacity figure, else a dash.
+  // FEAT-002 hero MetricStrip: Monthly cost leads (heroLead), then Nodes · Pods · Namespaces. When
+  // there is no priced cost source we never fabricate $0 — the lead cell falls back to the honest
+  // freed-capacity figure, else a plain "$—" with its reason; the Nodes / Pods / Namespaces counts
+  // are the XamOps agent's, each a dash (never 0) when it reported nothing.
   const heroFreed = freedCapacity(
     engine.workloads.filter((w) => workloadBucket(w, derived.notRunning.has(workloadKey(w.ref.namespace, w.ref.kind, w.ref.name))) === 'Over-provisioned'),
     dashboard,
   );
   const hasHeroFreed = heroFreed.cpuM > 0 || heroFreed.memMi > 0;
+  const podTotal = placement ? placement.total : counts ? counts.total : null;
 
-  return (
-    <div className="space-y-8" data-panel="overview-summary">
+  // The Workload-autoscaler cost roll-up's cluster monthly cost — the SAME figure the Automation ›
+  // Overview hero shows (BUG A). Used as a fallback below when the agent-dashboard cost source
+  // reported nothing, so Summary matches Automation on a cluster that has a real cost.
+  const rollupMonthly = engine.clusterMonthly;
+  const hasRollupMonthly = rollupMonthly !== null && Number.isFinite(rollupMonthly);
+  const costCell: MetricCell =
+    cost.monthlyCost !== null && Number.isFinite(cost.monthlyCost)
+      ? {
+        label: 'Monthly cost',
+        value: <span data-hero-cost="" title={cost.monthlyFromDaily ? 'Month is daily × 30' : undefined}>{`${formatMoney(cost.monthlyCost)}/mo`}</span>,
+        sub: `Today ${formatMoney(cost.dailyCost)}${cost.monthlyFromDaily ? ' · month is daily × 30' : ''} · from ${cost.label}`,
+      }
+      : hasRollupMonthly
+        ? {
+          // The real cluster monthly from the Workload-autoscaler cost roll-up (what Automation shows).
+          label: 'Monthly cost',
+          value: <span data-hero-cost="rollup">{`${formatMoney(rollupMonthly)}/mo`}</span>,
+          sub: engine.priced
+            ? `${engine.priced.priced} of ${engine.priced.priced + engine.priced.unpriced} priced · from the Workload autoscaler cost roll-up`
+            : 'from the Workload autoscaler cost roll-up',
+        }
+      : hasHeroFreed
+        ? {
+          label: 'Monthly cost',
+          value: <span data-hero-freed="" title={FREED_TOOLTIP}>{`Could free ${formatVcpu(heroFreed.cpuM)}`}</span>,
+          sub: <span title={FREED_TOOLTIP}>{`and ${formatGib(heroFreed.memMi)} · no priced cost source for this cluster`}</span>,
+        }
+        : {
+          label: 'Monthly cost',
+          value: <span data-hero-dash="">{`$${DASH}`}</span>,
+          sub: 'No cost source reported for this cluster.',
+        };
+
+  const stripCells: MetricCell[] = [
+    costCell,
+    { label: NODES_TITLE, value: <span data-kpi="nodes">{derived.nodes.length > 0 ? derived.nodes.length : DASH}</span> },
+    { label: PODS_TITLE, value: <span data-kpi="pods">{podTotal ?? DASH}</span> },
+    {
+      label: 'Namespaces',
+      value: <span data-kpi="namespaces" title={derived.namespaces === null ? 'Not reported by the XamOps agent' : undefined}>{derived.namespaces ?? DASH}</span>,
+    },
+  ];
+
+  const hero = (
+    <div className="flex flex-col gap-4">
       <NowBanner sentence={now} />
-      <p className={secondary}>{`How ${clusterName} is doing right now: capacity, what pods reserve and use, what it costs, and what XamOps can improve.`}</p>
-
       {monitoring.state === 'M2' && (
         <p
           role="status"
-          data-k8s-kit=""
-          className={`flex flex-wrap items-center gap-2 rounded-[10px] border border-[rgba(0,0,0,0.07)] bg-white px-5 py-2.5 dark:border-[rgba(255,255,255,0.09)] dark:bg-[#141414] ${body}`}
+          className={`flex flex-wrap items-center gap-2 rounded-[8px] border border-[color:var(--chrome-line)] bg-[color:var(--chrome-card)] px-5 py-2.5 ${body}`}
         >
           <StatusMark state="attention" label="Data stale" detail={formatAgo(agentAt)} />
           <span>The XamOps agent hasn't reported recently. These are the last values it sent.</span>
         </p>
       )}
+      <MetricStrip cells={stripCells} heroLead aria-label="Cluster cost and totals" />
+    </div>
+  );
 
-      {/* HERO (DESIGN §4.3): cluster monthly cost as the one hero number, with Nodes · Pods ·
-          Namespaces demoted into a divide-x KPI strip. The cluster facts and node/pod detail keep
-          their labelled regions so every figure and source stays reachable. */}
-      <Surface tier="hero" aria-label="Cluster cost and capacity" className="pt-10">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-          <section aria-label={COST_TITLE} className="flex min-w-0 flex-col gap-1.5">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className={eyebrow}>{COST_TITLE}</h3>
-              <Link to={href('cost', 'cluster')} state={linkState} className={linkClass}>Open Cost<Icon icon="mdi:chevron-right" width={14} aria-hidden="true" /></Link>
-            </div>
-            {cost.monthlyCost !== null && Number.isFinite(cost.monthlyCost) ? (
-              <>
-                <HeroCost monthlyCost={cost.monthlyCost} fromDaily={cost.monthlyFromDaily} />
-                <p className={secondary}>{`Today ${formatMoney(cost.dailyCost)}${cost.monthlyFromDaily ? ' · month is daily × 30' : ''} · from ${cost.label}`}</p>
-              </>
-            ) : hasHeroFreed ? (
-              <>
-                <p className={`${HERO_NUMBER} tabular-nums text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]`} title={FREED_TOOLTIP} data-hero-freed="">
-                  {`Could free ${formatVcpu(heroFreed.cpuM)}`}
-                </p>
-                <p className={secondary} title={FREED_TOOLTIP}>{`and ${formatGib(heroFreed.memMi)} · no priced cost source for this cluster`}</p>
-              </>
-            ) : (
-              <>
-                <p className={`${HERO_NUMBER} text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]`} data-hero-dash="">{`$${DASH}`}</p>
-                <p className={secondary}>No cost source reported for this cluster.</p>
-              </>
-            )}
-          </section>
+  const intro = `How ${clusterName} is doing right now: capacity, what pods reserve and use, what it costs, and what XamOps can improve.`;
 
-          {/* Nodes · Pods · Namespaces as the demoted KPI strip (DESIGN §4.3). */}
-          <dl className="grid grid-cols-3 divide-x divide-[rgba(0,0,0,0.06)] dark:divide-[rgba(255,255,255,0.08)]" aria-label="Cluster totals">
-            <div className="flex flex-col gap-0.5 px-5 first:pl-0" data-kpi="nodes">
-              <dt className={eyebrow}>{NODES_TITLE}</dt>
-              <dd className={`${KPI_NUMBER} text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]`}>{derived.nodes.length > 0 ? derived.nodes.length : DASH}</dd>
-            </div>
-            <div className="flex flex-col gap-0.5 px-5" data-kpi="pods">
-              <dt className={eyebrow}>{PODS_TITLE}</dt>
-              <dd className={`${KPI_NUMBER} text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]`}>{placement ? placement.total : counts ? counts.total : DASH}</dd>
-            </div>
-            <div className="flex flex-col gap-0.5 px-5" data-kpi="namespaces">
-              <dt className={eyebrow}>Namespaces</dt>
-              <dd className={`${KPI_NUMBER} text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]`} title={derived.namespaces === null ? 'Not reported by the XamOps agent' : undefined}>{derived.namespaces ?? DASH}</dd>
-            </div>
-          </dl>
-        </div>
-
-        <div className="mt-8 grid grid-cols-1 gap-x-10 gap-y-6 md:grid-cols-3">
-          <Cell title={CLUSTER_TITLE}>
-            <StatusMark
-              state={monitoring.state === 'M2' ? 'attention' : 'healthy'}
-              label={monitoring.state === 'M2' ? 'Data stale' : 'Connected'}
-              detail={agentAt ? `data ${formatAgo(agentAt)}` : null}
-              className="text-[13px]"
-            />
-            <dl>
-              <FactRow term="Kubernetes" title={derived.version ? undefined : 'Not reported by AWS or the XamOps agent'}>
-                {derived.version ? displayVersion(derived.version) : DASH}
-              </FactRow>
-              <FactRow term="Region">{derived.zones > 0 ? `${region}, ${plural(derived.zones, 'zone')}` : region}</FactRow>
-              <FactRow term="Namespaces" title={derived.namespaces === null ? 'Not reported by the XamOps agent' : undefined}>
-                {derived.namespaces ?? DASH}
-              </FactRow>
-              <FactRow term="XamOps agent" title={capsCluster?.agent.version ? undefined : 'The agent did not report its version'}>
-                {capsCluster?.agent.version ?? DASH}
-              </FactRow>
-            </dl>
-          </Cell>
-
-          <Cell title={NODES_TITLE}>
-            {derived.nodes.length > 0 ? (
-              <>
-                <ul className="flex flex-wrap gap-1.5" aria-label="Capacity type">
-                  <Chip label="On-demand" count={derived.types.onDemand} />
-                  <Chip label="Spot" count={derived.types.spot} />
-                  <Chip label="Unknown" count={derived.types.unknown} />
-                </ul>
-                <p className={secondary} data-instance-types="">
-                  {derived.instanceTypes.slice(0, 2).map((t) => `${t.count} · ${t.type}${t.cpuM !== null && t.memMi !== null ? ` (${trimVcpu(t.cpuM)}, ${formatGib(t.memMi)})` : ''}`).join(', ')}
-                  {derived.instanceTypes.length > 2 ? `, +${plural(derived.instanceTypes.length - 2, 'more type', 'more types')}` : ''}
-                </p>
-                {derived.groups.length > 0 && (
-                  <p className={secondary} data-node-groups="">{`${derived.groups.length === 1 ? 'Node group' : 'Node groups'}: ${derived.groups.join(', ')}`}</p>
-                )}
-                <p className={secondary} data-unused-requests="">{unusedLine(capacity.cpu, capacity.memory)}</p>
-              </>
-            ) : (
-              <p className={secondary}>Not reported by the XamOps agent</p>
-            )}
-          </Cell>
-
-          <Cell title={PODS_TITLE}>
-            {placement ? (
-              <p className={secondary} data-pod-placement="">
-                {`${placement.onNode} running on a node · ${placement.waiting} waiting for a node`}
-                {placement.failed > 0 ? ` · ${placement.failed} failed` : ''}
-                {placement.completed > 0 ? ` · ${placement.completed} completed` : ''}
-              </p>
-            ) : counts ? (
-              <p className={secondary}>{`${counts.running} running · ${counts.pending} pending · ${counts.failed} failed`}</p>
-            ) : (
-              <p className={secondary}>Not reported by the XamOps agent</p>
-            )}
-            {firstUnschedulable && ask && (
-              <p className="flex items-start gap-2 pl-1 text-[12px] text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]" data-unschedulable="">
-                <Icon icon="mdi:alert-circle-outline" width={16} aria-hidden="true" className="mt-px shrink-0 text-status-bad" />
-                <span>
-                  {`${firstUnschedulable.namespace}/${firstUnschedulable.name} asks for ${trimVcpu(ask.cpuRequestM)} and ${formatGib(ask.memRequestMi)}.`}
-                  {largest.cpuM !== null ? ` The largest node has ${trimVcpu(largest.cpuM)} allocatable.` : ''}
-                  {placement && placement.unschedulable.length > 1 ? ` ${placement.unschedulable.length - 1} more can't be scheduled.` : ''}
-                </span>
-              </p>
-            )}
-            {placement && (counts?.pending ?? 0) > 0 && (
-              <div>
-                <Link to={href('workloads', 'pods', 'phase=Pending')} state={linkState} className={secondaryButton}>{VIEW_PENDING_PODS}</Link>
-              </div>
-            )}
-          </Cell>
-        </div>
-      </Surface>
-
-      {/* Capacity & rightsizing (FEAT-002 step 4): CPU + Memory donuts and the Workload-autoscaler
-          summary collapsed into one grouped tier, a single divide-x of three cells. */}
-      <Surface tier="grouped" className="mt-10 !p-0" aria-label="Capacity & rightsizing">
+  return (
+    <PageTemplate title="Overview" intro={intro} width="table" hero={hero}>
+    <div className="flex min-w-0 flex-col gap-6" data-panel="overview-summary">
+      {/* Capacity & rightsizing (FEAT-002 step 4): CPU + Memory as CapacityBars and the
+          Workload-autoscaler summary in one grouped tier, a single divide of three cells. */}
+      <Surface tier="grouped" className="!p-0" aria-label="Capacity & rightsizing">
         <h3 className={`${cardTitle} px-5 pt-5`}>Capacity &amp; rightsizing</h3>
-        <div className="grid grid-cols-1 divide-y divide-[rgba(0,0,0,0.06)] dark:divide-[rgba(255,255,255,0.08)] md:grid-cols-3 md:divide-x md:divide-y-0">
+        <div className="grid grid-cols-1 divide-y divide-[color:var(--chrome-line)] md:grid-cols-3 md:divide-x md:divide-y-0">
         <section className="flex min-w-0 flex-col gap-3 p-5" aria-label="CPU">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className={cardTitle}>CPU</h3>
             <SourceLabel source="XamOps agent" at={agentAt} verb="data" missingText="no data yet" />
           </div>
-          <CapacityDonut resource="CPU" capacity={capacity.cpu} format={formatVcpu} usedMissing={USED_NOT_REPORTED} />
+          <CapacityBar
+            resource="CPU"
+            allocatable={capacity.cpu.allocatable}
+            requested={capacity.cpu.requested}
+            used={capacity.cpu.used}
+            overhead={capacity.cpu.overhead}
+            format={formatVcpu}
+            missingReason={USED_NOT_REPORTED}
+          />
         </section>
         <section className="flex min-w-0 flex-col gap-3 p-5" aria-label="Memory">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className={cardTitle}>Memory</h3>
             <SourceLabel source="XamOps agent" at={agentAt} verb="data" missingText="no data yet" />
           </div>
-          <CapacityDonut resource="Memory" capacity={capacity.memory} format={formatGib} usedMissing={USED_NOT_REPORTED} />
+          <CapacityBar
+            resource="Memory"
+            allocatable={capacity.memory.allocatable}
+            requested={capacity.memory.requested}
+            used={capacity.memory.used}
+            overhead={capacity.memory.overhead}
+            format={formatGib}
+            missingReason={USED_NOT_REPORTED}
+          />
         </section>
         <section className="flex min-w-0 flex-col gap-2 p-5" aria-label={`${WORKLOAD_AUTOSCALER} summary`}>
           <h3 className={cardTitle}>{WORKLOAD_AUTOSCALER}</h3>
@@ -722,7 +625,7 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
               <Delta direction="saved" amount={`${formatMonthlyUsd(engine.monthlySavings)}`} suffix="saved" />
             </p>
           ) : analysed > 0 && (engine.freed.cpuM > 0 || engine.freed.memMi > 0) ? (
-            <p className="text-[20px] font-semibold leading-snug tabular-nums text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]" title={FREED_TOOLTIP} data-freed="">
+            <p className="text-[20px] font-semibold leading-snug tabular-nums text-[color:var(--chrome-ink)]" title={FREED_TOOLTIP} data-freed="">
               {`Could free ${formatVcpu(engine.freed.cpuM)} and ${formatGib(engine.freed.memMi)}`}
             </p>
           ) : (
@@ -737,15 +640,23 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
                 {`${plural(analysed, 'workload')} analysed`}
                 {needsMore > 0 ? ` · ${plural(needsMore, 'needs', 'need')} more resources` : ''}
               </p>
-              <dl className="divide-y divide-[rgba(0,0,0,0.06)] dark:divide-[rgba(255,255,255,0.08)]" aria-label="Workloads by status">
+              <dl className="divide-y divide-[color:var(--chrome-line)]" aria-label="Workloads by status">
                 {engineCounts.map(({ bucket, count }) => (
-                  <div key={bucket} className="flex items-baseline justify-between py-1.5" data-bucket={bucket}>
+                  <div key={bucket} className="flex items-baseline justify-between gap-3 py-1.5" data-bucket={bucket}>
                     <dt className={body}>{bucket}</dt>
-                    <dd className={`${body} font-semibold tabular-nums`}>{count}</dd>
+                    {/* BUG B: the count is ALWAYS rendered — a real number (0 shows "0"), never a
+                        blank right side. A non-finite value (an unloaded engine) shows a muted dash,
+                        not an empty cell. */}
+                    <dd className={`${body} font-semibold tabular-nums`} data-bucket-count={bucket}>
+                      {Number.isFinite(count) ? count : <span className={secondary}>{DASH}</span>}
+                    </dd>
                   </div>
                 ))}
               </dl>
             </>
+          ) : vertical.state === 'loading' ? (
+            // The engine is still reading: a skeleton, never blank rows (BUG B).
+            <div className="skeleton h-16 rounded-[6px]" aria-label="Reading the Workload autoscaler" data-engine-loading="" />
           ) : (
             workloadStatus.detail && <p className={secondary}>{workloadStatus.detail}</p>
           )}
@@ -768,7 +679,7 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
           divide-x + divide-y, each cell unchanged. */}
       <Surface tier="grouped" className="!p-0" aria-label={AUTOMATION_TITLE}>
         <h3 className={`${cardTitle} px-5 pt-5`}>{AUTOMATION_TITLE}</h3>
-        <div className="grid grid-cols-1 divide-y divide-[rgba(0,0,0,0.06)] dark:divide-[rgba(255,255,255,0.08)] md:grid-cols-2 md:divide-x md:[&>*:nth-child(-n+2)]:border-b md:[&>*:nth-child(-n+2)]:border-[rgba(0,0,0,0.06)] md:dark:[&>*:nth-child(-n+2)]:border-[rgba(255,255,255,0.08)]">
+        <div className="grid grid-cols-1 divide-y divide-[color:var(--chrome-line)] md:grid-cols-2 md:divide-x md:[&>*:nth-child(-n+2)]:border-b md:[&>*:nth-child(-n+2)]:border-[color:var(--chrome-line)]">
           <FeatureCard
             name={WORKLOAD_AUTOSCALER}
             line={FEATURE_LINES.workload}
@@ -825,12 +736,12 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
         {attention.length === 0 ? (
           <p className={`px-5 py-4 ${secondary}`}>{NOTHING_NEEDS_ATTENTION}</p>
         ) : (
-          <ul className="divide-y divide-[rgba(0,0,0,0.06)] dark:divide-[rgba(255,255,255,0.08)]">
+          <ul className="divide-y divide-[color:var(--chrome-line)]">
             {attention.map((item) => (
               <li key={item.id} className="flex items-start gap-2.5 px-5 py-3.5" data-attention={item.id}>
                 <Icon icon={item.icon} width={16} aria-hidden="true" className={`mt-0.5 shrink-0 ${item.tone}`} />
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-semibold text-[rgba(0,0,0,0.88)] dark:text-[rgba(255,255,255,0.92)]">
+                  <span className="block text-[13px] font-semibold text-[color:var(--chrome-ink)]">
                     {item.severity && <span className={`mr-1.5 ${item.tone}`} data-severity={item.severity}>{SEVERITY[item.severity].label}</span>}
                     {item.title}
                   </span>
@@ -843,7 +754,7 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
             ))}
           </ul>
         )}
-        <div className="border-t border-[rgba(0,0,0,0.06)] px-5 py-2.5 dark:border-[rgba(255,255,255,0.08)]">
+        <div className="border-t border-[color:var(--chrome-line)] px-5 py-2.5">
           <Link to={ALERTS_HREF} className={linkClass}>
             {VIEW_ALL_ALERTS}
             <Icon icon="mdi:arrow-right" width={14} aria-hidden="true" />
@@ -859,19 +770,22 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
         aside={<SourceLabel source={PROMETHEUS_SOURCE} at={promAt} verb="data" missingText="no data yet" />}
       >
         <div className="px-5 pb-5">
-          <K8sDataTable
+          <DataTable<NamespaceRow>
             rows={derived.namespaceRows}
             columns={NAMESPACE_COLUMNS}
             rowKey={(r) => r.namespace}
             caption="Namespace utilisation"
             initialSort={{ columnId: 'cpu', direction: 'desc' }}
+            rowLabel={(r) => r.namespace}
+            rowTitle={(r) => r.namespace}
+            rowToSections={namespaceSections}
             emptyState={<p className={secondary}>{`${DASH} Not reported by ${PROMETHEUS_SOURCE}`}</p>}
           />
         </div>
       </Surface>
 
       {/* Top pods (FEAT-002 step 6): one tier-3 Surface, two borderless columns. */}
-      <Surface tier="table" aria-label="Top pods" className="grid grid-cols-1 divide-y divide-[rgba(0,0,0,0.06)] dark:divide-[rgba(255,255,255,0.08)] lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+      <Surface tier="table" aria-label="Top pods" className="grid grid-cols-1 divide-y divide-[color:var(--chrome-line)] lg:grid-cols-2 lg:divide-x lg:divide-y-0">
         <TopPods title="Top CPU pods" pods={derived.topCpu} format={(v) => formatCpu(v)} at={promAt} />
         <TopPods title="Top memory pods" pods={derived.topMemory} format={(v) => formatMemoryMiB(v)} at={promAt} />
       </Surface>
@@ -892,7 +806,7 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
             <ul className="flex flex-wrap gap-2">
               {sources.map((s) => (
                 <li key={s.type} data-source-type={s.type}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.02)] px-2.5 py-1 dark:border-[rgba(255,255,255,0.16)] dark:bg-[rgba(255,255,255,0.04)]">
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--chrome-line)] bg-[color:var(--chrome-surface-2)] px-2.5 py-1">
                   <SourceLabel source={DATA_SOURCE_LABELS[s.type] ?? s.type} at={s.collectedAt} verb="data" missingText="no data yet" />
                   {!s.displayed && <span className={secondary}>· received, not shown</span>}
                 </li>
@@ -902,6 +816,7 @@ export default function SummaryPanel({ clusterName, accountId, region, eksData, 
         </div>
       </Surface>
     </div>
+    </PageTemplate>
   );
 }
 
@@ -912,7 +827,7 @@ function findingLabel(tab: EksSectionId, sub: EksSubtabId): string {
   return [section.label, subtab.group, subtab.label].filter(Boolean).join(' › ');
 }
 
-/** vCPU in a sentence, without trailing zeros: "32 vCPU", "1.93 vCPU" (the cards keep two decimals). */
+/** vCPU in a sentence, without trailing zeros: "32 vCPU", "1.93 vCPU" (used in the attention copy). */
 function trimVcpu(millicores: number): string {
   return `${Number((millicores / 1000).toFixed(2))} vCPU`;
 }

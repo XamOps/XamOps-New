@@ -291,6 +291,19 @@ function globeSvg(x: number, y: number, size: number, ink: string): string {
  */
 export const CONTAINER_PAD = { VPC: 34, az: 18, Subnet: 16, default: 30 } as const;
 
+/**
+ * Network container colours, following AWS's architecture-diagram convention so the
+ * picture reads like the diagrams people already know: VPC purple, public subnet green,
+ * private subnet teal. Isolated subnets (no default route) are slate. Each has a border,
+ * a faint fill, and a label tone dark enough to read on that fill.
+ */
+export const NETWORK_TONES = {
+  VPC:      { light: { border: '#8C4FFF', fill: '#faf7ff', ink: '#5b2fc9' }, dark: { border: '#8C4FFF', fill: '#120c24', ink: '#c2a6ff' } },
+  Public:   { light: { border: '#7AA116', fill: '#f6f9ee', ink: '#4a6309' }, dark: { border: '#7AA116', fill: '#0e1607', ink: '#b5d65a' } },
+  Private:  { light: { border: '#00A4A6', fill: '#eef8f8', ink: '#00696b' }, dark: { border: '#00A4A6', fill: '#03191a', ink: '#5fd3d4' } },
+  Isolated: { light: { border: '#7D8998', fill: '#f5f6f8', ink: '#4d5765' }, dark: { border: '#5f6b7a', fill: '#0d1118', ink: '#a8b3c1' } },
+} as const;
+
 /** Box for a VPC with no workload, which the live view collapses. */
 export const COLLAPSED_VPC = { w: 280, h: 68 } as const;
 
@@ -411,13 +424,15 @@ export function resourceCardUrl(spec: CardSpec): string {
 export function liveCardUrl(spec: {
   name: string;
   type: string;
+  /** Replaces the type caption, e.g. "ALB · internet-facing". */
+  caption?: string | null;
   state?: string | null;
   theme: CanvasTheme;
   selected?: boolean;
 }): string {
   const { name, type, state, theme, selected } = spec;
   const icon = type === 'Internet' ? 'globe' : inlineIconFor(type);
-  const key = `L|${theme}|${selected ? 's' : 'n'}|${type}|${state ?? ''}|${icon.length}|${name}`;
+  const key = `L|${theme}|${selected ? 's' : 'n'}|${type}|${spec.caption ?? ''}|${state ?? ''}|${icon.length}|${name}`;
   const cached = cardCache.get(key);
   if (cached) return cached;
 
@@ -444,7 +459,8 @@ export function liveCardUrl(spec: {
 
   // Say the state in words when it is not the normal one, so colour is never the only cue.
   const stateWord = state && tone !== 'healthy' && tone !== 'unknown' ? String(state).toLowerCase() : '';
-  const caption = type === 'Internet' ? 'Public internet' : stateWord ? `${type} · ${stateWord}` : type;
+  const base = spec.caption || type;
+  const caption = type === 'Internet' ? 'Public internet' : stateWord ? `${base} · ${stateWord}` : base;
   const hasDot = tone !== 'unknown';
   const nameBudget = W - TX - (hasDot ? 26 : 14);
   const displayName = ellipsize(name || type, nameBudget, 6.9);
@@ -681,7 +697,7 @@ export function buildCytoscapeStyle(theme: CanvasTheme, mode: 'live' | 'design')
         'background-opacity': 0,
         'border-width': 0,
         'background-image': (ele: any) => liveCardUrl({
-          name: ele.data('label'), type: ele.data('type'), state: ele.data('state'), theme,
+          name: ele.data('label'), type: ele.data('type'), caption: ele.data('caption'), state: ele.data('state'), theme,
         }),
         'background-fit': 'contain',
         'background-width': '100%',
@@ -697,7 +713,7 @@ export function buildCytoscapeStyle(theme: CanvasTheme, mode: 'live' | 'design')
       selector: 'node:selected',
       style: {
         'background-image': (ele: any) => liveCardUrl({
-          name: ele.data('label'), type: ele.data('type'), state: ele.data('state'), theme, selected: true,
+          name: ele.data('label'), type: ele.data('type'), caption: ele.data('caption'), state: ele.data('state'), theme, selected: true,
         }),
         'z-index': 30,
       },
@@ -744,10 +760,10 @@ export function buildCytoscapeStyle(theme: CanvasTheme, mode: 'live' | 'design')
         style: {
           ...containerBase,
           padding: `${CONTAINER_PAD.VPC}px`,
-          'background-color': theme === 'light' ? '#f6f8fb' : '#070d1a',
-          'border-width': 1.5,
-          'border-color': theme === 'light' ? '#94a3b8' : '#33435f',
-          color: t.ink,
+          'background-color': NETWORK_TONES.VPC[theme].fill,
+          'border-width': 2,
+          'border-color': NETWORK_TONES.VPC[theme].border,
+          color: NETWORK_TONES.VPC[theme].ink,
           'font-size': '15px',
           'font-weight': 700,
           'text-margin-y': -10,
@@ -781,6 +797,15 @@ export function buildCytoscapeStyle(theme: CanvasTheme, mode: 'live' | 'design')
           'min-height': (ele: any) => `${ele.data('minH') ?? 0}px`,
         },
       },
+      ...(['Public', 'Private', 'Isolated'] as const).map((tier) => ({
+        selector: `node[type="Subnet"][tier="${tier}"]`,
+        style: {
+          'background-color': NETWORK_TONES[tier][theme].fill,
+          'border-color': NETWORK_TONES[tier][theme].border,
+          'border-width': 1.5,
+          color: NETWORK_TONES[tier][theme].ink,
+        },
+      })),
       // A VPC with no workload, collapsed by shapeLiveTopology: a small summary box.
       {
         selector: 'node[type="VPC"]:childless',
@@ -789,10 +814,10 @@ export function buildCytoscapeStyle(theme: CanvasTheme, mode: 'live' | 'design')
           height: COLLAPSED_VPC.h,
           'background-image': 'none',
           'background-opacity': 1,
-          'background-color': theme === 'light' ? '#f6f8fb' : '#070d1a',
-          'border-width': 1,
+          'background-color': NETWORK_TONES.VPC[theme].fill,
+          'border-width': 1.5,
           'border-style': 'dashed',
-          'border-color': theme === 'light' ? '#b6c1d1' : '#2f3d58',
+          'border-color': NETWORK_TONES.VPC[theme].border,
           label: (ele: any) => ele.data('displayLabel') || ele.data('label') || '',
           'text-valign': 'center',
           'text-halign': 'center',
@@ -804,7 +829,7 @@ export function buildCytoscapeStyle(theme: CanvasTheme, mode: 'live' | 'design')
           'line-height': 1.5,
           'font-size': '11.5px',
           'font-weight': 600,
-          color: t.inkMuted,
+          color: NETWORK_TONES.VPC[theme].ink,
         } as any,
       },
       // A subnet with nothing in it is a leaf, not a compound, but must still read as a box.
@@ -990,6 +1015,9 @@ export function buildCytoscapeStyle(theme: CanvasTheme, mode: 'live' | 'design')
           'text-background-shape': 'roundrectangle', 'text-rotation': 'none',
         },
       },
+      // Membership lines exist for hover tracing only; see MEMBERSHIP_LABELS.
+      { selector: 'edge[?membership]', style: { opacity: 0 } },
+      { selector: 'edge[?membership].cm-highlight, edge[?membership]:selected', style: { opacity: 0.9 } },
       { selector: 'node.cm-hover-dim, edge.cm-hover-dim', style: { opacity: 0.18 } },
       {
         selector: 'edge.cm-hover-path',
@@ -1384,7 +1412,10 @@ export function layoutHierarchicalGrid(cy: any): void {
     const compounds = kids.filter((c: any) => c.isParent() || c.data('type') === 'Subnet').toArray();
     const leaves = kids.filter((c: any) => !c.isParent() && c.data('type') !== 'Subnet').toArray().sort(sortLeaves);
     const gateways = isVpc ? leaves.filter((l: any) => GATEWAY_TYPES.has(l.data('type'))) : [];
-    const loose = leaves.filter((l: any) => !gateways.includes(l));
+    // Load balancers span subnets in several zones, so none of them owns one. They get their
+    // own row between the gateways and the zones: where traffic lands after entering the VPC.
+    const balancers = isVpc ? leaves.filter((l: any) => l.data('type') === 'Load Balancer') : [];
+    const loose = leaves.filter((l: any) => !gateways.includes(l) && !balancers.includes(l));
 
     let y = 0;
     let innerW = 0;
@@ -1458,22 +1489,29 @@ export function layoutHierarchicalGrid(cy: any): void {
 
     // ── Leaves ────────────────────────────────────────────────────────────
     gateways.forEach(measure);
+    balancers.forEach(measure);
     loose.forEach(measure);
     const gwItems: PackItem[] = gateways.map((g: any) => ({ id: g.id(), ...sizes.get(g.id())! }));
     const gwBox = gridPack(gwItems, Math.max(1, gwItems.length));
+    const lbItems: PackItem[] = balancers.map((b: any) => ({ id: b.id(), ...sizes.get(b.id())! }));
+    const lbBox = gridPack(lbItems, Math.max(1, Math.min(lbItems.length, 6)));
     const leafItems: PackItem[] = loose.map((l: any) => ({ id: l.id(), ...sizes.get(l.id())! }));
     const leafCols = compounds.length > 0
       ? Math.max(1, Math.floor((Math.max(blockBox.w, CARD_W) + GAP_X) / (CARD_W + GAP_X)))
       : gridCols(leafItems.length);
     const leafBox = gridPack(leafItems, leafCols);
 
-    innerW = Math.max(gwBox.w, blockBox.w, leafBox.w);
+    innerW = Math.max(gwBox.w, lbBox.w, blockBox.w, leafBox.w);
     const center = (box: { w: number }, list: PackItem[]) => list.forEach((it) => { it.x! += (innerW - box.w) / 2; });
 
     // Gateways first: they are the VPC's front door.
     center(gwBox, gwItems);
     gwItems.forEach((it) => { it.y! += y; });
     if (gwItems.length) y += gwBox.h + COMPOUND_GAP_Y;
+
+    center(lbBox, lbItems);
+    lbItems.forEach((it) => { it.y! += y; });
+    if (lbItems.length) y += lbBox.h + COMPOUND_GAP_Y;
 
     center(blockBox, blockItems);
     blockItems.forEach((it) => { it.y! += y; });
@@ -1483,7 +1521,7 @@ export function layoutHierarchicalGrid(cy: any): void {
     leafItems.forEach((it) => { it.y! += y; });
     if (leafItems.length) y += leafBox.h;
 
-    offsets.set(node.id(), [...gwItems, ...blockItems, ...leafItems]);
+    offsets.set(node.id(), [...gwItems, ...lbItems, ...blockItems, ...leafItems]);
     const box = { w: innerW + pad * 2, h: y + pad * 2 + LABEL_ROOM };
     sizes.set(node.id(), box);
     return box;

@@ -1,0 +1,247 @@
+/*
+ * XamSecure Overview — design-system tokens. LIGHT THEME ONLY.
+ *
+ * Every custom property is DEFINED on :root (so it is static and theme-free — there is no dark
+ * counterpart, no `.dark` / `[data-theme="dark"]` block anywhere in this file). The leak-safety
+ * guarantee is about USAGE, not definition: these variables are only ever CONSUMED under the
+ * `.xs-overview` subtree (the Overview page root). No global element, `body`, `html`, or Tailwind
+ * base layer is restyled, and no other XamSecure tab reads `var(--xs-*)`, so nothing leaks.
+ *
+ * The `--xs-` prefix namespaces these away from the existing `--k8s-*` tokens. See
+ * ui/README.md for the component ↔ token map.
+ */
+
+:root {
+  /* ── 2.1 Surface tokens (light values) ── */
+  --xs-bg-primary: #ffffff;
+  --xs-bg-secondary: #f8fafc;
+  --xs-bg-tertiary: #f2f7fc;
+  --xs-surface: #ffffff;
+  --xs-surface-elevated: #ffffff;
+  --xs-border-primary: #d0d5dd;
+  --xs-border-subtle: #d8dfe9;
+  --xs-text-primary: #18202d;
+  --xs-text-secondary: #75808e;
+  --xs-text-tertiary: #94a3b8;
+  --xs-text-disabled: #94a3b8;
+  --xs-text-inverse: #ffffff;
+  --xs-interactive-hover: #f8fafc;              /* universal hover fill */
+  --xs-interactive-double-hover: rgba(216, 223, 233, .4);
+  --xs-interactive-active: #d8dfe9;
+  --xs-shadow-card: 0 2px 8px rgba(0, 0, 0, .2);   /* popovers/tooltips ONLY, not dashboard cards */
+  --xs-shadow-sm: 0 1px 2px rgba(0, 0, 0, .05);
+  --xs-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, .1);
+  --xs-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, .1);
+  --xs-menu-shadow: 0 2px 8px rgba(52, 64, 84, .2);
+  --xs-legend-border: #dde1e9;
+  --xs-legend-bg: #f9f9fa;
+  --xs-legend-inactive-text: #a1acbf;
+
+  /* ── 2.2 Palette (subset the page uses) ── */
+  /* Blue (neutral/info) */
+  --xs-blue-00: #1b7fff; --xs-blue-01: #205cb6; --xs-blue-02: #2c72dd; --xs-blue-03: #5697ea;
+  --xs-blue-04: #acd0fc; --xs-blue-05: #e9f1ff; --xs-blue-06: #f3f7ff;
+  /* Metal-blue (neutral bar hue) */
+  --xs-metal-00: #5cbbff; --xs-metal-01: #005da0; --xs-metal-02: #38acff; --xs-metal-03: #6ccaff;
+  --xs-metal-04: #a3deff; --xs-metal-05: #d9f4ff; --xs-metal-06: #edf7ff;
+  /* Pink = CRITICAL / new issues */
+  --xs-pink-00: #fc0e71; --xs-pink-01: #d10057; --xs-pink-02: #e90262; --xs-pink-03: #f47d93;
+  --xs-pink-04: #ffb8c5; --xs-pink-05: #ffe3e8; --xs-pink-06: #fff3f5;
+  /* Red-orange = HIGH / threats */
+  --xs-red-00: #ff5223; --xs-red-01: #cc3014; --xs-red-02: #f2583c; --xs-red-03: #f89684;
+  --xs-red-04: #ffbdb0; --xs-red-05: #ffe3de; --xs-red-06: #fff2f0;
+  /* Amber = MEDIUM */
+  --xs-amber-00: #ffbd39; --xs-amber-01: #c96400; --xs-amber-02: #ff8710; --xs-amber-03: #fca643;
+  --xs-amber-04: #ffc87a; --xs-amber-05: #ffeade; --xs-amber-06: #fff7f2;
+  /* Yellow = LOW */
+  --xs-yellow-00: #fad21d; --xs-yellow-01: #d19a00; --xs-yellow-02: #f0b100; --xs-yellow-03: #fed237;
+  --xs-yellow-04: #ffe485; --xs-yellow-05: #fff8e0; --xs-yellow-06: #fffae7;
+  /* Green = good / resolved (used for the "all-clear" KPI tone only — no resolved data exists) */
+  --xs-green-00: #23e085; --xs-green-01: #167045; --xs-green-02: #1fa062; --xs-green-03: #59c390;
+  --xs-green-04: #bff0d9; --xs-green-05: #e2fff4; --xs-green-06: #f3fffb;
+  /* Purple = events */
+  --xs-purple-00: #cc93ff; --xs-purple-01: #6b4c87; --xs-purple-02: #9168b6; --xs-purple-03: #c3a6dd;
+  --xs-purple-04: #d6c7e9; --xs-purple-05: #f6f0ff; --xs-purple-06: #fcfaff;
+
+  /* Severity mapping (single source of truth, used everywhere) */
+  --xs-sev-critical: var(--xs-pink-00);   --xs-sev-critical-tint: var(--xs-pink-06);
+  --xs-sev-high:     var(--xs-red-00);    --xs-sev-high-tint:     var(--xs-red-06);
+  --xs-sev-medium:   var(--xs-amber-00);  --xs-sev-medium-tint:   var(--xs-amber-06);
+  --xs-sev-low:      var(--xs-yellow-00); --xs-sev-low-tint:      var(--xs-yellow-06);
+  --xs-sev-other:    var(--xs-blue-02);   --xs-sev-other-tint:    var(--xs-blue-06);
+  --xs-sev-good:     var(--xs-green-00);
+
+  /* Funnel decorative fills */
+  --xs-funnel-ice: #bfd7ff; --xs-funnel-wisteria: #e1ceff;
+  --xs-funnel-peach: #ffd4be; --xs-funnel-coral: #ff6480;
+
+  /* Radii / spacing / layout */
+  --xs-radius-card: 24px; --xs-radius-chip: 4px; --xs-radius-pill: 999px;
+  --xs-card-pad: 16px; --xs-card-height: 356px; --xs-grid-gap: 16px;
+  --xs-section-gap: 24px; --xs-header: 58px;
+
+  /* Letter-badge GLYPH colors — AA-corrected per §2.4 (the darker *-01 ramp).
+     These are the TEXT color of the 11px letter inside the badge; the decorative outline ring
+     keeps the vivid *-00 hue via the --xs-badge-ring-* tokens below. Values match §2.4 exactly. */
+  --xs-badge-c: var(--xs-pink-01);    /* #d10057, ~5.6:1 on #fff */
+  --xs-badge-h: var(--xs-red-01);     /* #cc3014, ~5.1:1 */
+  --xs-badge-m: var(--xs-amber-01);   /* #c96400, ~4.6:1 */
+  --xs-badge-l: #a37700;              /* ~5.1:1 */
+  --xs-badge-o: var(--xs-blue-02);    /* #2c72dd, ~4.6:1 */
+
+  /* Badge outline-ring stroke (decorative, non-text → vivid hue is fine) */
+  --xs-badge-ring-c: var(--xs-pink-00);   /* #fc0e71 */
+  --xs-badge-ring-h: #f2583c;             /* red-02 */
+  --xs-badge-ring-m: var(--xs-amber-00);  /* #ffbd39 */
+  --xs-badge-ring-l: var(--xs-yellow-00); /* #fad21d */
+  --xs-badge-ring-o: var(--xs-blue-02);   /* #2c72dd */
+
+  /* 2.3 Brand gradient (3-stop, 94deg): 2px top strip only. */
+  --xs-brand-gradient: linear-gradient(94deg, #f2583c -1.2%, #9214c4 52.79%, #1e71ed 98.47%);
+
+  /* Chart font: the chart uses `fontFamily: 'inherit'` (see SeverityAreaChart). This token is the
+     documented explicit fallback — the app's real Inter stack, loaded in index.html. */
+  --xs-font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* ── Overview page scope: all consumption happens under .xs-overview ── */
+
+.xs-overview {
+  color: var(--xs-text-primary);
+  font-family: var(--xs-font-family);
+}
+
+.xs-overview *:focus-visible {
+  outline: 2px solid var(--xs-blue-02);
+  outline-offset: 2px;
+}
+
+/* 2px brand-gradient strip at the top of the content area. */
+.xs-overview .xs-brand-strip {
+  height: 2px;
+  width: 100%;
+  background: var(--xs-brand-gradient);
+  border-radius: var(--xs-radius-pill);
+}
+
+/* Grid frame. */
+.xs-overview .xs-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--xs-grid-gap);
+}
+
+.xs-overview .xs-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--xs-grid-gap);
+  min-width: 0;
+}
+
+@media (max-width: 1280px) {
+  .xs-overview .xs-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 768px) {
+  .xs-overview .xs-grid { grid-template-columns: 1fr; gap: 16px; }
+}
+
+/* Card shell geometry (also enforced inline by DashboardPanel). */
+.xs-overview .xs-card {
+  display: flex;
+  flex-direction: column;
+  height: var(--xs-card-height);
+  padding: var(--xs-card-pad);
+  border-radius: var(--xs-radius-card);
+  background: var(--xs-bg-primary);
+  border: none;
+  box-shadow: none;
+  transition: background-color .3s ease;
+}
+
+.xs-overview .xs-card-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  /* Scroll stays functional but the scrollbar is hidden (Firefox + legacy Edge). */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+/* Hidden scrollbar inside scrollable card bodies (Chrome/Safari). */
+.xs-overview .xs-card-body::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+/* Universal hover fill on clickable sub-areas (cards never lift). */
+.xs-overview .xs-hoverable {
+  transition: background-color .3s ease;
+  cursor: pointer;
+}
+.xs-overview .xs-hoverable:hover { background: var(--xs-interactive-hover); }
+
+/* Dark truncation tooltip. */
+.xs-overview .xs-tip { position: relative; }
+.xs-overview .xs-tip[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  max-width: 320px;
+  white-space: normal;
+  background: #18202d;
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1.3;
+  padding: 6px 8px;
+  border-radius: 4px;
+  box-shadow: var(--xs-shadow-card);
+  pointer-events: none;
+}
+
+/* ── Animations ── */
+@keyframes xs-heartbeat {
+  0%, 100% { transform: scale(1); opacity: .9; }
+  50% { transform: scale(1.12); opacity: 1; }
+}
+@keyframes xs-scanner {
+  0% { transform: translateY(-120%); opacity: 0; }
+  40% { opacity: .9; }
+  100% { transform: translateY(120%); opacity: 0; }
+}
+@keyframes xs-shimmer {
+  0% { background-position: -1200px 0; }
+  100% { background-position: 1200px 0; }
+}
+@keyframes xs-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.xs-overview .xs-heartbeat { animation: xs-heartbeat 1.2s cubic-bezier(.65, 0, .35, 1) 7; }
+.xs-overview .xs-scanner { animation: xs-scanner 1.8s ease-in-out infinite; }
+.xs-overview .xs-fade-in { animation: xs-fade-in .3s ease both; }
+
+.xs-overview .xs-skeleton {
+  background: linear-gradient(90deg, var(--xs-border-subtle), var(--xs-interactive-hover), var(--xs-border-subtle));
+  background-size: 1200px 100%;
+  animation: xs-shimmer 1.5s linear infinite;
+  border-radius: var(--xs-radius-chip);
+}
+
+/* ── Reduced-motion: collapse every animation/transition to its final static state ── */
+@media (prefers-reduced-motion: reduce) {
+  .xs-overview *,
+  .xs-overview *::before,
+  .xs-overview *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .xs-overview .xs-heartbeat,
+  .xs-overview .xs-scanner { animation: none !important; }
+  .xs-overview .xs-skeleton {
+    animation: none !important;
+    background: var(--xs-bg-secondary) !important;
+  }
+}

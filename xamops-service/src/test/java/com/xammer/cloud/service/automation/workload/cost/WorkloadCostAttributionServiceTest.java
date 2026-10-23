@@ -112,6 +112,48 @@ class WorkloadCostAttributionServiceTest {
     }
 
     @Test
+    @DisplayName("the per-pod breakdown sums exactly to the workload total (FEAT-002 invariant)")
+    void perPodSplitSumsToWorkloadTotal() {
+        ResourceEnvelope current = new ResourceEnvelope(1000, 1000, 4L * GI, 4L * GI);
+        WorkloadCostDto cost = service.attribute(workload(2), List.of(decision(current, null)),
+                Map.of(NODE, node()), Map.of(NODE, onDemandRate()));
+
+        assertThat(cost.pods()).hasSize(2);
+        // Each pod carries a real engine-derived figure (never null, never a fabricated 0 stand-in).
+        assertThat(cost.pods()).allSatisfy(p -> {
+            assertThat(p.monthlyCost()).isNotNull().isGreaterThan(0.0);
+            assertThat(p.reason()).isNull();
+            assertThat(p.source()).isEqualTo("PRICE_LIST");
+            assertThat(p.nodeName()).isEqualTo(NODE);
+        });
+        assertThat(cost.pods()).extracting(com.xammer.cloud.service.automation.workload.api.dto.PodCostDto::podName)
+                .containsExactly("api-0", "api-1");
+        double sum = cost.pods().stream().mapToDouble(p -> p.monthlyCost()).sum();
+        assertThat(sum).isCloseTo(cost.monthlyCost(), org.assertj.core.data.Offset.offset(1e-9));
+    }
+
+    @Test
+    @DisplayName("an unpriceable node makes every PodCostDto unavailable with the reason and null money")
+    void unpriceableNodeMakesEveryPodUnavailable() {
+        ResourceEnvelope current = new ResourceEnvelope(1000, 1000, 4L * GI, 4L * GI);
+        NodeRate unknown = NodeRate.unpriceable(NodeRate.Reason.UNKNOWN_INSTANCE_TYPE, "x", null,
+                null, "ap-south-1a", "ap-south-1");
+
+        WorkloadCostDto cost = service.attribute(workload(2), List.of(decision(current, null)),
+                Map.of(NODE, node()), Map.of(NODE, unknown));
+
+        assertThat(cost.monthlyCost()).isNull();
+        assertThat(cost.reason()).isEqualTo("UNKNOWN_INSTANCE_TYPE");
+        assertThat(cost.pods()).hasSize(2);
+        assertThat(cost.pods()).allSatisfy(p -> {
+            assertThat(p.monthlyCost()).isNull();
+            assertThat(p.reason()).isEqualTo("UNKNOWN_INSTANCE_TYPE");
+            assertThat(p.source()).isNull();
+            assertThat(p.nodeName()).isEqualTo(NODE);
+        });
+    }
+
+    @Test
     @DisplayName("an unpriceable node rate yields null money + the machine reason")
     void unpriceableRateIsReason() {
         ResourceEnvelope current = new ResourceEnvelope(1000, 1000, 4L * GI, 4L * GI);
@@ -205,6 +247,9 @@ class WorkloadCostAttributionServiceTest {
                 .isNull();
         assertThat(summary.namespaceCosts())
                 .as("summary() owns only the workload-Σ; the namespace roll-up is attached later in evaluate()")
+                .isNull();
+        assertThat(summary.previousClusterMonthlyCost())
+                .as("GAP 1: no prior-period source exists yet, so the prior is null (never fabricated)")
                 .isNull();
     }
 

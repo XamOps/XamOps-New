@@ -3,6 +3,7 @@ package com.xammer.cloud.service.automation.workload.cost;
 import com.xammer.cloud.service.automation.workload.ContainerDecision;
 import com.xammer.cloud.service.automation.workload.ResourceEnvelope;
 import com.xammer.cloud.service.automation.workload.api.dto.CostSummaryDto;
+import com.xammer.cloud.service.automation.workload.api.dto.PodCostDto;
 import com.xammer.cloud.service.automation.workload.api.dto.WorkloadCostDto;
 import com.xammer.cloud.service.automation.workload.inventory.ClusterWorkloadInventory;
 import com.xammer.cloud.service.automation.workload.inventory.WorkloadPods;
@@ -46,32 +47,40 @@ public class WorkloadCostAttributionService {
                                      Map<String, NodeRate> rates) {
         List<WorkloadPods.Pod> pods = workload.pods().pods();
         if (pods.isEmpty()) {
+            // No live pods: there is nothing to price per-pod either, so the list stays null (never
+            // a fabricated empty-but-priced breakdown).
             return WorkloadCostDto.unavailable(NodeRate.Reason.NODE_CAPACITY_UNKNOWN.name());
         }
 
+        double hoursPerMonth = properties.hoursPerMonth();
         double totalCostPerHour = 0.0;
         double totalSavingsPerHour = 0.0;
         NodeRate exemplar = null;
         boolean inferredSeen = false;
+        List<PodCostDto> podCosts = new ArrayList<>(pods.size());
 
         for (WorkloadPods.Pod pod : pods) {
             String nodeName = pod.nodeName();
             if (nodeName == null) {
-                return WorkloadCostDto.unavailable(NodeRate.Reason.NODE_CAPACITY_UNKNOWN.name());
+                return WorkloadCostDto.unavailable(NodeRate.Reason.NODE_CAPACITY_UNKNOWN.name(),
+                        unpriceablePods(pods, NodeRate.Reason.NODE_CAPACITY_UNKNOWN.name()));
             }
             ClusterWorkloadInventory.NodeFacts facts = nodesByName.get(nodeName);
             NodeRate rate = rates.get(nodeName);
             if (facts == null || rate == null || !rate.priceable()) {
-                return WorkloadCostDto.unavailable(rate == null || rate.reason() == null
-                        ? NodeRate.Reason.NODE_CAPACITY_UNKNOWN.name() : rate.reason().name());
+                String reason = rate == null || rate.reason() == null
+                        ? NodeRate.Reason.NODE_CAPACITY_UNKNOWN.name() : rate.reason().name();
+                return WorkloadCostDto.unavailable(reason, unpriceablePods(pods, reason));
             }
             if (facts.capacityVcpus() == null || facts.capacityMemGiB() == null
                     || facts.capacityVcpus() <= 0 || facts.capacityMemGiB() <= 0) {
-                return WorkloadCostDto.unavailable(NodeRate.Reason.NODE_CAPACITY_UNKNOWN.name());
+                return WorkloadCostDto.unavailable(NodeRate.Reason.NODE_CAPACITY_UNKNOWN.name(),
+                        unpriceablePods(pods, NodeRate.Reason.NODE_CAPACITY_UNKNOWN.name()));
             }
             if (facts.allocatableCpuMillis() == null || facts.allocatableMemBytes() == null
                     || facts.allocatableCpuMillis() <= 0 || facts.allocatableMemBytes() <= 0) {
-                return WorkloadCostDto.unavailable(NodeRate.Reason.NODE_CAPACITY_UNKNOWN.name());
+                return WorkloadCostDto.unavailable(NodeRate.Reason.NODE_CAPACITY_UNKNOWN.name(),
+                        unpriceablePods(pods, NodeRate.Reason.NODE_CAPACITY_UNKNOWN.name()));
             }
 
             exemplar = rate;
@@ -88,11 +97,12 @@ public class WorkloadCostAttributionService {
             double memUnitPerHour = memComponent / facts.allocatableMemBytes();
 
             // This pod's current cost: Σ containers' request share of the node.
+            double podCostPerHour = 0.0;
             for (ContainerDecision container : containers) {
                 ResourceEnvelope current = container.current();
                 int cpuReq = current.cpuRequestMillis() == null ? 0 : current.cpuRequestMillis();
                 long memReq = current.memRequestBytes() == null ? 0 : current.memRequestBytes();
-                totalCostPerHour += cpuReq * cpuUnitPerHour + memReq * memUnitPerHour;
+                podCostPerHour += cpuReq * cpuUnitPerHour + memReq * memUnitPerHour;
 
                 // Freed capacity from the recommendation (before - after), clamped at 0.
                 if (container.recommended() != null) {
@@ -103,15 +113,21 @@ public class WorkloadCostAttributionService {
                     totalSavingsPerHour += cpuFreed * cpuUnitPerHour + memFreed * memUnitPerHour;
                 }
             }
+            totalCostPerHour += podCostPerHour;
+
+            // This pod's real engine-derived share, carrying the exemplar provenance. Summing these
+            // reproduces the workload total exactly (same hoursPerMonth, same arithmetic).
+            podCosts.add(new PodCostDto(pod.name(), nodeName, podCostPerHour * hoursPerMonth, null,
+                    rate.source() == null ? null : rate.source().name(), rate.capacityType(),
+                    rate.capacityTypeInferred()));
         }
 
-        double hoursPerMonth = properties.hoursPerMonth();
         double monthlyCost = totalCostPerHour * hoursPerMonth;
         double monthlySavings = totalSavingsPerHour * hoursPerMonth;
 
         String source = exemplar.source() == null ? null : exemplar.source().name();
         return new WorkloadCostDto(monthlyCost, monthlySavings, null, source,
-                exemplar.capacityType(), inferredSeen, exemplar.note());
+                exemplar.capacityType(), inferredSeen, exemplar.note(), List.copyOf(podCosts));
     }
 
     /**
@@ -141,7 +157,20 @@ public class WorkloadCostAttributionService {
                 anyPriced ? null : NodeRate.Reason.NODE_CAPACITY_UNKNOWN.name(),
                 anyPriced ? cost : null,
                 priced, unpriced,
-                null, null);
+                null, null,
+                // No prior-period source exists yet (no cost snapshot / history persistence), so the
+                // previousClusterMonthlyCost is null: the Trend chip stays honestly dashed rather than
+                // comparing against a fabricated value.
+                null);
+    }
+
+    /** On a fail-honest path, one {@link PodCostDto#unavailable} per pod — never a fabricated number. */
+    private static List<PodCostDto> unpriceablePods(List<WorkloadPods.Pod> pods, String reason) {
+        List<PodCostDto> unavailable = new ArrayList<>(pods.size());
+        for (WorkloadPods.Pod pod : pods) {
+            unavailable.add(PodCostDto.unavailable(pod.name(), pod.nodeName(), reason));
+        }
+        return List.copyOf(unavailable);
     }
 
     private static long freed(Integer before, Integer after) {

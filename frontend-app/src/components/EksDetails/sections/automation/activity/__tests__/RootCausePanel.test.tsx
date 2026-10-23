@@ -72,7 +72,7 @@ describe('RootCausePanel (FEAT-002)', () => {
     mockedFetch.mockResolvedValue(json(200, body([CAUSE, { ...CAUSE, workload: { ...CAUSE.workload, name: 'other' } }])));
     panel();
     await waitFor(() => expect(document.querySelector('[data-rca-kpis]')).not.toBeNull());
-    const kpi = document.querySelector('[data-rca-kpis] [data-kpi-tone]')!;
+    const kpi = document.querySelector('[data-rca-kpis] [data-metric-cell]')!;
     expect(kpi).toHaveTextContent('Repeated apply failure');
     expect(kpi).toHaveTextContent('2');
   });

@@ -16,10 +16,15 @@ export interface StatusDotProps {
   tone: Tone;
   /** The visible status word, e.g. "Running", "Failed". Required so colour never stands alone. */
   label: string;
+  /**
+   * Optional secondary text after the word, in the muted chrome grey (never a meaning colour): an
+   * age ("3 h"), a count, or a one-line qualifier. The dot stays the one spot of meaning colour.
+   */
+  detail?: string | null;
   className?: string;
 }
 
-export function StatusDot({ tone, label, className = '' }: StatusDotProps) {
+export function StatusDot({ tone, label, detail, className = '' }: StatusDotProps) {
   const t = toneClasses(tone);
   return (
     <span
@@ -31,6 +36,7 @@ export function StatusDot({ tone, label, className = '' }: StatusDotProps) {
         <circle cx="4.5" cy="4.5" r="4" fill="currentColor" />
       </svg>
       <span>{label}</span>
+      {detail && <span className="text-[color:var(--chrome-muted)]">{detail}</span>}
     </span>
   );
 }

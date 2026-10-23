@@ -25,6 +25,8 @@ import type {
   UpstreamVpaView,
   CostSummaryView,
   CostSummaryWire,
+  PodCostView,
+  PodCostWire,
   VerticalContainerWire,
   VerticalEngineResponseWire,
   VerticalEngineView,
@@ -201,6 +203,21 @@ const money = (raw: number | null | undefined): number | null =>
  * value (a true 0 is a real "frees nothing"); a non-number is null, which the UI renders as a dash
  * with `reason`. `capacityTypeInferred` is coerced to a plain boolean.
  */
+/**
+ * One pod's cost (FEAT-002), with the same honesty rules as the workload: `money()` keeps a real
+ * finite number (incl. a true 0) and maps a non-number to null, which the UI renders as a dash with
+ * `reason`. `capacityTypeInferred` is coerced to a plain boolean.
+ */
+const adaptPodCost = (wire: PodCostWire): PodCostView => ({
+  podName: wire.podName,
+  nodeName: wire.nodeName ?? null,
+  monthlyCost: money(wire.monthlyCost),
+  reason: wire.reason ?? null,
+  source: wire.source ?? null,
+  capacityType: wire.capacityType ?? null,
+  capacityTypeInferred: wire.capacityTypeInferred === true,
+});
+
 const adaptWorkloadCost = (wire: WorkloadCostWire | null | undefined): WorkloadCostView | null => {
   if (!wire) return null;
   return {
@@ -211,6 +228,9 @@ const adaptWorkloadCost = (wire: WorkloadCostWire | null | undefined): WorkloadC
     capacityType: wire.capacityType ?? null,
     capacityTypeInferred: wire.capacityTypeInferred === true,
     note: wire.note ?? null,
+    // Absent array -> null (older build / unavailable path); otherwise each entry is mapped
+    // null-safely, so an unpriceable pod stays null + reason rather than a fabricated figure.
+    pods: Array.isArray(wire.pods) ? wire.pods.map(adaptPodCost) : null,
   };
 };
 
@@ -225,6 +245,9 @@ const adaptCostSummary = (wire: CostSummaryWire | null | undefined): CostSummary
     clusterMonthlyCost: money(wire.clusterMonthlyCost),
     pricedWorkloads: typeof wire.pricedWorkloads === 'number' ? wire.pricedWorkloads : 0,
     unpricedWorkloads: typeof wire.unpricedWorkloads === 'number' ? wire.unpricedWorkloads : 0,
+    // Absent / non-number -> null (no prior source yet); a finite number passes through so the
+    // Trend chip lights up automatically once a cost snapshot populates it.
+    previousClusterMonthlyCost: money(wire.previousClusterMonthlyCost),
   };
 };
 

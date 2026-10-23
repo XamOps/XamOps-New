@@ -2,6 +2,7 @@ package com.xammer.cloud.service.automation.workload.api;
 
 import com.xammer.cloud.domain.CloudAccount;
 import com.xammer.cloud.domain.KubernetesClusterConfig;
+import com.xammer.cloud.repository.ClusterCostSnapshotRepository;
 import com.xammer.cloud.repository.WorkloadVerticalActionRepository;
 import com.xammer.cloud.service.AwsClientProvider;
 import com.xammer.cloud.service.AwsPricingService;
@@ -11,6 +12,7 @@ import com.xammer.cloud.service.automation.workload.RpsSizingProperties;
 import com.xammer.cloud.service.automation.workload.WorkloadAutoscalingProperties;
 import com.xammer.cloud.service.automation.workload.access.ClusterTarget;
 import com.xammer.cloud.service.automation.workload.api.dto.VerticalEngineResponse;
+import com.xammer.cloud.service.automation.workload.cost.ClusterCostSnapshotProperties;
 import com.xammer.cloud.service.automation.workload.cost.K8sCostProperties;
 import com.xammer.cloud.service.automation.workload.cost.NodeRateResolver;
 import com.xammer.cloud.service.automation.workload.cost.WorkloadCostAttributionService;
@@ -56,6 +58,9 @@ class VerticalAutomationReadServiceContextTest {
             .withBean(SpotPricingService.class, () -> mock(SpotPricingService.class))
             .withBean(AwsClientProvider.class, () -> mock(AwsClientProvider.class))
             .withBean(K8sCostProperties.class, K8sCostProperties::disabled)
+            .withBean(ClusterCostSnapshotRepository.class, () -> mock(ClusterCostSnapshotRepository.class))
+            .withBean(ClusterCostSnapshotProperties.class,
+                    () -> new ClusterCostSnapshotProperties(false, 1440, 24, 12))
             .withBean(NodeRateResolver.class)
             .withBean(WorkloadCostAttributionService.class)
             .withBean(VerticalAutomationReadService.class);
@@ -91,7 +96,8 @@ class VerticalAutomationReadServiceContextTest {
                 new NoMetricsSourceProvider(), java.util.List.of(), new ClusterWorkloadInventory(),
                 new UpstreamVpaReader(), policyService, actions,
                 resolver, new WorkloadCostAttributionService(K8sCostProperties.disabled()),
-                K8sCostProperties.disabled());
+                K8sCostProperties.disabled(), mock(ClusterCostSnapshotRepository.class),
+                new ClusterCostSnapshotProperties(false, 1440, 24, 12));
 
         CloudAccount account = new CloudAccount("acct", "ext", "read-only", null);
         ClusterTarget target = new ClusterTarget(7L, 42L, "102227938259", "c", "ap-south-1");

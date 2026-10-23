@@ -45,6 +45,9 @@ public class SessionService {
     @Autowired
     private UserActivityService userActivityService;
 
+    @Autowired
+    private DemoHostResolver demoHostResolver;
+
     @Value("${app.frontend.url}")
     private String frontendUrl;
 
@@ -108,17 +111,21 @@ public class SessionService {
             accounts = Collections.emptyList();
         }
 
+        // Host-aware base: demo frontend url on the demo host, else the live/per-profile url.
+        // On every non-demo host this is byte-identical to frontendUrl, so live behavior is unchanged.
+        String base = demoHostResolver.resolveFrontendUrl(request, frontendUrl);
+
         String targetUrl;
         if (roles.contains("ROLE_BILLOPS_ADMIN")) {
-            targetUrl = frontendUrl + "/billops-admin-dashboard";
+            targetUrl = base + "/billops-admin-dashboard";
         } else if (roles.contains("ROLE_BILLOPS")) {
-            targetUrl = frontendUrl + "/billops-dashboard";
+            targetUrl = base + "/billops-dashboard";
         } else if (roles.contains("ROLE_XAMOPS")) {
-            targetUrl = frontendUrl + "/unified-dashboard";
+            targetUrl = base + "/unified-dashboard";
         } else if (accounts.isEmpty()) {
-            targetUrl = frontendUrl + "/account-manager";
+            targetUrl = base + "/account-manager";
         } else {
-            targetUrl = frontendUrl + "/unified-dashboard";
+            targetUrl = base + "/unified-dashboard";
         }
 
         String tenantId = clientDetails.getTenantId() != null ? clientDetails.getTenantId() : "default";

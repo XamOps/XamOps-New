@@ -46,15 +46,24 @@ const ids = (els: El[]) => els.filter((x) => !x.data.source).map((x) => x.data.i
 const edges = (els: El[]) => els.filter((x) => x.data.source).map((x) => `${x.data.source}>${x.data.target}:${x.data.label}`);
 
 describe('shapeLiveTopology', () => {
-  it('hides supporting resources by default and counts them per layer', () => {
+  it('shows security groups and scaling resources by default, hides storage', () => {
     const { elements, hidden } = shapeLiveTopology(threeTier());
     const shown = ids(elements);
-    for (const id of ['sg-alb', 'sg-web', 'sg-db', 'tg', 'vol']) expect(shown).not.toContain(id);
-    expect(hidden).toEqual({ security: 3, routing: 0, storage: 1, scaling: 1, interfaces: 0 });
+    for (const id of ['sg-alb', 'sg-web', 'sg-db', 'tg']) expect(shown).toContain(id);
+    expect(shown).not.toContain('vol');
+    expect(hidden).toEqual({ security: 0, routing: 0, storage: 1, scaling: 0, interfaces: 0 });
+  });
+
+  it('marks membership lines so they draw only when traced', () => {
+    const { elements } = shapeLiveTopology(threeTier());
+    const uses = elements.find((x) => x.data.source === 'web' && x.data.target === 'sg-web');
+    expect(uses?.data.membership).toBe(true);
+    const fwd = elements.find((x) => x.data.source === 'tg' && x.data.target === 'web');
+    expect(fwd?.data.membership).toBeUndefined();
   });
 
   it('keeps the request path when target groups are hidden', () => {
-    const out = edges(shapeLiveTopology(threeTier()).elements);
+    const out = edges(shapeLiveTopology(threeTier(), { ...DEFAULT_LIVE_LAYERS, scaling: false }).elements);
     expect(out).toContain('alb>web:forwards to');
   });
 
@@ -64,17 +73,16 @@ describe('shapeLiveTopology', () => {
   });
 
   it('does not repeat a request path as a "can reach" line', () => {
-    const out = edges(shapeLiveTopology(threeTier()).elements);
+    const out = edges(shapeLiveTopology(threeTier(), { ...DEFAULT_LIVE_LAYERS, scaling: false }).elements);
     // sg-web admits sg-alb, but alb already forwards to web.
     expect(out).not.toContain('alb>web:can reach');
   });
 
-  it('shows the raw security groups instead once the layer is on', () => {
-    const { elements } = shapeLiveTopology(threeTier(), { ...DEFAULT_LIVE_LAYERS, security: true });
-    expect(ids(elements)).toContain('sg-web');
-    const out = edges(elements);
-    expect(out).toContain('web>sg-web:uses SG');
-    expect(out.some((x) => x.endsWith(':can reach'))).toBe(false);
+  it('keeps "can reach" lines whether or not security groups are shown', () => {
+    for (const security of [true, false]) {
+      const out = edges(shapeLiveTopology(threeTier(), { ...DEFAULT_LIVE_LAYERS, security }).elements);
+      expect(out).toContain('web>db:can reach');
+    }
   });
 
   it('groups subnets into availability zone columns inside their VPC', () => {
@@ -140,7 +148,7 @@ describe('shapeLiveTopology', () => {
     expect(igw?.data.type).toBe('Internet Gateway');
     expect(igw?.data.parent).toBe('vpc');
     expect(igw?.data.inferred).toBe(true);
-    expect(edges(out)).toContain('igw-123>pub:egress for');
+    expect(edges(out)).toContain('pub>igw-123:egress via');
     expect(edges(out)).toContain(`${INTERNET_NODE_ID}::vpc>igw-123:ingress`);
   });
 
@@ -200,5 +208,56 @@ describe('shapeLiveTopology', () => {
       n('eni', 'Network Interface', { parent: 's1', ...VPC }),
     ]).elements;
     expect(out.find((x) => x.data.id === 'vpc')!.data.collapsed).toBeUndefined();
+  });
+
+  it('treats the describe scan\'s ENI type and attachment key the same way', () => {
+    const input = [
+      n('vpc', 'VPC'),
+      n('i-1', 'EC2 Instance', { parent: 'vpc', ...VPC }),
+      n('eni-9', 'Network Interface (ENI)', { parent: 'vpc', ...VPC, 'Attached To': 'i-1' }),
+    ];
+    expect(ids(shapeLiveTopology(input).elements)).not.toContain('eni-9');
+    const on = shapeLiveTopology(input, { ...DEFAULT_LIVE_LAYERS, interfaces: true });
+    expect(edges(on.elements)).toContain('eni-9>i-1:attached to');
+  });
+
+  it('runs the request path internet -> gateway -> internet-facing load balancer', () => {
+    const out = shapeLiveTopology([
+      n('vpc', 'VPC'),
+      n('pub', 'Subnet', { parent: 'vpc', 'Availability Zone': 'az-a', Tier: 'Public' }),
+      n('igw', 'Internet Gateway', { parent: 'vpc', ...VPC }),
+      n('alb', 'Load Balancer', { parent: 'vpc', ...VPC, Scheme: 'internet-facing', Type: 'application' }),
+      n('int', 'Load Balancer', { parent: 'vpc', ...VPC, Scheme: 'internal', Type: 'network' }),
+      n('web', 'EC2 Instance', { parent: 'pub', ...VPC }),
+      e('alb', 'web', 'forwards to'),
+      e('igw', 'pub', 'egress for'),
+    ]).elements;
+    const es = edges(out);
+    expect(es).toContain('igw>alb:ingress');
+    expect(es).not.toContain('igw>int:ingress');
+    expect(es).toContain('alb>web:forwards to');
+    // Outbound points out of the subnet, and to an internet gateway only on hover.
+    const egress = out.find((x) => x.data.label === 'egress via')!;
+    expect(`${egress.data.source}>${egress.data.target}`).toBe('pub>igw');
+    expect(egress.data.membership).toBe(true);
+    expect(out.find((x) => x.data.id === 'alb')!.data.caption).toBe('ALB · internet-facing');
+  });
+
+  it('folds security groups nothing uses into a count on the VPC', () => {
+    const out = shapeLiveTopology([
+      n('vpc', 'VPC'),
+      n('web', 'EC2 Instance', { parent: 'vpc', ...VPC }),
+      n('sg-used', 'Security Group', { parent: 'vpc', ...VPC }),
+      n('sg-rule', 'Security Group', { parent: 'vpc', ...VPC }),
+      n('sg-idle-1', 'Security Group', { parent: 'vpc', ...VPC }),
+      n('sg-idle-2', 'Security Group', { parent: 'vpc', ...VPC }),
+      e('web', 'sg-used', 'uses SG'),
+      e('sg-used', 'sg-rule', 'admits'),
+    ]).elements;
+    const shown = ids(out);
+    expect(shown).toContain('sg-used');
+    expect(shown).toContain('sg-rule');
+    expect(shown).not.toContain('sg-idle-1');
+    expect(out.find((x) => x.data.id === 'vpc')!.data.displayLabel).toContain('2 unused security groups hidden');
   });
 });

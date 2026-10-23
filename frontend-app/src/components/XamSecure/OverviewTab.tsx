@@ -1,16 +1,22 @@
-import React, { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Icon } from '@iconify/react';
-import { Link } from 'react-router-dom';
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, Legend as ReLegend } from 'recharts';
+import { useNavigate } from 'react-router-dom';
+import type Highcharts from 'highcharts';
 import type {
   XamSecureSummary, IssueSummary, PageResp, ThreatDetection, ThreatStoriesSummary, VulnerabilityDashboard,
 } from '../../types/xamsecure';
-import { SEVERITY_ORDER } from '../../types/xamsecure';
-import SeverityChip from './SeverityChip';
 import TrendDelta from './TrendDelta';
-
-/** Upwind severity palette (matches the Vulnerabilities tab). */
-const SEV_COLOR = { CRITICAL: '#dc2626', HIGH: '#f97316', OTHER: '#3b82f6' } as const;
+import './ui/tokens.css';
+import DashboardPanel from './ui/DashboardPanel';
+import SectionHeader from './ui/SectionHeader';
+import KpiHero from './ui/KpiHero';
+import SeverityPillBars from './ui/SeverityPillBars';
+import SeverityGradientBar from './ui/SeverityGradientBar';
+import MiniFeedRow, { RowChevron } from './ui/MiniFeedRow';
+import CountChip from './ui/CountChip';
+import FunnelStream from './ui/FunnelStream';
+import SeverityAreaChart from './ui/SeverityAreaChart';
+import FindingsOverTimeBars from './ui/FindingsOverTimeBars';
 
 interface Props {
   summary: XamSecureSummary | null;
@@ -22,22 +28,6 @@ interface Props {
   vulnDashboard: VulnerabilityDashboard | null;
   isLoading: boolean;
 }
-
-/** Panel shell matching the rest of XamSecure. */
-const Panel: React.FC<{ title: string; action?: React.ReactNode; children: React.ReactNode; className?: string }> =
-  ({ title, action, children, className }) => (
-    <div className={`bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col ${className ?? ''}`}>
-      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{title}</p>
-        {action}
-      </div>
-      <div className="p-5 flex-1">{children}</div>
-    </div>
-  );
-
-const AllLink: React.FC<{ to: string; label?: string }> = ({ to, label = 'View all' }) => (
-  <Link to={to} className="text-[11px] font-semibold text-gray-500 hover:text-gray-900">{label}</Link>
-);
 
 /** Last-7-day date buckets (oldest → newest). */
 function last7Days(): { key: string; label: string }[] {
@@ -54,40 +44,16 @@ function last7Days(): { key: string; label: string }[] {
   return out;
 }
 
-/** Minimal greyscale bar chart. */
-const BarChart: React.FC<{ data: { label: string; value: number }[] }> = ({ data }) => {
-  const max = Math.max(1, ...data.map((d) => d.value));
-  return (
-    <div className="flex items-end justify-between gap-1 h-28">
-      {data.map((d) => (
-        <div key={d.label} className="flex-1 flex flex-col items-center gap-1">
-          <div className="w-full flex items-end justify-center" style={{ height: '84px' }}>
-            <div
-              className="w-full max-w-[24px] rounded-t"
-              style={{
-                height: `${Math.round((d.value / max) * 84)}px`,
-                minHeight: d.value > 0 ? 4 : 0,
-                backgroundColor: SEV_COLOR.OTHER,
-              }}
-              title={`${d.label}: ${d.value}`}
-            />
-          </div>
-          <span className="text-[9px] text-gray-400 whitespace-nowrap">{d.label}</span>
-        </div>
-      ))}
-    </div>
-  );
-};
-
 const OverviewTab: React.FC<Props> = ({
   summary, issues, threats, stories, vulnDashboard, isLoading, onOpenStory,
 }) => {
+  const navigate = useNavigate();
   const days = useMemo(() => last7Days(), []);
   const activeStories = stories?.activeCount ?? 0;
   const storyList = stories?.stories ?? [];
 
-  // 7-day change in total vulnerability findings, taken from the same cumulative series the
-  // chart plots so the number and the shape can never disagree. Needs both ends to exist.
+  // 7-day change in total vulnerability findings, taken from the same cumulative series the chart
+  // plots so the number and the shape can never disagree. Needs both ends to exist.
   const vulnTrend = useMemo(() => {
     const series = vulnDashboard?.severityOverTime ?? [];
     if (series.length < 2) return null;
@@ -109,16 +75,15 @@ const OverviewTab: React.FC<Props> = ({
 
   const topFindings = useMemo(() => (issues ?? []).slice(0, 6), [issues]);
 
-  // Threat funnel + detections over time from the threat feed.
+  // Threat funnel + detections from the threat feed.
   const threatDetections = threats?.totalElements ?? 0;
   const threatEvents = useMemo(
     () => (threats?.content ?? []).reduce((a, t) => a + (t.occurrenceCount ?? 1), 0),
     [threats]);
 
-  // Cumulative findings as-of each day (last 7 days): a finding counts toward every
-  // day on/after the day it was first seen, so the standing backlog is reflected each
-  // day instead of leaving the chart empty when few findings are new in the window.
-  // Matches the Configurations dashboard and the vulnerability "by severity" trend.
+  // Cumulative findings as-of each day (last 7 days): a finding counts toward every day on/after
+  // the day it was first seen, so the standing backlog is reflected each day instead of leaving
+  // the chart empty when few findings are new in the window.
   const findingsOverTime = useMemo(() => {
     return days.map((d) => {
       let count = 0;
@@ -131,217 +96,267 @@ const OverviewTab: React.FC<Props> = ({
     });
   }, [issues, days]);
 
-  // 7-day change in the open-issue backlog, read off the same cumulative series the chart
-  // plots so the delta and the bars always agree.
+  // 7-day change in the open-issue backlog, read off the same cumulative series the chart plots.
   const issuesTrend = useMemo(() => {
     if (findingsOverTime.length < 2) return null;
-    return {
-      from: findingsOverTime[0].value,
-      to: findingsOverTime[findingsOverTime.length - 1].value,
-    };
+    return { from: findingsOverTime[0].value, to: findingsOverTime[findingsOverTime.length - 1].value };
   }, [findingsOverTime]);
 
   const threatFeed = useMemo(() => (threats?.content ?? []).slice(0, 3), [threats]);
 
+  // ── Area-chart legend wiring: the legend lives in the card header, so it needs a handle to the
+  // Highcharts instance. SeverityAreaChart exposes it via onChartReady; we toggle series by index
+  // on the fixed [0]=Critical,[1]=High,[2]=Other order. ──
+  const chartRef = useRef<Highcharts.Chart | null>(null);
+  const [hidden, setHidden] = useState<Set<number>>(new Set());
+  const hasVulnData = (vulnDashboard?.severityOverTime ?? []).length > 0;
+  const toggleSeries = (i: number) => {
+    const next = new Set(hidden);
+    const nowVisible = next.has(i);
+    if (nowVisible) next.delete(i); else next.add(i);
+    chartRef.current?.series[i]?.setVisible(nowVisible, true);
+    setHidden(next);
+  };
+
+  const maxSev = Math.max(1, ...Object.values(findingsBySeverity));
+  const newCols = [
+    { sev: 'CRITICAL', value: findingsBySeverity.CRITICAL ?? 0 },
+    { sev: 'HIGH', value: findingsBySeverity.HIGH ?? 0 },
+    { sev: 'OTHER', value: (findingsBySeverity.MEDIUM ?? 0) + (findingsBySeverity.LOW ?? 0) },
+  ];
+  const maxNew = Math.max(1, ...newCols.map((c) => c.value));
+
   if (isLoading && !summary && !issues) {
-    return <div className="text-center py-16 text-sm text-gray-400">Loading security overview...</div>;
+    return (
+      <div className="xs-overview">
+        <div className="xs-brand-strip" />
+        <div className="xs-grid" style={{ marginTop: 16 }}>
+          {[0, 1, 2].map((col) => (
+            <div key={col} className="xs-col">
+              <div className="xs-skeleton" style={{ height: 36, width: 160 }} />
+              <div className="xs-card"><div className="xs-skeleton" style={{ height: '100%' }} /></div>
+              <div className="xs-card"><div className="xs-skeleton" style={{ height: '100%' }} /></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
+  const SEV_LEGEND = [
+    { i: 0, name: 'Critical', color: 'var(--xs-sev-critical)' },
+    { i: 1, name: 'High', color: 'var(--xs-sev-high)' },
+    { i: 2, name: 'Other', color: 'var(--xs-sev-other)' },
+  ];
+
   return (
-    <div className="space-y-4">
-      {/* Row 1 — Findings summary · Top findings */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Panel title="Security issues findings summary" action={<AllLink to="/xamsecure/issues" label="All findings" />}>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-left text-[10px] uppercase text-gray-400 border-b border-gray-100">
-                <th className="py-2">Severity</th>
-                <th className="py-2 text-right">Findings</th>
-              </tr>
-            </thead>
-            <tbody>
-              {SEVERITY_ORDER.map((sev) => (
-                <tr key={sev} className="border-b border-gray-50 last:border-0">
-                  <td className="py-2.5"><SeverityChip severity={sev} /></td>
-                  <td className="py-2.5 text-right font-bold text-gray-900">{findingsBySeverity[sev] ?? 0}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="mt-3 text-[10px] text-gray-400">{totalIssues} total issues</p>
-        </Panel>
+    <div className="xs-overview xs-fade-in">
+      <div className="xs-brand-strip" />
 
-        <Panel title="Top security issues findings" action={<AllLink to="/xamsecure/issues" label="All findings" />}>
-          <div className="space-y-0.5">
-            <div className="flex items-center justify-between text-[10px] uppercase text-gray-400 pb-1.5 border-b border-gray-100">
-              <span>Finding</span><span>Resources</span>
-            </div>
-            {topFindings.map((f) => (
-              <div key={f.check} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                <span className="flex items-center gap-2 min-w-0">
-                  <SeverityChip severity={f.severity} />
-                  <span className="text-xs text-gray-800 truncate">{f.title}</span>
-                </span>
-                <span className="text-xs font-bold text-gray-700 pl-2">{f.resourceCount}</span>
-              </div>
-            ))}
-            {topFindings.length === 0 && (
-              <p className="py-6 text-center text-xs text-gray-400">No open issues.</p>
-            )}
-          </div>
-        </Panel>
-      </div>
+      <div className="xs-grid" style={{ marginTop: 16 }}>
+        {/* ── LEFT — Findings / posture ── */}
+        <div className="xs-col">
+          <SectionHeader icon="mdi:shield-search" title="Findings" tileBg="var(--xs-red-06)" tileIcon="var(--xs-red-03)" />
 
-      {/* Row 2 — Active stories · Threat funnel · Detections over time */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Panel title="Active threat stories">
-          {/* The stories themselves are the point, so list them as buttons that open the
-              detail panel. The bare count told you something was wrong with no way in. */}
-          {storyList.length > 0 ? (
-            <div className="py-2 space-y-1.5">
-              {storyList.slice(0, 4).map((st) => (
-                <button key={st.id} type="button"
-                        onClick={() => st.id && onOpenStory?.(st.id)}
-                        disabled={!st.id || !onOpenStory}
-                        className="w-full text-left rounded-lg border border-gray-200 p-2.5
-                                   hover:border-gray-400 hover:bg-gray-50 transition-colors
-                                   disabled:cursor-default disabled:hover:border-gray-200
-                                   disabled:hover:bg-transparent
-                                   focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-[11px] font-semibold text-gray-800 leading-snug line-clamp-2">
-                      {st.title ?? 'Untitled story'}
-                    </p>
-                    <SeverityChip severity={st.severity} />
-                  </div>
-                  <p className="mt-1 flex items-center gap-1.5 text-[10px] text-gray-400">
-                    {st.resourceName && <span className="truncate">{st.resourceName}</span>}
-                    {st.status && <span className="uppercase">{st.status}</span>}
-                    <Icon icon="mdi:chevron-right" width={12} className="ml-auto flex-shrink-0" />
-                  </p>
-                </button>
-              ))}
-              {storyList.length > 4 && (
-                <p className="pt-1 text-[10px] text-gray-400">
-                  +{storyList.length - 4} more on the Threats tab
-                </p>
+          <DashboardPanel title="Findings summary" glyph="mdi:format-list-bulleted" glyphColor="var(--xs-red-03)">
+            <SeverityPillBars
+              mode="horizontal"
+              rows={[
+                { sev: 'CRITICAL', value: findingsBySeverity.CRITICAL ?? 0 },
+                { sev: 'HIGH', value: findingsBySeverity.HIGH ?? 0 },
+                { sev: 'MEDIUM', value: findingsBySeverity.MEDIUM ?? 0 },
+                { sev: 'LOW', value: findingsBySeverity.LOW ?? 0 },
+              ]}
+              max={maxSev}
+              caption={`${totalIssues} total issues`}
+              onRowClick={(sev) => navigate(`/xamsecure/issues?severity=${sev}`)}
+            />
+          </DashboardPanel>
+
+          <DashboardPanel
+            title="Findings over time"
+            glyph="mdi:chart-timeline-variant"
+            glyphColor="var(--xs-red-03)"
+            action={issuesTrend ? <TrendDelta from={issuesTrend.from} to={issuesTrend.to} label="over 7 days" /> : undefined}
+          >
+            {/* Two compact charts share one 356px card — sized so both are fully visible
+                with no in-card scroll. */}
+            <p style={{ fontSize: 12, color: 'var(--xs-text-secondary)', margin: '0 0 6px' }}>Cumulative open issues · last 7 days</p>
+            <FindingsOverTimeBars data={findingsOverTime} height={72} />
+            <div style={{ borderTop: '1px solid var(--xs-border-subtle)', margin: '10px 0 6px' }} />
+            <p style={{ fontSize: 12, color: 'var(--xs-text-secondary)', margin: '0 0 2px' }}>New security issues · by severity</p>
+            <SeverityPillBars
+              mode="vertical"
+              cols={newCols}
+              max={maxNew}
+              barMax={70}
+              footerValue={totalIssues}
+              footerLabel="open issues"
+              onColClick={(sev) => navigate(sev === 'OTHER' ? '/xamsecure/issues' : `/xamsecure/issues?severity=${sev}`)}
+            />
+          </DashboardPanel>
+        </div>
+
+        {/* ── CENTER — Security issues ── */}
+        <div className="xs-col">
+          <SectionHeader icon="mdi:alert-circle-outline" title="Security issues" tileBg="var(--xs-red-06)" tileIcon="var(--xs-red-03)" />
+
+          <DashboardPanel>
+            <KpiHero
+              icon="mdi:shield-alert-outline"
+              value={activeStories}
+              label="Active threat stories"
+              desc={activeStories === 0 ? 'No active stories in your environment' : 'Correlated attack stories'}
+              tone={activeStories === 0 ? 'good' : 'bad'}
+              onClick={() => navigate('/xamsecure/threats')}
+            >
+              {storyList.length > 0 && (
+                storyList.slice(0, 4).map((st) => (
+                  <MiniFeedRow
+                    key={st.id ?? st.title ?? Math.random()}
+                    severity={st.severity}
+                    title={st.title ?? 'Untitled story'}
+                    rightSlot={<RowChevron />}
+                    onClick={st.id && onOpenStory ? () => onOpenStory(st.id as string) : undefined}
+                    disabled={!st.id || !onOpenStory}
+                  />
+                ))
               )}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center text-center py-6">
-              <p className="text-6xl font-extrabold text-gray-900">{activeStories}</p>
-              <p className="mt-3 text-sm font-bold text-gray-700">Active threat stories</p>
-              <p className="mt-1 text-[11px] text-gray-400">
-                {activeStories === 0
-                  ? 'No active stories in your environment.'
-                  : 'Correlated attack stories.'}
-              </p>
-            </div>
-          )}
-        </Panel>
+            </KpiHero>
+          </DashboardPanel>
 
-        <Panel title="Noise to signal threat funnel" action={<AllLink to="/xamsecure/threats" label="All threats" />}>
-          <div className="flex items-center justify-around py-6">
-            <FunnelStat label="Events" value={threatEvents} />
-            <FunnelStat label="Detections" value={threatDetections} />
-            <FunnelStat label="Stories" value={activeStories} />
-          </div>
-        </Panel>
-
-        <Panel title="Vulnerability findings by severity">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <p className="text-[10px] text-gray-400">Last 7 days</p>
-            {vulnTrend && <TrendDelta from={vulnTrend.from} to={vulnTrend.to} />}
-          </div>
-          {(vulnDashboard?.severityOverTime ?? []).length === 0 ? (
-            <div className="py-10 text-center text-xs text-gray-400">No vulnerability data.</div>
-          ) : (
-            <div style={{ width: '100%', height: 150 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={vulnDashboard?.severityOverTime ?? []} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 9, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={34} />
-                  <Tooltip />
-                  <ReLegend wrapperStyle={{ fontSize: 10 }} />
-                  <Area type="monotone" dataKey="CRITICAL" name="Critical" stackId="1" stroke={SEV_COLOR.CRITICAL} fill={SEV_COLOR.CRITICAL} fillOpacity={0.85} />
-                  <Area type="monotone" dataKey="HIGH" name="High" stackId="1" stroke={SEV_COLOR.HIGH} fill={SEV_COLOR.HIGH} fillOpacity={0.85} />
-                  <Area type="monotone" dataKey="OTHER" name="Other" stackId="1" stroke={SEV_COLOR.OTHER} fill={SEV_COLOR.OTHER} fillOpacity={0.85} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </Panel>
-      </div>
-
-      {/* Row 3 — Findings over time · New issues · Threat feed */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Panel title="Findings over time"
-               action={issuesTrend
-                 ? <TrendDelta from={issuesTrend.from} to={issuesTrend.to} label="over 7 days" />
-                 : undefined}>
-          <p className="text-[10px] text-gray-400 mb-2">Cumulative open issues · last 7 days</p>
-          <BarChart data={findingsOverTime} />
-        </Panel>
-
-        <Panel title="New security issues">
-          <div className="flex items-center justify-around py-8">
-            <FunnelStat label="Critical" value={findingsBySeverity.CRITICAL ?? 0} color="#dc2626" />
-            <FunnelStat label="High" value={findingsBySeverity.HIGH ?? 0} color="#f97316" />
-            <FunnelStat label="Other" value={(findingsBySeverity.MEDIUM ?? 0) + (findingsBySeverity.LOW ?? 0)} color="#3b82f6" />
-          </div>
-        </Panel>
-
-        <Panel title={`Threat feed highlights (${threatFeed.length})`}
-               action={<AllLink to="/xamsecure/threats" label="All feed items" />}>
-          <div className="space-y-0.5">
-            {threatFeed.map((t) => (
-              <div key={t.upwindId} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                <span className="flex items-center gap-2 min-w-0">
-                  <SeverityChip severity={t.severity} />
-                  <span className="text-xs text-gray-800 truncate">{t.title ?? '—'}</span>
-                </span>
-                <span className="text-[10px] text-gray-400 pl-2 whitespace-nowrap">
-                  {t.resourceName ?? t.resourceType ?? '—'}
-                </span>
-              </div>
-            ))}
-            {threatFeed.length === 0 && (
-              <p className="py-6 text-center text-xs text-gray-400">No recent threat detections.</p>
+          <DashboardPanel title="Top security issues" glyph="mdi:alert-circle-outline" glyphColor="var(--xs-red-03)">
+            <SeverityGradientBar
+              counts={{
+                CRITICAL: findingsBySeverity.CRITICAL ?? 0,
+                HIGH: findingsBySeverity.HIGH ?? 0,
+                MEDIUM: findingsBySeverity.MEDIUM ?? 0,
+                LOW: findingsBySeverity.LOW ?? 0,
+              }}
+              onSegmentClick={(sev) => navigate(`/xamsecure/issues?severity=${sev}`)}
+            />
+            {topFindings.length === 0 ? (
+              <p style={{ textAlign: 'center', fontSize: 14, color: 'var(--xs-text-secondary)', padding: '24px 0' }}>No open issues.</p>
+            ) : (
+              topFindings.map((f) => (
+                <MiniFeedRow
+                  key={f.check}
+                  severity={f.severity}
+                  title={f.title}
+                  rightSlot={<CountChip value={f.resourceCount} variant="resources" />}
+                  onClick={() => navigate(`/xamsecure/issues?severity=${(f.severity ?? '').toUpperCase()}`)}
+                />
+              ))
             )}
-          </div>
-        </Panel>
+          </DashboardPanel>
+        </div>
+
+        {/* ── RIGHT — Threats ── */}
+        <div className="xs-col">
+          <SectionHeader icon="mdi:radar" title="Threats" tileBg="var(--xs-pink-06)" tileIcon="var(--xs-pink-03)" />
+
+          <DashboardPanel title="Noise to signal threat funnel" glyph="mdi:radar" glyphColor="var(--xs-pink-03)">
+            <FunnelStream
+              events={threatEvents}
+              detections={threatDetections}
+              stories={activeStories}
+              onAllStories={() => navigate('/xamsecure/threats')}
+            >
+              {threatFeed.length === 0 ? (
+                <p style={{ textAlign: 'center', fontSize: 14, color: 'var(--xs-text-secondary)', padding: '12px 0' }}>No recent threat detections.</p>
+              ) : (
+                threatFeed.map((t) => (
+                  <MiniFeedRow
+                    key={t.upwindId}
+                    severity={t.severity}
+                    title={t.title ?? '—'}
+                    rightSlot={<span style={{ fontSize: 10, color: 'var(--xs-text-secondary)', whiteSpace: 'nowrap' }}>{t.resourceName ?? t.resourceType ?? '—'}</span>}
+                    onClick={() => navigate('/xamsecure/threats')}
+                  />
+                ))
+              )}
+            </FunnelStream>
+          </DashboardPanel>
+
+          <DashboardPanel
+            title="Vulnerability findings by severity"
+            glyph="mdi:chart-areaspline"
+            glyphColor="var(--xs-pink-03)"
+            scrollBody={false}
+            action={vulnTrend ? <TrendDelta from={vulnTrend.from} to={vulnTrend.to} /> : undefined}
+            legend={hasVulnData ? (
+              <div style={{ display: 'flex', gap: 12 }}>
+                {SEV_LEGEND.map((s) => {
+                  const off = hidden.has(s.i);
+                  return (
+                    <button
+                      key={s.i}
+                      type="button"
+                      onClick={() => toggleSeries(s.i)}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}
+                    >
+                      <span style={{ width: 8, height: 8, borderRadius: '999px', background: off ? 'var(--xs-legend-inactive-text)' : s.color, display: 'inline-block' }} aria-hidden />
+                      <span style={{ fontSize: 12, color: off ? 'var(--xs-legend-inactive-text)' : 'var(--xs-text-secondary)' }}>{s.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : undefined}
+          >
+            <SeverityAreaChart
+              data={vulnDashboard?.severityOverTime ?? []}
+              height={220}
+              onChartReady={(chart) => { chartRef.current = chart; }}
+            />
+          </DashboardPanel>
+        </div>
       </div>
 
-      {/* Data freshness */}
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Data Freshness</p>
-        <div className="space-y-1.5">
+      {/* ── Data freshness footer ── */}
+      <div style={{ marginTop: 24, padding: '0 4px' }} className="xs-overview">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+          <Icon icon="mdi:database-sync-outline" width={16} height={16} color="var(--xs-text-secondary)" aria-hidden />
+          <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--xs-text-primary)' }}>Data Freshness</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {(summary?.syncState ?? []).map((s) => (
-            <div key={s.domain} className="flex items-center justify-between text-xs">
-              <span className="font-medium text-gray-700">{s.domain}</span>
-              <span className={s.lastError ? 'text-gray-900 font-semibold' : 'text-gray-400'}>
-                {s.lastError
-                  ? `Sync issue — showing last data (${s.lastError})`
-                  : s.lastSuccessAt
+            <div key={s.domain} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontSize: 14 }}>
+              <span style={{ fontWeight: 400, color: 'var(--xs-text-primary)', flexShrink: 0 }}>{s.domain}</span>
+              {s.lastError ? (
+                // Calm amber title-only treatment: short message in the body, the raw backend
+                // error/stack lives ONLY in the title tooltip so it can never overflow the row.
+                // amber-700 #b45309 passes AA on amber-50 #fffbeb.
+                <span
+                  title={s.lastError}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0,
+                    padding: '2px 10px', borderRadius: 999,
+                    background: '#fffbeb', border: '1px solid #fde68a', color: '#b45309', fontWeight: 500,
+                  }}
+                >
+                  <Icon icon="mdi:alert-circle-outline" width={14} height={14} aria-hidden style={{ flexShrink: 0 }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>
+                    Sync issue — showing last data
+                    {s.lastSuccessAt ? ` (last ok ${new Date(s.lastSuccessAt).toLocaleString()})` : ''}
+                  </span>
+                </span>
+              ) : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--xs-text-secondary)', fontWeight: 400 }}>
+                  <Icon icon="mdi:check-circle-outline" width={14} height={14} color="var(--xs-green-02)" aria-hidden style={{ flexShrink: 0 }} />
+                  {s.lastSuccessAt
                     ? `Last synced ${new Date(s.lastSuccessAt).toLocaleString()}`
                     : 'Not synced yet'}
-              </span>
+                </span>
+              )}
             </div>
           ))}
           {(summary?.syncState ?? []).length === 0 && (
-            <p className="text-xs text-gray-400">Sync has not run yet.</p>
+            <p style={{ fontSize: 14, color: 'var(--xs-text-secondary)' }}>Sync has not run yet.</p>
           )}
         </div>
       </div>
     </div>
   );
 };
-
-const FunnelStat: React.FC<{ label: string; value: number; color?: string }> = ({ label, value, color }) => (
-  <div className="text-center">
-    <p className="text-3xl font-extrabold" style={{ color: color ?? '#111827' }}>{value}</p>
-    <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{label}</p>
-  </div>
-);
 
 export default OverviewTab;

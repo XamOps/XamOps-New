@@ -18,7 +18,14 @@ export default function WorkloadsSection(props: EksSectionProps) {
       case 'workloads':
         return <WorkloadsPanel {...props} />;
       case 'pods':
-        return <EksPodsTab eksData={eksData} clusterName={props.clusterName} />;
+        return (
+          <EksPodsTab
+            eksData={eksData}
+            clusterName={props.clusterName}
+            accountId={props.accountId}
+            region={props.region}
+          />
+        );
       case 'containers':
         return <EksContainersTab eksData={eksData} clusterName={props.clusterName} />;
       case 'resources':

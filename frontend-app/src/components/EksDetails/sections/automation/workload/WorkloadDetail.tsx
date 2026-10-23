@@ -79,6 +79,7 @@ import {
   workloadLifecycle,
   workloadStatusChip,
 } from '../automationDerivations';
+import { PageTemplate } from '../../../../CloudK8s/shared/PageTemplate';
 import { CARD, Card, DIVIDE, FAINT, INK, InPageLink, LINK, MUTED, RULE } from '../automationUi';
 import { ImpactCard, WorkloadUsageCard, latestLiveChange } from './workloadCharts';
 
@@ -499,7 +500,7 @@ export function CostPerDayCard({ workload, hoursPerMonth }: { workload: Workload
   return (
     <ChartCard title="Cost per day" source={source} subline={cost.note ?? undefined}>
       <div className="space-y-1 py-2" data-cost-per-day="">
-        <p className={`text-[22px] font-semibold tabular-nums ${INK}`}>{perDay !== null ? `${formatMoney(perDay)}/day` : formatMonthlyUsd(cost.monthlyCost)}</p>
+        <p className={`text-[20px] font-semibold tabular-nums ${INK}`}>{perDay !== null ? `${formatMoney(perDay)}/day` : formatMonthlyUsd(cost.monthlyCost)}</p>
         <p className={`text-[12px] ${MUTED}`}>
           {perDay !== null
             ? `At today's price: ${formatMonthlyUsd(cost.monthlyCost)} over ${hoursPerMonth} hours a month.`
@@ -526,7 +527,7 @@ function RecentChanges({ feed, workload }: { feed: UseAutomationActivityState; w
     <Card title="Recent changes">
       <div data-recent-changes={feed.result?.kind ?? 'loading'}>
         {feed.loading && !feed.result ? (
-          <div className="skeleton h-8 rounded dark:bg-none dark:bg-[rgba(255,255,255,0.06)]" aria-busy="true" />
+          <div className="skeleton h-8 rounded-[6px] dark:bg-none dark:bg-[rgba(255,255,255,0.06)]" aria-busy="true" />
         ) : feed.result?.kind === 'ok' ? (
           mine.length > 0 ? (
             <ul className={`divide-y ${DIVIDE}`}>
@@ -580,23 +581,29 @@ export function WorkloadDetail({ clusterName, accountId, region, workload, contr
   const live = liveOutcome(reply);
   const changeHeading = useId();
 
-  return (
-    <div className="space-y-4" data-workload-detail={workload.id}>
+  const hero = (
+    // data-k8s-kit on each v3 part rather than the root: the controller below hosts light-only cards.
+    <div className="flex flex-col gap-4" data-k8s-kit="">
       <InPageLink to={listHref} className={`inline-flex items-center gap-1 text-[12px] ${LINK}`}>
         <Icon icon="mdi:arrow-left" width={14} aria-hidden="true" />
         All workloads
       </InPageLink>
-
-      {/* data-k8s-kit on each v3 part rather than the root: the root also hosts main's light-only card. */}
-      <div className="flex flex-wrap items-end justify-between gap-3" data-k8s-kit="">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <FeatureMark feature="workload" title={workload.ref.name} />
         <p className={`text-[12px] ${MUTED}`}>
           {workload.ref.kind} · Namespace {workload.ref.namespace} · {workload.replicas ?? DASH} {workload.replicas === 1 ? 'replica' : 'replicas'}
         </p>
       </div>
-
       <NowBanner sentence={sentence} />
+    </div>
+  );
 
+  return (
+    // The redesigned detail sits inside PageTemplate (its <main> stamps data-k8s-redesigned-main);
+    // the legacy "Change this workload" controller (EksAutomationTab — the PRESERVED Apply /
+    // test-run / mode-switch contract) is a SIBLING below, outside the redesigned region.
+    <div className="flex flex-col gap-6" data-workload-detail={workload.id}>
+      <PageTemplate title={workload.ref.name} intro={null} width="table" hero={hero}>
       <Card title="Where it is now">
         <StepIndicator variant="full" states={life.states} label={life.label} details={life.details} />
         <p className={`mt-2 text-[11px] ${FAINT}`}>
@@ -630,9 +637,10 @@ export function WorkloadDetail({ clusterName, accountId, region, workload, contr
           state={{ kind: 'unavailable', reason: "Needs the pod's cgroup series (what the node actually gives the container), which XamOps doesn't read yet." }}
         />
       </div>
+      </PageTemplate>
 
-      <section aria-labelledby={changeHeading} className="space-y-2">
-        <h3 id={changeHeading} className={`text-[14px] font-semibold ${INK}`} data-k8s-kit="">Change this workload</h3>
+      <section aria-labelledby={changeHeading} className="flex min-w-0 flex-col gap-2">
+        <h3 id={changeHeading} className={`${INK} text-[13px] font-semibold`} data-k8s-kit="">Change this workload</h3>
         <EksAutomationTab
           clusterName={clusterName}
           accountId={accountId}

@@ -3,12 +3,26 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getCapabilities, useEksDashboard, apiGet, flags } = vi.hoisted(() => ({
+const { getCapabilities, useEksDashboard, apiGet, apiFetch, flags } = vi.hoisted(() => ({
   getCapabilities: vi.fn(),
   useEksDashboard: vi.fn(),
   apiGet: vi.fn(),
+  // The Automation sections this page mounts for real (OverviewPanel, WorkloadsPage, NodeAutoscalerPage,
+  // HpaPage, VpaPage, ActivityPage via AutomationSection) read endpoint 1 and the Phase-2 feeds through
+  // apiClient.fetch and the named apiFetch, at RELATIVE urls ("/api/eks/automation/vertical/…"). jsdom's
+  // native fetch rejects a relative url with "Failed to parse URL", which vitest reports as an unhandled
+  // error and fails the whole job even though every test passes. (These reads only started firing once the
+  // STATUS_TONES fix stopped OverviewPanel's AccessStatus from crashing into an error boundary.) Stub both
+  // the default.fetch and the named apiFetch with a benign untyped 404 — exactly the "backend without this
+  // read" answer the pages already handle gracefully — so no relative-url fetch ever reaches jsdom. This
+  // page asserts only section headings and URLs, never automation data, so the fixture body is irrelevant.
+  apiFetch: vi.fn(),
   flags: { podsThrows: false, guideRendered: false },
 }));
+
+/** A backend without the automation reads: an untyped 404, which every Automation page reads as not-deployed. */
+const automationNotDeployed = (): Response =>
+  ({ status: 404, ok: false, text: async () => '' }) as unknown as Response;
 
 vi.mock('../../api/k8sAutomationApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/k8sAutomationApi')>();
@@ -18,7 +32,7 @@ vi.mock('../../hooks/useEksDashboard', () => ({ useEksDashboard, default: useEks
 vi.mock('../../hooks/useK8sCacheIdentity', () => ({ useK8sCacheIdentity: () => {}, default: () => {} }));
 vi.mock('../../utils/apiClient', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../utils/apiClient')>();
-  return { ...actual, default: { ...actual.default, get: apiGet } };
+  return { ...actual, apiFetch, default: { ...actual.default, get: apiGet, fetch: apiFetch } };
 });
 vi.mock('../../contexts/AccountContext', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../contexts/AccountContext')>();
@@ -158,6 +172,7 @@ beforeEach(() => {
   getCapabilities.mockReset().mockResolvedValue(capabilities());
   useEksDashboard.mockReset().mockReturnValue(dashboardState());
   apiGet.mockReset().mockResolvedValue([]);
+  apiFetch.mockReset().mockResolvedValue(automationNotDeployed());
   flags.podsThrows = false;
   flags.guideRendered = false;
 });

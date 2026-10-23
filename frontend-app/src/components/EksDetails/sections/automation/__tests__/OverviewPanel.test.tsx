@@ -408,8 +408,8 @@ describe('Automation › Overview (§9.1)', () => {
       // formatMoney renders whole dollars above $1: 23.67 → $24.
       expect(monthly).toHaveTextContent('$24');
       expect(monthly.querySelector('[data-priced-line]')).toHaveTextContent('8 of 9 priced');
-      // The cost figure carries NO Trend chip: CostSummaryView has no prior-period field (backend
-      // GAP), so there is no real prior to compare against and a trend is never fabricated.
+      // The cost figure carries NO Trend chip: previousClusterMonthlyCost is absent here (no
+      // prior-period source yet), so prior is null and a trend is never fabricated.
       expect(monthly.querySelector('[data-trend]')).toBeNull();
     });
 
@@ -464,6 +464,31 @@ describe('Automation › Overview (§9.1)', () => {
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     });
 
+    // Owner debox review: the How-it-works region is a LIGHT HORIZONTAL STRIP of StatusDots, not a
+    // tall stack of bordered rows with an inner filled pill. The five steps lay out in ONE flex-wrap
+    // row, each step's status is a StatusDot (data-tone + its word, no rounded-full chip tint), and
+    // no filled status pill survives in the region.
+    it('renders How it works as a horizontal StatusDot strip, with no filled status pill', async () => {
+      await renderPanel(fixture('demo-aws-001'));
+      await waitFor(() => expect(document.querySelector('[data-how-step="decide"]')).toHaveTextContent('2 suggestions'));
+      const region = document.querySelector('[data-how-step="measure"]')!.closest('ol')!;
+      // One flex-wrap strip (side-by-side, wrapping), not a vertical flex-col stack of boxes.
+      expect(region.className).toContain('flex-wrap');
+      expect(region.className).not.toContain('flex-col');
+      // All five steps sit in the one container.
+      expect(region.querySelectorAll('[data-how-step]')).toHaveLength(5);
+      // Each step's status is a StatusDot (dot + word): a data-tone element with a mandatory
+      // aria-hidden svg and non-empty text, and NOT a filled chip pill (no rounded-full/chip tint).
+      for (const chip of region.querySelectorAll('[data-how-chip]')) {
+        const dot = chip.querySelector('[data-tone]')!;
+        expect(dot.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+        expect((dot.textContent ?? '').trim().length).toBeGreaterThan(0);
+        expect((dot.getAttribute('class') ?? '')).not.toMatch(/rounded-full/);
+      }
+      // No filled status pill (a tinted rounded-full chip) remains anywhere in the strip.
+      expect(region.querySelector('.rounded-full')).toBeNull();
+    });
+
     it('lights How it works from this cluster: suggestions waiting, the confirmed change and the wait', async () => {
       await renderPanel(fixture('demo-aws-001'));
       await waitFor(() => expect(document.querySelector('[data-how-step="decide"]')).toHaveTextContent('2 suggestions'));
@@ -471,6 +496,20 @@ describe('Automation › Overview (§9.1)', () => {
       expect(document.querySelector('[data-how-step="apply"]')).toHaveTextContent('Waiting for you');
       expect(document.querySelector('[data-how-step="verify"]')).toHaveTextContent('confirmed');
       expect(document.querySelector('[data-how-step="watch"]')).toHaveTextContent(/Until /);
+    });
+
+    // Owner debox review: the Access card's routine status is a StatusDot (dot + word), never a
+    // filled tinted pill. Each value is a data-tone element with an aria-hidden svg and its word,
+    // and carries no rounded-full chip tint.
+    it('renders Access statuses as StatusDots, with no filled pill', async () => {
+      await renderPanel(fixture('demo-aws-001'));
+      for (const term of ['Connection', 'Your permission', 'XamOps agent']) {
+        const value = accessValue(term);
+        const dot = value.querySelector('[data-tone]')!;
+        expect(dot, term).not.toBeNull();
+        expect(dot.querySelector('svg[aria-hidden="true"]'), term).not.toBeNull();
+        expect(value.querySelector('.rounded-full'), term).toBeNull();
+      }
     });
 
     it('links How it works to Policies in place', async () => {

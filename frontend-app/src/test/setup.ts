@@ -1,6 +1,20 @@
 import '@testing-library/jest-dom';
 
 /**
+ * jsdom ships `window.CSS` but not `CSS.supports`. Highcharts 12 calls `win.CSS?.supports(...)` at
+ * module-init time to feature-detect `color-mix()`, which throws "CSS.supports is not a function"
+ * the moment any Highcharts chart is imported under test (the XamSecure Overview area chart). A
+ * minimal stub makes the detection return false (the safe branch) instead of crashing. Test-only;
+ * never shipped.
+ */
+if (typeof globalThis !== 'undefined') {
+  const cssObj = ((globalThis as { CSS?: Record<string, unknown> }).CSS ??= {} as Record<string, unknown>);
+  if (typeof cssObj.supports !== 'function') {
+    cssObj.supports = () => false;
+  }
+}
+
+/**
  * Registers the bundled Iconify icons before any test renders.
  *
  * <p>Without this, tests are the only environment where the bundle is absent: it is imported by

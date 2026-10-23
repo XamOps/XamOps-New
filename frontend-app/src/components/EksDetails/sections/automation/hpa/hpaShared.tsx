@@ -285,7 +285,7 @@ export const HpaChangesCard: FC<{ subject: string; read: InsightReadState<HpaHis
     <Card title="Replica changes, last 3 days">
       <div data-hpa-changes="">
         {h.state.kind === 'loading' ? (
-          <div className="skeleton h-8 rounded dark:bg-none dark:bg-[rgba(255,255,255,0.06)]" aria-busy="true" />
+          <div className="skeleton h-8 rounded-[6px] dark:bg-none dark:bg-[rgba(255,255,255,0.06)]" aria-busy="true" />
         ) : h.state.kind === 'unavailable' || h.state.kind === 'error' ? (
           <p className={`text-[12px] ${MUTED}`}>{h.state.kind === 'unavailable' ? h.state.reason : h.state.message}</p>
         ) : changes.length === 0 ? (

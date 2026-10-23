@@ -65,24 +65,33 @@ public class MicrosoftAuthController {
     @Value("${app.frontend.url}")
     private String frontendUrl;
 
+    // The live/per-profile Microsoft redirect-uri. The controller needs its own copy (the service also
+    // injects it as its default) to feed DemoHostResolver, which picks live vs demo per request.
+    @Value("${microsoft.oauth.redirect-uri:}")
+    private String liveMicrosoftRedirectUri;
+
     // Reuse the same signup-token secret as Google so a single frontend page works.
     @Value("${app.signup-token.secret:xamops-google-signup-secret-key-change-me-please-32b}")
     private String signupTokenSecret;
 
     // ── Step 1: kick off Microsoft OAuth ─────────────────────────────────────
     @GetMapping("/microsoft/login")
-    public RedirectView microsoftLogin() {
+    public RedirectView microsoftLogin(HttpServletRequest request) {
+        String base = demoHostResolver.resolveFrontendUrl(request, frontendUrl);
         if (!microsoftOAuthService.isConfigured()) {
             log.warn("Microsoft login attempted but OAuth is not configured (missing client id/secret/redirect-uri)");
-            return new RedirectView(frontendUrl + "/login?error=microsoft_not_configured");
+            return new RedirectView(base + "/login?error=microsoft_not_configured");
         }
         try {
+            // Pick the redirect-uri for THIS host and commit it to the state entry. The callback
+            // leg reads it back so the exchange uses the exact same string (redirect_uri byte-match).
+            String redirectUri = demoHostResolver.resolveMicrosoftRedirectUri(request, liveMicrosoftRedirectUri);
             String state = UUID.randomUUID().toString();
-            redisCacheService.putString(STATE_KEY_PREFIX + state, "1", 10);
-            return new RedirectView(microsoftOAuthService.buildAuthorizationUrl(state));
+            redisCacheService.putString(STATE_KEY_PREFIX + state, redirectUri, 10);
+            return new RedirectView(microsoftOAuthService.buildAuthorizationUrl(state, redirectUri));
         } catch (Exception e) {
             log.error("Failed to initiate Microsoft login: {}", e.getMessage());
-            return new RedirectView(frontendUrl + "/login?error=microsoft_init_failed");
+            return new RedirectView(base + "/login?error=microsoft_init_failed");
         }
     }
 
@@ -92,27 +101,39 @@ public class MicrosoftAuthController {
                                           @RequestParam(value = "state", required = false) String state,
                                           @RequestParam(value = "error", required = false) String error,
                                           HttpServletRequest request) {
+        String base = demoHostResolver.resolveFrontendUrl(request, frontendUrl);
         if (error != null) {
-            return new RedirectView(frontendUrl + "/login?error=microsoft_denied");
+            return new RedirectView(base + "/login?error=microsoft_denied");
         }
-        boolean stateValid;
+        String storedRedirectUri;
         try {
-            stateValid = code != null && state != null && redisCacheService.hasKey(STATE_KEY_PREFIX + state);
+            storedRedirectUri = code != null && state != null
+                    ? redisCacheService.getString(STATE_KEY_PREFIX + state)
+                    : null;
         } catch (Exception e) {
             log.error("Microsoft callback state check failed: {}", e.getMessage());
-            return new RedirectView(frontendUrl + "/login?error=microsoft_state");
+            return new RedirectView(base + "/login?error=microsoft_state");
         }
-        if (!stateValid) {
-            return new RedirectView(frontendUrl + "/login?error=microsoft_state");
+        if (storedRedirectUri == null) {
+            return new RedirectView(base + "/login?error=microsoft_state");
         }
         try { redisCacheService.evict(STATE_KEY_PREFIX + state); } catch (Exception ignored) {}
 
+        // Resolve the redirect-uri for this host and cross-check it against the value committed on
+        // the login leg. They must match; prefer the stored value for the exchange so the
+        // redirect_uri byte-matches even if detection ever differed between the two legs.
+        String resolvedRedirectUri = demoHostResolver.resolveMicrosoftRedirectUri(request, liveMicrosoftRedirectUri);
+        if (!storedRedirectUri.equals(resolvedRedirectUri)) {
+            log.warn("Microsoft redirect-uri mismatch between login and callback legs (stored={}, resolved={}); using stored",
+                    storedRedirectUri, resolvedRedirectUri);
+        }
+
         MicrosoftIdentity identity;
         try {
-            identity = microsoftOAuthService.exchangeCodeForIdentity(code);
+            identity = microsoftOAuthService.exchangeCodeForIdentity(code, storedRedirectUri);
         } catch (Exception e) {
             log.warn("Microsoft callback failed: {}", e.getMessage());
-            return new RedirectView(frontendUrl + "/login?error=microsoft_auth_failed");
+            return new RedirectView(base + "/login?error=microsoft_auth_failed");
         }
 
         // Match by microsoft_sub, then by email (auto-link existing account).
@@ -146,7 +167,7 @@ public class MicrosoftAuthController {
 
         // New user — do NOT create an account yet. Issue a short-lived signup token.
         String token = issueSignupToken(identity);
-        return new RedirectView(frontendUrl + "/signup/complete?token=" + token);
+        return new RedirectView(base + "/signup/complete?token=" + token);
     }
 
     /**
@@ -168,7 +189,7 @@ public class MicrosoftAuthController {
         Client demoClient = clientRepository.findFirstByDemoTrue().orElse(null);
         if (demoClient == null) {
             log.warn("Demo host sign-in but no is_demo client is seeded; refusing to provision");
-            return frontendUrl + "/login?error=demo_unavailable";
+            return demoHostResolver.resolveFrontendUrl(request, frontendUrl) + "/login?error=demo_unavailable";
         }
         User user = new User();
         user.setUsername(identity.getEmail());

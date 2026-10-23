@@ -20,9 +20,18 @@ import org.springframework.stereotype.Component;
 public class DemoHostResolver {
 
     private final String demoHost;
+    private final String demoFrontendUrl;
+    private final String googleDemoRedirectUri;
+    private final String microsoftDemoRedirectUri;
 
-    public DemoHostResolver(@Value("${app.demo.host:}") String demoHost) {
+    public DemoHostResolver(@Value("${app.demo.host:}") String demoHost,
+                            @Value("${app.demo.frontend.url:}") String demoFrontendUrl,
+                            @Value("${google.oauth.demo-redirect-uri:}") String googleDemoRedirectUri,
+                            @Value("${microsoft.oauth.demo-redirect-uri:}") String microsoftDemoRedirectUri) {
         this.demoHost = demoHost == null ? "" : demoHost.trim().toLowerCase();
+        this.demoFrontendUrl = demoFrontendUrl == null ? "" : demoFrontendUrl.trim();
+        this.googleDemoRedirectUri = googleDemoRedirectUri == null ? "" : googleDemoRedirectUri.trim();
+        this.microsoftDemoRedirectUri = microsoftDemoRedirectUri == null ? "" : microsoftDemoRedirectUri.trim();
     }
 
     /**
@@ -46,5 +55,41 @@ public class DemoHostResolver {
             host = host.substring(0, colon);
         }
         return host.equals(demoHost);
+    }
+
+    /**
+     * Picks the frontend base URL for post-login redirects. Returns the configured demo frontend URL
+     * when the request is on the demo host AND that URL is configured (non-blank); otherwise returns
+     * the supplied live/per-profile URL. Fail-safe to live keeps non-demo behavior byte-identical.
+     */
+    public String resolveFrontendUrl(HttpServletRequest request, String liveFrontendUrl) {
+        if (!demoFrontendUrl.isBlank() && isDemoHost(request)) {
+            return demoFrontendUrl;
+        }
+        return liveFrontendUrl;
+    }
+
+    /**
+     * Picks the Google OAuth {@code redirect_uri}. Returns the configured demo redirect-uri when the
+     * request is on the demo host AND it is configured (non-blank); otherwise the supplied live value.
+     * The same resolved value MUST be used on both OAuth legs so the redirect_uri byte-matches.
+     */
+    public String resolveGoogleRedirectUri(HttpServletRequest request, String liveRedirectUri) {
+        if (!googleDemoRedirectUri.isBlank() && isDemoHost(request)) {
+            return googleDemoRedirectUri;
+        }
+        return liveRedirectUri;
+    }
+
+    /**
+     * Picks the Microsoft OAuth {@code redirect_uri}. Returns the configured demo redirect-uri when
+     * the request is on the demo host AND it is configured (non-blank); otherwise the supplied live
+     * value. The same resolved value MUST be used on both OAuth legs so the redirect_uri byte-matches.
+     */
+    public String resolveMicrosoftRedirectUri(HttpServletRequest request, String liveRedirectUri) {
+        if (!microsoftDemoRedirectUri.isBlank() && isDemoHost(request)) {
+            return microsoftDemoRedirectUri;
+        }
+        return liveRedirectUri;
     }
 }

@@ -20,56 +20,95 @@ class DemoHostResolverTest {
         return request;
     }
 
+    private static final String LIVE_FRONTEND = "https://live.xamops.com";
+    private static final String DEMO_FRONTEND = "https://demo.xamops.com";
+    private static final String LIVE_GOOGLE = "https://live.xamops.com/api/auth/google/callback";
+    private static final String DEMO_GOOGLE = "https://demo.xamops.com/api/auth/google/callback";
+    private static final String LIVE_MS = "https://live.xamops.com/api/auth/microsoft/callback";
+    private static final String DEMO_MS = "https://demo.xamops.com/api/auth/microsoft/callback";
+
+    /** Resolver with the demo host configured and all demo URLs populated (prod-like). */
+    private static DemoHostResolver demoConfigured() {
+        return new DemoHostResolver("demo.xamops.com", DEMO_FRONTEND, DEMO_GOOGLE, DEMO_MS);
+    }
+
     @Test
     void blankProperty_neverDemoHost_regardlessOfHostHeader() {
-        DemoHostResolver resolver = new DemoHostResolver("");
+        DemoHostResolver resolver = new DemoHostResolver("", "", "", "");
         assertThat(resolver.isDemoHost(withHost("demo.xamops.com"))).isFalse();
         assertThat(resolver.isDemoHost(withHost("anything.com"))).isFalse();
     }
 
     @Test
     void nullProperty_neverDemoHost() {
-        DemoHostResolver resolver = new DemoHostResolver(null);
+        DemoHostResolver resolver = new DemoHostResolver(null, null, null, null);
         assertThat(resolver.isDemoHost(withHost("demo.xamops.com"))).isFalse();
     }
 
     @Test
     void exactMatch_isDemoHost() {
-        DemoHostResolver resolver = new DemoHostResolver("demo.xamops.com");
+        DemoHostResolver resolver = demoConfigured();
         assertThat(resolver.isDemoHost(withHost("demo.xamops.com"))).isTrue();
     }
 
     @Test
     void matchWithPortSuffix_isDemoHost() {
-        DemoHostResolver resolver = new DemoHostResolver("demo.xamops.com");
+        DemoHostResolver resolver = demoConfigured();
         assertThat(resolver.isDemoHost(withHost("demo.xamops.com:443"))).isTrue();
     }
 
     @Test
     void caseInsensitiveMatch_isDemoHost() {
-        DemoHostResolver resolver = new DemoHostResolver("demo.xamops.com");
+        DemoHostResolver resolver = demoConfigured();
         assertThat(resolver.isDemoHost(withHost("DEMO.Xamops.COM"))).isTrue();
         // configured value is normalised too
-        DemoHostResolver upperConfigured = new DemoHostResolver("  DEMO.XAMOPS.COM  ");
+        DemoHostResolver upperConfigured = new DemoHostResolver("  DEMO.XAMOPS.COM  ", "", "", "");
         assertThat(upperConfigured.isDemoHost(withHost("demo.xamops.com"))).isTrue();
     }
 
     @Test
     void nonMatchingHost_isNotDemoHost() {
-        DemoHostResolver resolver = new DemoHostResolver("demo.xamops.com");
+        DemoHostResolver resolver = demoConfigured();
         assertThat(resolver.isDemoHost(withHost("live.xamops.com"))).isFalse();
     }
 
     @Test
     void missingOrBlankHostHeader_isNotDemoHost() {
-        DemoHostResolver resolver = new DemoHostResolver("demo.xamops.com");
+        DemoHostResolver resolver = demoConfigured();
         assertThat(resolver.isDemoHost(withHost(null))).isFalse();
         assertThat(resolver.isDemoHost(withHost("   "))).isFalse();
     }
 
     @Test
     void nullRequest_isNotDemoHost() {
-        DemoHostResolver resolver = new DemoHostResolver("demo.xamops.com");
+        DemoHostResolver resolver = demoConfigured();
         assertThat(resolver.isDemoHost((HttpServletRequest) null)).isFalse();
+    }
+
+    // ── resolveFrontendUrl / resolveGoogleRedirectUri / resolveMicrosoftRedirectUri ──────────────
+
+    @Test
+    void resolve_onDemoHostWithDemoUrlsConfigured_returnsDemoValues() {
+        DemoHostResolver resolver = demoConfigured();
+        assertThat(resolver.resolveFrontendUrl(withHost("demo.xamops.com"), LIVE_FRONTEND)).isEqualTo(DEMO_FRONTEND);
+        assertThat(resolver.resolveGoogleRedirectUri(withHost("demo.xamops.com"), LIVE_GOOGLE)).isEqualTo(DEMO_GOOGLE);
+        assertThat(resolver.resolveMicrosoftRedirectUri(withHost("demo.xamops.com"), LIVE_MS)).isEqualTo(DEMO_MS);
+    }
+
+    @Test
+    void resolve_onDemoHostButDemoUrlsBlank_fallsBackToLive() {
+        // Demo host configured, but the demo URLs are blank (non-prod profile shape).
+        DemoHostResolver resolver = new DemoHostResolver("demo.xamops.com", "", "", "");
+        assertThat(resolver.resolveFrontendUrl(withHost("demo.xamops.com"), LIVE_FRONTEND)).isEqualTo(LIVE_FRONTEND);
+        assertThat(resolver.resolveGoogleRedirectUri(withHost("demo.xamops.com"), LIVE_GOOGLE)).isEqualTo(LIVE_GOOGLE);
+        assertThat(resolver.resolveMicrosoftRedirectUri(withHost("demo.xamops.com"), LIVE_MS)).isEqualTo(LIVE_MS);
+    }
+
+    @Test
+    void resolve_onNonDemoHost_returnsLiveValues() {
+        DemoHostResolver resolver = demoConfigured();
+        assertThat(resolver.resolveFrontendUrl(withHost("live.xamops.com"), LIVE_FRONTEND)).isEqualTo(LIVE_FRONTEND);
+        assertThat(resolver.resolveGoogleRedirectUri(withHost("live.xamops.com"), LIVE_GOOGLE)).isEqualTo(LIVE_GOOGLE);
+        assertThat(resolver.resolveMicrosoftRedirectUri(withHost("live.xamops.com"), LIVE_MS)).isEqualTo(LIVE_MS);
     }
 }

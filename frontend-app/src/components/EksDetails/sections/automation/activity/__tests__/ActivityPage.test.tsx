@@ -201,7 +201,7 @@ describe('Automation › Activity: the activity feed (FEAT-007)', () => {
   it('counts the KPIs over the loaded entries and says so, and opens with what XamOps did today', async () => {
     page();
     await screen.findByRole('table', { name: ACTIVITY_FEED_CAPTION });
-    const kpis = [...document.querySelectorAll('[data-activity-kpis] [data-kpi-tone]')].map((k) => k.textContent);
+    const kpis = [...document.querySelectorAll('[data-activity-kpis] [data-metric-cell]')].map((k) => k.textContent);
     expect(kpis[0]).toMatch(/^Applied3in all 7 entries/);
     expect(kpis[1]).toMatch(/^Deferred or put back1/);
     expect(kpis[2]).toMatch(/^Refused or failed1/);
@@ -261,7 +261,7 @@ describe('Automation › Activity: the activity feed (FEAT-007)', () => {
     page();
     await screen.findByRole('table', { name: ACTIVITY_FEED_CAPTION });
     expect(feedRows()).toHaveLength(5);
-    expect([...document.querySelectorAll('[data-activity-kpis] [data-kpi-tone]')][0]).toHaveTextContent('in the last 5 entries');
+    expect([...document.querySelectorAll('[data-activity-kpis] [data-metric-cell]')][0]).toHaveTextContent('in the last 5 entries');
     await user.click(screen.getByRole('button', { name: 'Load older' }));
     await waitFor(() => expect(feedRows()).toHaveLength(7));
     expect(lastFeedCall().searchParams.get('cursor')).toBe('page-2');
@@ -435,7 +435,7 @@ describe('Automation › Activity: a backend without the feed (latest change per
   it('counts the KPIs over the latest change per workload, and opens with the Now sentence', async () => {
     page();
     await screen.findByRole('table', { name: LATEST_CHANGE_CAPTION });
-    const kpis = [...document.querySelectorAll('[data-activity-kpis] [data-kpi-tone]')].map((k) => k.textContent);
+    const kpis = [...document.querySelectorAll('[data-activity-kpis] [data-metric-cell]')].map((k) => k.textContent);
     expect(kpis[0]).toMatch(/^Applied1/);
     expect(kpis[1]).toMatch(/^Test runs1/);
     expect(kpis[2]).toMatch(/^Refused or failed1/);

@@ -1,27 +1,36 @@
 /**
- * Nodes › Utilization (docs/cloudk8s/ui-revamp-design.md §10.5, D10, §14.1; plan item 25).
+ * Nodes › Utilization (docs/cloudk8s/ui-revamp-design.md §10.5, D10, §14.1; plan item 25; FEAT-004).
  *
  * How busy the cluster and each node are, where the agent's Prometheus metrics report it. The old
  * Performance tab averaged CPU and memory usage into an "efficiency score" even when neither was
  * reported, turned a missing per-node value into 0 (`|| 0`), and coloured a 40-75% "optimal" ring.
  * Now: the average shows only when both cluster usages are reported; a node without usage stays "—"
  * and is left out of the averages, which say how many nodes they cover; and the band is a labelled
- * status mark, not a colour. Requested % (pod requests of allocatable) sits beside usage.
+ * status MARK, never a coloured ring. Requested % (pod requests of allocatable) sits beside usage.
+ *
+ * v3 roll-out: the tab stamps PageTemplate width='table' so it renders inside the redesigned
+ * [data-k8s-redesigned-main] region and the wide table scrolls inside itself. The summary MetricTile
+ * grid collapses into ONE hero MetricStrip — honest to the guards: a cell whose figure isn't reported
+ * shows the muted dash with its reason as the sub-line (never 0), and the average's band rides its
+ * sub-line as a labelled StatusMark.
  */
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import type { UseEksDashboardReturn } from '../../../hooks/useEksDashboard';
 import { clusterUsagePct, nodeRows, nodeUsageByName } from '../../../utils/k8sDerivations';
 import { DASH, formatPercent } from '../../../utils/k8sQuantities';
-import { K8sDataTable, type ColumnDef } from '../../CloudK8s/shared/K8sDataTable';
-import { MetricTile } from '../../CloudK8s/shared/MetricTile';
+import { type ColumnDef } from '../../CloudK8s/shared/K8sDataTable';
+import { DataTable } from '../../CloudK8s/shared/DataTable';
+import { PageTemplate } from '../../CloudK8s/shared/PageTemplate';
+import { MetricStrip, type MetricCell } from '../../CloudK8s/shared/MetricStrip';
 import { RequestBar } from '../../CloudK8s/shared/RequestBar';
 import { StatusMark, type StatusState } from '../../CloudK8s/shared/StatusMark';
+import type { DrawerSection } from '../../CloudK8s/shared/DetailDrawer';
+import { SECONDARY } from '../../CloudK8s/shared/typeScale';
 
 export const UTILIZATION_CAPTION = 'Node utilisation';
 export const USAGE_SOURCE = 'Prometheus (agent)';
-const secondary = 'text-[12px] text-[rgba(0,0,0,0.6)]';
 
-/** The 40-75% band as a labelled mark (D10). */
+/** The 40-75% band as a labelled mark (D10) — never a coloured ring. */
 export function bandMark(pct: number): { state: StatusState; label: string } {
   if (pct < 40) return { state: 'attention', label: 'Below 40%: room to consolidate' };
   if (pct > 75) return { state: 'attention', label: 'Above 75%: little headroom' };
@@ -44,11 +53,11 @@ const average = (values: Array<number | null>): { value: number | null; n: numbe
 const pctBar = (pct: number | null) => (pct === null ? <span>{DASH}</span> : <RequestBar requested={formatPercent(pct)} allocatable={null} pct={pct} />);
 
 const COLUMNS: ReadonlyArray<ColumnDef<UsageRow>> = [
-  { id: 'name', header: 'Node', priority: 'essential', cell: (r) => <span className="font-mono text-[12px] font-semibold">{r.name}</span>, sortValue: (r) => r.name },
-  { id: 'cpuUsed', header: 'CPU used', cell: (r) => pctBar(r.cpuUsedPct), sortValue: (r) => r.cpuUsedPct },
-  { id: 'memUsed', header: 'Memory used', cell: (r) => pctBar(r.memUsedPct), sortValue: (r) => r.memUsedPct },
-  { id: 'cpuReq', header: 'CPU requested', cell: (r) => pctBar(r.cpuRequestedPct), sortValue: (r) => r.cpuRequestedPct },
-  { id: 'memReq', header: 'Memory requested', cell: (r) => pctBar(r.memRequestedPct), sortValue: (r) => r.memRequestedPct },
+  { id: 'name', header: 'Node', priority: 'essential', width: '240px', cell: (r) => <span className="block truncate font-mono text-[12px] font-semibold text-[color:var(--chrome-ink)]" title={r.name}>{r.name}</span>, sortValue: (r) => r.name },
+  { id: 'cpuUsed', header: 'CPU used', width: '180px', cell: (r) => pctBar(r.cpuUsedPct), sortValue: (r) => r.cpuUsedPct },
+  { id: 'memUsed', header: 'Memory used', width: '180px', cell: (r) => pctBar(r.memUsedPct), sortValue: (r) => r.memUsedPct },
+  { id: 'cpuReq', header: 'CPU requested', width: '180px', cell: (r) => pctBar(r.cpuRequestedPct), sortValue: (r) => r.cpuRequestedPct },
+  { id: 'memReq', header: 'Memory requested', width: '180px', cell: (r) => pctBar(r.memRequestedPct), sortValue: (r) => r.memRequestedPct },
 ];
 
 export default function EksPerformanceTab({ eksData }: { eksData: UseEksDashboardReturn }) {
@@ -65,45 +74,83 @@ export default function EksPerformanceTab({ eksData }: { eksData: UseEksDashboar
     return { rows: list, cpu: clusterUsagePct(dashboard, 'cpu'), mem: clusterUsagePct(dashboard, 'memory') };
   }, [dashboard]);
 
+  // The average shows ONLY when both cluster usages are reported (D10) — never a one-sided score.
   const both = cpu !== null && mem !== null ? (cpu + mem) / 2 : null;
   const nodeCpu = average(rows.map((r) => r.cpuUsedPct));
   const nodeMem = average(rows.map((r) => r.memUsedPct));
   const band = both === null ? null : bandMark(both);
 
+  // One hero MetricStrip, honest to the guards: a cell whose figure isn't reported shows the muted
+  // dash (never 0) with its reason as the sub; the average rides its band as a labelled StatusMark.
+  const stripCells: MetricCell[] = [
+    {
+      label: 'Cluster CPU used',
+      value: cpu === null ? <span className="text-[color:var(--chrome-muted)]">{DASH}</span> : formatPercent(cpu, 1),
+      sub: cpu === null ? `Not reported by ${USAGE_SOURCE}` : USAGE_SOURCE,
+    },
+    {
+      label: 'Cluster memory used',
+      value: mem === null ? <span className="text-[color:var(--chrome-muted)]">{DASH}</span> : formatPercent(mem, 1),
+      sub: mem === null ? `Not reported by ${USAGE_SOURCE}` : USAGE_SOURCE,
+    },
+    {
+      label: 'Average utilisation',
+      value: both === null ? <span className="text-[color:var(--chrome-muted)]">{DASH}</span> : formatPercent(both),
+      sub: band ? <StatusMark state={band.state} label={band.label} /> : 'Needs both CPU and memory usage',
+    },
+    {
+      label: 'Average node CPU used',
+      value: nodeCpu.value === null ? <span className="text-[color:var(--chrome-muted)]">{DASH}</span> : formatPercent(nodeCpu.value),
+      sub: nodeCpu.value === null ? 'No node reports usage' : `${nodeCpu.n} of ${rows.length} nodes report usage`,
+    },
+    {
+      label: 'Average node memory used',
+      value: nodeMem.value === null ? <span className="text-[color:var(--chrome-muted)]">{DASH}</span> : formatPercent(nodeMem.value),
+      sub: nodeMem.value === null ? 'No node reports usage' : `${nodeMem.n} of ${rows.length} nodes report usage`,
+    },
+  ];
+
+  /** The real-data drawer for a node's usage: Used + Requested, "—" + reason when a figure is missing. */
+  const rowToSections = (r: UsageRow): DrawerSection[] => [
+    {
+      title: 'Used',
+      data: [
+        { label: 'CPU used', value: r.cpuUsedPct === null ? null : pctBar(r.cpuUsedPct), reason: `Not reported by ${USAGE_SOURCE}` },
+        { label: 'Memory used', value: r.memUsedPct === null ? null : pctBar(r.memUsedPct), reason: `Not reported by ${USAGE_SOURCE}` },
+      ],
+    },
+    {
+      title: 'Requested',
+      data: [
+        { label: 'CPU requested', value: r.cpuRequestedPct === null ? null : pctBar(r.cpuRequestedPct), reason: "The node doesn't report allocatable CPU." },
+        { label: 'Memory requested', value: r.memRequestedPct === null ? null : pctBar(r.memRequestedPct), reason: "The node doesn't report allocatable memory." },
+      ],
+    },
+  ];
+
+  const intro: ReactNode = `How busy the cluster and each node are. Used: ${USAGE_SOURCE}, "—" where a node reports none; Requested: pod requests ÷ node allocatable.`;
+
   return (
-    <div className="space-y-4" data-panel="utilization">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <MetricTile label="Cluster CPU used" value={cpu} format={(v) => formatPercent(v, 1)} source={USAGE_SOURCE} />
-        <MetricTile label="Cluster memory used" value={mem} format={(v) => formatPercent(v, 1)} source={USAGE_SOURCE} />
-        <MetricTile
-          label="Average utilisation"
-          value={both}
-          format={(v) => formatPercent(v)}
-          detail={band ? <StatusMark state={band.state} label={band.label} /> : undefined}
-          source="CPU and memory used, averaged"
-          missingText="Needs both CPU and memory usage"
-        />
-        <MetricTile
-          label="Average node CPU used"
-          value={nodeCpu.value}
-          format={(v) => formatPercent(v)}
-          detail={`${nodeCpu.n} of ${rows.length} nodes report usage`}
-          source={USAGE_SOURCE}
-          missingText="No node reports usage"
+    <PageTemplate
+      title="Utilisation"
+      intro={intro}
+      width="table"
+      hero={<MetricStrip cells={stripCells} aria-label="Cluster utilisation" />}
+    >
+      <div data-panel="utilization" className="flex min-w-0 flex-col gap-3">
+        <DataTable<UsageRow>
+          rows={rows}
+          columns={COLUMNS}
+          rowKey={(r) => r.name}
+          caption={UTILIZATION_CAPTION}
+          initialSort={{ columnId: 'cpuUsed', direction: 'desc' }}
+          rowLabel={(r) => r.name}
+          rowTitle={(r) => r.name}
+          rowToSections={rowToSections}
+          emptyState={<p className={`px-4 py-8 text-center ${SECONDARY}`}>The agent reported no nodes.</p>}
+          source={<span className={SECONDARY}>{`Used: ${USAGE_SOURCE}, "—" where a node reports none · Requested: pod requests ÷ node allocatable`}</span>}
         />
       </div>
-      {nodeMem.value !== null && (
-        <p className={secondary}>{`Average node memory used: ${formatPercent(nodeMem.value)} over ${nodeMem.n} of ${rows.length} nodes.`}</p>
-      )}
-      <K8sDataTable
-        rows={rows}
-        columns={COLUMNS}
-        rowKey={(r) => r.name}
-        caption={UTILIZATION_CAPTION}
-        initialSort={{ columnId: 'cpuUsed', direction: 'desc' }}
-        emptyState={<p className={`px-4 py-8 text-center ${secondary}`}>The agent reported no nodes.</p>}
-        source={<span className={secondary}>{`Used: ${USAGE_SOURCE}, "—" where a node reports none · Requested: pod requests ÷ node allocatable`}</span>}
-      />
-    </div>
+    </PageTemplate>
   );
 }

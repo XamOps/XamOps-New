@@ -338,7 +338,7 @@ describe('verticalRightsizerAdapter cost (FEAT-002)', () => {
       gateReasons: [],
       cost: {
         currency: 'USD', hoursPerMonth: 730, monthlySavings: 6.84, monthlySavingsUnavailableReason: null,
-        clusterMonthlyCost: 47.52, pricedWorkloads: 2, unpricedWorkloads: 1,
+        clusterMonthlyCost: 47.52, pricedWorkloads: 2, unpricedWorkloads: 1, previousClusterMonthlyCost: 52.1,
       },
       workloads: [
         workload({
@@ -351,12 +351,71 @@ describe('verticalRightsizerAdapter cost (FEAT-002)', () => {
     });
     expect(view.cost).toEqual({
       currency: 'USD', hoursPerMonth: 730, monthlySavings: 6.84, monthlySavingsUnavailableReason: null,
-      clusterMonthlyCost: 47.52, pricedWorkloads: 2, unpricedWorkloads: 1,
+      clusterMonthlyCost: 47.52, pricedWorkloads: 2, unpricedWorkloads: 1, previousClusterMonthlyCost: 52.1,
     });
     expect(view.workloads[0].cost).toEqual({
       monthlyCost: 12.34, monthlySavings: 0, reason: null, source: 'PRICE_LIST',
       capacityType: 'on-demand', capacityTypeInferred: true, note: 'AWS Price List on-demand rate',
+      // No pods array on this fixture: adapts to null, never a fabricated empty-but-priced breakdown.
+      pods: null,
     });
+  });
+
+  it('maps the per-pod cost breakdown null-safely (true 0 preserved, non-number -> null, absent -> null)', () => {
+    const view = adaptEngineResponse({
+      engine,
+      gateReasons: [],
+      workloads: [
+        workload({
+          cost: {
+            monthlyCost: 30, monthlySavings: 0, reason: null, source: 'PRICE_LIST',
+            capacityType: 'on-demand', capacityTypeInferred: false, note: null,
+            pods: [
+              { podName: 'api-0', nodeName: 'node-1', monthlyCost: 20, reason: null, source: 'PRICE_LIST', capacityType: 'on-demand', capacityTypeInferred: false },
+              { podName: 'api-1', nodeName: 'node-1', monthlyCost: 0, reason: null, source: 'PRICE_LIST', capacityType: 'on-demand', capacityTypeInferred: true },
+              { podName: 'api-2', nodeName: null, monthlyCost: Number.NaN as unknown as number, reason: 'NO_LIVE_PRICE', source: null, capacityType: null },
+            ],
+          },
+        }),
+      ],
+    });
+    const pods = view.workloads[0].cost!.pods!;
+    expect(pods).toHaveLength(3);
+    expect(pods[0]).toEqual({ podName: 'api-0', nodeName: 'node-1', monthlyCost: 20, reason: null, source: 'PRICE_LIST', capacityType: 'on-demand', capacityTypeInferred: false });
+    // A true computed zero is preserved as a real "$0/mo", never coerced to null.
+    expect(pods[1].monthlyCost).toBe(0);
+    expect(pods[1].capacityTypeInferred).toBe(true);
+    // A non-number figure is null + reason (unavailable), never a fabricated number.
+    expect(pods[2].monthlyCost).toBeNull();
+    expect(pods[2].reason).toBe('NO_LIVE_PRICE');
+    expect(pods[2].capacityTypeInferred).toBe(false);
+  });
+
+  it('maps previousClusterMonthlyCost to null when absent or not a number (GAP 1: no prior source yet)', () => {
+    // Absent on a response that predates the field, or carried as a non-number: both adapt to null,
+    // so the Trend chip renders nothing rather than a fabricated trend.
+    const absent = adaptEngineResponse({
+      engine,
+      gateReasons: [],
+      cost: {
+        currency: 'USD', hoursPerMonth: 730, monthlySavings: null, monthlySavingsUnavailableReason: null,
+        clusterMonthlyCost: 47.52, pricedWorkloads: 1, unpricedWorkloads: 0,
+      },
+      workloads: [workload()],
+    });
+    expect(absent.cost?.previousClusterMonthlyCost).toBeNull();
+
+    const nonNumber = adaptEngineResponse({
+      engine,
+      gateReasons: [],
+      cost: {
+        currency: 'USD', hoursPerMonth: 730, monthlySavings: null, monthlySavingsUnavailableReason: null,
+        clusterMonthlyCost: 47.52, pricedWorkloads: 1, unpricedWorkloads: 0,
+        previousClusterMonthlyCost: Number.NaN,
+      },
+      workloads: [workload()],
+    });
+    expect(nonNumber.cost?.previousClusterMonthlyCost).toBeNull();
   });
 
   it('carries null + reason when a workload is unpriced, and null cost when the response omits it', () => {

@@ -28,13 +28,25 @@ export type LiveLayer = 'security' | 'routing' | 'storage' | 'scaling' | 'interf
 
 export type LiveLayers = Record<LiveLayer, boolean>;
 
+/*
+ * Security groups and scaling resources are part of the picture people expect to see.
+ * Routing is already told by subnet tiers and gateway egress lines, storage is per-instance
+ * detail, and interfaces can number in the hundreds, so those three start hidden.
+ */
 export const DEFAULT_LIVE_LAYERS: LiveLayers = {
-  security: false,
+  security: true,
   routing: false,
   storage: false,
-  scaling: false,
+  scaling: true,
   interfaces: false,
 };
+
+/**
+ * Relationship labels that say "belongs to" rather than "talks to". Drawn but invisible
+ * until a hover traces them: one instance in three groups, times every instance, is the
+ * spaghetti this view exists to avoid.
+ */
+const MEMBERSHIP_LABELS = new Set(['uses SG', 'admits', 'allowed out to', 'manages', 'registers to', 'launches into', 'attached to']);
 
 /** What an edge means on the canvas. Drives line style and the legend. */
 export type FlowKind =
@@ -68,6 +80,8 @@ const LAYER_OF_TYPE: Record<string, LiveLayer> = {
   // Hundreds per VPC under EKS pod networking, with no relationships of their own: on UAT
   // they were 520 of 714 resources and buried every instance and gateway.
   'Network Interface': 'interfaces',
+  // The describe scan names the same type differently from the inventory plane.
+  'Network Interface (ENI)': 'interfaces',
 };
 
 /** Layer and meaning for each relationship label CloudMapService.createAllEdges emits. */
@@ -76,9 +90,11 @@ const EDGE_RULES: Record<string, { layer: LiveLayer | null; kind: FlowKind }> = 
   targets: { layer: null, kind: 'traffic' },
   behind: { layer: null, kind: 'traffic' },
   'egress for': { layer: null, kind: 'egress' },
+  'forwards to': { layer: null, kind: 'traffic' },
   routes: { layer: 'routing', kind: 'routing' },
   'default via': { layer: 'routing', kind: 'routing' },
-  'attached to': { layer: 'routing', kind: 'routing' },
+  // A load balancer "attached to" the subnets it spans: shown on hover (see MEMBERSHIP_LABELS).
+  'attached to': { layer: null, kind: 'routing' },
   'uses SG': { layer: 'security', kind: 'security' },
   admits: { layer: 'security', kind: 'security' },
   'allowed out to': { layer: 'security', kind: 'security' },
@@ -181,6 +197,24 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
     visible.add(id);
   }
 
+  /*
+   * Unused security groups are folded into a count on their VPC.
+   *
+   * Accounts accumulate groups nothing uses — launch-wizard-1 through -33 on UAT — and
+   * drawn as cards they buried the groups that matter. A group is kept when any resource
+   * uses it or it takes part in a rule with one that is used.
+   */
+  const usedSgs = new Set<string>();
+  for (const e of rawEdges) if (e.data.label === 'uses SG') usedSgs.add(e.data.target);
+  for (const e of rawEdges) {
+    const { source, target, label } = e.data;
+    if ((label === 'admits' || label === 'allowed out to') && (usedSgs.has(source) || usedSgs.has(target))) {
+      usedSgs.add(source);
+      usedSgs.add(target);
+    }
+  }
+  const unusedSgsIn = new Map<string, number>();
+
   // ── VPC membership, computed before subnets move under AZ containers ──────
   const vpcOf = (id: string): string | undefined => {
     let cur: string | undefined = id;
@@ -218,6 +252,12 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
     const subnets = subnetsIn.get(id) ?? 0;
     nd.data.collapsed = true;
     nd.data.displayLabel = `${nd.data.label}\n${subnets} subnet${subnets === 1 ? '' : 's'} · no resources`;
+  }
+  for (const [id, nd] of nodes) {
+    if (nd.data.type !== 'Security Group' || usedSgs.has(id) || !visible.has(id)) continue;
+    visible.delete(id);
+    const vpc = vpcOf(id);
+    if (vpc) unusedSgsIn.set(vpc, (unusedSgsIn.get(vpc) ?? 0) + 1);
   }
   if (collapsed.size > 0) {
     for (const id of [...visible]) {
@@ -259,7 +299,12 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
     const d = n.data;
     if (d.type !== 'VPC' || d.collapsed) continue;
     const azCount = azNodes.filter((a) => a.data.parent === d.id).length;
-    d.displayLabel = [d.label, azCount ? `${azCount} AZ${azCount === 1 ? '' : 's'}` : null].filter(Boolean).join('  ·  ');
+    const unused = unusedSgsIn.get(d.id) ?? 0;
+    d.displayLabel = [
+      d.label,
+      azCount ? `${azCount} AZ${azCount === 1 ? '' : 's'}` : null,
+      unused ? `${unused} unused security group${unused === 1 ? '' : 's'} hidden` : null,
+    ].filter(Boolean).join('  ·  ');
   }
 
   // ── Edges ─────────────────────────────────────────────────────────────────
@@ -273,7 +318,7 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
 
   const out: El[] = [];
   const seen = new Set<string>();
-  const pushEdge = (source: string, target: string, label: string, kind: FlowKind, derived = false) => {
+  const pushEdge = (source: string, target: string, label: string, kind: FlowKind, derived = false, membership = false) => {
     if (source === target || !visible.has(source) || !visible.has(target)) return;
     // Containment already says this; a line from a card to its own box reads as a loop.
     if (ancestorsOf(source).has(target) || ancestorsOf(target).has(source)) return;
@@ -285,7 +330,11 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
     seen.add(key);
     out.push({
       group: 'edges',
-      data: { id: `${source}__${kind}__${target}`, source, target, label, kind, ...(derived ? { derived: true } : {}) },
+      data: {
+        id: `${source}__${kind}__${target}`, source, target, label, kind,
+        ...(derived ? { derived: true } : {}),
+        ...(membership ? { membership: true } : {}),
+      },
     });
   };
 
@@ -306,9 +355,10 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
   // Interfaces name the instance they are attached to; that is their only relationship.
   if (layers.interfaces) {
     for (const n of nodes.values()) {
-      if (n.data.type !== 'Network Interface') continue;
-      const inst = n.data['Attached to'];
-      if (!inst || inst === 'N/A') continue;
+      if (LAYER_OF_TYPE[n.data.type] !== 'interfaces') continue;
+      // "Attached to" from the plane, "Attached To" from the describe scan.
+      const inst = n.data['Attached to'] ?? n.data['Attached To'];
+      if (!inst || inst === 'N/A' || inst === 'Detached') continue;
       const scoped = [...nodes.keys()].find((k) => k === inst || k.endsWith(`::${inst}`));
       if (scoped) pushEdge(n.data.id, scoped, 'attached to', 'storage');
     }
@@ -318,7 +368,21 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
     const { source, target, label } = e.data;
     const rule = EDGE_RULES[label] ?? { layer: null, kind: 'traffic' as FlowKind };
     if (rule.layer && !layers[rule.layer]) continue;
-    pushEdge(source, target, label, rule.kind);
+    if (label === 'egress for') {
+      /*
+       * Outbound, so the arrow points out: subnet to gateway, "egress via".
+       *
+       * Drawn as gateway-to-subnet, an internet gateway's egress lines fanned down into every
+       * public subnet and read as the internet reaching those instances directly. Lines to an
+       * internet gateway are hover-only: a green public subnet already says it routes there.
+       * Lines to a NAT gateway stay, because which NAT a private subnet leaves through is the
+       * fact people look for (and pay for).
+       */
+      const viaIgw = nodes.get(source)?.data.type === 'Internet Gateway';
+      pushEdge(target, source, 'egress via', 'egress', false, viaIgw);
+      continue;
+    }
+    pushEdge(source, target, label, rule.kind, false, MEMBERSHIP_LABELS.has(label));
   }
 
   // Target groups hidden: the load balancer forwards straight to what the group targets.
@@ -336,7 +400,7 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
    * prod-web-01 can reach prod-postgres — and it stays honest about being a permission,
    * not observed traffic, by drawing as a dashed "can reach" line.
    */
-  if (!layers.security) {
+  {
     for (const [dest, src] of sgAdmits) {
       const from = sgMembers.get(src) ?? [];
       const to = sgMembers.get(dest) ?? [];
@@ -366,6 +430,23 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
       visible.add(inet);
     }
     pushEdge(inet, g, 'ingress', 'traffic', true);
+  }
+
+  /*
+   * Internet-facing load balancers are where internet traffic actually lands, so the request
+   * path runs gateway -> load balancer -> targets. Without this the only line out of an
+   * internet gateway went to subnets, which read as traffic going straight to instances.
+   */
+  for (const id of visible) {
+    const d = nodes.get(id)?.data;
+    if (d?.type !== 'Load Balancer') continue;
+    const scheme = String(d.Scheme ?? '').toLowerCase();
+    const kind = String(d.Type ?? '').toLowerCase();
+    const short = kind === 'application' ? 'ALB' : kind === 'network' ? 'NLB' : kind === 'gateway' ? 'GWLB' : 'Load Balancer';
+    d.caption = scheme ? `${short} · ${scheme}` : short;
+    if (scheme !== 'internet-facing') continue;
+    const vpc = vpcOf(id);
+    for (const g of gateways) if (vpcOf(g) === vpc) pushEdge(g, id, 'ingress', 'traffic', true);
   }
 
   // Short ids for the inspector header, without the scope prefix.

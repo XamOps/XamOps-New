@@ -40,12 +40,11 @@ import type { ActionId, CapabilitiesDto, Capability, ReadinessKey } from '../../
 import type { VerticalEngineView } from '../../../../types/verticalRightsizer';
 import type { ActivitySummaryView } from '../../../../types/automationActivity';
 import { AccessBanner } from '../../../CloudK8s/shared/AccessBanner';
-import { StatusMark } from '../../../CloudK8s/shared/StatusMark';
+import { STATUS_TONES, type StatusState } from '../../../CloudK8s/shared/StatusMark';
 import { NowBanner } from '../../../CloudK8s/shared/status/NowBanner';
 import { HowItWorks } from '../../../CloudK8s/shared/status/HowItWorks';
 import { FeatureMark, type Feature } from '../../../CloudK8s/shared/status/FeatureMark';
 import { Delta } from '../../../CloudK8s/shared/status/Delta';
-import { StatusChip } from '../../../CloudK8s/shared/status/StatusChip';
 import { StatusDot } from '../../../CloudK8s/shared/status/StatusDot';
 import { PageTemplate } from '../../../CloudK8s/shared/PageTemplate';
 import { MetricStrip, type MetricCell } from '../../../CloudK8s/shared/MetricStrip';
@@ -200,6 +199,16 @@ function AccessRow({ term, children }: { term: string; children: ReactNode }) {
 
 const noteClass = `mt-1 block text-[12px] ${MUTED}`;
 
+/**
+ * The Access card's routine status as the quiet {@link StatusDot} (dot + word), never a filled
+ * tinted pill (owner debox review): the dot is the one spot of meaning colour, the word carries the
+ * meaning for anyone who can't see it, and an optional `detail` (a data age) rides in the muted
+ * grey. The state → tone mapping is the same one {@link StatusMark} uses.
+ */
+function AccessStatus({ state, label, detail }: { state: StatusState; label: string; detail?: string | null }) {
+  return <StatusDot tone={STATUS_TONES[state]} label={label} detail={detail} />;
+}
+
 function ConnectionValue({ data, clusterName }: { data: CapabilitiesDto; clusterName: string }) {
   const connection = findCluster(data, clusterName)?.connection ?? data.connection;
   const readOnly = connection.accessLevel !== 'READ_WRITE';
@@ -208,7 +217,7 @@ function ConnectionValue({ data, clusterName }: { data: CapabilitiesDto; cluster
   const unverifiedCopy = reasonCopy({ reason: 'CONNECTION_NOT_VERIFIED' });
   return (
     <>
-      {readOnly ? <StatusMark state="not-set-up" label="Read-only" /> : <StatusMark state="healthy" label="Read-write" />}
+      {readOnly ? <AccessStatus state="not-set-up" label="Read-only" /> : <AccessStatus state="healthy" label="Read-write" />}
       {readOnly && (
         <>
           <span className={noteClass}>{readOnlyCopy.text}</span>
@@ -217,7 +226,7 @@ function ConnectionValue({ data, clusterName }: { data: CapabilitiesDto; cluster
       )}
       {!verified && (
         <>
-          <span className="mt-1 block"><StatusMark state="unverified" label="Not verified" /></span>
+          <span className="mt-1 block"><AccessStatus state="unverified" label="Not verified" /></span>
           <span className={noteClass}>{unverifiedCopy.text}</span>
           <Remedies remedies={unverifiedCopy.remedies} />
         </>
@@ -229,17 +238,17 @@ function ConnectionValue({ data, clusterName }: { data: CapabilitiesDto; cluster
 function PermissionValue({ data }: { data: CapabilitiesDto }) {
   const { reasons, detail } = data.user;
   if (reasons.includes('NO_USER_PERMISSION')) {
-    if (detail === 'ROLE') return <StatusMark state="not-set-up" label="View only: your role can't change automation" />;
-    if (detail === 'IMPERSONATION') return <StatusMark state="not-set-up" label="View only while signed in as another user" />;
+    if (detail === 'ROLE') return <AccessStatus state="not-set-up" label="View only: your role can't change automation" />;
+    if (detail === 'IMPERSONATION') return <AccessStatus state="not-set-up" label="View only while signed in as another user" />;
     return (
       <>
-        <StatusMark state="not-set-up" label="View only" />
+        <AccessStatus state="not-set-up" label="View only" />
         <Remedies remedies={reasonCopy({ reason: 'NO_USER_PERMISSION', detail: 'TAB_GRANT' }).remedies} />
       </>
     );
   }
-  if (reasons.includes('DEMO')) return <StatusMark state="not-set-up" label={reasonCopy({ reason: 'DEMO' }).text} />;
-  return <StatusMark state="healthy" label="You can change automation" />;
+  if (reasons.includes('DEMO')) return <AccessStatus state="not-set-up" label={reasonCopy({ reason: 'DEMO' }).text} />;
+  return <AccessStatus state="healthy" label="You can change automation" />;
 }
 
 function AgentValue({ data, clusterName, now }: { data: CapabilitiesDto; clusterName: string; now: number }) {
@@ -247,22 +256,22 @@ function AgentValue({ data, clusterName, now }: { data: CapabilitiesDto; cluster
   if (!agent || agent.status === 'NOT_INSTALLED') {
     return (
       <>
-        <StatusMark state="not-set-up" label="Not installed" />
+        <AccessStatus state="not-set-up" label="Not installed" />
         <Remedies remedies={reasonCopy({ reason: 'AGENT_NOT_INSTALLED', detail: 'XAMOPS_AGENT' }).remedies} />
       </>
     );
   }
-  if (agent.status === 'UNKNOWN') return <StatusMark state="unknown" label="Unknown" />;
+  if (agent.status === 'UNKNOWN') return <AccessStatus state="unknown" label="Unknown" />;
   const detail = dataAge(agent.lastDataAt, now);
   return agent.status === 'STALE'
-    ? <StatusMark state="attention" label="Stale" detail={detail} />
-    : <StatusMark state="healthy" label="Connected" detail={detail} />;
+    ? <AccessStatus state="attention" label="Stale" detail={detail} />
+    : <AccessStatus state="healthy" label="Connected" detail={detail} />;
 }
 
 function AccessBlock({ caps, clusterName }: { caps: K8sCapabilitiesValue; clusterName: string }) {
   const headingId = useId();
   const data = caps.status === 'ready' ? caps.data : null;
-  const unknown = <StatusMark state="unknown" label="Unknown" />;
+  const unknown = <AccessStatus state="unknown" label="Unknown" />;
   return (
     // data-k8s-kit: every colour here has its dark variant, so the legacy dark CSS leaves it alone.
     <section aria-labelledby={headingId} className={`${CARD} p-4`} data-k8s-kit="">
@@ -531,9 +540,9 @@ function changesCell({ k, feed, summary, now }: {
     sub: (
       <Sub>
         {byResult.length > 0 && (
-          <span className="flex flex-wrap gap-1 pt-0.5">
+          <span className="flex flex-wrap gap-x-4 gap-y-1 pt-0.5">
             {byResult.map((r) => (
-              <StatusChip key={r.key} tone={r.tone} icon={r.icon} label={`${r.label}: ${r.count}`} weight="normal" />
+              <StatusDot key={r.key} tone={r.tone} label={`${r.label}: ${r.count}`} />
             ))}
           </span>
         )}
@@ -550,9 +559,10 @@ function changesCell({ k, feed, summary, now }: {
  * The automation metric strip (DESIGN §4.1): automation's own figures — the cluster's monthly cost
  * (when the FEAT-002 roll-up prices it) or Can save now as the lead cell, then Saving now / Applied
  * live, Can save now, Needs more and Changes. Each cell is one FIGURE; placement, not a bigger
- * number, sets the hierarchy. The cost cell carries NO Trend chip: CostSummaryView has no
- * prior-period field, so there is no real prior to compare against (a named backend GAP), and a
- * fabricated trend is never shown. The Health / Nodes / Pods cluster vitals are NOT here — the
+ * number, sets the hierarchy. The Monthly cost cell is wired for a Trend chip but shows none while
+ * CostSummaryView.previousClusterMonthlyCost is null — there is no prior-period source yet (no cost
+ * snapshot), so no prior exists to compare against and a fabricated trend is never shown; the chip
+ * lights up automatically once a snapshot populates it. The Health / Nodes / Pods cluster vitals are NOT here — the
  * sticky ClusterStatusStrip owns them; this strip is automation's numbers alone.
  */
 function Kpis({ view, now, feed, summary }: { view: VerticalEngineView; now: number; feed: UseAutomationActivityState; summary: InsightReadState<ActivitySummaryView> }) {
@@ -575,9 +585,14 @@ function Kpis({ view, now, feed, summary }: { view: VerticalEngineView; now: num
   const monthlyCell: MetricCell | null = cost
     ? {
       label: 'Monthly cost',
-      // No Trend: CostSummaryView has no prior-period field (backend GAP), so prior is null and a
-      // trend would be fabricated.
       value: clusterCost ? formatMoney(cost.clusterMonthlyCost) : '—',
+      // The Trend chip (lower cost is good, so goodDirection="down") renders nothing while
+      // previousClusterMonthlyCost is null — there is no prior-period source yet (no cost
+      // snapshot). It lights up automatically, with no further UI work, once a cost snapshot
+      // populates previousClusterMonthlyCost; a fabricated trend is never shown.
+      trend: clusterCost
+        ? { current: cost.clusterMonthlyCost!, prior: cost.previousClusterMonthlyCost, goodDirection: 'down' }
+        : undefined,
       sub: (
         <Sub>
           <span data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</span>
@@ -688,9 +703,9 @@ function FeedTimeline({ feed, now }: { feed: UseAutomationActivityState; now: nu
           <span>now</span>
         </div>
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
         {t.results.map((r) => (
-          <StatusChip key={r.label} tone={r.tone} icon={r.icon} label={r.label} weight="normal" />
+          <StatusDot key={r.label} tone={r.tone} label={r.label} />
         ))}
       </div>
     </ChartCard>
@@ -751,9 +766,9 @@ function Timeline({ result, feed, now }: { result: AutomationReadResult | null; 
           <span>now</span>
         </div>
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
         {results.map((r) => (
-          <StatusChip key={r.key} tone={r.tone} icon={r.icon} label={r.label} weight="normal" />
+          <StatusDot key={r.key} tone={r.tone} label={r.label} />
         ))}
       </div>
     </ChartCard>
@@ -769,7 +784,7 @@ function FeatureCard({ feature, status, link }: { feature: Feature; status: Feat
   return (
     <section className={`${CARD} flex flex-col gap-2 px-4 py-3`} data-feature-card={feature} data-k8s-kit="">
       <FeatureMark feature={feature} />
-      <span><StatusChip tone={status.tone} icon={status.icon} label={status.label} /></span>
+      <span><StatusDot tone={status.tone} label={status.label} /></span>
       {status.lines.length > 0 && (
         <ul className={`space-y-0.5 text-[12px] ${MUTED}`}>
           {status.lines.map((line) => <li key={line}>{line}</li>)}
@@ -969,21 +984,28 @@ export function OverviewPanel({ clusterName, accountId, region, eksData, hrefs =
       width="table"
       hero={hero}
       aside={<AccessBlock caps={caps} clusterName={clusterName} />}
+      // Only the How-it-works card pairs with the Access rail (the balanced top row); every section
+      // below it spans the FULL content width via `detail`, so the short Access card no longer
+      // reserves a tall 280px rail that left a dead band down the right (owner one-sided review).
+      detail={
+        <div className="flex min-w-0 flex-col gap-6">
+          <Timeline result={read.result} feed={feed} now={now} />
+          <FeatureCards result={read.result} caps={caps} clusterName={clusterName} eksData={eksData} hrefs={hrefs} now={now} />
+          <NamespaceChart result={read.result} eksData={eksData} clusterName={clusterName} accountId={accountId} region={region} />
+          <ClusterUsageCard clusterName={clusterName} accountId={accountId} region={region} title="CPU and memory over time" total="capacity" />
+          <TodayTable
+            caps={caps}
+            clusterName={clusterName}
+            workloadAutoscalerHref={hrefs.workloadAutoscaler}
+            pageHrefs={{ hpa: hrefs.hpa, vpa: hrefs.vpa }}
+          />
+        </div>
+      }
     >
       <HowItWorks
         chips={view ? howItWorksChips(view, now) : {}}
         policiesHref={hrefs.policies}
         policiesLinkState={inPageState(location)}
-      />
-      <Timeline result={read.result} feed={feed} now={now} />
-      <FeatureCards result={read.result} caps={caps} clusterName={clusterName} eksData={eksData} hrefs={hrefs} now={now} />
-      <NamespaceChart result={read.result} eksData={eksData} clusterName={clusterName} accountId={accountId} region={region} />
-      <ClusterUsageCard clusterName={clusterName} accountId={accountId} region={region} title="CPU and memory over time" total="capacity" />
-      <TodayTable
-        caps={caps}
-        clusterName={clusterName}
-        workloadAutoscalerHref={hrefs.workloadAutoscaler}
-        pageHrefs={{ hpa: hrefs.hpa, vpa: hrefs.vpa }}
       />
     </PageTemplate>
   );

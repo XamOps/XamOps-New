@@ -501,13 +501,24 @@ public class CloudListService {
 
     @Async("awsTaskExecutor")
     public CompletableFuture<List<ResourceDto>> getAllResources(CloudAccount account, boolean forceRefresh) {
+        return getAllResources(account, forceRefresh, true);
+    }
+
+    /**
+     * @param allowInventoryPlane false to skip Tier 0 and answer from the describe scan or its
+     *        caches. For callers that need details the plane does not persist: the Cloud Map
+     *        places resources by "VPC ID", which the plane records for EC2 and ENIs only, so
+     *        a plane answer drew no load balancers, gateways or most security groups.
+     */
+    public CompletableFuture<List<ResourceDto>> getAllResources(CloudAccount account, boolean forceRefresh,
+            boolean allowInventoryPlane) {
         String cacheKey = "cloudlistResources-" + account.getAwsAccountId();
         String dbCacheKey = "CLOUD_LIST::" + account.getAwsAccountId();
 
         // Tier 0 — inventory plane. Checked even on forceRefresh: the reconciler keeps
         // this within a minute of AWS, so "refresh" no longer needs to mean a 1000-call
         // rescan. If the plane is stale or unavailable the original path runs unchanged.
-        List<ResourceDto> fromPlane = tryInventoryPlane(account.getAwsAccountId());
+        List<ResourceDto> fromPlane = allowInventoryPlane ? tryInventoryPlane(account.getAwsAccountId()) : null;
         if (fromPlane != null) {
             return CompletableFuture.completedFuture(fromPlane);
         }
@@ -1182,6 +1193,7 @@ public class CloudListService {
             List<DashboardData.RegionStatus> activeRegions) {
         return fetchAllRegionalResources(account, activeRegions, regionId -> {
             ElasticLoadBalancingV2Client elbv2 = awsClientProvider.getElbv2Client(account, regionId);
+            Map<String, String> targetsByLb = instanceTargetsByLoadBalancer(elbv2, regionId);
             return elbv2.describeLoadBalancers().loadBalancers().stream()
                     .map(lb -> new ResourceDto(lb.loadBalancerName(), lb.loadBalancerName(), "Load Balancer",
                             lb.availabilityZones().isEmpty() ? regionId
@@ -1201,9 +1213,47 @@ public class CloudListService {
                                     "Subnets", joinIds(lb.availabilityZones().stream()
                                             .map(az -> az.subnetId())),
                                     "Availability Zones", joinIds(lb.availabilityZones().stream()
-                                            .map(az -> az.zoneName())))))
+                                            .map(az -> az.zoneName())),
+                                    // Instances behind this load balancer, through its target
+                                    // groups. CloudMapService draws "forwards to" from it; without
+                                    // it a load balancer was connected to nothing it serves.
+                                    "Target Instances", targetsByLb.get(lb.loadBalancerArn()))))
                     .collect(Collectors.toList());
         }, "Load Balancers");
+    }
+
+    /**
+     * Instance ids registered behind each load balancer, keyed by load balancer ARN.
+     *
+     * <p>One describeTargetGroups per region plus one describeTargetHealth per group that is
+     * attached to a load balancer. IP and Lambda targets are skipped: the map has no node to
+     * draw them against. Best effort — a missing permission or throttle costs the edges, never
+     * the load balancers themselves.
+     */
+    private Map<String, String> instanceTargetsByLoadBalancer(ElasticLoadBalancingV2Client elbv2, String regionId) {
+        Map<String, java.util.LinkedHashSet<String>> byLb = new HashMap<>();
+        try {
+            for (var tg : elbv2.describeTargetGroupsPaginator().targetGroups()) {
+                if (tg.loadBalancerArns() == null || tg.loadBalancerArns().isEmpty()
+                        || !"instance".equalsIgnoreCase(tg.targetTypeAsString())) {
+                    continue;
+                }
+                List<String> instances = elbv2.describeTargetHealth(r -> r.targetGroupArn(tg.targetGroupArn()))
+                        .targetHealthDescriptions().stream()
+                        .map(d -> d.target() != null ? d.target().id() : null)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toList());
+                for (String lbArn : tg.loadBalancerArns()) {
+                    byLb.computeIfAbsent(lbArn, k -> new java.util.LinkedHashSet<>()).addAll(instances);
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Could not read target groups in {}; load balancers drawn without targets: {}",
+                    regionId, e.getMessage());
+        }
+        Map<String, String> out = new HashMap<>();
+        byLb.forEach((arn, ids) -> out.put(arn, joinIds(ids.stream())));
+        return out;
     }
 
     private CompletableFuture<List<ResourceDto>> fetchAutoScalingGroupsForCloudlist(CloudAccount account,

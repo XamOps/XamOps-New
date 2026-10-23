@@ -16,7 +16,7 @@ import { DASH } from '../../../../../api/verticalRightsizerAdapter';
 import { formatIST } from '../../../../../utils/timeUtils';
 import useRca from '../../../../../hooks/useRca';
 import type { RcaCauseView } from '../../../../../api/rcaApi';
-import { KpiCard } from '../../../../CloudK8s/shared/status/KpiCard';
+import { MetricStrip, type MetricCell } from '../../../../CloudK8s/shared/MetricStrip';
 import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
 import {
   RCA_DEPENDENCIES_NOTE,
@@ -87,13 +87,16 @@ function KpiRow({ causes }: { causes: readonly RcaCauseView[] }) {
     return Array.from(byKind.entries());
   }, [causes]);
   if (counts.length === 0) return null;
+  // One honest MetricStrip, one cell per root-cause kind (peers, no hero). The former KpiCard copy —
+  // the kind label and "n workloads affected" — is preserved verbatim.
+  const cells: MetricCell[] = counts.map(([kind, n]) => ({
+    label: rcaKindLabel(kind),
+    value: n,
+    sub: <span>{n === 1 ? 'workload affected' : 'workloads affected'}</span>,
+  }));
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-rca-kpis="">
-      {counts.map(([kind, n]) => (
-        <KpiCard key={kind} tone={rcaKindTone(kind)} icon={rcaKindIcon(kind)} label={rcaKindLabel(kind)} value={n}>
-          <p>{n === 1 ? 'workload affected' : 'workloads affected'}</p>
-        </KpiCard>
-      ))}
+    <div data-rca-kpis="">
+      <MetricStrip cells={cells} aria-label="Root causes by kind" />
     </div>
   );
 }
@@ -115,7 +118,7 @@ export function RootCausePanel({ clusterName, accountId, region }: RootCausePane
       </div>
 
       {loading && !result && (
-        <div className="skeleton h-24 rounded-lg dark:bg-none dark:bg-[rgba(255,255,255,0.06)]" />
+        <div className="skeleton h-24 rounded-[8px] dark:bg-none dark:bg-[rgba(255,255,255,0.06)]" />
       )}
 
       {failure && <ReadFailureCard failure={failure} onRetry={reload} />}
