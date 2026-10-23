@@ -17,6 +17,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/xamops/automation/internal/gate"
+	"github.com/xamops/automation/internal/obslog"
 	"github.com/xamops/automation/internal/policy"
 	"github.com/xamops/automation/internal/telemetry"
 )
@@ -186,6 +187,11 @@ func (r *run) done(status, reportStatus string, verified bool, reason string) Ou
 		detail = "no further detail"
 	}
 	log.Printf("Drain[%s %s %s]: %s (verified=%v) — %s", r.controller, rec.Action, rec.Target, status, verified, detail)
+	// Structured companion of the human Drain[...] line (hardening-design.md observability
+	// baseline). The free-text line above is kept for the node-regression.
+	obslog.Drain(
+		fmt.Sprintf("Drain[%s %s %s]: %s", r.controller, rec.Action, rec.Target, status),
+		rec.OperationID, nodeTarget(r.nodes), r.controller, r.mode.String(), status)
 	return Outcome{Reports: r.reports, Actions: []policy.ActionRecord{rec}, Status: status, Plan: r.plan, Evicted: r.evicted}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -21,6 +22,8 @@ import (
 	"github.com/xamops/automation/internal/drain"
 	"github.com/xamops/automation/internal/fitsim"
 	"github.com/xamops/automation/internal/gate"
+	"github.com/xamops/automation/internal/metrics"
+	"github.com/xamops/automation/internal/obslog"
 	"github.com/xamops/automation/internal/policy"
 	"github.com/xamops/automation/internal/pusher"
 	"github.com/xamops/automation/internal/state"
@@ -75,6 +78,10 @@ func main() {
 	policyClient := policy.NewClient(cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID)
 	push := pusher.New(cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID, cfg.MaxRetries, cfg.RetryDelay)
 
+	// Observability baseline (FEAT-001): one metric set for the whole process, served
+	// on :9090 /metrics; handles are passed into the control loop.
+	mset := metrics.New()
+
 	// ── Controller instances (all respect DryRun flag) ───────────────────
 	evictor := controller.NewEvictor(k8s, cfg.DryRun)
 	rightsizer := controller.NewRightsizer(k8s, cfg.PrometheusURL, cfg.DryRun)
@@ -90,11 +97,14 @@ func main() {
 	// ── Health server ────────────────────────────────────────────────────
 	go startHealthServer()
 
+	// ── Metrics server (:9090 /metrics) ──────────────────────────────────
+	go startMetricsServer(mset)
+
 	// ── Main control loop ────────────────────────────────────────────────
 	loopDone := make(chan struct{})
 	go func() {
 		defer close(loopDone)
-		runControlLoop(ctx, cfg, k8s, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
+		runControlLoop(ctx, cfg, mset, k8s, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
 	}()
 
 	// ── Heartbeat loop ────────────────────────────────────────────────────
@@ -125,6 +135,7 @@ const shutdownWait = 50 * time.Second
 func runControlLoop(
 	ctx context.Context,
 	cfg *config.Config,
+	mset *metrics.Set,
 	k8s kubernetes.Interface,
 	policyClient *policy.Client,
 	push *pusher.Pusher,
@@ -150,7 +161,7 @@ func runControlLoop(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			runCycle(ctx, cfg, k8s, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
+			runCycle(ctx, cfg, mset, k8s, policyClient, push, evictor, rightsizer, rebalancer, hpaMgr, vpaMgr, nodeOpt)
 		}
 	}
 }
@@ -159,6 +170,7 @@ func runControlLoop(
 type cycleActions struct {
 	records []policy.ActionRecord
 	events  []policy.AutoscalingEvent
+	mset    *metrics.Set
 }
 
 // add records each action and its paired legacy event (same ID). nodeCount is the
@@ -172,6 +184,19 @@ func (c *cycleActions) add(eventType string, nodeCount int, recs ...policy.Actio
 
 func (c *cycleActions) addOutcome(eventType string, o drain.Outcome) {
 	c.add(eventType, len(o.Reports), o.Actions...)
+	// xamops_drains_total{controller,result} — result is the drain Outcome.Status
+	// (succeeded/refused/skipped/aborted/failed/simulated). The controller label comes
+	// from the outcome's own action record (falls back to the drain-executor name).
+	if o.Status != "" {
+		controllerName := drain.ControllerExecutor
+		if len(o.Actions) > 0 && o.Actions[0].Controller != "" {
+			controllerName = o.Actions[0].Controller
+		}
+		c.mset.IncDrain(controllerName, o.Status)
+		// One re-plan is recorded per cycle-level drain outcome (we do not fabricate
+		// per-eviction replan counts we cannot observe here).
+		c.mset.IncDrainReplan(controllerName)
+	}
 }
 
 // addRightsizer records the rightsizer's per-container actions. Simulated, refused,
@@ -234,6 +259,24 @@ func decide(cfg *config.Config, b policy.PolicyBundle) cycleDecisions {
 	}
 }
 
+// byController returns the gate decision for each controller label, used to set the
+// xamops_gate_decision gauge and emit per-controller structured gate lines.
+func (d cycleDecisions) byController() map[string]gate.Decision {
+	return map[string]gate.Decision{
+		"rebalancer":       d.Rebalancer,
+		"evictor":          d.Evictor,
+		"node-optimizer":   d.NodeOptimizer,
+		"cordon":           d.Cordon,
+		"idle-drain":       d.IdleDrain,
+		"spot-ratio":       d.SpotRatio,
+		"karpenter":        d.Karpenter,
+		"interruption":     d.Interruption,
+		"rightsizer":       d.Rightsizer,
+		"rightsizer-apply": d.RightsizerApply,
+		"hpa-manager":      d.HPAManager,
+	}
+}
+
 // nodeActionMode is the strongest mode of any node-action gate: orphan recovery
 // may write only when some node action is Live.
 func (d cycleDecisions) nodeActionMode() gate.Mode {
@@ -252,6 +295,7 @@ func (d cycleDecisions) nodeActionMode() gate.Mode {
 func runCycle(
 	ctx context.Context,
 	cfg *config.Config,
+	mset *metrics.Set,
 	k8s kubernetes.Interface,
 	policyClient *policy.Client,
 	push *pusher.Pusher,
@@ -263,13 +307,18 @@ func runCycle(
 	nodeOpt *controller.NodeOptimizer,
 ) {
 	log.Println("── Automation cycle start ──────────────────────────────────────")
+	cycleStart := time.Now()
+	defer func() { mset.ObserveCycle(time.Since(cycleStart).Seconds()) }()
 
 	// 1. Fetch current policy from XamOps backend (normalized by the client)
 	bundle, err := policyClient.FetchPolicy(ctx)
 	if err != nil {
+		mset.IncPolicyFetchError()
 		log.Printf("ERROR: fetch policy: %v", err)
 		return
 	}
+	// 'policy-fetched' substring is relied on by the node-regression — keep it.
+	log.Printf("policy-fetched: mode=%s", bundle.AutoscalerMode)
 
 	if bundle.AutoscalerMode == "disabled" {
 		log.Println("Automation mode=disabled — idle this cycle")
@@ -281,6 +330,12 @@ func runCycle(
 	log.Printf("Gates — rebalancer=%s | evictor=%s | nodeopt=%s cordon=%s idleDrain=%s spotRatio=%s karpenter=%s interruption=%s | rightsizer=%s apply=%s | hpa=%s",
 		d.Rebalancer, d.Evictor, d.NodeOptimizer, d.Cordon, d.IdleDrain, d.SpotRatio, d.Karpenter, d.Interruption,
 		d.Rightsizer, d.RightsizerApply, d.HPAManager)
+	// Structured companions of the human 'policy-fetched'/'Gates —' lines above.
+	obslog.Cycle("policy-fetched", slog.String("mode", bundle.AutoscalerMode))
+	for controllerName, dec := range d.byController() {
+		mset.SetGateDecision(controllerName, dec.Mode.String())
+		obslog.Gate("Gates — "+controllerName, controllerName, dec.Mode.String())
+	}
 
 	// 3. Per-cycle drain machinery: one global budget, one executor, one ledger.
 	var inflight []string
@@ -290,6 +345,8 @@ func runCycle(
 		inflight = drain.InflightNodes(nodes.Items)
 	}
 	budget := drain.NewBudget(bundle.NodeOptimizerPolicy.MaxParallelDrains, inflight)
+	// xamops_drain_budget_inflight — nodes already in flight consuming budget this cycle.
+	mset.SetDrainBudgetInflight(len(inflight))
 	planner := drain.NewFitPlanner(k8s, fitsim.Options{Guards: bundle.SafetyGuards, SelfNamespace: cfg.PodNamespace})
 	exec := drain.NewExecutor(k8s, planner, cfg.PodNamespace)
 	ledger := state.New(k8s, cfg.PodNamespace, cfg.StateConfigMap, cfg.DryRun)
@@ -297,7 +354,7 @@ func runCycle(
 		budget.Capacity(), inflight, cfg.PodNamespace)
 
 	var batches []pusher.Batch
-	acts := &cycleActions{}
+	acts := &cycleActions{mset: mset}
 	var drainReports []controller.DrainProgressReport
 
 	// Orphaned drains from an earlier process are handled before anything else.
@@ -550,5 +607,19 @@ func startHealthServer() {
 	log.Println("Health server listening on :8081")
 	if err := http.ListenAndServe(":8081", mux); err != nil {
 		log.Printf("Health server error: %v", err)
+	}
+}
+
+// startMetricsServer serves the Prometheus metric set on a dedicated :9090 /metrics
+// listener (separate from the :8081 health server). Port 9090 matches
+// agent-ha-design.md's "ports: add containerPort 9090 (metrics)" and the manifest
+// change FEAT-002 adds; keeping it off the health port leaves /healthz and /readyz
+// untouched.
+func startMetricsServer(mset *metrics.Set) {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", mset.Handler())
+	log.Println("Metrics server listening on :9090")
+	if err := http.ListenAndServe(":9090", mux); err != nil {
+		log.Printf("Metrics server error: %v", err)
 	}
 }

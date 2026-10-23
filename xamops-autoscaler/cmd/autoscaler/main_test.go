@@ -28,6 +28,7 @@ import (
 
 	"github.com/xamops/automation/internal/config"
 	"github.com/xamops/automation/internal/controller"
+	"github.com/xamops/automation/internal/metrics"
 	"github.com/xamops/automation/internal/policy"
 	"github.com/xamops/automation/internal/pusher"
 	"github.com/xamops/automation/internal/telemetry"
@@ -194,7 +195,7 @@ func runTestCycle(t *testing.T, cfg *config.Config, c *fake.Clientset, srvURL st
 	cfg.DrainTimeoutSeconds = 30
 	cfg.PodNamespace, cfg.StateConfigMap = "xamops-system", "xamops-automation-state"
 
-	runCycle(context.Background(), cfg, c,
+	runCycle(context.Background(), cfg, metrics.New(), c,
 		policy.NewClient(cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID),
 		pusher.New(cfg.ServerURL, cfg.APIKey, cfg.ClusterName, cfg.CloudAccountID, cfg.MaxRetries, cfg.RetryDelay),
 		controller.NewEvictor(c, cfg.DryRun),

@@ -1,0 +1,73 @@
+package metrics
+
+import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
+
+// TestHandlerServesNamedMetrics registers the set, increments every collector, and
+// asserts the seven design-named metrics appear in the /metrics output with their
+// exact names.
+func TestHandlerServesNamedMetrics(t *testing.T) {
+	s := New()
+
+	s.IncDrain("rebalancer", "succeeded")
+	s.SetDrainBudgetInflight(2)
+	s.IncDrainReplan("rebalancer")
+	s.ObserveCycle(0.5)
+	s.SetGateDecision("rebalancer", "simulate")
+	s.IncPolicyFetchError()
+	s.IncRightsizerApply("simulated")
+
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("GET /metrics: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	out := string(body)
+
+	want := []string{
+		"xamops_drains_total",
+		"xamops_drain_budget_inflight",
+		"xamops_drain_replan_total",
+		"xamops_cycle_duration_seconds",
+		"xamops_gate_decision",
+		"xamops_policy_fetch_errors_total",
+		"xamops_rightsizer_apply_total",
+	}
+	for _, m := range want {
+		if !strings.Contains(out, m) {
+			t.Errorf("metric %q missing from /metrics output", m)
+		}
+	}
+
+	// Spot-check a label set and value from an incremented counter.
+	if !strings.Contains(out, `xamops_drains_total{controller="rebalancer",result="succeeded"} 1`) {
+		t.Errorf("expected xamops_drains_total{controller=rebalancer,result=succeeded} 1 in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, `xamops_gate_decision{controller="rebalancer",mode="simulate"} 1`) {
+		t.Errorf("expected xamops_gate_decision{controller=rebalancer,mode=simulate} 1 in output")
+	}
+}
+
+// TestNilSetIsSafe ensures the convenience methods are no-ops on a nil set.
+func TestNilSetIsSafe(t *testing.T) {
+	var s *Set
+	s.IncDrain("x", "y")
+	s.SetDrainBudgetInflight(1)
+	s.IncDrainReplan("x")
+	s.ObserveCycle(1)
+	s.SetGateDecision("x", "y")
+	s.IncPolicyFetchError()
+	s.IncRightsizerApply("x")
+}
