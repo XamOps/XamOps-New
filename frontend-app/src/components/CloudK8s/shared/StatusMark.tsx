@@ -34,6 +34,15 @@ export const STATUS_ICONS: Record<StatusState, string> = Object.fromEntries(
   Object.entries(STYLES).map(([state, style]) => [state, style.icon]),
 ) as Record<StatusState, string>;
 
+/**
+ * Each status state → its meaning tone, for callers (e.g. OverviewPanel's AccessStatus) that render
+ * the state through StatusDot directly and need the tone without the icon/weight. Derived from the
+ * same STYLES map so it can never drift from StatusMark's own tone choice.
+ */
+export const STATUS_TONES: Record<StatusState, Tone> = Object.fromEntries(
+  Object.entries(STYLES).map(([state, style]) => [state, style.tone]),
+) as Record<StatusState, Tone>;
+
 export interface StatusMarkProps {
   state: StatusState;
   /** Short label, e.g. "Connected", "Stale", "Not installed". */
