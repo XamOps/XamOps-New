@@ -158,6 +158,8 @@ describe('StatusMark compatibility', () => {
     expect(STATUS_ICONS.error).toBe('mdi:alert-octagon');
     render(<StatusMark state="attention" label="Data stale" detail="3 h" />);
     expect(screen.getByText('Data stale')).toBeTruthy();
-    expect(screen.getByText('3 h')).toBeTruthy();
+    // StatusMark now renders as a quiet dot + word (no pill); the optional detail follows the label
+    // as muted secondary text prefixed with a separator ("· 3 h"), so match it as a substring.
+    expect(screen.getByText(/3 h/)).toBeTruthy();
   });
 });

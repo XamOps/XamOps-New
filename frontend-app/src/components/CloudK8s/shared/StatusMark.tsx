@@ -1,11 +1,14 @@
 /**
- * Status as icon + label, never colour alone (CLAUDE.md; WCAG 1.4.1). A thin wrapper over the new
- * StatusChip (components/CloudK8s/shared/status/StatusChip.tsx): it keeps the historical
- * `StatusState` union, `STATUS_ICONS` map and props so every existing caller (OverviewPanel,
- * SummaryPanel, WorkloadsPanel, …) still compiles, and routes the colour through StatusChip's tone
- * so there is a single place that pairs a status token with an icon and a label.
+ * Status as a quiet DOT + label, never a filled tinted pill and never colour alone (CLAUDE.md;
+ * WCAG 1.4.1). This is the single place every CloudK8s status mark renders, so routing it through
+ * the dot+word treatment (StatusDot) replaces the heavy coloured pills on every table row, the
+ * Access card, the How-it-works steps, etc. in one change. It keeps the historical `StatusState`
+ * union, `STATUS_ICONS` map and props so every existing caller (OverviewPanel, SummaryPanel,
+ * WorkloadsPanel, the table "State"/"Status" columns, …) still compiles unchanged. The optional
+ * `detail` (e.g. an age "3 h") renders as muted secondary text after the word.
  */
-import StatusChip from './status/StatusChip';
+import { toneClasses } from './status/toneClasses';
+import { BODY, SECONDARY } from './typeScale';
 import type { Tone } from './status/statusTones';
 
 export type StatusState = 'healthy' | 'attention' | 'error' | 'not-set-up' | 'unknown' | 'simulated' | 'unverified';
@@ -31,14 +34,6 @@ export const STATUS_ICONS: Record<StatusState, string> = Object.fromEntries(
   Object.entries(STYLES).map(([state, style]) => [state, style.icon]),
 ) as Record<StatusState, string>;
 
-/**
- * Each {@link StatusState}'s tone, so a caller that wants the quiet {@link StatusDot} (dot + word,
- * no filled pill) for a routine status can reuse the same state → tone mapping as the chip.
- */
-export const STATUS_TONES: Record<StatusState, Tone> = Object.fromEntries(
-  Object.entries(STYLES).map(([state, style]) => [state, style.tone]),
-) as Record<StatusState, Tone>;
-
 export interface StatusMarkProps {
   state: StatusState;
   /** Short label, e.g. "Connected", "Stale", "Not installed". */
@@ -50,15 +45,24 @@ export interface StatusMarkProps {
 
 export function StatusMark({ state, label, detail, className = '' }: StatusMarkProps) {
   const style = STYLES[state];
+  const t = toneClasses(style.tone);
+  const weightClass =
+    style.weight === 'bold' ? 'font-bold' : style.weight === 'semibold' ? 'font-semibold' : 'font-normal';
+  // Dot + word, no pill fill/tint: the dot is the one spot of meaning colour and the word carries
+  // the meaning for anyone who can't see colour. `data-tone` + the mandatory aria-hidden <svg>
+  // satisfy colourAudit check #3, exactly like StatusDot.
   return (
-    <StatusChip
-      tone={style.tone}
-      icon={style.icon}
-      label={label}
-      detail={detail ?? undefined}
-      weight={style.weight}
-      className={className}
-    />
+    <span
+      className={`inline-flex items-center gap-1.5 ${BODY} ${className}`.trim()}
+      data-tone={style.tone}
+      data-k8s-kit=""
+    >
+      <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden="true" className={`shrink-0 ${t.text}`}>
+        <circle cx="4.5" cy="4.5" r="4" fill="currentColor" />
+      </svg>
+      <span className={weightClass}>{label}</span>
+      {detail ? <span className={SECONDARY}>· {detail}</span> : null}
+    </span>
   );
 }
 
