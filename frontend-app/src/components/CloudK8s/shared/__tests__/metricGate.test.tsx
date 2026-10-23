@@ -47,6 +47,16 @@ vi.mock('../../../../api/verticalRecommendationsApi', async (importOriginal) => 
 });
 vi.mock('../../../../utils/apiClient', () => ({ default: { fetch: vi.fn() } }));
 
+// FEAT-003: the Cost tab reads all money from useEksClusterCost (which calls apiClient.get, not
+// .fetch). Mock the hook directly — exactly as EksCostTab.cost.test.tsx does — so the gate drives a
+// deterministic, clearly-marked cost fixture. This mock is inert for the Overview / Summary / Pods
+// mounts, which never import the hook.
+const costHook = vi.hoisted(() => ({ value: null as unknown }));
+vi.mock('../../../../hooks/useEksClusterCost', () => ({
+  useEksClusterCost: () => costHook.value,
+  default: () => costHook.value,
+}));
+
 import apiClient from '../../../../utils/apiClient';
 import { K8sCapabilitiesProvider } from '../../../../hooks/useK8sCapabilities';
 import { useEksSectionRoute } from '../../../../hooks/useEksSectionRoute';
@@ -57,6 +67,7 @@ import type { UseEksDashboardReturn } from '../../../../hooks/useEksDashboard';
 import { OverviewPanel } from '../../../EksDetails/sections/automation/OverviewPanel';
 import SummaryPanel from '../../../EksDetails/sections/overview/SummaryPanel';
 import EksPodsTab from '../../../EksDetails/tabs/EksPodsTab';
+import EksCostTab from '../../../EksDetails/tabs/EksCostTab';
 
 const mockedFetch = apiClient.fetch as unknown as ReturnType<typeof vi.fn>;
 
@@ -110,6 +121,39 @@ function serveGateReads() {
 }
 
 const GATE_EKS_DATA = { dashboard: demoEksDashboard } as unknown as UseEksDashboardReturn;
+
+/**
+ * GATE fixture (FEAT-003): a realistic cost roll-up — a real cluster monthly, priced + unpriced
+ * nodes / namespaces, and both priced and dash workloads — so every Cost surface lights up (the hero
+ * MetricStrip, the Namespace / Node-fleet panels and the Workload ranking DataTable). Clearly test
+ * data; the gate measures CHROME, not these numbers. Mirrors EksCostTab.cost.test.tsx's `fullCost`.
+ */
+const GATE_COST = {
+  cost: {
+    currency: 'USD',
+    hoursPerMonth: 730,
+    monthlySavings: 4.2,
+    monthlySavingsUnavailableReason: null,
+    clusterMonthlyCost: 23.67,
+    pricedWorkloads: 2,
+    unpricedWorkloads: 1,
+    nodeCosts: [
+      { nodeName: 'ip-10-0-1-10', instanceType: 'm5.large', capacityType: 'on-demand', capacityTypeInferred: false, monthlyCost: 70.08, source: 'PRICE_LIST', reason: null, note: null },
+      { nodeName: 'fargate-node-1', instanceType: null, capacityType: null, capacityTypeInferred: false, monthlyCost: null, source: null, reason: 'FARGATE_UNPRICEABLE', note: null },
+    ],
+    namespaceCosts: [
+      { namespace: 'default', monthlyCost: 18.5, pricedWorkloads: 1, unpricedWorkloads: 0 },
+      { namespace: 'kube-system', monthlyCost: null, pricedWorkloads: 0, unpricedWorkloads: 1 },
+    ],
+  },
+  workloads: [
+    { ref: { namespace: 'default', kind: 'Deployment', name: 'web-api' }, cost: { monthlyCost: 12.34, monthlySavings: 2.1, reason: null, source: 'PRICE_LIST', capacityType: 'on-demand', capacityTypeInferred: false, note: null } },
+    { ref: { namespace: 'kube-system', kind: 'Deployment', name: 'coredns' }, cost: { monthlyCost: null, monthlySavings: null, reason: 'NODE_CAPACITY_UNKNOWN', source: null, capacityType: null, capacityTypeInferred: false, note: null } },
+  ],
+  engine: undefined,
+  loading: false,
+  error: null,
+};
 
 // ─── The scoped counter (the way a reviewer measures the page) ─────────────────────────────────
 
@@ -339,6 +383,19 @@ async function mountSummary(theme: 'light' | 'dark') {
   return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
 }
 
+/** Cost (FEAT-003): the v3-rolled-out Cost tab, mounted with a deterministic cost fixture, so the
+ * gate measures its real [data-k8s-redesigned-main] region (hero MetricStrip + ranking DataTable). */
+async function mountCost(theme: 'light' | 'dark') {
+  costHook.value = GATE_COST;
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <EksCostTab eksData={GATE_EKS_DATA} clusterName="prod-eks-cluster" accountId="demo-aws-001" region="us-east-1" />
+    </div>,
+  );
+  await screen.findByRole('table', { name: 'Deployment cost ranking' });
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
 // ─── The gate ────────────────────────────────────────────────────────────────────────────────────
 
 describe('visual + scoped-metric gate (FEAT-004 §11; jsdom fallback, Playwright not installed)', () => {
@@ -387,6 +444,25 @@ describe('visual + scoped-metric gate (FEAT-004 §11; jsdom fallback, Playwright
         // Measure the main subtree AND the drawer portal together: the whole redesigned surface a
         // viewer actually sees must stay within one budget.
         assertBudget(`Pods + drawer (${theme})`, [main, drawerPortal]);
+      });
+
+      it('Cost tab stays within the premium budget, drawer included', async () => {
+        const main = await mountCost(theme);
+        expect(main, 'Cost must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        // FEAT-003: one hero MetricStrip row (Monthly Est. leads), never a wrapped vertical stack,
+        // the ranking table in a scroll container, and the whole subtree inside the chrome budget.
+        await assertMetricStripIsOneRow(`Cost (${theme})`, main);
+        assertTableScrolls(`Cost (${theme})`, main);
+
+        // Open the first workload's DetailDrawer so its FIXED portal (rendered OUTSIDE the main
+        // subtree) is measured under the SAME budget as the page.
+        const firstRow = main.querySelector<HTMLElement>('tbody tr[role="button"]');
+        expect(firstRow, `Cost (${theme}): no activatable row to open the drawer.`).not.toBeNull();
+        fireEvent.click(firstRow!);
+        const drawer = await screen.findByRole('dialog');
+        const drawerPortal = drawer.closest<HTMLElement>('[data-detail-drawer]') ?? drawer;
+
+        assertBudget(`Cost + drawer (${theme})`, [main, drawerPortal]);
       });
     });
   }
