@@ -501,13 +501,24 @@ public class CloudListService {
 
     @Async("awsTaskExecutor")
     public CompletableFuture<List<ResourceDto>> getAllResources(CloudAccount account, boolean forceRefresh) {
+        return getAllResources(account, forceRefresh, true);
+    }
+
+    /**
+     * @param allowInventoryPlane false to skip Tier 0 and answer from the describe scan or its
+     *        caches. For callers that need details the plane does not persist: the Cloud Map
+     *        places resources by "VPC ID", which the plane records for EC2 and ENIs only, so
+     *        a plane answer drew no load balancers, gateways or most security groups.
+     */
+    public CompletableFuture<List<ResourceDto>> getAllResources(CloudAccount account, boolean forceRefresh,
+            boolean allowInventoryPlane) {
         String cacheKey = "cloudlistResources-" + account.getAwsAccountId();
         String dbCacheKey = "CLOUD_LIST::" + account.getAwsAccountId();
 
         // Tier 0 — inventory plane. Checked even on forceRefresh: the reconciler keeps
         // this within a minute of AWS, so "refresh" no longer needs to mean a 1000-call
         // rescan. If the plane is stale or unavailable the original path runs unchanged.
-        List<ResourceDto> fromPlane = tryInventoryPlane(account.getAwsAccountId());
+        List<ResourceDto> fromPlane = allowInventoryPlane ? tryInventoryPlane(account.getAwsAccountId()) : null;
         if (fromPlane != null) {
             return CompletableFuture.completedFuture(fromPlane);
         }

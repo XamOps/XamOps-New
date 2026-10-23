@@ -270,7 +270,9 @@ public class CloudMapService {
         }
         logger.info("Cloud Map graph falling back to a describe scan for account {}",
                 account.getAwsAccountId());
-        return cloudListService.getAllResources(account, forceRefresh);
+        // Without the plane: getAllResources would otherwise consult it again and hand back the
+        // same VPC-less answer this method just refused.
+        return cloudListService.getAllResources(account, forceRefresh, false);
     }
 
     /**
