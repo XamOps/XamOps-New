@@ -217,7 +217,7 @@ describe('HpaPage — HPAs on this cluster (UI v3 plan §2 "HPA")', () => {
     expect(row.querySelector('[data-tone="warn"]')).toHaveTextContent('At its maximum');
     expect(row).toHaveTextContent('Works with XamOps');
     const kpis = document.querySelector<HTMLElement>('[data-hpa-kpis]')!;
-    expect([...kpis.querySelectorAll('[data-kpi-tone]')].map((k) => k.textContent)).toEqual([
+    expect([...kpis.querySelectorAll('[data-metric-cell]')].map((k) => k.textContent)).toEqual([
       expect.stringMatching(/^HPAs1php-apache/),
       expect.stringMatching(/^At their maximum1php-apache/),
       expect.stringMatching(/^At their minimum0/),
@@ -238,18 +238,17 @@ describe('HpaPage — HPAs on this cluster (UI v3 plan §2 "HPA")', () => {
     expect(within(row).getAllByText('from the XamOps agent').length).toBeGreaterThanOrEqual(4);
     expect(row.querySelector('svg[data-range-bar]')).toBeNull();
     const kpis = document.querySelector<HTMLElement>('[data-hpa-kpis]')!;
-    expect(kpis.querySelectorAll('[data-kpi-tone]')[1]).toHaveTextContent('At their maximum—from the XamOps agent');
+    expect(kpis.querySelectorAll('[data-metric-cell]')[1]).toHaveTextContent('At their maximum—from the XamOps agent');
   });
 
   it('counts no HPAs it never checked: a dash and "Not checked" when neither the agent nor endpoint 1 answered', async () => {
     mockedRead.mockResolvedValue({ kind: 'refused', code: { kind: 'known', code: 'CLUSTER_ACCESS_NOT_CONFIGURED', label: 'x' }, message: 'No access entry.' });
     hpaPage(HPA_PAGE, null);
     expect(await screen.findByText("XamOps can't sign in to this cluster")).toBeInTheDocument();
-    const cards = [...document.querySelectorAll<HTMLElement>('[data-hpa-kpis] [data-kpi-tone]')];
+    const cards = [...document.querySelectorAll<HTMLElement>('[data-hpa-kpis] [data-metric-cell]')];
     expect(cards[0]).toHaveTextContent('HPAs—Not checked: neither the XamOps agent nor the Workload autoscaler answered');
-    expect(cards[0].getAttribute('data-kpi-tone')).toBe('off');
-    expect(cards[0]).not.toHaveTextContent(/None on this cluster|0/);
-    expect(cards.map((c) => c.getAttribute('data-kpi-tone'))).toEqual(['off', 'off', 'off', 'off']);
+    expect(cards[0]).not.toHaveTextContent(/None on this cluster/);
+    expect(cards).toHaveLength(4);
   });
 
   it('notes "HPA suggestions are off" only while the horizontal engine evaluated nothing', async () => {

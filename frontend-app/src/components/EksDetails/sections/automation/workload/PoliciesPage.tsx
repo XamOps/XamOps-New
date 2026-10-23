@@ -15,6 +15,7 @@ import { NowBanner } from '../../../../CloudK8s/shared/status/NowBanner';
 import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
 import { FeatureMark } from '../../../../CloudK8s/shared/status/FeatureMark';
 import { nowSentence, type NowSentence } from '../../../../CloudK8s/shared/status/nowSentence';
+import { PageTemplate } from '../../../../CloudK8s/shared/PageTemplate';
 import {
   FIXED_RULES,
   applyMethodText,
@@ -191,24 +192,38 @@ export function PoliciesPage({ clusterName, accountId, region, workloadsHref }: 
     sentence = nowSentence('policies', {});
   }
 
-  return (
-    // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it alone.
-    <div className="space-y-8" data-policies-page="" data-k8s-kit="">
-      <div className="space-y-1">
+  const hero = (
+    <div className="flex flex-col gap-4" data-k8s-kit="">
+      <div className="flex flex-col gap-1">
         <FeatureMark feature="workload" title="Workload autoscaler rules" />
         <p className={`text-[12px] ${MUTED}`} data-policies-header="">{POLICIES_HEADER}</p>
       </div>
       <NowBanner sentence={sentence} />
-      {loading && !result && <div className="skeleton h-40 rounded-lg" />}
+      {loading && !result && <div className="skeleton h-40 rounded-[8px]" />}
       {result && result.kind !== 'ok' && <ReadFailureCard failure={result} onRetry={reload} />}
-      {view && (
-        <>
-          <Defaults workloads={view.workloads} />
-          {view.workloads.length > 0 && <RulesTable workloads={view.workloads} detailHref={detailHref} />}
-          <LeftAlone workloads={view.workloads} />
-          <Fixed />
-        </>
-      )}
+    </div>
+  );
+
+  return (
+    // Read-only rules: PageTemplate stamps data-k8s-redesigned-main; there is no lead metric to lead
+    // with, so no MetricStrip hero (a fabricated figure would be dishonest). Nothing here sends a
+    // request — the mode switch stays on each workload's detail.
+    <div data-policies-page="" data-k8s-kit="">
+      <PageTemplate
+        title="Policies"
+        intro="The rules XamOps uses on this cluster today, read from the Workload autoscaler."
+        width="table"
+        hero={hero}
+      >
+        {view && (
+          <>
+            <Defaults workloads={view.workloads} />
+            {view.workloads.length > 0 && <RulesTable workloads={view.workloads} detailHref={detailHref} />}
+            <LeftAlone workloads={view.workloads} />
+            <Fixed />
+          </>
+        )}
+      </PageTemplate>
     </div>
   );
 }

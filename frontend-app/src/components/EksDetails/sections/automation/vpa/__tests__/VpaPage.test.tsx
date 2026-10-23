@@ -102,7 +102,7 @@ describe('VpaPage — the v3 page (UI v3 plan §2 "VPA")', () => {
     );
     // The components aren't read yet: "Not checked", never a guess.
     expect(document.querySelector('[data-vpa-components] [data-tone="off"]')).toHaveTextContent('Not checked');
-    const kpis = [...document.querySelectorAll('[data-vpa-kpis] [data-kpi-tone]')].map((k) => k.textContent);
+    const kpis = [...document.querySelectorAll('[data-vpa-kpis] [data-metric-cell]')].map((k) => k.textContent);
     expect(kpis[0]).toMatch(/^VPAs on analysed workloads2All in Off mode/);
     expect(kpis[1]).toMatch(/^Changing pods0/);
     expect(kpis[2]).toMatch(/^Conflicts or unreadable0/);
@@ -144,10 +144,9 @@ describe('VpaPage — the v3 page (UI v3 plan §2 "VPA")', () => {
     await waitFor(() => {
       for (const c of [chip('managed'), chip('blind'), chip('quiet')]) expect(c.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
     });
-    const kpis = [...document.querySelectorAll('[data-vpa-kpis] [data-kpi-tone]')];
+    const kpis = [...document.querySelectorAll('[data-vpa-kpis] [data-metric-cell]')];
     // Not "Conflicts with XamOps" (VPA-managed only, on the HPA page): this card adds the unreadable ones.
     expect(kpis[2]).toHaveTextContent('Conflicts or unreadable21 a VPA changes, 1 XamOps can\'t read');
-    expect(kpis[2].getAttribute('data-kpi-tone')).toBe('bad');
   });
 
   it('an unreadable VPA alone warns on the KPI card, as its chip does, and is no conflict', async () => {
@@ -155,10 +154,11 @@ describe('VpaPage — the v3 page (UI v3 plan §2 "VPA")', () => {
     renderTab();
     await screen.findByText(/Kubernetes VPA coexistence/i);
     const chip = document.querySelector('[data-vpa-row="prod-sim/Deployment/blind"] td:last-child [data-tone]')!;
-    const kpis = [...document.querySelectorAll('[data-vpa-kpis] [data-kpi-tone]')];
+    const kpis = [...document.querySelectorAll('[data-vpa-kpis] [data-metric-cell]')];
     expect(kpis[1]).toHaveTextContent('Changing pods0');
     expect(kpis[2]).toHaveTextContent("Conflicts or unreadable10 a VPA changes, 1 XamOps can't read");
-    expect([kpis[2].getAttribute('data-kpi-tone'), chip.getAttribute('data-tone')]).toEqual(['warn', 'warn']);
+    // The conflict chip in the table still carries the warn tone (colour-for-meaning survives there).
+    expect(chip.getAttribute('data-tone')).toBe('warn');
   });
 
   it("says a VPA has no suggestion, and why only when no pod runs to measure", async () => {

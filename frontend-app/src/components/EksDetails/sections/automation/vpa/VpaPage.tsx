@@ -15,16 +15,17 @@
  * names the gate that kept XamOps from reading the cluster rather than "no VPAs".
  */
 
-import { useId, useState, type FC } from 'react';
+import { useId, useState, type FC, type ReactNode } from 'react';
 import useAutomationRead from '../../../../../hooks/useAutomationRead';
 import { DASH } from '../../../../../api/hpaAdapter';
 import { VPA_OFF_TEXT } from '../hpaCopy';
 import { EmptyState, HpaReadFallback, gateEmptyState, type GateCopy } from '../hpaReadStates';
 import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
 import { FeatureMark } from '../../../../CloudK8s/shared/status/FeatureMark';
-import { KpiCard } from '../../../../CloudK8s/shared/status/KpiCard';
 import { NowBanner } from '../../../../CloudK8s/shared/status/NowBanner';
 import { nowSentence, type NowSentence } from '../../../../CloudK8s/shared/status/nowSentence';
+import { PageTemplate } from '../../../../CloudK8s/shared/PageTemplate';
+import { MetricStrip, type MetricCell } from '../../../../CloudK8s/shared/MetricStrip';
 import { Bars } from '../../../../CloudK8s/shared/charts/Bars';
 import { ChartCard } from '../../../../CloudK8s/shared/charts/ChartCard';
 import { ChartDataTable } from '../../../../CloudK8s/shared/charts/ChartDataTable';
@@ -34,7 +35,6 @@ import type { HpaPageView, NativeVpaTargetView, VpaCoexistenceKind } from '../..
 import {
   VPA_CONFLICT_CHIPS,
   formatMemory,
-  vpaConflictTone,
   vpaKpis,
   vpaRows,
   type Resource,
@@ -88,7 +88,7 @@ const VpaCoexistenceTable: FC<{ view: HpaPageView; rows: readonly VpaRowView[] }
         <thead>
           <tr className={`border-b ${RULE} bg-[rgba(0,0,0,0.02)] dark:bg-[rgba(255,255,255,0.03)]`}>
             {['Workload', 'Native VPA mode', 'Native VPA suggests', 'XamOps view', 'Compared (CPU per pod)', 'Coexistence'].map((h) => (
-              <th key={h} scope="col" className={`whitespace-nowrap px-4 py-2 text-[10px] font-bold uppercase tracking-wide ${FAINT}`}>
+              <th key={h} scope="col" className={`whitespace-nowrap px-4 py-2 text-[11px] font-bold uppercase tracking-wide ${FAINT}`}>
                 {h}
               </th>
             ))}
@@ -135,28 +135,42 @@ const VpaCoexistenceTable: FC<{ view: HpaPageView; rows: readonly VpaRowView[] }
 
 // ─── KPIs and bars ───────────────────────────────────────────────────────────
 
+/** A MetricStrip sub-line: the SECONDARY-sized copy that sat under a KpiCard's number. */
+const Sub: FC<{ children: ReactNode }> = ({ children }) => <span className="flex flex-col gap-0.5">{children}</span>;
+
+/**
+ * The VPA metric strip (DESIGN §4.1): the KpiCard row becomes one honest MetricStrip. Every figure
+ * and sub-line is the former KpiCard copy verbatim, and the dash-never-0 rule holds (agreement is a
+ * dash when nothing is comparable). "VPAs on analysed workloads" leads the row.
+ */
 function VpaKpiRow({ k }: { k: VpaKpis }) {
+  const cells: MetricCell[] = [
+    {
+      label: 'VPAs on analysed workloads',
+      value: k.vpas,
+      sub: <Sub><span>{k.vpas === 0 ? 'None targets a workload XamOps analyses' : k.off === k.vpas ? 'All in Off mode' : `${k.off} Off, ${k.changingPods} changing pods`}</span></Sub>,
+    },
+    {
+      label: 'Changing pods',
+      value: k.changingPods,
+      sub: <Sub><span>{k.changingPods > 0 ? 'XamOps leaves these workloads alone' : 'No VPA here changes pods'}</span></Sub>,
+    },
+    {
+      // Not "Conflicts with XamOps": that cell on the HPA page counts VPA-managed only. This one adds
+      // the VPAs XamOps can't read.
+      label: 'Conflicts or unreadable',
+      value: k.conflictsOrUnreadable,
+      sub: <Sub><span>{`${k.changingPods} a VPA changes, ${k.unreadable} XamOps can't read`}</span></Sub>,
+    },
+    {
+      label: 'CPU: VPA agrees',
+      value: k.agreement.compared === 0 ? DASH : `${k.agreement.agree} of ${k.agreement.compared}`,
+      sub: <Sub><span>{k.agreement.compared === 0 ? 'No workload that both size' : 'within 20% of XamOps, per pod'}</span></Sub>,
+    },
+  ];
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-vpa-kpis="">
-      <KpiCard tone="info" icon="mdi:compare-vertical" label="VPAs on analysed workloads" value={k.vpas}>
-        <p>{k.vpas === 0 ? 'None targets a workload XamOps analyses' : k.off === k.vpas ? 'All in Off mode' : `${k.off} Off, ${k.changingPods} changing pods`}</p>
-      </KpiCard>
-      <KpiCard tone={k.changingPods > 0 ? 'bad' : 'good'} icon={k.changingPods > 0 ? 'mdi:alert-octagon-outline' : 'mdi:check-circle'} label="Changing pods" value={k.changingPods}>
-        <p>{k.changingPods > 0 ? 'XamOps leaves these workloads alone' : 'No VPA here changes pods'}</p>
-      </KpiCard>
-      {/* Not "Conflicts with XamOps": that card on the HPA page counts VPA-managed only. This one adds
-          the VPAs XamOps can't read, and takes the table chips' tones (a conflict bad, unreadable warn). */}
-      <KpiCard {...vpaConflictTone(k)} label="Conflicts or unreadable" value={k.conflictsOrUnreadable}>
-        <p>{`${k.changingPods} a VPA changes, ${k.unreadable} XamOps can't read`}</p>
-      </KpiCard>
-      <KpiCard
-        tone={k.agreement.compared === 0 ? 'off' : 'good'}
-        icon="mdi:check-all"
-        label="CPU: VPA agrees"
-        value={k.agreement.compared === 0 ? DASH : `${k.agreement.agree} of ${k.agreement.compared}`}
-      >
-        <p>{k.agreement.compared === 0 ? 'No workload that both size' : 'within 20% of XamOps, per pod'}</p>
-      </KpiCard>
+    <div data-vpa-kpis="">
+      <MetricStrip cells={cells} heroLead aria-label="VPA summary" />
     </div>
   );
 }
@@ -200,7 +214,7 @@ function PerPodBars({ rows }: { rows: readonly VpaRowView[] }) {
     >
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <SeriesLegend items={BAR_SERIES.map((b) => ({ label: b.name, kind: b.kind, hatch: 'hatch' in b ? b.hatch : undefined }))} />
-        <div role="group" aria-label="Resource" className="inline-flex overflow-hidden rounded-lg border border-[rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.16)]">
+        <div role="group" aria-label="Resource" className="inline-flex overflow-hidden rounded-[6px] border border-[rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.16)]">
           {(['cpu', 'memory'] as const).map((r) => (
             <button
               key={r}
@@ -263,10 +277,9 @@ export const VpaPage: FC<VpaPageProps> = ({ clusterName, accountId, region }) =>
     });
   } else sentence = nowSentence('vpa', {});
 
-  return (
-    // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it alone.
-    <div className="space-y-8" data-vpa-page="" data-k8s-kit="">
-      <div className="space-y-1">
+  const hero = (
+    <div className="flex flex-col gap-4" data-k8s-kit="">
+      <div className="flex flex-col gap-1">
         <FeatureMark feature="vpa" title="VPA" />
         <p className={`text-[12px] ${MUTED}`}>
           Kubernetes Vertical Pod Autoscaler objects and what they suggest, next to XamOps. XamOps never resizes a workload that a
@@ -274,7 +287,21 @@ export const VpaPage: FC<VpaPageProps> = ({ clusterName, accountId, region }) =>
         </p>
       </div>
       <NowBanner sentence={sentence} />
+      {result?.kind === 'ok' && <VpaKpiRow k={k} />}
+    </div>
+  );
 
+  return (
+    // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it
+    // alone. Read-only / coexistence-only: PageTemplate stamps data-k8s-redesigned-main; there is NO
+    // Apply here — resizing a workload is the Workload autoscaler's job.
+    <div data-vpa-page="" data-k8s-kit="">
+      <PageTemplate
+        title="VPA"
+        intro="How XamOps and any Kubernetes VerticalPodAutoscaler share a workload — read-only; XamOps never edits a VPA."
+        width="table"
+        hero={hero}
+      >
       <section className={`${CARD} px-4 py-3`} aria-labelledby={explainId} data-vpa-explain="">
         <h3 id={explainId} className={`text-[13px] font-semibold ${INK}`}>How XamOps and Kubernetes VPAs share a workload</h3>
         <p className={`mt-1 text-[12px] ${INK}`}>
@@ -292,7 +319,6 @@ export const VpaPage: FC<VpaPageProps> = ({ clusterName, accountId, region }) =>
         <HpaReadFallback feature="vpa" loading={loading} result={result} reload={reload} />
       ) : (
         <>
-          <VpaKpiRow k={k} />
           <PerPodBars rows={rows} />
           <section className={`${CARD} overflow-hidden`}>
             <div className="flex flex-wrap items-start justify-between gap-4 px-4 py-3">
@@ -306,7 +332,7 @@ export const VpaPage: FC<VpaPageProps> = ({ clusterName, accountId, region }) =>
               <button
                 type="button"
                 onClick={reload}
-                className="rounded-xl border border-[rgba(0,0,0,0.12)] bg-white px-4 py-2 text-xs font-bold text-[rgba(0,0,0,0.6)] transition-all hover:bg-[rgba(0,0,0,0.03)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.7)]"
+                className="rounded-[6px] border border-[rgba(0,0,0,0.12)] bg-white px-4 py-2 text-[12px] font-bold text-[rgba(0,0,0,0.6)] transition-all hover:bg-[rgba(0,0,0,0.03)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.7)]"
               >
                 Refresh
               </button>
@@ -329,6 +355,7 @@ export const VpaPage: FC<VpaPageProps> = ({ clusterName, accountId, region }) =>
           </section>
         </>
       )}
+      </PageTemplate>
     </div>
   );
 };

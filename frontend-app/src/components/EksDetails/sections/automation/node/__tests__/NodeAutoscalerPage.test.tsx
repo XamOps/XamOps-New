@@ -62,6 +62,20 @@ async function page(dto: CapabilitiesDto = caps(), eksData: UseEksDashboardRetur
 
 const lever = (id: string) => document.querySelector<HTMLElement>(`[data-node-lever="${id}"]`)!;
 
+/**
+ * A MetricStrip KPI cell in the v3 node hero (FEAT-006: the KpiCard row became one MetricStrip),
+ * found by its LABEL caption — each cell is a flex column whose first child is the LABEL.
+ */
+const nodeKpi = (label: string) => {
+  const strip = document.querySelector<HTMLElement>('[data-node-kpis]');
+  if (!strip) throw new Error('no node metric strip');
+  const cell = [...strip.querySelectorAll<HTMLElement>('[data-metric-cell]')].find(
+    (c) => c.firstElementChild?.textContent === label,
+  );
+  if (!cell) throw new Error(`no node KPI "${label}"`);
+  return cell;
+};
+
 const mockedFetch = apiClient.fetch as unknown as ReturnType<typeof vi.fn>;
 const json = (status: number, body: unknown): Response =>
   ({ status, ok: status >= 200 && status < 300, text: async () => (body === null ? '' : JSON.stringify(body)) }) as unknown as Response;
@@ -112,12 +126,11 @@ describe('Automation › Node autoscaler (UI v3 plan §2)', () => {
 
   it('shows the KPIs and the per-node bars from the agent, and idle nodes only from the automation agent', async () => {
     await page();
-    const kpis = [...document.querySelectorAll('[data-node-kpis] [data-kpi-tone]')].map((k) => k.textContent);
-    expect(kpis[0]).toMatch(/^Nodes22 readyOn-demand 2 · Spot 0/);
-    expect(kpis[1]).toMatch(/^Pods waiting for a node1team-a\/unschedulable-giant-1 asks for 32.00 vCPU and 64 GiB/);
-    expect(kpis[2]).toMatch(/^CPU requested39%1.50 vCPU of 3.86 vCPU pods can use/);
-    expect(kpis[2]).toContain('Use: not reported by Prometheus in the cluster');
-    await waitFor(() => expect(document.querySelectorAll('[data-node-kpis] [data-kpi-tone]')[4]).toHaveTextContent("Idle nodes0from the node automation agent's node report"));
+    expect(nodeKpi('Nodes')).toHaveTextContent(/^Nodes22 readyOn-demand 2 · Spot 0/);
+    expect(nodeKpi('Pods waiting for a node')).toHaveTextContent(/^Pods waiting for a node1team-a\/unschedulable-giant-1 asks for 32.00 vCPU and 64 GiB/);
+    expect(nodeKpi('CPU requested')).toHaveTextContent(/^CPU requested39%1.50 vCPU of 3.86 vCPU pods can use/);
+    expect(nodeKpi('CPU requested')).toHaveTextContent('Use: not reported by Prometheus in the cluster');
+    await waitFor(() => expect(nodeKpi('Idle nodes')).toHaveTextContent("Idle nodes0from the node automation agent's node report"));
     const cpu = screen.getByRole('heading', { name: 'CPU on each node: requested of allocatable' }).closest('section')!;
     const row = within(cpu).getByRole('rowheader', { name: 'ip-172-31-9-125.ap-south-1.compute.internal', hidden: true }).closest('tr')!;
     expect([...row.querySelectorAll('td')].map((td) => td.textContent)).toEqual(['1 vCPU', '1.93 vCPU', '52%']);
@@ -161,7 +174,7 @@ describe('Automation › Node autoscaler (UI v3 plan §2)', () => {
     expect(lever('rebalancing')).toHaveTextContent('No node provisioner detected.');
     expect(lever('spot')).toHaveTextContent('All 2 nodes are on-demand.');
     // The fleet answered, but without the automation agent its idle nodes aren't claimed.
-    expect(document.querySelectorAll('[data-node-kpis] [data-kpi-tone]')[4]).toHaveTextContent("Idle nodes—Needs the node automation agent's node report");
+    expect(nodeKpi('Idle nodes')).toHaveTextContent("Idle nodes—Needs the node automation agent's node report");
     expect(document.querySelector('[data-node-changer="automation-agent"]')).toHaveTextContent(
       'XamOps node automation agent: not installed. It is the part of XamOps that empties and packs nodes.',
     );

@@ -36,10 +36,16 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getCapabilities, getVerticalStatus } = vi.hoisted(() => ({ getCapabilities: vi.fn(), getVerticalStatus: vi.fn() }));
+const { getCapabilities, getVerticalStatus, getAutomationDashboard, getNodeFleet, getRebalanceStatus } = vi.hoisted(() => ({
+  getCapabilities: vi.fn(),
+  getVerticalStatus: vi.fn(),
+  getAutomationDashboard: vi.fn(),
+  getNodeFleet: vi.fn(),
+  getRebalanceStatus: vi.fn(),
+}));
 vi.mock('../../../../api/k8sAutomationApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../api/k8sAutomationApi')>();
-  return { ...actual, getCapabilities };
+  return { ...actual, getCapabilities, getAutomationDashboard, getNodeFleet, getRebalanceStatus };
 });
 vi.mock('../../../../api/verticalRecommendationsApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../api/verticalRecommendationsApi')>();
@@ -61,10 +67,15 @@ import apiClient from '../../../../utils/apiClient';
 import { K8sCapabilitiesProvider } from '../../../../hooks/useK8sCapabilities';
 import { useEksSectionRoute } from '../../../../hooks/useEksSectionRoute';
 import { clearVerticalCacheForTests } from '../../../../hooks/useVerticalRecommendations';
-import { demoCapabilities, demoVerticalStatus } from '../../../../demo/k8sAutomationMockData';
+import { demoAutomationDashboard, demoCapabilities, demoNodeFleet, demoVerticalStatus } from '../../../../demo/k8sAutomationMockData';
 import { demoEksDashboard } from '../../../../demo/xamopsMockData';
 import type { UseEksDashboardReturn } from '../../../../hooks/useEksDashboard';
 import { OverviewPanel } from '../../../EksDetails/sections/automation/OverviewPanel';
+import { WorkloadsPage } from '../../../EksDetails/sections/automation/workload/WorkloadsPage';
+import { NodeAutoscalerPage } from '../../../EksDetails/sections/automation/node/NodeAutoscalerPage';
+import { HpaPage } from '../../../EksDetails/sections/automation/hpa/HpaPage';
+import { VpaPage } from '../../../EksDetails/sections/automation/vpa/VpaPage';
+import { ActivityPage } from '../../../EksDetails/sections/automation/activity/ActivityPage';
 import SummaryPanel from '../../../EksDetails/sections/overview/SummaryPanel';
 import EksPodsTab from '../../../EksDetails/tabs/EksPodsTab';
 import EksCostTab from '../../../EksDetails/tabs/EksCostTab';
@@ -106,6 +117,23 @@ const GATE_VERTICAL = {
       lastAction: null,
       autoApplyEligible: false,
       provenance: { percentile: 95, windowHours: 24, windowStart: null, windowEnd: null, sampleCoverage: 0.94, usageSource: 'prometheus-proxy', policySource: 'DEFAULTS' },
+      horizontal: null,
+    },
+    {
+      // A second workload that carries a lastAction (so Automation › Activity's FEAT-003 latest-change
+      // table has a row) and an upstream (native) VPA target (so Automation › VPA's coexistence table
+      // has a row) — the gate measures CHROME, these figures are irrelevant test data.
+      ref: { namespace: 'team-a', kind: 'Deployment', name: 'coexist-api' },
+      policy: { mode: 'RECOMMEND', headroomPct: 25, percentile: 95, window: '24h', applyMethod: 'IN_PLACE' },
+      replicas: 3,
+      hpa: { present: false, name: null },
+      gitopsManaged: false,
+      skipReason: null,
+      findings: [],
+      containers: [{ name: 'api', qosClass: 'Burstable', current: { cpuRequestM: 500, memRequestMi: 512, cpuLimitM: null, memLimitMi: null }, recommended: { cpuRequestM: 400, memRequestMi: 480, cpuLimitM: null, memLimitMi: null }, reasons: [], upstreamVpa: { cpuRequestM: 420, memRequestMi: 500, source: 'vpa', observedAt: null } }],
+      lastAction: { at: new Date(Date.now() - 60 * 60_000).toISOString(), outcome: 'APPLIED', dryRun: false },
+      autoApplyEligible: false,
+      provenance: { percentile: 95, windowHours: 24, windowStart: null, windowEnd: null, sampleCoverage: 0.9, usageSource: 'prometheus-proxy', policySource: 'DEFAULTS' },
       horizontal: null,
     },
   ],
@@ -518,12 +546,103 @@ async function mountSecurity(theme: 'light' | 'dark') {
   return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
 }
 
+// ─── Automation sub-pages (FEAT-006): each v3-rolled-out page, one hero MetricStrip inside the
+// redesigned region, measured under the SAME chrome budget in light + dark. The gate serves the
+// endpoint-1 vertical read (GATE_VERTICAL) and 404s every Phase-2 read, exactly like the Overview
+// mount, so the pages render their one-row strip deterministically. ─────────────────────────────
+
+/** Automation › Workload autoscaler › Workloads: the hero strip + the at-a-glance table. */
+async function mountWorkloads(theme: 'light' | 'dark') {
+  getCapabilities.mockResolvedValue(demoCapabilities('demo-aws-001'));
+  serveGateReads();
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <MemoryRouter initialEntries={['/eks-details?name=prod-eks-cluster&tab=automation&sub=workload-autoscaler']}>
+        <K8sCapabilitiesProvider accountId="demo-aws-001" demo>
+          <WorkloadsPage clusterName="prod-eks-cluster" accountId="demo-aws-001" region="us-east-1" workloadsHref="/eks-details?name=prod-eks-cluster&tab=automation&sub=workload-autoscaler" />
+        </K8sCapabilitiesProvider>
+      </MemoryRouter>
+    </div>,
+  );
+  await screen.findByRole('table', { name: 'Workloads at a glance' });
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
+/** Automation › Node autoscaler: the hero strip + per-node bars + the levers table (read-only). */
+async function mountNodeAutoscaler(theme: 'light' | 'dark') {
+  getCapabilities.mockResolvedValue(demoCapabilities('demo-aws-001'));
+  getAutomationDashboard.mockResolvedValue(demoAutomationDashboard('prod-eks-cluster'));
+  getNodeFleet.mockResolvedValue(demoNodeFleet('prod-eks-cluster'));
+  getRebalanceStatus.mockResolvedValue({ status: 'idle', message: 'No rebalance has been run yet' });
+  // The cluster CPU usage card reads the usage feed; a not-deployed 404 keeps it off (no strip impact).
+  mockedFetch.mockImplementation(async () => gateJson(404, null));
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <K8sCapabilitiesProvider accountId="demo-aws-001" demo>
+        <NodeAutoscalerPage clusterName="prod-eks-cluster" accountId="demo-aws-001" region="us-east-1" eksData={GATE_EKS_DATA} />
+      </K8sCapabilitiesProvider>
+    </div>,
+  );
+  await screen.findByText('What node autoscaling would do now');
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
+/** Automation › HPA: the hero strip + the HPA table with its PRESERVED gated Apply (in v3 chrome). */
+async function mountHpa(theme: 'light' | 'dark') {
+  getCapabilities.mockResolvedValue(demoCapabilities('demo-aws-001'));
+  serveGateReads();
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <MemoryRouter initialEntries={['/eks-details?name=prod-eks-cluster&tab=automation&sub=hpa']}>
+        <K8sCapabilitiesProvider accountId="demo-aws-001" demo>
+          <HpaPage clusterName="prod-eks-cluster" accountId="demo-aws-001" region="us-east-1" eksData={GATE_EKS_DATA} />
+        </K8sCapabilitiesProvider>
+      </MemoryRouter>
+    </div>,
+  );
+  await screen.findByText('How XamOps changes HPAs here');
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
+/** Automation › VPA: the hero strip + the coexistence table (read-only / coexistence-only). */
+async function mountVpa(theme: 'light' | 'dark') {
+  getCapabilities.mockResolvedValue(demoCapabilities('demo-aws-001'));
+  serveGateReads();
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <K8sCapabilitiesProvider accountId="demo-aws-001" demo>
+        <VpaPage clusterName="prod-eks-cluster" accountId="demo-aws-001" region="us-east-1" eksData={GATE_EKS_DATA} />
+      </K8sCapabilitiesProvider>
+    </div>,
+  );
+  await screen.findByText(/Kubernetes VPA coexistence/i);
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
+/** Automation › Activity: the FEAT-003 latest-change hero strip (feed 404), RCA + the latest table. */
+async function mountActivity(theme: 'light' | 'dark') {
+  getCapabilities.mockResolvedValue(demoCapabilities('demo-aws-001'));
+  serveGateReads();
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <K8sCapabilitiesProvider accountId="demo-aws-001" demo>
+        <ActivityPage clusterName="prod-eks-cluster" accountId="demo-aws-001" region="us-east-1" eksData={GATE_EKS_DATA} />
+      </K8sCapabilitiesProvider>
+    </div>,
+  );
+  await screen.findByRole('table', { name: 'Latest change per workload' });
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
 // ─── The gate ────────────────────────────────────────────────────────────────────────────────────
 
 describe('visual + scoped-metric gate (FEAT-004 §11; jsdom fallback, Playwright not installed)', () => {
   beforeEach(() => {
     getCapabilities.mockReset();
     getVerticalStatus.mockReset();
+    getAutomationDashboard.mockReset();
+    getNodeFleet.mockReset();
+    getRebalanceStatus.mockReset();
     mockedFetch.mockReset();
     clearVerticalCacheForTests();
   });
@@ -658,6 +777,52 @@ describe('visual + scoped-metric gate (FEAT-004 §11; jsdom fallback, Playwright
         const drawerPortal = drawer.closest<HTMLElement>('[data-detail-drawer]') ?? drawer;
 
         assertBudget(`Security + drawer (${theme})`, [main, drawerPortal]);
+      });
+
+      // ── Automation sub-pages (FEAT-006) ──────────────────────────────────────────────────────
+      // Each v3-rolled-out automation sub-page renders inside PageTemplate with a one-row hero
+      // MetricStrip, the wide tables in scroll containers, and the whole redesigned region inside the
+      // same chrome budget (7 sizes / 2 greys / {8px,6px,pill}) in light + dark. The PRESERVED HPA
+      // gating controls, VPA coexistence and Activity filters all live inside that budget now.
+
+      it('Automation › Workloads stays within the premium budget', async () => {
+        const main = await mountWorkloads(theme);
+        expect(main, 'Workloads must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        await assertMetricStripIsOneRow(`Workloads (${theme})`, main);
+        assertTableScrolls(`Workloads (${theme})`, main);
+        assertBudget(`Workloads (${theme})`, [main]);
+      });
+
+      it('Automation › Node autoscaler stays within the premium budget', async () => {
+        const main = await mountNodeAutoscaler(theme);
+        expect(main, 'Node autoscaler must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        await assertMetricStripIsOneRow(`NodeAutoscaler (${theme})`, main);
+        assertTableScrolls(`NodeAutoscaler (${theme})`, main);
+        assertBudget(`NodeAutoscaler (${theme})`, [main]);
+      });
+
+      it('Automation › HPA stays within the premium budget', async () => {
+        const main = await mountHpa(theme);
+        expect(main, 'HPA must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        await assertMetricStripIsOneRow(`HPA (${theme})`, main);
+        assertTableScrolls(`HPA (${theme})`, main);
+        assertBudget(`HPA (${theme})`, [main]);
+      });
+
+      it('Automation › VPA stays within the premium budget', async () => {
+        const main = await mountVpa(theme);
+        expect(main, 'VPA must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        await assertMetricStripIsOneRow(`VPA (${theme})`, main);
+        assertTableScrolls(`VPA (${theme})`, main);
+        assertBudget(`VPA (${theme})`, [main]);
+      });
+
+      it('Automation › Activity stays within the premium budget', async () => {
+        const main = await mountActivity(theme);
+        expect(main, 'Activity must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        await assertMetricStripIsOneRow(`Activity (${theme})`, main);
+        assertTableScrolls(`Activity (${theme})`, main);
+        assertBudget(`Activity (${theme})`, [main]);
       });
     });
   }

@@ -21,10 +21,11 @@ import type { UseEksDashboardReturn } from '../../../../../hooks/useEksDashboard
 import type { CapabilitiesReadiness } from '../../../../../types/k8sAutomation';
 import { DASH } from '../../../../../api/verticalRightsizerAdapter';
 import { FeatureMark } from '../../../../CloudK8s/shared/status/FeatureMark';
-import { KpiCard } from '../../../../CloudK8s/shared/status/KpiCard';
 import { NowBanner } from '../../../../CloudK8s/shared/status/NowBanner';
 import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
 import { nowSentence, type NowSentence } from '../../../../CloudK8s/shared/status/nowSentence';
+import { PageTemplate } from '../../../../CloudK8s/shared/PageTemplate';
+import { MetricStrip, type MetricCell } from '../../../../CloudK8s/shared/MetricStrip';
 import { Bars } from '../../../../CloudK8s/shared/charts/Bars';
 import { ChartCard } from '../../../../CloudK8s/shared/charts/ChartCard';
 import { ChartDataTable } from '../../../../CloudK8s/shared/charts/ChartDataTable';
@@ -95,43 +96,71 @@ function WhoChanges({ lines, agentLine }: { lines: NodeChangerLine[] | null; age
   );
 }
 
+/** A MetricStrip sub-line: the SECONDARY-sized copy that sat under a KpiCard's number. */
+function Sub({ children }: { children: ReactNode }) {
+  return <span className="flex flex-col gap-0.5">{children}</span>;
+}
+
+/**
+ * The Node autoscaler metric strip (DESIGN §4.1): the KpiCard row becomes one honest MetricStrip.
+ * Every figure and sub-line is the former KpiCard copy verbatim, including the dash-where-honest
+ * rules — Nodes / waiting / idle stay a dash until the right agent reports them, never a fabricated
+ * 0. Nodes leads the row.
+ */
 function NodeKpiRow({ k, idle, agentReported }: { k: NodeKpis; idle: number | null; agentReported: boolean }) {
   const { onDemand, spot, unknown } = k.capacity;
+  const cells: MetricCell[] = [
+    {
+      label: 'Nodes',
+      value: agentReported ? k.nodes : DASH,
+      sub: agentReported ? (
+        <Sub>
+          <span>{k.ready} ready</span>
+          <span>On-demand {onDemand} · Spot {spot}{unknown > 0 ? ` · ${unknown} with no capacity type` : ''}</span>
+        </Sub>
+      ) : (
+        <Sub><span>from the XamOps agent</span></Sub>
+      ),
+    },
+    {
+      label: 'Pods waiting for a node',
+      value: k.waiting ?? DASH,
+      sub: (
+        <Sub>
+          <span>
+            {k.waiting === null
+              ? 'from the XamOps agent'
+              : k.waiting > 0 && k.biggestWaiting
+                ? `${k.biggestWaiting.namespace}/${k.biggestWaiting.name} asks for ${formatVcpu(k.biggestWaiting.cpuM)} and ${formatMemory(k.biggestWaiting.memMi)}`
+                : 'Every pod has a node'}
+          </span>
+        </Sub>
+      ),
+    },
+    {
+      label: 'CPU requested',
+      value: pct(k.cpu.requestedPct),
+      sub: (
+        <Sub>
+          <span>{k.cpu.allocatableM !== null ? `${formatVcpu(k.cpu.requestedM)} of ${formatVcpu(k.cpu.allocatableM)} pods can use` : 'allocatable not reported'}</span>
+          <span>{k.cpu.usedPct !== null ? `Used ${pct(k.cpu.usedPct)}` : 'Use: not reported by Prometheus in the cluster'}</span>
+        </Sub>
+      ),
+    },
+    {
+      label: 'Memory requested',
+      value: pct(k.memory.requestedPct),
+      sub: <Sub><span>{k.memory.allocatableMi !== null ? `${formatMemory(k.memory.requestedMi)} of ${formatMemory(k.memory.allocatableMi)} pods can use` : 'allocatable not reported'}</span></Sub>,
+    },
+    {
+      label: 'Idle nodes',
+      value: idle ?? DASH,
+      sub: <Sub><span>{idle === null ? "Needs the node automation agent's node report" : "from the node automation agent's node report"}</span></Sub>,
+    },
+  ];
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" data-node-kpis="">
-      <KpiCard tone={k.nodes > 0 && k.ready === k.nodes ? 'good' : k.nodes > 0 ? 'warn' : 'off'} icon="mdi:server" label="Nodes" value={agentReported ? k.nodes : DASH}>
-        {agentReported ? (
-          <>
-            <p>{k.ready} ready</p>
-            <p>On-demand {onDemand} · Spot {spot}{unknown > 0 ? ` · ${unknown} with no capacity type` : ''}</p>
-          </>
-        ) : (
-          <p>from the XamOps agent</p>
-        )}
-      </KpiCard>
-      <KpiCard tone={k.waiting === null ? 'off' : k.waiting > 0 ? 'bad' : 'good'} icon={k.waiting ? 'mdi:alert-octagon-outline' : 'mdi:check-circle'} label="Pods waiting for a node" value={k.waiting ?? DASH}>
-        <p>
-          {k.waiting === null
-            ? 'from the XamOps agent'
-            : k.waiting > 0 && k.biggestWaiting
-              ? `${k.biggestWaiting.namespace}/${k.biggestWaiting.name} asks for ${formatVcpu(k.biggestWaiting.cpuM)} and ${formatMemory(k.biggestWaiting.memMi)}`
-              : 'Every pod has a node'}
-        </p>
-      </KpiCard>
-      <KpiCard tone={k.cpu.requestedPct === null ? 'off' : k.cpu.requestedPct >= 80 ? 'warn' : 'info'} icon="mdi:gauge" label="CPU requested" value={pct(k.cpu.requestedPct)}>
-        <p>
-          {k.cpu.allocatableM !== null ? `${formatVcpu(k.cpu.requestedM)} of ${formatVcpu(k.cpu.allocatableM)} pods can use` : 'allocatable not reported'}
-        </p>
-        <p>{k.cpu.usedPct !== null ? `Used ${pct(k.cpu.usedPct)}` : 'Use: not reported by Prometheus in the cluster'}</p>
-      </KpiCard>
-      <KpiCard tone={k.memory.requestedPct === null ? 'off' : k.memory.requestedPct >= 80 ? 'warn' : 'info'} icon="mdi:memory" label="Memory requested" value={pct(k.memory.requestedPct)}>
-        <p>
-          {k.memory.allocatableMi !== null ? `${formatMemory(k.memory.requestedMi)} of ${formatMemory(k.memory.allocatableMi)} pods can use` : 'allocatable not reported'}
-        </p>
-      </KpiCard>
-      <KpiCard tone={idle === null ? 'off' : idle > 0 ? 'warn' : 'good'} icon="mdi:sleep" label="Idle nodes" value={idle ?? DASH}>
-        <p>{idle === null ? "Needs the node automation agent's node report" : "from the node automation agent's node report"}</p>
-      </KpiCard>
+    <div data-node-kpis="">
+      <MetricStrip cells={cells} heroLead aria-label="Node autoscaler summary" />
     </div>
   );
 }
@@ -309,10 +338,9 @@ export function NodeAutoscalerPage({ clusterName, accountId, region, eksData }: 
   }
 
   const rebalance = reads.rebalance;
-  return (
-    // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it alone.
-    <div className="space-y-8" data-node-autoscaler="" data-k8s-kit="">
-      <div className="space-y-1">
+  const hero = (
+    <div className="flex flex-col gap-4" data-k8s-kit="">
+      <div className="flex flex-col gap-1">
         <FeatureMark feature="node" title="Node autoscaler" />
         <p className={`text-[12px] ${MUTED}`}>
           Adds nodes when pods can&apos;t be scheduled, removes empty nodes and packs pods onto fewer nodes. XamOps empties and
@@ -320,8 +348,20 @@ export function NodeAutoscalerPage({ clusterName, accountId, region, eksData }: 
         </p>
       </div>
       <NowBanner sentence={sentence} />
-      <WhoChanges lines={changers} agentLine={agentLine} />
       <NodeKpiRow k={k} idle={idle} agentReported={agentReported} />
+    </div>
+  );
+  return (
+    // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it
+    // alone. Read-only: PageTemplate stamps data-k8s-redesigned-main; nothing here sends a request.
+    <div data-node-autoscaler="" data-k8s-kit="">
+      <PageTemplate
+        title="Node autoscaler"
+        intro="Who changes the node count on this cluster, what the cluster looks like now, and what node autoscaling would do — each from its own source. Nothing here sends a request."
+        width="table"
+        hero={hero}
+      >
+      <WhoChanges lines={changers} agentLine={agentLine} />
       <NodeCharts rows={rows} />
       <Card title="Capacity type and rebalancing">
         <dl className={`divide-y ${DIVIDE}`}>
@@ -352,6 +392,7 @@ export function NodeAutoscalerPage({ clusterName, accountId, region, eksData }: 
         resources={['cpu']}
         total="allocatable"
       />
+      </PageTemplate>
     </div>
   );
 }

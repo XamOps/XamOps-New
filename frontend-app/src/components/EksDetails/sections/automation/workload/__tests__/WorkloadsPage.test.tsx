@@ -72,11 +72,18 @@ const page = (url = PAGE) =>
 
 const table = () => screen.getByRole('table', { name: 'Workloads at a glance' });
 const rowNames = () => [...table().querySelectorAll('[data-workload-row] th a')].map((a) => a.textContent);
-/** The KPI card whose label (its first line) is `label`. */
+/**
+ * A MetricStrip cell in the v3 hero (FEAT-006: the KpiCard hero/strip became one MetricStrip),
+ * found by its LABEL caption — each cell is a flex column whose first child is the LABEL.
+ */
 const kpi = (label: string) => {
-  const card = [...document.querySelectorAll<HTMLElement>('[data-kpi-tone]')].find((k) => (k.textContent ?? '').startsWith(label));
-  if (!card) throw new Error(`no KPI "${label}" in: ${[...document.querySelectorAll('[data-kpi-tone]')].map((k) => k.textContent).join(' | ')}`);
-  return card;
+  const strip = document.querySelector<HTMLElement>('[data-workloads-kpis]');
+  if (!strip) throw new Error('no workloads metric strip');
+  const cell = [...strip.querySelectorAll<HTMLElement>('[data-metric-cell]')].find(
+    (c) => c.firstElementChild?.textContent === label,
+  );
+  if (!cell) throw new Error(`no KPI "${label}" in: ${[...strip.querySelectorAll('[data-metric-cell]')].map((c) => c.firstElementChild?.textContent).join(' | ')}`);
+  return cell;
 };
 
 describe('Workload autoscaler › Workloads (UI v3 plan §2)', () => {
@@ -259,7 +266,7 @@ describe('Workload autoscaler › Workloads (UI v3 plan §2)', () => {
     page();
     expect(await screen.findByText("Couldn't load Workload rightsizing")).toBeInTheDocument();
     expect(document.querySelector('[data-now-banner]')).toHaveTextContent("XamOps couldn't read its workloads just now.");
-    expect(document.querySelector('[data-kpi-tone]')).toBeNull();
+    expect(document.querySelector('[data-workloads-kpis]')).toBeNull();
     expect(gets()).toHaveLength(1);
   });
 

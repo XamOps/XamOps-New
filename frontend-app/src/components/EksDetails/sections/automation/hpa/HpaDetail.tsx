@@ -20,6 +20,7 @@ import { FeatureMark } from '../../../../CloudK8s/shared/status/FeatureMark';
 import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
 import { TermTip } from '../../../../CloudK8s/shared/status/TermTip';
 import { RangeBar } from '../../../../CloudK8s/shared/charts/RangeBar';
+import { PageTemplate } from '../../../../CloudK8s/shared/PageTemplate';
 import { hpaConditionText, hpaWants, hpaWorksChecks, rowHasFlag, type HpaRow } from '../automationDerivations';
 import { CARD, Card, DIVIDE, FAINT, INK, InPageLink, LINK, MUTED, RULE } from '../automationUi';
 import { HpaDecisionPanel } from './HpaDecision';
@@ -46,7 +47,7 @@ function Tile({ label, children, sub }: { label: string; children: ReactNode; su
   return (
     <div className={`${CARD} px-4 py-3`} data-hpa-tile={label}>
       <p className={`text-[11px] font-semibold uppercase tracking-wide ${MUTED}`}>{label}</p>
-      <div className={`mt-1 text-[18px] font-semibold tabular-nums ${INK}`}>{children}</div>
+      <div className={`mt-1 text-[20px] font-semibold tabular-nums ${INK}`}>{children}</div>
       {sub && <div className={`mt-1 text-[12px] ${FAINT}`}>{sub}</div>}
     </div>
   );
@@ -59,24 +60,28 @@ export function HpaDetail({ row, view, engineRead, dryRun, onDryRun, state, list
   const checks = hpaWorksChecks(row);
   const w = row.workload;
 
-  return (
-    // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it
-    // alone and the write controls keep their own disabled and confirm states in dark mode.
-    <div className="space-y-4" data-hpa-detail={row.id} data-k8s-kit="">
+  const hero = (
+    <div className="flex flex-col gap-4" data-k8s-kit="">
       <InPageLink to={listHref} className={`inline-flex items-center gap-1 text-[12px] ${LINK}`}>
         <Icon icon="mdi:arrow-left" width={14} aria-hidden="true" />
         All HPAs
       </InPageLink>
-
       <div className="flex flex-wrap items-end justify-between gap-3">
         <FeatureMark feature="hpa" title={row.name} />
         <p className={`text-[12px] ${MUTED}`}>
           Namespace {row.namespace} · Scales {row.target ? `${row.target.kind} ${row.target.name}` : DASH}
         </p>
       </div>
+    </div>
+  );
 
+  return (
+    // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it
+    // alone and the write controls keep their own disabled and confirm states in dark mode.
+    <div data-hpa-detail={row.id} data-k8s-kit="">
+      <PageTemplate title={row.name} intro={null} width="table" hero={hero}>
       {atMax && live && (
-        <div role="status" className={`flex flex-wrap items-center gap-2 rounded-lg border ${RULE} px-4 py-3`} data-hpa-at-limit="">
+        <div role="status" className={`flex flex-wrap items-center gap-2 rounded-[8px] border ${RULE} px-4 py-3`} data-hpa-at-limit="">
           <StatusChip tone="warn" icon="mdi:arrow-collapse-up" label="At its maximum" />
           <span className={`text-[13px] ${INK}`}>
             {row.name} runs {n(live.current)} of at most {n(live.max)} replicas
@@ -183,6 +188,7 @@ export function HpaDetail({ row, view, engineRead, dryRun, onDryRun, state, list
           <HpaChangesCard subject={row.name} read={history} />
         </>
       )}
+      </PageTemplate>
     </div>
   );
 }

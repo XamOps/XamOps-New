@@ -135,13 +135,14 @@ export const DecisionBlock: React.FC<{ workload: HpaWorkloadView }> = ({ workloa
 /** A bound shown as "now → suggested", or just "now" when the engine leaves it alone. */
 export const Bound: React.FC<{ label: string; suggested: number | null }> = ({ label, suggested }) => (
   <div className="flex flex-col gap-0.5">
-    <span className={`text-[10px] font-bold uppercase tracking-wide ${FAINT}`}>{label}</span>
+    <span className={`text-[11px] font-bold uppercase tracking-wide ${FAINT}`}>{label}</span>
     <span className={`text-[12px] font-semibold tabular-nums ${INK}`}>{suggested === null ? 'Leave as is' : `→ ${suggested}`}</span>
   </div>
 );
 
-const PRIMARY = 'rounded-xl border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.88)] px-4 py-2 text-xs font-bold text-white transition-all hover:bg-black dark:border-[rgba(255,255,255,0.16)] dark:bg-[rgba(255,255,255,0.92)] dark:text-black';
-const SECONDARY = 'rounded-xl border border-[rgba(0,0,0,0.12)] bg-white px-4 py-2 text-xs font-bold text-[rgba(0,0,0,0.6)] transition-all hover:bg-[rgba(0,0,0,0.03)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.7)]';
+// v3 chrome: the sanctioned control radius (6px) and sizes; behaviour (gate / confirm / reply) is unchanged.
+const PRIMARY = 'rounded-[6px] border border-[rgba(0,0,0,0.12)] bg-[rgba(0,0,0,0.88)] px-4 py-2 text-[12px] font-bold text-white transition-all hover:bg-black dark:border-[rgba(255,255,255,0.16)] dark:bg-[rgba(255,255,255,0.92)] dark:text-black';
+const SECONDARY = 'rounded-[6px] border border-[rgba(0,0,0,0.12)] bg-white px-4 py-2 text-[12px] font-bold text-[rgba(0,0,0,0.6)] transition-all hover:bg-[rgba(0,0,0,0.03)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.7)]';
 
 export const ApplyConfirmation: React.FC<{
   workload: HpaWorkloadView;
@@ -156,7 +157,7 @@ export const ApplyConfirmation: React.FC<{
   if (c?.targetUtilizationPct != null) parts.push(`CPU target → ${c.targetUtilizationPct}%`);
   const titleId = `hpa-confirm-${workload.id}`;
   return (
-    <div role="alertdialog" aria-labelledby={titleId} className={`space-y-3 rounded-lg border ${RULE} bg-[rgba(0,0,0,0.02)] px-4 py-3 dark:bg-[rgba(255,255,255,0.03)]`}>
+    <div role="alertdialog" aria-labelledby={titleId} className={`space-y-3 rounded-[8px] border ${RULE} bg-[rgba(0,0,0,0.02)] px-4 py-3 dark:bg-[rgba(255,255,255,0.03)]`}>
       <p id={titleId} className={`text-[13px] font-semibold ${INK}`}>
         Change {workload.hpaName ?? workload.ref.name} now?
       </p>
@@ -284,7 +285,7 @@ export const HpaDecisionPanel: React.FC<HpaDecisionPanelProps> = ({ workload, ga
       )}
 
       {reply && (
-        <div className={`rounded-lg border ${RULE} bg-[rgba(0,0,0,0.02)] px-4 py-2.5 dark:bg-[rgba(255,255,255,0.03)]`} data-hpa-reply={workload.id}>
+        <div className={`rounded-[8px] border ${RULE} bg-[rgba(0,0,0,0.02)] px-4 py-2.5 dark:bg-[rgba(255,255,255,0.03)]`} data-hpa-reply={workload.id}>
           <ApplyReply reply={reply} />
         </div>
       )}

@@ -16,7 +16,7 @@
  * The Kubernetes events about scaling, resizing and eviction that the XamOps agent reported are a
  * separate, labelled stream: what the cluster observed, never mixed into XamOps's rows.
  */
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { Icon } from '@iconify/react';
 import useAutomationRead from '../../../../../hooks/useAutomationRead';
 import useAutomationActivity, { useActivitySummary, type ActivityFilters } from '../../../../../hooks/useAutomationActivity';
@@ -29,10 +29,11 @@ import type { ActivityEntryView, ActivityReadResult, ActivityResultKey, Activity
 import { formatIST } from '../../../../../utils/timeUtils';
 import { K8sDataTable, type ColumnDef } from '../../../../CloudK8s/shared/K8sDataTable';
 import { FeatureDot } from '../../../../CloudK8s/shared/status/FeatureMark';
-import { KpiCard } from '../../../../CloudK8s/shared/status/KpiCard';
 import { NowBanner } from '../../../../CloudK8s/shared/status/NowBanner';
 import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
 import { nowSentence, type NowSentence } from '../../../../CloudK8s/shared/status/nowSentence';
+import { PageTemplate } from '../../../../CloudK8s/shared/PageTemplate';
+import { MetricStrip, type MetricCell } from '../../../../CloudK8s/shared/MetricStrip';
 import { Bars } from '../../../../CloudK8s/shared/charts/Bars';
 import { ChartCard, type ChartEmptyState } from '../../../../CloudK8s/shared/charts/ChartCard';
 import { ChartDataTable } from '../../../../CloudK8s/shared/charts/ChartDataTable';
@@ -71,7 +72,7 @@ export const EVENTS_STREAM_TITLE = 'Kubernetes events from the XamOps agent';
 export const FEED_EMPTY = 'No automation changes recorded on this cluster yet.';
 
 /** The app's `.skeleton` shimmer is light; inside the kit (this page marks its root) the dark variant is a flat tint. */
-const SKELETON = 'skeleton rounded-lg dark:bg-none dark:bg-[rgba(255,255,255,0.06)]';
+const SKELETON = 'skeleton rounded-[8px] dark:bg-none dark:bg-[rgba(255,255,255,0.06)]';
 
 /** The per-day chart's window, in IST days (the summary allows 1 to 30). */
 export const SUMMARY_DAYS = 7;
@@ -291,22 +292,22 @@ function EventsStream({ clusterName, eksData }: { clusterName: string; eksData?:
 
 // ─── The latest-change view (a backend without the feed) ─────────────────────
 
+/** A MetricStrip sub-line: the SECONDARY-sized copy that sat under a KpiCard's number. */
+function Sub({ children }: { children: ReactNode }) {
+  return <span className="flex flex-col gap-0.5">{children}</span>;
+}
+
 function LatestKpiRow({ rows }: { rows: readonly LatestChangeRow[] }) {
   const k = activityKpis(rows);
+  const cells: MetricCell[] = [
+    { label: 'Applied', value: k.applied, sub: <Sub><span>latest change per workload, applied live</span></Sub> },
+    { label: 'Test runs', value: k.testRuns, sub: <Sub><span>latest change per workload; nothing was sent</span></Sub> },
+    { label: 'Refused or failed', value: k.refusedOrFailed, sub: <Sub><span>latest change per workload</span></Sub> },
+    { label: 'In place now', value: k.inPlace, sub: <Sub><span>latest change applied in full; a rollout since then would undo it</span></Sub> },
+  ];
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-activity-kpis="">
-      <KpiCard tone="good" icon="mdi:check-circle" label="Applied" value={k.applied}>
-        <p>latest change per workload, applied live</p>
-      </KpiCard>
-      <KpiCard tone="info" icon="mdi:flask-outline" label="Test runs" value={k.testRuns}>
-        <p>latest change per workload; nothing was sent</p>
-      </KpiCard>
-      <KpiCard tone={k.refusedOrFailed > 0 ? 'bad' : 'good'} icon={k.refusedOrFailed > 0 ? 'mdi:alert-octagon-outline' : 'mdi:check-circle'} label="Refused or failed" value={k.refusedOrFailed}>
-        <p>latest change per workload</p>
-      </KpiCard>
-      <KpiCard tone="good" icon="mdi:check-decagram-outline" label="In place now" value={k.inPlace}>
-        <p>latest change applied in full; a rollout since then would undo it</p>
-      </KpiCard>
+    <div data-activity-kpis="">
+      <MetricStrip cells={cells} heroLead aria-label="Latest change summary" />
     </div>
   );
 }
@@ -393,20 +394,15 @@ export function feedSentence(entries: readonly ActivityEntryView[], now: number)
 function FeedKpiRow({ entries, hasOlder }: { entries: readonly ActivityEntryView[]; hasOlder: boolean }) {
   const c = feedCounts(entries);
   const over = hasOlder ? `in the last ${entries.length} entries` : `in all ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}`;
+  const cells: MetricCell[] = [
+    { label: 'Applied', value: c.applied, sub: <Sub><span>{over}</span></Sub> },
+    { label: 'Deferred or put back', value: c.putBack, sub: <Sub><span>{over}; the pods kept their size</span></Sub> },
+    { label: 'Refused or failed', value: c.refused + c.failed, sub: <Sub><span>{over}</span></Sub> },
+    { label: 'Test runs', value: c.testRuns, sub: <Sub><span>{over}; nothing was sent</span></Sub> },
+  ];
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-activity-kpis="">
-      <KpiCard tone="good" icon="mdi:check-circle" label="Applied" value={c.applied}>
-        <p>{over}</p>
-      </KpiCard>
-      <KpiCard tone="warn" icon="mdi:undo-variant" label="Deferred or put back" value={c.putBack}>
-        <p>{over}; the pods kept their size</p>
-      </KpiCard>
-      <KpiCard tone={c.refused + c.failed > 0 ? 'bad' : 'good'} icon={c.refused + c.failed > 0 ? 'mdi:alert-octagon-outline' : 'mdi:check-circle'} label="Refused or failed" value={c.refused + c.failed}>
-        <p>{over}</p>
-      </KpiCard>
-      <KpiCard tone="info" icon="mdi:flask-outline" label="Test runs" value={c.testRuns}>
-        <p>{over}; nothing was sent</p>
-      </KpiCard>
+    <div data-activity-kpis="">
+      <MetricStrip cells={cells} heroLead aria-label="Activity summary" />
     </div>
   );
 }
@@ -475,19 +471,24 @@ export function ActivityPage({ clusterName, accountId, region, eksData }: Activi
     setQ('');
   };
 
+  const hero = (
+    <div className="flex flex-col gap-4" data-k8s-kit="">
+      <NowBanner sentence={sentence} />
+    </div>
+  );
+
   return (
     // data-k8s-kit: every colour on this page has its dark variant (K8sDataTable's included), so the
     // legacy dark CSS leaves it alone and the source filter keeps its pressed chip in dark mode.
-    <div className="space-y-8" data-activity="" data-k8s-kit="">
-      <div className="space-y-1">
-        <p className={`text-[13px] font-semibold ${INK}`}>Activity</p>
-        <p className={`text-[12px] ${MUTED}`}>
-          Every change XamOps made, tested or was refused on this cluster, from the Workload autoscaler and the HPA, with proof that
-          nothing restarted. Node automation isn&apos;t recorded here.
-        </p>
-      </div>
-      <NowBanner sentence={sentence} />
-
+    // PageTemplate stamps data-k8s-redesigned-main; the PRESERVED server-query filters, FEAT-003
+    // fallback, per-day summary, separate k8s-events stream and RCA all live inside it.
+    <div data-activity="" data-k8s-kit="">
+      <PageTemplate
+        title="Activity"
+        intro="Every change XamOps made, tested or was refused on this cluster, from the Workload autoscaler and the HPA, with proof that nothing restarted. Node automation isn't recorded here."
+        width="table"
+        hero={hero}
+      >
       {notDeployed && <LatestChangeView clusterName={clusterName} accountId={accountId} region={region} onSentence={setLatestSentence} />}
 
       {!notDeployed && feed.loading && !feed.result && <div className={`${SKELETON} h-28`} aria-busy="true" />}
@@ -573,6 +574,7 @@ export function ActivityPage({ clusterName, accountId, region, eksData }: Activi
 
       <ChangesPerDay summary={summary} />
       <EventsStream clusterName={clusterName} eksData={eksData} />
+      </PageTemplate>
     </div>
   );
 }

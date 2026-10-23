@@ -96,7 +96,7 @@ function SparkCell({ column, workload }: { column: SparkColumn; workload: Worklo
   if (column.loading) {
     return (
       <td className="px-4 py-2.5">
-        <span className="skeleton inline-block h-4 w-[72px] rounded dark:bg-none dark:bg-[rgba(255,255,255,0.06)]" aria-hidden="true" />
+        <span className="skeleton inline-block h-4 w-[72px] rounded-[6px] dark:bg-none dark:bg-[rgba(255,255,255,0.06)]" aria-hidden="true" />
         <span className="sr-only">Reading</span>
       </td>
     );

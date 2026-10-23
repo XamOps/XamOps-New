@@ -27,9 +27,10 @@ import { hpaCodeText } from '../hpaCopy';
 import { EmptyState, HpaReadFallback, gateEmptyState, type GateCopy } from '../hpaReadStates';
 import { StatusChip } from '../../../../CloudK8s/shared/status/StatusChip';
 import { FeatureMark } from '../../../../CloudK8s/shared/status/FeatureMark';
-import { KpiCard } from '../../../../CloudK8s/shared/status/KpiCard';
 import { NowBanner } from '../../../../CloudK8s/shared/status/NowBanner';
 import { nowSentence, type NowSentence } from '../../../../CloudK8s/shared/status/nowSentence';
+import { PageTemplate } from '../../../../CloudK8s/shared/PageTemplate';
+import { MetricStrip, type MetricCell } from '../../../../CloudK8s/shared/MetricStrip';
 import { RangeBar } from '../../../../CloudK8s/shared/charts/RangeBar';
 import type { UseEksDashboardReturn } from '../../../../../hooks/useEksDashboard';
 import type { UseHpaAutomationState } from '../../../../../hooks/useHpaAutomation';
@@ -66,7 +67,7 @@ export const missingHpaNotice = (ref: string): string => `${ref} isn't in this c
 
 const StatusItem: React.FC<{ label: string; value: string; title?: string }> = ({ label, value, title }) => (
   <div className="flex flex-col gap-0.5">
-    <span className={`text-[10px] font-bold uppercase tracking-wide ${FAINT}`}>{label}</span>
+    <span className={`text-[11px] font-bold uppercase tracking-wide ${FAINT}`}>{label}</span>
     <span className={`text-[12px] font-semibold ${INK}`} title={title}>
       {value}
     </span>
@@ -160,7 +161,7 @@ const EngineStatus: React.FC<{
           <button
             type="button"
             onClick={reload}
-            className="rounded-xl border border-[rgba(0,0,0,0.12)] bg-white px-4 py-2 text-xs font-bold text-[rgba(0,0,0,0.6)] transition-all hover:bg-[rgba(0,0,0,0.03)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.7)]"
+            className="rounded-[6px] border border-[rgba(0,0,0,0.12)] bg-white px-4 py-2 text-[12px] font-bold text-[rgba(0,0,0,0.6)] transition-all hover:bg-[rgba(0,0,0,0.03)] dark:border-[rgba(255,255,255,0.16)] dark:bg-[#141414] dark:text-[rgba(255,255,255,0.7)]"
           >
             Refresh
           </button>
@@ -169,7 +170,7 @@ const EngineStatus: React.FC<{
 
       {gateReasons.length > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-1">
-          <span className={`mr-1 text-[10px] font-bold uppercase tracking-wide ${FAINT}`}>Why changes are off</span>
+          <span className={`mr-1 text-[11px] font-bold uppercase tracking-wide ${FAINT}`}>Why changes are off</span>
           {gateReasons.map((r) => (
             <TitledChip key={hpaCodeText(r)} tone="off" icon="mdi:lock-outline" label={hpaCodeText(r)} title={`Code: ${r.kind === 'known' ? r.code : r.raw}`} />
           ))}
@@ -229,43 +230,64 @@ const names = (rows: readonly HpaRow[]): string => {
   return list.length <= 3 ? list.join(', ') : `${list.slice(0, 3).join(', ')} and ${list.length - 3} more`;
 };
 
+/** A MetricStrip sub-line: the SECONDARY-sized copy that sat under a KpiCard's number. */
+const Sub: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <span className="flex flex-col gap-0.5">{children}</span>
+);
+
+/**
+ * The HPA metric strip (DESIGN §4.1): the KpiCard row becomes one honest MetricStrip. Every figure
+ * and sub-line is the former KpiCard copy verbatim, including the dash-where-honest rules (a count
+ * the agent/endpoint didn't report stays a dash). HPAs leads the row.
+ */
 const HpaKpiRow: React.FC<{ rows: HpaRow[]; agentReported: boolean; engineRead: boolean }> = ({ rows, agentReported, engineRead }) => {
   const k = hpaKpis(rows, agentReported, engineRead);
   const atMax = rows.filter((r) => rowHasFlag(r, 'at-max'));
   const atMin = rows.filter((r) => rowHasFlag(r, 'at-min'));
   const conflicts = rows.filter((r) => r.workload?.vpaCoexistence.kind === 'managed');
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-hpa-kpis="">
-      <KpiCard tone={k.total === null ? 'off' : 'info'} icon="mdi:arrow-expand-horizontal" label="HPAs" value={k.total ?? DASH}>
-        {k.total === null ? (
-          <p>Not checked: neither the XamOps agent nor the Workload autoscaler answered</p>
+  const cells: MetricCell[] = [
+    {
+      label: 'HPAs',
+      value: k.total ?? DASH,
+      sub:
+        k.total === null ? (
+          <Sub><span>Not checked: neither the XamOps agent nor the Workload autoscaler answered</span></Sub>
         ) : (
-          <>
-            <p>{k.total > 0 ? names(rows) : 'None on this cluster'}</p>
-            <p>{agentReported ? FROM_AGENT : 'from endpoint 1: the XamOps agent reported no HPA list'}</p>
-          </>
-        )}
-      </KpiCard>
-      <KpiCard tone={k.atMax === null ? 'off' : k.atMax > 0 ? 'warn' : 'good'} icon="mdi:arrow-collapse-up" label="At their maximum" value={k.atMax ?? DASH}>
-        <p>{k.atMax === null ? FROM_AGENT : k.atMax > 0 ? names(atMax) : 'None is held at its maximum'}</p>
-      </KpiCard>
-      <KpiCard tone={k.atMin === null ? 'off' : 'info'} icon="mdi:arrow-collapse-down" label="At their minimum" value={k.atMin ?? DASH}>
-        <p>{k.atMin === null ? FROM_AGENT : k.atMin > 0 ? names(atMin) : 'None is at its minimum'}</p>
-      </KpiCard>
-      <KpiCard
-        tone={k.conflicts === null ? 'off' : k.conflicts > 0 ? 'bad' : 'good'}
-        icon={k.conflicts ? 'mdi:alert-octagon-outline' : 'mdi:shield-check-outline'}
-        label="Conflicts with XamOps"
-        value={k.conflicts ?? DASH}
-      >
-        <p>
-          {k.conflicts === null
-            ? "XamOps couldn't read its HPA decisions just now"
-            : k.conflicts > 0
-              ? `A Kubernetes VPA also changes the pods of ${names(conflicts)}`
-              : 'No Kubernetes VPA changes their pods; XamOps leaves their CPU alone'}
-        </p>
-      </KpiCard>
+          <Sub>
+            <span>{k.total > 0 ? names(rows) : 'None on this cluster'}</span>
+            <span>{agentReported ? FROM_AGENT : 'from endpoint 1: the XamOps agent reported no HPA list'}</span>
+          </Sub>
+        ),
+    },
+    {
+      label: 'At their maximum',
+      value: k.atMax ?? DASH,
+      sub: <Sub><span>{k.atMax === null ? FROM_AGENT : k.atMax > 0 ? names(atMax) : 'None is held at its maximum'}</span></Sub>,
+    },
+    {
+      label: 'At their minimum',
+      value: k.atMin ?? DASH,
+      sub: <Sub><span>{k.atMin === null ? FROM_AGENT : k.atMin > 0 ? names(atMin) : 'None is at its minimum'}</span></Sub>,
+    },
+    {
+      label: 'Conflicts with XamOps',
+      value: k.conflicts ?? DASH,
+      sub: (
+        <Sub>
+          <span>
+            {k.conflicts === null
+              ? "XamOps couldn't read its HPA decisions just now"
+              : k.conflicts > 0
+                ? `A Kubernetes VPA also changes the pods of ${names(conflicts)}`
+                : 'No Kubernetes VPA changes their pods; XamOps leaves their CPU alone'}
+          </span>
+        </Sub>
+      ),
+    },
+  ];
+  return (
+    <div data-hpa-kpis="">
+      <MetricStrip cells={cells} heroLead aria-label="HPA summary" />
     </div>
   );
 };
@@ -577,13 +599,12 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
     : hpaNow(clusterName, rows, agentReported, view);
   const empty = view ? gateEmptyState(view.gateReasons, 'hpa', NO_HPAS) : NO_HPAS;
 
-  return (
-    // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it
-    // alone and the write controls keep their own disabled and confirm states in dark mode.
-    <div className="space-y-8" data-hpa-page="" data-k8s-kit="">
+  const hero = (
+    // data-k8s-kit: every colour here has its dark variant, so the legacy dark CSS leaves it alone.
+    <div className="flex flex-col gap-4" data-k8s-kit="">
       {malformed && <Notice onDismiss={() => setMalformed(false)}>{MALFORMED_HPA_NOTICE}</Notice>}
       {missing && <Notice onDismiss={dropHpaParam}>{missingHpaNotice(missing)}</Notice>}
-      <div className="space-y-1">
+      <div className="flex flex-col gap-1">
         <FeatureMark feature="hpa" title="HPA" />
         <p className={`text-[12px] ${MUTED}`}>
           Kubernetes Horizontal Pod Autoscalers add and remove replicas as load changes. XamOps shows each one&apos;s limits
@@ -592,6 +613,21 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
       </div>
       <NowBanner sentence={sentence} />
       <HpaKpiRow rows={rows} agentReported={agentReported} engineRead={view !== null} />
+    </div>
+  );
+
+  return (
+    // data-k8s-kit: every colour on this page has its dark variant, so the legacy dark CSS leaves it
+    // alone and the write controls keep their own disabled and confirm states in dark mode.
+    // PageTemplate stamps data-k8s-redesigned-main; the PRESERVED Apply gating (EngineStatus /
+    // HpaTable / CandidateCard) lives inside it, now in the v3 chrome budget (behaviour unchanged).
+    <div data-hpa-page="" data-k8s-kit="">
+      <PageTemplate
+        title="HPA"
+        intro="Each HorizontalPodAutoscaler on this cluster, its live numbers from the XamOps agent, and XamOps's decision for the workload it scales."
+        width="table"
+        hero={hero}
+      >
       {shownHistory && historyOf(histories, shownHistory.id) && (
         <HpaHistoryCards
           subject={shownHistory.name}
@@ -631,7 +667,7 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
         )
       )}
       {view && candidates.length > 0 && (
-        <section aria-label="Workloads an HPA would help" className="space-y-3">
+        <section aria-label="Workloads an HPA would help" className="flex min-w-0 flex-col gap-3">
           <h3 className={`text-[13px] font-semibold ${INK}`}>
             {candidates.length} {plural(candidates.length, 'workload')} an HPA would help
           </h3>
@@ -640,6 +676,7 @@ export const HpaPage: React.FC<HpaPageProps> = ({ clusterName, accountId, region
           ))}
         </section>
       )}
+      </PageTemplate>
     </div>
   );
 };
