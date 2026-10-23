@@ -108,6 +108,30 @@ export interface VerticalHorizontalWire {
  * ever a true computed zero (a recommendation that frees nothing), never a stand-in for unknown.
  * Absent from a build that predates cost (and from every response while the feature is off).
  */
+/**
+ * One pod's real $ cost share (FEAT-002, GAP 2), additive on {@link WorkloadCostWire.pods}.
+ *
+ * Same honesty rule as the workload money fields: `monthlyCost === null` means **unavailable** (the
+ * backend could not price this pod's node — render a dash + `reason`), and a `0` is only a true
+ * computed zero. Derived from the same attribution engine as the workload total, so the workload's
+ * `monthlyCost` equals the sum of its priced pods'.
+ */
+export interface PodCostWire {
+  podName: string;
+  /** The node the pod runs on, or null when it had none. */
+  nodeName: string | null;
+  /** This pod's $/mo share, or null + reason when unavailable. */
+  monthlyCost: number | null;
+  /** Machine reason code when `monthlyCost` is null, e.g. `NO_LIVE_PRICE`. */
+  reason: string | null;
+  /** `PRICE_LIST` | `SPOT_HISTORY`, or null when unavailable. */
+  source: string | null;
+  /** `on-demand` | `spot`, or null. */
+  capacityType: string | null;
+  /** True when on-demand was assumed from a missing label. Absent/false on a labelled node. */
+  capacityTypeInferred?: boolean | null;
+}
+
 export interface WorkloadCostWire {
   /** Current $/mo the workload reserves, or null + reason when unavailable. */
   monthlyCost: number | null;
@@ -127,6 +151,12 @@ export interface WorkloadCostWire {
   capacityTypeInferred?: boolean | null;
   /** A provenance sentence for a tooltip, e.g. "AWS Price List on-demand rate for m5.large…". */
   note: string | null;
+  /**
+   * The per-pod $ breakdown the engine computed before collapsing to the workload total (FEAT-002).
+   * Each entry is a real figure or null + reason; the workload total equals the sum of its priced
+   * pods. Null on the unavailable / pre-cost path and absent on a build that predates the field.
+   */
+  pods?: PodCostWire[] | null;
 }
 
 /**
@@ -299,6 +329,26 @@ export interface WorkloadCostView {
   capacityType: string | null;
   capacityTypeInferred: boolean;
   note: string | null;
+  /**
+   * The per-pod cost breakdown (FEAT-002), or null when the wire carried none. Each entry's
+   * `monthlyCost` is `number | null` — `null` is unavailable (render a dash + `reason`), a `0` is a
+   * true computed zero.
+   */
+  pods: PodCostView[] | null;
+}
+
+/**
+ * One pod's cost in the view (FEAT-002). `monthlyCost` is `null` when unavailable (render a dash +
+ * `reason`); a `0` is a true computed zero. `capacityTypeInferred` is coerced to a plain boolean.
+ */
+export interface PodCostView {
+  podName: string;
+  nodeName: string | null;
+  monthlyCost: number | null;
+  reason: string | null;
+  source: string | null;
+  capacityType: string | null;
+  capacityTypeInferred: boolean;
 }
 
 /** The cluster cost roll-up in the view (FEAT-002). `null` money fields render as a dash. */

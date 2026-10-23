@@ -11,15 +11,20 @@
  * Activating a row opens a right-side DetailDrawer built by `rowToSections(pod)` from REAL pod data:
  * Identity (name, namespace, node, QoS, phase, owner, pod IP), Containers (each container's FULL
  * untruncated image, cpu/mem request & limit, state, restarts), and Utilisation (cpu/mem used now
- * from the top-20 feed, "—" + tooltip otherwise). The Cost section (per-pod $ share) is a named
- * backend GAP — WorkloadCostDto is per-workload, with no per-pod field — so its datum is a <Dash> and
- * the whole all-empty Cost section is DROPPED by DetailDrawer; no pod $ is ever fabricated.
+ * from the top-20 feed, "—" + tooltip otherwise). The Cost section carries the REAL per-pod $ share
+ * from the automation cost engine (FEAT-002) — read from useAutomationRead and joined by
+ * namespace/podName — showing the figure when the engine priced this pod, else a <Dash> + the pod's
+ * machine reason; when no priced or reasoned entry exists at all the whole all-dash Cost section is
+ * DROPPED by DetailDrawer. No pod $ is ever fabricated.
  *
  * Search, the phase + namespace filters, sort, pagination, CSV and the linked-phase deep link
  * (`phaseFromUrl`) are all preserved through the DataTable wrapper's K8sDataTable features.
  */
 import { useMemo, useState, type ReactNode } from 'react';
 import { useK8sCapabilities } from '../../../hooks/useK8sCapabilities';
+import { useAutomationRead } from '../../../hooks/useAutomationRead';
+import { formatMonthlyUsd } from '../../../api/verticalRightsizerAdapter';
+import type { PodCostView } from '../../../types/verticalRightsizer';
 import type { UseEksDashboardReturn } from '../../../hooks/useEksDashboard';
 import {
   clusterPods, sumRequests, topPodCpuUsage, topPodMemoryUsageMi, USAGE_TOP_PODS_ONLY, type ClusterPod,
@@ -40,8 +45,11 @@ import { SECONDARY, BODY } from '../../CloudK8s/shared/typeScale';
 export const PODS_CAPTION = 'Pods';
 const PHASES = ['Running', 'Pending', 'Failed', 'Succeeded'] as const;
 
-/** Per-pod $ share is a backend GAP: WorkloadCostDto is per-workload, with no per-pod field. */
-export const POD_COST_GAP = 'Per-pod cost isn’t reported yet (WorkloadCostDto is per-workload).';
+/**
+ * Shown when the automation cost read carried no per-pod entry for this pod at all — the engine was
+ * off, unreachable, or this pod was not in the priced workload set. Never a fabricated $.
+ */
+export const POD_COST_GAP = 'Per-pod cost isn’t available from the automation engine for this pod.';
 
 /**
  * The Status filter a link asked for with `phase=` (Overview's "View pending pods"), read once
@@ -139,10 +147,32 @@ function containerSections(pod: ClusterPod): DrawerSection[] {
   });
 }
 
-export default function EksPodsTab({ eksData, clusterName }: { eksData: UseEksDashboardReturn; clusterName: string }) {
+export default function EksPodsTab({
+  eksData, clusterName, accountId = null, region = null,
+}: {
+  eksData: UseEksDashboardReturn;
+  clusterName: string;
+  accountId?: string | null;
+  region?: string | null;
+}) {
   const dashboard = eksData.dashboard;
   const caps = useK8sCapabilities();
   const [linkedPhase] = useState(phaseFromUrl);
+
+  // Per-pod $ comes from the automation cost engine (FEAT-002), a DIFFERENT path than this tab's
+  // agent dashboard: read it once and join by `namespace/podName`. Idle until account+region exist.
+  const automation = useAutomationRead({ clusterName, accountId, region });
+  const podCostByKey = useMemo((): Map<string, PodCostView> => {
+    const byKey = new Map<string, PodCostView>();
+    if (automation.result?.kind !== 'ok') return byKey;
+    for (const workload of automation.result.view.vertical.workloads) {
+      for (const pod of workload.cost?.pods ?? []) {
+        // The read's pod carries its own namespace nowhere, so join on the workload's namespace.
+        byKey.set(`${workload.ref.namespace}/${pod.podName}`, pod);
+      }
+    }
+    return byKey;
+  }, [automation.result]);
   const rows = useMemo((): PodRow[] => {
     const cpu = topPodCpuUsage(dashboard);
     const mem = topPodMemoryUsageMi(dashboard);
@@ -260,11 +290,21 @@ export default function EksPodsTab({ eksData, clusterName }: { eksData: UseEksDa
       ],
     };
 
-    // Cost (per-pod $ share): a named backend GAP — WorkloadCostDto is per-workload, with no per-pod
-    // field. Every datum is a <Dash>, so DetailDrawer DROPS the whole Cost section. Never a fake $.
+    // Cost (per-pod $ share): the REAL figure from the automation cost engine (FEAT-002), joined by
+    // namespace/podName. When the engine priced this pod, show `$X/mo`; when it carried a pod with
+    // no price, keep value:null + that pod's machine reason; when no entry exists at all, the
+    // POD_COST_GAP copy. Either way value:null is a <Dash>, so an all-missing Cost section is DROPPED
+    // by DetailDrawer. Never a fabricated $.
+    const podCost = podCostByKey.get(r.key);
     const cost: DrawerSection = {
       title: 'Cost',
-      data: [{ label: 'Monthly cost share', value: null, reason: POD_COST_GAP }],
+      data: [{
+        label: 'Monthly cost share',
+        value: podCost && podCost.monthlyCost !== null
+          ? <span className="tabular-nums">{formatMonthlyUsd(podCost.monthlyCost)}</span>
+          : null,
+        reason: podCost?.reason ?? POD_COST_GAP,
+      }],
     };
 
     return [identity, ...containerSections(pod), utilisation, cost];

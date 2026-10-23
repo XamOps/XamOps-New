@@ -8,6 +8,32 @@ vi.mock('../../../../api/k8sAutomationApi', async (importOriginal) => {
   return { ...actual, getCapabilities };
 });
 
+// The Pods drawer's Cost section reads per-pod $ from the automation engine (FEAT-002), a different
+// path than the agent dashboard. Mock it so a test can hand EksPodsTab a priced / unpriced read.
+const { useAutomationRead } = vi.hoisted(() => ({ useAutomationRead: vi.fn() }));
+vi.mock('../../../../hooks/useAutomationRead', () => ({ useAutomationRead }));
+
+type PodCost = {
+  podName: string; nodeName: string | null; monthlyCost: number | null; reason: string | null;
+  source: string | null; capacityType: string | null; capacityTypeInferred: boolean;
+};
+
+/** An automation read that attributes `pods` to a single `production`-namespace workload. */
+function automationReadWithPods(pods: PodCost[]) {
+  return {
+    loading: false,
+    reload: vi.fn(),
+    result: {
+      kind: 'ok' as const,
+      view: {
+        vertical: {
+          workloads: [{ ref: { namespace: 'production', kind: 'Deployment', name: 'api-server' }, cost: { pods } }],
+        },
+      },
+    },
+  };
+}
+
 import { K8sCapabilitiesProvider } from '../../../../hooks/useK8sCapabilities';
 import type { UseEksDashboardReturn } from '../../../../hooks/useEksDashboard';
 import { demoCapabilities } from '../../../../demo/k8sAutomationMockData';
@@ -36,7 +62,12 @@ function cell(table: HTMLElement, name: string, header: string): HTMLElement {
   return row(table, name).querySelectorAll('td')[index] as HTMLElement;
 }
 
-beforeEach(() => { getCapabilities.mockReset(); });
+beforeEach(() => {
+  getCapabilities.mockReset();
+  // Default: an idle read (no account/region), so the Cost section drops unless a test opts in.
+  useAutomationRead.mockReset();
+  useAutomationRead.mockReturnValue({ loading: false, result: null, reload: vi.fn() });
+});
 afterEach(() => vi.restoreAllMocks());
 
 describe('Workloads › Pods (§10.4, D10)', () => {
@@ -101,6 +132,34 @@ describe('Workloads › Pods (§10.4, D10)', () => {
     expect(drawer).toHaveTextContent('xammer/api-server:v2.4.1');
     expect(drawer).toHaveTextContent('Guaranteed');
     // Cost section is dropped (all-dash), and no dollar figure is invented anywhere in the drawer.
+    expect(within(drawer).queryByText('Cost')).toBeNull();
+    expect(within(drawer).queryByText(/\$/)).toBeNull();
+  });
+
+  it('shows the Cost section with the real per-pod figure when the engine priced the pod (FEAT-002)', async () => {
+    const user = userEvent.setup();
+    useAutomationRead.mockReturnValue(automationReadWithPods([
+      { podName: 'api-server-6d8f7b9c4-xk2pq', nodeName: 'ip-10-0-1-101', monthlyCost: 12.34, reason: null, source: 'PRICE_LIST', capacityType: 'on-demand', capacityTypeInferred: false },
+    ]));
+    renderWith(<EksPodsTab eksData={eksData} clusterName="prod-eks-cluster" accountId="demo-aws-001" region="us-east-1" />);
+    const table = screen.getByRole('table', { name: PODS_CAPTION });
+    await user.click(row(table, 'api-server-6d8f7b9c4-xk2pq'));
+    const drawer = screen.getByRole('dialog');
+    // The Cost section renders with the real $X/mo figure, never a fabricated one.
+    expect(within(drawer).getByText('Cost')).toBeInTheDocument();
+    expect(within(drawer).getByText('$12/mo')).toBeInTheDocument();
+  });
+
+  it('keeps the Cost section dropped when the engine has no priced entry for the pod', async () => {
+    const user = userEvent.setup();
+    // The read carries a different pod only, so this pod joins to nothing -> all-dash -> dropped.
+    useAutomationRead.mockReturnValue(automationReadWithPods([
+      { podName: 'some-other-pod', nodeName: 'ip-10-0-1-109', monthlyCost: 9.99, reason: null, source: 'PRICE_LIST', capacityType: 'on-demand', capacityTypeInferred: false },
+    ]));
+    renderWith(<EksPodsTab eksData={eksData} clusterName="prod-eks-cluster" accountId="demo-aws-001" region="us-east-1" />);
+    const table = screen.getByRole('table', { name: PODS_CAPTION });
+    await user.click(row(table, 'api-server-6d8f7b9c4-xk2pq'));
+    const drawer = screen.getByRole('dialog');
     expect(within(drawer).queryByText('Cost')).toBeNull();
     expect(within(drawer).queryByText(/\$/)).toBeNull();
   });
