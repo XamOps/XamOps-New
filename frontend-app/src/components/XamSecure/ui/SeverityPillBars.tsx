@@ -30,6 +30,8 @@ interface VerticalProps {
   /** Footer line, e.g. "{totalIssues} open issues". */
   footerValue?: number;
   footerLabel?: string;
+  /** Tallest bar in px (plot area ≈ this). Defaults to 150; pass smaller to fit a shared card. */
+  barMax?: number;
   onColClick?: (sev: string) => void;
 }
 
@@ -90,11 +92,11 @@ const Horizontal: React.FC<HorizontalProps> = ({ rows, max, caption, onRowClick 
 };
 
 /** One vertical bar in the grouped-pill mode, with its own count-up grow-in. */
-const VBar: React.FC<{ col: VCol; max: number; opacity: number; onClick?: () => void }> = ({ col, max, opacity, onClick }) => {
+const VBar: React.FC<{ col: VCol; max: number; opacity: number; barMax: number; onClick?: () => void }> = ({ col, max, opacity, barMax, onClick }) => {
   const reduced = usePrefersReducedMotion();
   const grown = useCountUp(col.value, 600);
   const basis = reduced ? col.value : grown;
-  const h = max > 0 ? Math.round((basis / max) * 150) : 0;
+  const h = max > 0 ? Math.round((basis / max) * barMax) : 0;
   const clickable = !!onClick;
   const inner = (
     <>
@@ -122,11 +124,11 @@ const VBar: React.FC<{ col: VCol; max: number; opacity: number; onClick?: () => 
 };
 
 /** Vertical grouped pills: a single "New" group (no Resolved — omitted, no datum). */
-const Vertical: React.FC<VerticalProps> = ({ cols, max, footerValue, footerLabel, onColClick }) => (
+const Vertical: React.FC<VerticalProps> = ({ cols, max, footerValue, footerLabel, barMax = 150, onColClick }) => (
   <div style={{ display: 'flex', flexDirection: 'column' }}>
-    <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 24, minHeight: 180 }}>
+    <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 24, minHeight: barMax + 30 }}>
       {cols.map((col, i) => (
-        <VBar key={col.sev} col={col} max={max} opacity={V_OPACITY[i] ?? 0.4} onClick={onColClick ? () => onColClick(col.sev) : undefined} />
+        <VBar key={col.sev} col={col} max={max} barMax={barMax} opacity={V_OPACITY[i] ?? 0.4} onClick={onColClick ? () => onColClick(col.sev) : undefined} />
       ))}
     </div>
     {typeof footerValue === 'number' && (

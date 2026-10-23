@@ -179,20 +179,17 @@ const OverviewTab: React.FC<Props> = ({
             glyphColor="var(--xs-red-03)"
             action={issuesTrend ? <TrendDelta from={issuesTrend.from} to={issuesTrend.to} label="over 7 days" /> : undefined}
           >
-            <p style={{ fontSize: 12, color: 'var(--xs-text-secondary)', margin: '0 0 8px' }}>Cumulative open issues · last 7 days</p>
-            <FindingsOverTimeBars data={findingsOverTime} height={96} />
-          </DashboardPanel>
-
-          <DashboardPanel
-            title="New security issues"
-            glyph="mdi:alert-plus-outline"
-            glyphColor="var(--xs-pink-03)"
-          >
-            <p style={{ fontSize: 12, color: 'var(--xs-text-secondary)', margin: '0 0 8px' }}>By severity · open issues</p>
+            {/* Two compact charts share one 356px card — sized so both are fully visible
+                with no in-card scroll. */}
+            <p style={{ fontSize: 12, color: 'var(--xs-text-secondary)', margin: '0 0 6px' }}>Cumulative open issues · last 7 days</p>
+            <FindingsOverTimeBars data={findingsOverTime} height={72} />
+            <div style={{ borderTop: '1px solid var(--xs-border-subtle)', margin: '10px 0 6px' }} />
+            <p style={{ fontSize: 12, color: 'var(--xs-text-secondary)', margin: '0 0 2px' }}>New security issues · by severity</p>
             <SeverityPillBars
               mode="vertical"
               cols={newCols}
               max={maxNew}
+              barMax={70}
               footerValue={totalIssues}
               footerLabel="open issues"
               onColClick={(sev) => navigate(sev === 'OTHER' ? '/xamsecure/issues' : `/xamsecure/issues?severity=${sev}`)}
