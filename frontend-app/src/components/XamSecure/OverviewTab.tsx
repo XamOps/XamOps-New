@@ -181,8 +181,14 @@ const OverviewTab: React.FC<Props> = ({
           >
             <p style={{ fontSize: 12, color: 'var(--xs-text-secondary)', margin: '0 0 8px' }}>Cumulative open issues · last 7 days</p>
             <FindingsOverTimeBars data={findingsOverTime} height={96} />
-            <div style={{ borderTop: '1px solid var(--xs-border-subtle)', margin: '12px 0 8px' }} />
-            <p style={{ fontSize: 12, color: 'var(--xs-text-secondary)', margin: '0 0 4px' }}>New security issues</p>
+          </DashboardPanel>
+
+          <DashboardPanel
+            title="New security issues"
+            glyph="mdi:alert-plus-outline"
+            glyphColor="var(--xs-pink-03)"
+          >
+            <p style={{ fontSize: 12, color: 'var(--xs-text-secondary)', margin: '0 0 8px' }}>By severity · open issues</p>
             <SeverityPillBars
               mode="vertical"
               cols={newCols}
