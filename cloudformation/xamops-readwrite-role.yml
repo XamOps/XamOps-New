@@ -1095,6 +1095,53 @@ Resources:
                 Resource:
                   - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}'
                   - !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/*'
+
+              # ------------------------------------------------------------------
+              # CUR querying (Athena + Glue) — granted UNCONDITIONALLY here, so an
+              # account connected in ANY region can read its CUR.
+              #
+              # The conditional XamOpsCurReadPolicy block elsewhere only attaches when
+              # HasCurBucket is true, and that depends on DeployCurReport, which is
+              # region-gated to us-east-1 (AWS::CUR::ReportDefinition exists only there).
+              # A stack launched in ap-south-1 with CurS3Bucket blank therefore got S3
+              # read but no athena:StartQueryExecution, so every CUR query failed with
+              # AccessDenied even though the report and bucket (created in us-east-1)
+              # were present. IAM is global, so decoupling the grant from the region-gated
+              # report creation is the correct fix — no stack move, no per-account param.
+              # Resource: '*' matches AWS's own scoping for these actions; the only CUR
+              # data reachable is one already readable via XamOpsCurReadAccess.
+              # ------------------------------------------------------------------
+              - Sid: XamOpsCurAthenaQueryUnconditional
+                Effect: Allow
+                Action:
+                  - 'athena:StartQueryExecution'
+                  - 'athena:StopQueryExecution'
+                  - 'athena:GetQueryExecution'
+                  - 'athena:GetQueryResults'
+                  - 'athena:GetWorkGroup'
+                Resource: '*'
+
+              - Sid: XamOpsCurGlueCatalogUnconditional
+                Effect: Allow
+                Action:
+                  - 'glue:GetDatabase'
+                  - 'glue:GetDatabases'
+                  - 'glue:GetTable'
+                  - 'glue:GetTables'
+                  - 'glue:GetPartition'
+                  - 'glue:GetPartitions'
+                  - 'glue:CreateDatabase'
+                  - 'glue:CreateTable'
+                  - 'glue:DeleteTable'
+                  - 'glue:BatchCreatePartition'
+                Resource: '*'
+
+              - Sid: XamOpsCurAthenaResultsWriteUnconditional
+                Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                  - 's3:AbortMultipartUpload'
+                Resource: !Sub 'arn:aws:s3:::xamops-cur-${AWS::AccountId}/xamops-athena-results/*'
         # -----------------------------------------------------------------
         # CloudK8s fleet read - roadmap Appendix 8.1 Catalog-A read delta.
         # Kept as its own inline policy: 2,722 compacted chars does not fit in
