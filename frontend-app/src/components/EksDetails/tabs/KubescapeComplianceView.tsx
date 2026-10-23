@@ -1,10 +1,27 @@
 /**
- * Kubescape Security & Compliance View
+ * Kubescape Security & Compliance View.
  *
- * Comprehensive vulnerability scanning and compliance monitoring dashboard
+ * FEAT-005 v3 roll-out: the decorative red / orange / green Tailwind ramps, the rounded-xl
+ * cards and the tinted severity pills are gone — colour carries meaning only, as a StatusDot
+ * (dot + word) or a token-filled bar (score / distribution), so dark mode is automatic. The summary
+ * cards collapse into one hero MetricStrip; frameworks render as Surface rows with a token score
+ * bar and a per-framework DetailDrawer (its real guidance); the vulnerable-workload list is a
+ * DataTable + DetailDrawer. Radii are only the sanctioned {8px, 6px, pill}.
+ *
+ * The complianceScore / framework scores / severity counts and the workload pagination are unchanged.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState, type ReactNode } from 'react';
+import { Surface } from '../../CloudK8s/shared/Surface';
+import { MetricStrip, type MetricCell } from '../../CloudK8s/shared/MetricStrip';
+import { DataTable } from '../../CloudK8s/shared/DataTable';
+import { EmptyState } from '../../CloudK8s/shared/EmptyState';
+import { StatusDot } from '../../CloudK8s/shared/status/StatusDot';
+import type { Tone } from '../../CloudK8s/shared/status/statusTones';
+import { toneClasses } from '../../CloudK8s/shared/status/toneClasses';
+import type { ColumnDef } from '../../CloudK8s/shared/K8sDataTable';
+import type { DrawerSection, DrawerDatum } from '../../CloudK8s/shared/DetailDrawer';
+import { TITLE, BODY, SECONDARY, LABEL } from '../../CloudK8s/shared/typeScale';
 
 interface KubescapeData {
   totalCritical: number;
@@ -108,481 +125,369 @@ const FRAMEWORK_GUIDANCE: Record<string, {
   }
 };
 
+const DASH = '—';
+
+/** Chrome ink / muted / hairline, all through the chrome tokens so dark mode is free. */
+const INK = 'text-[color:var(--chrome-ink)]';
+const MUTED = 'text-[color:var(--chrome-muted)]';
+const HAIRLINE = 'border-[color:var(--chrome-line)]';
+
+/** A compliance score → a semantic tone (good ≥ 80, attention ≥ 60, failure below). */
+function scoreTone(score: number): Tone {
+  return score >= 80 ? 'good' : score >= 60 ? 'warn' : 'bad';
+}
+
+/** A severity → tone (same meaning as the CVE severity dots elsewhere). */
+const SEVERITY_TONES: Record<'Critical' | 'High' | 'Medium' | 'Low', Tone> = {
+  Critical: 'bad', High: 'warn', Medium: 'info', Low: 'off',
+};
+
+interface WorkloadRow {
+  key: string;
+  workload: KubescapeVulnerableWorkload;
+}
+
 const KubescapeComplianceView: React.FC<KubescapeComplianceViewProps> = ({ kubescapeData }) => {
-  const [selectedFramework, setSelectedFramework] = useState<string | null>(null);
   const [workloadPage, setWorkloadPage] = useState(1);
   const [selectedSeverity, setSelectedSeverity] = useState<string>('all');
   const workloadsPerPage = 10;
 
-  const totalVulnerabilities = kubescapeData.totalCritical + kubescapeData.totalHigh +
-    kubescapeData.totalMedium + kubescapeData.totalLow;
+  const totalVulnerabilities =
+    kubescapeData.totalCritical + kubescapeData.totalHigh + kubescapeData.totalMedium + kubescapeData.totalLow;
 
-  // Vulnerability distribution data
-  const vulnDistribution = [
-    { label: 'Critical', value: kubescapeData.totalCritical, color: '#DC2626', bg: 'bg-red-600' },
-    { label: 'High', value: kubescapeData.totalHigh, color: '#EA580C', bg: 'bg-orange-600' },
-    { label: 'Medium', value: kubescapeData.totalMedium, color: '#F59E0B', bg: 'bg-amber-500' },
-    { label: 'Low', value: kubescapeData.totalLow, color: '#3B82F6', bg: 'bg-blue-600' }
-  ].filter(v => v.value > 0);
+  // Severity distribution (PRESERVED counts), non-zero only.
+  const distribution = ([
+    { label: 'Critical' as const, value: kubescapeData.totalCritical },
+    { label: 'High' as const, value: kubescapeData.totalHigh },
+    { label: 'Medium' as const, value: kubescapeData.totalMedium },
+    { label: 'Low' as const, value: kubescapeData.totalLow },
+  ]).filter((d) => d.value > 0);
 
-  // Namespace vulnerability breakdown
-  const namespaceVulns = useMemo(() => {
-    return Object.entries(kubescapeData.namespaceBreakdown || {})
-      .map(([name, vulns]) => ({
-        name,
-        total: vulns.critical + vulns.high + vulns.medium + vulns.low,
-        critical: vulns.critical,
-        high: vulns.high,
-        medium: vulns.medium,
-        low: vulns.low
-      }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 5);
-  }, [kubescapeData.namespaceBreakdown]);
+  // Top vulnerable namespaces (PRESERVED aggregation).
+  const namespaceVulns = useMemo(
+    () =>
+      Object.entries(kubescapeData.namespaceBreakdown || {})
+        .map(([name, vulns]) => ({
+          name,
+          total: vulns.critical + vulns.high + vulns.medium + vulns.low,
+          critical: vulns.critical,
+          high: vulns.high,
+          medium: vulns.medium,
+        }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 5),
+    [kubescapeData.namespaceBreakdown],
+  );
 
-  // Filter workloads by severity
+  // Workload filter + sort (PRESERVED logic).
   const filteredWorkloads = useMemo(() => {
     let workloads = kubescapeData.vulnerabilities || [];
-
-    if (selectedSeverity === 'critical') {
-      workloads = workloads.filter(w => w.criticalCount > 0);
-    } else if (selectedSeverity === 'high') {
-      workloads = workloads.filter(w => w.highCount > 0);
-    } else if (selectedSeverity === 'medium') {
-      workloads = workloads.filter(w => w.mediumCount > 0);
-    }
-
-    return workloads.sort((a, b) => {
+    if (selectedSeverity === 'critical') workloads = workloads.filter((w) => w.criticalCount > 0);
+    else if (selectedSeverity === 'high') workloads = workloads.filter((w) => w.highCount > 0);
+    else if (selectedSeverity === 'medium') workloads = workloads.filter((w) => w.mediumCount > 0);
+    return [...workloads].sort((a, b) => {
       const scoreA = a.criticalCount * 10 + a.highCount * 5 + a.mediumCount * 2 + a.lowCount;
       const scoreB = b.criticalCount * 10 + b.highCount * 5 + b.mediumCount * 2 + b.lowCount;
       return scoreB - scoreA;
     });
   }, [kubescapeData.vulnerabilities, selectedSeverity]);
 
-  // Pagination for workloads
-  const totalWorkloadPages = Math.ceil(filteredWorkloads.length / workloadsPerPage);
+  // PRESERVED pagination.
+  const totalWorkloadPages = Math.ceil(filteredWorkloads.length / workloadsPerPage) || 1;
   const paginatedWorkloads = filteredWorkloads.slice(
     (workloadPage - 1) * workloadsPerPage,
-    workloadPage * workloadsPerPage
+    workloadPage * workloadsPerPage,
   );
 
-  // Overall security score
+  // Overall score: the mean of the framework scores (PRESERVED). No frameworks → null (honest dash).
   const overallScore = useMemo(() => {
-    if (!kubescapeData.frameworks || kubescapeData.frameworks.length === 0) return 0;
-    const avgScore = kubescapeData.frameworks.reduce((sum, f) => sum + f.score, 0) / kubescapeData.frameworks.length;
-    return Math.round(avgScore);
+    if (!kubescapeData.frameworks || kubescapeData.frameworks.length === 0) return null;
+    const avg = kubescapeData.frameworks.reduce((sum, f) => sum + f.score, 0) / kubescapeData.frameworks.length;
+    return Math.round(avg);
   }, [kubescapeData.frameworks]);
 
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return { text: 'text-green-600', bg: 'bg-green-100', border: 'border-green-200' };
-    if (score >= 60) return { text: 'text-amber-600', bg: 'bg-amber-100', border: 'border-amber-200' };
-    return { text: 'text-red-600', bg: 'bg-red-100', border: 'border-red-200' };
+  const stripCells: readonly MetricCell[] = [
+    {
+      label: 'Compliance score',
+      value:
+        overallScore === null ? (
+          <span className={MUTED} title="No compliance framework reported.">{DASH}</span>
+        ) : (
+          <span className={toneClasses(scoreTone(overallScore)).text}>{`${overallScore}%`}</span>
+        ),
+      sub: overallScore === null ? 'No framework scored' : 'across frameworks',
+    },
+    { label: 'Total issues', value: totalVulnerabilities, sub: `across ${kubescapeData.totalWorkloads || 0} workloads` },
+    { label: 'Critical', value: <span className={kubescapeData.totalCritical > 0 ? toneClasses('bad').text : INK}>{kubescapeData.totalCritical}</span>, sub: 'fix immediately' },
+    { label: 'High', value: <span className={kubescapeData.totalHigh > 0 ? toneClasses('warn').text : INK}>{kubescapeData.totalHigh}</span>, sub: 'priority fixes' },
+  ];
+
+  const workloadRows: readonly WorkloadRow[] = paginatedWorkloads.map((w, i) => ({
+    key: `${w.namespace}/${w.workloadName}-${i}`,
+    workload: w,
+  }));
+
+  const columns: ReadonlyArray<ColumnDef<WorkloadRow>> = [
+    {
+      id: 'name', header: 'Workload', priority: 'essential', width: '240px',
+      cell: (r) => (
+        <span className="flex min-w-0 flex-col">
+          <span className={`truncate font-semibold ${BODY}`} title={r.workload.workloadName}>{r.workload.workloadName}</span>
+          <span className={`inline-flex items-center gap-1.5 ${SECONDARY}`}>
+            <StatusDot tone="off" label={r.workload.workloadKind} />
+          </span>
+        </span>
+      ),
+      sortValue: (r) => r.workload.workloadName, csv: (r) => r.workload.workloadName,
+    },
+    {
+      id: 'namespace', header: 'Namespace', width: '180px',
+      cell: (r) => <span className={`block truncate font-mono text-[12px] ${MUTED}`} title={r.workload.namespace}>{r.workload.namespace}</span>,
+      sortValue: (r) => r.workload.namespace, csv: (r) => r.workload.namespace,
+    },
+    {
+      id: 'critical', header: 'Critical', align: 'right', width: '96px',
+      cell: (r) => <span className={`tabular-nums ${r.workload.criticalCount > 0 ? toneClasses('bad').text : MUTED}`}>{r.workload.criticalCount || DASH}</span>,
+      sortValue: (r) => r.workload.criticalCount, csv: (r) => r.workload.criticalCount,
+    },
+    {
+      id: 'high', header: 'High', align: 'right', width: '88px',
+      cell: (r) => <span className={`tabular-nums ${r.workload.highCount > 0 ? toneClasses('warn').text : MUTED}`}>{r.workload.highCount || DASH}</span>,
+      sortValue: (r) => r.workload.highCount, csv: (r) => r.workload.highCount,
+    },
+    {
+      id: 'medium', header: 'Medium', align: 'right', width: '96px',
+      cell: (r) => <span className={`tabular-nums ${MUTED}`}>{r.workload.mediumCount || DASH}</span>,
+      sortValue: (r) => r.workload.mediumCount, csv: (r) => r.workload.mediumCount,
+    },
+    {
+      id: 'low', header: 'Low', align: 'right', width: '88px',
+      cell: (r) => <span className={`tabular-nums ${MUTED}`}>{r.workload.lowCount || DASH}</span>,
+      sortValue: (r) => r.workload.lowCount, csv: (r) => r.workload.lowCount,
+    },
+  ];
+
+  const rowToSections = (r: WorkloadRow): DrawerSection[] => {
+    const w = r.workload;
+    const identity: DrawerSection = {
+      title: 'Workload',
+      data: [
+        { label: 'Name', value: <span className="break-all">{w.workloadName}</span> },
+        { label: 'Kind', value: <StatusDot tone="off" label={w.workloadKind} /> },
+        { label: 'Namespace', value: <span className="break-all font-mono text-[12px]">{w.namespace}</span> },
+      ],
+    };
+    const counts: DrawerSection = {
+      title: 'Findings',
+      data: [
+        { label: 'Critical', value: w.criticalCount > 0 ? <span className="tabular-nums">{w.criticalCount}</span> : null, reason: 'None at this severity.' },
+        { label: 'High', value: w.highCount > 0 ? <span className="tabular-nums">{w.highCount}</span> : null, reason: 'None at this severity.' },
+        { label: 'Medium', value: w.mediumCount > 0 ? <span className="tabular-nums">{w.mediumCount}</span> : null, reason: 'None at this severity.' },
+        { label: 'Low', value: w.lowCount > 0 ? <span className="tabular-nums">{w.lowCount}</span> : null, reason: 'None at this severity.' },
+      ],
+    };
+    return [identity, counts];
   };
 
-  const scoreColors = getScoreColor(overallScore);
+  /** The per-framework drawer: score, controls, and its real guidance (description, issues, wins). */
+  const frameworkSections = (f: FrameworkScore): DrawerSection[] => {
+    const guidance = FRAMEWORK_GUIDANCE[f.name];
+    const overview: DrawerSection = {
+      title: 'Framework',
+      data: [
+        { label: 'Name', value: f.name },
+        { label: 'Score', value: <span className={`tabular-nums ${toneClasses(scoreTone(f.score)).text}`}>{`${f.score.toFixed(0)}%`}</span> },
+        { label: 'Passed controls', value: <span className="tabular-nums">{f.passedControls}</span> },
+        { label: 'Failed controls', value: <span className="tabular-nums">{f.failedControls}</span> },
+        { label: 'About', value: guidance ? <span className="leading-relaxed">{guidance.description}</span> : null, reason: 'No guidance catalogued for this framework.' },
+      ],
+    };
+    const sections: DrawerSection[] = [overview];
+    if (guidance) {
+      const issues: DrawerDatum[] = guidance.commonIssues.slice(0, 3).map((issue, i) => ({ label: `Issue ${i + 1}`, value: <span className="leading-relaxed">{issue}</span> }));
+      const wins: DrawerDatum[] = guidance.quickWins.slice(0, 3).map((win, i) => ({ label: `Fix ${i + 1}`, value: <span className="leading-relaxed">{win}</span> }));
+      sections.push({ title: 'Common issues', data: issues });
+      sections.push({ title: 'Quick wins', data: wins });
+      sections.push({ title: 'References', data: guidance.references.map((ref, i) => ({ label: `Reference ${i + 1}`, value: <span className="font-mono text-[12px]">{ref}</span> })) });
+    }
+    return sections;
+  };
+
+  const selectClass =
+    `rounded-[6px] border px-3 py-1.5 text-[12px] font-medium ${HAIRLINE} ${INK} bg-[color:var(--chrome-card)] ` +
+    'outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--chrome-ink)]';
+
+  const intro: ReactNode = 'Kubescape configuration scanning against NSA-CISA, MITRE ATT&CK and CIS benchmarks.';
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center">
-              <i className="fas fa-shield-alt text-purple-600 text-lg"></i>
-            </div>
-            <div>
-              <h3 className="text-xl font-bold text-gray-900">Security & Compliance</h3>
-              <p className="text-sm text-gray-600">Kubescape vulnerability scanning and compliance monitoring</p>
-            </div>
-          </div>
-
-          <div className={`px-4 py-2 rounded-lg border flex items-center gap-2 ${scoreColors.bg} ${scoreColors.border}`}>
-            <span className={`font-bold text-2xl ${scoreColors.text}`}>{overallScore}%</span>
-            <span className="text-sm text-gray-600">Overall Score</span>
-          </div>
+    <Surface tier="table" className="overflow-hidden" aria-label="Security and compliance">
+      <div className={`flex items-center justify-between border-b px-5 py-3.5 ${HAIRLINE}`}>
+        <div className="min-w-0">
+          <span className={TITLE}>Security &amp; compliance</span>
+          <p className={SECONDARY}>{intro}</p>
         </div>
+        {overallScore !== null && (
+          <StatusDot tone={scoreTone(overallScore)} label={`${overallScore}% overall`} />
+        )}
       </div>
 
-      {/* Vulnerability Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Total Issues</span>
-            <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
-              <i className="fas fa-exclamation-circle text-gray-600 text-sm"></i>
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-gray-900 mb-1">{totalVulnerabilities}</div>
-          <div className="text-xs text-gray-600">Across {kubescapeData.totalWorkloads || 0} workloads</div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Critical</span>
-            <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
-              <i className="fas fa-skull-crossbones text-red-600 text-sm"></i>
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-gray-900 mb-1">{kubescapeData.totalCritical}</div>
-          <div className="text-xs text-red-600 font-semibold">Fix immediately</div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">High</span>
-            <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center">
-              <i className="fas fa-exclamation-triangle text-orange-600 text-sm"></i>
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-gray-900 mb-1">{kubescapeData.totalHigh}</div>
-          <div className="text-xs text-orange-600 font-semibold">Priority fixes</div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Medium</span>
-            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
-              <i className="fas fa-exclamation text-amber-600 text-sm"></i>
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-gray-900 mb-1">{kubescapeData.totalMedium}</div>
-          <div className="text-xs text-amber-600 font-semibold">Plan remediation</div>
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Low</span>
-            <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-              <i className="fas fa-info-circle text-blue-600 text-sm"></i>
-            </div>
-          </div>
-          <div className="text-3xl font-bold text-gray-900 mb-1">{kubescapeData.totalLow}</div>
-          <div className="text-xs text-blue-600 font-semibold">Monitor</div>
-        </div>
+      {/* Hero strip (PRESERVED counts + score) */}
+      <div className={`border-b px-5 py-4 ${HAIRLINE}`}>
+        <MetricStrip cells={stripCells} heroLead aria-label="Compliance posture" />
       </div>
 
-      {/* Compliance Frameworks - Moved here after summary cards */}
+      {/* Compliance frameworks — Surface rows with a token score bar + per-framework drawer */}
       {kubescapeData.frameworks && kubescapeData.frameworks.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-          <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
-            <i className="fas fa-certificate text-indigo-600"></i>
-            Compliance Framework Status
-          </h3>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {kubescapeData.frameworks.map((framework, index) => {
-              const colors = getScoreColor(framework.score);
-              const isSelected = selectedFramework === framework.name;
-
-              return (
-                <div
-                  key={index}
-                  className={`border-2 rounded-lg p-5 cursor-pointer transition-all ${isSelected ? `${colors.border} shadow-md` : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  onClick={() => setSelectedFramework(isSelected ? null : framework.name)}
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <h4 className="font-bold text-gray-900 text-base">{framework.name}</h4>
-                    <div className={`px-3 py-1 rounded-lg text-lg font-bold ${colors.bg} ${colors.text}`}>
-                      {framework.score.toFixed(0)}%
-                    </div>
-                  </div>
-
-                  <div className="w-full bg-gray-200 rounded-full h-2.5 mb-4">
-                    <div
-                      className={`h-2.5 rounded-full transition-all duration-500 ${framework.score >= 80 ? 'bg-green-600' :
-                          framework.score >= 60 ? 'bg-amber-500' : 'bg-red-600'
-                        }`}
-                      style={{ width: `${framework.score}%` }}
-                    ></div>
-                  </div>
-
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="flex items-center gap-1 text-green-600">
-                      <i className="fas fa-check-circle"></i>
-                      <span className="font-semibold">{framework.passedControls} passed</span>
+        <div className={`border-b px-5 py-4 ${HAIRLINE}`}>
+          <span className={LABEL}>Compliance framework status</span>
+          <div className="mt-3">
+            <DataTable<FrameworkScore>
+              rows={kubescapeData.frameworks}
+              columns={[
+                {
+                  id: 'name', header: 'Framework', priority: 'essential', width: '220px',
+                  cell: (f) => <span className={`font-semibold ${BODY}`}>{f.name}</span>,
+                  sortValue: (f) => f.name, csv: (f) => f.name,
+                },
+                {
+                  id: 'score', header: 'Score', width: '220px',
+                  cell: (f) => (
+                    <span className="flex items-center gap-3">
+                      <span className="h-1.5 w-28 overflow-hidden rounded-full bg-[color:var(--chrome-surface-2)]">
+                        <span className={`block h-full rounded-full bg-current ${toneClasses(scoreTone(f.score)).text}`} style={{ width: `${f.score}%` }} />
+                      </span>
+                      <span className={`tabular-nums ${BODY} ${toneClasses(scoreTone(f.score)).text}`}>{f.score.toFixed(0)}%</span>
                     </span>
-                    <span className="flex items-center gap-1 text-red-600">
-                      <i className="fas fa-times-circle"></i>
-                      <span className="font-semibold">{framework.failedControls} failed</span>
-                    </span>
-                  </div>
-
-                  {isSelected && FRAMEWORK_GUIDANCE[framework.name] && (
-                    <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
-                      <p className="text-xs text-gray-700 leading-relaxed">
-                        {FRAMEWORK_GUIDANCE[framework.name].description}
-                      </p>
-
-                      <div>
-                        <h5 className="text-xs font-semibold text-gray-900 mb-2">Common Issues:</h5>
-                        <ul className="space-y-1">
-                          {FRAMEWORK_GUIDANCE[framework.name].commonIssues.slice(0, 3).map((issue, idx) => (
-                            <li key={idx} className="text-xs text-gray-700 flex items-start gap-2">
-                              <i className="fas fa-exclamation-circle text-red-500 mt-0.5 flex-shrink-0"></i>
-                              <span>{issue}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      <div>
-                        <h5 className="text-xs font-semibold text-gray-900 mb-2">Quick Wins:</h5>
-                        <ul className="space-y-1">
-                          {FRAMEWORK_GUIDANCE[framework.name].quickWins.slice(0, 3).map((win, idx) => (
-                            <li key={idx} className="text-xs text-gray-700 flex items-start gap-2">
-                              <i className="fas fa-check text-green-600 mt-0.5 flex-shrink-0"></i>
-                              <span>{win}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                  ),
+                  sortValue: (f) => f.score, csv: (f) => f.score,
+                },
+                {
+                  id: 'passed', header: 'Passed', align: 'right', width: '100px',
+                  cell: (f) => <span className={`tabular-nums ${toneClasses('good').text}`}>{f.passedControls}</span>,
+                  sortValue: (f) => f.passedControls, csv: (f) => f.passedControls,
+                },
+                {
+                  id: 'failed', header: 'Failed', align: 'right', width: '100px',
+                  cell: (f) => <span className={`tabular-nums ${f.failedControls > 0 ? toneClasses('bad').text : MUTED}`}>{f.failedControls || DASH}</span>,
+                  sortValue: (f) => f.failedControls, csv: (f) => f.failedControls,
+                },
+              ]}
+              rowKey={(f) => f.name}
+              caption="Compliance framework status"
+              rowLabel={(f) => f.name}
+              rowTitle={(f) => f.name}
+              rowToSections={frameworkSections}
+            />
           </div>
         </div>
       )}
 
-      {/* Vulnerability Distribution & Top Namespaces */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Vulnerability Distribution */}
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-          <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
-            <i className="fas fa-chart-bar text-purple-600"></i>
-            Vulnerability Distribution
-          </h3>
-
-          {vulnDistribution.length > 0 ? (
-            <div className="space-y-4">
-              {vulnDistribution.map((item, index) => {
-                const percentage = ((item.value / totalVulnerabilities) * 100).toFixed(1);
-
+      {/* Severity distribution + top namespaces */}
+      <div className={`grid grid-cols-1 gap-x-8 gap-y-6 border-b px-5 py-4 lg:grid-cols-2 ${HAIRLINE}`}>
+        <div>
+          <span className={LABEL}>Vulnerability distribution</span>
+          {distribution.length > 0 ? (
+            <div className="mt-3 flex flex-col gap-2">
+              {distribution.map((item) => {
+                const pct = totalVulnerabilities > 0 ? (item.value / totalVulnerabilities) * 100 : 0;
+                const tone = SEVERITY_TONES[item.label];
                 return (
-                  <div key={index}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-semibold text-gray-700">{item.label}</span>
-                      <span className="text-sm font-bold text-gray-900">{item.value} ({percentage}%)</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-3">
-                      <div
-                        className={`h-3 rounded-full transition-all duration-500 ${item.bg}`}
-                        style={{ width: `${percentage}%` }}
-                      ></div>
-                    </div>
+                  <div key={item.label} className="flex items-center gap-3">
+                    <span className={`w-16 ${BODY} ${toneClasses(tone).text}`}>{item.label}</span>
+                    <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-[color:var(--chrome-surface-2)]">
+                      <span className={`block h-full rounded-full bg-current ${toneClasses(tone).text}`} style={{ width: `${pct}%` }} />
+                    </span>
+                    <span className={`w-10 text-right tabular-nums ${BODY} ${INK}`}>{item.value}</span>
+                    <span className={`w-12 tabular-nums ${SECONDARY}`}>{pct.toFixed(0)}%</span>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="text-center py-8">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <i className="fas fa-check text-green-600 text-2xl"></i>
-              </div>
-              <p className="text-sm text-gray-600">No vulnerabilities detected</p>
-            </div>
+            <p className={`mt-3 ${BODY} ${MUTED}`}>No vulnerabilities detected.</p>
           )}
         </div>
 
-        {/* Top Vulnerable Namespaces */}
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-          <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
-            <i className="fas fa-layer-group text-blue-600"></i>
-            Most Vulnerable Namespaces
-          </h3>
-
+        <div>
+          <span className={LABEL}>Most vulnerable namespaces</span>
           {namespaceVulns.length > 0 ? (
-            <div className="space-y-3">
-              {namespaceVulns.map((ns, index) => (
-                <div key={index} className="border border-gray-200 rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-semibold text-gray-900 font-mono">{ns.name}</span>
-                    <span className="text-sm font-bold text-gray-900">{ns.total} issues</span>
+            <div className="mt-3 flex flex-col gap-2.5">
+              {namespaceVulns.map((ns) => (
+                <div key={ns.name} className={`rounded-[6px] border px-3 py-2 ${HAIRLINE}`}>
+                  <div className="flex items-center justify-between">
+                    <span className={`truncate font-mono text-[12px] ${INK}`} title={ns.name}>{ns.name}</span>
+                    <span className={`tabular-nums ${BODY} ${INK}`}>{ns.total} issues</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {ns.critical > 0 && (
-                      <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-semibold">
-                        {ns.critical} Critical
-                      </span>
-                    )}
-                    {ns.high > 0 && (
-                      <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs font-semibold">
-                        {ns.high} High
-                      </span>
-                    )}
-                    {ns.medium > 0 && (
-                      <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-semibold">
-                        {ns.medium} Medium
-                      </span>
-                    )}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-3">
+                    {ns.critical > 0 && <StatusDot tone="bad" label={`${ns.critical} critical`} />}
+                    {ns.high > 0 && <StatusDot tone="warn" label={`${ns.high} high`} />}
+                    {ns.medium > 0 && <StatusDot tone="info" label={`${ns.medium} medium`} />}
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="text-center py-8">
-              <p className="text-sm text-gray-600">No namespace data available</p>
-            </div>
+            <p className={`mt-3 ${BODY} ${MUTED}`}>No namespace data available.</p>
           )}
         </div>
       </div>
 
-      {/* Vulnerable Workloads */}
+      {/* Vulnerable workloads — DataTable + per-row DetailDrawer */}
       {kubescapeData.vulnerabilities && kubescapeData.vulnerabilities.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-              <i className="fas fa-cubes text-purple-600"></i>
-              Vulnerable Workloads
-              <span className="text-sm font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                {filteredWorkloads.length}
-              </span>
-            </h3>
-
+        <div>
+          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+            <span className={TITLE}>Vulnerable workloads <span className={SECONDARY}>({filteredWorkloads.length})</span></span>
             <select
+              aria-label="Filter by severity"
               value={selectedSeverity}
-              onChange={(e) => {
-                setSelectedSeverity(e.target.value);
-                setWorkloadPage(1);
-              }}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              onChange={(e) => { setSelectedSeverity(e.target.value); setWorkloadPage(1); }}
+              className={selectClass}
             >
-              <option value="all">All Severities</option>
-              <option value="critical">Critical Only</option>
-              <option value="high">High Priority</option>
-              <option value="medium">Medium Priority</option>
+              <option value="all">All severities</option>
+              <option value="critical">Critical only</option>
+              <option value="high">High priority</option>
+              <option value="medium">Medium priority</option>
             </select>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b-2 border-gray-200">
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                    Workload
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                    Type
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                    Namespace
-                  </th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                    Critical
-                  </th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                    High
-                  </th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                    Medium
-                  </th>
-                  <th className="text-center px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                    Low
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedWorkloads.map((workload, index) => (
-                  <tr key={index} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 text-sm font-semibold text-gray-900">{workload.workloadName}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
-                      <span className="px-2 py-0.5 bg-gray-100 rounded text-xs font-medium">
-                        {workload.workloadKind}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 font-mono">{workload.namespace}</td>
-                    <td className="px-4 py-3 text-center">
-                      {workload.criticalCount > 0 ? (
-                        <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-sm font-bold">
-                          {workload.criticalCount}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {workload.highCount > 0 ? (
-                        <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-sm font-bold">
-                          {workload.highCount}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {workload.mediumCount > 0 ? (
-                        <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-sm font-bold">
-                          {workload.mediumCount}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {workload.lowCount > 0 ? (
-                        <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-sm font-bold">
-                          {workload.lowCount}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">-</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="px-5 pb-5">
+            {filteredWorkloads.length > 0 ? (
+              <DataTable<WorkloadRow>
+                rows={workloadRows}
+                columns={columns}
+                rowKey={(r) => r.key}
+                caption="Vulnerable workloads"
+                rowLabel={(r) => r.workload.workloadName}
+                rowTitle={(r) => r.workload.workloadName}
+                rowSubtitle={(r) => r.workload.namespace}
+                rowToSections={rowToSections}
+              />
+            ) : (
+              <EmptyState icon="mdi:shield-check-outline" message="No vulnerable workloads with the selected filter." />
+            )}
           </div>
 
-          {/* Pagination */}
           {totalWorkloadPages > 1 && (
-            <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-              <div className="text-sm text-gray-600">
-                Showing {((workloadPage - 1) * workloadsPerPage) + 1}-{Math.min(workloadPage * workloadsPerPage, filteredWorkloads.length)} of {filteredWorkloads.length}
-              </div>
-
-              <div className="flex items-center gap-1">
+            <div className={`flex items-center justify-between border-t px-5 py-3 ${HAIRLINE}`}>
+              <span className={SECONDARY}>
+                {(workloadPage - 1) * workloadsPerPage + 1}–{Math.min(workloadPage * workloadsPerPage, filteredWorkloads.length)} of {filteredWorkloads.length}
+              </span>
+              <div className="flex gap-2">
                 <button
-                  onClick={() => setWorkloadPage(p => Math.max(1, p - 1))}
+                  type="button"
+                  onClick={() => setWorkloadPage((p) => Math.max(1, p - 1))}
                   disabled={workloadPage === 1}
-                  className="px-3 py-1 border border-gray-300 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                  className={`rounded-[6px] border px-3 py-1.5 text-[12px] font-semibold ${HAIRLINE} ${INK} hover:bg-[color:var(--chrome-surface-2)] disabled:opacity-40 outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--chrome-ink)]`}
                 >
-                  <i className="fas fa-chevron-left"></i>
+                  Previous
                 </button>
-
-                {Array.from({ length: Math.min(5, totalWorkloadPages) }, (_, i) => {
-                  let page;
-                  if (totalWorkloadPages <= 5) {
-                    page = i + 1;
-                  } else if (workloadPage <= 3) {
-                    page = i + 1;
-                  } else if (workloadPage >= totalWorkloadPages - 2) {
-                    page = totalWorkloadPages - 4 + i;
-                  } else {
-                    page = workloadPage - 2 + i;
-                  }
-
-                  return (
-                    <button
-                      key={page}
-                      onClick={() => setWorkloadPage(page)}
-                      className={`w-8 h-8 rounded-lg text-sm font-semibold transition-all ${page === workloadPage
-                          ? 'bg-purple-600 text-white'
-                          : 'border border-gray-300 text-gray-700 hover:bg-gray-50'
-                        }`}
-                    >
-                      {page}
-                    </button>
-                  );
-                })}
-
                 <button
-                  onClick={() => setWorkloadPage(p => Math.min(totalWorkloadPages, p + 1))}
+                  type="button"
+                  onClick={() => setWorkloadPage((p) => Math.min(totalWorkloadPages, p + 1))}
                   disabled={workloadPage === totalWorkloadPages}
-                  className="px-3 py-1 border border-gray-300 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                  className={`rounded-[6px] border px-3 py-1.5 text-[12px] font-semibold ${HAIRLINE} ${INK} hover:bg-[color:var(--chrome-surface-2)] disabled:opacity-40 outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--chrome-ink)]`}
                 >
-                  <i className="fas fa-chevron-right"></i>
+                  Next
                 </button>
               </div>
             </div>
@@ -590,23 +495,13 @@ const KubescapeComplianceView: React.FC<KubescapeComplianceViewProps> = ({ kubes
         </div>
       )}
 
-      {/* Info Footer */}
-      <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
-        <div className="flex items-start gap-3">
-          <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center flex-shrink-0">
-            <i className="fas fa-info-circle text-white text-sm"></i>
-          </div>
-          <div>
-            <h4 className="font-semibold text-gray-900 text-sm mb-1">About Security & Compliance Scanning</h4>
-            <p className="text-xs text-gray-700 leading-relaxed">
-              It analyzes your Kubernetes configurations against industry standards including NSA-CISA, MITRE ATT&CK,
-              and CIS benchmarks. Regular scans help identify misconfigurations and security vulnerabilities before they can be exploited.
-              Focus on critical and high-severity issues first for maximum security impact.
-            </p>
-          </div>
-        </div>
+      {/* Info footer */}
+      <div className={`border-t px-5 py-4 ${HAIRLINE}`}>
+        <p className={SECONDARY}>
+          Kubescape analyses your Kubernetes configuration against NSA-CISA, MITRE ATT&amp;CK and CIS benchmarks. Focus on critical and high-severity issues first.
+        </p>
       </div>
-    </div>
+    </Surface>
   );
 };
 

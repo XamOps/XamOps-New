@@ -71,6 +71,7 @@ import EksCostTab from '../../../EksDetails/tabs/EksCostTab';
 import EksNodesTab from '../../../EksDetails/tabs/EksNodesTab';
 import EksKarpenterTab from '../../../EksDetails/tabs/EksKarpenterTab';
 import EksPerformanceTab from '../../../EksDetails/tabs/EksPerformanceTab';
+import EksSecurityTab from '../../../EksDetails/tabs/EksSecurityTab';
 
 const mockedFetch = apiClient.fetch as unknown as ReturnType<typeof vi.fn>;
 
@@ -176,6 +177,57 @@ const GATE_COST = {
   loading: false,
   error: null,
 };
+
+/**
+ * GATE fixture (FEAT-005): the demo dashboard with a REPORTED Trivy scan, Falco runtime events and a
+ * Kubescape compliance report so every Security surface lights up — the hero MetricStrip, the
+ * runtime-alerts / framework / vulnerable-workload / vulnerable-image DataTables and their drawers.
+ * Clearly test data; the gate measures CHROME, not these numbers.
+ */
+const GATE_EKS_DATA_SECURITY = {
+  dashboard: {
+    ...demoEksDashboard,
+    securityMetrics: {
+      totalEvents: 5,
+      eventsLastHour: 5,
+      eventsByPriority: { CRITICAL: 1, HIGH: 2, WARNING: 2 },
+      alerts: [
+        { rule: 'Terminal shell in container', priority: 'CRITICAL', pod: 'api-7d9f', namespace: 'production', count: 3 },
+        { rule: 'Read sensitive file untrusted', priority: 'HIGH', pod: 'worker-1', namespace: 'batch', count: 2 },
+      ],
+    },
+    kubescape: {
+      complianceScore: 72,
+      totalCritical: 2, totalHigh: 4, totalMedium: 6, totalLow: 3, totalWorkloads: 9,
+      namespaceBreakdown: {
+        production: { critical: 2, high: 2, medium: 1, low: 0 },
+        batch: { critical: 0, high: 2, medium: 5, low: 3 },
+      },
+      frameworks: [
+        { name: 'NSA-CISA', score: 72, passedControls: 58, failedControls: 22 },
+        { name: 'MITRE', score: 64, passedControls: 40, failedControls: 24 },
+        { name: 'CIS Kubernetes Benchmark', score: 81, passedControls: 70, failedControls: 16 },
+      ],
+      vulnerabilities: [
+        { workloadName: 'orders-api', namespace: 'production', workloadKind: 'Deployment', criticalCount: 2, highCount: 2, mediumCount: 1, lowCount: 0 },
+        { workloadName: 'etl-processor', namespace: 'batch', workloadKind: 'StatefulSet', criticalCount: 0, highCount: 2, mediumCount: 5, lowCount: 3 },
+      ],
+    },
+    trivy: {
+      summary: { totalCritical: 3, totalHigh: 7, totalMedium: 12, totalLow: 5, uniqueImagesScanned: 14, namespacesCovered: 4, totalExposedSecrets: 1 },
+      workloads: [
+        {
+          name: 'orders-api', namespace: 'production', critical: 3, high: 4, medium: 6, low: 2,
+          vulnerabilities: [
+            { vulnerabilityId: 'CVE-2024-1234', severity: 'CRITICAL', packageName: 'openssl', installedVersion: '3.0.1', fixedVersion: '3.0.8', score: 9.8, primaryLink: 'https://example.test/CVE-2024-1234' },
+            { vulnerabilityId: 'CVE-2024-5678', severity: 'HIGH', packageName: 'curl', installedVersion: '7.80.0', fixedVersion: null, score: 7.4, primaryLink: null },
+          ],
+        },
+        { name: 'web-frontend', namespace: 'production', critical: 0, high: 3, medium: 6, low: 3, vulnerabilities: [] },
+      ],
+    },
+  },
+} as unknown as UseEksDashboardReturn;
 
 // ─── The scoped counter (the way a reviewer measures the page) ─────────────────────────────────
 
@@ -455,6 +507,17 @@ async function mountUtilization(theme: 'light' | 'dark') {
   return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
 }
 
+/** Security (FEAT-005): hero MetricStrip + the Trivy / Falco / Kubescape DataTables and their drawers. */
+async function mountSecurity(theme: 'light' | 'dark') {
+  render(
+    <div className={theme === 'dark' ? 'dark' : undefined} data-gate-theme={theme}>
+      <EksSecurityTab eksData={GATE_EKS_DATA_SECURITY} />
+    </div>,
+  );
+  await screen.findByRole('table', { name: 'Most vulnerable images' });
+  return document.querySelector<HTMLElement>('[data-k8s-redesigned-main]')!;
+}
+
 // ─── The gate ────────────────────────────────────────────────────────────────────────────────────
 
 describe('visual + scoped-metric gate (FEAT-004 §11; jsdom fallback, Playwright not installed)', () => {
@@ -573,6 +636,28 @@ describe('visual + scoped-metric gate (FEAT-004 §11; jsdom fallback, Playwright
         const drawerPortal = drawer.closest<HTMLElement>('[data-detail-drawer]') ?? drawer;
 
         assertBudget(`Utilization + drawer (${theme})`, [main, drawerPortal]);
+      });
+
+      it('Security stays within the premium budget, drawer included', async () => {
+        const main = await mountSecurity(theme);
+        expect(main, 'Security must render the redesigned [data-k8s-redesigned-main] region').not.toBeNull();
+        // FEAT-005: one hero MetricStrip row (security score leads), never a wrapped vertical stack,
+        // the Trivy / Falco / Kubescape tables in scroll containers so the last column never clips,
+        // and the whole subtree (including the nested Falco + Kubescape views) inside the chrome
+        // budget (7 sizes / 2 greys / {8px,6px,pill}) in both light and dark.
+        await assertMetricStripIsOneRow(`Security (${theme})`, main);
+        assertTableScrolls(`Security (${theme})`, main);
+
+        // Open the first vulnerable image's DetailDrawer so its FIXED portal (rendered OUTSIDE the
+        // main subtree) is measured under the SAME budget as the page.
+        const imageTable = screen.getByRole('table', { name: 'Most vulnerable images' });
+        const firstRow = imageTable.querySelector<HTMLElement>('tbody tr[role="button"]');
+        expect(firstRow, `Security (${theme}): no activatable row to open the drawer.`).not.toBeNull();
+        fireEvent.click(firstRow!);
+        const drawer = await screen.findByRole('dialog');
+        const drawerPortal = drawer.closest<HTMLElement>('[data-detail-drawer]') ?? drawer;
+
+        assertBudget(`Security + drawer (${theme})`, [main, drawerPortal]);
       });
     });
   }
