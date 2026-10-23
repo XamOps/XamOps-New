@@ -209,4 +209,15 @@ describe('shapeLiveTopology', () => {
     ]).elements;
     expect(out.find((x) => x.data.id === 'vpc')!.data.collapsed).toBeUndefined();
   });
+
+  it('treats the describe scan\'s ENI type and attachment key the same way', () => {
+    const input = [
+      n('vpc', 'VPC'),
+      n('i-1', 'EC2 Instance', { parent: 'vpc', ...VPC }),
+      n('eni-9', 'Network Interface (ENI)', { parent: 'vpc', ...VPC, 'Attached To': 'i-1' }),
+    ];
+    expect(ids(shapeLiveTopology(input).elements)).not.toContain('eni-9');
+    const on = shapeLiveTopology(input, { ...DEFAULT_LIVE_LAYERS, interfaces: true });
+    expect(edges(on.elements)).toContain('eni-9>i-1:attached to');
+  });
 });

@@ -80,6 +80,8 @@ const LAYER_OF_TYPE: Record<string, LiveLayer> = {
   // Hundreds per VPC under EKS pod networking, with no relationships of their own: on UAT
   // they were 520 of 714 resources and buried every instance and gateway.
   'Network Interface': 'interfaces',
+  // The describe scan names the same type differently from the inventory plane.
+  'Network Interface (ENI)': 'interfaces',
 };
 
 /** Layer and meaning for each relationship label CloudMapService.createAllEdges emits. */
@@ -322,9 +324,10 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
   // Interfaces name the instance they are attached to; that is their only relationship.
   if (layers.interfaces) {
     for (const n of nodes.values()) {
-      if (n.data.type !== 'Network Interface') continue;
-      const inst = n.data['Attached to'];
-      if (!inst || inst === 'N/A') continue;
+      if (LAYER_OF_TYPE[n.data.type] !== 'interfaces') continue;
+      // "Attached to" from the plane, "Attached To" from the describe scan.
+      const inst = n.data['Attached to'] ?? n.data['Attached To'];
+      if (!inst || inst === 'N/A' || inst === 'Detached') continue;
       const scoped = [...nodes.keys()].find((k) => k === inst || k.endsWith(`::${inst}`));
       if (scoped) pushEdge(n.data.id, scoped, 'attached to', 'storage');
     }
