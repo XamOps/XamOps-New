@@ -408,8 +408,8 @@ describe('Automation › Overview (§9.1)', () => {
       // formatMoney renders whole dollars above $1: 23.67 → $24.
       expect(monthly).toHaveTextContent('$24');
       expect(monthly.querySelector('[data-priced-line]')).toHaveTextContent('8 of 9 priced');
-      // The cost figure carries NO Trend chip: CostSummaryView has no prior-period field (backend
-      // GAP), so there is no real prior to compare against and a trend is never fabricated.
+      // The cost figure carries NO Trend chip: previousClusterMonthlyCost is absent here (no
+      // prior-period source yet), so prior is null and a trend is never fabricated.
       expect(monthly.querySelector('[data-trend]')).toBeNull();
     });
 

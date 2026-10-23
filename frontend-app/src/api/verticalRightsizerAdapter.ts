@@ -225,6 +225,9 @@ const adaptCostSummary = (wire: CostSummaryWire | null | undefined): CostSummary
     clusterMonthlyCost: money(wire.clusterMonthlyCost),
     pricedWorkloads: typeof wire.pricedWorkloads === 'number' ? wire.pricedWorkloads : 0,
     unpricedWorkloads: typeof wire.unpricedWorkloads === 'number' ? wire.unpricedWorkloads : 0,
+    // Absent / non-number -> null (no prior source yet); a finite number passes through so the
+    // Trend chip lights up automatically once a cost snapshot populates it.
+    previousClusterMonthlyCost: money(wire.previousClusterMonthlyCost),
   };
 };
 

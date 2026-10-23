@@ -550,9 +550,10 @@ function changesCell({ k, feed, summary, now }: {
  * The automation metric strip (DESIGN §4.1): automation's own figures — the cluster's monthly cost
  * (when the FEAT-002 roll-up prices it) or Can save now as the lead cell, then Saving now / Applied
  * live, Can save now, Needs more and Changes. Each cell is one FIGURE; placement, not a bigger
- * number, sets the hierarchy. The cost cell carries NO Trend chip: CostSummaryView has no
- * prior-period field, so there is no real prior to compare against (a named backend GAP), and a
- * fabricated trend is never shown. The Health / Nodes / Pods cluster vitals are NOT here — the
+ * number, sets the hierarchy. The Monthly cost cell is wired for a Trend chip but shows none while
+ * CostSummaryView.previousClusterMonthlyCost is null — there is no prior-period source yet (no cost
+ * snapshot), so no prior exists to compare against and a fabricated trend is never shown; the chip
+ * lights up automatically once a snapshot populates it. The Health / Nodes / Pods cluster vitals are NOT here — the
  * sticky ClusterStatusStrip owns them; this strip is automation's numbers alone.
  */
 function Kpis({ view, now, feed, summary }: { view: VerticalEngineView; now: number; feed: UseAutomationActivityState; summary: InsightReadState<ActivitySummaryView> }) {
@@ -575,9 +576,14 @@ function Kpis({ view, now, feed, summary }: { view: VerticalEngineView; now: num
   const monthlyCell: MetricCell | null = cost
     ? {
       label: 'Monthly cost',
-      // No Trend: CostSummaryView has no prior-period field (backend GAP), so prior is null and a
-      // trend would be fabricated.
       value: clusterCost ? formatMoney(cost.clusterMonthlyCost) : '—',
+      // The Trend chip (lower cost is good, so goodDirection="down") renders nothing while
+      // previousClusterMonthlyCost is null — there is no prior-period source yet (no cost
+      // snapshot). It lights up automatically, with no further UI work, once a cost snapshot
+      // populates previousClusterMonthlyCost; a fabricated trend is never shown.
+      trend: clusterCost
+        ? { current: cost.clusterMonthlyCost!, prior: cost.previousClusterMonthlyCost, goodDirection: 'down' }
+        : undefined,
       sub: (
         <Sub>
           <span data-priced-line="">{`${cost.pricedWorkloads} of ${cost.pricedWorkloads + cost.unpricedWorkloads} priced`}</span>

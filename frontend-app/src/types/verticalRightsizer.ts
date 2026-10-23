@@ -142,6 +142,13 @@ export interface CostSummaryWire {
   clusterMonthlyCost: number | null;
   pricedWorkloads: number;
   unpricedWorkloads: number;
+  /**
+   * The prior-period `clusterMonthlyCost` the Overview hero's Trend chip compares against, or null.
+   * Null on every response today — there is no prior-period source yet (no cost-snapshot history,
+   * and PRICE_LIST is point-in-time) — so the chip renders nothing rather than a fabricated trend.
+   * Absent on a build that predates the field.
+   */
+  previousClusterMonthlyCost?: number | null;
 }
 
 export interface VerticalWorkloadWire {
@@ -303,6 +310,11 @@ export interface CostSummaryView {
   clusterMonthlyCost: number | null;
   pricedWorkloads: number;
   unpricedWorkloads: number;
+  /**
+   * The prior-period monthly cost the Trend chip compares against, or null. Null today (no snapshot
+   * history yet), so the hero shows no trend — never a fabricated one.
+   */
+  previousClusterMonthlyCost: number | null;
 }
 
 export interface WorkloadView {

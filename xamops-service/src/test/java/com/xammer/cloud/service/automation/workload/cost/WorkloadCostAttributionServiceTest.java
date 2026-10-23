@@ -206,6 +206,9 @@ class WorkloadCostAttributionServiceTest {
         assertThat(summary.namespaceCosts())
                 .as("summary() owns only the workload-Σ; the namespace roll-up is attached later in evaluate()")
                 .isNull();
+        assertThat(summary.previousClusterMonthlyCost())
+                .as("GAP 1: no prior-period source exists yet, so the prior is null (never fabricated)")
+                .isNull();
     }
 
     @Test

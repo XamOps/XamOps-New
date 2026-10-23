@@ -141,7 +141,11 @@ public class WorkloadCostAttributionService {
                 anyPriced ? null : NodeRate.Reason.NODE_CAPACITY_UNKNOWN.name(),
                 anyPriced ? cost : null,
                 priced, unpriced,
-                null, null);
+                null, null,
+                // No prior-period source exists yet (no cost snapshot / history persistence), so the
+                // previousClusterMonthlyCost is null: the Trend chip stays honestly dashed rather than
+                // comparing against a fabricated value.
+                null);
     }
 
     private static long freed(Integer before, Integer after) {

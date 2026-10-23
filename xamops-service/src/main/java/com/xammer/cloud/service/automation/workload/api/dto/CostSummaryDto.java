@@ -25,17 +25,26 @@ import java.util.List;
  * @param unpricedWorkloads               how many fell to a dash
  * @param nodeCosts                       the full-fleet per-node roll-up, or null when the feature is off
  * @param namespaceCosts                  the per-namespace roll-up, or null when the feature is off
+ * @param previousClusterMonthlyCost      the prior-period {@code clusterMonthlyCost} the Overview
+ *                                        hero's Trend chip compares against, or {@code null}. It is
+ *                                        {@code null} on every path today because <strong>no
+ *                                        prior-period source exists yet</strong>: the summary is
+ *                                        recomputed each request with no cost-snapshot/history
+ *                                        persistence, and the PRICE_LIST rate is point-in-time with
+ *                                        no historical window. To be populated once a periodic cost
+ *                                        snapshot lands; never computed or fabricated here.
  */
 public record CostSummaryDto(String currency, double hoursPerMonth, Double monthlySavings,
                              String monthlySavingsUnavailableReason, Double clusterMonthlyCost,
                              int pricedWorkloads, int unpricedWorkloads,
-                             List<NodeCostDto> nodeCosts, List<NamespaceCostDto> namespaceCosts) {
+                             List<NodeCostDto> nodeCosts, List<NamespaceCostDto> namespaceCosts,
+                             Double previousClusterMonthlyCost) {
 
     /** Returns a copy carrying the fleet + namespace roll-ups; all other fields unchanged. */
     public CostSummaryDto withRollups(List<NodeCostDto> nodeCosts,
                                       List<NamespaceCostDto> namespaceCosts) {
         return new CostSummaryDto(currency, hoursPerMonth, monthlySavings,
                 monthlySavingsUnavailableReason, clusterMonthlyCost, pricedWorkloads, unpricedWorkloads,
-                nodeCosts, namespaceCosts);
+                nodeCosts, namespaceCosts, previousClusterMonthlyCost);
     }
 }
