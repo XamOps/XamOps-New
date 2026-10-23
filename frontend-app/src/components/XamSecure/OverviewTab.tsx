@@ -317,15 +317,34 @@ const OverviewTab: React.FC<Props> = ({
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {(summary?.syncState ?? []).map((s) => (
-            <div key={s.domain} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 14 }}>
-              <span style={{ fontWeight: 400, color: 'var(--xs-text-primary)' }}>{s.domain}</span>
-              <span style={{ color: s.lastError ? 'var(--xs-text-primary)' : 'var(--xs-text-secondary)', fontWeight: s.lastError ? 600 : 400 }}>
-                {s.lastError
-                  ? `Sync issue — showing last data (${s.lastError})`
-                  : s.lastSuccessAt
+            <div key={s.domain} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontSize: 14 }}>
+              <span style={{ fontWeight: 400, color: 'var(--xs-text-primary)', flexShrink: 0 }}>{s.domain}</span>
+              {s.lastError ? (
+                // Calm amber title-only treatment: short message in the body, the raw backend
+                // error/stack lives ONLY in the title tooltip so it can never overflow the row.
+                // amber-700 #b45309 passes AA on amber-50 #fffbeb.
+                <span
+                  title={s.lastError}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0,
+                    padding: '2px 10px', borderRadius: 999,
+                    background: '#fffbeb', border: '1px solid #fde68a', color: '#b45309', fontWeight: 500,
+                  }}
+                >
+                  <Icon icon="mdi:alert-circle-outline" width={14} height={14} aria-hidden style={{ flexShrink: 0 }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>
+                    Sync issue — showing last data
+                    {s.lastSuccessAt ? ` (last ok ${new Date(s.lastSuccessAt).toLocaleString()})` : ''}
+                  </span>
+                </span>
+              ) : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--xs-text-secondary)', fontWeight: 400 }}>
+                  <Icon icon="mdi:check-circle-outline" width={14} height={14} color="var(--xs-green-02)" aria-hidden style={{ flexShrink: 0 }} />
+                  {s.lastSuccessAt
                     ? `Last synced ${new Date(s.lastSuccessAt).toLocaleString()}`
                     : 'Not synced yet'}
-              </span>
+                </span>
+              )}
             </div>
           ))}
           {(summary?.syncState ?? []).length === 0 && (
