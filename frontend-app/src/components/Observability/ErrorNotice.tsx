@@ -19,9 +19,15 @@ const ErrorNotice: React.FC<{
   title?: string;
   retryable?: boolean;
   onRetry?: () => void;
+  /**
+   * Set while a retry is in flight. Some retries do real work on the server (re-provisioning
+   * an account, for one) and take long enough that an unchanged button reads as broken and
+   * gets clicked again.
+   */
+  retrying?: boolean;
   onDismiss?: () => void;
   className?: string;
-}> = ({ message, title, retryable, onRetry, onDismiss, className = '' }) => (
+}> = ({ message, title, retryable, onRetry, retrying = false, onDismiss, className = '' }) => (
   <div
     role="alert"
     className={`rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex items-start gap-3 ${className}`}
@@ -36,9 +42,16 @@ const ErrorNotice: React.FC<{
             <button
               type="button"
               onClick={onRetry}
-              className="text-[12px] font-medium text-red-700 hover:text-red-900 inline-flex items-center gap-1"
+              disabled={retrying}
+              aria-busy={retrying}
+              className="text-[12px] font-medium text-red-700 hover:text-red-900 inline-flex items-center gap-1 disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              <Icon icon="mdi:refresh" width={13} /> {retryable ? 'Retry' : 'Try again'}
+              <Icon
+                icon="mdi:refresh"
+                width={13}
+                className={retrying ? 'animate-spin' : undefined}
+              />{' '}
+              {retrying ? 'Retrying…' : retryable ? 'Retry' : 'Try again'}
             </button>
           )}
           {onDismiss && (

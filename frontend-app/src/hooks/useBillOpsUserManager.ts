@@ -414,6 +414,12 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
      * `parentUserId` nests the user under that primary user of the destination client; omitting it
      * (or passing null) places them as a primary user. Passing the client the user already belongs
      * to re-parents them inside their own client.
+     *
+     * Refreshes the clients as well as the users, because a move can remove a client: a primary
+     * user takes its sub-users with it, which empties the source client, and the server then
+     * deletes it. Refreshing only the users left that dead client in `clients` — and so in the
+     * destination dropdown — and the next move onto it failed with "destination client no longer
+     * exists".
      */
     const moveUserToClient = useCallback(async (
         userId: string,
@@ -445,7 +451,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
                 return false;
             }
 
-            await fetchUsers();
+            await Promise.all([fetchUsers(), fetchClients()]);
             setNotification({
                 type: 'success',
                 title: 'User Moved',
@@ -462,7 +468,7 @@ export const useBillOpsUserManager = (): UseBillOpsUserManagerResult => {
             });
             return false;
         }
-    }, [getCsrfToken, fetchUsers]);
+    }, [getCsrfToken, fetchUsers, fetchClients]);
 
     /**
      * Delete an empty client. Returns true on success.

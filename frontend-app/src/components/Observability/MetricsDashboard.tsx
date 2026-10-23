@@ -41,14 +41,36 @@ function formatVal(v: number, unit: string): string {
 
 // ── Chart data helpers ────────────────────────────────────────────────────────
 
+const EXCLUDED_LABELS = ['__name__', 'instrumentation_library_name', 'instrumentation_library_version', 'start_time', 'flag', 'host_image_id'];
+
+// Builds the display key for a single matrix series.
+//
+// The raw OpenObserve/Prometheus `query_range` response is passed through the backend
+// untouched, so this cannot assume a well-formed shape: a scalar-reduced or label-less
+// series can arrive with `metric` missing entirely, and a label value can be a non-string
+// (or absent). Both used to flow through as an `undefined` key, which then hit
+// `shortLabel(k).includes('.')` and crashed the whole Metrics tab with
+// "Cannot read properties of undefined (reading 'includes')" — but only against the real
+// backend, since every demo fixture series has a fully-populated `metric` object.
+//
+// Guaranteeing a non-empty string here is what makes the chart safe downstream.
+function seriesKey(series: MetricResult, idx: number): string {
+  const metric = series?.metric;
+  if (!metric || typeof metric !== 'object') return `series-${idx}`;
+  const label = Object.entries(metric)
+    .filter(([k]) => !EXCLUDED_LABELS.includes(k))
+    .map(([, v]) => (v == null ? '' : String(v)))
+    .filter(Boolean)
+    .join('/');
+  return label || `series-${idx}`;
+}
+
 function metricsToChartData(results: MetricResult[]) {
   if (!results?.length) return [];
   const map = new Map<number, Record<string, number>>();
   results.forEach((series, idx) => {
-    const label = Object.entries(series.metric)
-      .filter(([k]) => !['__name__', 'instrumentation_library_name', 'instrumentation_library_version', 'start_time', 'flag', 'host_image_id'].includes(k))
-      .map(([, v]) => v).join('/') || `series-${idx}`;
-    series.values.forEach(([ts, val]) => {
+    const label = seriesKey(series, idx);
+    (series?.values ?? []).forEach(([ts, val]) => {
       if (!map.has(ts)) map.set(ts, { ts });
       map.get(ts)![label] = parseFloat(val);
     });
@@ -57,11 +79,7 @@ function metricsToChartData(results: MetricResult[]) {
 }
 
 function getSeriesKeys(results: MetricResult[]) {
-  return results.map((s, i) =>
-    Object.entries(s.metric)
-      .filter(([k]) => !['__name__', 'instrumentation_library_name', 'instrumentation_library_version', 'start_time', 'flag', 'host_image_id'].includes(k))
-      .map(([, v]) => v).join('/') || `series-${i}`
-  );
+  return results.map((s, i) => seriesKey(s, i));
 }
 
 // ── Metric panel definition ───────────────────────────────────────────────────
@@ -161,8 +179,11 @@ const COLORS = ['#2563EB', '#F43F5E', '#0891B2', '#F97316', '#0D9488', '#C026D3'
 // Shorten a series key for legends/labels: hostnames → first segment, long
 // pod/container names → truncated with ellipsis.
 function shortLabel(k: string): string {
-  if (k.includes('.')) return k.slice(0, k.indexOf('.'));
-  return k.length > 22 ? k.slice(0, 20) + '…' : k;
+  // Defensive: series keys are built by seriesKey() to always be strings, but recharts can
+  // hand a legend/tooltip name back as undefined, so coerce before string ops.
+  const s = k == null ? '' : String(k);
+  if (s.includes('.')) return s.slice(0, s.indexOf('.'));
+  return s.length > 22 ? s.slice(0, 20) + '…' : s;
 }
 
 // ── Hero summary KPI cards ────────────────────────────────────────────────────
@@ -207,14 +228,14 @@ const SummaryMetricCard: React.FC<{
         setValue(String(results.length));
         // Sparkline = total series count is flat; instead show count of active points over time
         const map = new Map<number, number>();
-        results.forEach(s => s.values.forEach(([ts]) => map.set(ts, (map.get(ts) || 0) + 1)));
+        results.forEach(s => (s?.values ?? []).forEach(([ts]) => map.set(ts, (map.get(ts) || 0) + 1)));
         setSpark(Array.from(map.entries()).sort(([a], [b]) => a - b).map(([ts, v]) => ({ ts, v })));
         setLoading(false);
         return;
       }
       // Build combined timeline reducing across series per timestamp
       const perTs = new Map<number, number[]>();
-      results.forEach(s => s.values.forEach(([ts, val]) => {
+      results.forEach(s => (s?.values ?? []).forEach(([ts, val]) => {
         const arr = perTs.get(ts) || [];
         arr.push(parseFloat(val));
         perTs.set(ts, arr);

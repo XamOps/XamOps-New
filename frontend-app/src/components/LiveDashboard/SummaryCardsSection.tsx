@@ -195,8 +195,17 @@ const computeAlertSummary = (raw: RawAlert[]): AlertSummary => {
   return { total: raw.length, critical, warning, healthy, anomalies };
 };
 
-// Waste → /api/xamops/waste
-interface WasteResource { resourceType: string; monthlySavings: number }
+// Waste → /api/xamops/waste (AWS/Azure) and /api/xamops/gcp/optimization/waste-report (GCP)
+// GCP names the resource category `type`; AWS/Azure use `resourceType`. GCP also flags
+// findings that are free (`noCostImpact`) or whose cost could not be priced (`savingsUnknown`)
+// — those carry a placeholder zero, so they must not drag the savings total toward "no waste".
+interface WasteResource {
+  resourceType?: string;
+  type?: string;
+  monthlySavings: number;
+  savingsUnknown?: boolean;
+  noCostImpact?: boolean;
+}
 interface WasteSummary { total: number; totalSavings: number; byType: { label: string; v: number }[]; lambdaCount: number; lambdaSavings: number }
 
 const computeWasteSummary = (raw: WasteResource[]): WasteSummary => {
@@ -205,10 +214,14 @@ const computeWasteSummary = (raw: WasteResource[]): WasteSummary => {
   let lambdaCount = 0;
   let lambdaSavings = 0;
   for (const r of raw) {
-    const savings = r.monthlySavings || 0;
+    // A resource whose cost is zero (free) or unknown (unpriced) still counts as a finding,
+    // but contributes no dollars — mirroring the waste page's billable-savings logic.
+    const billable = !r.savingsUnknown && !r.noCostImpact;
+    const savings = billable ? (r.monthlySavings || 0) : 0;
+    const label = r.resourceType || r.type || 'Other';
     totalSavings += savings;
-    typeMap[r.resourceType] = (typeMap[r.resourceType] || 0) + savings;
-    if (r.resourceType === 'Lambda') { lambdaCount++; lambdaSavings += savings; }
+    typeMap[label] = (typeMap[label] || 0) + savings;
+    if (label === 'Lambda') { lambdaCount++; lambdaSavings += savings; }
   }
   const byType = Object.entries(typeMap)
     .map(([label, v]) => ({ label, v }))
@@ -470,12 +483,21 @@ const SummaryCardsSection: React.FC<SummaryCardsSectionProps> = ({ accountId, is
       .catch(() => setAlertSummary({ total: 0, critical: 0, warning: 0, healthy: 0, anomalies: [] }))
       .finally(() => setAlertLoading(false));
 
-    // Waste
+    // Waste — GCP exposes waste under a different route and payload shape than AWS/Azure.
+    // AWS/Azure: GET {apiBase}/waste?accountIds=... → bare array of { resourceType, monthlySavings }
+    // GCP:       GET /api/xamops/gcp/optimization/waste-report?accountId=... → { items: [{ type, monthlySavings }], partial }
+    // Hitting the AWS-shaped route for GCP returned nothing, so the card showed a false
+    // "No waste detected" while the GCP Waste Management page listed real findings.
     setWasteLoading(true);
-    fetch(`${apiBase}/waste?accountIds=${accountId}`, { credentials: 'include' })
+    const wasteUrl = provider === 'GCP'
+      ? `/api/xamops/gcp/optimization/waste-report?accountId=${accountId}`
+      : `${apiBase}/waste?accountIds=${accountId}`;
+    fetch(wasteUrl, { credentials: 'include' })
       .then(r => r.ok ? r.json() : [])
       .then((data: any) => {
-        const arr: WasteResource[] = Array.isArray(data) ? data : (data.resources || data.data || []);
+        const arr: WasteResource[] = Array.isArray(data)
+          ? data
+          : (data.items || data.resources || data.data || []);
         setWasteSummary(computeWasteSummary(arr));
       })
       .catch(() => setWasteSummary({ total: 0, totalSavings: 0, byType: [], lambdaCount: 0, lambdaSavings: 0 }))

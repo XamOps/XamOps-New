@@ -519,22 +519,36 @@ public class AppUserService {
      *       never end up pointing at a parent that lives in another client.</li>
      * </ul>
      *
-     * <p>If the move empties the old client, that client is cleaned up, same as
-     * {@link #deleteUser}. A request that would not change anything is a no-op.
+     * <p>If the move leaves the old client with no users <em>and</em> no cloud accounts, that
+     * client is cleaned up, same as {@link #deleteUser}. One that still owns accounts is kept, so
+     * this can never cascade away billing history the way an unguarded delete would. A request
+     * that would not change anything is a no-op.
+     *
+     * <p>Note for callers that cache the client list: a successful move can therefore remove a
+     * client, which is easy to miss when the moved user was the client's whole population — as it
+     * is whenever a primary user takes its sub-users along. Refresh clients, not just users.
      *
      * @param userId           the user to move
      * @param targetClientId   the client to move them to (must already exist)
      * @param newParentUserId  primary user in the destination client to nest them under, or
      *                         {@code null} to place them as a primary user
      * @return the updated user
-     * @throws IllegalArgumentException if the requested parent would produce an invalid tree
+     * @throws IllegalArgumentException if the destination client does not exist, or if the
+     *                                  requested parent would produce an invalid tree
      */
     @Transactional
     public AppUser moveUserToClient(Long userId, Long targetClientId, Long newParentUserId) {
         AppUser user = appUserRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
+        // Phrased for the admin, not the log: the usual way to reach this is a stale destination
+        // list in the user manager, because a client disappears the moment its last user is moved
+        // out (see the cleanup at the end of this method). The raw "Target client not found: 47"
+        // this used to throw was surfaced verbatim by the UI and told them nothing actionable.
         Client target = clientRepository.findById(targetClientId)
-                .orElseThrow(() -> new RuntimeException("Target client not found: " + targetClientId));
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "The destination client no longer exists (id " + targetClientId + "). It was most likely "
+                        + "removed when its last user was moved out. Refresh the page and pick from the updated "
+                        + "client list."));
 
         Client oldClient = user.getClient();
         Long oldClientId = oldClient != null ? oldClient.getId() : null;
@@ -605,13 +619,27 @@ public class AppUserService {
 
         AppUser saved = appUserRepository.save(user);
 
-        // If the old client is now empty, remove it (same housekeeping as deleteUser). Skipped on a
-        // same-client re-parent, where the "old" client is the destination and still has this user.
-        if (clientChanged && oldClientId != null) {
-            long remaining = appUserRepository.findByClientId(oldClientId).size();
-            if (remaining == 0) {
+        // If the move left the old client with no users, remove it (same housekeeping as
+        // deleteUser). Skipped on a same-client re-parent, where the "old" client is the
+        // destination and still has this user.
+        //
+        // Guarded on cloud accounts as well as users, for the reason {@link #deleteClient} spells
+        // out: Client maps cloudAccounts with cascade=ALL + orphanRemoval, and Invoice and
+        // Agreement hang off cloud_account_id as NOT NULL, so deleting a client that still owns
+        // accounts would cascade straight through that billing history. Moving the last user out
+        // must not become a back door around the guard deleteClient enforces. A client with
+        // accounts but no users is a legitimate state the user manager already renders — it is the
+        // row a first user gets added back to — so it is left in place and can only be removed
+        // through the explicit, guarded delete.
+        if (clientChanged && oldClientId != null && appUserRepository.countByClientId(oldClientId) == 0) {
+            long remainingAccounts = cloudAccountRepository.countByClientId(oldClientId);
+            if (remainingAccounts == 0) {
                 clientRepository.deleteById(oldClientId);
                 log.info("Removed now-empty client {} after moving its last user(s)", oldClientId);
+            } else {
+                log.info("Client {} has no users left after the move but still owns {} cloud account(s), "
+                        + "so it was kept; delete it explicitly once its accounts are gone",
+                        oldClientId, remainingAccounts);
             }
         }
         return saved;

@@ -698,6 +698,28 @@ export const useObservabilityData = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAccountId]);
 
+  /**
+   * Forces another provisioning/repair attempt for the selected account.
+   *
+   * Needed because retrying a setup config on its own cannot fix the most common reason it
+   * fails. The backend refuses to issue a collector config when the account's OpenObserve org
+   * has no scoped ingestion credential, and minting one happens during provisioning — which
+   * the Setup tab triggers once per account and which then backs off for two minutes after a
+   * failure. So the Retry button re-requested a config that was guaranteed to be refused
+   * again. This asks the backend to actually re-attempt the repair first.
+   *
+   * Resolves either way: a failure here is reported by the config fetch that follows, and
+   * surfacing two errors for one click would say nothing extra.
+   */
+  const reprovision = useCallback(async (): Promise<void> => {
+    try {
+      await apiClient.post(`/api/observability/reprovision${accountParam}`);
+    } catch {
+      // Intentionally ignored — see above.
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAccountId]);
+
   return {
     // State
     config,
@@ -731,6 +753,7 @@ export const useObservabilityData = () => {
     fetchTraceSpans,
     queryMetrics,
     fetchSetupConfig,
+    reprovision,
     fetchClusters,
     fetchConnectedInstances,
     fetchAlerts,

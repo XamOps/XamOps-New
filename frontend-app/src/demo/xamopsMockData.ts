@@ -2111,12 +2111,18 @@ export const demoObservabilityTraceStats = (body?: string) => {
 // The Overview tab's Connected Instances list. Also had no route, so it took the same
 // catch-all `{}` and `data?.agents || []` left the panel empty beside an overview that
 // reported six active streams.
+// Shape mirrors the real `/api/observability/agents` wire format (RawAgentHealth in
+// useObservabilityData.ts): camelCase `hostName`, `lastSeenMs` as epoch millis, an
+// uppercase status enum, `ageMs`, and `collectorAlive`. The previous fixture used
+// `hostname`/`lastSeen`/`status: 'stale'`, none of which the hook reads — so every mapped
+// instance had `hostName: undefined`, and the Overview tab's `inst.hostName.includes('.')`
+// threw "Cannot read properties of undefined (reading 'includes')" for all three clouds.
 export const demoObservabilityAgents = {
   agents: [
-    { instanceId: 'i-0abc1001', hostname: 'ip-10-0-1-42.ec2.internal',  status: 'healthy', version: '0.96.0', lastSeen: new Date(Date.now() - 42_000).toISOString(),  logsEnabled: true,  metricsEnabled: true,  tracesEnabled: true  },
-    { instanceId: 'i-0abc1002', hostname: 'ip-10-0-2-18.ec2.internal',  status: 'healthy', version: '0.96.0', lastSeen: new Date(Date.now() - 51_000).toISOString(),  logsEnabled: true,  metricsEnabled: true,  tracesEnabled: true  },
-    { instanceId: 'i-0abc1005', hostname: 'ip-10-0-3-91.ec2.internal',  status: 'healthy', version: '0.94.1', lastSeen: new Date(Date.now() - 38_000).toISOString(),  logsEnabled: true,  metricsEnabled: true,  tracesEnabled: false },
-    { instanceId: 'i-0abc1009', hostname: 'ip-10-0-1-20.ec2.internal',  status: 'stale',   version: '0.91.0', lastSeen: new Date(Date.now() - 42 * 60_000).toISOString(), logsEnabled: true, metricsEnabled: false, tracesEnabled: false },
+    { hostName: 'ip-10-0-1-42.ec2.internal', lastSeenMs: Date.now() - 42_000,      status: 'HEALTHY', ageMs: 42_000,      collectorAlive: true  },
+    { hostName: 'ip-10-0-2-18.ec2.internal', lastSeenMs: Date.now() - 51_000,      status: 'HEALTHY', ageMs: 51_000,      collectorAlive: true  },
+    { hostName: 'ip-10-0-3-91.ec2.internal', lastSeenMs: Date.now() - 38_000,      status: 'HEALTHY', ageMs: 38_000,      collectorAlive: true  },
+    { hostName: 'ip-10-0-1-20.ec2.internal', lastSeenMs: Date.now() - 42 * 60_000, status: 'DELAYED', ageMs: 42 * 60_000, collectorAlive: false },
   ],
 };
 

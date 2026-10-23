@@ -190,18 +190,22 @@ function OverviewTab({ config, overview, instances, loading, activeAccountId }: 
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 p-4">
             {instances.map(inst => {
-              const short = inst.hostName.includes('.')
-                ? inst.hostName.split('.')[0]
-                : inst.hostName.length > 22 ? inst.hostName.slice(0, 20) + '…' : inst.hostName;
-              const presentation = AGENT_STATUS_PRESENTATION[inst.status];
+              // hostName comes from the /agents API — guard against a missing value so a
+              // malformed roster entry degrades to "unknown-host" rather than crashing the
+              // whole Overview tab.
+              const hostName = inst.hostName || 'unknown-host';
+              const short = hostName.includes('.')
+                ? hostName.split('.')[0]
+                : hostName.length > 22 ? hostName.slice(0, 20) + '…' : hostName;
+              const presentation = AGENT_STATUS_PRESENTATION[inst.status] ?? AGENT_STATUS_PRESENTATION.gone;
               return (
-                <div key={inst.hostName}
-                  title={statusHint(toAgentHealth(inst.hostName, inst.lastSeenMs, inst.status, inst.collectorAlive))}
+                <div key={hostName}
+                  title={statusHint(toAgentHealth(hostName, inst.lastSeenMs, inst.status, inst.collectorAlive))}
                   className="flex items-center gap-3 rounded-lg border px-3 py-2.5 bg-white border-[rgba(0,0,0,0.08)] hover:border-[rgba(0,0,0,0.2)] transition-colors">
                   <div className={`w-2 h-2 rounded-full flex-shrink-0 ${presentation.dot}`} />
                   <div className="min-w-0 flex-1">
                     <p className="text-[12px] font-medium truncate text-black"
-                       title={inst.hostName}>
+                       title={hostName}>
                       {short}
                     </p>
                     <p className="text-[11px] mt-0.5 text-[rgba(0,0,0,0.4)]">
@@ -897,8 +901,11 @@ function DeployStep({ num, title, children }: { num: number; title: string; chil
 type SetupType = 'eks-helm' | 'ec2' | 'gce' | 'eks-manual';
 
 function SetupTab() {
-  const { fetchSetupConfig, fetchClusters } = useObservabilityData();
+  const { fetchSetupConfig, fetchClusters, reprovision } = useObservabilityData();
   const [activeSetup, setActiveSetup] = useState<SetupType>('ec2');
+  // Retry asks the backend to re-attempt provisioning first, which takes a round trip. Without
+  // a pending state the button looks inert and invites a second click.
+  const [retrying, setRetrying] = useState(false);
 
   // Why a config could not be generated. The backend explains what to do — most often that the
   // account needs re-provisioning to mint a scoped ingestion credential — and that has to reach
@@ -982,10 +989,19 @@ function SetupTab() {
     <ErrorNotice
       title="Configuration could not be generated"
       message={setupError ?? 'The server did not return a configuration. Please retry in a moment.'}
-      onRetry={() => {
+      retrying={retrying}
+      onRetry={async () => {
+        if (retrying) return;
+        setRetrying(true);
+        // Re-provision before re-requesting. The usual reason a config is refused is that the
+        // account's org has no scoped ingestion credential, and only provisioning can mint
+        // one — so refetching the config alone asked the same question and got the same
+        // refusal, which made this button look decorative.
+        await reprovision();
         setHelmCmd(''); setEc2Config(''); setGceConfig(''); setAgentSecret('');
         setSetupError(null);
         setSetupRetry(n => n + 1);
+        setRetrying(false);
       }}
     />
   );

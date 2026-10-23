@@ -235,6 +235,27 @@ public class OpenObserveService {
     }
 
     /**
+     * Drops the backoff entries for a client (and optionally one of its accounts) so the next
+     * provisioning call re-attempts immediately.
+     *
+     * The backoff exists to stop {@code GET /config} from hammering a down OpenObserve on every
+     * page load, but it also swallows a deliberate retry: a user who has just fixed the
+     * underlying problem had no way to ask for another attempt and had to wait out the window
+     * or restart the service. This is the explicit, user-initiated escape hatch — see
+     * {@code POST /api/observability/reprovision}. The automatic paths still back off.
+     */
+    public void clearProvisionBackoff(Long clientId, String providerAccountId) {
+        provisionFailedAt.remove("client:" + clientId);
+        provisionFailedAt.remove("repair-client:" + clientId);
+        if (providerAccountId != null && !providerAccountId.isBlank()) {
+            provisionFailedAt.remove("account:" + clientId + ":" + providerAccountId);
+            provisionFailedAt.remove("repair-account:" + clientId + ":" + providerAccountId);
+        }
+        // A previously-failed resolution may have cached a stale or client-level org id.
+        invalidateOrgIdCache(clientId);
+    }
+
+    /**
      * Drops cached org IDs for a client after (re)provisioning, so queries don't keep hitting
      * a stale or previously-missing org for up to the cache TTL.
      */
@@ -412,29 +433,100 @@ public class OpenObserveService {
      * result is persisted as {@code o2_ingestion_key}, that downgrade was permanent and
      * invisible. Provisioning now records the absence, and the generators refuse to issue a
      * collector config rather than substituting root.
+     *
+     * <p>Recreates the account when OpenObserve reports it already exists. A service account
+     * token is revealed only in the response to the call that creates it — there is no API to
+     * read it back — so an earlier provisioning run that created the account but failed to
+     * persist its token left the org permanently unusable: this method only ever POSTed, and
+     * that POST then answered {@code 400 User already exists} forever. The account was stuck
+     * with no stored credential, the generators kept refusing, and the one retry path the UI
+     * offers could never clear it. Deleting the stale identity and creating it again is the
+     * only way to obtain a usable token, and it is safe here because every caller has already
+     * established (via {@link #needsIngestionKeyRepair}) that no working credential is stored.
      */
     private String createServiceAccount(String orgId, String email) {
-        HttpHeaders headers = buildAdminHeaders();
-        Map<String, String> body = Map.of(
-                "email", email + "@xamops.internal",
-                "role", "member"
-        );
+        String fullEmail = email + "@xamops.internal";
         try {
-            ResponseEntity<Map> resp = restTemplate.postForEntity(
-                    o2Url + "/api/" + orgId + "/service_accounts",
-                    new HttpEntity<>(body, headers),
-                    Map.class
-            );
-            if (resp.getBody() != null && resp.getBody().containsKey("token")) {
-                return (String) resp.getBody().get("token");
-            }
+            String token = postServiceAccount(orgId, fullEmail);
+            if (token != null) return token;
             logger.error("OpenObserve returned no token for service account {} in org {} — "
-                    + "collectors for this org cannot be configured until this succeeds", email, orgId);
+                    + "collectors for this org cannot be configured until this succeeds", fullEmail, orgId);
+            return null;
+        } catch (HttpClientErrorException e) {
+            if (!isAlreadyExists(e)) {
+                logger.error("Could not create service account {} in org {}: {} — collectors for this "
+                        + "org cannot be configured until this succeeds", fullEmail, orgId, e.getMessage());
+                return null;
+            }
+            // Falls through to the recreate path below.
         } catch (Exception e) {
             logger.error("Could not create service account {} in org {}: {} — collectors for this "
-                    + "org cannot be configured until this succeeds", email, orgId, e.getMessage());
+                    + "org cannot be configured until this succeeds", fullEmail, orgId, e.getMessage());
+            return null;
         }
-        return null;
+
+        logger.warn("Service account {} already exists in org {} but its token was never persisted "
+                + "and cannot be read back; recreating it to mint a usable credential", fullEmail, orgId);
+        try {
+            // Built as a URI, not a string. The String overload of exchange() treats its
+            // argument as a URI template and encodes it, so a pre-encoded '@' (%40) went out
+            // as %2540 and O2 looked up a user whose name literally contained "%40" — a 404
+            // that read as "the account isn't there" when it was.
+            java.net.URI deleteUri = UriComponentsBuilder
+                    .fromUriString(o2Url)
+                    .pathSegment("api", orgId, "service_accounts", fullEmail)
+                    .build()
+                    .encode()
+                    .toUri();
+            restTemplate.exchange(
+                    deleteUri,
+                    HttpMethod.DELETE,
+                    new HttpEntity<>(buildAdminHeaders()),
+                    Map.class
+            );
+            String token = postServiceAccount(orgId, fullEmail);
+            if (token == null) {
+                logger.error("Recreated service account {} in org {} but OpenObserve returned no token",
+                        fullEmail, orgId);
+            }
+            return token;
+        } catch (Exception e) {
+            logger.error("Could not recreate service account {} in org {}: {} — collectors for this "
+                    + "org cannot be configured until this succeeds", fullEmail, orgId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * One POST to O2's service-account API, returning the issued credential.
+     *
+     * Lets the HTTP error escape rather than logging and returning null, so the caller can
+     * tell "this name is taken" apart from "O2 is unreachable" — the first is recoverable by
+     * recreating the account, the second must not delete anything.
+     */
+    @SuppressWarnings("unchecked")
+    private String postServiceAccount(String orgId, String fullEmail) {
+        ResponseEntity<Map> resp = restTemplate.postForEntity(
+                o2Url + "/api/" + orgId + "/service_accounts",
+                new HttpEntity<>(Map.of("email", fullEmail, "role", "member"), buildAdminHeaders()),
+                Map.class
+        );
+        return resp.getBody() != null ? (String) resp.getBody().get("token") : null;
+    }
+
+    /**
+     * True when O2 rejected a service-account creation because the identity already exists.
+     *
+     * Matched on the response body as well as the status: O2 answers this particular conflict
+     * with 400 rather than 409, and a bare 400 also covers genuinely malformed requests, which
+     * must not trigger a delete.
+     */
+    private static boolean isAlreadyExists(HttpClientErrorException e) {
+        if (e.getStatusCode() != HttpStatus.BAD_REQUEST && e.getStatusCode() != HttpStatus.CONFLICT) {
+            return false;
+        }
+        String body = e.getResponseBodyAsString();
+        return body != null && body.toLowerCase().contains("already exists");
     }
 
     /**

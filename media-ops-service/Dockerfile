@@ -1,7 +1,11 @@
 FROM eclipse-temurin:25-jre-noble
 
-# Install FFmpeg — baked into the image so UAT/prod never need host-level installs
-RUN apt-get update \
+# Install FFmpeg — baked into the image so UAT/prod never need host-level installs.
+# Pin apt to HTTPS first: plain-HTTP egress to the Ubuntu archives is filtered on some
+# networks and the mirrors answer 403, which fails `apt-get update`. The base image
+# already ships /etc/ssl/certs/ca-certificates.crt, so no extra package is needed.
+RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 

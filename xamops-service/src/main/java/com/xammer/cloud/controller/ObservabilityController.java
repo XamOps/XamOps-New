@@ -119,6 +119,35 @@ public class ObservabilityController {
         }
     }
 
+    /**
+     * POST /api/observability/reprovision[?providerAccountId=xxx]
+     *
+     * Forces another provisioning/repair attempt for the selected account.
+     *
+     * The generators refuse to issue a collector config when an org has no scoped ingestion
+     * credential, and the message they return tells the user to re-provision the account —
+     * which, until this endpoint existed, was something no user could actually do. The repair
+     * only ran as a side effect of {@code GET /config}, the Setup tab loads that once per
+     * account, and a failed attempt then sat behind a two-minute backoff, so the Retry link
+     * next to the error could never resolve the error it was offered for.
+     */
+    @PostMapping("/reprovision")
+    public ResponseEntity<?> reprovision(
+            @AuthenticationPrincipal ClientUserDetails userDetails,
+            @RequestParam(required = false) String providerAccountId) {
+        try {
+            logger.info("Re-provision requested for client {} account {}",
+                    userDetails.getClientId(), providerAccountId);
+            openObserveService.clearProvisionBackoff(userDetails.getClientId(), providerAccountId);
+        } catch (Exception e) {
+            return errorResponse("reprovision", e);
+        }
+        // Delegated rather than reimplemented: getConfig already drives provisionTenant and
+        // provisionForAccount — where the credential repair lives — and answers with the scope
+        // flags the UI needs to tell account-scoped data from an organisation-wide fallback.
+        return getConfig(userDetails, providerAccountId);
+    }
+
     // ── Agent health ──────────────────────────────────────────────────────────
 
     /**
