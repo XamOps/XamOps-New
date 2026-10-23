@@ -3990,6 +3990,13 @@ ${xmlEdges}
                 </div>
                 <div className="cm-legend-sep" />
                 <div className="cm-legend-status">
+                  <span><i className="cm-swatch vpc" />VPC</span>
+                  <span><i className="cm-swatch public" />Public</span>
+                  <span><i className="cm-swatch private" />Private</span>
+                  <span><i className="cm-swatch isolated" />Isolated</span>
+                </div>
+                <div className="cm-legend-sep" />
+                <div className="cm-legend-status">
                   <span><i className="cm-dot healthy" />Running</span>
                   <span><i className="cm-dot warning" />Changing</span>
                   <span><i className="cm-dot danger" />Failed</span>

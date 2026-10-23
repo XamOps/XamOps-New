@@ -2474,3 +2474,14 @@ select.rp-input {
 .cm-theme-dark .cm-legend-line.traffic { stroke: #a9b7cf; }
 .cm-theme-dark .cm-legend-line.reach,
 .cm-theme-dark .cm-legend-line.egress { stroke: #5f7090; }
+
+/* Network container swatches: same tones as NETWORK_TONES in canvasTheme.ts. */
+.cm-swatch { width: 12px; height: 9px; border-radius: 2px; display: inline-block; border: 1.5px solid; }
+.cm-swatch.vpc { border-color: #8C4FFF; background: #faf7ff; }
+.cm-swatch.public { border-color: #7AA116; background: #f6f9ee; }
+.cm-swatch.private { border-color: #00A4A6; background: #eef8f8; }
+.cm-swatch.isolated { border-color: #7D8998; background: #f5f6f8; }
+.cm-theme-dark .cm-swatch.vpc { background: #120c24; }
+.cm-theme-dark .cm-swatch.public { background: #0e1607; }
+.cm-theme-dark .cm-swatch.private { background: #03191a; }
+.cm-theme-dark .cm-swatch.isolated { border-color: #5f6b7a; background: #0d1118; }
