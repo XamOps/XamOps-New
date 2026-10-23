@@ -252,7 +252,7 @@ public class CloudMapService {
                     long withVpc = fromPlane.stream()
                             .filter(r -> r != null && getDetail(r, "VPC ID") != null)
                             .count();
-                    if (!fromPlane.isEmpty() && withVpc > 0) {
+                    if (!fromPlane.isEmpty() && withVpc > 0 && planeCarriesNetworkTopology(fromPlane)) {
                         logger.info("✅ Cloud Map graph served from inventory plane for account {} "
                                 + "({} resources, {} with a VPC association, 0 describe calls)",
                                 account.getAwsAccountId(), fromPlane.size(), withVpc);
@@ -271,6 +271,39 @@ public class CloudMapService {
         logger.info("Cloud Map graph falling back to a describe scan for account {}",
                 account.getAwsAccountId());
         return cloudListService.getAllResources(account, forceRefresh);
+    }
+
+    /**
+     * Types that always live in a VPC and that the graph cannot place without a "VPC ID".
+     *
+     * <p>
+     * Lambda is deliberately absent: a function outside a VPC legitimately has none.
+     */
+    static final Set<String> NETWORK_SCOPED_TYPES = Set.of(
+            "Security Group", "Load Balancer", "NAT Gateway", "Internet Gateway");
+
+    /**
+     * Whether the plane knows where the network-scoped resources it holds live.
+     *
+     * <p>
+     * Counting "any resource with a VPC ID" was too weak. On UAT the plane carried a VPC ID
+     * for EC2 instances and network interfaces only, so it qualified, and the graph silently
+     * dropped every load balancer, NAT gateway and internet gateway and 135 of 157 security
+     * groups — a map of instances floating in subnets with no way in or out. Each
+     * network-scoped type the plane holds must have at least one resource placed in a VPC;
+     * otherwise the describe scan, which sets "VPC ID" for all of them, answers instead.
+     */
+    static boolean planeCarriesNetworkTopology(List<ResourceDto> resources) {
+        Map<String, Boolean> placed = new HashMap<>();
+        for (ResourceDto r : resources) {
+            if (r == null || !NETWORK_SCOPED_TYPES.contains(r.getType())) {
+                continue;
+            }
+            String vpc = r.getDetails() != null ? r.getDetails().get("VPC ID") : null;
+            boolean hasVpc = vpc != null && !vpc.isBlank() && !"N/A".equals(vpc);
+            placed.merge(r.getType(), hasVpc, Boolean::logicalOr);
+        }
+        return placed.values().stream().allMatch(Boolean::booleanValue);
     }
 
     private void addVpcAndSubnetNodes(List<Map<String, Object>> elements, Ec2Client ec2Client, String vpcId) {

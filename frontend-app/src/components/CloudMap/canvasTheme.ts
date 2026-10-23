@@ -990,6 +990,9 @@ export function buildCytoscapeStyle(theme: CanvasTheme, mode: 'live' | 'design')
           'text-background-shape': 'roundrectangle', 'text-rotation': 'none',
         },
       },
+      // Membership lines exist for hover tracing only; see MEMBERSHIP_LABELS.
+      { selector: 'edge[?membership]', style: { opacity: 0 } },
+      { selector: 'edge[?membership].cm-highlight, edge[?membership]:selected', style: { opacity: 0.9 } },
       { selector: 'node.cm-hover-dim, edge.cm-hover-dim', style: { opacity: 0.18 } },
       {
         selector: 'edge.cm-hover-path',

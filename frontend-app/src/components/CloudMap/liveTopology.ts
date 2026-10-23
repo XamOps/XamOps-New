@@ -28,13 +28,25 @@ export type LiveLayer = 'security' | 'routing' | 'storage' | 'scaling' | 'interf
 
 export type LiveLayers = Record<LiveLayer, boolean>;
 
+/*
+ * Security groups and scaling resources are part of the picture people expect to see.
+ * Routing is already told by subnet tiers and gateway egress lines, storage is per-instance
+ * detail, and interfaces can number in the hundreds, so those three start hidden.
+ */
 export const DEFAULT_LIVE_LAYERS: LiveLayers = {
-  security: false,
+  security: true,
   routing: false,
   storage: false,
-  scaling: false,
+  scaling: true,
   interfaces: false,
 };
+
+/**
+ * Relationship labels that say "belongs to" rather than "talks to". Drawn but invisible
+ * until a hover traces them: one instance in three groups, times every instance, is the
+ * spaghetti this view exists to avoid.
+ */
+const MEMBERSHIP_LABELS = new Set(['uses SG', 'admits', 'allowed out to', 'manages', 'registers to', 'launches into']);
 
 /** What an edge means on the canvas. Drives line style and the legend. */
 export type FlowKind =
@@ -273,7 +285,7 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
 
   const out: El[] = [];
   const seen = new Set<string>();
-  const pushEdge = (source: string, target: string, label: string, kind: FlowKind, derived = false) => {
+  const pushEdge = (source: string, target: string, label: string, kind: FlowKind, derived = false, membership = false) => {
     if (source === target || !visible.has(source) || !visible.has(target)) return;
     // Containment already says this; a line from a card to its own box reads as a loop.
     if (ancestorsOf(source).has(target) || ancestorsOf(target).has(source)) return;
@@ -285,7 +297,11 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
     seen.add(key);
     out.push({
       group: 'edges',
-      data: { id: `${source}__${kind}__${target}`, source, target, label, kind, ...(derived ? { derived: true } : {}) },
+      data: {
+        id: `${source}__${kind}__${target}`, source, target, label, kind,
+        ...(derived ? { derived: true } : {}),
+        ...(membership ? { membership: true } : {}),
+      },
     });
   };
 
@@ -318,7 +334,7 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
     const { source, target, label } = e.data;
     const rule = EDGE_RULES[label] ?? { layer: null, kind: 'traffic' as FlowKind };
     if (rule.layer && !layers[rule.layer]) continue;
-    pushEdge(source, target, label, rule.kind);
+    pushEdge(source, target, label, rule.kind, false, MEMBERSHIP_LABELS.has(label));
   }
 
   // Target groups hidden: the load balancer forwards straight to what the group targets.
@@ -336,7 +352,7 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
    * prod-web-01 can reach prod-postgres — and it stays honest about being a permission,
    * not observed traffic, by drawing as a dashed "can reach" line.
    */
-  if (!layers.security) {
+  {
     for (const [dest, src] of sgAdmits) {
       const from = sgMembers.get(src) ?? [];
       const to = sgMembers.get(dest) ?? [];
