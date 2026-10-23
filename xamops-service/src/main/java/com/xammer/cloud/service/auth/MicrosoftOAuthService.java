@@ -75,8 +75,11 @@ public class MicrosoftOAuthService {
     /**
      * Builds the Microsoft authorization URL the browser is redirected to.
      * @param state opaque anti-CSRF value echoed back on the callback
+     * @param redirectUri the OAuth {@code redirect_uri} to use; chosen per-request by the
+     *                    controller (live vs demo host). MUST byte-match the value passed to
+     *                    {@link #exchangeCodeForIdentity(String, String)} on the callback leg.
      */
-    public String buildAuthorizationUrl(String state) {
+    public String buildAuthorizationUrl(String state, String redirectUri) {
         return UriComponentsBuilder.fromUriString(String.format(AUTH_ENDPOINT_TMPL, tenant))
                 .queryParam("client_id", clientId)
                 .queryParam("redirect_uri", redirectUri)
@@ -91,14 +94,16 @@ public class MicrosoftOAuthService {
 
     /**
      * Exchanges the authorization code for tokens and returns the verified identity.
+     * @param redirectUri MUST be the SAME value used on the authorization leg
+     *                    ({@link #buildAuthorizationUrl(String, String)}) or Microsoft rejects the exchange.
      * @throws MicrosoftAuthException if the exchange fails or the token is invalid/unverified
      */
-    public MicrosoftIdentity exchangeCodeForIdentity(String code) {
-        String idToken = requestIdToken(code);
+    public MicrosoftIdentity exchangeCodeForIdentity(String code, String redirectUri) {
+        String idToken = requestIdToken(code, redirectUri);
         return parseAndValidateIdToken(idToken);
     }
 
-    private String requestIdToken(String code) {
+    private String requestIdToken(String code, String redirectUri) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 

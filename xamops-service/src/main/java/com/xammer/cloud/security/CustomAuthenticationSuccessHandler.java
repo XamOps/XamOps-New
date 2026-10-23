@@ -6,6 +6,7 @@ import com.xammer.cloud.repository.CloudAccountRepository;
 import com.xammer.cloud.repository.UserRepository;
 import com.xammer.cloud.service.FlexComputeService;
 import com.xammer.cloud.service.UserActivityService;
+import com.xammer.cloud.service.auth.DemoHostResolver;
 import java.time.LocalDateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,17 +34,20 @@ public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationS
     private final FlexComputeService flexComputeService;
     private final UserRepository userRepository;
     private final UserActivityService userActivityService;
+    private final DemoHostResolver demoHostResolver;
     private final String frontendUrl;
 
     public CustomAuthenticationSuccessHandler(CloudAccountRepository cloudAccountRepository,
             FlexComputeService flexComputeService,
             UserRepository userRepository,
             UserActivityService userActivityService,
+            DemoHostResolver demoHostResolver,
             @Value("${app.frontend.url}") String frontendUrl) {
         this.cloudAccountRepository = cloudAccountRepository;
         this.flexComputeService = flexComputeService;
         this.userRepository = userRepository;
         this.userActivityService = userActivityService;
+        this.demoHostResolver = demoHostResolver;
         this.frontendUrl = frontendUrl;
     }
 
@@ -79,22 +83,26 @@ public class CustomAuthenticationSuccessHandler extends SimpleUrlAuthenticationS
             accounts = Collections.emptyList();
         }
 
+        // Host-aware base: demo frontend url on the demo host, else live/per-profile url.
+        // Byte-identical to frontendUrl on every non-demo host, so live behavior is unchanged.
+        String base = demoHostResolver.resolveFrontendUrl(request, frontendUrl);
+
         // 1. Determine Redirect URL based on Roles and Accounts
         if (roles.contains("ROLE_BILLOPS_ADMIN")) {
             // BillOps Admin users go to admin dashboard
-            targetUrl = frontendUrl + "/billops-admin-dashboard";
+            targetUrl = base + "/billops-admin-dashboard";
         } else if (roles.contains("ROLE_BILLOPS")) {
             // BillOps regular users go to user dashboard
-            targetUrl = frontendUrl + "/billops-dashboard";
+            targetUrl = base + "/billops-dashboard";
         } else if (roles.contains("ROLE_XAMOPS")) {
             // XamOps users go to unified dashboard
-            targetUrl = frontendUrl + "/unified-dashboard";
+            targetUrl = base + "/unified-dashboard";
         } else if (accounts.isEmpty()) {
             // Users with no accounts go to account manager
-            targetUrl = frontendUrl + "/account-manager";
+            targetUrl = base + "/account-manager";
         } else {
             // Default fallback for other users with accounts
-            targetUrl = frontendUrl + "/unified-dashboard.html";
+            targetUrl = base + "/unified-dashboard.html";
         }
 
         // 2. Get Tenant ID from authenticated principal (already resolved during authentication)

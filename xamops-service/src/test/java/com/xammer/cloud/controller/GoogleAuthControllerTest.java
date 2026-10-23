@@ -72,6 +72,7 @@ class GoogleAuthControllerTest {
         ReflectionTestUtils.setField(controller, "passwordEncoder", passwordEncoder);
         ReflectionTestUtils.setField(controller, "demoHostResolver", demoHostResolver);
         ReflectionTestUtils.setField(controller, "frontendUrl", "https://test.xamops.com");
+        ReflectionTestUtils.setField(controller, "liveGoogleRedirectUri", "https://test.xamops.com/api/auth/google/callback");
         ReflectionTestUtils.setField(controller, "signupTokenSecret", SECRET);
 
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
@@ -178,17 +179,29 @@ class GoogleAuthControllerTest {
 
     // ── Demo-host auto-provisioning (FEAT-002) ───────────────────────────────
 
-    private org.springframework.mock.web.MockHttpServletRequest callbackRequest() {
+    private static final String LIVE_REDIRECT = "https://live.xamops.com/api/auth/google/callback";
+    private static final String DEMO_REDIRECT = "https://demo.xamops.com/api/auth/google/callback";
+
+    /**
+     * Builds a callback request. The controller now reads the redirect-uri committed to the state
+     * entry via {@code getString}, so we stub it to return the given redirect-uri (the login leg
+     * would have stored it). {@code resolveFrontendUrl} defaults to the live/test frontend unless a
+     * test overrides it.
+     */
+    private org.springframework.mock.web.MockHttpServletRequest callbackRequest(String storedRedirectUri) {
         org.springframework.mock.web.MockHttpServletRequest request =
                 new org.springframework.mock.web.MockHttpServletRequest();
-        when(redisCacheService.hasKey(anyString())).thenReturn(true);
+        when(redisCacheService.getString(anyString())).thenReturn(storedRedirectUri);
+        when(demoHostResolver.resolveFrontendUrl(any(), anyString()))
+                .thenAnswer(inv -> inv.getArgument(1)); // default: live/test frontend
         return request;
     }
 
     @Test
     void googleCallback_demoHostNewUser_autoProvisionsOnDemoClient_noSignupToken_ac6_7_8() throws Exception {
-        org.springframework.mock.web.MockHttpServletRequest request = callbackRequest();
-        when(googleOAuthService.exchangeCodeForIdentity("code-1"))
+        org.springframework.mock.web.MockHttpServletRequest request = callbackRequest(DEMO_REDIRECT);
+        when(demoHostResolver.resolveGoogleRedirectUri(any(), any())).thenReturn(DEMO_REDIRECT);
+        when(googleOAuthService.exchangeCodeForIdentity("code-1", DEMO_REDIRECT))
                 .thenReturn(new GoogleIdentity("demo-sub", "someone@gmail.com", true, "Some One", null));
         when(userRepository.findByGoogleSub("demo-sub")).thenReturn(Optional.empty());
         when(userRepository.findByEmail("someone@gmail.com")).thenReturn(Optional.empty());
@@ -201,11 +214,11 @@ class GoogleAuthControllerTest {
         when(passwordEncoder.encode(anyString())).thenReturn("unusable-hash");
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
         when(sessionService.establishSession(any(), any(), eq("GOOGLE")))
-                .thenReturn(Map.of("redirectUrl", "https://test.xamops.com/unified-dashboard", "tenantId", "default"));
+                .thenReturn(Map.of("redirectUrl", "https://demo.xamops.com/unified-dashboard", "tenantId", "default"));
 
         var view = controller.googleCallback("code-1", "state-1", null, request);
 
-        assertThat(view.getUrl()).isEqualTo("https://test.xamops.com/unified-dashboard");
+        assertThat(view.getUrl()).isEqualTo("https://demo.xamops.com/unified-dashboard");
 
         ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(userCaptor.capture());
@@ -225,8 +238,9 @@ class GoogleAuthControllerTest {
 
     @Test
     void googleCallback_nonDemoHostNewUser_issuesSignupToken_ac12() throws Exception {
-        org.springframework.mock.web.MockHttpServletRequest request = callbackRequest();
-        when(googleOAuthService.exchangeCodeForIdentity("code-2"))
+        org.springframework.mock.web.MockHttpServletRequest request = callbackRequest(LIVE_REDIRECT);
+        when(demoHostResolver.resolveGoogleRedirectUri(any(), any())).thenReturn(LIVE_REDIRECT);
+        when(googleOAuthService.exchangeCodeForIdentity("code-2", LIVE_REDIRECT))
                 .thenReturn(new GoogleIdentity("live-sub", "newbie@corp.com", true, "New Bie", null));
         when(userRepository.findByGoogleSub("live-sub")).thenReturn(Optional.empty());
         when(userRepository.findByEmail("newbie@corp.com")).thenReturn(Optional.empty());
@@ -242,18 +256,81 @@ class GoogleAuthControllerTest {
 
     @Test
     void googleCallback_demoHostButNoDemoClientSeeded_failsClosed() throws Exception {
-        org.springframework.mock.web.MockHttpServletRequest request = callbackRequest();
-        when(googleOAuthService.exchangeCodeForIdentity("code-3"))
+        org.springframework.mock.web.MockHttpServletRequest request = callbackRequest(DEMO_REDIRECT);
+        when(demoHostResolver.resolveGoogleRedirectUri(any(), any())).thenReturn(DEMO_REDIRECT);
+        when(googleOAuthService.exchangeCodeForIdentity("code-3", DEMO_REDIRECT))
                 .thenReturn(new GoogleIdentity("demo-sub-2", "someone2@gmail.com", true, "Some Two", null));
         when(userRepository.findByGoogleSub("demo-sub-2")).thenReturn(Optional.empty());
         when(userRepository.findByEmail("someone2@gmail.com")).thenReturn(Optional.empty());
         when(demoHostResolver.isDemoHost(any())).thenReturn(true);
         when(clientRepository.findFirstByDemoTrue()).thenReturn(Optional.empty());
+        // Demo-unavailable fallback resolves to the demo frontend url.
+        when(demoHostResolver.resolveFrontendUrl(any(), anyString())).thenReturn("https://demo.xamops.com");
 
         var view = controller.googleCallback("code-3", "state-3", null, request);
 
-        assertThat(view.getUrl()).isEqualTo("https://test.xamops.com/login?error=demo_unavailable");
+        assertThat(view.getUrl()).isEqualTo("https://demo.xamops.com/login?error=demo_unavailable");
         verify(userRepository, never()).save(any());
         verify(sessionService, never()).establishSession(any(), any(), any());
+    }
+
+    // ── OAuth redirect_uri byte-match (BUG 2) ────────────────────────────────
+
+    @Test
+    void googleLoginAndCallback_demoHost_useSameDemoRedirectUriOnBothLegs() {
+        // LOGIN leg: demo host -> resolver picks the demo redirect-uri; it is stored in state and
+        // passed to buildAuthorizationUrl.
+        org.springframework.mock.web.MockHttpServletRequest loginReq =
+                new org.springframework.mock.web.MockHttpServletRequest();
+        when(demoHostResolver.resolveFrontendUrl(any(), anyString())).thenAnswer(inv -> inv.getArgument(1));
+        when(googleOAuthService.isConfigured()).thenReturn(true);
+        when(demoHostResolver.resolveGoogleRedirectUri(any(), any())).thenReturn(DEMO_REDIRECT);
+        when(googleOAuthService.buildAuthorizationUrl(anyString(), eq(DEMO_REDIRECT)))
+                .thenReturn("https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=" + DEMO_REDIRECT);
+
+        controller.googleLogin(loginReq);
+
+        ArgumentCaptor<String> storedUri = ArgumentCaptor.forClass(String.class);
+        verify(redisCacheService).putString(anyString(), storedUri.capture(), anyInt());
+        ArgumentCaptor<String> authLegUri = ArgumentCaptor.forClass(String.class);
+        verify(googleOAuthService).buildAuthorizationUrl(anyString(), authLegUri.capture());
+        assertThat(storedUri.getValue()).isEqualTo(DEMO_REDIRECT);
+        assertThat(authLegUri.getValue()).isEqualTo(DEMO_REDIRECT);
+
+        // CALLBACK leg: the stored redirect-uri is read back and used for the exchange — same value.
+        org.springframework.mock.web.MockHttpServletRequest cbReq = callbackRequest(DEMO_REDIRECT);
+        when(demoHostResolver.resolveGoogleRedirectUri(any(), any())).thenReturn(DEMO_REDIRECT);
+        when(googleOAuthService.exchangeCodeForIdentity(eq("code-x"), anyString()))
+                .thenReturn(new GoogleIdentity("sub-x", "x@gmail.com", true, "X", null));
+        when(userRepository.findByGoogleSub("sub-x")).thenReturn(Optional.empty());
+        when(userRepository.findByEmail("x@gmail.com")).thenReturn(Optional.empty());
+        when(demoHostResolver.isDemoHost(any())).thenReturn(false); // route to signup path; exchange still runs
+
+        controller.googleCallback("code-x", "state-x", null, cbReq);
+
+        ArgumentCaptor<String> exchangeLegUri = ArgumentCaptor.forClass(String.class);
+        verify(googleOAuthService).exchangeCodeForIdentity(eq("code-x"), exchangeLegUri.capture());
+        assertThat(exchangeLegUri.getValue()).isEqualTo(DEMO_REDIRECT);
+        // Both legs agreed on the exact same redirect_uri.
+        assertThat(exchangeLegUri.getValue()).isEqualTo(authLegUri.getValue());
+    }
+
+    @Test
+    void googleLogin_liveHost_usesLiveRedirectUri() {
+        org.springframework.mock.web.MockHttpServletRequest loginReq =
+                new org.springframework.mock.web.MockHttpServletRequest();
+        ReflectionTestUtils.setField(controller, "liveGoogleRedirectUri", LIVE_REDIRECT);
+        when(demoHostResolver.resolveFrontendUrl(any(), anyString())).thenAnswer(inv -> inv.getArgument(1));
+        when(googleOAuthService.isConfigured()).thenReturn(true);
+        when(demoHostResolver.resolveGoogleRedirectUri(any(), eq(LIVE_REDIRECT))).thenReturn(LIVE_REDIRECT);
+        when(googleOAuthService.buildAuthorizationUrl(anyString(), eq(LIVE_REDIRECT)))
+                .thenReturn("https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=" + LIVE_REDIRECT);
+
+        controller.googleLogin(loginReq);
+
+        ArgumentCaptor<String> storedUri = ArgumentCaptor.forClass(String.class);
+        verify(redisCacheService).putString(anyString(), storedUri.capture(), anyInt());
+        assertThat(storedUri.getValue()).isEqualTo(LIVE_REDIRECT);
+        verify(googleOAuthService).buildAuthorizationUrl(anyString(), eq(LIVE_REDIRECT));
     }
 }

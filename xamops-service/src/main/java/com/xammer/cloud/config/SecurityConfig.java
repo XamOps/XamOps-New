@@ -401,6 +401,7 @@ public class SecurityConfig {
                 configuration.setAllowedOrigins(Arrays.asList(
                                 "http://localhost:5173",
                                 "https://live.xamops.com",
+                                "https://demo.xamops.com",
                                 "https://prep.xamops.com",
                                 "https://uat.xamops.com",
                                 "https://*.ngrok-free.dev",

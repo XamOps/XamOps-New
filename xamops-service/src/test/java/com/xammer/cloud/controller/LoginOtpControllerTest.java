@@ -9,6 +9,7 @@ import com.xammer.cloud.service.EmailService;
 import com.xammer.cloud.service.FlexComputeService;
 import com.xammer.cloud.service.RedisCacheService;
 import com.xammer.cloud.service.UserActivityService;
+import com.xammer.cloud.service.auth.DemoHostResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -49,6 +50,7 @@ class LoginOtpControllerTest {
     @Mock private CloudAccountRepository cloudAccountRepository;
     @Mock private FlexComputeService flexComputeService;
     @Mock private UserActivityService userActivityService;
+    @Mock private DemoHostResolver demoHostResolver;
 
     private MockMvc mockMvc;
     private User validUser;
@@ -66,7 +68,12 @@ class LoginOtpControllerTest {
         ReflectionTestUtils.setField(controller, "cloudAccountRepository", cloudAccountRepository);
         ReflectionTestUtils.setField(controller, "flexComputeService", flexComputeService);
         ReflectionTestUtils.setField(controller, "userActivityService", userActivityService);
+        ReflectionTestUtils.setField(controller, "demoHostResolver", demoHostResolver);
         ReflectionTestUtils.setField(controller, "frontendUrl", "https://test.xamops.com");
+
+        // Non-demo host: the resolver returns the live/per-profile frontend url unchanged.
+        lenient().when(demoHostResolver.resolveFrontendUrl(any(), anyString()))
+                .thenAnswer(inv -> inv.getArgument(1));
 
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setMessageConverters(new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter())
