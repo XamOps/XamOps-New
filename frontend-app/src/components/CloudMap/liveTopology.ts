@@ -46,7 +46,7 @@ export const DEFAULT_LIVE_LAYERS: LiveLayers = {
  * until a hover traces them: one instance in three groups, times every instance, is the
  * spaghetti this view exists to avoid.
  */
-const MEMBERSHIP_LABELS = new Set(['uses SG', 'admits', 'allowed out to', 'manages', 'registers to', 'launches into']);
+const MEMBERSHIP_LABELS = new Set(['uses SG', 'admits', 'allowed out to', 'manages', 'registers to', 'launches into', 'attached to']);
 
 /** What an edge means on the canvas. Drives line style and the legend. */
 export type FlowKind =
@@ -90,9 +90,11 @@ const EDGE_RULES: Record<string, { layer: LiveLayer | null; kind: FlowKind }> = 
   targets: { layer: null, kind: 'traffic' },
   behind: { layer: null, kind: 'traffic' },
   'egress for': { layer: null, kind: 'egress' },
+  'forwards to': { layer: null, kind: 'traffic' },
   routes: { layer: 'routing', kind: 'routing' },
   'default via': { layer: 'routing', kind: 'routing' },
-  'attached to': { layer: 'routing', kind: 'routing' },
+  // A load balancer "attached to" the subnets it spans: shown on hover (see MEMBERSHIP_LABELS).
+  'attached to': { layer: null, kind: 'routing' },
   'uses SG': { layer: 'security', kind: 'security' },
   admits: { layer: 'security', kind: 'security' },
   'allowed out to': { layer: 'security', kind: 'security' },
@@ -195,6 +197,24 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
     visible.add(id);
   }
 
+  /*
+   * Unused security groups are folded into a count on their VPC.
+   *
+   * Accounts accumulate groups nothing uses — launch-wizard-1 through -33 on UAT — and
+   * drawn as cards they buried the groups that matter. A group is kept when any resource
+   * uses it or it takes part in a rule with one that is used.
+   */
+  const usedSgs = new Set<string>();
+  for (const e of rawEdges) if (e.data.label === 'uses SG') usedSgs.add(e.data.target);
+  for (const e of rawEdges) {
+    const { source, target, label } = e.data;
+    if ((label === 'admits' || label === 'allowed out to') && (usedSgs.has(source) || usedSgs.has(target))) {
+      usedSgs.add(source);
+      usedSgs.add(target);
+    }
+  }
+  const unusedSgsIn = new Map<string, number>();
+
   // ── VPC membership, computed before subnets move under AZ containers ──────
   const vpcOf = (id: string): string | undefined => {
     let cur: string | undefined = id;
@@ -232,6 +252,12 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
     const subnets = subnetsIn.get(id) ?? 0;
     nd.data.collapsed = true;
     nd.data.displayLabel = `${nd.data.label}\n${subnets} subnet${subnets === 1 ? '' : 's'} · no resources`;
+  }
+  for (const [id, nd] of nodes) {
+    if (nd.data.type !== 'Security Group' || usedSgs.has(id) || !visible.has(id)) continue;
+    visible.delete(id);
+    const vpc = vpcOf(id);
+    if (vpc) unusedSgsIn.set(vpc, (unusedSgsIn.get(vpc) ?? 0) + 1);
   }
   if (collapsed.size > 0) {
     for (const id of [...visible]) {
@@ -273,7 +299,12 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
     const d = n.data;
     if (d.type !== 'VPC' || d.collapsed) continue;
     const azCount = azNodes.filter((a) => a.data.parent === d.id).length;
-    d.displayLabel = [d.label, azCount ? `${azCount} AZ${azCount === 1 ? '' : 's'}` : null].filter(Boolean).join('  ·  ');
+    const unused = unusedSgsIn.get(d.id) ?? 0;
+    d.displayLabel = [
+      d.label,
+      azCount ? `${azCount} AZ${azCount === 1 ? '' : 's'}` : null,
+      unused ? `${unused} unused security group${unused === 1 ? '' : 's'} hidden` : null,
+    ].filter(Boolean).join('  ·  ');
   }
 
   // ── Edges ─────────────────────────────────────────────────────────────────
@@ -337,6 +368,20 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
     const { source, target, label } = e.data;
     const rule = EDGE_RULES[label] ?? { layer: null, kind: 'traffic' as FlowKind };
     if (rule.layer && !layers[rule.layer]) continue;
+    if (label === 'egress for') {
+      /*
+       * Outbound, so the arrow points out: subnet to gateway, "egress via".
+       *
+       * Drawn as gateway-to-subnet, an internet gateway's egress lines fanned down into every
+       * public subnet and read as the internet reaching those instances directly. Lines to an
+       * internet gateway are hover-only: a green public subnet already says it routes there.
+       * Lines to a NAT gateway stay, because which NAT a private subnet leaves through is the
+       * fact people look for (and pay for).
+       */
+      const viaIgw = nodes.get(source)?.data.type === 'Internet Gateway';
+      pushEdge(target, source, 'egress via', 'egress', false, viaIgw);
+      continue;
+    }
     pushEdge(source, target, label, rule.kind, false, MEMBERSHIP_LABELS.has(label));
   }
 
@@ -385,6 +430,23 @@ export function shapeLiveTopology(input: El[], layers: LiveLayers = DEFAULT_LIVE
       visible.add(inet);
     }
     pushEdge(inet, g, 'ingress', 'traffic', true);
+  }
+
+  /*
+   * Internet-facing load balancers are where internet traffic actually lands, so the request
+   * path runs gateway -> load balancer -> targets. Without this the only line out of an
+   * internet gateway went to subnets, which read as traffic going straight to instances.
+   */
+  for (const id of visible) {
+    const d = nodes.get(id)?.data;
+    if (d?.type !== 'Load Balancer') continue;
+    const scheme = String(d.Scheme ?? '').toLowerCase();
+    const kind = String(d.Type ?? '').toLowerCase();
+    const short = kind === 'application' ? 'ALB' : kind === 'network' ? 'NLB' : kind === 'gateway' ? 'GWLB' : 'Load Balancer';
+    d.caption = scheme ? `${short} · ${scheme}` : short;
+    if (scheme !== 'internet-facing') continue;
+    const vpc = vpcOf(id);
+    for (const g of gateways) if (vpcOf(g) === vpc) pushEdge(g, id, 'ingress', 'traffic', true);
   }
 
   // Short ids for the inspector header, without the scope prefix.

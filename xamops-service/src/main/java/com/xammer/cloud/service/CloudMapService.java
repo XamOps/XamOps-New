@@ -674,6 +674,9 @@ public class CloudMapService {
             if ("Load Balancer".equals(type)) {
                 addSecurityGroupEdges(elements, resource, "uses SG");
                 addIdListEdges(elements, resource, "Target Groups", "routes to");
+                // Instances behind the load balancer, resolved through its target groups by the
+                // scan. Target group nodes are not collected, so this is the request path.
+                addIdListEdges(elements, resource, "Target Instances", "forwards to");
                 addIdListEdges(elements, resource, "Subnets", "attached to");
             }
 

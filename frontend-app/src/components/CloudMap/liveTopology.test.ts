@@ -148,7 +148,7 @@ describe('shapeLiveTopology', () => {
     expect(igw?.data.type).toBe('Internet Gateway');
     expect(igw?.data.parent).toBe('vpc');
     expect(igw?.data.inferred).toBe(true);
-    expect(edges(out)).toContain('igw-123>pub:egress for');
+    expect(edges(out)).toContain('pub>igw-123:egress via');
     expect(edges(out)).toContain(`${INTERNET_NODE_ID}::vpc>igw-123:ingress`);
   });
 
@@ -219,5 +219,45 @@ describe('shapeLiveTopology', () => {
     expect(ids(shapeLiveTopology(input).elements)).not.toContain('eni-9');
     const on = shapeLiveTopology(input, { ...DEFAULT_LIVE_LAYERS, interfaces: true });
     expect(edges(on.elements)).toContain('eni-9>i-1:attached to');
+  });
+
+  it('runs the request path internet -> gateway -> internet-facing load balancer', () => {
+    const out = shapeLiveTopology([
+      n('vpc', 'VPC'),
+      n('pub', 'Subnet', { parent: 'vpc', 'Availability Zone': 'az-a', Tier: 'Public' }),
+      n('igw', 'Internet Gateway', { parent: 'vpc', ...VPC }),
+      n('alb', 'Load Balancer', { parent: 'vpc', ...VPC, Scheme: 'internet-facing', Type: 'application' }),
+      n('int', 'Load Balancer', { parent: 'vpc', ...VPC, Scheme: 'internal', Type: 'network' }),
+      n('web', 'EC2 Instance', { parent: 'pub', ...VPC }),
+      e('alb', 'web', 'forwards to'),
+      e('igw', 'pub', 'egress for'),
+    ]).elements;
+    const es = edges(out);
+    expect(es).toContain('igw>alb:ingress');
+    expect(es).not.toContain('igw>int:ingress');
+    expect(es).toContain('alb>web:forwards to');
+    // Outbound points out of the subnet, and to an internet gateway only on hover.
+    const egress = out.find((x) => x.data.label === 'egress via')!;
+    expect(`${egress.data.source}>${egress.data.target}`).toBe('pub>igw');
+    expect(egress.data.membership).toBe(true);
+    expect(out.find((x) => x.data.id === 'alb')!.data.caption).toBe('ALB · internet-facing');
+  });
+
+  it('folds security groups nothing uses into a count on the VPC', () => {
+    const out = shapeLiveTopology([
+      n('vpc', 'VPC'),
+      n('web', 'EC2 Instance', { parent: 'vpc', ...VPC }),
+      n('sg-used', 'Security Group', { parent: 'vpc', ...VPC }),
+      n('sg-rule', 'Security Group', { parent: 'vpc', ...VPC }),
+      n('sg-idle-1', 'Security Group', { parent: 'vpc', ...VPC }),
+      n('sg-idle-2', 'Security Group', { parent: 'vpc', ...VPC }),
+      e('web', 'sg-used', 'uses SG'),
+      e('sg-used', 'sg-rule', 'admits'),
+    ]).elements;
+    const shown = ids(out);
+    expect(shown).toContain('sg-used');
+    expect(shown).toContain('sg-rule');
+    expect(shown).not.toContain('sg-idle-1');
+    expect(out.find((x) => x.data.id === 'vpc')!.data.displayLabel).toContain('2 unused security groups hidden');
   });
 });
